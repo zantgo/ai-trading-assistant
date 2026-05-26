@@ -52,7 +52,7 @@
         const snap = state.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.macd_line) {
+        if (snap.macd_line != null) {
             const mLine = parseFloat(String(snap.macd_line));
             const mSig = parseFloat(String(snap.macd_signal));
             const mHist = parseFloat(String(snap.macd_hist));

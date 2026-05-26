@@ -95,7 +95,7 @@
                 state.macdHistText = parseFloat(data.macd_hist).toFixed(2);
             }
 
-            if (data.squeeze_momentum) {
+	    if (data.squeeze_momentum != null) {
                 state.sqzValText = parseFloat(data.squeeze_momentum).toFixed(4);
                 state.isSqueezeOn = data.squeeze_on;
                 state.sqzStatusText = data.squeeze_on ? 'SQUEEZE ON' : 'SQUEEZE OFF';

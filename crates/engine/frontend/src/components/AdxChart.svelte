@@ -61,7 +61,7 @@
         const snap = state.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.adx_14) {
+        if (snap.adx_14 != null) {
             adxSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_14)) });
             if (snap.adx_plus) adxPlusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_plus)) });
             if (snap.adx_minus) adxMinusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_minus)) });

@@ -48,7 +48,7 @@
         const snap = state.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.atr_14) {
+        if (snap.atr_14 != null) {
             atrSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.atr_14)) });
         }
     });

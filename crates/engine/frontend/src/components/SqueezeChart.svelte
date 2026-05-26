@@ -46,11 +46,11 @@
         }
     });
 
-    $effect(() => {
+$effect(() => {
         const snap = state.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.squeeze_momentum) {
+        if (snap.squeeze_momentum != null) {
             const momVal = parseFloat(String(snap.squeeze_momentum));
 
             let momColor = momVal >= 0

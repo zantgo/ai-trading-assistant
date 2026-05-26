@@ -48,9 +48,9 @@
         const snap = state.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.rsi_14) {
-            rsiSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.rsi_14)) });
-        }
+        if (snap.rsi_14 != null) {
+                rsiSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.rsi_14)) });
+            }
     });
 </script>
 

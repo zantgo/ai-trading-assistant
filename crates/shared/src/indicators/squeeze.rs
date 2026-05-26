@@ -40,37 +40,14 @@ impl SqueezeMomentum {
             self.low_history.remove(0);
         }
 
-        let sma = self.sma_20.update(close)?;
+        // Keep underlying SMA, EMA, and ATR instances updated on every iteration
+        let sma = self.sma_20.update(close);
         let ema = self.ema_20.update(close);
-        let atr = self.atr_20.update(high, low, close)?;
+        let atr = self.atr_20.update(high, low, close);
 
-        if self.prices_history.len() < 20 {
-            return None;
-        }
-
-        let std_dev = {
-            let sum_sq: f64 = self.prices_history.iter()
-                .map(|&p| {
-                    let diff = (p - sma).to_f64().unwrap_or(0.0);
-                    diff * diff
-                })
-                .sum();
-            let variance = sum_sq / 20.0;
-            Decimal::from_f64(variance.sqrt()).unwrap_or(Decimal::ZERO)
-        };
-
-        let bb_upper = sma + std_dev * Decimal::from(2);
-        let bb_lower = sma - std_dev * Decimal::from(2);
-
-        let kc_upper = ema + atr * Decimal::new(15, 1); // 1.5 multiplier
-        let kc_lower = ema - atr * Decimal::new(15, 1);
-
-        // Squeeze active: Bollinger Bands are compressed inside Keltner Channels
-        let squeeze_on = bb_lower > kc_lower && bb_upper < kc_upper;
-
+        // Always compute and track momentum metrics to warm up linear regression
         let highest_high = self.high_history.iter().max().copied().unwrap_or(high);
         let lowest_low = self.low_history.iter().min().copied().unwrap_or(low);
-
         let avg = ((highest_high + lowest_low) / Decimal::from(2) + ema) / Decimal::from(2);
         let val = close - avg;
 
@@ -78,6 +55,34 @@ impl SqueezeMomentum {
         if self.val_history.len() > 20 {
             self.val_history.remove(0);
         }
+
+        // We require at least 20 historical candles to form valid bands and channels
+        if self.prices_history.len() < 20 {
+            return None;
+        }
+
+        let sma_val = sma?;
+        let atr_val = atr?;
+
+        let std_dev = {
+            let sum_sq: f64 = self.prices_history.iter()
+                .map(|&p| {
+                    let diff = (p - sma_val).to_f64().unwrap_or(0.0);
+                    diff * diff
+                })
+                .sum();
+            let variance = sum_sq / 20.0;
+            Decimal::from_f64(variance.sqrt()).unwrap_or(Decimal::ZERO)
+        };
+
+        let bb_upper = sma_val + std_dev * Decimal::from(2);
+        let bb_lower = sma_val - std_dev * Decimal::from(2);
+
+        let kc_upper = ema + atr_val * Decimal::new(15, 1); // 1.5 multiplier
+        let kc_lower = ema - atr_val * Decimal::new(15, 1);
+
+        // Squeeze active: Bollinger Bands are compressed inside Keltner Channels
+        let squeeze_on = bb_lower > kc_lower && bb_upper < kc_upper;
 
         if self.val_history.len() == 20 {
             // Linear regression of the last 20 'val' points (x: 0..19)
