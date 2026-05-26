@@ -1,8 +1,8 @@
 //! # Main Core Trading Engine Orchestrator
 //!
 //! This module coordinates active asynchronous system components. On startup, it initializes
-//! our local SQLite database, sets up a TCP listener using `axum`, and configures routes to serve
-//! our decoupled modular frontend files (HTML, CSS, JS) directly from compiled binary memory.
+//! our local SQLite database, sets up a TCP listener using `axum`, and serves our compiled
+//! Svelte + TypeScript + Vite frontend statically.
 
 mod websocket;
 
@@ -17,10 +17,11 @@ use rust_decimal::Decimal;
 use axum::{
     extract::{State, WebSocketUpgrade},
     extract::ws::{WebSocket, Message as AxumMessage},
-    response::{Html, IntoResponse},
+    response::IntoResponse,
     routing::get,
     Router,
 };
+use tower_http::services::ServeDir;
 
 use shared::models::MarketSnapshot;
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum};
@@ -76,13 +77,10 @@ async fn main() {
     let (broadcast_tx, _) = broadcast::channel::<MarketSnapshot>(100);
     let shared_state = Arc::new(AppState { tx: broadcast_tx.clone() });
 
-    // 3. Configure HTTP Axum Router serving decoupled assets
+    // 3. Configure HTTP Axum Router serving compiled Svelte-Vite dist assets
     let app = Router::new()
-        .route("/", get(serve_index))
-        .route("/styles.css", get(serve_styles))
-        .route("/charts.js", get(serve_charts))
-        .route("/app.js", get(serve_app))
         .route("/ws", get(ws_handler))
+        .fallback_service(ServeDir::new("crates/engine/frontend/dist")) // Serves our Svelte build output
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -111,28 +109,6 @@ async fn main() {
 
     // 7. Drive execution tasks concurrently
     let _ = tokio::join!(ws_handle, analysis_handle, server_handle);
-}
-
-// --- Decentralized Static Assets Routers ---
-
-/// Serve index.html dynamically compiled into our static engine binary
-async fn serve_index() -> impl IntoResponse {
-    Html(include_str!("../frontend/index.html"))
-}
-
-/// Serve parsed styles.css sheet
-async fn serve_styles() -> impl IntoResponse {
-    ([(axum::http::header::CONTENT_TYPE, "text/css")], include_str!("../frontend/styles.css"))
-}
-
-/// Serve parsed charts.js configuration module
-async fn serve_charts() -> impl IntoResponse {
-    ([(axum::http::header::CONTENT_TYPE, "application/javascript")], include_str!("../frontend/charts.js"))
-}
-
-/// Serve parsed app.js telemetry logic module
-async fn serve_app() -> impl IntoResponse {
-    ([(axum::http::header::CONTENT_TYPE, "application/javascript")], include_str!("../frontend/app.js"))
 }
 
 /// Upgrade incoming HTTP connection to WebSocket protocol
