@@ -2,8 +2,8 @@
     //! # Svelte 5 Dynamic Trading Terminal Dashboard
     //! 
     //! Coordinates system components: handles WebSocket streams, synchronizes chart 
-    //! legends, and drives 6 separate TradingView charts (including Volume).
-    //! Features dynamic overlay toggling (EMAs and BB) via Svelte 5 $effect() runes.
+    //! legends, and drives 7 separate TradingView charts (including Volume and ATR).
+    //! Features dynamic overlay toggling (EMAs, BB, and VWAP) via Svelte 5 $effect() runes.
 
     import { onMount, onDestroy } from 'svelte';
     import { 
@@ -19,6 +19,7 @@
     let priceContainer: HTMLDivElement;
     let volumeContainer: HTMLDivElement;
     let adxContainer: HTMLDivElement;
+    let atrContainer: HTMLDivElement;
     let rsiContainer: HTMLDivElement;
     let macdContainer: HTMLDivElement;
     let squeezeContainer: HTMLDivElement;
@@ -31,6 +32,7 @@
     let emaSlowText = $state('--');
     let emaLongText = $state('--');
     let adxText = $state('--');
+    let atrText = $state('--'); // Standalone ATR
     let rsiText = $state('--');
     let macdLineText = $state('--');
     let macdSigText = $state('--');
@@ -39,6 +41,7 @@
     let sqzStatusText = $state('Calculating');
     let isSqueezeOn = $state(false);
     let volText = $state('--');
+    let vwapText = $state('--'); // Standalone VWAP
 
     // Dynamic Top Bar Variables
     let activeSymbol = $state('ETH');
@@ -51,15 +54,18 @@
     let emaLongLabel = $state('EMA Long');
     let rsiLabel = $state('RSI (14)');
     let adxLabel = $state('ADX (14)');
+    let atrLabel = $state('ATR (14)');
     let macdLabel = $state('MACD (12, 26, 9)');
 
     // Overlay Visibility Toggles
     let showEmas = $state(true);
     let showBb = $state(true);
+    let showVwap = $state(true);
 
     // Panel Visibility states (Svelte 5 reactive states)
     let showVolume = $state(true);
     let showAdx = $state(true);
+    let showAtr = $state(true);
     let showRsi = $state(true);
     let showMacd = $state(true);
     let showSqueeze = $state(true);
@@ -82,9 +88,11 @@
     let bbUpperSeries: ISeriesApi<'Line'>;
     let bbMiddleSeries: ISeriesApi<'Line'>;
     let bbLowerSeries: ISeriesApi<'Line'>;
+    let vwapSeries: ISeriesApi<'Line'>;
 
     let volumeSeries: ISeriesApi<'Histogram'>;
     let adxSeries: ISeriesApi<'Line'>;
+    let atrSeries: ISeriesApi<'Line'>;
     let rsiSeries: ISeriesApi<'Line'>;
     let macdLineSeries: ISeriesApi<'Line'>;
     let macdSigSeries: ISeriesApi<'Line'>;
@@ -140,6 +148,12 @@
         }
     });
 
+    $effect(() => {
+        if (vwapSeries) {
+            vwapSeries.applyOptions({ visible: showVwap });
+        }
+    });
+
     onMount(async () => {
         try {
             const res = await fetch('/api/config');
@@ -154,6 +168,7 @@
             emaLongLabel = `EMA ${config.indicators.ema_long}`;
             rsiLabel = `RSI (${config.indicators.rsi_period})`;
             adxLabel = `ADX (${config.indicators.adx_period})`;
+            atrLabel = `ATR (${config.indicators.atr_period})`;
             macdLabel = `MACD (${config.indicators.macd_fast}, ${config.indicators.macd_slow}, ${config.indicators.macd_signal})`;
         } catch (e) {
             console.error("⚠️ Failed to synchronize dynamic legends from config API, using defaults:", e);
@@ -162,6 +177,7 @@
         const priceChart = createChart(priceContainer, chartBaseOptions);
         const volumeChart = createChart(volumeContainer, chartBaseOptions);
         const adxChart = createChart(adxContainer, chartBaseOptions);
+        const atrChart = createChart(atrContainer, chartBaseOptions);
         const rsiChart = createChart(rsiContainer, chartBaseOptions);
         const macdChart = createChart(macdContainer, chartBaseOptions);
         const squeezeChart = createChart(squeezeContainer, {
@@ -176,8 +192,8 @@
             handleScroll: true,
         });
 
-        // Track 6 synchronized charts in lockstep
-        charts = [priceChart, volumeChart, adxChart, rsiChart, macdChart, squeezeChart];
+        // Track 7 synchronized charts in lockstep
+        charts = [priceChart, volumeChart, adxChart, atrChart, rsiChart, macdChart, squeezeChart];
 
         // Register series
         candleSeries = priceChart.addSeries(CandlestickSeries, {
@@ -193,11 +209,15 @@
         bbUpperSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
         bbMiddleSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
         bbLowerSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+        
+        // VWAP orange-dashed overlay inside Price Box
+        vwapSeries = priceChart.addSeries(LineSeries, { color: '#e67e22', lineWidth: 1.5, lineStyle: 1, priceLineVisible: false, crosshairMarkerVisible: false });
 
         // Volume Panel (Bar Histogram)
         volumeSeries = volumeChart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
 
         adxSeries = adxChart.addSeries(LineSeries, { color: '#f1c40f', lineWidth: 1.5, priceLineVisible: false });
+        atrSeries = atrChart.addSeries(LineSeries, { color: '#9b59b6', lineWidth: 1.5, priceLineVisible: false }); // Standalone ATR
         rsiSeries = rsiChart.addSeries(LineSeries, { color: '#7e57c2', lineWidth: 1.5, priceLineVisible: false });
 
         macdLineSeries = macdChart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1.5, priceLineVisible: false });
@@ -264,7 +284,9 @@
             emaLongText = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : "--";
             rsiText = data.rsi_14 ? parseFloat(data.rsi_14).toFixed(2) : "--";
             adxText = data.adx_14 ? parseFloat(data.adx_14).toFixed(2) : "--";
+            atrText = data.atr_14 ? parseFloat(data.atr_14).toFixed(2) : "--";
             volText = data.volume ? parseFloat(data.volume).toFixed(2) : "--";
+            vwapText = data.vwap ? parseFloat(data.vwap).toFixed(2) : "--";
 
             // --- Direct Candlestick Plotting ---
             if (data.open && data.high && data.low && data.close) {
@@ -296,9 +318,17 @@
             if (data.bb_middle) bbMiddleSeries.update({ time: timeSec, value: parseFloat(data.bb_middle) });
             if (data.bb_lower) bbLowerSeries.update({ time: timeSec, value: parseFloat(data.bb_lower) });
 
+            // --- Update VWAP ---
+            if (data.vwap) vwapSeries.update({ time: timeSec, value: parseFloat(data.vwap) });
+
             // --- Update ADX ---
             if (data.adx_14) {
                 adxSeries.update({ time: timeSec, value: parseFloat(data.adx_14) });
+            }
+
+            // --- Update Standalone ATR ---
+            if (data.atr_14) {
+                atrSeries.update({ time: timeSec, value: parseFloat(data.atr_14) });
             }
 
             // --- Update RSI ---
@@ -370,6 +400,9 @@
             <button class="selector-btn {showBb ? 'active' : ''}" onclick={() => showBb = !showBb}>
                 BB
             </button>
+            <button class="selector-btn {showVwap ? 'active' : ''}" onclick={() => showVwap = !showVwap}>
+                VWAP
+            </button>
             
             <span class="selectors-label ml-4">Panels:</span>
             <button class="selector-btn {showVolume ? 'active' : ''}" onclick={() => showVolume = !showVolume}>
@@ -377,6 +410,9 @@
             </button>
             <button class="selector-btn {showAdx ? 'active' : ''}" onclick={() => showAdx = !showAdx}>
                 ADX
+            </button>
+            <button class="selector-btn {showAtr ? 'active' : ''}" onclick={() => showAtr = !showAtr}>
+                ATR
             </button>
             <button class="selector-btn {showRsi ? 'active' : ''}" onclick={() => showRsi = !showRsi}>
                 RSI
@@ -402,6 +438,9 @@
         <div class="panel-box pane-price">
             <div class="absolute-label font-sans">
                 <span class="price-header">Price: <span>{priceText}</span></span>
+                {#if showVwap}
+                    <span class="text-orange-400 font-medium">VWAP: <span>{vwapText}</span></span>
+                {/if}
                 {#if showEmas}
                     <span class="text-blue-400 font-medium">{emaFastLabel}: <span>{emaFastText}</span></span>
                     <span class="text-amber-500 font-medium">{emaMediumLabel}: <span>{emaMediumText}</span></span>
@@ -428,7 +467,15 @@
             <div bind:this={adxContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 4: RSI Panel (Conditionally hidden) -->
+        <!-- Pane 4: ATR Panel (Conditionally hidden) (New standalone panel positioned under ADX) -->
+        <div class="panel-box pane-atr" class:hidden-pane={!showAtr}>
+            <div class="absolute-label font-sans label-text-xs">
+                <span class="text-purple-400 font-bold">{atrLabel}: <span>{atrText}</span></span>
+            </div>
+            <div bind:this={atrContainer} class="chart-container"></div>
+        </div>
+
+        <!-- Pane 5: RSI Panel (Conditionally hidden) -->
         <div class="panel-box pane-rsi" class:hidden-pane={!showRsi}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-purple-400">{rsiLabel}: <span>{rsiText}</span></span>
@@ -436,7 +483,7 @@
             <div bind:this={rsiContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 5: MACD Panel (Conditionally hidden) -->
+        <!-- Pane 6: MACD Panel (Conditionally hidden) -->
         <div class="panel-box pane-macd" class:hidden-pane={!showMacd}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-slate-300 font-bold">{macdLabel}</span>
@@ -447,7 +494,7 @@
             <div bind:this={macdContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 6: Squeeze Momentum Panel (Conditionally hidden) -->
+        <!-- Pane 7: Squeeze Momentum Panel (Conditionally hidden) -->
         <div class="panel-box pane-squeeze" class:hidden-pane={!showSqueeze}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
@@ -576,6 +623,7 @@
     .pane-price { height: 320px; }
     .pane-vol { height: 110px; }
     .pane-adx { height: 110px; }
+    .pane-atr { height: 110px; } /* Standalone ATR Height */
     .pane-rsi { height: 110px; }
     .pane-macd { height: 130px; }
     .pane-squeeze { height: 140px; }
@@ -653,4 +701,5 @@
     .text-rose-500 { color: #f43f5e; }
     .text-slate-200 { color: #e2e8f0; }
     .text-slate-300 { color: #cbd5e1; }
+    .text-orange-400 { color: #e67e22; } /* VWAP label color */
 </style>

@@ -14,8 +14,8 @@ pub struct MarketSnapshot {
     pub mid_price: Decimal,
     pub bid_price: Decimal,
     pub ask_price: Decimal,
-    pub bid_size: Option<Decimal>, // Added to capture top-of-book depth
-    pub ask_size: Option<Decimal>, // Added
+    pub bid_size: Option<Decimal>,
+    pub ask_size: Option<Decimal>,
     pub funding_rate: Option<Decimal>,
     
     // Consolidated Candle OHLC Bars
@@ -23,12 +23,16 @@ pub struct MarketSnapshot {
     pub high: Option<Decimal>,
     pub low: Option<Decimal>,
     pub close: Option<Decimal>,
-    pub volume: Option<Decimal>, // Added cumulative candle volume
+    pub volume: Option<Decimal>,
     
-    // Bollinger Bands (Added)
+    // Bollinger Bands
     pub bb_upper: Option<Decimal>,
     pub bb_middle: Option<Decimal>,
     pub bb_lower: Option<Decimal>,
+    
+    // Standalone ATR and VWAP (Added)
+    pub atr_14: Option<Decimal>,
+    pub vwap: Option<Decimal>,
     
     // Generic-named Exponential Moving Averages
     pub ema_fast: Option<Decimal>,

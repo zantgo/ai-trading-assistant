@@ -1,7 +1,7 @@
 //! # Main Core Trading Engine Orchestrator
 //!
 //! This module coordinates active asynchronous system components. On startup, it parses the
-//! master "config.toml" file, configures SQLite database tables, and spins up the web server routing.
+//! workspace "config.toml" file, configures database tables, and spins up the web server routing.
 
 mod websocket;
 
@@ -24,7 +24,7 @@ use axum::{
 use tower_http::services::ServeDir;
 
 use shared::models::MarketSnapshot;
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr};
 
 // --- Configuration Struct Mappings ---
 
@@ -44,6 +44,7 @@ pub struct IndicatorsConfig {
     pub macd_slow: usize,
     pub macd_signal: usize,
     pub adx_period: usize,
+    pub atr_period: usize, // Added standalone ATR period
     pub squeeze_period: usize,
 }
 
@@ -65,6 +66,7 @@ async fn main() {
 
     println!("⚙️ DeX Trading Agent Engine: Loading Master Configuration...");
 
+    // 1. Read and parse the Master config.toml file
     let config_raw = std::fs::read_to_string("config.toml")
         .expect("❌ Configuration Error: Failed to find \"config.toml\" in workspace root directory");
     
@@ -83,7 +85,7 @@ async fn main() {
         .await
         .expect("❌ Database Setup: Failed to initialize SQLite database pool");
 
-    // Dynamic schema creation containing generic EMA, volume, and Bollinger Bands columns
+    // Dynamic schema creation containing generic EMA columns and new indicators
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,6 +102,8 @@ async fn main() {
             bb_upper TEXT,
             bb_middle TEXT,
             bb_lower TEXT,
+            atr_14 TEXT,
+            vwap TEXT,
             ema_fast TEXT,
             ema_medium TEXT,
             ema_slow TEXT,
@@ -128,9 +132,9 @@ async fn main() {
 
     // 4. Configure HTTP Axum Router serving compiled Svelte-Vite dist assets
     let app = Router::new()
-        .route("/api/config", get(serve_config))
+        .route("/api/config", get(serve_config)) // Rest API Endpoint to sync frontend
         .route("/ws", get(ws_handler))
-        .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
+        .fallback_service(ServeDir::new("crates/engine/frontend/dist")) // Static Svelte assets
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -189,6 +193,8 @@ async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>) {
 }
 
 /// High-Frequency internal risk engine.
+/// Runs instantly on every millisecond-level tick. 
+/// Decoupled from Svelte, preventing visualizer noise and protecting server bandwidth.
 fn run_realtime_risk_checks(tick: &MarketSnapshot) {
     let _current_price = tick.mid_price;
     if _current_price < Decimal::from(1000) {
@@ -215,7 +221,8 @@ async fn run_analysis(
     let mut macd = Macd::new();
     let mut adx_14 = Adx::new(config.indicators.adx_period);
     let mut sqz_mom = SqueezeMomentum::new();
-    let mut bollinger = BollingerBands::new(); // Added
+    let mut bollinger = BollingerBands::new();
+    let mut atr_standalone = Atr::new(config.indicators.atr_period); // Added independent ATR
 
     // Active candlestick aggregation state
     let mut current_candle_time: Option<u64> = None;
@@ -223,12 +230,17 @@ async fn run_analysis(
     let mut h = Decimal::ZERO;
     let mut l = Decimal::ZERO;
     let mut c = Decimal::ZERO;
-    let mut accumulated_vol = Decimal::ZERO; // Cumulative candle volume tracker
+    let mut accumulated_vol = Decimal::ZERO;
     let mut last_processed_symbol = String::new();
+
+    // Cumulative VWAP accumulator states
+    let mut vwap_sum_tp_vol = Decimal::ZERO;
+    let mut vwap_sum_vol = Decimal::ZERO;
+    let mut last_day_index: Option<u64> = None;
 
     while let Some(tick) = rx.recv().await {
         // ----------------------------------------------------------------------
-        // 1. FAST PATH: Real-Time Risk Engine (Instant, high-frequency checks)
+        // 1. FAST PATH: Real-Time Risk Engine (Instant checks)
         // ----------------------------------------------------------------------
         run_realtime_risk_checks(&tick);
 
@@ -257,7 +269,31 @@ async fn run_analysis(
                     // A. CANDLE BOUNDARY TRIGGER: Previous Candle Has Closed!
                     // ----------------------------------------------------------
                     
-                    // Commit indicators
+                    // Session VWAP Reset: Reset VWAP at 00:00 UTC (every 86,400 seconds)
+                    let day_index = curr_time / 86400;
+                    if let Some(prev_day) = last_day_index {
+                        if day_index > prev_day {
+                            println!("🕒 VWAP: New UTC Day transition detected. Resetting cumulative volume weighted buffers.");
+                            vwap_sum_tp_vol = Decimal::ZERO;
+                            vwap_sum_vol = Decimal::ZERO;
+                        }
+                    }
+                    last_day_index = Some(day_index);
+
+                    // Compute typical price: (H + L + C) / 3
+                    let typical_price = (h + l + c) / Decimal::from(3);
+                    
+                    // Accumulate VWAP sums
+                    vwap_sum_tp_vol += typical_price * accumulated_vol;
+                    vwap_sum_vol += accumulated_vol;
+
+                    let final_vwap = if vwap_sum_vol > Decimal::ZERO {
+                        Some(vwap_sum_tp_vol / vwap_sum_vol)
+                    } else {
+                        None
+                    };
+
+                    // Commit closed candle price permanently to indicators
                     let final_ema_fast = ema_fast.update(c);
                     let final_ema_medium = ema_medium.update(c);
                     let final_ema_slow = ema_slow.update(c);
@@ -266,7 +302,8 @@ async fn run_analysis(
                     let final_macd = macd.update(c);
                     let final_adx = adx_14.update(h, l, c);
                     let final_sqz = sqz_mom.update(h, l, c);
-                    let final_bb = bollinger.update(c); // Bollinger Bands update on close
+                    let final_bb = bollinger.update(c);
+                    let final_atr = atr_standalone.update(h, l, c); // Update independent ATR
 
                     // Print output log of completed candle
                     println!("--------------------------------------------------------------------------------");
@@ -278,8 +315,11 @@ async fn run_analysis(
                         config.indicators.ema_slow, opt_dec_str(Some(final_ema_slow)),
                         config.indicators.ema_long, opt_dec_str(Some(final_ema_long))
                     );
-                    if let Some(bb) = final_bb {
-                        println!("   🧱 BBands: Upper: {:.4} | Middle: {:.4} | Lower: {:.4}", bb.0, bb.1, bb.2);
+                    if let Some(vw) = final_vwap {
+                        println!("   📊 VWAP:   Weighted Average Equilibrium Price: ${:.4}", vw);
+                    }
+                    if let Some(at) = final_atr {
+                        println!("   📉 ATR:    Average True Range ({}): {}", config.indicators.atr_period, at);
                     }
 
                     // Commit the completed candle snapshot to SQLite database
@@ -288,11 +328,11 @@ async fn run_analysis(
                         "INSERT INTO market_snapshots (
                             timestamp, symbol, mid_price, bid_price, ask_price,
                             open, high, low, close, volume,
-                            bb_upper, bb_middle, bb_lower,
+                            bb_upper, bb_middle, bb_lower, atr_14, vwap,
                             ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
                             macd_line, macd_signal, macd_hist, adx_14,
                             squeeze_on, squeeze_momentum
-                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)"
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)"
                     )
                     .bind(curr_time as i64)
                     .bind(&tick.symbol)
@@ -307,6 +347,8 @@ async fn run_analysis(
                     .bind(final_bb.map(|b| b.0.to_string()))
                     .bind(final_bb.map(|b| b.1.to_string()))
                     .bind(final_bb.map(|b| b.2.to_string()))
+                    .bind(final_atr.map(|d| d.to_string()))
+                    .bind(final_vwap.map(|d| d.to_string()))
                     .bind(Some(final_ema_fast.to_string()))
                     .bind(Some(final_ema_medium.to_string()))
                     .bind(Some(final_ema_slow.to_string()))
@@ -356,6 +398,7 @@ async fn run_analysis(
         let mut temp_adx_14 = adx_14.clone();
         let mut temp_sqz_mom = sqz_mom.clone();
         let mut temp_bollinger = bollinger.clone();
+        let mut temp_atr = atr_standalone.clone();
 
         let val_ema_fast = temp_ema_fast.update(c);
         let val_ema_medium = temp_ema_medium.update(c);
@@ -366,6 +409,17 @@ async fn run_analysis(
         let val_adx = temp_adx_14.update(h, l, c);
         let val_sqz = temp_sqz_mom.update(h, l, c);
         let val_bb = temp_bollinger.update(c);
+        let val_atr = temp_atr.update(h, l, c);
+
+        // Temp shadow VWAP update
+        let temp_typical_price = (h + l + c) / Decimal::from(3);
+        let temp_sum_tp_vol = vwap_sum_tp_vol + temp_typical_price * accumulated_vol;
+        let temp_sum_vol = vwap_sum_vol + accumulated_vol;
+        let val_vwap = if temp_sum_vol > Decimal::ZERO {
+            Some(temp_sum_tp_vol / temp_sum_vol)
+        } else {
+            None
+        };
 
         let broadcast_snapshot = MarketSnapshot {
             timestamp: rounded_time, // LOCKED timestamp
@@ -384,10 +438,12 @@ async fn run_analysis(
             close: Some(c),
             volume: Some(accumulated_vol),
             
-            // Populated Bollinger Bands
+            // Populated Bollinger Bands & Standalone Indicators
             bb_upper: val_bb.map(|b| b.0),
             bb_middle: val_bb.map(|b| b.1),
             bb_lower: val_bb.map(|b| b.2),
+            atr_14: val_atr,
+            vwap: val_vwap,
             
             ema_fast: Some(val_ema_fast),
             ema_medium: Some(val_ema_medium),

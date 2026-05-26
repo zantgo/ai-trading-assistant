@@ -143,6 +143,9 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     bb_middle: None,
                                     bb_lower: None,
                                     
+                                    atr_14: None,
+                                    vwap: None,
+                                    
                                     ema_fast: None,
                                     ema_medium: None,
                                     ema_slow: None,
