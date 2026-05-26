@@ -1,8 +1,8 @@
 //! # Main Core Trading Engine Orchestrator
 //!
 //! This module coordinates active asynchronous system components. On startup, it initializes
-//! our local SQLite database, sets up a TCP listener using `axum`, and configures an 
-//! in-memory broadcasting engine to mirror processed analytical updates to connected browsers.
+//! our local SQLite database, sets up a TCP listener using `axum`, and configures routes to serve
+//! our decoupled modular frontend files (HTML, CSS, JS) directly from compiled binary memory.
 
 mod websocket;
 
@@ -73,13 +73,15 @@ async fn main() {
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
     // 2. Setup Multi-Consumer Broadcast Channel
-    // This allows run_analysis to broadcast computed snapshots to any open browser tab.
     let (broadcast_tx, _) = broadcast::channel::<MarketSnapshot>(100);
     let shared_state = Arc::new(AppState { tx: broadcast_tx.clone() });
 
-    // 3. Configure HTTP Axum Router
+    // 3. Configure HTTP Axum Router serving decoupled assets
     let app = Router::new()
         .route("/", get(serve_index))
+        .route("/styles.css", get(serve_styles))
+        .route("/charts.js", get(serve_charts))
+        .route("/app.js", get(serve_app))
         .route("/ws", get(ws_handler))
         .with_state(shared_state);
 
@@ -111,9 +113,26 @@ async fn main() {
     let _ = tokio::join!(ws_handle, analysis_handle, server_handle);
 }
 
-/// Serve index.html dynamically compiled into our static engine binary during compilation
+// --- Decentralized Static Assets Routers ---
+
+/// Serve index.html dynamically compiled into our static engine binary
 async fn serve_index() -> impl IntoResponse {
-    Html(include_str!("index.html"))
+    Html(include_str!("../frontend/index.html"))
+}
+
+/// Serve parsed styles.css sheet
+async fn serve_styles() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "text/css")], include_str!("../frontend/styles.css"))
+}
+
+/// Serve parsed charts.js configuration module
+async fn serve_charts() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "application/javascript")], include_str!("../frontend/charts.js"))
+}
+
+/// Serve parsed app.js telemetry logic module
+async fn serve_app() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "application/javascript")], include_str!("../frontend/app.js"))
 }
 
 /// Upgrade incoming HTTP connection to WebSocket protocol
