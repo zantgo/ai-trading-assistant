@@ -30,6 +30,19 @@
             state.adxLabel = `ADX (${config.indicators.adx_period})`;
             state.atrLabel = `ATR (${config.indicators.atr_period})`;
             state.macdLabel = `MACD (${config.indicators.macd_fast}, ${config.indicators.macd_slow}, ${config.indicators.macd_signal})`;
+
+            // Populate settings parameters inside global state
+            state.emaFastVal = config.indicators.ema_fast;
+            state.emaMediumVal = config.indicators.ema_medium;
+            state.emaSlowVal = config.indicators.ema_slow;
+            state.emaLongVal = config.indicators.ema_long;
+            state.rsiPeriodVal = config.indicators.rsi_period;
+            state.macdFastVal = config.indicators.macd_fast;
+            state.macdSlowVal = config.indicators.macd_slow;
+            state.macdSignalVal = config.indicators.macd_signal;
+            state.adxPeriodVal = config.indicators.adx_period;
+            state.atrPeriodVal = config.indicators.atr_period;
+            state.squeezePeriodVal = config.indicators.squeeze_period;
         } catch (e) {
             console.error("⚠️ Failed to synchronize dynamic legends from config API, using defaults:", e);
         }
@@ -96,72 +109,153 @@
 <div class="terminal-body">
     <Header />
 
-    <main class="dashboard-stack">
-        <div class="panel-box pane-price">
-            <div class="absolute-label font-sans">
-                <span class="price-header">Price: <span>{state.priceText}</span></span>
-                {#if state.showVwap}
-                    <span class="text-orange-400 font-medium">VWAP: <span>{state.vwapText}</span></span>
-                {/if}
-                {#if state.showEmas}
-                    <span class="text-blue-400 font-medium">{state.emaFastLabel}: <span>{state.emaFastText}</span></span>
-                    <span class="text-amber-500 font-medium">{state.emaMediumLabel}: <span>{state.emaMediumText}</span></span>
-                    <span class="text-rose-500 font-medium">{state.emaSlowLabel}: <span>{state.emaSlowText}</span></span>
-                    <span class="text-purple-400 font-medium">{state.emaLongLabel}: <span>{state.emaLongText}</span></span>
-                {/if}
+    <div class="main-layout">
+        <!-- Center column showing active visual panels -->
+        <main class="dashboard-stack">
+            <div class="panel-box pane-price">
+                <div class="absolute-label font-sans">
+                    <span class="price-header">Price: <span>{state.priceText}</span></span>
+                    {#if state.showVwap}
+                        <span class="text-orange-400 font-medium">VWAP: <span>{state.vwapText}</span></span>
+                    {/if}
+                    {#if state.showEmas}
+                        <span class="text-blue-400 font-medium">{state.emaFastLabel}: <span>{state.emaFastText}</span></span>
+                        <span class="text-amber-500 font-medium">{state.emaMediumLabel}: <span>{state.emaMediumText}</span></span>
+                        <span class="text-rose-500 font-medium">{state.emaSlowLabel}: <span>{state.emaSlowText}</span></span>
+                        <span class="text-purple-400 font-medium">{state.emaLongLabel}: <span>{state.emaLongText}</span></span>
+                    {/if}
+                </div>
+                <PriceChart />
             </div>
-            <PriceChart />
-        </div>
 
-        <div class="panel-box pane-vol" class:hidden-pane={!state.showVolume}>
-            <div class="absolute-label font-sans label-text-xs">
-                <span class="text-teal-400 font-bold">Volume: <span>{state.volText}</span></span>
+            <div class="panel-box pane-vol" class:hidden-pane={!state.showVolume}>
+                <div class="absolute-label font-sans label-text-xs">
+                    <span class="text-teal-400 font-bold">Volume: <span>{state.volText}</span></span>
+                </div>
+                <VolumeChart />
             </div>
-            <VolumeChart />
-        </div>
 
-        <div class="panel-box pane-adx" class:hidden-pane={!state.showAdx}>
-            <div class="absolute-label font-sans label-text-xs">
-                <span class="text-yellow-400 font-bold">ADX: <span>{state.adxText}</span></span>
-                <span class="text-emerald-400 font-medium">+DI: <span>{state.adxPlusText}</span></span>
-                <span class="text-red-500 font-medium">-DI: <span>{state.adxMinusText}</span></span>
+            <div class="panel-box pane-adx" class:hidden-pane={!state.showAdx}>
+                <div class="absolute-label font-sans label-text-xs">
+                    <span class="text-yellow-400 font-bold">ADX: <span>{state.adxText}</span></span>
+                    <span class="text-emerald-400 font-medium">+DI: <span>{state.adxPlusText}</span></span>
+                    <span class="text-red-500 font-medium">-DI: <span>{state.adxMinusText}</span></span>
+                </div>
+                <AdxChart />
             </div>
-            <AdxChart />
-        </div>
 
-        <div class="panel-box pane-atr" class:hidden-pane={!state.showAtr}>
-            <div class="absolute-label font-sans label-text-xs">
-                <span class="text-purple-400 font-bold">{state.atrLabel}: <span>{state.atrText}</span></span>
+            <div class="panel-box pane-atr" class:hidden-pane={!state.showAtr}>
+                <div class="absolute-label font-sans label-text-xs">
+                    <span class="text-purple-400 font-bold">{state.atrLabel}: <span>{state.atrText}</span></span>
+                </div>
+                <AtrChart />
             </div>
-            <AtrChart />
-        </div>
 
-        <div class="panel-box pane-rsi" class:hidden-pane={!state.showRsi}>
-            <div class="absolute-label font-sans label-text-xs">
-                <span class="text-purple-400">{state.rsiLabel}: <span>{state.rsiText}</span></span>
+            <div class="panel-box pane-rsi" class:hidden-pane={!state.showRsi}>
+                <div class="absolute-label font-sans label-text-xs">
+                    <span class="text-purple-400">{state.rsiLabel}: <span>{state.rsiText}</span></span>
+                </div>
+                <RsiChart />
             </div>
-            <RsiChart />
-        </div>
 
-        <div class="panel-box pane-macd" class:hidden-pane={!state.showMacd}>
-            <div class="absolute-label font-sans label-text-xs">
-                <span class="text-slate-300 font-bold">{state.macdLabel}</span>
-                <span class="text-blue-400">Line: <span>{state.macdLineText}</span></span>
-                <span class="text-amber-500">Signal: <span>{state.macdSigText}</span></span>
-                <span class="text-teal-400">Hist: <span>{state.macdHistText}</span></span>
+            <div class="panel-box pane-macd" class:hidden-pane={!state.showMacd}>
+                <div class="absolute-label font-sans label-text-xs">
+                    <span class="text-slate-300 font-bold">{state.macdLabel}</span>
+                    <span class="text-blue-400">Line: <span>{state.macdLineText}</span></span>
+                    <span class="text-amber-500">Signal: <span>{state.macdSigText}</span></span>
+                    <span class="text-teal-400">Hist: <span>{state.macdHistText}</span></span>
+                </div>
+                <MacdChart />
             </div>
-            <MacdChart />
-        </div>
 
-        <div class="panel-box pane-squeeze" class:hidden-pane={!state.showSqueeze}>
-            <div class="absolute-label font-sans label-text-xs">
-                <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
-                <span class="text-emerald-400">Value: <span>{state.sqzValText}</span></span>
-                <span class={state.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {state.sqzStatusText}</span>
+            <div class="panel-box pane-squeeze" class:hidden-pane={!state.showSqueeze}>
+                <div class="absolute-label font-sans label-text-xs">
+                    <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
+                    <span class="text-emerald-400">Value: <span>{state.sqzValText}</span></span>
+                    <span class={state.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {state.sqzStatusText}</span>
+                </div>
+                <SqueezeChart />
             </div>
-            <SqueezeChart />
-        </div>
-    </main>
+        </main>
+
+        <!-- Right Side Panel containing settings variables & signal pipeline states -->
+        <aside class="sidebar-panel font-sans">
+            <div class="sidebar-section settings-box">
+                <h3 class="section-title">SETTINGS</h3>
+                <div class="settings-content">
+                    <div class="setting-row">
+                        <span class="setting-label">Pair:</span>
+                        <span class="setting-value text-blue-400">{state.activeSymbol}USD</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Timeframe:</span>
+                        <span class="setting-value text-blue-400">{state.candleTimeframeLabel} ({state.barDurationSec}s)</span>
+                    </div>
+                    
+                    <hr class="divider"/>
+                    
+                    <h4 class="sub-title">Indicators Parameter Limits</h4>
+                    <div class="setting-row">
+                        <span class="setting-label">EMA Fast Period:</span>
+                        <span class="setting-value">{state.emaFastVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">EMA Medium Period:</span>
+                        <span class="setting-value">{state.emaMediumVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">EMA Slow Period:</span>
+                        <span class="setting-value">{state.emaSlowVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">EMA Long Period:</span>
+                        <span class="setting-value">{state.emaLongVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">RSI Lookback Period:</span>
+                        <span class="setting-value">{state.rsiPeriodVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">MACD Fast Lookback:</span>
+                        <span class="setting-value">{state.macdFastVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">MACD Slow Lookback:</span>
+                        <span class="setting-value">{state.macdSlowVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">MACD Signal Line:</span>
+                        <span class="setting-value">{state.macdSignalVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">ADX Calculation Period:</span>
+                        <span class="setting-value">{state.adxPeriodVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">ATR Volatility Window:</span>
+                        <span class="setting-value">{state.atrPeriodVal}</span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Squeeze Wave Period:</span>
+                        <span class="setting-value">{state.squeezePeriodVal}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section signals-box">
+                <h3 class="section-title">SIGNALS</h3>
+                <div class="signals-content">
+                    <p class="signals-placeholder">
+                        (Here in the future we will put the result of a decision based on indicators that will tell us bearish/bullish)
+                    </p>
+                    <div class="signal-indicator">
+                        <span class="dot pulse-blue"></span>
+                        <span class="status-text">Awaiting Agent Decision...</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
 </div>
 
 <style>
@@ -171,14 +265,144 @@
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         min-height: 100vh;
     }
-    .dashboard-stack {
-        max-width: 1500px;
+    .main-layout {
+        display: flex;
+        max-width: 1800px;
         margin: 0 auto;
         padding: 16px;
+        gap: 16px;
+    }
+    .dashboard-stack {
+        flex: 1;
         display: flex;
         flex-direction: column;
         gap: 10px;
     }
+    .sidebar-panel {
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    .sidebar-section {
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+    }
+    .settings-box {
+        flex: 0 0 auto;
+    }
+    .signals-box {
+        flex: 1 1 auto;
+    }
+    .section-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        color: #cbd5e1;
+        margin-top: 0;
+        margin-bottom: 12px;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 6px;
+        text-transform: uppercase;
+    }
+    .sub-title {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        margin-top: 10px;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+    }
+    .settings-content, .signals-content {
+        font-size: 11px;
+        color: #94a3b8;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .setting-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 3px 0;
+    }
+    .setting-label {
+        color: #64748b;
+    }
+    .setting-value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        color: #3b82f6;
+        font-weight: 600;
+    }
+    .divider {
+        border: 0;
+        border-top: 1px solid #1e293b;
+        margin: 10px 0;
+    }
+    .signals-placeholder {
+        font-style: italic;
+        color: #4c525e;
+        line-height: 1.4;
+        margin-bottom: 12px;
+    }
+    .signal-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background-color: rgba(59, 130, 246, 0.05);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin-top: auto;
+    }
+    .pulse-blue {
+        background-color: #3b82f6;
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+        animation: pulse 2s infinite;
+    }
+    .dot {
+        height: 6px;
+        width: 6px;
+        border-radius: 50%;
+    }
+    .status-text {
+        font-weight: 600;
+        color: #3b82f6;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    @keyframes pulse {
+        0% {
+            transform: scale(0.95);
+            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+        }
+        70% {
+            transform: scale(1);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+        }
+        100% {
+            transform: scale(0.95);
+            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+        }
+    }
+
+    /* Fallback layout adjustment for compact screen sizes */
+    @media (max-width: 1024px) {
+        .main-layout {
+            flex-direction: column;
+        }
+        .sidebar-panel {
+            width: 100%;
+        }
+    }
+
     .panel-box {
         position: relative;
         background-color: #131722;

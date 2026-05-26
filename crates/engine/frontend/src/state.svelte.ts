@@ -48,6 +48,19 @@ let lastSqzMom = $state(0);
 
 let latestSnapshot: Record<string, unknown> | null = $state(null);
 
+// Settings numerical values loaded from config.toml
+let emaFastVal = $state(10);
+let emaMediumVal = $state(50);
+let emaSlowVal = $state(100);
+let emaLongVal = $state(200);
+let rsiPeriodVal = $state(14);
+let macdFastVal = $state(12);
+let macdSlowVal = $state(26);
+let macdSignalVal = $state(9);
+let adxPeriodVal = $state(14);
+let atrPeriodVal = $state(14);
+let squeezePeriodVal = $state(20);
+
 export function getState() {
     return {
         get isConnected() { return isConnected },
@@ -134,5 +147,27 @@ export function getState() {
         set lastSqzMom(v: number) { lastSqzMom = v },
         get latestSnapshot() { return latestSnapshot },
         set latestSnapshot(v: Record<string, unknown> | null) { latestSnapshot = v },
+        get emaFastVal() { return emaFastVal },
+        set emaFastVal(v: number) { emaFastVal = v },
+        get emaMediumVal() { return emaMediumVal },
+        set emaMediumVal(v: number) { emaMediumVal = v },
+        get emaSlowVal() { return emaSlowVal },
+        set emaSlowVal(v: number) { emaSlowVal = v },
+        get emaLongVal() { return emaLongVal },
+        set emaLongVal(v: number) { emaLongVal = v },
+        get rsiPeriodVal() { return rsiPeriodVal },
+        set rsiPeriodVal(v: number) { rsiPeriodVal = v },
+        get macdFastVal() { return macdFastVal },
+        set macdFastVal(v: number) { macdFastVal = v },
+        get macdSlowVal() { return macdSlowVal },
+        set macdSlowVal(v: number) { macdSlowVal = v },
+        get macdSignalVal() { return macdSignalVal },
+        set macdSignalVal(v: number) { macdSignalVal = v },
+        get adxPeriodVal() { return adxPeriodVal },
+        set adxPeriodVal(v: number) { adxPeriodVal = v },
+        get atrPeriodVal() { return atrPeriodVal },
+        set atrPeriodVal(v: number) { atrPeriodVal = v },
+        get squeezePeriodVal() { return squeezePeriodVal },
+        set squeezePeriodVal(v: number) { squeezePeriodVal = v },
     };
 }
