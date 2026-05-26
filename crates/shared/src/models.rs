@@ -1,7 +1,7 @@
 //! # Domain Data Models
 //!
 //! This module defines the common data structures representing market telemetry.
-//! It includes the raw ticker prices and all sliding-window calculated technical indicators.
+//! It includes raw ticker prices, generic EMAs, and consolidated candle bars.
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,12 @@ pub struct MarketSnapshot {
     pub bid_price: Decimal,
     pub ask_price: Decimal,
     pub funding_rate: Option<Decimal>,
+    
+    // Consolidated Candle OHLC Bars (added)
+    pub open: Option<Decimal>,
+    pub high: Option<Decimal>,
+    pub low: Option<Decimal>,
+    pub close: Option<Decimal>,
     
     // Generic-named Exponential Moving Averages
     pub ema_fast: Option<Decimal>,

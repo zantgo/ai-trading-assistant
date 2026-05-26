@@ -1,9 +1,9 @@
 <script lang="ts">
-    //! # Svelte 5 Trading Terminal Dashboard
+    //! # Svelte 5 Dynamic Trading Terminal Dashboard
     //! 
-    //! Coordinates system components: handles WebSocket streams, aggregates price
-    //! ticks into candles, and synchronizes 5 TradingView Lightweight Charts.
-    //! Dynamically synchronizes layout structures on mount via GET /api/config.
+    //! Coordinates system components: handles WebSocket streams, synchronizes chart 
+    //! legends on startup via GET /api/config, and drives 5 separate TradingView charts.
+    //! Formatted strictly with Svelte 5 $state() runes and Lightweight Charts 5.x APIs.
 
     import { onMount, onDestroy } from 'svelte';
     import { 
@@ -13,22 +13,22 @@
         LineSeries, 
         HistogramSeries 
     } from 'lightweight-charts';
-    import type { IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
+    import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 
-    // Bound DOM nodes
+    // Direct DOM bindings
     let priceContainer: HTMLDivElement;
     let adxContainer: HTMLDivElement;
     let rsiContainer: HTMLDivElement;
     let macdContainer: HTMLDivElement;
     let squeezeContainer: HTMLDivElement;
 
-    // Squeeze 5 Runes state declarations
+    // Squeeze 5 Runes state declarations (forces modern UI reactivity)
     let isConnected = $state(false);
     let priceText = $state('--');
-    let ema10Text = $state('--');
-    let ema50Text = $state('--');
-    let ema100Text = $state('--');
-    let ema200Text = $state('--');
+    let emaFastText = $state('--');
+    let emaMediumText = $state('--');
+    let emaSlowText = $state('--');
+    let emaLongText = $state('--');
     let adxText = $state('--');
     let rsiText = $state('--');
     let macdLineText = $state('--');
@@ -40,21 +40,19 @@
 
     // Dynamic label state variables synchronized from TOML config
     let candleTimeframeLabel = $state('5s');
-    let ema10Label = $state('EMA 10');
-    let ema50Label = $state('EMA 50');
-    let ema100Label = $state('EMA 100');
-    let ema200Label = $state('EMA 200');
-    let adxLabel = $state('ADX (14)');
+    let emaFastLabel = $state('EMA Fast');
+    let emaMediumLabel = $state('EMA Med');
+    let emaSlowLabel = $state('EMA Slow');
+    let emaLongLabel = $state('EMA Long');
     let rsiLabel = $state('RSI (14)');
+    let adxLabel = $state('ADX (14)');
     let macdLabel = $state('MACD (12, 26, 9)');
 
     // System variables
     let charts: IChartApi[] = [];
     let ws: WebSocket | null = null;
-    let lastCandle: CandlestickData<number> | null = null;
     let lastMacdHist = 0;
     let lastSqzMom = 0;
-    let barDurationSec = 5; // Updated dynamically on fetch
 
     // Series APIs
     let candleSeries: ISeriesApi<'Candlestick'>;
@@ -107,13 +105,12 @@
             const config = await res.json();
 
             // Synchronize timescales and badge labels
-            barDurationSec = config.candles.duration_seconds;
-            candleTimeframeLabel = `${barDurationSec}s`;
+            candleTimeframeLabel = `${config.candles.duration_seconds}s`;
 
-            ema10Label = `EMA ${config.indicators.ema_fast}`;
-            ema50Label = `EMA ${config.indicators.ema_medium}`;
-            ema100Label = `EMA ${config.indicators.ema_slow}`;
-            ema200Label = `EMA ${config.indicators.ema_long}`;
+            emaFastLabel = `EMA ${config.indicators.ema_fast}`;
+            emaMediumLabel = `EMA ${config.indicators.ema_medium}`;
+            emaSlowLabel = `EMA ${config.indicators.ema_slow}`;
+            emaLongLabel = `EMA ${config.indicators.ema_long}`;
             rsiLabel = `RSI (${config.indicators.rsi_period})`;
             adxLabel = `ADX (${config.indicators.adx_period})`;
             macdLabel = `MACD (${config.indicators.macd_fast}, ${config.indicators.macd_slow}, ${config.indicators.macd_signal})`;
@@ -140,7 +137,7 @@
 
         charts = [priceChart, adxChart, rsiChart, macdChart, squeezeChart];
 
-        // 3. Register series
+        // 3. Register series using Lightweight Charts 5.x .addSeries() API
         candleSeries = priceChart.addSeries(CandlestickSeries, {
             upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
@@ -165,6 +162,7 @@
             chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
         });
 
+        // 4. Synchronize timelines in lockstep
         let isSyncing = false;
         charts.forEach((chart, index) => {
             chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
@@ -179,6 +177,7 @@
             });
         });
 
+        // 5. Connect WebSocket
         connect();
     });
 
@@ -202,41 +201,48 @@
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             const timeSec = data.timestamp;
-            const price = parseFloat(data.mid_price);
 
-            priceText = `$${price.toFixed(2)}`;
-            ema10Text = data.ema_fast ? parseFloat(data.ema_fast).toFixed(2) : "--";
-            ema50Text = data.ema_medium ? parseFloat(data.ema_medium).toFixed(2) : "--";
-            ema100Text = data.ema_slow ? parseFloat(data.ema_slow).toFixed(2) : "--";
-            ema200Text = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : "--";
+            // Extract closed price
+            const closePrice = data.close ? parseFloat(data.close) : parseFloat(data.mid_price);
+
+            // Update text labels
+            priceText = `$${closePrice.toFixed(2)}`;
+            emaFastText = data.ema_fast ? parseFloat(data.ema_fast).toFixed(2) : "--";
+            emaMediumText = data.ema_medium ? parseFloat(data.ema_medium).toFixed(2) : "--";
+            emaSlowText = data.ema_slow ? parseFloat(data.ema_slow).toFixed(2) : "--";
+            emaLongText = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : "--";
             rsiText = data.rsi_14 ? parseFloat(data.rsi_14).toFixed(2) : "--";
             adxText = data.adx_14 ? parseFloat(data.adx_14).toFixed(2) : "--";
 
-            // --- Candle Aggregator using Dynamic Time window ---
-            const roundedTimeSec = Math.floor(timeSec / barDurationSec) * barDurationSec;
-
-            if (lastCandle && lastCandle.time === roundedTimeSec) {
-                lastCandle.high = Math.max(lastCandle.high, price);
-                lastCandle.low = Math.min(lastCandle.low, price);
-                lastCandle.close = price;
-                candleSeries.update(lastCandle);
-            } else {
-                lastCandle = {
-                    time: roundedTimeSec,
-                    open: price, high: price, low: price, close: price
-                };
-                candleSeries.update(lastCandle);
+            // --- Direct Candlestick Plotting ---
+            // Svelte receives pre-aggregated candle values from backend.
+            if (data.open && data.high && data.low && data.close) {
+                candleSeries.update({
+                    time: timeSec,
+                    open: parseFloat(data.open),
+                    high: parseFloat(data.high),
+                    low: parseFloat(data.low),
+                    close: parseFloat(data.close)
+                });
             }
 
-            // --- Update Series ---
+            // --- Update EMAs Overlays ---
             if (data.ema_fast) ema10Series.update({ time: timeSec, value: parseFloat(data.ema_fast) });
             if (data.ema_medium) ema50Series.update({ time: timeSec, value: parseFloat(data.ema_medium) });
             if (data.ema_slow) ema100Series.update({ time: timeSec, value: parseFloat(data.ema_slow) });
             if (data.ema_long) ema200Series.update({ time: timeSec, value: parseFloat(data.ema_long) });
 
-            if (data.adx_14) adxSeries.update({ time: timeSec, value: parseFloat(data.adx_14) });
-            if (data.rsi_14) rsiSeries.update({ time: timeSec, value: parseFloat(data.rsi_14) });
+            // --- Update ADX ---
+            if (data.adx_14) {
+                adxSeries.update({ time: timeSec, value: parseFloat(data.adx_14) });
+            }
 
+            // --- Update RSI ---
+            if (data.rsi_14) {
+                rsiSeries.update({ time: timeSec, value: parseFloat(data.rsi_14) });
+            }
+
+            // --- Update MACD ---
             if (data.macd_line) {
                 const mLine = parseFloat(data.macd_line);
                 const mSig = parseFloat(data.macd_signal);
@@ -257,6 +263,7 @@
                 lastMacdHist = mHist;
             }
 
+            // --- Update Squeeze Momentum ---
             if (data.squeeze_momentum) {
                 const momVal = parseFloat(data.squeeze_momentum);
                 sqzValText = momVal.toFixed(4);
@@ -303,10 +310,10 @@
         <div class="panel-box pane-price">
             <div class="absolute-label font-sans">
                 <span class="price-header">Price: <span>{priceText}</span></span>
-                <span class="text-blue-400 font-medium">{ema10Label}: <span>{ema10Text}</span></span>
-                <span class="text-amber-500 font-medium">{ema50Label}: <span>{ema50Text}</span></span>
-                <span class="text-rose-500 font-medium">{ema100Label}: <span>{ema100Text}</span></span>
-                <span class="text-purple-400 font-medium">{ema200Label}: <span>{ema200Text}</span></span>
+                <span class="text-blue-400 font-medium">{emaFastLabel}: <span>{emaFastText}</span></span>
+                <span class="text-amber-500 font-medium">{emaMediumLabel}: <span>{emaMediumText}</span></span>
+                <span class="text-rose-500 font-medium">{emaSlowLabel}: <span>{emaSlowText}</span></span>
+                <span class="text-purple-400 font-medium">{emaLongLabel}: <span>{emaLongText}</span></span>
             </div>
             <div bind:this={priceContainer} class="chart-container"></div>
         </div>

@@ -121,6 +121,12 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     ask_price: best_ask,
                                     funding_rate: None,
                                     
+                                    // Set dynamic open, high, low, close to None on raw ingestion
+                                    open: None,
+                                    high: None,
+                                    low: None,
+                                    close: None,
+                                    
                                     // Set dynamic indicator fields to None on raw socket ingestion
                                     ema_fast: None,
                                     ema_medium: None,

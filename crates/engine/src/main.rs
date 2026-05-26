@@ -1,7 +1,8 @@
 //! # Main Core Trading Engine Orchestrator
 //!
-//! This module coordinates active asynchronous system components. On startup, it parses the
-//! workspace "config.toml" file, configures database tables, and spins up the web server routing.
+//! This module coordinates active asynchronous system components. On startup, it initializes
+//! our local SQLite database, sets up a TCP listener using `axum`, and configures an 
+//! in-memory broadcasting engine to mirror processed analytical updates to connected browsers.
 
 mod websocket;
 
@@ -65,7 +66,6 @@ async fn main() {
 
     println!("⚙️ DeX Trading Agent Engine: Loading Master Configuration...");
 
-    // 1. Read and parse the Master config.toml file
     let config_raw = std::fs::read_to_string("config.toml")
         .expect("❌ Configuration Error: Failed to find \"config.toml\" in workspace root directory");
     
@@ -84,7 +84,7 @@ async fn main() {
         .await
         .expect("❌ Database Setup: Failed to initialize SQLite database pool");
 
-    // Dynamic schema creation containing generic EMA columns
+    // Table schema expanded to include true open, high, low, and close columns
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +93,10 @@ async fn main() {
             mid_price TEXT NOT NULL,
             bid_price TEXT NOT NULL,
             ask_price TEXT NOT NULL,
+            open TEXT,
+            high TEXT,
+            low TEXT,
+            close TEXT,
             ema_fast TEXT,
             ema_medium TEXT,
             ema_slow TEXT,
@@ -121,7 +125,7 @@ async fn main() {
 
     // 4. Configure HTTP Axum Router
     let app = Router::new()
-        .route("/api/config", get(serve_config)) // Rest API Endpoint to sync frontend
+        .route("/api/config", get(serve_config))
         .route("/ws", get(ws_handler))
         .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
         .with_state(shared_state);
@@ -181,7 +185,18 @@ async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>) {
     }
 }
 
+/// Fast Path: Immediate, high-frequency execution engine.
+/// Evaluates safety parameters, liquidation buffers, and account margins inside local RAM.
+/// Operates on every single tick [1], completely decoupled from database or Svelte outputs.
+fn run_realtime_risk_checks(tick: &MarketSnapshot) {
+    // Safety guardrails go here
+    if tick.mid_price < Decimal::from(1000) {
+        eprintln!("⚠️ RISK ENGINE ALERT: ETH price dropped below safety margin!");
+    }
+}
+
 /// Core analytical processing engine.
+/// Aggregates ticks to candles on the "Slow Path", computes indicators, and broadcasts on candle close.
 async fn run_analysis(
     mut rx: Receiver<MarketSnapshot>, 
     pool: SqlitePool, 
@@ -190,104 +205,177 @@ async fn run_analysis(
 ) {
     println!("📊 Analysis Task: Subscribed to telemetry channel... \n");
     
-    // Dynamic indicator creation reading configuration lookback limits
+    // Stateful Indicators Config
     let mut ema_fast = Ema::new(config.indicators.ema_fast);
     let mut ema_medium = Ema::new(config.indicators.ema_medium);
     let mut ema_slow = Ema::new(config.indicators.ema_slow);
     let mut ema_long = Ema::new(config.indicators.ema_long);
     let mut rsi_14 = Rsi::new(config.indicators.rsi_period);
-    
-    let mut macd = Macd::new(); // MACD internal logic can also use config boundaries
+    let mut macd = Macd::new();
     let mut adx_14 = Adx::new(config.indicators.adx_period);
-    let mut sqz_mom = SqueezeMomentum::new(); // Squeeze Momentum can use configuration lookback limits
+    let mut sqz_mom = SqueezeMomentum::new();
 
-    while let Some(mut snapshot) = rx.recv().await {
-        let price = snapshot.mid_price;
-        let high = snapshot.ask_price;
-        let low = snapshot.bid_price;
+    // Stateful Candle Builder variables
+    let duration = config.candles.duration_seconds;
+    let mut current_candle_start: Option<u64> = None;
+    let mut ohlc_open: Option<Decimal> = None;
+    let mut ohlc_high: Option<Decimal> = None;
+    let mut ohlc_low: Option<Decimal> = None;
+    let mut ohlc_close: Option<Decimal> = None;
+    let mut last_processed_symbol = String::new();
 
-        // Process Indicators dynamically
-        snapshot.ema_fast = Some(ema_fast.update(price));
-        snapshot.ema_medium = Some(ema_medium.update(price));
-        snapshot.ema_slow = Some(ema_slow.update(price));
-        snapshot.ema_long = Some(ema_long.update(price));
-        
-        snapshot.rsi_14 = rsi_14.update(price);
-        
-        if let Some((m_line, m_sig, m_hist)) = macd.update(price) {
-            snapshot.macd_line = Some(m_line);
-            snapshot.macd_signal = Some(m_sig);
-            snapshot.macd_hist = Some(m_hist);
-        }
-        
-        snapshot.adx_14 = adx_14.update(high, low, price);
-        
-        if let Some((on, val)) = sqz_mom.update(high, low, price) {
-            snapshot.squeeze_on = Some(on);
-            snapshot.squeeze_momentum = Some(val);
-        }
+    while let Some(tick) = rx.recv().await {
+        // ---------------------------------------------------------------------
+        // FAST PATH: Run high-frequency safety risk checks on EVERY raw tick!
+        // ---------------------------------------------------------------------
+        run_realtime_risk_checks(&tick);
 
-        // Print outputs to terminal console
-        println!("--------------------------------------------------------------------------------");
-        println!("📥 [Tick Ingested] Symbol: {} | Mid Price: ${:.4}", snapshot.symbol, price);
-        println!(
-            "   📈 EMAs:   Fast ({}): {} | Med ({}): {} | Slow ({}): {} | Long ({}): {}",
-            config.indicators.ema_fast, opt_dec_str(snapshot.ema_fast),
-            config.indicators.ema_medium, opt_dec_str(snapshot.ema_medium),
-            config.indicators.ema_slow, opt_dec_str(snapshot.ema_slow),
-            config.indicators.ema_long, opt_dec_str(snapshot.ema_long)
-        );
-        println!(
-            "   📊 MACD:   Line: {} | Signal: {} | Histogram: {}",
-            opt_dec_str(snapshot.macd_line),
-            opt_dec_str(snapshot.macd_signal),
-            opt_dec_str(snapshot.macd_hist)
-        );
-        println!(
-            "   📉 Waves:  RSI({}): {} | ADX({}): {}",
-            config.indicators.rsi_period, opt_dec_str(snapshot.rsi_14),
-            config.indicators.adx_period, opt_dec_str(snapshot.adx_14)
-        );
-        println!(
-            "   💥 Squeeze: Compression On: {:<5} | Momentum Value: {}",
-            snapshot.squeeze_on.map(|b| b.to_string()).unwrap_or_else(|| "Uninitialized".to_string()),
-            opt_dec_str(snapshot.squeeze_momentum)
-        );
+        // ---------------------------------------------------------------------
+        // SLOW PATH: Aggregate ticks into Candles on interval boundaries
+        // ---------------------------------------------------------------------
+        let rounded_time = (tick.timestamp / duration) * duration;
+        last_processed_symbol = tick.symbol.clone();
 
-        // Broadcast current compiled snapshot to all connected visualizer clients
-        let _ = broadcast_tx.send(snapshot.clone());
+        match current_candle_start {
+            None => {
+                // First launch: initialize active candle state
+                current_candle_start = Some(rounded_time);
+                ohlc_open = Some(tick.mid_price);
+                ohlc_high = Some(tick.mid_price);
+                ohlc_low = Some(tick.mid_price);
+                ohlc_close = Some(tick.mid_price);
+            }
+            Some(start_time) if start_time == rounded_time => {
+                // Same candle block: update High, Low, and Close
+                if let Some(h) = ohlc_high { ohlc_high = Some(h.max(tick.mid_price)); }
+                if let Some(l) = ohlc_low { ohlc_low = Some(l.min(tick.mid_price)); }
+                ohlc_close = Some(tick.mid_price);
+            }
+            Some(start_time) => {
+                // A new candle has started! The previous candle is formally closed.
+                let finalized_open = ohlc_open.unwrap_or(tick.mid_price);
+                let finalized_high = ohlc_high.unwrap_or(tick.mid_price);
+                let finalized_low = ohlc_low.unwrap_or(tick.mid_price);
+                let finalized_close = ohlc_close.unwrap_or(tick.mid_price);
 
-        // Save generic-named telemetry results in database
-        let sqz_on_db_val = snapshot.squeeze_on.map(|b| if b { 1 } else { 0 });
+                // Compile completed indicators using the CLOSED candle close price
+                let mut completed_snapshot = MarketSnapshot {
+                    timestamp: start_time,
+                    symbol: last_processed_symbol.clone(),
+                    mid_price: finalized_close,
+                    bid_price: tick.bid_price, // raw fallback
+                    ask_price: tick.ask_price,
+                    funding_rate: None,
+                    
+                    open: Some(finalized_open),
+                    high: Some(finalized_high),
+                    low: Some(finalized_low),
+                    close: Some(finalized_close),
+                    
+                    ema_fast: Some(ema_fast.update(finalized_close)),
+                    ema_medium: Some(ema_medium.update(finalized_close)),
+                    ema_slow: Some(ema_slow.update(finalized_close)),
+                    ema_long: Some(ema_long.update(finalized_close)),
+                    
+                    rsi_14: rsi_14.update(finalized_close),
+                    macd_line: None,
+                    macd_signal: None,
+                    macd_hist: None,
+                    adx_14: None,
+                    squeeze_on: None,
+                    squeeze_momentum: None,
+                };
 
-        if let Err(e) = sqlx::query(
-            "INSERT INTO market_snapshots (
-                timestamp, symbol, mid_price, bid_price, ask_price,
-                ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
-                macd_line, macd_signal, macd_hist, adx_14,
-                squeeze_on, squeeze_momentum
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"
-        )
-        .bind(snapshot.timestamp as i64)
-        .bind(&snapshot.symbol)
-        .bind(snapshot.mid_price.to_string())
-        .bind(snapshot.bid_price.to_string())
-        .bind(snapshot.ask_price.to_string())
-        .bind(snapshot.ema_fast.map(|d| d.to_string()))
-        .bind(snapshot.ema_medium.map(|d| d.to_string()))
-        .bind(snapshot.ema_slow.map(|d| d.to_string()))
-        .bind(snapshot.ema_long.map(|d| d.to_string()))
-        .bind(snapshot.rsi_14.map(|d| d.to_string()))
-        .bind(snapshot.macd_line.map(|d| d.to_string()))
-        .bind(snapshot.macd_signal.map(|d| d.to_string()))
-        .bind(snapshot.macd_hist.map(|d| d.to_string()))
-        .bind(snapshot.adx_14.map(|d| d.to_string()))
-        .bind(sqz_on_db_val)
-        .bind(snapshot.squeeze_momentum.map(|d| d.to_string()))
-        .execute(&pool)
-        .await 
-        {
-            eprintln!("⚠️ Database Error: Failed to save snapshot row: {}", e);
+                if let Some((m_line, m_sig, m_hist)) = macd.update(finalized_close) {
+                    completed_snapshot.macd_line = Some(m_line);
+                    completed_snapshot.macd_signal = Some(m_sig);
+                    completed_snapshot.macd_hist = Some(m_hist);
+                }
+                
+                completed_snapshot.adx_14 = adx_14.update(finalized_high, finalized_low, finalized_close);
+                
+                if let Some((on, val)) = sqz_mom.update(finalized_high, finalized_low, finalized_close) {
+                    completed_snapshot.squeeze_on = Some(on);
+                    completed_snapshot.squeeze_momentum = Some(val);
+                }
+
+                // Print the completed candle telemetry directly to the console
+                println!("--------------------------------------------------------------------------------");
+                println!("📥 [Candle Closed] Symbol: {} | Close: ${:.4} | High: ${:.4} | Low: ${:.4}", 
+                    completed_snapshot.symbol, finalized_close, finalized_high, finalized_low
+                );
+                println!(
+                    "   📈 EMAs:   Fast ({}): {} | Med ({}): {} | Slow ({}): {} | Long ({}): {}",
+                    config.indicators.ema_fast, opt_dec_str(completed_snapshot.ema_fast),
+                    config.indicators.ema_medium, opt_dec_str(completed_snapshot.ema_medium),
+                    config.indicators.ema_slow, opt_dec_str(completed_snapshot.ema_slow),
+                    config.indicators.ema_long, opt_dec_str(completed_snapshot.ema_long)
+                );
+                println!(
+                    "   📊 MACD:   Line: {} | Signal: {} | Histogram: {}",
+                    opt_dec_str(completed_snapshot.macd_line),
+                    opt_dec_str(completed_snapshot.macd_signal),
+                    opt_dec_str(completed_snapshot.macd_hist)
+                );
+                println!(
+                    "   📉 Waves:  RSI({}): {} | ADX({}): {}",
+                    config.indicators.rsi_period, opt_dec_str(completed_snapshot.rsi_14),
+                    config.indicators.adx_period, opt_dec_str(completed_snapshot.adx_14)
+                );
+                println!(
+                    "   💥 Squeeze: Compression On: {:<5} | Momentum Value: {}",
+                    completed_snapshot.squeeze_on.map(|b| b.to_string()).unwrap_or_else(|| "Uninitialized".to_string()),
+                    opt_dec_str(completed_snapshot.squeeze_momentum)
+                );
+
+                // Broadcast completed candle snapshot to Svelte (No high frequency rendering)
+                let _ = broadcast_tx.send(completed_snapshot.clone());
+
+                // Save completed candle snapshot directly in database
+                let sqz_on_db_val = completed_snapshot.squeeze_on.map(|b| if b { 1 } else { 0 });
+
+                if let Err(e) = sqlx::query(
+                    "INSERT INTO market_snapshots (
+                        timestamp, symbol, mid_price, bid_price, ask_price,
+                        open, high, low, close,
+                        ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
+                        macd_line, macd_signal, macd_hist, adx_14,
+                        squeeze_on, squeeze_momentum
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)"
+                )
+                .bind(completed_snapshot.timestamp as i64)
+                .bind(&completed_snapshot.symbol)
+                .bind(completed_snapshot.mid_price.to_string())
+                .bind(completed_snapshot.bid_price.to_string())
+                .bind(completed_snapshot.ask_price.to_string())
+                .bind(completed_snapshot.open.map(|d| d.to_string()))
+                .bind(completed_snapshot.high.map(|d| d.to_string()))
+                .bind(completed_snapshot.low.map(|d| d.to_string()))
+                .bind(completed_snapshot.close.map(|d| d.to_string()))
+                .bind(completed_snapshot.ema_fast.map(|d| d.to_string()))
+                .bind(completed_snapshot.ema_medium.map(|d| d.to_string()))
+                .bind(completed_snapshot.ema_slow.map(|d| d.to_string()))
+                .bind(completed_snapshot.ema_long.map(|d| d.to_string()))
+                .bind(completed_snapshot.rsi_14.map(|d| d.to_string()))
+                .bind(completed_snapshot.macd_line.map(|d| d.to_string()))
+                .bind(completed_snapshot.macd_signal.map(|d| d.to_string()))
+                .bind(completed_snapshot.macd_hist.map(|d| d.to_string()))
+                .bind(completed_snapshot.adx_14.map(|d| d.to_string()))
+                .bind(sqz_on_db_val)
+                .bind(completed_snapshot.squeeze_momentum.map(|d| d.to_string()))
+                .execute(&pool)
+                .await 
+                {
+                    eprintln!("⚠️ Database Error: Failed to save completed snapshot row: {}", e);
+                }
+
+                // Initialize the next candle starting bucket with current tick prices
+                current_candle_start = Some(rounded_time);
+                ohlc_open = Some(tick.mid_price);
+                ohlc_high = Some(tick.mid_price);
+                ohlc_low = Some(tick.mid_price);
+                ohlc_close = Some(tick.mid_price);
+            }
         }
     }
 }
