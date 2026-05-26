@@ -2,8 +2,8 @@
     //! # Svelte 5 Dynamic Trading Terminal Dashboard
     //! 
     //! Coordinates system components: handles WebSocket streams, synchronizes chart 
-    //! legends on startup via GET /api/config, and drives 5 separate TradingView charts.
-    //! Formatted strictly with Svelte 5 $state() runes and Lightweight Charts 5.x APIs.
+    //! legends, and drives 6 separate TradingView charts (including Volume).
+    //! Features dynamic overlay toggling (EMAs and BB) via Svelte 5 $effect() runes.
 
     import { onMount, onDestroy } from 'svelte';
     import { 
@@ -17,12 +17,13 @@
 
     // Direct DOM bindings
     let priceContainer: HTMLDivElement;
+    let volumeContainer: HTMLDivElement;
     let adxContainer: HTMLDivElement;
     let rsiContainer: HTMLDivElement;
     let macdContainer: HTMLDivElement;
     let squeezeContainer: HTMLDivElement;
 
-    // Squeeze 5 Runes state declarations (forces modern UI reactivity)
+    // Squeeze 5 Runes state declarations
     let isConnected = $state(false);
     let priceText = $state('--');
     let emaFastText = $state('--');
@@ -37,9 +38,13 @@
     let sqzValText = $state('--');
     let sqzStatusText = $state('Calculating');
     let isSqueezeOn = $state(false);
+    let volText = $state('--');
 
-    // Dynamic label state variables synchronized from TOML config
+    // Dynamic Top Bar Variables
+    let activeSymbol = $state('ETH');
     let candleTimeframeLabel = $state('5s');
+
+    // Dynamic Legend Labels synchronized from TOML config
     let emaFastLabel = $state('EMA Fast');
     let emaMediumLabel = $state('EMA Med');
     let emaSlowLabel = $state('EMA Slow');
@@ -48,11 +53,24 @@
     let adxLabel = $state('ADX (14)');
     let macdLabel = $state('MACD (12, 26, 9)');
 
+    // Overlay Visibility Toggles
+    let showEmas = $state(true);
+    let showBb = $state(true);
+
+    // Panel Visibility states (Svelte 5 reactive states)
+    let showVolume = $state(true);
+    let showAdx = $state(true);
+    let showRsi = $state(true);
+    let showMacd = $state(true);
+    let showSqueeze = $state(true);
+
     // System variables
     let charts: IChartApi[] = [];
     let ws: WebSocket | null = null;
+    let lastCandle: any = null;
     let lastMacdHist = 0;
     let lastSqzMom = 0;
+    let barDurationSec = 5;
 
     // Series APIs
     let candleSeries: ISeriesApi<'Candlestick'>;
@@ -60,6 +78,12 @@
     let ema50Series: ISeriesApi<'Line'>;
     let ema100Series: ISeriesApi<'Line'>;
     let ema200Series: ISeriesApi<'Line'>;
+    
+    let bbUpperSeries: ISeriesApi<'Line'>;
+    let bbMiddleSeries: ISeriesApi<'Line'>;
+    let bbLowerSeries: ISeriesApi<'Line'>;
+
+    let volumeSeries: ISeriesApi<'Histogram'>;
     let adxSeries: ISeriesApi<'Line'>;
     let rsiSeries: ISeriesApi<'Line'>;
     let macdLineSeries: ISeriesApi<'Line'>;
@@ -98,14 +122,31 @@
         handleScroll: false,
     };
 
+    // Svelte 5 $effect() runes automatically handle visibility updates
+    $effect(() => {
+        if (ema10Series && ema50Series && ema100Series && ema200Series) {
+            ema10Series.applyOptions({ visible: showEmas });
+            ema50Series.applyOptions({ visible: showEmas });
+            ema100Series.applyOptions({ visible: showEmas });
+            ema200Series.applyOptions({ visible: showEmas });
+        }
+    });
+
+    $effect(() => {
+        if (bbUpperSeries && bbMiddleSeries && bbLowerSeries) {
+            bbUpperSeries.applyOptions({ visible: showBb });
+            bbMiddleSeries.applyOptions({ visible: showBb });
+            bbLowerSeries.applyOptions({ visible: showBb });
+        }
+    });
+
     onMount(async () => {
-        // 1. Fetch system-wide configurations first to set exact labels
         try {
             const res = await fetch('/api/config');
             const config = await res.json();
 
-            // Synchronize timescales and badge labels
-            candleTimeframeLabel = `${config.candles.duration_seconds}s`;
+            barDurationSec = config.candles.duration_seconds;
+            candleTimeframeLabel = `${barDurationSec}s`;
 
             emaFastLabel = `EMA ${config.indicators.ema_fast}`;
             emaMediumLabel = `EMA ${config.indicators.ema_medium}`;
@@ -118,8 +159,8 @@
             console.error("⚠️ Failed to synchronize dynamic legends from config API, using defaults:", e);
         }
 
-        // 2. Initialize Chart instances using synchronized labels
         const priceChart = createChart(priceContainer, chartBaseOptions);
+        const volumeChart = createChart(volumeContainer, chartBaseOptions);
         const adxChart = createChart(adxContainer, chartBaseOptions);
         const rsiChart = createChart(rsiContainer, chartBaseOptions);
         const macdChart = createChart(macdContainer, chartBaseOptions);
@@ -135,9 +176,10 @@
             handleScroll: true,
         });
 
-        charts = [priceChart, adxChart, rsiChart, macdChart, squeezeChart];
+        // Track 6 synchronized charts in lockstep
+        charts = [priceChart, volumeChart, adxChart, rsiChart, macdChart, squeezeChart];
 
-        // 3. Register series using Lightweight Charts 5.x .addSeries() API
+        // Register series
         candleSeries = priceChart.addSeries(CandlestickSeries, {
             upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
@@ -146,6 +188,14 @@
         ema50Series = priceChart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
         ema100Series = priceChart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
         ema200Series = priceChart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
+
+        // Bollinger Bands cyan-dashed overlays inside Price Box
+        bbUpperSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbMiddleSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbLowerSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
+
+        // Volume Panel (Bar Histogram)
+        volumeSeries = volumeChart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
 
         adxSeries = adxChart.addSeries(LineSeries, { color: '#f1c40f', lineWidth: 1.5, priceLineVisible: false });
         rsiSeries = rsiChart.addSeries(LineSeries, { color: '#7e57c2', lineWidth: 1.5, priceLineVisible: false });
@@ -162,7 +212,6 @@
             chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
         });
 
-        // 4. Synchronize timelines in lockstep
         let isSyncing = false;
         charts.forEach((chart, index) => {
             chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
@@ -177,7 +226,6 @@
             });
         });
 
-        // 5. Connect WebSocket
         connect();
     });
 
@@ -202,8 +250,11 @@
             const data = JSON.parse(event.data);
             const timeSec = data.timestamp;
 
-            // Extract closed price
             const closePrice = data.close ? parseFloat(data.close) : parseFloat(data.mid_price);
+
+            if (data.symbol) {
+                activeSymbol = data.symbol;
+            }
 
             // Update text labels
             priceText = `$${closePrice.toFixed(2)}`;
@@ -213,9 +264,9 @@
             emaLongText = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : "--";
             rsiText = data.rsi_14 ? parseFloat(data.rsi_14).toFixed(2) : "--";
             adxText = data.adx_14 ? parseFloat(data.adx_14).toFixed(2) : "--";
+            volText = data.volume ? parseFloat(data.volume).toFixed(2) : "--";
 
             // --- Direct Candlestick Plotting ---
-            // Svelte receives pre-aggregated candle values from backend.
             if (data.open && data.high && data.low && data.close) {
                 candleSeries.update({
                     time: timeSec,
@@ -224,6 +275,14 @@
                     low: parseFloat(data.low),
                     close: parseFloat(data.close)
                 });
+
+                // Update Volume Bar (Colored Green/Red based on candle close direction)
+                let volColor = parseFloat(data.close) >= parseFloat(data.open) ? '#26a69a' : '#ef5350';
+                volumeSeries.update({
+                    time: timeSec,
+                    value: parseFloat(data.volume),
+                    color: volColor
+                });
             }
 
             // --- Update EMAs Overlays ---
@@ -231,6 +290,11 @@
             if (data.ema_medium) ema50Series.update({ time: timeSec, value: parseFloat(data.ema_medium) });
             if (data.ema_slow) ema100Series.update({ time: timeSec, value: parseFloat(data.ema_slow) });
             if (data.ema_long) ema200Series.update({ time: timeSec, value: parseFloat(data.ema_long) });
+
+            // --- Update Bollinger Bands ---
+            if (data.bb_upper) bbUpperSeries.update({ time: timeSec, value: parseFloat(data.bb_upper) });
+            if (data.bb_middle) bbMiddleSeries.update({ time: timeSec, value: parseFloat(data.bb_middle) });
+            if (data.bb_lower) bbLowerSeries.update({ time: timeSec, value: parseFloat(data.bb_lower) });
 
             // --- Update ADX ---
             if (data.adx_14) {
@@ -290,11 +354,39 @@
     <header class="terminal-header">
         <div class="header-logo-group">
             <span class="text-xl">⚡</span>
-            <h1 class="logo-title">ETHUSD Live Execution Interface</h1>
+            <h1 class="logo-title">{activeSymbol}USD</h1>
             
             <div class="time-badge">
                 {candleTimeframeLabel}
             </div>
+        </div>
+
+        <!-- Dynamic Visibility Toggles -->
+        <div class="visibility-selectors font-sans">
+            <span class="selectors-label">Overlays:</span>
+            <button class="selector-btn {showEmas ? 'active' : ''}" onclick={() => showEmas = !showEmas}>
+                EMAs
+            </button>
+            <button class="selector-btn {showBb ? 'active' : ''}" onclick={() => showBb = !showBb}>
+                BB
+            </button>
+            
+            <span class="selectors-label ml-4">Panels:</span>
+            <button class="selector-btn {showVolume ? 'active' : ''}" onclick={() => showVolume = !showVolume}>
+                Volume
+            </button>
+            <button class="selector-btn {showAdx ? 'active' : ''}" onclick={() => showAdx = !showAdx}>
+                ADX
+            </button>
+            <button class="selector-btn {showRsi ? 'active' : ''}" onclick={() => showRsi = !showRsi}>
+                RSI
+            </button>
+            <button class="selector-btn {showMacd ? 'active' : ''}" onclick={() => showMacd = !showMacd}>
+                MACD
+            </button>
+            <button class="selector-btn {showSqueeze ? 'active' : ''}" onclick={() => showSqueeze = !showSqueeze}>
+                Squeeze
+            </button>
         </div>
         
         <div class="status-badge {isConnected ? 'status-online' : 'status-offline'}">
@@ -310,32 +402,42 @@
         <div class="panel-box pane-price">
             <div class="absolute-label font-sans">
                 <span class="price-header">Price: <span>{priceText}</span></span>
-                <span class="text-blue-400 font-medium">{emaFastLabel}: <span>{emaFastText}</span></span>
-                <span class="text-amber-500 font-medium">{emaMediumLabel}: <span>{emaMediumText}</span></span>
-                <span class="text-rose-500 font-medium">{emaSlowLabel}: <span>{emaSlowText}</span></span>
-                <span class="text-purple-400 font-medium">{emaLongLabel}: <span>{emaLongText}</span></span>
+                {#if showEmas}
+                    <span class="text-blue-400 font-medium">{emaFastLabel}: <span>{emaFastText}</span></span>
+                    <span class="text-amber-500 font-medium">{emaMediumLabel}: <span>{emaMediumText}</span></span>
+                    <span class="text-rose-500 font-medium">{emaSlowLabel}: <span>{emaSlowText}</span></span>
+                    <span class="text-purple-400 font-medium">{emaLongLabel}: <span>{emaLongText}</span></span>
+                {/if}
             </div>
             <div bind:this={priceContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 2: ADX Panel -->
-        <div class="panel-box pane-adx">
+        <!-- Pane 2: Volume Panel (Conditionally hidden) -->
+        <div class="panel-box pane-vol" class:hidden-pane={!showVolume}>
+            <div class="absolute-label font-sans label-text-xs">
+                <span class="text-teal-400 font-bold">Volume: <span>{volText}</span></span>
+            </div>
+            <div bind:this={volumeContainer} class="chart-container"></div>
+        </div>
+
+        <!-- Pane 3: ADX Panel (Conditionally hidden) -->
+        <div class="panel-box pane-adx" class:hidden-pane={!showAdx}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-yellow-400">{adxLabel}: <span>{adxText}</span></span>
             </div>
             <div bind:this={adxContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 3: RSI Panel -->
-        <div class="panel-box pane-rsi">
+        <!-- Pane 4: RSI Panel (Conditionally hidden) -->
+        <div class="panel-box pane-rsi" class:hidden-pane={!showRsi}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-purple-400">{rsiLabel}: <span>{rsiText}</span></span>
             </div>
             <div bind:this={rsiContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 4: MACD Panel -->
-        <div class="panel-box pane-macd">
+        <!-- Pane 5: MACD Panel (Conditionally hidden) -->
+        <div class="panel-box pane-macd" class:hidden-pane={!showMacd}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-slate-300 font-bold">{macdLabel}</span>
                 <span class="text-blue-400">Line: <span>{macdLineText}</span></span>
@@ -345,8 +447,8 @@
             <div bind:this={macdContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 5: Squeeze Momentum Panel -->
-        <div class="panel-box pane-squeeze">
+        <!-- Pane 6: Squeeze Momentum Panel (Conditionally hidden) -->
+        <div class="panel-box pane-squeeze" class:hidden-pane={!showSqueeze}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
                 <span class="text-emerald-400">Value: <span>{sqzValText}</span></span>
@@ -402,6 +504,48 @@
         letter-spacing: 0.1em;
     }
 
+    /* Top Bar Selectors layout & design */
+    .visibility-selectors {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .selectors-label {
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        margin-right: 4px;
+    }
+
+    .selector-btn {
+        background-color: #171b26;
+        border: 1px solid #2a2e39;
+        color: #8f929d;
+        font-size: 9px;
+        font-weight: 800;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+        text-transform: uppercase;
+    }
+
+    .selector-btn:hover {
+        border-color: #4c526e;
+        color: #cbd5e1;
+    }
+
+    /* Glowing active state matching standard TradingView themes */
+    .selector-btn.active {
+        background-color: rgba(59, 130, 246, 0.12);
+        border-color: #3b82f6;
+        color: #3b82f6;
+        box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+    }
+
     /* Aligned stacked boxes with clear TradingView-style margins */
     .dashboard-stack {
         max-width: 1500px;
@@ -420,10 +564,17 @@
         border-radius: 8px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
         overflow: hidden;
+        transition: opacity 0.15s ease-in-out;
+    }
+
+    /* CSS Toggle Hider rule */
+    .hidden-pane {
+        display: none !important;
     }
 
     /* Strict Heights mapped to match reference layout */
     .pane-price { height: 320px; }
+    .pane-vol { height: 110px; }
     .pane-adx { height: 110px; }
     .pane-rsi { height: 110px; }
     .pane-macd { height: 130px; }

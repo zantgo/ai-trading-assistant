@@ -111,6 +111,16 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     Err(_) => continue,
                                 };
 
+                                // Parse size depths (volume proxies)
+                                let best_bid_sz = match Decimal::from_str(&bids[0].sz) {
+                                    Ok(val) => val,
+                                    Err(_) => Decimal::ZERO,
+                                };
+                                let best_ask_sz = match Decimal::from_str(&asks[0].sz) {
+                                    Ok(val) => val,
+                                    Err(_) => Decimal::ZERO,
+                                };
+
                                 let mid_price = (best_bid + best_ask) / Decimal::from(2);
 
                                 let snapshot = MarketSnapshot {
@@ -119,15 +129,20 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     mid_price,
                                     bid_price: best_bid,
                                     ask_price: best_ask,
+                                    bid_size: Some(best_bid_sz),
+                                    ask_size: Some(best_ask_sz),
                                     funding_rate: None,
                                     
-                                    // Set dynamic open, high, low, close to None on raw ingestion
                                     open: None,
                                     high: None,
                                     low: None,
                                     close: None,
+                                    volume: None,
                                     
-                                    // Set dynamic indicator fields to None on raw socket ingestion
+                                    bb_upper: None,
+                                    bb_middle: None,
+                                    bb_lower: None,
+                                    
                                     ema_fast: None,
                                     ema_medium: None,
                                     ema_slow: None,

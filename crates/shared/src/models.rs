@@ -14,13 +14,21 @@ pub struct MarketSnapshot {
     pub mid_price: Decimal,
     pub bid_price: Decimal,
     pub ask_price: Decimal,
+    pub bid_size: Option<Decimal>, // Added to capture top-of-book depth
+    pub ask_size: Option<Decimal>, // Added
     pub funding_rate: Option<Decimal>,
     
-    // Consolidated Candle OHLC Bars (added)
+    // Consolidated Candle OHLC Bars
     pub open: Option<Decimal>,
     pub high: Option<Decimal>,
     pub low: Option<Decimal>,
     pub close: Option<Decimal>,
+    pub volume: Option<Decimal>, // Added cumulative candle volume
+    
+    // Bollinger Bands (Added)
+    pub bb_upper: Option<Decimal>,
+    pub bb_middle: Option<Decimal>,
+    pub bb_lower: Option<Decimal>,
     
     // Generic-named Exponential Moving Averages
     pub ema_fast: Option<Decimal>,
