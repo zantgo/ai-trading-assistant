@@ -1,25 +1,39 @@
 //! # Domain Data Models
 //!
 //! This module defines the common data structures representing market telemetry.
-//! These structures act as the formal interface between different layers of the 
-//! system, such as WebSocket consumers, database adapters, and indicator calculators.
+//! It includes the raw ticker prices and all sliding-window calculated technical indicators.
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-/// Represents a unified price and liquidity snapshot of an asset's order book at a point in time.
+/// Represents a unified price snapshot alongside all computed technical indicators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketSnapshot {
-    /// Epoch timestamp in seconds.
     pub timestamp: u64,
-    /// The ticker asset symbol (e.g., "ETH").
     pub symbol: String,
-    /// The midpoint price between best bid and best ask.
     pub mid_price: Decimal,
-    /// The highest price a buyer is willing to pay.
     pub bid_price: Decimal,
-    /// The lowest price a seller is willing to accept.
     pub ask_price: Decimal,
-    /// The current 8-hour funding rate on the swap contract, if applicable.
     pub funding_rate: Option<Decimal>,
+    
+    // Exponential Moving Averages
+    pub ema_10: Option<Decimal>,
+    pub ema_50: Option<Decimal>,
+    pub ema_100: Option<Decimal>,
+    pub ema_200: Option<Decimal>,
+    
+    // Relative Strength Index
+    pub rsi_14: Option<Decimal>,
+    
+    // MACD (Line, Signal, Histogram)
+    pub macd_line: Option<Decimal>,
+    pub macd_signal: Option<Decimal>,
+    pub macd_hist: Option<Decimal>,
+    
+    // Average Directional Index
+    pub adx_14: Option<Decimal>,
+    
+    // Squeeze Momentum Indicator (State & Histogram Value)
+    pub squeeze_on: Option<bool>,
+    pub squeeze_momentum: Option<Decimal>,
 }
