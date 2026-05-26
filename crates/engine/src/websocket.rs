@@ -21,17 +21,19 @@ const HYPERLIQUID_TESTNET_WS: &str = "wss://api.hyperliquid-testnet.xyz/ws";
 /// Hyperliquid wraps messages in a simple `channel` and `data` envelope.
 #[derive(Debug, Deserialize)]
 struct L2BookEnvelope {
+    #[allow(dead_code)] // Silences compiler warnings for deserialized wrapper fields
     channel: String,
     data: Option<L2BookPayload>,
 }
 
 /// The inner payload structure for L2 Book updates.
+/// Maps to the actual API design where bids and asks are grouped in a nested levels array.
 #[derive(Debug, Deserialize)]
 struct L2BookPayload {
     coin: String,
     time: u64, // millisecond timestamp
-    bids: Vec<BookLevel>,
-    asks: Vec<BookLevel>,
+    /// levels[0] is bids (buys), levels[1] is asks (sells)
+    levels: Vec<Vec<BookLevel>>,
 }
 
 /// Individual price levels inside bids/asks arrays.
@@ -59,7 +61,6 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
     };
 
     // 1. Handshake to upgrade HTTP/TCP connection into secure WebSocket
-    // We call `.as_str()` here because tokio-tungstenite expects types like `&str` or `String`
     let (ws_stream, _) = match connect_async(url.as_str()).await {
         Ok(s) => s,
         Err(e) => {
@@ -73,7 +74,6 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
     let (mut write, mut read) = ws_stream.split();
 
     // 2. Format and send subscription request
-    // Format required: {"method": "subscribe", "subscription": {"type": "l2Book", "coin": "ETH"}}
     let sub_request = serde_json::json!({
         "method": "subscribe",
         "subscription": {
@@ -101,44 +101,53 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
 
         match msg {
             Message::Text(raw_text) => {
-                // Attempt decoding as the known Level 2 Book envelope
-                if let Ok(envelope) = serde_json::from_str::<L2BookEnvelope>(&raw_text) {
-                    // Only process messages targeting our l2Book channel
-                    if envelope.channel == "l2Book" {
-                        if let Some(payload) = envelope.data {
-                            // Guard against empty books
-                            if payload.bids.is_empty() || payload.asks.is_empty() {
-                                continue;
+                // To prevent logging unrelated messages (like subscription approvals),
+                // only parse and log failures for envelopes containing order book data.
+                if raw_text.contains("\"channel\":\"l2Book\"") {
+                    match serde_json::from_str::<L2BookEnvelope>(&raw_text) {
+                        Ok(envelope) => {
+                            if let Some(payload) = envelope.data {
+                                // Validate that we have both bid and ask channels populated
+                                if payload.levels.len() < 2 || payload.levels[0].is_empty() || payload.levels[1].is_empty() {
+                                    continue;
+                                }
+
+                                let bids = &payload.levels[0];
+                                let asks = &payload.levels[1];
+
+                                // Read best bid and best ask from the first level of the book (index 0)
+                                let best_bid = match Decimal::from_str(&bids[0].px) {
+                                    Ok(val) => val,
+                                    Err(_) => continue,
+                             };
+                                let best_ask = match Decimal::from_str(&asks[0].px) {
+                                    Ok(val) => val,
+                                    Err(_) => continue,
+                                };
+
+                                // Compute midpoint average
+                                let mid_price = (best_bid + best_ask) / Decimal::from(2);
+
+                                // Map custom Hyperliquid structures directly to our standardized model
+                                let snapshot = MarketSnapshot {
+                                    timestamp: payload.time / 1000, // Convert ms to standard s epoch
+                                    symbol: payload.coin.clone(),
+                                    mid_price,
+                                    bid_price: best_bid,
+                                    ask_price: best_ask,
+                                    funding_rate: None,
+                                };
+
+                                // Send snapshot to internal processing queue
+                                if tx.send(snapshot).await.is_err() {
+                                    eprintln!("⚠️ WebSocket Task: Consumer disconnected. Terminating ingestion stream.");
+                                    break;
+                                }
                             }
-
-                            // Read best bid and best ask from top of book (index 0)
-                            let best_bid = match Decimal::from_str(&payload.bids[0].px) {
-                                Ok(val) => val,
-                                Err(_) => continue,
-                            };
-                            let best_ask = match Decimal::from_str(&payload.asks[0].px) {
-                                Ok(val) => val,
-                                Err(_) => continue,
-                            };
-
-                            // Compute midpoint average
-                            let mid_price = (best_bid + best_ask) / Decimal::from(2);
-
-                            // Map custom Hyperliquid structures directly to our standardized model
-                            let snapshot = MarketSnapshot {
-                                timestamp: payload.time / 1000, // Convert ms to standard s epoch
-                                symbol: payload.coin.clone(),
-                                mid_price,
-                                bid_price: best_bid,
-                                ask_price: best_ask,
-                                funding_rate: None, // Funding rates can be mapped using another channel later
-                            };
-
-                            // Send snapshot to internal processing queue
-                            if tx.send(snapshot).await.is_err() {
-                                eprintln!("⚠️ WebSocket Task: Consumer disconnected. Terminating ingestion stream.");
-                                break;
-                            }
+                        }
+                        Err(e) => {
+                            // If it is an l2Book channel but fails to parse, log the format error explicitly
+                            eprintln!("❌ WebSocket Task: Failed to parse l2Book JSON: {}. Raw data: {}", e, raw_text);
                         }
                     }
                 }
