@@ -1,6 +1,6 @@
 //! # Technical Indicators Module
 //!
-//! Implements mathematical indicators: SMA, EMA, ATR, RSI, MACD, ADX, and Squeeze Momentum.
+//! Implements mathematical indicators: SMA, EMA, ATR, RSI, MACD, ADX, Bollinger Bands, and Squeeze.
 //! It utilizes decimal precision to prevent standard rounding errors.
 
 use rust_decimal::Decimal;
@@ -144,7 +144,6 @@ impl Rsi {
                 }
             }
             _ => {
-                // Catch-all: If either is None, perform the baseline initial set
                 self.avg_gain = Some(gain);
                 self.avg_loss = Some(loss);
                 None
@@ -205,7 +204,8 @@ impl Adx {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+    /// Update ADX returning (ADX Line, +DI Line, -DI Line) (Updated to return 3 lines)
+    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<(Decimal, Decimal, Decimal)> {
         let (p_high, p_low, p_close) = match (self.prev_high, self.prev_low, self.prev_close) {
             (Some(h), Some(l), Some(c)) => (h, l, c),
             _ => {
@@ -248,13 +248,13 @@ impl Adx {
         }
 
         let dx = ((plus_di - minus_di).abs() / di_sum) * Decimal::from(100);
-        Some(self.dx_ema.update(dx))
+        let adx = self.dx_ema.update(dx);
+        
+        Some((adx, plus_di, minus_di))
     }
 }
 
 /// Squeeze Momentum Indicator (John Carter / LazyBear implementation)
-/// Detects compression using Bollinger Bands vs. Keltner Channels,
-/// combined with a linear-regression momentum oscillator.
 #[derive(Debug, Clone)]
 pub struct SqueezeMomentum {
     sma_20: Sma,
@@ -267,11 +267,11 @@ pub struct SqueezeMomentum {
 }
 
 impl SqueezeMomentum {
-    pub fn new() -> Self {
+    pub fn new(period: usize) -> Self {
         Self {
-            sma_20: Sma::new(20),
-            ema_20: Ema::new(20),
-            atr_20: Atr::new(20),
+            sma_20: Sma::new(period),
+            ema_20: Ema::new(period),
+            atr_20: Atr::new(period),
             prices_history: Vec::new(),
             high_history: Vec::new(),
             low_history: Vec::new(),
@@ -333,8 +333,8 @@ impl SqueezeMomentum {
         if self.val_history.len() == 20 {
             // Linear regression of the last 20 'val' points (x: 0..19)
             let n = 20.0;
-            let sum_x: f64 = 190.0; // Sum of 0..19
-            let sum_x_sq: f64 = 2470.0; // Sum of x^2 for 0..19
+            let sum_x: f64 = 190.0;
+            let sum_x_sq: f64 = 2470.0;
 
             let mut sum_y = 0.0;
             let mut sum_xy = 0.0;
@@ -362,8 +362,6 @@ impl SqueezeMomentum {
         }
     }
 }
-
-// ... (keep all other structures like Ema, Sma, Atr, Rsi, Macd, Adx, SqueezeMomentum exactly as they are)
 
 /// Bollinger Bands Indicator (20 SMA +/- 2 Standard Deviations)
 #[derive(Debug, Clone)]
@@ -393,7 +391,6 @@ impl BollingerBands {
             return None;
         }
 
-        // Standard Deviation
         let std_dev = {
             let sum_sq: f64 = self.prices_history.iter()
                 .map(|&p| {

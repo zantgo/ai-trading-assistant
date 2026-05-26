@@ -30,9 +30,12 @@ pub struct MarketSnapshot {
     pub bb_middle: Option<Decimal>,
     pub bb_lower: Option<Decimal>,
     
-    // Standalone ATR and VWAP (Added)
+    // Standalone ATR, VWAP and ADX lines (adx_plus and adx_minus added)
     pub atr_14: Option<Decimal>,
     pub vwap: Option<Decimal>,
+    pub adx_14: Option<Decimal>,
+    pub adx_plus: Option<Decimal>,
+    pub adx_minus: Option<Decimal>,
     
     // Generic-named Exponential Moving Averages
     pub ema_fast: Option<Decimal>,
@@ -47,9 +50,6 @@ pub struct MarketSnapshot {
     pub macd_line: Option<Decimal>,
     pub macd_signal: Option<Decimal>,
     pub macd_hist: Option<Decimal>,
-    
-    // Average Directional Index
-    pub adx_14: Option<Decimal>,
     
     // Squeeze Momentum Indicator (State & Histogram Value)
     pub squeeze_on: Option<bool>,

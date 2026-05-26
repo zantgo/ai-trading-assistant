@@ -4,6 +4,7 @@
     //! Coordinates system components: handles WebSocket streams, synchronizes chart 
     //! legends, and drives 7 separate TradingView charts (including Volume and ATR).
     //! Features dynamic overlay toggling (EMAs, BB, and VWAP) via Svelte 5 $effect() runes.
+    //! Configures active vertical panel resizing and synchronizes them on drag.
 
     import { onMount, onDestroy } from 'svelte';
     import { 
@@ -11,7 +12,8 @@
         CrosshairMode, 
         CandlestickSeries, 
         LineSeries, 
-        HistogramSeries 
+        HistogramSeries,
+        LineStyle
     } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 
@@ -32,7 +34,9 @@
     let emaSlowText = $state('--');
     let emaLongText = $state('--');
     let adxText = $state('--');
-    let atrText = $state('--'); // Standalone ATR
+    let adxPlusText = $state('--');
+    let adxMinusText = $state('--');
+    let atrText = $state('--');
     let rsiText = $state('--');
     let macdLineText = $state('--');
     let macdSigText = $state('--');
@@ -41,7 +45,7 @@
     let sqzStatusText = $state('Calculating');
     let isSqueezeOn = $state(false);
     let volText = $state('--');
-    let vwapText = $state('--'); // Standalone VWAP
+    let vwapText = $state('--');
 
     // Dynamic Top Bar Variables
     let activeSymbol = $state('ETH');
@@ -92,6 +96,8 @@
 
     let volumeSeries: ISeriesApi<'Histogram'>;
     let adxSeries: ISeriesApi<'Line'>;
+    let adxPlusSeries: ISeriesApi<'Line'>;
+    let adxMinusSeries: ISeriesApi<'Line'>;
     let atrSeries: ISeriesApi<'Line'>;
     let rsiSeries: ISeriesApi<'Line'>;
     let macdLineSeries: ISeriesApi<'Line'>;
@@ -200,24 +206,42 @@
             upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         });
-        ema10Series = priceChart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
-        ema50Series = priceChart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
-        ema100Series = priceChart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
-        ema200Series = priceChart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false });
-
-        // Bollinger Bands cyan-dashed overlays inside Price Box
-        bbUpperSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
-        bbMiddleSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
-        bbLowerSeries = priceChart.addSeries(LineSeries, { color: '#00bcd4', lineWidth: 1.0, lineStyle: 2, priceLineVisible: false, crosshairMarkerVisible: false });
         
-        // VWAP orange-dashed overlay inside Price Box
-        vwapSeries = priceChart.addSeries(LineSeries, { color: '#e67e22', lineWidth: 1.5, lineStyle: 1, priceLineVisible: false, crosshairMarkerVisible: false });
+        // EMA lines configured with standard thin dashed format
+        ema10Series = priceChart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema50Series = priceChart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema100Series = priceChart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema200Series = priceChart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+
+        // Bollinger Bands configured as SOLID thin lines (not dashed, not thicker)
+        bbUpperSeries = priceChart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbMiddleSeries = priceChart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbLowerSeries = priceChart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        
+        // VWAP configured as SOLID line
+        vwapSeries = priceChart.addSeries(LineSeries, { color: '#ffb300', lineWidth: 1.2, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
 
         // Volume Panel (Bar Histogram)
         volumeSeries = volumeChart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
 
-        adxSeries = adxChart.addSeries(LineSeries, { color: '#f1c40f', lineWidth: 1.5, priceLineVisible: false });
-        atrSeries = atrChart.addSeries(LineSeries, { color: '#9b59b6', lineWidth: 1.5, priceLineVisible: false }); // Standalone ATR
+        // ADX Pane (ADX solid yellow, +DI solid green, -DI solid red)
+        adxSeries = adxChart.addSeries(LineSeries, { color: '#f1c40f', lineWidth: 1.5, lineStyle: LineStyle.Solid, priceLineVisible: false });
+        adxPlusSeries = adxChart.addSeries(LineSeries, { color: '#2ecc71', lineWidth: 1.2, lineStyle: LineStyle.Solid, priceLineVisible: false });
+        adxMinusSeries = adxChart.addSeries(LineSeries, { color: '#e74c3c', lineWidth: 1.2, lineStyle: LineStyle.Solid, priceLineVisible: false });
+
+        // Static dashed grey horizontal price line on the ADX chart indicating the standard Key Level threshold
+        adxSeries.createPriceLine({
+            price: 20,
+            color: '#4c525e',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+            title: 'KEY LEVEL'
+        });
+
+        // Standalone ATR
+        atrSeries = atrChart.addSeries(LineSeries, { color: '#9b59b6', lineWidth: 1.5, priceLineVisible: false });
+        
         rsiSeries = rsiChart.addSeries(LineSeries, { color: '#7e57c2', lineWidth: 1.5, priceLineVisible: false });
 
         macdLineSeries = macdChart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1.5, priceLineVisible: false });
@@ -232,6 +256,7 @@
             chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
         });
 
+        // Synchronize timelines
         let isSyncing = false;
         charts.forEach((chart, index) => {
             chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
@@ -244,6 +269,22 @@
                 });
                 isSyncing = false;
             });
+        });
+
+        // 4. Native Resizer Observer Setup
+        // Monitors panel height adjustments dynamically and resizes canvas charts instantly in real time
+        const containerNodes = [priceContainer, volumeContainer, adxContainer, atrContainer, rsiContainer, macdContainer, squeezeContainer];
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                const target = entry.target as HTMLDivElement;
+                const idx = containerNodes.indexOf(target);
+                if (idx !== -1 && charts[idx]) {
+                    charts[idx].resize(target.clientWidth, target.clientHeight);
+                }
+            }
+        });
+        containerNodes.forEach(node => {
+            if (node && node.parentElement) resizeObserver.observe(node.parentElement);
         });
 
         connect();
@@ -283,10 +324,15 @@
             emaSlowText = data.ema_slow ? parseFloat(data.ema_slow).toFixed(2) : "--";
             emaLongText = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : "--";
             rsiText = data.rsi_14 ? parseFloat(data.rsi_14).toFixed(2) : "--";
-            adxText = data.adx_14 ? parseFloat(data.adx_14).toFixed(2) : "--";
             atrText = data.atr_14 ? parseFloat(data.atr_14).toFixed(2) : "--";
             volText = data.volume ? parseFloat(data.volume).toFixed(2) : "--";
             vwapText = data.vwap ? parseFloat(data.vwap).toFixed(2) : "--";
+
+            if (data.adx_14) {
+                adxText = parseFloat(data.adx_14).toFixed(2);
+                adxPlusText = data.adx_plus ? parseFloat(data.adx_plus).toFixed(2) : "--";
+                adxMinusText = data.adx_minus ? parseFloat(data.adx_minus).toFixed(2) : "--";
+            }
 
             // --- Direct Candlestick Plotting ---
             if (data.open && data.high && data.low && data.close) {
@@ -324,6 +370,8 @@
             // --- Update ADX ---
             if (data.adx_14) {
                 adxSeries.update({ time: timeSec, value: parseFloat(data.adx_14) });
+                if (data.adx_plus) adxPlusSeries.update({ time: timeSec, value: parseFloat(data.adx_plus) });
+                if (data.adx_minus) adxMinusSeries.update({ time: timeSec, value: parseFloat(data.adx_minus) });
             }
 
             // --- Update Standalone ATR ---
@@ -431,10 +479,10 @@
         </div>
     </header>
 
-    <!-- Main Chart Container Stack (Clean Vertical Gaps) -->
+    <!-- Main Chart Container Stack (Clean Vertical Gaps & CSS Resizers) -->
     <main class="dashboard-stack">
 
-        <!-- Pane 1: Price and EMAs -->
+        <!-- Pane 1: Price, EMAs, BB, and VWAP -->
         <div class="panel-box pane-price">
             <div class="absolute-label font-sans">
                 <span class="price-header">Price: <span>{priceText}</span></span>
@@ -459,15 +507,17 @@
             <div bind:this={volumeContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 3: ADX Panel (Conditionally hidden) -->
+        <!-- Pane 3: ADX Panel (Conditionally hidden) (Now shows ADX, +DI, and -DI) -->
         <div class="panel-box pane-adx" class:hidden-pane={!showAdx}>
             <div class="absolute-label font-sans label-text-xs">
-                <span class="text-yellow-400">{adxLabel}: <span>{adxText}</span></span>
+                <span class="text-yellow-400 font-bold">ADX: <span>{adxText}</span></span>
+                <span class="text-emerald-400 font-medium">+DI: <span>{adxPlusText}</span></span>
+                <span class="text-red-500 font-medium">-DI: <span>{adxMinusText}</span></span>
             </div>
             <div bind:this={adxContainer} class="chart-container"></div>
         </div>
 
-        <!-- Pane 4: ATR Panel (Conditionally hidden) (New standalone panel positioned under ADX) -->
+        <!-- Pane 4: ATR Panel (Conditionally hidden) -->
         <div class="panel-box pane-atr" class:hidden-pane={!showAtr}>
             <div class="absolute-label font-sans label-text-xs">
                 <span class="text-purple-400 font-bold">{atrLabel}: <span>{atrText}</span></span>
@@ -603,7 +653,7 @@
         gap: 10px;
     }
 
-    /* Distinct window container panels */
+    /* Distinct window container panels (Now vertically resizable using native browser CSS drag-corners!) */
     .panel-box {
         position: relative;
         background-color: #131722;
@@ -612,6 +662,11 @@
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
         overflow: hidden;
         transition: opacity 0.15s ease-in-out;
+        
+        /* Native draggable drag resize setup */
+        resize: vertical; 
+        min-height: 80px;
+        max-height: 800px;
     }
 
     /* CSS Toggle Hider rule */
@@ -619,11 +674,11 @@
         display: none !important;
     }
 
-    /* Strict Heights mapped to match reference layout */
+    /* Strict default heights that can be dragged up/down dynamically */
     .pane-price { height: 320px; }
     .pane-vol { height: 110px; }
     .pane-adx { height: 110px; }
-    .pane-atr { height: 110px; } /* Standalone ATR Height */
+    .pane-atr { height: 110px; }
     .pane-rsi { height: 110px; }
     .pane-macd { height: 130px; }
     .pane-squeeze { height: 140px; }
@@ -699,7 +754,6 @@
     .text-blue-400 { color: #60a5fa; }
     .text-amber-500 { color: #f59e0b; }
     .text-rose-500 { color: #f43f5e; }
-    .text-slate-200 { color: #e2e8f0; }
     .text-slate-300 { color: #cbd5e1; }
-    .text-orange-400 { color: #e67e22; } /* VWAP label color */
+    .text-orange-400 { color: #f1c40f; } /* VWAP gold color */
 </style>

@@ -1,7 +1,7 @@
 //! # Main Core Trading Engine Orchestrator
 //!
 //! This module coordinates active asynchronous system components. On startup, it parses the
-//! workspace "config.toml" file, configures database tables, and spins up the web server routing.
+//! master "config.toml" file, configures database tables, and spins up the web server routing.
 
 mod websocket;
 
@@ -44,7 +44,7 @@ pub struct IndicatorsConfig {
     pub macd_slow: usize,
     pub macd_signal: usize,
     pub adx_period: usize,
-    pub atr_period: usize, // Added standalone ATR period
+    pub atr_period: usize,
     pub squeeze_period: usize,
 }
 
@@ -113,6 +113,8 @@ async fn main() {
             macd_signal TEXT,
             macd_hist TEXT,
             adx_14 TEXT,
+            adx_plus TEXT,
+            adx_minus TEXT,
             squeeze_on INTEGER,
             squeeze_momentum TEXT
         )"
@@ -220,9 +222,9 @@ async fn run_analysis(
     
     let mut macd = Macd::new();
     let mut adx_14 = Adx::new(config.indicators.adx_period);
-    let mut sqz_mom = SqueezeMomentum::new();
+    let mut sqz_mom = SqueezeMomentum::new(config.indicators.squeeze_period);
     let mut bollinger = BollingerBands::new();
-    let mut atr_standalone = Atr::new(config.indicators.atr_period); // Added independent ATR
+    let mut atr_standalone = Atr::new(config.indicators.atr_period);
 
     // Active candlestick aggregation state
     let mut current_candle_time: Option<u64> = None;
@@ -231,7 +233,6 @@ async fn run_analysis(
     let mut l = Decimal::ZERO;
     let mut c = Decimal::ZERO;
     let mut accumulated_vol = Decimal::ZERO;
-    let mut last_processed_symbol = String::new();
 
     // Cumulative VWAP accumulator states
     let mut vwap_sum_tp_vol = Decimal::ZERO;
@@ -240,7 +241,7 @@ async fn run_analysis(
 
     while let Some(tick) = rx.recv().await {
         // ----------------------------------------------------------------------
-        // 1. FAST PATH: Real-Time Risk Engine (Instant checks)
+        // 1. FAST PATH: Real-Time Risk Engine (Instant, high-frequency checks)
         // ----------------------------------------------------------------------
         run_realtime_risk_checks(&tick);
 
@@ -248,7 +249,6 @@ async fn run_analysis(
         // 2. SLOW PATH: Stateful Candlestick Builder
         // ----------------------------------------------------------------------
         let rounded_time = (tick.timestamp / config.candles.duration_seconds) * config.candles.duration_seconds;
-        last_processed_symbol = tick.symbol.clone();
 
         // Calculate tick's instant top-of-book depth size as volume proxy
         let tick_vol = tick.bid_size.unwrap_or(Decimal::ZERO) + tick.ask_size.unwrap_or(Decimal::ZERO);
@@ -303,7 +303,7 @@ async fn run_analysis(
                     let final_adx = adx_14.update(h, l, c);
                     let final_sqz = sqz_mom.update(h, l, c);
                     let final_bb = bollinger.update(c);
-                    let final_atr = atr_standalone.update(h, l, c); // Update independent ATR
+                    let final_atr = atr_standalone.update(h, l, c);
 
                     // Print output log of completed candle
                     println!("--------------------------------------------------------------------------------");
@@ -318,8 +318,8 @@ async fn run_analysis(
                     if let Some(vw) = final_vwap {
                         println!("   📊 VWAP:   Weighted Average Equilibrium Price: ${:.4}", vw);
                     }
-                    if let Some(at) = final_atr {
-                        println!("   📉 ATR:    Average True Range ({}): {}", config.indicators.atr_period, at);
+                    if let Some(ad) = final_adx {
+                        println!("   🧭 ADX:    Trend: {:.4} | +DI: {:.4} | -DI: {:.4}", ad.0, ad.1, ad.2);
                     }
 
                     // Commit the completed candle snapshot to SQLite database
@@ -330,9 +330,9 @@ async fn run_analysis(
                             open, high, low, close, volume,
                             bb_upper, bb_middle, bb_lower, atr_14, vwap,
                             ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
-                            macd_line, macd_signal, macd_hist, adx_14,
+                            macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
                             squeeze_on, squeeze_momentum
-                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)"
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)"
                     )
                     .bind(curr_time as i64)
                     .bind(&tick.symbol)
@@ -349,6 +349,9 @@ async fn run_analysis(
                     .bind(final_bb.map(|b| b.2.to_string()))
                     .bind(final_atr.map(|d| d.to_string()))
                     .bind(final_vwap.map(|d| d.to_string()))
+                    .bind(final_adx.map(|ad| ad.0.to_string()))
+                    .bind(final_adx.map(|ad| ad.1.to_string()))
+                    .bind(final_adx.map(|ad| ad.2.to_string()))
                     .bind(Some(final_ema_fast.to_string()))
                     .bind(Some(final_ema_medium.to_string()))
                     .bind(Some(final_ema_slow.to_string()))
@@ -357,10 +360,9 @@ async fn run_analysis(
                     .bind(final_macd.map(|m| m.0.to_string()))
                     .bind(final_macd.map(|m| m.1.to_string()))
                     .bind(final_macd.map(|m| m.2.to_string()))
-                    .bind(final_adx.map(|d| d.to_string()))
                     .bind(sqz_on_db_val)
                     .bind(final_sqz.map(|s| s.1.to_string()))
-                    .execute(&pool)
+                    .execute(&pool) // Fixed: Changed from &db_pool_clone to &pool
                     .await 
                     {
                         eprintln!("⚠️ Database Error: Failed to save completed snapshot: {}", e);
@@ -444,6 +446,9 @@ async fn run_analysis(
             bb_lower: val_bb.map(|b| b.2),
             atr_14: val_atr,
             vwap: val_vwap,
+            adx_14: val_adx.map(|ad| ad.0),
+            adx_plus: val_adx.map(|ad| ad.1),
+            adx_minus: val_adx.map(|ad| ad.2),
             
             ema_fast: Some(val_ema_fast),
             ema_medium: Some(val_ema_medium),
@@ -454,7 +459,6 @@ async fn run_analysis(
             macd_line: val_macd.map(|m| m.0),
             macd_signal: val_macd.map(|m| m.1),
             macd_hist: val_macd.map(|m| m.2),
-            adx_14: val_adx,
             squeeze_on: val_sqz.map(|s| s.0),
             squeeze_momentum: val_sqz.map(|s| s.1),
         };

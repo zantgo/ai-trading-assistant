@@ -145,6 +145,9 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     
                                     atr_14: None,
                                     vwap: None,
+                                    adx_14: None,
+                                    adx_plus: None,
+                                    adx_minus: None,
                                     
                                     ema_fast: None,
                                     ema_medium: None,
@@ -155,7 +158,6 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     macd_line: None,
                                     macd_signal: None,
                                     macd_hist: None,
-                                    adx_14: None,
                                     squeeze_on: None,
                                     squeeze_momentum: None,
                                 };
