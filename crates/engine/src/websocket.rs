@@ -121,11 +121,12 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, symbol: &str) {
                                     ask_price: best_ask,
                                     funding_rate: None,
                                     
-                                    // Set indicators to None on raw socket ingestion
-                                    ema_10: None,
-                                    ema_50: None,
-                                    ema_100: None,
-                                    ema_200: None,
+                                    // Set dynamic indicator fields to None on raw socket ingestion
+                                    ema_fast: None,
+                                    ema_medium: None,
+                                    ema_slow: None,
+                                    ema_long: None,
+                                    
                                     rsi_14: None,
                                     macd_line: None,
                                     macd_signal: None,

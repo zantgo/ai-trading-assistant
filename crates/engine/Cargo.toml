@@ -26,9 +26,12 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # SQL Database Client
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 
-# Web Server & Static Directory Service (added tower-http with fs feature)
-axum = { version = "0.7", features = ["ws"] }
+# Web Server & Static Directory Service
+axum = { version = "0.7", features = ["ws", "json"] } # added json support for config API
 tower-http = { version = "0.5", features = ["fs"] }
+
+# TOML configuration file deserializer (added)
+toml = "0.8"
 
 # JSON deserialization
 serde_json = "1.0"

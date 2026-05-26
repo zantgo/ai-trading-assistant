@@ -16,11 +16,11 @@ pub struct MarketSnapshot {
     pub ask_price: Decimal,
     pub funding_rate: Option<Decimal>,
     
-    // Exponential Moving Averages
-    pub ema_10: Option<Decimal>,
-    pub ema_50: Option<Decimal>,
-    pub ema_100: Option<Decimal>,
-    pub ema_200: Option<Decimal>,
+    // Generic-named Exponential Moving Averages
+    pub ema_fast: Option<Decimal>,
+    pub ema_medium: Option<Decimal>,
+    pub ema_slow: Option<Decimal>,
+    pub ema_long: Option<Decimal>,
     
     // Relative Strength Index
     pub rsi_14: Option<Decimal>,

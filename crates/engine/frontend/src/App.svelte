@@ -2,8 +2,8 @@
     //! # Svelte 5 Trading Terminal Dashboard
     //! 
     //! Coordinates system components: handles WebSocket streams, aggregates price
-    //! ticks into 5-second candles, and synchronizes 5 TradingView Lightweight Charts.
-    //! Formatted with Svelte 5 $state() runes and Lightweight Charts 5.0 generic .addSeries().
+    //! ticks into candles, and synchronizes 5 TradingView Lightweight Charts.
+    //! Dynamically synchronizes layout structures on mount via GET /api/config.
 
     import { onMount, onDestroy } from 'svelte';
     import { 
@@ -15,17 +15,14 @@
     } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, CandlestickData } from 'lightweight-charts';
 
-    // Time-aggregation constant (5s candles)
-    const BAR_DURATION_SEC = 5;
-
-    // Direct DOM bindings
+    // Bound DOM nodes
     let priceContainer: HTMLDivElement;
     let adxContainer: HTMLDivElement;
     let rsiContainer: HTMLDivElement;
     let macdContainer: HTMLDivElement;
     let squeezeContainer: HTMLDivElement;
 
-    // Squeeze 5 Runes state declarations (forces modern UI reactivity)
+    // Squeeze 5 Runes state declarations
     let isConnected = $state(false);
     let priceText = $state('--');
     let ema10Text = $state('--');
@@ -41,12 +38,23 @@
     let sqzStatusText = $state('Calculating');
     let isSqueezeOn = $state(false);
 
-    // Chart and Series instances
+    // Dynamic label state variables synchronized from TOML config
+    let candleTimeframeLabel = $state('5s');
+    let ema10Label = $state('EMA 10');
+    let ema50Label = $state('EMA 50');
+    let ema100Label = $state('EMA 100');
+    let ema200Label = $state('EMA 200');
+    let adxLabel = $state('ADX (14)');
+    let rsiLabel = $state('RSI (14)');
+    let macdLabel = $state('MACD (12, 26, 9)');
+
+    // System variables
     let charts: IChartApi[] = [];
     let ws: WebSocket | null = null;
     let lastCandle: CandlestickData<number> | null = null;
     let lastMacdHist = 0;
     let lastSqzMom = 0;
+    let barDurationSec = 5; // Updated dynamically on fetch
 
     // Series APIs
     let candleSeries: ISeriesApi<'Candlestick'>;
@@ -92,7 +100,28 @@
         handleScroll: false,
     };
 
-    onMount(() => {
+    onMount(async () => {
+        // 1. Fetch system-wide configurations first to set exact labels
+        try {
+            const res = await fetch('/api/config');
+            const config = await res.json();
+
+            // Synchronize timescales and badge labels
+            barDurationSec = config.candles.duration_seconds;
+            candleTimeframeLabel = `${barDurationSec}s`;
+
+            ema10Label = `EMA ${config.indicators.ema_fast}`;
+            ema50Label = `EMA ${config.indicators.ema_medium}`;
+            ema100Label = `EMA ${config.indicators.ema_slow}`;
+            ema200Label = `EMA ${config.indicators.ema_long}`;
+            rsiLabel = `RSI (${config.indicators.rsi_period})`;
+            adxLabel = `ADX (${config.indicators.adx_period})`;
+            macdLabel = `MACD (${config.indicators.macd_fast}, ${config.indicators.macd_slow}, ${config.indicators.macd_signal})`;
+        } catch (e) {
+            console.error("⚠️ Failed to synchronize dynamic legends from config API, using defaults:", e);
+        }
+
+        // 2. Initialize Chart instances using synchronized labels
         const priceChart = createChart(priceContainer, chartBaseOptions);
         const adxChart = createChart(adxContainer, chartBaseOptions);
         const rsiChart = createChart(rsiContainer, chartBaseOptions);
@@ -111,7 +140,7 @@
 
         charts = [priceChart, adxChart, rsiChart, macdChart, squeezeChart];
 
-        // Version 5.x compatible series initialization using .addSeries()
+        // 3. Register series
         candleSeries = priceChart.addSeries(CandlestickSeries, {
             upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
@@ -176,14 +205,15 @@
             const price = parseFloat(data.mid_price);
 
             priceText = `$${price.toFixed(2)}`;
-            ema10Text = data.ema_10 ? parseFloat(data.ema_10).toFixed(2) : "--";
-            ema50Text = data.ema_50 ? parseFloat(data.ema_50).toFixed(2) : "--";
-            ema100Text = data.ema_100 ? parseFloat(data.ema_100).toFixed(2) : "--";
-            ema200Text = data.ema_200 ? parseFloat(data.ema_200).toFixed(2) : "--";
+            ema10Text = data.ema_fast ? parseFloat(data.ema_fast).toFixed(2) : "--";
+            ema50Text = data.ema_medium ? parseFloat(data.ema_medium).toFixed(2) : "--";
+            ema100Text = data.ema_slow ? parseFloat(data.ema_slow).toFixed(2) : "--";
+            ema200Text = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : "--";
             rsiText = data.rsi_14 ? parseFloat(data.rsi_14).toFixed(2) : "--";
             adxText = data.adx_14 ? parseFloat(data.adx_14).toFixed(2) : "--";
 
-            const roundedTimeSec = Math.floor(timeSec / BAR_DURATION_SEC) * BAR_DURATION_SEC;
+            // --- Candle Aggregator using Dynamic Time window ---
+            const roundedTimeSec = Math.floor(timeSec / barDurationSec) * barDurationSec;
 
             if (lastCandle && lastCandle.time === roundedTimeSec) {
                 lastCandle.high = Math.max(lastCandle.high, price);
@@ -198,10 +228,11 @@
                 candleSeries.update(lastCandle);
             }
 
-            if (data.ema_10) ema10Series.update({ time: timeSec, value: parseFloat(data.ema_10) });
-            if (data.ema_50) ema50Series.update({ time: timeSec, value: parseFloat(data.ema_50) });
-            if (data.ema_100) ema100Series.update({ time: timeSec, value: parseFloat(data.ema_100) });
-            if (data.ema_200) ema200Series.update({ time: timeSec, value: parseFloat(data.ema_200) });
+            // --- Update Series ---
+            if (data.ema_fast) ema10Series.update({ time: timeSec, value: parseFloat(data.ema_fast) });
+            if (data.ema_medium) ema50Series.update({ time: timeSec, value: parseFloat(data.ema_medium) });
+            if (data.ema_slow) ema100Series.update({ time: timeSec, value: parseFloat(data.ema_slow) });
+            if (data.ema_long) ema200Series.update({ time: timeSec, value: parseFloat(data.ema_long) });
 
             if (data.adx_14) adxSeries.update({ time: timeSec, value: parseFloat(data.adx_14) });
             if (data.rsi_14) rsiSeries.update({ time: timeSec, value: parseFloat(data.rsi_14) });
@@ -255,7 +286,7 @@
             <h1 class="logo-title">ETHUSD Live Execution Interface</h1>
             
             <div class="time-badge">
-                5s
+                {candleTimeframeLabel}
             </div>
         </div>
         
@@ -272,10 +303,10 @@
         <div class="panel-box pane-price">
             <div class="absolute-label font-sans">
                 <span class="price-header">Price: <span>{priceText}</span></span>
-                <span class="text-blue-400 font-medium">EMA10: <span>{ema10Text}</span></span>
-                <span class="text-amber-500 font-medium">EMA50: <span>{ema50Text}</span></span>
-                <span class="text-rose-500 font-medium">EMA100: <span>{ema100Text}</span></span>
-                <span class="text-purple-400 font-medium">EMA200: <span>{ema200Text}</span></span>
+                <span class="text-blue-400 font-medium">{ema10Label}: <span>{ema10Text}</span></span>
+                <span class="text-amber-500 font-medium">{ema50Label}: <span>{ema50Text}</span></span>
+                <span class="text-rose-500 font-medium">{ema100Label}: <span>{ema100Text}</span></span>
+                <span class="text-purple-400 font-medium">{ema200Label}: <span>{ema200Text}</span></span>
             </div>
             <div bind:this={priceContainer} class="chart-container"></div>
         </div>
@@ -283,7 +314,7 @@
         <!-- Pane 2: ADX Panel -->
         <div class="panel-box pane-adx">
             <div class="absolute-label font-sans label-text-xs">
-                <span class="text-yellow-400">ADX (14): <span>{adxText}</span></span>
+                <span class="text-yellow-400">{adxLabel}: <span>{adxText}</span></span>
             </div>
             <div bind:this={adxContainer} class="chart-container"></div>
         </div>
@@ -291,7 +322,7 @@
         <!-- Pane 3: RSI Panel -->
         <div class="panel-box pane-rsi">
             <div class="absolute-label font-sans label-text-xs">
-                <span class="text-purple-400">RSI (14): <span>{rsiText}</span></span>
+                <span class="text-purple-400">{rsiLabel}: <span>{rsiText}</span></span>
             </div>
             <div bind:this={rsiContainer} class="chart-container"></div>
         </div>
@@ -299,7 +330,7 @@
         <!-- Pane 4: MACD Panel -->
         <div class="panel-box pane-macd">
             <div class="absolute-label font-sans label-text-xs">
-                <span class="text-slate-300 font-bold">MACD (12, 26, 9)</span>
+                <span class="text-slate-300 font-bold">{macdLabel}</span>
                 <span class="text-blue-400">Line: <span>{macdLineText}</span></span>
                 <span class="text-amber-500">Signal: <span>{macdSigText}</span></span>
                 <span class="text-teal-400">Hist: <span>{macdHistText}</span></span>
