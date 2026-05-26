@@ -1,18 +1,34 @@
 //! # Main Core Trading Engine Orchestrator
 //!
-//! This module coordinates system components. On startup, it establishes the SQLite
-//! database telemetry table, registers a process-wide cryptography provider, launches 
-//! the live network feed, and handles analytical computing.
+//! This module coordinates active asynchronous system components. On startup, it initializes
+//! our local SQLite database, sets up a TCP listener using `axum`, and configures an 
+//! in-memory broadcasting engine to mirror processed analytical updates to connected browsers.
 
 mod websocket;
 
+use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::broadcast;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use rust_decimal::Decimal;
 
+// Web Server Libraries
+use axum::{
+    extract::{State, WebSocketUpgrade},
+    extract::ws::{WebSocket, Message as AxumMessage},
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
+
 use shared::models::MarketSnapshot;
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum};
+
+/// Thread-safe sharing state accessible by incoming HTTP web routers
+struct AppState {
+    tx: broadcast::Sender<MarketSnapshot>,
+}
 
 #[tokio::main]
 async fn main() {
@@ -20,6 +36,7 @@ async fn main() {
 
     println!("⚙️ DeX Trading Agent Engine: Starting Live Feed Pipeline...");
 
+    // 1. Initialize Database
     let db_options = SqliteConnectOptions::new()
         .filename("telemetry.db")
         .create_if_missing(true);
@@ -28,7 +45,6 @@ async fn main() {
         .await
         .expect("❌ Database Setup: Failed to initialize SQLite database pool");
 
-    // Create the expanded database table schema supporting all technical indicators
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +62,7 @@ async fn main() {
             macd_signal TEXT,
             macd_hist TEXT,
             adx_14 TEXT,
-            squeeze_on INTEGER, -- 1 for True, 0 for False, NULL if uninitialized
+            squeeze_on INTEGER,
             squeeze_momentum TEXT
         )"
     )
@@ -56,26 +72,75 @@ async fn main() {
 
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
+    // 2. Setup Multi-Consumer Broadcast Channel
+    // This allows run_analysis to broadcast computed snapshots to any open browser tab.
+    let (broadcast_tx, _) = broadcast::channel::<MarketSnapshot>(100);
+    let shared_state = Arc::new(AppState { tx: broadcast_tx.clone() });
+
+    // 3. Configure HTTP Axum Router
+    let app = Router::new()
+        .route("/", get(serve_index))
+        .route("/ws", get(ws_handler))
+        .with_state(shared_state);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .expect("❌ Web Server Setup: Failed to bind port 3000");
+    
+    println!("🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000");
+
+    let server_handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+    });
+
+    // 4. Instantiate local telemetry channels
     let (telemetry_tx, telemetry_rx) = channel::<MarketSnapshot>(100);
 
+    // 5. Spawn Hyperliquid WebSocket Task
     let ws_handle = tokio::spawn(async move {
         websocket::run_hyperliquid_ws(telemetry_tx, "ETH").await;
     });
 
+    // 6. Spawn Ingestion Analysis Task
     let db_pool_clone = db_pool.clone();
     let analysis_handle = tokio::spawn(async move {
-        run_analysis(telemetry_rx, db_pool_clone).await;
+        run_analysis(telemetry_rx, db_pool_clone, broadcast_tx).await;
     });
 
-    let _ = tokio::join!(ws_handle, analysis_handle);
+    // 7. Drive execution tasks concurrently
+    let _ = tokio::join!(ws_handle, analysis_handle, server_handle);
+}
+
+/// Serve index.html dynamically compiled into our static engine binary during compilation
+async fn serve_index() -> impl IntoResponse {
+    Html(include_str!("index.html"))
+}
+
+/// Upgrade incoming HTTP connection to WebSocket protocol
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_ws_socket(socket, state))
+}
+
+/// Handle live WebSocket communication for browsers
+async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>) {
+    let mut rx = state.tx.subscribe();
+    
+    while let Ok(snapshot) = rx.recv().await {
+        if let Ok(json_str) = serde_json::to_string(&snapshot) {
+            if socket.send(AxumMessage::Text(json_str.into())).await.is_err() {
+                break; // Break loop if browser tab closes
+            }
+        }
+    }
 }
 
 /// Core analytical processing engine.
-/// Computes indicators, formats console telemetry tables, and saves values to SQLite.
-async fn run_analysis(mut rx: Receiver<MarketSnapshot>, pool: SqlitePool) {
+async fn run_analysis(mut rx: Receiver<MarketSnapshot>, pool: SqlitePool, broadcast_tx: broadcast::Sender<MarketSnapshot>) {
     println!("📊 Analysis Task: Subscribed to telemetry channel... \n");
     
-    // Initialize state containers for indicators
     let mut ema_10 = Ema::new(10);
     let mut ema_50 = Ema::new(50);
     let mut ema_100 = Ema::new(100);
@@ -87,11 +152,10 @@ async fn run_analysis(mut rx: Receiver<MarketSnapshot>, pool: SqlitePool) {
 
     while let Some(mut snapshot) = rx.recv().await {
         let price = snapshot.mid_price;
-        // High/Low proxies based on immediate bid-ask levels
         let high = snapshot.ask_price;
         let low = snapshot.bid_price;
 
-        // 1. Process and compute mathematical indicators
+        // Process Indicators
         snapshot.ema_10 = Some(ema_10.update(price));
         snapshot.ema_50 = Some(ema_50.update(price));
         snapshot.ema_100 = Some(ema_100.update(price));
@@ -112,7 +176,7 @@ async fn run_analysis(mut rx: Receiver<MarketSnapshot>, pool: SqlitePool) {
             snapshot.squeeze_momentum = Some(val);
         }
 
-        // 2. Format and print the values cleanly to the console
+        // Print outputs to terminal console
         println!("--------------------------------------------------------------------------------");
         println!("📥 [Tick Ingested] Symbol: {} | Mid Price: ${:.4}", snapshot.symbol, price);
         println!(
@@ -139,10 +203,12 @@ async fn run_analysis(mut rx: Receiver<MarketSnapshot>, pool: SqlitePool) {
             opt_dec_str(snapshot.squeeze_momentum)
         );
 
-        // 3. Map Squeeze state boolean to SQLite-compatible integer flag
+        // Broadcast current compiled snapshot to all connected visualizer clients
+        let _ = broadcast_tx.send(snapshot.clone());
+
+        // Save telemetry results in database
         let sqz_on_db_val = snapshot.squeeze_on.map(|b| if b { 1 } else { 0 });
 
-        // 4. Save indicator results securely to the database
         if let Err(e) = sqlx::query(
             "INSERT INTO market_snapshots (
                 timestamp, symbol, mid_price, bid_price, ask_price,

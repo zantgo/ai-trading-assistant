@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeX Trading Engine Dashboard</title>
+    <!-- Tailwind CSS for modern trader dark UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for high-performance canvas plotting -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+
+    <!-- Top Navigation Header -->
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <span class="text-2xl">⚙️</span>
+            <h1 class="text-xl font-bold tracking-wider text-blue-500">DeX TRADING AGENT TELEMETRY</h1>
+        </div>
+        <div id="connection-status" class="px-3 py-1 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20 flex items-center space-x-2">
+            <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+            <span>DISCONNECTED</span>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Layout Grid -->
+    <main class="max-w-[1600px] mx-auto p-6 space-y-6">
+
+        <!-- Top Row Metric KPI Cards -->
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Price Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-2">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">ETH Price</span>
+                <div class="text-3xl font-black tracking-tight text-white" id="price-display">$0.00</div>
+            </div>
+            <!-- RSI Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-2">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">RSI (14)</span>
+                <div class="text-3xl font-black tracking-tight text-white" id="rsi-display">Uninitialized</div>
+            </div>
+            <!-- Squeeze State Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-2">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">Squeeze Status</span>
+                <div class="flex items-center space-x-3">
+                    <span id="squeeze-dot" class="h-4 w-4 rounded-full bg-slate-700"></span>
+                    <span class="text-2xl font-black tracking-tight" id="squeeze-display">Uninitialized</span>
+                </div>
+            </div>
+            <!-- ADX Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-2">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-widest">ADX Trend (14)</span>
+                <div class="text-3xl font-black tracking-tight text-white" id="adx-display">Uninitialized</div>
+            </div>
+        </section>
+
+        <!-- Middle Row: Analytical Charts -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Chart Card (Holds Price and EMAs) -->
+            <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Price &amp; 4 EMAs Trajectory</h3>
+                <div class="h-[400px]">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+            <!-- Right Chart Card (Holds Squeeze Momentum Histogram) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+                <h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Squeeze Momentum Oscillator</h3>
+                <div class="h-[400px]">
+                    <canvas id="momentumChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- JavaScript Data Stream & Visual Rendering Script -->
+    <script>
+        // Max data window length to prevent browser memory leaks
+        const MAX_DATA_POINTS = 50;
+
+        // Dom Elements references
+        const statusEl = document.getElementById('connection-status');
+        const priceEl = document.getElementById('price-display');
+        const rsiEl = document.getElementById('rsi-display');
+        const squeezeEl = document.getElementById('squeeze-display');
+        const squeezeDot = document.getElementById('squeeze-dot');
+        const adxEl = document.getElementById('adx-display');
+
+        // Setup Chart 1: Price + EMAs
+        const priceCtx = document.getElementById('priceChart').getContext('2d');
+        const priceChart = new Chart(priceCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Price', data: [], borderColor: '#3b82f6', borderWidth: 2, tension: 0.1, pointRadius: 0 },
+                    { label: 'EMA 10', data: [], borderColor: '#10b981', borderDash: [4, 4], borderWidth: 1.5, tension: 0.1, pointRadius: 0 },
+                    { label: 'EMA 50', data: [], borderColor: '#f59e0b', borderWidth: 1.5, tension: 0.1, pointRadius: 0 },
+                    { label: 'EMA 100', data: [], borderColor: '#ef4444', borderWidth: 1.5, tension: 0.1, pointRadius: 0 },
+                    { label: 'EMA 200', data: [], borderColor: '#8b5cf6', borderWidth: 1.5, tension: 0.1, pointRadius: 0 },
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { labels: { color: '#f1f5f9' } } }
+            }
+        });
+
+        // Setup Chart 2: Squeeze Momentum Histogram
+        const momCtx = document.getElementById('momentumChart').getContext('2d');
+        const momentumChart = new Chart(momCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{ label: 'Momentum', data: [], backgroundColor: [] }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { labels: { color: '#f1f5f9' } } }
+            }
+        });
+
+        // Initialize Local WebSocket connection pointing back to the server instance
+        function connect() {
+            const wsUri = `ws://${window.location.host}/ws`;
+            console.log(`Connecting to WS server: ${wsUri}`);
+            const ws = new WebSocket(wsUri);
+
+            ws.onopen = () => {
+                statusEl.innerHTML = `
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>LIVE STREAM ACTIVE</span>
+                `;
+                statusEl.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-2";
+            };
+
+            ws.onclose = () => {
+                statusEl.innerHTML = `
+                    <span class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+                    <span>DISCONNECTED</span>
+                `;
+                statusEl.className = "px-3 py-1 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20 flex items-center space-x-2";
+                setTimeout(connect, 3000); // Auto-reconnection attempt
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                // Format price displays
+                const priceNum = parseFloat(data.mid_price);
+                priceEl.innerText = `$${priceNum.toFixed(2)}`;
+
+                // Format RSI displays
+                if (data.rsi_14) {
+                    const rsiNum = parseFloat(data.rsi_14);
+                    rsiEl.innerText = rsiNum.toFixed(2);
+                    if (rsiNum > 70) rsiEl.className = "text-3xl font-black text-red-500";
+                    else if (rsiNum < 30) rsiEl.className = "text-3xl font-black text-emerald-500";
+                    else rsiEl.className = "text-3xl font-black text-white";
+                }
+
+                // Format ADX displays
+                if (data.adx_14) {
+                    const adxNum = parseFloat(data.adx_14);
+                    adxEl.innerText = adxNum.toFixed(2);
+                    if (adxNum > 25) adxEl.className = "text-3xl font-black text-blue-400";
+                    else adxEl.className = "text-3xl font-black text-slate-500";
+                }
+
+                // Format Squeeze Compression displays
+                if (data.squeeze_on !== null) {
+                    if (data.squeeze_on) {
+                        squeezeEl.innerText = "SQUEEZE ON";
+                        squeezeEl.className = "text-2xl font-black text-red-500";
+                        squeezeDot.className = "h-4 w-4 rounded-full bg-red-500 animate-ping";
+                    } else {
+                        squeezeEl.innerText = "SQUEEZE OFF";
+                        squeezeEl.className = "text-2xl font-black text-emerald-500";
+                        squeezeDot.className = "h-4 w-4 rounded-full bg-emerald-500";
+                    }
+                }
+
+                // Update charts data pools
+                const timeLabel = new Date(data.timestamp * 1000).toLocaleTimeString();
+
+                // 1. Price Chart update
+                priceChart.data.labels.push(timeLabel);
+                priceChart.data.datasets[0].data.push(priceNum);
+                priceChart.data.datasets[1].data.push(data.ema_10 ? parseFloat(data.ema_10) : null);
+                priceChart.data.datasets[2].data.push(data.ema_50 ? parseFloat(data.ema_50) : null);
+                priceChart.data.datasets[3].data.push(data.ema_100 ? parseFloat(data.ema_100) : null);
+                priceChart.data.datasets[4].data.push(data.ema_200 ? parseFloat(data.ema_200) : null);
+
+                if (priceChart.data.labels.length > MAX_DATA_POINTS) {
+                    priceChart.data.labels.shift();
+                    priceChart.data.datasets.forEach(d => d.data.shift());
+                }
+                priceChart.update('none'); // Update without heavy transitions to save CPU
+
+                // 2. Momentum Histogram update
+                if (data.squeeze_momentum) {
+                    const momVal = parseFloat(data.squeeze_momentum);
+                    momentumChart.data.labels.push(timeLabel);
+                    momentumChart.data.datasets[0].data.push(momVal);
+
+                    // Squeeze-Momentum Histogram color mapping:
+                    // If squeeze is active, color bars gray. Otherwise, green for positive momentum, red for negative.
+                    let barColor = "#64748b"; // Neutral Gray
+                    if (data.squeeze_on === false) {
+                        barColor = momVal >= 0 ? "#10b981" : "#ef4444"; // Green / Red
+                    }
+                    momentumChart.data.datasets[0].backgroundColor.push(barColor);
+
+                    if (momentumChart.data.labels.length > MAX_DATA_POINTS) {
+                        momentumChart.data.labels.shift();
+                        momentumChart.data.datasets[0].data.shift();
+                        momentumChart.data.datasets[0].backgroundColor.shift();
+                    }
+                    momentumChart.update('none');
+                }
+            };
+        }
+
+        connect();
+    </script>
+</body>
+</html>

@@ -23,8 +23,11 @@ url = "2.5"
 # Process-level Cryptography Provider
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
-# SQL Database Client (added for SQLite telemetry)
+# SQL Database Client
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
+# Web Server & Live Broadcaster (added for visual dashboard)
+axum = { version = "0.7", features = ["ws"] }
 
 # JSON deserialization
 serde_json = "1.0"
