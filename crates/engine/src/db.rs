@@ -98,6 +98,54 @@ pub async fn insert_assistant_record(
     }
 }
 
+pub struct AssistantRecord {
+    pub id: i64,
+    pub created_at: String,
+    pub position: String,
+    pub trend_classification: String,
+    pub indicator_alignment: String,
+    pub recommended_action: String,
+    pub recommendation_rationale: String,
+    pub close_price: String,
+    pub symbol: String,
+}
+
+pub async fn query_assistant_records(pool: &SqlitePool, limit: u32) -> Vec<AssistantRecord> {
+    let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, String, String, String)>(
+        "SELECT id, created_at, position, trend_classification, indicator_alignment,
+                recommended_action, recommendation_rationale, close_price, symbol
+         FROM assistant_records
+         ORDER BY id DESC
+         LIMIT ?1"
+    )
+    .bind(limit as i64)
+    .fetch_all(&*pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(id, created_at, position, trend_classification, indicator_alignment, recommended_action, recommendation_rationale, close_price, symbol)| {
+                AssistantRecord {
+                    id,
+                    created_at,
+                    position,
+                    trend_classification,
+                    indicator_alignment,
+                    recommended_action,
+                    recommendation_rationale,
+                    close_price,
+                    symbol,
+                }
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query assistant records: {}", e);
+            vec![]
+        }
+    }
+}
+
 pub async fn insert_snapshot(pool: &SqlitePool, snapshot: &MarketSnapshot) {
     let sqz_on_db_val = snapshot.squeeze_on.map(|s| if s { 1 } else { 0 });
 

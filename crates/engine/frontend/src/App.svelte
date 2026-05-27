@@ -12,114 +12,43 @@
     import MacdChart from './components/MacdChart.svelte';
     import SqueezeChart from './components/SqueezeChart.svelte';
 
-    const state = getState();
+    const app = getState();
     let ws: WebSocket | null = null;
+    let analysisProgressStep = $state(0);
+        let progressTimer: ReturnType<typeof setInterval> | null = null;
 
-    onMount(async () => {
+    async function fetchAssistantHistory() {
         try {
-            const res = await fetch('/api/config');
-            const config = await res.json();
-
-            state.barDurationSec = config.candles.duration_seconds;
-            state.candleTimeframeLabel = `${config.candles.duration_seconds}s`;
-
-            state.emaFastLabel = `EMA ${config.indicators.ema_fast}`;
-            state.emaMediumLabel = `EMA ${config.indicators.ema_medium}`;
-            state.emaSlowLabel = `EMA ${config.indicators.ema_slow}`;
-            state.emaLongLabel = `EMA ${config.indicators.ema_long}`;
-            state.rsiLabel = `RSI (${config.indicators.rsi_period})`;
-            state.adxLabel = `ADX (${config.indicators.adx_period})`;
-            state.atrLabel = `ATR (${config.indicators.atr_period})`;
-            state.macdLabel = `MACD (${config.indicators.macd_fast}, ${config.indicators.macd_slow}, ${config.indicators.macd_signal})`;
-
-            // Populate settings parameters inside global state
-            state.emaFastVal = config.indicators.ema_fast;
-            state.emaMediumVal = config.indicators.ema_medium;
-            state.emaSlowVal = config.indicators.ema_slow;
-            state.emaLongVal = config.indicators.ema_long;
-            state.rsiPeriodVal = config.indicators.rsi_period;
-            state.macdFastVal = config.indicators.macd_fast;
-            state.macdSlowVal = config.indicators.macd_slow;
-            state.macdSignalVal = config.indicators.macd_signal;
-            state.adxPeriodVal = config.indicators.adx_period;
-            state.atrPeriodVal = config.indicators.atr_period;
-            state.squeezePeriodVal = config.indicators.squeeze_period;
-        } catch (e) {
-            console.error("⚠️ Failed to synchronize dynamic legends from config API, using defaults:", e);
+            const res = await fetch('/api/assistant-records');
+            const data = await res.json();
+            app.assistantHistory = data.records || [];
+            app.historyLatestClose = data.latest_close || '0';
+        } catch (_) {
+            // Silently skip; history is non-critical
         }
-
-        connect();
-    });
-
-    onDestroy(() => {
-        if (ws) ws.close();
-    });
-
-    function connect() {
-        ws = new WebSocket(`ws://${window.location.host}/ws`);
-
-        ws.onopen = () => {
-            state.isConnected = true;
-        };
-
-        ws.onclose = () => {
-            state.isConnected = false;
-            setTimeout(connect, 3000);
-        };
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-
-            const closePrice = data.close ? parseFloat(data.close) : parseFloat(data.mid_price);
-
-            if (data.symbol) state.activeSymbol = data.symbol;
-
-            state.priceText = `$${closePrice.toFixed(2)}`;
-            state.emaFastText = data.ema_fast ? parseFloat(data.ema_fast).toFixed(2) : '--';
-            state.emaMediumText = data.ema_medium ? parseFloat(data.ema_medium).toFixed(2) : '--';
-            state.emaSlowText = data.ema_slow ? parseFloat(data.ema_slow).toFixed(2) : '--';
-            state.emaLongText = data.ema_long ? parseFloat(data.ema_long).toFixed(2) : '--';
-            state.rsiText = data.rsi_14 ? parseFloat(data.rsi_14).toFixed(2) : '--';
-            state.atrText = data.atr_14 ? parseFloat(data.atr_14).toFixed(2) : '--';
-            state.volText = data.volume ? parseFloat(data.volume).toFixed(2) : '--';
-            state.vwapText = data.vwap ? parseFloat(data.vwap).toFixed(2) : '--';
-
-            if (data.adx_14) {
-                state.adxText = parseFloat(data.adx_14).toFixed(2);
-                state.adxPlusText = data.adx_plus ? parseFloat(data.adx_plus).toFixed(2) : '--';
-                state.adxMinusText = data.adx_minus ? parseFloat(data.adx_minus).toFixed(2) : '--';
-            }
-
-            if (data.macd_line) {
-                state.macdLineText = parseFloat(data.macd_line).toFixed(2);
-                state.macdSigText = parseFloat(data.macd_signal).toFixed(2);
-                state.macdHistText = parseFloat(data.macd_hist).toFixed(2);
-            }
-
-	    if (data.squeeze_momentum != null) {
-                state.sqzValText = parseFloat(data.squeeze_momentum).toFixed(4);
-                state.isSqueezeOn = data.squeeze_on;
-                state.sqzStatusText = data.squeeze_on ? 'SQUEEZE ON' : 'SQUEEZE OFF';
-            }
-
-            state.latestSnapshot = data;
-        };
     }
 
     async function requestAnalysis() {
-        state.assistantLoading = true;
-        state.assistantError = null;
-        state.assistantResponse = null;
+        app.assistantLoading = true;
+        app.assistantError = null;
+        app.assistantResponse = null;
+        analysisProgressStep = 0;
+
+        progressTimer = setInterval(() => {
+            if (analysisProgressStep < 2) {
+                analysisProgressStep++;
+            }
+        }, 900);
 
         try {
             const historyRes = await fetch('/api/history');
             const historyData = await historyRes.json();
             const prices: number[] = (historyData.prices || []).map(Number);
 
-            const snap = state.latestSnapshot || {};
+            const snap = app.latestSnapshot || {};
 
             const body = {
-                position: state.currentPosition,
+                position: app.currentPosition,
                 historical_prices: prices,
                 indicators: {
                     rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
@@ -142,11 +71,15 @@
             }
 
             const analysis: AssistantAnalysis = await res.json();
-            state.assistantResponse = analysis;
+            analysisProgressStep = 2;
+            app.assistantResponse = analysis;
+            fetchAssistantHistory();
         } catch (e: any) {
-            state.assistantError = e.message || 'Unknown error during analysis';
+            app.assistantError = e.message || 'Unknown error during analysis';
         } finally {
-            state.assistantLoading = false;
+            if (progressTimer) clearInterval(progressTimer);
+            progressTimer = null;
+            app.assistantLoading = false;
         }
     }
 </script>
@@ -159,65 +92,65 @@
         <main class="dashboard-stack">
             <div class="panel-box pane-price">
                 <div class="absolute-label font-sans">
-                    <span class="price-header">Price: <span>{state.priceText}</span></span>
-                    {#if state.showVwap}
-                        <span class="text-orange-400 font-medium">VWAP: <span>{state.vwapText}</span></span>
+                    <span class="price-header">Price: <span>{app.priceText}</span></span>
+                    {#if app.showVwap}
+                        <span class="text-orange-400 font-medium">VWAP: <span>{app.vwapText}</span></span>
                     {/if}
-                    {#if state.showEmas}
-                        <span class="text-blue-400 font-medium">{state.emaFastLabel}: <span>{state.emaFastText}</span></span>
-                        <span class="text-amber-500 font-medium">{state.emaMediumLabel}: <span>{state.emaMediumText}</span></span>
-                        <span class="text-rose-500 font-medium">{state.emaSlowLabel}: <span>{state.emaSlowText}</span></span>
-                        <span class="text-purple-400 font-medium">{state.emaLongLabel}: <span>{state.emaLongText}</span></span>
+                    {#if app.showEmas}
+                        <span class="text-blue-400 font-medium">{app.emaFastLabel}: <span>{app.emaFastText}</span></span>
+                        <span class="text-amber-500 font-medium">{app.emaMediumLabel}: <span>{app.emaMediumText}</span></span>
+                        <span class="text-rose-500 font-medium">{app.emaSlowLabel}: <span>{app.emaSlowText}</span></span>
+                        <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{app.emaLongText}</span></span>
                     {/if}
                 </div>
                 <PriceChart />
             </div>
 
-            <div class="panel-box pane-vol" class:hidden-pane={!state.showVolume}>
+            <div class="panel-box pane-vol" class:hidden-pane={!app.showVolume}>
                 <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-teal-400 font-bold">Volume: <span>{state.volText}</span></span>
+                    <span class="text-teal-400 font-bold">Volume: <span>{app.volText}</span></span>
                 </div>
                 <VolumeChart />
             </div>
 
-            <div class="panel-box pane-adx" class:hidden-pane={!state.showAdx}>
+            <div class="panel-box pane-adx" class:hidden-pane={!app.showAdx}>
                 <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-yellow-400 font-bold">ADX: <span>{state.adxText}</span></span>
-                    <span class="text-emerald-400 font-medium">+DI: <span>{state.adxPlusText}</span></span>
-                    <span class="text-red-500 font-medium">-DI: <span>{state.adxMinusText}</span></span>
+                    <span class="text-yellow-400 font-bold">ADX: <span>{app.adxText}</span></span>
+                    <span class="text-emerald-400 font-medium">+DI: <span>{app.adxPlusText}</span></span>
+                    <span class="text-red-500 font-medium">-DI: <span>{app.adxMinusText}</span></span>
                 </div>
                 <AdxChart />
             </div>
 
-            <div class="panel-box pane-atr" class:hidden-pane={!state.showAtr}>
+            <div class="panel-box pane-atr" class:hidden-pane={!app.showAtr}>
                 <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-purple-400 font-bold">{state.atrLabel}: <span>{state.atrText}</span></span>
+                    <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{app.atrText}</span></span>
                 </div>
                 <AtrChart />
             </div>
 
-            <div class="panel-box pane-rsi" class:hidden-pane={!state.showRsi}>
+            <div class="panel-box pane-rsi" class:hidden-pane={!app.showRsi}>
                 <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-purple-400">{state.rsiLabel}: <span>{state.rsiText}</span></span>
+                    <span class="text-purple-400">{app.rsiLabel}: <span>{app.rsiText}</span></span>
                 </div>
                 <RsiChart />
             </div>
 
-            <div class="panel-box pane-macd" class:hidden-pane={!state.showMacd}>
+            <div class="panel-box pane-macd" class:hidden-pane={!app.showMacd}>
                 <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-slate-300 font-bold">{state.macdLabel}</span>
-                    <span class="text-blue-400">Line: <span>{state.macdLineText}</span></span>
-                    <span class="text-amber-500">Signal: <span>{state.macdSigText}</span></span>
-                    <span class="text-teal-400">Hist: <span>{state.macdHistText}</span></span>
+                    <span class="text-slate-300 font-bold">{app.macdLabel}</span>
+                    <span class="text-blue-400">Line: <span>{app.macdLineText}</span></span>
+                    <span class="text-amber-500">Signal: <span>{app.macdSigText}</span></span>
+                    <span class="text-teal-400">Hist: <span>{app.macdHistText}</span></span>
                 </div>
                 <MacdChart />
             </div>
 
-            <div class="panel-box pane-squeeze" class:hidden-pane={!state.showSqueeze}>
+            <div class="panel-box pane-squeeze" class:hidden-pane={!app.showSqueeze}>
                 <div class="absolute-label font-sans label-text-xs">
                     <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
-                    <span class="text-emerald-400">Value: <span>{state.sqzValText}</span></span>
-                    <span class={state.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {state.sqzStatusText}</span>
+                    <span class="text-emerald-400">Value: <span>{app.sqzValText}</span></span>
+                    <span class={app.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {app.sqzStatusText}</span>
                 </div>
                 <SqueezeChart />
             </div>
@@ -230,11 +163,11 @@
                 <div class="settings-content">
                     <div class="setting-row">
                         <span class="setting-label">Pair:</span>
-                        <span class="setting-value text-blue-400">{state.activeSymbol}USD</span>
+                        <span class="setting-value text-blue-400">{app.activeSymbol}USD</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">Timeframe:</span>
-                        <span class="setting-value text-blue-400">{state.candleTimeframeLabel} ({state.barDurationSec}s)</span>
+                        <span class="setting-value text-blue-400">{app.candleTimeframeLabel} ({app.barDurationSec}s)</span>
                     </div>
                     
                     <hr class="divider"/>
@@ -242,47 +175,47 @@
                     <h4 class="sub-title">Indicators Parameter Limits</h4>
                     <div class="setting-row">
                         <span class="setting-label">EMA Fast Period:</span>
-                        <span class="setting-value">{state.emaFastVal}</span>
+                        <span class="setting-value">{app.emaFastVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">EMA Medium Period:</span>
-                        <span class="setting-value">{state.emaMediumVal}</span>
+                        <span class="setting-value">{app.emaMediumVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">EMA Slow Period:</span>
-                        <span class="setting-value">{state.emaSlowVal}</span>
+                        <span class="setting-value">{app.emaSlowVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">EMA Long Period:</span>
-                        <span class="setting-value">{state.emaLongVal}</span>
+                        <span class="setting-value">{app.emaLongVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">RSI Lookback Period:</span>
-                        <span class="setting-value">{state.rsiPeriodVal}</span>
+                        <span class="setting-value">{app.rsiPeriodVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">MACD Fast Lookback:</span>
-                        <span class="setting-value">{state.macdFastVal}</span>
+                        <span class="setting-value">{app.macdFastVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">MACD Slow Lookback:</span>
-                        <span class="setting-value">{state.macdSlowVal}</span>
+                        <span class="setting-value">{app.macdSlowVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">MACD Signal Line:</span>
-                        <span class="setting-value">{state.macdSignalVal}</span>
+                        <span class="setting-value">{app.macdSignalVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">ADX Calculation Period:</span>
-                        <span class="setting-value">{state.adxPeriodVal}</span>
+                        <span class="setting-value">{app.adxPeriodVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">ATR Volatility Window:</span>
-                        <span class="setting-value">{state.atrPeriodVal}</span>
+                        <span class="setting-value">{app.atrPeriodVal}</span>
                     </div>
                     <div class="setting-row">
                         <span class="setting-label">Squeeze Wave Period:</span>
-                        <span class="setting-value">{state.squeezePeriodVal}</span>
+                        <span class="setting-value">{app.squeezePeriodVal}</span>
                     </div>
                 </div>
             </div>
@@ -293,52 +226,52 @@
                     <div class="position-selector">
                         <span class="sub-title">Current Position:</span>
                         <label>
-                            <input type="radio" bind:group={state.currentPosition} value="None" /> None
+                            <input type="radio" bind:group={app.currentPosition} value="None" /> None
                         </label>
                         <label>
-                            <input type="radio" bind:group={state.currentPosition} value="Long" /> Long
+                            <input type="radio" bind:group={app.currentPosition} value="Long" /> Long
                         </label>
                         <label>
-                            <input type="radio" bind:group={state.currentPosition} value="Short" /> Short
+                            <input type="radio" bind:group={app.currentPosition} value="Short" /> Short
                         </label>
                     </div>
 
                     <button
                         class="analyze-btn"
                         onclick={requestAnalysis}
-                        disabled={state.assistantLoading}
+                        disabled={app.assistantLoading}
                     >
-                        {#if state.assistantLoading}
+                        {#if app.assistantLoading}
                             Analyzing Market...
                         {:else}
                             Request AI Assistant Analysis
                         {/if}
                     </button>
 
-                    {#if state.assistantLoading}
+                    {#if app.assistantLoading}
                         <div class="loading-indicator">
                             <span class="dot pulse-blue"></span>
                             <span class="status-text">Running sequential analysis...</span>
                         </div>
                         <div class="analysis-progress">
-                            <span class="step active">Trend Check</span>
-                            <span class="step-arrow">→</span>
-                            <span class="step">Indicators</span>
-                            <span class="step-arrow">→</span>
-                            <span class="step">Recommendation</span>
+                            <span class="step" class:active={analysisProgressStep >= 0}>Trend Check</span>
+                            <span class="step-arrow" class:active-arrow={analysisProgressStep >= 1}>→</span>
+                            <span class="step" class:active={analysisProgressStep >= 1}>Indicators</span>
+                            <span class="step-arrow" class:active-arrow={analysisProgressStep >= 2}>→</span>
+                            <span class="step" class:active={analysisProgressStep >= 2}>Recommendation</span>
                         </div>
                     {/if}
 
-                    {#if state.assistantError}
+                    {#if app.assistantError}
                         <div class="error-box">
-                            <span>Failed: {state.assistantError}</span>
+                            <span>Failed: {app.assistantError}</span>
                         </div>
                     {/if}
 
-                    {#if state.assistantResponse && !state.assistantLoading}
-                        {@const resp = state.assistantResponse}
+                    {#if app.assistantResponse && !app.assistantLoading}
+                        {@const resp = app.assistantResponse}
                         <div class="analysis-result">
-                            <div class="result-block">
+                            <div class="result-block reveal" style="animation-delay: 0ms">
                                 <h4 class="result-stage-title">1. Price Action Trend</h4>
                                 <span class="result-badge"
                                     class:badge-up={resp.trend_analysis.classification === 'trending upwards'}
@@ -350,7 +283,7 @@
                                 <p class="result-reasoning">{resp.trend_analysis.structural_reasoning}</p>
                             </div>
 
-                            <div class="result-block">
+                            <div class="result-block reveal" style="animation-delay: 200ms">
                                 <h4 class="result-stage-title">2. Indicator Alignment</h4>
                                 <span class="result-badge"
                                     class:badge-supportive={resp.indicator_alignment.classification === 'supportive'}
@@ -362,16 +295,71 @@
                                 <p class="result-reasoning">{resp.indicator_alignment.observation}</p>
                             </div>
 
-                            <div class="result-block result-action">
+                            <div class="result-block result-action reveal" style="animation-delay: 400ms">
                                 <h4 class="result-stage-title">3. Position Recommendation</h4>
-                                <span class="action-call">{resp.position_recommendation.action}</span>
+                                <span
+                                    class="action-call"
+                                    class:action-green={resp.position_recommendation.action === 'Hold' || resp.position_recommendation.action === 'Open Long'}
+                                    class:action-red={resp.position_recommendation.action === 'Close'}
+                                    class:action-amber={resp.position_recommendation.action === 'Wait' || resp.position_recommendation.action === 'Open Short'}
+                                >
+                                    {resp.position_recommendation.action}
+                                </span>
                                 <p class="result-reasoning">{resp.position_recommendation.rationale}</p>
                             </div>
                         </div>
-                    {:else if !state.assistantLoading && !state.assistantError}
+                    {:else if !app.assistantLoading && !app.assistantError}
                         <p class="signals-placeholder">
                             Select your current position and request an AI market analysis.
                         </p>
+                    {/if}
+                </div>
+            </div>
+
+            <div class="sidebar-section history-box">
+                <h3 class="section-title">ANALYSIS HISTORY</h3>
+                <div class="history-content">
+                    {#if app.assistantHistory.length === 0}
+                        <p class="signals-placeholder">No analysis history recorded yet.</p>
+                    {:else}
+                        <div class="history-table-wrap">
+                            <table class="history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Pos</th>
+                                        <th>Action</th>
+                                        <th>Entry $</th>
+                                        <th>Δ%</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {#each app.assistantHistory as rec}
+                                        {@const recPrice = parseFloat(rec.close_price) || 0}
+                                        {@const latestPrice = parseFloat(app.historyLatestClose) || 0}
+                                        {@const delta = recPrice > 0 ? ((latestPrice - recPrice) / recPrice * 100) : 0}
+                                        <tr>
+                                            <td class="col-time">{rec.created_at.substring(11, 19)}</td>
+                                            <td>{rec.position}</td>
+                                            <td class="col-action"
+                                                class:action-text-green={rec.recommended_action === 'Hold' || rec.recommended_action === 'Open Long'}
+                                                class:action-text-red={rec.recommended_action === 'Close'}
+                                                class:action-text-amber={rec.recommended_action === 'Wait' || rec.recommended_action === 'Open Short'}
+                                            >
+                                                {rec.recommended_action.substring(0, 4)}
+                                            </td>
+                                            <td class="col-price">{rec.close_price.substring(0, 8)}</td>
+                                            <td class="col-delta"
+                                                class:delta-positive={delta > 0}
+                                                class:delta-negative={delta < 0}
+                                            >
+                                                {delta.toFixed(2)}%
+                                            </td>
+                                        </tr>
+                                    {/each}
+                                </tbody>
+                            </table>
+                        </div>
                     {/if}
                 </div>
             </div>
@@ -625,6 +613,10 @@
     .step-arrow {
         color: #4c525e;
         font-size: 9px;
+        transition: color 0.3s;
+    }
+    .step-arrow.active-arrow {
+        color: #3b82f6;
     }
 
     .error-box {
@@ -647,6 +639,10 @@
         border: 1px solid #1e293b;
         border-radius: 6px;
         padding: 10px;
+        opacity: 0;
+    }
+    .result-block.reveal {
+        animation: fadeInUp 0.4s ease forwards;
     }
     .result-block.result-action {
         border-color: #3b82f6;
@@ -689,6 +685,61 @@
         letter-spacing: 0.05em;
         margin-bottom: 4px;
     }
+    .action-green { color: #10b981; }
+    .action-red { color: #ef4444; }
+    .action-amber { color: #f59e0b; }
+
+    /* Analysis History table */
+    .history-box {
+        flex: 0 0 auto;
+        max-height: 240px;
+    }
+    .history-content {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .history-table-wrap {
+        overflow-y: auto;
+        max-height: 190px;
+    }
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 9px;
+        color: #94a3b8;
+    }
+    .history-table thead {
+        position: sticky;
+        top: 0;
+        background-color: #131722;
+    }
+    .history-table th {
+        text-align: left;
+        padding: 3px 2px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid #1e293b;
+    }
+    .history-table td {
+        padding: 3px 2px;
+        border-bottom: 1px solid #0f131c;
+        white-space: nowrap;
+    }
+    .history-table tbody tr:hover {
+        background-color: #1a1f2e;
+    }
+    .col-time { color: #64748b; width: 54px; }
+    .col-action { font-weight: 700; }
+    .col-price { font-family: ui-monospace, monospace; text-align: right; }
+    .col-delta { font-family: ui-monospace, monospace; text-align: right; font-weight: 700; }
+    .action-text-green { color: #10b981; }
+    .action-text-red { color: #ef4444; }
+    .action-text-amber { color: #f59e0b; }
+    .delta-positive { color: #10b981; }
+    .delta-negative { color: #ef4444; }
 
     /* Indicator colors */
     .text-emerald-500 { color: #10b981; }

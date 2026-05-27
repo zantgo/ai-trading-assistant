@@ -39,3 +39,6 @@ serde = { version = "1.0", features = ["derive"] }
 
 # HTTP client for LLM API calls
 reqwest = { version = "0.12", features = ["json"] }
+
+# .env file loader
+dotenvy = "0.15"

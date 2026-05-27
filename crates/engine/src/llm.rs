@@ -94,11 +94,19 @@ pub struct LlmClient {
 }
 
 impl LlmClient {
-    pub fn from_env() -> Option<Self> {
-        let api_key = std::env::var("DEEPSEEK_API_KEY").ok()?;
+    pub fn from_dotenv() -> Result<Self, String> {
+        let api_key = std::env::var("DEEPSEEK_API_KEY")
+            .map_err(|_| "DEEPSEEK_API_KEY not found in .env file. Create a .env file at the project root with: DEEPSEEK_API_KEY=sk-...".to_string())?;
+
+        let api_key = api_key.trim().to_string();
         if api_key.is_empty() {
-            eprintln!("⚠️  LLM: DEEPSEEK_API_KEY is empty. Using heuristic fallback.");
-            return None;
+            return Err("DEEPSEEK_API_KEY is empty in .env file. Set your DeepSeek API key.".to_string());
+        }
+        if !api_key.starts_with("sk-") {
+            return Err(format!(
+                "DEEPSEEK_API_KEY does not look like a valid DeepSeek key (should start with 'sk-'). Got: {}...",
+                &api_key[..api_key.len().min(10)]
+            ));
         }
 
         let base_url = std::env::var("DEEPSEEK_BASE_URL")
@@ -106,11 +114,40 @@ impl LlmClient {
         let model = std::env::var("DEEPSEEK_MODEL")
             .unwrap_or_else(|_| "deepseek-chat".into());
 
-        Some(LlmClient {
+        Ok(LlmClient {
             base_url,
             api_key,
             model,
         })
+    }
+
+    pub async fn validate_key(&self) -> Result<(), String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+        let response = client
+            .get(format!("{}/models", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to reach DeepSeek API: {}", e))?;
+
+        if response.status().is_success() {
+            return Ok(());
+        }
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "<unreadable>".into());
+
+        Err(format!(
+            "DeepSeek API rejected the key (HTTP {}). Verify your DEEPSEEK_API_KEY in .env\nResponse: {}",
+            status, body
+        ))
     }
 
     pub async fn analyze(

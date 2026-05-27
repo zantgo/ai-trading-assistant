@@ -67,6 +67,8 @@ let assistantLoading = $state(false);
 let assistantError = $state<string | null>(null);
 let assistantResponse = $state<AssistantAnalysis | null>(null);
 let historyPrices = $state<number[]>([]);
+let assistantHistory = $state<AssistantHistoryRecord[]>([]);
+let historyLatestClose = $state('0');
 
 export interface TrendAnalysis {
     classification: string;
@@ -87,6 +89,18 @@ export interface AssistantAnalysis {
     trend_analysis: TrendAnalysis;
     indicator_alignment: IndicatorAlignment;
     position_recommendation: PositionRecommendation;
+}
+
+export interface AssistantHistoryRecord {
+    id: number;
+    created_at: string;
+    position: string;
+    trend_classification: string;
+    indicator_alignment: string;
+    recommended_action: string;
+    recommendation_rationale: string;
+    close_price: string;
+    symbol: string;
 }
 
 export function getState() {
@@ -207,5 +221,9 @@ export function getState() {
         set assistantResponse(v: AssistantAnalysis | null) { assistantResponse = v },
         get historyPrices() { return historyPrices },
         set historyPrices(v: number[]) { historyPrices = v },
+        get assistantHistory() { return assistantHistory },
+        set assistantHistory(v: AssistantHistoryRecord[]) { assistantHistory = v },
+        get historyLatestClose() { return historyLatestClose },
+        set historyLatestClose(v: string) { historyLatestClose = v },
     };
 }

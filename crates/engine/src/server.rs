@@ -21,7 +21,7 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub history: Arc<RwLock<VecDeque<Decimal>>>,
     pub pool: SqlitePool,
-    pub llm_client: Option<LlmClient>,
+    pub llm_client: LlmClient,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,11 +72,31 @@ pub struct HistoryResponse {
     pub prices: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AssistantRecordJson {
+    pub id: i64,
+    pub created_at: String,
+    pub position: String,
+    pub trend_classification: String,
+    pub indicator_alignment: String,
+    pub recommended_action: String,
+    pub recommendation_rationale: String,
+    pub close_price: String,
+    pub symbol: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssistantHistoryResponse {
+    pub records: Vec<AssistantRecordJson>,
+    pub latest_close: String,
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/config", get(serve_config))
         .route("/api/history", get(serve_history))
         .route("/api/analyze", post(serve_analyze))
+        .route("/api/assistant-records", get(serve_assistant_records))
         .route("/ws", get(ws_handler))
         .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
         .with_state(state)
@@ -103,40 +123,38 @@ async fn serve_analyze(
     let prices = payload.historical_prices.clone();
     let indicators = &payload.indicators;
 
-    let analysis = match &state.llm_client {
-        Some(client) => match client
-            .analyze(
-                &position,
-                &prices,
-                indicators.rsi,
-                indicators.squeeze_on,
-                indicators.macd_histogram,
-                indicators.adx,
-                indicators.ema_fast,
-                indicators.ema_slow,
-            )
-            .await
-        {
-            Ok(result) => AnalyzeResponse {
-                trend_analysis: TrendAnalysis {
-                    classification: result.trend_analysis.classification,
-                    structural_reasoning: result.trend_analysis.structural_reasoning,
-                },
-                indicator_alignment: IndicatorAlignment {
-                    classification: result.indicator_alignment.classification,
-                    observation: result.indicator_alignment.observation,
-                },
-                position_recommendation: PositionRecommendation {
-                    action: result.position_recommendation.action,
-                    rationale: result.position_recommendation.rationale,
-                },
+    let analysis = match state
+        .llm_client
+        .analyze(
+            &position,
+            &prices,
+            indicators.rsi,
+            indicators.squeeze_on,
+            indicators.macd_histogram,
+            indicators.adx,
+            indicators.ema_fast,
+            indicators.ema_slow,
+        )
+        .await
+    {
+        Ok(result) => AnalyzeResponse {
+            trend_analysis: TrendAnalysis {
+                classification: result.trend_analysis.classification,
+                structural_reasoning: result.trend_analysis.structural_reasoning,
             },
-            Err(e) => {
-                eprintln!("⚠️  LLM analysis failed, falling back to heuristics: {}", e);
-                heuristic_analysis(&position, &prices, indicators)
-            }
+            indicator_alignment: IndicatorAlignment {
+                classification: result.indicator_alignment.classification,
+                observation: result.indicator_alignment.observation,
+            },
+            position_recommendation: PositionRecommendation {
+                action: result.position_recommendation.action,
+                rationale: result.position_recommendation.rationale,
+            },
         },
-        None => heuristic_analysis(&position, &prices, indicators),
+        Err(e) => {
+            eprintln!("⚠️  LLM analysis failed, falling back to heuristics: {}", e);
+            heuristic_analysis(&position, &prices, indicators)
+        }
     };
 
     crate::db::insert_assistant_record(
@@ -307,6 +325,32 @@ fn compute_recommendation(
             }
         }
     }
+}
+
+async fn serve_assistant_records(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let records = crate::db::query_assistant_records(&state.pool, 50).await;
+    let hist = state.history.read().await;
+    let latest_close = hist.back().map(|d| d.to_string()).unwrap_or_else(|| "0".to_string());
+
+    let records_json: Vec<AssistantRecordJson> = records
+        .into_iter()
+        .map(|r| AssistantRecordJson {
+            id: r.id,
+            created_at: r.created_at,
+            position: r.position,
+            trend_classification: r.trend_classification,
+            indicator_alignment: r.indicator_alignment,
+            recommended_action: r.recommended_action,
+            recommendation_rationale: r.recommendation_rationale,
+            close_price: r.close_price,
+            symbol: r.symbol,
+        })
+        .collect();
+
+    Json(AssistantHistoryResponse {
+        records: records_json,
+        latest_close,
+    })
 }
 
 async fn ws_handler(

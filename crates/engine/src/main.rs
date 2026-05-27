@@ -9,6 +9,7 @@ mod llm;
 
 use std::sync::Arc;
 use std::collections::VecDeque;
+use std::process;
 use tokio::sync::mpsc::channel;
 use tokio::sync::{broadcast, RwLock};
 use rust_decimal::Decimal;
@@ -18,14 +19,32 @@ use shared::models::MarketSnapshot;
 async fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
+    if let Err(e) = dotenvy::dotenv() {
+        eprintln!("❌ Failed to load .env file: {}", e);
+        eprintln!("   Create a .env file at the project root with: DEEPSEEK_API_KEY=sk-...");
+        eprintln!("   See .env.example for a template.");
+        process::exit(1);
+    }
+
     println!("⚙️ DeX AI Trading Assistant: Loading Master Configuration...");
     let app_config = Arc::new(config::load_config());
     println!("✅ Configuration Loaded: System configured dynamically.");
 
-    let llm_client = llm::LlmClient::from_env();
-    match &llm_client {
-        Some(_) => println!("🤖 LLM Integration: DeepSeek API client initialized."),
-        None => println!("ℹ️  LLM Integration: No DEEPSEEK_API_KEY found. Using heuristic analysis fallback."),
+    let llm_client = match llm::LlmClient::from_dotenv() {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("❌ LLM Setup Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    println!("🔑 Validating DeepSeek API key...");
+    match llm_client.validate_key().await {
+        Ok(()) => println!("✅ Key validated successfully."),
+        Err(e) => {
+            eprintln!("❌ API Key Validation Failed: {}", e);
+            process::exit(1);
+        }
     }
 
     println!("🗄️  Initializing local SQLite telemetry database...");

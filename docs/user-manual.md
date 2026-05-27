@@ -65,40 +65,52 @@ Changes take effect on restart. The frontend reads settings from the engine via 
 
 ## LLM Setup (DeepSeek)
 
-Set one or more environment variables before starting the engine:
+The engine reads API credentials from a `.env` file at the workspace root. **This file is required** — the engine will refuse to start without a valid key.
+
+### Step 1 — Create `.env`
+
+Copy the template and fill in your key:
+
+```bash
+cp .env.example .env
+# Edit .env with your editor
+```
+
+`.env` contents:
+
+```env
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
+
+# Optional overrides:
+# DEEPSEEK_MODEL=deepseek-chat
+# DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+```
+
+### Step 2 — Get a key
+
+Create one at https://platform.deepseek.com/api_keys
+
+### Environment Variables
 
 | Variable | Required | Default |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | Yes * | *(none)* |
+| `DEEPSEEK_API_KEY` | **Yes** | — |
 | `DEEPSEEK_BASE_URL` | No | `https://api.deepseek.com/v1` |
 | `DEEPSEEK_MODEL` | No | `deepseek-chat` |
 
-\* If `DEEPSEEK_API_KEY` is not set or is empty, the assistant falls back to a local heuristic engine that classifies trends using quartile comparisons. The heuristic is deterministic and has no network dependency.
+All variables go in the `.env` file, one per line. Do **not** export them in your shell — use the `.env` file instead.
 
-**Examples:**
+### Startup validation
 
-```bash
-# Basic usage
-export DEEPSEEK_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
-# Custom model
-export DEEPSEEK_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-export DEEPSEEK_MODEL="deepseek-reasoner"
-
-# Self-hosted / proxy
-export DEEPSEEK_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-export DEEPSEEK_BASE_URL="https://your-proxy.example.com/v1"
-```
-
-The engine prints a startup message confirming whether the LLM client initialized:
+At startup the engine makes a test call to the DeepSeek API to verify the key. If the key is missing, empty, invalid, or rejected by the API, the engine prints an error and exits immediately:
 
 ```
-🤖 LLM Integration: DeepSeek API client initialized.
+❌ Failed to load .env file: ...
+❌ LLM Setup Error: DEEPSEEK_API_KEY not found in .env file...
+❌ API Key Validation Failed: DeepSeek API rejected the key (HTTP 401)...
 ```
-or
-```
-ℹ️  LLM Integration: No DEEPSEEK_API_KEY found. Using heuristic analysis fallback.
-```
+
+The engine will **not** start without a valid key. There is no offline / heuristic-only mode.
 
 ---
 
@@ -114,7 +126,7 @@ Expected output:
 ```
 ⚙️ DeX AI Trading Assistant: Loading Master Configuration...
 ✅ Configuration Loaded: System configured dynamically.
-🤖 LLM Integration: DeepSeek API client initialized.
+🔑 Validating DeepSeek API key... ✅ Key validated successfully.
 🗄️  Initializing local SQLite telemetry database...
 ✅ Database Setup: Connected to local telemetry.db file and verified schema.
 🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000
@@ -210,14 +222,9 @@ The engine sends a structured prompt containing:
 
 DeepSeek performs the multi-stage reasoning and returns valid JSON. The analysis is conversational, adaptive, and considers nuance in the data.
 
-### When using heuristics (no API key)
+### Runtime fallback
 
-The fallback engine uses fixed rules:
-1. **Trend**: Compares average price in the first 25 candles vs. the last 25 candles. A change > ±0.5% is considered trending; otherwise sideways.
-2. **Indicators**: Scores each indicator as supportive or conflicting based on direction relative to the trend.
-3. **Recommendation**: Simple truth table mapping (Position × Trend × Indicator Alignment → Action).
-
-The heuristic is fast, deterministic, and requires no network.
+If the DeepSeek API is temporarily unreachable during an analysis request, the engine falls back to a local heuristic that uses fixed rules (quartile trend comparison, indicator scoring, truth-table recommendation). The response format is identical.
 
 ---
 
@@ -273,10 +280,11 @@ The `POST /api/analyze` request body:
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | Engine panics at startup | Missing `config.toml` | Ensure `config.toml` exists in the workspace root |
+| "Failed to load .env file" | No `.env` file | Copy `.env.example` to `.env` and fill in your key |
+| "DEEPSEEK_API_KEY not found" | `.env` exists but key is commented or missing | Add `DEEPSEEK_API_KEY=sk-...` to `.env` |
+| "API Key Validation Failed (HTTP 401)" | Invalid or expired API key | Check your key at https://platform.deepseek.com/api_keys |
 | Frontend shows blank page | `dist/` not built | Run `npm run build` inside `crates/engine/frontend` |
 | Charts stuck at initial values | No WebSocket connection | Verify engine is running and port 3000 is not blocked |
-| AI Assistant returns heuristic results | `DEEPSEEK_API_KEY` not set | Export the environment variable and restart |
-| "LLM API returned 401" | Invalid API key | Check the key at https://platform.deepseek.com/api_keys |
 | "Failed to parse LLM JSON output" | Model returned non-JSON | Falls back to heuristics automatically; check logs for raw content |
 | Port 3000 already in use | Another process bound to 3000 | Kill the existing process or change the port in `main.rs` |
 

@@ -67,6 +67,7 @@ No tests exist yet. There is no CI, no lint configuration, no rustfmt.toml. When
 - `config.toml` is the single source of truth for indicator periods — both engine and frontend read it (frontend via `/api/config`)
 - The Svelte frontend uses Svelte 5 runes (`$state`, `$effect`) — not Svelte 4 syntax
 - Candle aggregation happens server-side; the broadcast includes both completed candle snapshots and "shadow" (real-time flickering) values
+- The local variable holding `getState()` must NOT be named `state` — it conflicts with the `$state` rune. Use `app` or `store` instead.
 
 ## Implementation Guidelines
 
@@ -90,7 +91,7 @@ When writing code to realize the AI Assistant workflow, adhere to the following 
   </div>
   ```
 - Change the placeholder section inside the `"SIGNALS"` box to handle the structured response of the assistant:
-  - Add an `"Analyze Market with AI"` button.
+  - Add an `"Request AI Assistant Analysis"` button.
   - Create a handler to send a POST request containing:
     1. The selected position (`currentPosition`).
     2. The last 100 historical prices.
