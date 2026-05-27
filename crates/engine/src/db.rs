@@ -48,7 +48,54 @@ pub async fn init_db() -> SqlitePool {
     .await
     .expect("❌ Database Setup: Failed to build schema table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS assistant_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT DEFAULT (datetime('now')),
+            position TEXT NOT NULL,
+            trend_classification TEXT,
+            indicator_alignment TEXT,
+            recommended_action TEXT,
+            recommendation_rationale TEXT,
+            close_price TEXT,
+            symbol TEXT
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build assistant_records table");
+
     pool
+}
+
+pub async fn insert_assistant_record(
+    pool: &SqlitePool,
+    position: &str,
+    trend_classification: &str,
+    indicator_alignment: &str,
+    recommended_action: &str,
+    recommendation_rationale: &str,
+    close_price: &str,
+    symbol: &str,
+) {
+    if let Err(e) = sqlx::query(
+        "INSERT INTO assistant_records (
+            position, trend_classification, indicator_alignment,
+            recommended_action, recommendation_rationale, close_price, symbol
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+    )
+    .bind(position)
+    .bind(trend_classification)
+    .bind(indicator_alignment)
+    .bind(recommended_action)
+    .bind(recommendation_rationale)
+    .bind(close_price)
+    .bind(symbol)
+    .execute(&*pool)
+    .await
+    {
+        eprintln!("⚠️ Database Error: Failed to save assistant record: {}", e);
+    }
 }
 
 pub async fn insert_snapshot(pool: &SqlitePool, snapshot: &MarketSnapshot) {

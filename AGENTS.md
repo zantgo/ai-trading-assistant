@@ -1,5 +1,7 @@
 # AGENTS.md
 
+This project is configured as a Cargo Workspace containing an ingestion daemon and a Svelte 5 trading dashboard. The goal is to act as an **AI Trading Assistant** that helps human operators make structured manual trade decisions.
+
 ## Project overview
 Rust workspace with 2 crates (`shared`, `engine`) and an embedded Svelte 5 frontend.
 
@@ -43,6 +45,8 @@ npm run check        # svelte-check + tsc typecheck
 - Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
 - Config API: `GET /api/config` (returns parsed `config.toml`)
+- History API: `GET /api/history` (returns last 100 close prices)
+- Analysis API: `POST /api/analyze` (accepts position + market data, returns structured assistant response)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid **Testnet** WebSocket (`wss://api.hyperliquid-testnet.xyz/ws`)
 - Static assets served from `crates/engine/frontend/dist`
@@ -63,3 +67,57 @@ No tests exist yet. There is no CI, no lint configuration, no rustfmt.toml. When
 - `config.toml` is the single source of truth for indicator periods — both engine and frontend read it (frontend via `/api/config`)
 - The Svelte frontend uses Svelte 5 runes (`$state`, `$effect`) — not Svelte 4 syntax
 - Candle aggregation happens server-side; the broadcast includes both completed candle snapshots and "shadow" (real-time flickering) values
+
+## Implementation Guidelines
+
+When writing code to realize the AI Assistant workflow, adhere to the following setup instructions:
+
+### 1. Svelte 5 UI Adjustments (`crates/engine/frontend/src/App.svelte`)
+- Locate the sidebar component (`<aside class="sidebar-panel">`).
+- Add a new input block for tracking the current position status:
+  ```svelte
+  <div class="position-selector">
+    <span class="sub-title">Current Position:</span>
+    <label>
+      <input type="radio" bind:group={currentPosition} value="None" /> None
+    </label>
+    <label>
+      <input type="radio" bind:group={currentPosition} value="Long" /> Long
+    </label>
+    <label>
+      <input type="radio" bind:group={currentPosition} value="Short" /> Short
+    </label>
+  </div>
+  ```
+- Change the placeholder section inside the `"SIGNALS"` box to handle the structured response of the assistant:
+  - Add an `"Analyze Market with AI"` button.
+  - Create a handler to send a POST request containing:
+    1. The selected position (`currentPosition`).
+    2. The last 100 historical prices.
+    3. The current state parameters.
+  - Implement a loading state showing progress as the sequential analysis runs (Trend Check -> Indicators -> Recommendation).
+
+### 2. Rust Ingestion Cache (`crates/engine/src/analyzer.rs`)
+- Introduce a sliding window buffer inside the analysis task (e.g., a `VecDeque<Decimal>`) capped at 100 items to store the closing prices of completed candles.
+- Expose this vector via an Axum routing handler (`GET /api/history`).
+
+### 3. Structured Assistant Prompt Template
+When submitting payload parameters to your LLM, supply a system prompt designed to return JSON matching the following schema:
+```json
+{
+  "trend_analysis": {
+    "classification": "trending upwards | trending downwards | sideways",
+    "structural_reasoning": "Brief description of the raw price actions observed in the last 100 steps."
+  },
+  "indicator_alignment": {
+    "classification": "supportive | conflicting | neutral",
+    "observation": "Brief detail on how key variables like Squeeze Momentum, MACD, and RSI match the trend."
+  },
+  "position_recommendation": {
+    "action": "Hold | Close | Wait | Open Long | Open Short",
+    "rationale": "Clear operational reasoning guiding the user on the optimal step given their position context."
+  }
+}
+```
+
+By keeping tasks manual, structured, and strictly advisory, the codebase retains its performance traits without introducing autonomous execution risks.

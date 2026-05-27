@@ -61,6 +61,34 @@ let adxPeriodVal = $state(14);
 let atrPeriodVal = $state(14);
 let squeezePeriodVal = $state(20);
 
+// AI Assistant state
+let currentPosition = $state<'None' | 'Long' | 'Short'>('None');
+let assistantLoading = $state(false);
+let assistantError = $state<string | null>(null);
+let assistantResponse = $state<AssistantAnalysis | null>(null);
+let historyPrices = $state<number[]>([]);
+
+export interface TrendAnalysis {
+    classification: string;
+    structural_reasoning: string;
+}
+
+export interface IndicatorAlignment {
+    classification: string;
+    observation: string;
+}
+
+export interface PositionRecommendation {
+    action: string;
+    rationale: string;
+}
+
+export interface AssistantAnalysis {
+    trend_analysis: TrendAnalysis;
+    indicator_alignment: IndicatorAlignment;
+    position_recommendation: PositionRecommendation;
+}
+
 export function getState() {
     return {
         get isConnected() { return isConnected },
@@ -169,5 +197,15 @@ export function getState() {
         set atrPeriodVal(v: number) { atrPeriodVal = v },
         get squeezePeriodVal() { return squeezePeriodVal },
         set squeezePeriodVal(v: number) { squeezePeriodVal = v },
+        get currentPosition() { return currentPosition },
+        set currentPosition(v: 'None' | 'Long' | 'Short') { currentPosition = v },
+        get assistantLoading() { return assistantLoading },
+        set assistantLoading(v: boolean) { assistantLoading = v },
+        get assistantError() { return assistantError },
+        set assistantError(v: string | null) { assistantError = v },
+        get assistantResponse() { return assistantResponse },
+        set assistantResponse(v: AssistantAnalysis | null) { assistantResponse = v },
+        get historyPrices() { return historyPrices },
+        set historyPrices(v: number[]) { historyPrices = v },
     };
 }

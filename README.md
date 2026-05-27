@@ -1,24 +1,32 @@
-# ⚙️ DeX Trading Agent Engine
+# ⚙️ DeX AI Trading Assistant Dashboard
 
-> **Autonomous AI trading orchestrator and data flywheel for Hyperliquid, engineered in Rust.**
+> **High-performance market telemetry orchestrator and interactive AI decision assistant for Hyperliquid, built in Rust.**
 
-The **DeX Trading Agent Engine** is a high-performance system designed to bridge Large Language Models (LLMs) with decentralized finance. Built on a modular Rust workspace, it captures high-resolution market telemetry, executes AI-driven reasoning, and persists outcomes for continuous model improvement.
+The **DeX AI Trading Assistant** is designed to process high-resolution decentralized finance telemetry and transform raw data into structured, actionable market analysis for human traders. Rather than trading autonomously, it serves as an interactive copilot, running technical indicator analysis in Rust and feeding data on-demand to LLMs via the Model Context Protocol (MCP) to provide structured guidance.
 
-## 🚀 Key Features
-*   **High-Throughput Ingestion:** Async WebSocket engine powered by `Tokio`.
-*   **Data Science Flywheel:** Telemetry pipeline mapping Market State → AI Inference → Execution Outcome.
-*   **Model Context Protocol (MCP):** Exposes live trading tools directly to AI agents.
-*   **Safety-First Design:** Deterministic risk guardrails for automated execution.
-*   **Production-Ready:** Built with Rust for safety, speed, and memory efficiency.
+## 🚀 Core Assistant Workflow
+1. **Live Telemetry & Indicators:** High-frequency WebSocket updates compute EMAs, RSI, Squeeze, MACD, ADX, Bollinger Bands, ATR, and VWAP in Rust.
+2. **On-Demand Assistant Analysis:** A visual interface lets you input your current position state (`None`, `Long`, or `Short`) and request an AI review.
+3. **Structured Sequential AI Logic:** When triggered, the assistant feeds historical price arrays (last 100 intervals) and indicator parameters to the AI model to perform a multi-stage analysis:
+   * **Stage 1 (Price Action Trend):** Categorizes the market trend (`trending upwards`, `trending downwards`, or `sideways`).
+   * **Stage 2 (Indicator Validation):** Matches the trend against the mathematical indicators.
+   * **Stage 3 (Recommendation Engine):** Melds position context and market evaluation to output a deterministic trade action (`Hold`, `Close`, `Wait`, `Open Long`, or `Open Short`).
 
-## 🏗️ Architecture
-The engine is structured as a modular Cargo Workspace:
-- `crates/shared`: Core domain models and trading traits.
-- `crates/engine`: Core trading logic, WebSocket clients, and exchange adapters.
-- `crates/mcp-server`: MCP implementation for LLM integration.
-- `crates/frontend`: Wasm-based visual verification dashboard.
+## 🏗️ Workspace Structure
+- `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines.
+- `crates/engine`: Ingestion engine, WebSocket client, SQLite persistence, and HTTP/WS server serving dashboard assets.
+- `crates/mcp-server` *(Planned Integration)*: MCP adapter translating telemetry history and position context into structured AI prompt parameters.
+
+## 📚 Documentation
+
+| Document | Audience | Description |
+|---|---|---|
+| **[User Manual](docs/user-manual.md)** | End Users | Installation, configuration, LLM setup, dashboard usage, AI assistant workflow, troubleshooting |
+| **[Architecture](docs/architecture.md)** | Developers | System topology, data-flow diagrams, on-demand assistant loop, structured reasoning sequence |
+| **[Project Plan](docs/plan.md)** | Maintainers | Phased execution roadmap with implementation status for each milestone |
+| **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions, implementation guidelines for LLM-based contributors |
 
 ---
 
 ## ⚠️ Disclaimer
-This software is for **research and data science purposes only**. It involves high-risk financial instruments (perpetual futures). Do not trade with real capital until you have extensively tested the system in paper-trading environments.
+This system is an information tool for **research and educational purposes only**. It does not execute trades automatically. All financial execution remains the sole responsibility of the user.

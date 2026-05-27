@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { getState } from './state.svelte';
+    import type { AssistantAnalysis } from './state.svelte';
 
     import Header from './components/Header.svelte';
     import PriceChart from './components/PriceChart.svelte';
@@ -103,6 +104,50 @@
 
             state.latestSnapshot = data;
         };
+    }
+
+    async function requestAnalysis() {
+        state.assistantLoading = true;
+        state.assistantError = null;
+        state.assistantResponse = null;
+
+        try {
+            const historyRes = await fetch('/api/history');
+            const historyData = await historyRes.json();
+            const prices: number[] = (historyData.prices || []).map(Number);
+
+            const snap = state.latestSnapshot || {};
+
+            const body = {
+                position: state.currentPosition,
+                historical_prices: prices,
+                indicators: {
+                    rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
+                    squeeze_on: snap.squeeze_on ?? null,
+                    macd_histogram: snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null,
+                    adx: snap.adx_14 ? parseFloat(String(snap.adx_14)) : null,
+                    ema_fast: snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null,
+                    ema_slow: snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null,
+                },
+            };
+
+            const res = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                throw new Error(`Server returned ${res.status}`);
+            }
+
+            const analysis: AssistantAnalysis = await res.json();
+            state.assistantResponse = analysis;
+        } catch (e: any) {
+            state.assistantError = e.message || 'Unknown error during analysis';
+        } finally {
+            state.assistantLoading = false;
+        }
     }
 </script>
 
@@ -243,15 +288,91 @@
             </div>
 
             <div class="sidebar-section signals-box">
-                <h3 class="section-title">SIGNALS</h3>
+                <h3 class="section-title">AI ASSISTANT</h3>
                 <div class="signals-content">
-                    <p class="signals-placeholder">
-                        (Here in the future we will put the result of a decision based on indicators that will tell us bearish/bullish)
-                    </p>
-                    <div class="signal-indicator">
-                        <span class="dot pulse-blue"></span>
-                        <span class="status-text">Awaiting Agent Decision...</span>
+                    <div class="position-selector">
+                        <span class="sub-title">Current Position:</span>
+                        <label>
+                            <input type="radio" bind:group={state.currentPosition} value="None" /> None
+                        </label>
+                        <label>
+                            <input type="radio" bind:group={state.currentPosition} value="Long" /> Long
+                        </label>
+                        <label>
+                            <input type="radio" bind:group={state.currentPosition} value="Short" /> Short
+                        </label>
                     </div>
+
+                    <button
+                        class="analyze-btn"
+                        onclick={requestAnalysis}
+                        disabled={state.assistantLoading}
+                    >
+                        {#if state.assistantLoading}
+                            Analyzing Market...
+                        {:else}
+                            Request AI Assistant Analysis
+                        {/if}
+                    </button>
+
+                    {#if state.assistantLoading}
+                        <div class="loading-indicator">
+                            <span class="dot pulse-blue"></span>
+                            <span class="status-text">Running sequential analysis...</span>
+                        </div>
+                        <div class="analysis-progress">
+                            <span class="step active">Trend Check</span>
+                            <span class="step-arrow">→</span>
+                            <span class="step">Indicators</span>
+                            <span class="step-arrow">→</span>
+                            <span class="step">Recommendation</span>
+                        </div>
+                    {/if}
+
+                    {#if state.assistantError}
+                        <div class="error-box">
+                            <span>Failed: {state.assistantError}</span>
+                        </div>
+                    {/if}
+
+                    {#if state.assistantResponse && !state.assistantLoading}
+                        {@const resp = state.assistantResponse}
+                        <div class="analysis-result">
+                            <div class="result-block">
+                                <h4 class="result-stage-title">1. Price Action Trend</h4>
+                                <span class="result-badge"
+                                    class:badge-up={resp.trend_analysis.classification === 'trending upwards'}
+                                    class:badge-down={resp.trend_analysis.classification === 'trending downwards'}
+                                    class:badge-side={resp.trend_analysis.classification === 'sideways'}
+                                >
+                                    {resp.trend_analysis.classification}
+                                </span>
+                                <p class="result-reasoning">{resp.trend_analysis.structural_reasoning}</p>
+                            </div>
+
+                            <div class="result-block">
+                                <h4 class="result-stage-title">2. Indicator Alignment</h4>
+                                <span class="result-badge"
+                                    class:badge-supportive={resp.indicator_alignment.classification === 'supportive'}
+                                    class:badge-conflicting={resp.indicator_alignment.classification === 'conflicting'}
+                                    class:badge-neutral={resp.indicator_alignment.classification === 'neutral'}
+                                >
+                                    {resp.indicator_alignment.classification}
+                                </span>
+                                <p class="result-reasoning">{resp.indicator_alignment.observation}</p>
+                            </div>
+
+                            <div class="result-block result-action">
+                                <h4 class="result-stage-title">3. Position Recommendation</h4>
+                                <span class="action-call">{resp.position_recommendation.action}</span>
+                                <p class="result-reasoning">{resp.position_recommendation.rationale}</p>
+                            </div>
+                        </div>
+                    {:else if !state.assistantLoading && !state.assistantError}
+                        <p class="signals-placeholder">
+                            Select your current position and request an AI market analysis.
+                        </p>
+                    {/if}
                 </div>
             </div>
         </aside>
@@ -350,16 +471,6 @@
         line-height: 1.4;
         margin-bottom: 12px;
     }
-    .signal-indicator {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        background-color: rgba(59, 130, 246, 0.05);
-        border: 1px solid rgba(59, 130, 246, 0.15);
-        padding: 8px 12px;
-        border-radius: 6px;
-        margin-top: auto;
-    }
     .pulse-blue {
         background-color: #3b82f6;
         box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
@@ -438,6 +549,146 @@
     }
     .label-text-xs { font-size: 10px; }
     .price-header { font-weight: 700; color: #e2e8f0; }
+
+    /* AI Assistant styles */
+    .position-selector {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+    .position-selector label {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 10px;
+        color: #94a3b8;
+        cursor: pointer;
+    }
+    .position-selector input[type="radio"] {
+        accent-color: #3b82f6;
+        cursor: pointer;
+    }
+
+    .analyze-btn {
+        width: 100%;
+        padding: 8px 12px;
+        background: linear-gradient(135deg, #1e40af, #3b82f6);
+        color: #f1f5f9;
+        border: 1px solid #3b82f6;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: opacity 0.2s, background 0.2s;
+        margin-bottom: 10px;
+    }
+    .analyze-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    }
+    .analyze-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .loading-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background-color: rgba(59, 130, 246, 0.05);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin-bottom: 8px;
+    }
+
+    .analysis-progress {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+    .step {
+        font-size: 9px;
+        font-weight: 600;
+        color: #4c525e;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .step.active {
+        color: #3b82f6;
+    }
+    .step-arrow {
+        color: #4c525e;
+        font-size: 9px;
+    }
+
+    .error-box {
+        background-color: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 10px;
+        color: #ef4444;
+    }
+
+    .analysis-result {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 4px;
+    }
+    .result-block {
+        background-color: #0f131c;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 10px;
+    }
+    .result-block.result-action {
+        border-color: #3b82f6;
+        background-color: rgba(59, 130, 246, 0.05);
+    }
+    .result-stage-title {
+        font-size: 9px;
+        font-weight: 700;
+        color: #64748b;
+        margin: 0 0 4px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .result-badge {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 3px;
+        margin-bottom: 4px;
+    }
+    .badge-up { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .badge-down { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .badge-side { background: rgba(251, 191, 36, 0.15); color: #f59e0b; }
+    .badge-supportive { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .badge-conflicting { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .badge-neutral { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+    .result-reasoning {
+        font-size: 10px;
+        color: #94a3b8;
+        line-height: 1.4;
+        margin: 0;
+    }
+    .action-call {
+        display: block;
+        font-size: 12px;
+        font-weight: 800;
+        color: #3b82f6;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
 
     /* Indicator colors */
     .text-emerald-500 { color: #10b981; }

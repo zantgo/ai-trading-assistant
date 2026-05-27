@@ -1,6 +1,7 @@
 use std::sync::Arc;
+use std::collections::VecDeque;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use sqlx::SqlitePool;
 use rust_decimal::Decimal;
 
@@ -17,6 +18,7 @@ pub async fn run(
     pool: SqlitePool,
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
     config: Arc<AppConfig>,
+    history: Arc<RwLock<VecDeque<Decimal>>>,
 ) {
     println!("📊 Analysis Task: Subscribed to telemetry channel... \n");
 
@@ -136,6 +138,14 @@ pub async fn run(
                     };
 
                     db::insert_snapshot(&pool, &closed_snapshot).await;
+
+                    {
+                        let mut hist = history.write().await;
+                        hist.push_back(candle.close);
+                        if hist.len() > 100 {
+                            hist.pop_front();
+                        }
+                    }
 
                     candle.reset_to(rounded_time, tick.mid_price, tick_vol);
                 } else {
