@@ -9,7 +9,7 @@ use axum::{
     Router, Json,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, watch};
 use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use rust_decimal::Decimal;
@@ -23,6 +23,7 @@ pub struct AppState {
     pub history: Arc<RwLock<VecDeque<Decimal>>>,
     pub pool: SqlitePool,
     pub llm_client: LlmClient,
+    pub symbol_tx: watch::Sender<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +126,14 @@ async fn update_config(
                 eprintln!("❌ Database/Config Error: Failed to write configuration updates to config.toml: {}", e);
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist configuration file").into_response();
             }
+            let _ = state.symbol_tx.send_if_modified(|current| {
+                if *current != payload.symbol {
+                    *current = payload.symbol.clone();
+                    true
+                } else {
+                    false
+                }
+            });
             *state.config.write().await = payload;
             println!("✅ Configuration Updated: successfully synchronized config.toml dynamically.");
             (axum::http::StatusCode::OK, "Configuration successfully saved. Restart recommended for full indicator parameter re-initialization.").into_response()

@@ -37,6 +37,7 @@ pub async fn run(
     let mut atr_standalone = Atr::new(init_config.indicators.atr_period);
 
     let mut active_indicators = init_config.indicators.clone();
+    let mut active_symbol = init_config.symbol.clone();
 
     let mut candle = CandleBuilder::new();
 
@@ -47,6 +48,32 @@ pub async fn run(
     while let Some(tick) = rx.recv().await {
         // Read live config — picks up changes from update_config without restart
         let config = config_lock.read().await.clone();
+
+        // Full state reset when the trading pair changes
+        if config.symbol != active_symbol {
+            println!("🔄 Analysis Task: Pair changed from {} to {}, resetting all indicator state...", active_symbol, config.symbol);
+            ema_fast = Ema::new(config.indicators.ema_fast);
+            ema_medium = Ema::new(config.indicators.ema_medium);
+            ema_slow = Ema::new(config.indicators.ema_slow);
+            ema_long = Ema::new(config.indicators.ema_long);
+            rsi_14 = Rsi::new(config.indicators.rsi_period);
+            macd = Macd::new();
+            adx_14 = Adx::new(config.indicators.adx_period);
+            sqz_mom = SqueezeMomentum::new(config.indicators.squeeze_period);
+            bollinger = BollingerBands::new();
+            atr_standalone = Atr::new(config.indicators.atr_period);
+            active_indicators = config.indicators.clone();
+            candle = CandleBuilder::new();
+            vwap_sum_tp_vol = Decimal::ZERO;
+            vwap_sum_vol = Decimal::ZERO;
+            last_day_index = None;
+            {
+                let mut hist = history.write().await;
+                hist.clear();
+            }
+            active_symbol = config.symbol.clone();
+            continue;
+        }
 
         // Reinitialize indicators if periods changed
         if config.indicators != active_indicators {

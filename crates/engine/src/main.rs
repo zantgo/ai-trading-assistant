@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::collections::VecDeque;
 use std::process;
 use tokio::sync::mpsc::channel;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 use rust_decimal::Decimal;
 use shared::models::MarketSnapshot;
 
@@ -54,6 +54,8 @@ async fn main() {
     let history_buffer: Arc<RwLock<VecDeque<Decimal>>> =
         Arc::new(RwLock::new(VecDeque::with_capacity(100)));
 
+    let (symbol_tx, symbol_rx) = watch::channel(app_config.symbol.clone());
+
     let (broadcast_tx, _) = broadcast::channel::<MarketSnapshot>(100);
     let app_state = Arc::new(server::AppState {
         tx: broadcast_tx.clone(),
@@ -61,6 +63,7 @@ async fn main() {
         history: history_buffer.clone(),
         pool: db_pool.clone(),
         llm_client,
+        symbol_tx,
     });
 
     let analyzer_config = app_state.config.clone();
@@ -79,9 +82,8 @@ async fn main() {
 
     let (telemetry_tx, telemetry_rx) = channel::<MarketSnapshot>(100);
 
-    let symbol_sub = app_config.symbol.clone();
     let ws_handle = tokio::spawn(async move {
-        websocket::run_hyperliquid_ws(telemetry_tx, &symbol_sub).await;
+        websocket::run_hyperliquid_ws(telemetry_tx, symbol_rx).await;
     });
 
     let analysis_handle = tokio::spawn(async move {
