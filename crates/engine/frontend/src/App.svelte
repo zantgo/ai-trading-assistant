@@ -21,7 +21,7 @@
     // Descargar parámetros de configuración desde el backend
     async function fetchConfig() {
         try {
-            const res = await fetch('/api/config');
+            const res = await fetch(`/api/config?_=${Date.now()}`);
             if (!res.ok) return;
             const config = await res.json();
             
@@ -38,8 +38,8 @@
             app.adxPeriodVal = config.indicators.adx_period;
             app.atrPeriodVal = config.indicators.atr_period;
             app.squeezePeriodVal = config.indicators.squeeze_period;
-        } catch (_) {
-            // Silencioso en caso de error de red inicial
+        } catch (e) {
+            console.error('Failed to fetch config from server:', e);
         }
     }
 

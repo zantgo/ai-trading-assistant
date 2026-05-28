@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use axum::{
     extract::{State, WebSocketUpgrade},
     extract::ws::{WebSocket, Message as AxumMessage},
+    http::header,
     response::{IntoResponse, Redirect},
     routing::{get, post},
     Router, Json,
@@ -18,7 +19,7 @@ use crate::llm::LlmClient;
 
 pub struct AppState {
     pub tx: tokio::sync::broadcast::Sender<MarketSnapshot>,
-    pub config: Arc<AppConfig>,
+    pub config: Arc<RwLock<AppConfig>>,
     pub history: Arc<RwLock<VecDeque<Decimal>>>,
     pub pool: SqlitePool,
     pub llm_client: LlmClient,
@@ -104,11 +105,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 }
 
 async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    axum::Json(state.config.clone())
+    let current_config = state.config.read().await.clone();
+    let json = axum::Json(current_config);
+    let mut response = json.into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+    );
+    response
 }
 
 async fn update_config(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<AppConfig>,
 ) -> impl IntoResponse {
     match toml::to_string_pretty(&payload) {
@@ -117,6 +125,7 @@ async fn update_config(
                 eprintln!("❌ Database/Config Error: Failed to write configuration updates to config.toml: {}", e);
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist configuration file").into_response();
             }
+            *state.config.write().await = payload;
             println!("✅ Configuration Updated: successfully synchronized config.toml dynamically.");
             (axum::http::StatusCode::OK, "Configuration successfully saved. Restart recommended for full indicator parameter re-initialization.").into_response()
         }
@@ -186,7 +195,7 @@ async fn serve_analyze(
         &analysis.position_recommendation.action,
         &analysis.position_recommendation.rationale,
         &last_close,
-        &state.config.symbol,
+        &state.config.read().await.symbol,
     )
     .await;
 

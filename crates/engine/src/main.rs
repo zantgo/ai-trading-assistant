@@ -57,11 +57,13 @@ async fn main() {
     let (broadcast_tx, _) = broadcast::channel::<MarketSnapshot>(100);
     let app_state = Arc::new(server::AppState {
         tx: broadcast_tx.clone(),
-        config: app_config.clone(),
+        config: Arc::new(RwLock::new((*app_config).clone())),
         history: history_buffer.clone(),
         pool: db_pool.clone(),
         llm_client,
     });
+
+    let analyzer_config = app_state.config.clone();
 
     let app = server::build_router(app_state);
 
@@ -83,7 +85,7 @@ async fn main() {
     });
 
     let analysis_handle = tokio::spawn(async move {
-        analyzer::run(telemetry_rx, db_pool, broadcast_tx, app_config, history_buffer).await;
+        analyzer::run(telemetry_rx, db_pool, broadcast_tx, analyzer_config, history_buffer).await;
     });
 
     let _ = tokio::join!(ws_handle, analysis_handle, server_handle);

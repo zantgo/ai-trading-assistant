@@ -17,22 +17,26 @@ pub async fn run(
     mut rx: Receiver<MarketSnapshot>,
     pool: SqlitePool,
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
-    config: Arc<AppConfig>,
+    config_lock: Arc<RwLock<AppConfig>>,
     history: Arc<RwLock<VecDeque<Decimal>>>,
 ) {
     println!("📊 Analysis Task: Subscribed to telemetry channel... \n");
 
-    let mut ema_fast = Ema::new(config.indicators.ema_fast);
-    let mut ema_medium = Ema::new(config.indicators.ema_medium);
-    let mut ema_slow = Ema::new(config.indicators.ema_slow);
-    let mut ema_long = Ema::new(config.indicators.ema_long);
-    let mut rsi_14 = Rsi::new(config.indicators.rsi_period);
+    let init_config = config_lock.read().await.clone();
+
+    let mut ema_fast = Ema::new(init_config.indicators.ema_fast);
+    let mut ema_medium = Ema::new(init_config.indicators.ema_medium);
+    let mut ema_slow = Ema::new(init_config.indicators.ema_slow);
+    let mut ema_long = Ema::new(init_config.indicators.ema_long);
+    let mut rsi_14 = Rsi::new(init_config.indicators.rsi_period);
 
     let mut macd = Macd::new();
-    let mut adx_14 = Adx::new(config.indicators.adx_period);
-    let mut sqz_mom = SqueezeMomentum::new(config.indicators.squeeze_period);
+    let mut adx_14 = Adx::new(init_config.indicators.adx_period);
+    let mut sqz_mom = SqueezeMomentum::new(init_config.indicators.squeeze_period);
     let mut bollinger = BollingerBands::new();
-    let mut atr_standalone = Atr::new(config.indicators.atr_period);
+    let mut atr_standalone = Atr::new(init_config.indicators.atr_period);
+
+    let mut active_indicators = init_config.indicators.clone();
 
     let mut candle = CandleBuilder::new();
 
@@ -41,6 +45,22 @@ pub async fn run(
     let mut last_day_index: Option<u64> = None;
 
     while let Some(tick) = rx.recv().await {
+        // Read live config — picks up changes from update_config without restart
+        let config = config_lock.read().await.clone();
+
+        // Reinitialize indicators if periods changed
+        if config.indicators != active_indicators {
+            ema_fast = Ema::new(config.indicators.ema_fast);
+            ema_medium = Ema::new(config.indicators.ema_medium);
+            ema_slow = Ema::new(config.indicators.ema_slow);
+            ema_long = Ema::new(config.indicators.ema_long);
+            rsi_14 = Rsi::new(config.indicators.rsi_period);
+            adx_14 = Adx::new(config.indicators.adx_period);
+            sqz_mom = SqueezeMomentum::new(config.indicators.squeeze_period);
+            atr_standalone = Atr::new(config.indicators.atr_period);
+            active_indicators = config.indicators.clone();
+        }
+
         // FAST PATH: Real-Time Risk Engine
         risk::check(&tick);
 
