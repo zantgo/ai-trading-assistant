@@ -77,8 +77,9 @@ async fn main() {
 
     let (telemetry_tx, telemetry_rx) = channel::<MarketSnapshot>(100);
 
+    let symbol_sub = app_config.symbol.clone();
     let ws_handle = tokio::spawn(async move {
-        websocket::run_hyperliquid_ws(telemetry_tx, "ETH").await;
+        websocket::run_hyperliquid_ws(telemetry_tx, &symbol_sub).await;
     });
 
     let analysis_handle = tokio::spawn(async move {

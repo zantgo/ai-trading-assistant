@@ -2,8 +2,12 @@
     import { getState } from '../state.svelte';
     const app = getState();
 
+    let validationError = $state<string | null>(null);
+
+    let tfValue = $state(5);
+    let tfUnit = $state<'seconds' | 'minutes' | 'hours'>('seconds');
+
     let draftSymbol = $state('');
-    let draftDuration = $state(5);
     let draftEmaFast = $state(10);
     let draftEmaMedium = $state(50);
     let draftEmaSlow = $state(100);
@@ -16,10 +20,21 @@
     let draftAtrPeriod = $state(14);
     let draftSqueezePeriod = $state(20);
 
+    let draftShowEmas = $state(true);
+    let draftShowBb = $state(true);
+    let draftShowVwap = $state(true);
+    let draftShowVolume = $state(true);
+    let draftShowAdx = $state(true);
+    let draftShowAtr = $state(true);
+    let draftShowRsi = $state(true);
+    let draftShowMacd = $state(true);
+    let draftShowSqueeze = $state(true);
+
     $effect(() => {
         if (app.showSettingsPanel) {
+            validationError = null;
+
             draftSymbol = app.activeSymbol;
-            draftDuration = app.barDurationSec;
             draftEmaFast = app.emaFastVal;
             draftEmaMedium = app.emaMediumVal;
             draftEmaSlow = app.emaSlowVal;
@@ -31,60 +46,150 @@
             draftAdxPeriod = app.adxPeriodVal;
             draftAtrPeriod = app.atrPeriodVal;
             draftSqueezePeriod = app.squeezePeriodVal;
+
+            const duration = app.barDurationSec;
+            if (duration % 3600 === 0) {
+                tfValue = duration / 3600;
+                tfUnit = 'hours';
+            } else if (duration % 60 === 0) {
+                tfValue = duration / 60;
+                tfUnit = 'minutes';
+            } else {
+                tfValue = duration;
+                tfUnit = 'seconds';
+            }
+
+            draftShowEmas = app.showEmas;
+            draftShowBb = app.showBb;
+            draftShowVwap = app.showVwap;
+            draftShowVolume = app.showVolume;
+            draftShowAdx = app.showAdx;
+            draftShowAtr = app.showAtr;
+            draftShowRsi = app.showRsi;
+            draftShowMacd = app.showMacd;
+            draftShowSqueeze = app.showSqueeze;
         }
     });
+
+    let draftDuration = $derived.by(() => {
+        const val = Number(tfValue) || 1;
+        if (tfUnit === 'hours') return val * 3600;
+        if (tfUnit === 'minutes') return val * 60;
+        return val;
+    });
+
+    let isTechnicalChanged = $derived(
+        draftSymbol.trim().toUpperCase() !== app.activeSymbol ||
+        draftDuration !== app.barDurationSec ||
+        draftEmaFast !== app.emaFastVal ||
+        draftEmaMedium !== app.emaMediumVal ||
+        draftEmaSlow !== app.emaSlowVal ||
+        draftEmaLong !== app.emaLongVal ||
+        draftRsiPeriod !== app.rsiPeriodVal ||
+        draftMacdFast !== app.macdFastVal ||
+        draftMacdSlow !== app.macdSlowVal ||
+        draftMacdSignal !== app.macdSignalVal ||
+        draftAdxPeriod !== app.adxPeriodVal ||
+        draftAtrPeriod !== app.atrPeriodVal ||
+        draftSqueezePeriod !== app.squeezePeriodVal
+    );
+
+    let isVisualChanged = $derived(
+        draftShowEmas !== app.showEmas ||
+        draftShowBb !== app.showBb ||
+        draftShowVwap !== app.showVwap ||
+        draftShowVolume !== app.showVolume ||
+        draftShowAdx !== app.showAdx ||
+        draftShowAtr !== app.showAtr ||
+        draftShowRsi !== app.showRsi ||
+        draftShowMacd !== app.showMacd ||
+        draftShowSqueeze !== app.showSqueeze
+    );
+
+    let isChanged = $derived(isTechnicalChanged || isVisualChanged);
 
     const closePanel = () => {
         app.showSettingsPanel = false;
     };
 
-    const applyTechnicalChanges = async () => {
-        app.activeSymbol = draftSymbol;
-        app.barDurationSec = draftDuration;
-        app.emaFastVal = draftEmaFast;
-        app.emaMediumVal = draftEmaMedium;
-        app.emaSlowVal = draftEmaSlow;
-        app.emaLongVal = draftEmaLong;
-        app.rsiPeriodVal = draftRsiPeriod;
-        app.macdFastVal = draftMacdFast;
-        app.macdSlowVal = draftMacdSlow;
-        app.macdSignalVal = draftMacdSignal;
-        app.adxPeriodVal = draftAdxPeriod;
-        app.atrPeriodVal = draftAtrPeriod;
-        app.squeezePeriodVal = draftSqueezePeriod;
+    const applyVisualsOnly = () => {
+        app.showEmas = draftShowEmas;
+        app.showBb = draftShowBb;
+        app.showVwap = draftShowVwap;
+        app.showVolume = draftShowVolume;
+        app.showAdx = draftShowAdx;
+        app.showAtr = draftShowAtr;
+        app.showRsi = draftShowRsi;
+        app.showMacd = draftShowMacd;
+        app.showSqueeze = draftShowSqueeze;
+    };
 
-        const body = {
-            candles: {
-                duration_seconds: Number(draftDuration)
-            },
-            indicators: {
-                ema_fast: Number(draftEmaFast),
-                ema_medium: Number(draftEmaMedium),
-                ema_slow: Number(draftEmaSlow),
-                ema_long: Number(draftEmaLong),
-                rsi_period: Number(draftRsiPeriod),
-                macd_fast: Number(draftMacdFast),
-                macd_slow: Number(draftMacdSlow),
-                macd_signal: Number(draftMacdSignal),
-                adx_period: Number(draftAdxPeriod),
-                atr_period: Number(draftAtrPeriod),
-                squeeze_period: Number(draftSqueezePeriod)
-            }
-        };
+    const applyChanges = async () => {
+        validationError = null;
 
-        try {
-            const res = await fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            if (!res.ok) throw new Error('API server rejected config save');
-            console.log("✏️ Config successfully persisted on backend.");
-        } catch (err) {
-            console.error("❌ Failed to push config to backend server:", err);
+        const cleanedSymbol = draftSymbol.trim().toUpperCase();
+        const tickerRegex = /^[A-Z0-9]{2,10}$/;
+        if (!tickerRegex.test(cleanedSymbol)) {
+            validationError = "Invalid Pair Name. Ticker must be alphanumeric and 2-10 characters (e.g. ETH, BTC, HYPE).";
+            return;
         }
 
-        closePanel();
+        if (isTechnicalChanged) {
+            const body = {
+                symbol: cleanedSymbol,
+                candles: {
+                    duration_seconds: Number(draftDuration)
+                },
+                indicators: {
+                    ema_fast: Number(draftEmaFast),
+                    ema_medium: Number(draftEmaMedium),
+                    ema_slow: Number(draftEmaSlow),
+                    ema_long: Number(draftEmaLong),
+                    rsi_period: Number(draftRsiPeriod),
+                    macd_fast: Number(draftMacdFast),
+                    macd_slow: Number(draftMacdSlow),
+                    macd_signal: Number(draftMacdSignal),
+                    adx_period: Number(draftAdxPeriod),
+                    atr_period: Number(draftAtrPeriod),
+                    squeeze_period: Number(draftSqueezePeriod)
+                }
+            };
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error('API server rejected config save');
+
+                app.activeSymbol = cleanedSymbol;
+                app.barDurationSec = draftDuration;
+                app.emaFastVal = draftEmaFast;
+                app.emaMediumVal = draftEmaMedium;
+                app.emaSlowVal = draftEmaSlow;
+                app.emaLongVal = draftEmaLong;
+                app.rsiPeriodVal = draftRsiPeriod;
+                app.macdFastVal = draftMacdFast;
+                app.macdSlowVal = draftMacdSlow;
+                app.macdSignalVal = draftMacdSignal;
+                app.adxPeriodVal = draftAdxPeriod;
+                app.atrPeriodVal = draftAtrPeriod;
+                app.squeezePeriodVal = draftSqueezePeriod;
+
+                applyVisualsOnly();
+
+                closePanel();
+
+                window.location.reload();
+            } catch (err) {
+                validationError = "Save Failed: Unable to contact engine API to write changes.";
+                console.error(err);
+            }
+        } else if (isVisualChanged) {
+            applyVisualsOnly();
+            closePanel();
+        }
     };
 </script>
 
@@ -107,13 +212,13 @@
             <div class="setting-group-box">
                 <span class="selectors-label">Chart Overlays</span>
                 <div class="toggle-grid">
-                    <button class="selector-btn" class:active={app.showEmas} onclick={() => app.showEmas = !app.showEmas}>
+                    <button class="selector-btn" class:active={draftShowEmas} onclick={() => draftShowEmas = !draftShowEmas}>
                         EMAs
                     </button>
-                    <button class="selector-btn" class:active={app.showBb} onclick={() => app.showBb = !app.showBb}>
+                    <button class="selector-btn" class:active={draftShowBb} onclick={() => draftShowBb = !draftShowBb}>
                         BB
                     </button>
-                    <button class="selector-btn" class:active={app.showVwap} onclick={() => app.showVwap = !app.showVwap}>
+                    <button class="selector-btn" class:active={draftShowVwap} onclick={() => draftShowVwap = !draftShowVwap}>
                         VWAP
                     </button>
                 </div>
@@ -122,22 +227,22 @@
             <div class="setting-group-box">
                 <span class="selectors-label">Indicators Panels</span>
                 <div class="toggle-grid">
-                    <button class="selector-btn" class:active={app.showVolume} onclick={() => app.showVolume = !app.showVolume}>
+                    <button class="selector-btn" class:active={draftShowVolume} onclick={() => draftShowVolume = !draftShowVolume}>
                         Volume
                     </button>
-                    <button class="selector-btn" class:active={app.showAdx} onclick={() => app.showAdx = !app.showAdx}>
+                    <button class="selector-btn" class:active={draftShowAdx} onclick={() => draftShowAdx = !draftShowAdx}>
                         ADX
                     </button>
-                    <button class="selector-btn" class:active={app.showAtr} onclick={() => app.showAtr = !app.showAtr}>
+                    <button class="selector-btn" class:active={draftShowAtr} onclick={() => draftShowAtr = !draftShowAtr}>
                         ATR
                     </button>
-                    <button class="selector-btn" class:active={app.showRsi} onclick={() => app.showRsi = !app.showRsi}>
+                    <button class="selector-btn" class:active={draftShowRsi} onclick={() => draftShowRsi = !draftShowRsi}>
                         RSI
                     </button>
-                    <button class="selector-btn" class:active={app.showMacd} onclick={() => app.showMacd = !app.showMacd}>
+                    <button class="selector-btn" class:active={draftShowMacd} onclick={() => draftShowMacd = !draftShowMacd}>
                         MACD
                     </button>
-                    <button class="selector-btn" class:active={app.showSqueeze} onclick={() => app.showSqueeze = !app.showSqueeze}>
+                    <button class="selector-btn" class:active={draftShowSqueeze} onclick={() => draftShowSqueeze = !draftShowSqueeze}>
                         Squeeze
                     </button>
                 </div>
@@ -154,8 +259,15 @@
                 </div>
 
                 <div class="input-row">
-                    <label for="tf">Timeframe (sec):</label>
-                    <input id="tf" type="number" bind:value={draftDuration} min="1" />
+                    <label for="tf">Timeframe:</label>
+                    <div class="tf-split-group">
+                        <input id="tf" type="number" bind:value={tfValue} min="1" class="tf-number-input" />
+                        <select bind:value={tfUnit} class="tf-unit-select">
+                            <option value="seconds">Seconds</option>
+                            <option value="minutes">Minutes</option>
+                            <option value="hours">Hours</option>
+                        </select>
+                    </div>
                 </div>
 
                 <hr class="section-divider" />
@@ -208,9 +320,23 @@
         </div>
     </div>
 
+    {#if validationError}
+        <div class="validation-error-box">
+            {validationError}
+        </div>
+    {/if}
+
     <div class="panel-footer">
         <button class="action-btn cancel-btn" onclick={closePanel}>Cancel</button>
-        <button class="action-btn apply-btn" onclick={applyTechnicalChanges}>Apply Settings</button>
+        <button 
+            class="action-btn apply-btn" 
+            class:btn-active={isChanged} 
+            class:btn-inactive={!isChanged} 
+            disabled={!isChanged}
+            onclick={applyChanges}
+        >
+            Apply Settings
+        </button>
     </div>
 </div>
 
@@ -381,6 +507,40 @@
         border-top: 1px solid #1e293b;
         margin: 6px 0;
     }
+    .tf-split-group {
+        display: flex;
+        gap: 4px;
+        width: 140px;
+    }
+    .tf-number-input {
+        width: 50px !important;
+    }
+    .tf-unit-select {
+        background-color: #171b26;
+        border: 1px solid #2a2e39;
+        color: #cbd5e1;
+        font-size: 10px;
+        font-weight: bold;
+        padding: 2px 4px;
+        border-radius: 4px;
+        flex: 1;
+        outline: none;
+        cursor: pointer;
+    }
+    .tf-unit-select:focus {
+        border-color: #3b82f6;
+    }
+    .validation-error-box {
+        background-color: rgba(239, 83, 80, 0.1);
+        border: 1px solid #ef5350;
+        border-radius: 6px;
+        padding: 10px;
+        margin: 0 20px 10px 20px;
+        font-size: 10px;
+        color: #ef5350;
+        font-weight: 600;
+        line-height: 1.4;
+    }
     .panel-footer {
         padding: 16px 20px;
         border-top: 1px solid #1e293b;
@@ -395,7 +555,7 @@
         font-weight: 800;
         text-transform: uppercase;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: all 0.25s ease-in-out;
         text-align: center;
     }
     .cancel-btn {
@@ -407,12 +567,20 @@
         border-color: #ef5350;
         color: #ef5350;
     }
-    .apply-btn {
-        background: linear-gradient(135deg, #1e40af, #3b82f6);
-        border: 1px solid #3b82f6;
-        color: #f1f5f9;
+    .btn-inactive {
+        background: #2a2e39 !important;
+        border: 1px solid #1e293b !important;
+        color: #4c525e !important;
+        cursor: not-allowed !important;
     }
-    .apply-btn:hover {
-        background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    .btn-active {
+        background: linear-gradient(135deg, #1e40af, #3b82f6) !important;
+        border: 1px solid #3b82f6 !important;
+        color: #f1f5f9 !important;
+        cursor: pointer !important;
+        box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+    }
+    .btn-active:hover {
+        background: linear-gradient(135deg, #1e3a8a, #2563eb) !important;
     }
 </style>

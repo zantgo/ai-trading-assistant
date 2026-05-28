@@ -22,6 +22,7 @@ pub struct IndicatorsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    pub symbol: String,
     pub candles: CandlesConfig,
     pub indicators: IndicatorsConfig,
 }

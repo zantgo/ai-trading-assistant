@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use axum::{
     extract::{State, WebSocketUpgrade},
     extract::ws::{WebSocket, Message as AxumMessage},
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, post},
     Router, Json,
 };
@@ -98,6 +98,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/analyze", post(serve_analyze))
         .route("/api/assistant-records", get(serve_assistant_records))
         .route("/ws", get(ws_handler))
+        .route("/favicon.ico", get(|| async { Redirect::to("/favicon.svg") }))
         .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
         .with_state(state)
 }
@@ -185,7 +186,7 @@ async fn serve_analyze(
         &analysis.position_recommendation.action,
         &analysis.position_recommendation.rationale,
         &last_close,
-        "ETH",
+        &state.config.symbol,
     )
     .await;
 

@@ -25,6 +25,7 @@
             if (!res.ok) return;
             const config = await res.json();
             
+            app.activeSymbol = config.symbol || 'ETH';
             app.barDurationSec = config.candles.duration_seconds;
             app.emaFastVal = config.indicators.ema_fast;
             app.emaMediumVal = config.indicators.ema_medium;
