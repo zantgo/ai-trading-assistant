@@ -15,7 +15,31 @@
     const app = getState();
     let ws: WebSocket | null = null;
     let analysisProgressStep = $state(0);
-        let progressTimer: ReturnType<typeof setInterval> | null = null;
+    let progressTimer: ReturnType<typeof setInterval> | null = null;
+
+    // Descargar parámetros de configuración desde el backend
+    async function fetchConfig() {
+        try {
+            const res = await fetch('/api/config');
+            if (!res.ok) return;
+            const config = await res.json();
+            
+            app.barDurationSec = config.candles.duration_seconds;
+            app.emaFastVal = config.indicators.ema_fast;
+            app.emaMediumVal = config.indicators.ema_medium;
+            app.emaSlowVal = config.indicators.ema_slow;
+            app.emaLongVal = config.indicators.ema_long;
+            app.rsiPeriodVal = config.indicators.rsi_period;
+            app.macdFastVal = config.indicators.macd_fast;
+            app.macdSlowVal = config.indicators.macd_slow;
+            app.macdSignalVal = config.indicators.macd_signal;
+            app.adxPeriodVal = config.indicators.adx_period;
+            app.atrPeriodVal = config.indicators.atr_period;
+            app.squeezePeriodVal = config.indicators.squeeze_period;
+        } catch (_) {
+            // Silencioso en caso de error de red inicial
+        }
+    }
 
     async function fetchAssistantHistory() {
         try {
@@ -24,9 +48,81 @@
             app.assistantHistory = data.records || [];
             app.historyLatestClose = data.latest_close || '0';
         } catch (_) {
-            // Silently skip; history is non-critical
+            // Silencioso
         }
     }
+
+    // Establecer conexión con el canal de telemetría en tiempo real
+    function connectWebsocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            app.isConnected = true;
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const snapshot = JSON.parse(event.data);
+                app.latestSnapshot = snapshot;
+
+                // Actualizar textos reactivos en el estado global
+                if (snapshot.mid_price) app.priceText = parseFloat(snapshot.mid_price).toFixed(2);
+                if (snapshot.vwap) app.vwapText = parseFloat(snapshot.vwap).toFixed(2);
+                if (snapshot.ema_fast) app.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
+                if (snapshot.ema_medium) app.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
+                if (snapshot.ema_slow) app.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
+                if (snapshot.ema_long) app.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
+                
+                if (snapshot.adx_14) app.adxText = parseFloat(snapshot.adx_14).toFixed(2);
+                if (snapshot.adx_plus) app.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
+                if (snapshot.adx_minus) app.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
+                
+                if (snapshot.atr_14) app.atrText = parseFloat(snapshot.atr_14).toFixed(2);
+                if (snapshot.rsi_14) app.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
+                
+                if (snapshot.macd_line) app.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
+                if (snapshot.macd_signal) app.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
+                if (snapshot.macd_hist) app.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
+                
+                if (snapshot.squeeze_momentum) app.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
+                app.isSqueezeOn = snapshot.squeeze_on ?? false;
+                app.sqzStatusText = app.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
+                
+                if (snapshot.volume) app.volText = parseFloat(snapshot.volume).toFixed(2);
+            } catch (err) {
+                console.error("Error parsing market snapshot JSON:", err);
+            }
+        };
+
+        ws.onclose = () => {
+            app.isConnected = false;
+            // Intentar reconectar automáticamente cada 3 segundos
+            setTimeout(connectWebsocket, 3000);
+        };
+
+        ws.onerror = () => {
+            app.isConnected = false;
+            ws?.close();
+        };
+    }
+
+    onMount(() => {
+        fetchConfig();
+        fetchAssistantHistory();
+        connectWebsocket();
+    });
+
+    onDestroy(() => {
+        if (ws) {
+            ws.close();
+        }
+        if (progressTimer) {
+            clearInterval(progressTimer);
+        }
+    });
 
     async function requestAnalysis() {
         app.assistantLoading = true;
