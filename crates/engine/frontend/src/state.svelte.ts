@@ -70,6 +70,8 @@ let historyPrices = $state<number[]>([]);
 let assistantHistory = $state<AssistantHistoryRecord[]>([]);
 let historyLatestClose = $state('0');
 
+let showSettingsPanel = $state(false);
+
 export interface TrendAnalysis {
     classification: string;
     structural_reasoning: string;
@@ -225,5 +227,7 @@ export function getState() {
         set assistantHistory(v: AssistantHistoryRecord[]) { assistantHistory = v },
         get historyLatestClose() { return historyLatestClose },
         set historyLatestClose(v: string) { historyLatestClose = v },
+        get showSettingsPanel() { return showSettingsPanel },
+        set showSettingsPanel(v: boolean) { showSettingsPanel = v },
     };
 }

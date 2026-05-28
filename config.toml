@@ -1,31 +1,15 @@
-# ==============================================================================
-# DeX Trading Agent Engine: Master Configuration File
-# ==============================================================================
-
 [candles]
-# Time aggregation window for Japanese Candlesticks on the dashboard (in seconds)
-duration_seconds = 5
+duration_seconds = 100
 
 [indicators]
-# Exponential Moving Average (EMA) Lookback Windows
 ema_fast = 10
 ema_medium = 50
 ema_slow = 100
 ema_long = 200
-
-# Relative Strength Index (RSI) Lookback Window
 rsi_period = 14
-
-# Moving Average Convergence Divergence (MACD) Inputs
 macd_fast = 12
 macd_slow = 26
 macd_signal = 9
-
-# Average Directional Index (ADX) Lookback Window
 adx_period = 14
-
-# Average True Range (ATR) Standalone Lookback Window (Added)
 atr_period = 14
-
-# Squeeze Momentum (Bollinger & Keltner lookback period)
 squeeze_period = 20

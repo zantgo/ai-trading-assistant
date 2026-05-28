@@ -4,6 +4,7 @@
     import type { AssistantAnalysis } from './state.svelte';
 
     import Header from './components/Header.svelte';
+    import SettingsPanel from './components/SettingsPanel.svelte';
     import PriceChart from './components/PriceChart.svelte';
     import VolumeChart from './components/VolumeChart.svelte';
     import AdxChart from './components/AdxChart.svelte';
@@ -254,68 +255,6 @@
 
         <!-- Right Side Panel containing settings variables & signal pipeline states -->
         <aside class="sidebar-panel font-sans">
-            <div class="sidebar-section settings-box">
-                <h3 class="section-title">SETTINGS</h3>
-                <div class="settings-content">
-                    <div class="setting-row">
-                        <span class="setting-label">Pair:</span>
-                        <span class="setting-value text-blue-400">{app.activeSymbol}USD</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">Timeframe:</span>
-                        <span class="setting-value text-blue-400">{app.candleTimeframeLabel} ({app.barDurationSec}s)</span>
-                    </div>
-                    
-                    <hr class="divider"/>
-                    
-                    <h4 class="sub-title">Indicators Parameter Limits</h4>
-                    <div class="setting-row">
-                        <span class="setting-label">EMA Fast Period:</span>
-                        <span class="setting-value">{app.emaFastVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">EMA Medium Period:</span>
-                        <span class="setting-value">{app.emaMediumVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">EMA Slow Period:</span>
-                        <span class="setting-value">{app.emaSlowVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">EMA Long Period:</span>
-                        <span class="setting-value">{app.emaLongVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">RSI Lookback Period:</span>
-                        <span class="setting-value">{app.rsiPeriodVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">MACD Fast Lookback:</span>
-                        <span class="setting-value">{app.macdFastVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">MACD Slow Lookback:</span>
-                        <span class="setting-value">{app.macdSlowVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">MACD Signal Line:</span>
-                        <span class="setting-value">{app.macdSignalVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">ADX Calculation Period:</span>
-                        <span class="setting-value">{app.adxPeriodVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">ATR Volatility Window:</span>
-                        <span class="setting-value">{app.atrPeriodVal}</span>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">Squeeze Wave Period:</span>
-                        <span class="setting-value">{app.squeezePeriodVal}</span>
-                    </div>
-                </div>
-            </div>
-
             <div class="sidebar-section signals-box">
                 <h3 class="section-title">AI ASSISTANT</h3>
                 <div class="signals-content">
@@ -461,6 +400,8 @@
             </div>
         </aside>
     </div>
+
+    <SettingsPanel />
 </div>
 
 <style>
@@ -498,9 +439,6 @@
         display: flex;
         flex-direction: column;
     }
-    .settings-box {
-        flex: 0 0 auto;
-    }
     .signals-box {
         flex: 1 1 auto;
     }
@@ -524,30 +462,12 @@
         margin-bottom: 6px;
         text-transform: uppercase;
     }
-    .settings-content, .signals-content {
+    .signals-content {
         font-size: 11px;
         color: #94a3b8;
         display: flex;
         flex-direction: column;
         gap: 2px;
-    }
-    .setting-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 3px 0;
-    }
-    .setting-label {
-        color: #64748b;
-    }
-    .setting-value {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        color: #3b82f6;
-        font-weight: 600;
-    }
-    .divider {
-        border: 0;
-        border-top: 1px solid #1e293b;
-        margin: 10px 0;
     }
     .signals-placeholder {
         font-style: italic;

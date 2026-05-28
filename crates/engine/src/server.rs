@@ -93,7 +93,7 @@ pub struct AssistantHistoryResponse {
 
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/api/config", get(serve_config))
+        .route("/api/config", get(serve_config).post(update_config))
         .route("/api/history", get(serve_history))
         .route("/api/analyze", post(serve_analyze))
         .route("/api/assistant-records", get(serve_assistant_records))
@@ -104,6 +104,26 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
 async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     axum::Json(state.config.clone())
+}
+
+async fn update_config(
+    State(_state): State<Arc<AppState>>,
+    Json(payload): Json<AppConfig>,
+) -> impl IntoResponse {
+    match toml::to_string_pretty(&payload) {
+        Ok(toml_str) => {
+            if let Err(e) = std::fs::write("config.toml", toml_str) {
+                eprintln!("❌ Database/Config Error: Failed to write configuration updates to config.toml: {}", e);
+                return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist configuration file").into_response();
+            }
+            println!("✅ Configuration Updated: successfully synchronized config.toml dynamically.");
+            (axum::http::StatusCode::OK, "Configuration successfully saved. Restart recommended for full indicator parameter re-initialization.").into_response()
+        }
+        Err(e) => {
+            eprintln!("❌ TOML Serialization Error: {}", e);
+            (axum::http::StatusCode::BAD_REQUEST, "Invalid configuration object structure").into_response()
+        }
+    }
 }
 
 async fn serve_history(State(state): State<Arc<AppState>>) -> impl IntoResponse {
