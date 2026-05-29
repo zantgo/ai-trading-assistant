@@ -1,4 +1,4 @@
-symbol = "XRP"
+symbol = "SOL"
 
 [candles]
 duration_seconds = 5

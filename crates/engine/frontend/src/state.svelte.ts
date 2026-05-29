@@ -19,6 +19,7 @@ let sqzStatusText = $state('Calculating');
 let isSqueezeOn = $state(false);
 let volText = $state('--');
 let vwapText = $state('--');
+let avgVolText = $state('--');
 
 let activeSymbol = $state('ETH');
 let candleTimeframeLabel = $state('5s');
@@ -63,12 +64,23 @@ let squeezePeriodVal = $state(20);
 
 // AI Assistant state
 let currentPosition = $state<'None' | 'Long' | 'Short'>('None');
+let entryPriceVal = $state('');
 let assistantLoading = $state(false);
 let assistantError = $state<string | null>(null);
 let assistantResponse = $state<AssistantAnalysis | null>(null);
+let multiAgentResponse = $state<MultiAgentAnalysis | null>(null);
+let analysisPhase = $state<'idle' | 'phase1' | 'phase2' | 'complete'>('idle');
+let individualResults = $state<IndividualIndicatorResult[]>([]);
+let agentProgress = $state<AgentProgress[]>([]);
 let historyPrices = $state<number[]>([]);
 let assistantHistory = $state<AssistantHistoryRecord[]>([]);
 let historyLatestClose = $state('0');
+
+// Modal & Chat state
+let isAssistantModalOpen = $state(false);
+let chatInputText = $state('');
+let chatHistory = $state<ChatMessage[]>([]);
+let isChatLoading = $state(false);
 
 let showSettingsPanel = $state(false);
 
@@ -97,12 +109,58 @@ export interface AssistantHistoryRecord {
     id: number;
     created_at: string;
     position: string;
+    entry_price?: string;
     trend_classification: string;
     indicator_alignment: string;
+    indicator_synthesis_summary?: string;
     recommended_action: string;
     recommendation_rationale: string;
-    close_price: string;
+    price_at_analysis: string;
+    support_levels?: string;
+    resistance_levels?: string;
     symbol: string;
+}
+
+export interface ChatMessage {
+    role: string;
+    content: string;
+}
+
+export interface IndividualIndicatorResult {
+    indicator_name: string;
+    signal: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' | 'UNAVAILABLE';
+    reason: string;
+}
+
+export interface SupportResistance {
+    detected_support_levels: string[];
+    detected_resistance_levels: string[];
+    structural_analysis: string;
+}
+
+export interface IndicatorSynthesis {
+    summary_count: string;
+    evaluation: string;
+}
+
+export interface MasterOrchestratorResult {
+    general_trend: 'UPWARD' | 'DOWNWARD' | 'SIDEWAYS';
+    support_and_resistance: SupportResistance;
+    indicator_synthesis: IndicatorSynthesis;
+    position_recommendation: {
+        action: string;
+        rationale: string;
+    };
+}
+
+export interface MultiAgentAnalysis {
+    phase_one: IndividualIndicatorResult[];
+    phase_two: MasterOrchestratorResult;
+}
+
+export interface AgentProgress {
+    name: string;
+    status: 'pending' | 'running' | 'complete' | 'failed';
 }
 
 export function getState() {
@@ -145,6 +203,8 @@ export function getState() {
         set volText(v: string) { volText = v },
         get vwapText() { return vwapText },
         set vwapText(v: string) { vwapText = v },
+        get avgVolText() { return avgVolText },
+        set avgVolText(v: string) { avgVolText = v },
         get activeSymbol() { return activeSymbol },
         set activeSymbol(v: string) { activeSymbol = v },
         get candleTimeframeLabel() { return candleTimeframeLabel },
@@ -215,12 +275,22 @@ export function getState() {
         set squeezePeriodVal(v: number) { squeezePeriodVal = v },
         get currentPosition() { return currentPosition },
         set currentPosition(v: 'None' | 'Long' | 'Short') { currentPosition = v },
+        get entryPriceVal() { return entryPriceVal },
+        set entryPriceVal(v: string) { entryPriceVal = v },
         get assistantLoading() { return assistantLoading },
         set assistantLoading(v: boolean) { assistantLoading = v },
         get assistantError() { return assistantError },
         set assistantError(v: string | null) { assistantError = v },
         get assistantResponse() { return assistantResponse },
         set assistantResponse(v: AssistantAnalysis | null) { assistantResponse = v },
+        get multiAgentResponse() { return multiAgentResponse },
+        set multiAgentResponse(v: MultiAgentAnalysis | null) { multiAgentResponse = v },
+        get analysisPhase() { return analysisPhase },
+        set analysisPhase(v: 'idle' | 'phase1' | 'phase2' | 'complete') { analysisPhase = v },
+        get individualResults() { return individualResults },
+        set individualResults(v: IndividualIndicatorResult[]) { individualResults = v },
+        get agentProgress() { return agentProgress },
+        set agentProgress(v: AgentProgress[]) { agentProgress = v },
         get historyPrices() { return historyPrices },
         set historyPrices(v: number[]) { historyPrices = v },
         get assistantHistory() { return assistantHistory },
@@ -229,5 +299,13 @@ export function getState() {
         set historyLatestClose(v: string) { historyLatestClose = v },
         get showSettingsPanel() { return showSettingsPanel },
         set showSettingsPanel(v: boolean) { showSettingsPanel = v },
+        get isAssistantModalOpen() { return isAssistantModalOpen },
+        set isAssistantModalOpen(v: boolean) { isAssistantModalOpen = v },
+        get chatInputText() { return chatInputText },
+        set chatInputText(v: string) { chatInputText = v },
+        get chatHistory() { return chatHistory },
+        set chatHistory(v: ChatMessage[]) { chatHistory = v },
+        get isChatLoading() { return isChatLoading },
+        set isChatLoading(v: boolean) { isChatLoading = v },
     };
 }

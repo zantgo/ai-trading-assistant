@@ -1,4 +1,4 @@
-# Project Execution Plan: DeX AI Trading Assistant
+# Project Execution Plan: AI Trading Assistant
 
 This workspace uses a multi-stage approach to build an interactive trading visualizer and an on-demand AI decision assistant.
 

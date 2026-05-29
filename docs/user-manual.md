@@ -1,8 +1,8 @@
-# DeX AI Trading Assistant — User Manual
+# AI Trading Assistant — User Manual
 
 ## Overview
 
-The DeX AI Trading Assistant is a desktop market analysis tool that streams live cryptocurrency data from Hyperliquid, computes 10+ technical indicators in real time, and provides on-demand AI-powered trade recommendations via DeepSeek. It does **not** execute trades — it is a decision-support copilot for the human operator.
+The AI Trading Assistant is a desktop market analysis tool that streams live cryptocurrency data from Hyperliquid, computes 10+ technical indicators in real time, and provides on-demand AI-powered trade recommendations via DeepSeek. It does **not** execute trades — it is a decision-support copilot for the human operator.
 
 ---
 
@@ -18,22 +18,24 @@ The DeX AI Trading Assistant is a desktop market analysis tool that streams live
 
 ## Installation & Build
 
+A unified script is provided to automate build processes so you do not need to manually change directories.
+
 ```bash
-# 1. Clone the repository
+# 1. Clone the repository and configure credentials
 git clone <repo-url>
-cd dex-trading-agent-engine
+cd ai-trading-assistant
 
-# 2. Build the frontend (produces crates/engine/frontend/dist/)
-cd crates/engine/frontend
-npm install          # or: bun install
-npm run build        # or: bun run build
+# 2. Set up your API credentials
+cp .env.example .env
+# Edit .env to add your DEEPSEEK_API_KEY
 
-# 3. Build & run the engine from the workspace root
-cd ../..             # back to workspace root
-cargo run
+# 3. Execute the single-step build command
+chmod +x manage.sh
+./manage.sh build
 ```
 
-The engine binary reads `config.toml` from the current working directory. Always run `cargo run` from the workspace root.
+This installs npm packages, compiles Svelte 5 files into production bundles, and
+verifies the Rust binary structures.
 
 ---
 
@@ -116,15 +118,40 @@ The engine will **not** start without a valid key. There is no offline / heurist
 
 ## Running the Engine
 
+You can run the engine using two different log profiles depending on whether you
+are actively debugging or letting it run in the background:
+
+### Profile A: Live Diagnostic Logging (Foreground)
+
+If you are developing or want to see live market data updates and API analysis
+traces printed directly to your console:
+
 ```bash
-# From workspace root, after building the frontend
-cargo run
+./manage.sh run
 ```
 
-Expected output:
+### Profile B: Silent execution (Background)
+
+If you want to keep the assistant active without keeping your terminal window
+open:
+
+```bash
+# Starts the process silently and saves logs to engine.log
+./manage.sh run-silent
+
+# Check process uptime and file sizes
+./manage.sh status
+
+# Gracefully terminate execution
+./manage.sh stop
+```
+
+Open **http://127.0.0.1:3000** in your browser once the engine is running.
+
+Expected startup output:
 
 ```
-⚙️ DeX AI Trading Assistant: Loading Master Configuration...
+⚙️ AI Trading Assistant: Loading Master Configuration...
 ✅ Configuration Loaded: System configured dynamically.
 🔑 Validating DeepSeek API key... ✅ Key validated successfully.
 🗄️  Initializing local SQLite telemetry database...
@@ -132,7 +159,15 @@ Expected output:
 🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000
 ```
 
-Open **http://127.0.0.1:3000** in your browser.
+### Total System Reset (Purging Database and Builds)
+
+If you need to completely reset the application, clear your historical assistant records, wipe the telemetry database, and clean all workspace folders:
+
+```bash
+./manage.sh destroy
+```
+
+This command safely terminates any background execution paths before deleting `telemetry.db` along with its temporary SQLite write-ahead logging logs (`-wal` and `-shm` files).
 
 ---
 
@@ -271,6 +306,24 @@ The `POST /api/analyze` request body:
     "ema_slow": 3100.5
   }
 }
+```
+
+---
+
+## Testing
+
+Both Rust and Frontend test suites can be executed simultaneously or
+individually using the command helper:
+
+```bash
+# Run both Svelte 5 and Rust testing engines
+./manage.sh test
+
+# Run Rust unit and database integration tests only
+./manage.sh test-rust
+
+# Run Svelte 5 state machine unit tests only
+./manage.sh test-ui
 ```
 
 ---

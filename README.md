@@ -1,16 +1,49 @@
-# ⚙️ DeX AI Trading Assistant Dashboard
+# ⚙️ AI Trading Assistant Dashboard
 
 > **High-performance market telemetry orchestrator and interactive AI decision assistant for Hyperliquid, built in Rust.**
 
-The **DeX AI Trading Assistant** is designed to process high-resolution decentralized finance telemetry and transform raw data into structured, actionable market analysis for human traders. Rather than trading autonomously, it serves as an interactive copilot, running technical indicator analysis in Rust and feeding data on-demand to LLMs via the Model Context Protocol (MCP) to provide structured guidance.
+The **AI Trading Assistant** is designed to process high-resolution decentralized finance telemetry and transform raw data into structured, actionable market analysis for human traders. Rather than trading autonomously, it serves as an interactive copilot, running technical indicator analysis in Rust and feeding data on-demand to LLMs via the Model Context Protocol (MCP) to provide structured guidance.
 
-## 🚀 Core Assistant Workflow
-1. **Live Telemetry & Indicators:** High-frequency WebSocket updates compute EMAs, RSI, Squeeze, MACD, ADX, Bollinger Bands, ATR, and VWAP in Rust.
-2. **On-Demand Assistant Analysis:** A visual interface lets you input your current position state (`None`, `Long`, or `Short`) and request an AI review.
-3. **Structured Sequential AI Logic:** When triggered, the assistant feeds historical price arrays (last 100 intervals) and indicator parameters to the AI model to perform a multi-stage analysis:
-   * **Stage 1 (Price Action Trend):** Categorizes the market trend (`trending upwards`, `trending downwards`, or `sideways`).
-   * **Stage 2 (Indicator Validation):** Matches the trend against the mathematical indicators.
-   * **Stage 3 (Recommendation Engine):** Melds position context and market evaluation to output a deterministic trade action (`Hold`, `Close`, `Wait`, `Open Long`, or `Open Short`).
+## 🚀 Quick Start Workflow
+
+The system provides a unified helper script (`manage.sh`) at the root level to simplify building, running, and testing the entire workspace.
+
+### 1. Setup Environment
+Ensure your `.env` is configured at the workspace root:
+```bash
+cp .env.example .env
+# Open .env and populate your DEEPSEEK_API_KEY
+```
+
+### 2. Common Workflow Commands
+
+All key operations can be executed directly from the root directory:
+
+```bash
+# Make the manager script executable
+chmod +x manage.sh
+
+# 1. Install dependencies & build all components (Frontend + Backend)
+./manage.sh build
+
+# 2. Run the platform in the foreground (with live terminal logs)
+./manage.sh run
+
+# 3. Run the platform in the background (with silent logs writing to engine.log)
+./manage.sh run-silent
+
+# 4. Check status or stop the background execution
+./manage.sh status
+./manage.sh stop
+
+# 5. Run all test suites (Rust unit/integrations + Svelte 5 Vitest)
+./manage.sh test
+
+# 6. Stop engine, clean builds, and permanently delete telemetry.db
+./manage.sh destroy
+```
+
+Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 
 ## 🏗️ Workspace Structure
 - `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines.

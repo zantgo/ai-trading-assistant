@@ -45,6 +45,8 @@ pub async fn run(
     let mut vwap_sum_vol = Decimal::ZERO;
     let mut last_day_index: Option<u64> = None;
 
+    let mut volume_history: VecDeque<Decimal> = VecDeque::with_capacity(20);
+
     while let Some(tick) = rx.recv().await {
         // Read live config — picks up changes from update_config without restart
         let config = config_lock.read().await.clone();
@@ -67,6 +69,7 @@ pub async fn run(
             vwap_sum_tp_vol = Decimal::ZERO;
             vwap_sum_vol = Decimal::ZERO;
             last_day_index = None;
+            volume_history.clear();
             {
                 let mut hist = history.write().await;
                 hist.clear();
@@ -150,6 +153,17 @@ pub async fn run(
                         println!("   🧭 ADX:    Trend: {:.4} | +DI: {:.4} | -DI: {:.4}", ad.0, ad.1, ad.2);
                     }
 
+                    volume_history.push_back(candle.volume);
+                    if volume_history.len() > 20 {
+                        volume_history.pop_front();
+                    }
+                    let avg_vol = if !volume_history.is_empty() {
+                        let sum: Decimal = volume_history.iter().sum();
+                        Some(sum / Decimal::from(volume_history.len()))
+                    } else {
+                        None
+                    };
+
                     let closed_snapshot = MarketSnapshot {
                         timestamp: curr_time,
                         symbol: tick.symbol.clone(),
@@ -164,6 +178,7 @@ pub async fn run(
                         low: Some(candle.low),
                         close: Some(candle.close),
                         volume: Some(candle.volume),
+                        average_volume: avg_vol,
                         bb_upper: final_bb.map(|b| b.0),
                         bb_middle: final_bb.map(|b| b.1),
                         bb_lower: final_bb.map(|b| b.2),
@@ -233,6 +248,13 @@ pub async fn run(
             None
         };
 
+        let avg_vol_broadcast = if !volume_history.is_empty() {
+            let sum: Decimal = volume_history.iter().sum();
+            Some(sum / Decimal::from(volume_history.len()))
+        } else {
+            None
+        };
+
         let broadcast_snapshot = MarketSnapshot {
             timestamp: rounded_time,
             symbol: tick.symbol.clone(),
@@ -247,6 +269,7 @@ pub async fn run(
             low: Some(candle.low),
             close: Some(candle.close),
             volume: Some(candle.volume),
+            average_volume: avg_vol_broadcast,
             bb_upper: val_bb.map(|b| b.0),
             bb_middle: val_bb.map(|b| b.1),
             bb_lower: val_bb.map(|b| b.2),

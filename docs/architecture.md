@@ -1,6 +1,6 @@
 # System Architecture
 
-The DeX AI Trading Assistant acts as a data pipeline and UI cockpit designed for structured analysis, passing clean market data arrays and user context directly to LLMs on-demand.
+The AI Trading Assistant acts as a data pipeline and UI cockpit designed for structured analysis, passing clean market data arrays and user context directly to LLMs on-demand.
 
 ## Core Topology
 - `crates/shared`: Domain representations (`MarketSnapshot`) and functional indicator calculations.

@@ -24,6 +24,7 @@ pub struct MarketSnapshot {
     pub low: Option<Decimal>,
     pub close: Option<Decimal>,
     pub volume: Option<Decimal>,
+    pub average_volume: Option<Decimal>,
     
     // Bollinger Bands
     pub bb_upper: Option<Decimal>,

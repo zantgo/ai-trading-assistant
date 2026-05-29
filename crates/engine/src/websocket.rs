@@ -148,6 +148,7 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, mut symbol_rx: watch
                                                 low: None,
                                                 close: None,
                                                 volume: None,
+                                                average_volume: None,
                                                 
                                                 bb_upper: None,
                                                 bb_middle: None,
@@ -203,5 +204,8 @@ pub async fn run_hyperliquid_ws(tx: Sender<MarketSnapshot>, mut symbol_rx: watch
                 }
             }
         }
+
+        // Safety cooling delay before attempting another loop connection
+        tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }

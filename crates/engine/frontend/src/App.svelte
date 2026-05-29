@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { getState } from './state.svelte';
-    import type { AssistantAnalysis } from './state.svelte';
+    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis } from './state.svelte';
 
     import Header from './components/Header.svelte';
     import SettingsPanel from './components/SettingsPanel.svelte';
@@ -15,8 +15,8 @@
 
     const app = getState();
     let ws: WebSocket | null = null;
-    let analysisProgressStep = $state(0);
-    let progressTimer: ReturnType<typeof setInterval> | null = null;
+    // svelte-ignore non_reactive_update
+    let chatContainer: HTMLDivElement | null = null;
 
     // Descargar parámetros de configuración desde el backend
     async function fetchConfig() {
@@ -94,6 +94,7 @@
                 app.sqzStatusText = app.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
                 
                 if (snapshot.volume) app.volText = parseFloat(snapshot.volume).toFixed(2);
+                if (snapshot.average_volume) app.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
             } catch (err) {
                 console.error("Error parsing market snapshot JSON:", err);
             }
@@ -121,22 +122,24 @@
         if (ws) {
             ws.close();
         }
-        if (progressTimer) {
-            clearInterval(progressTimer);
-        }
     });
 
     async function requestAnalysis() {
         app.assistantLoading = true;
         app.assistantError = null;
         app.assistantResponse = null;
-        analysisProgressStep = 0;
-
-        progressTimer = setInterval(() => {
-            if (analysisProgressStep < 2) {
-                analysisProgressStep++;
-            }
-        }, 900);
+        app.multiAgentResponse = null;
+        app.individualResults = [];
+        app.analysisPhase = 'phase1';
+        app.agentProgress = [
+            { name: 'RSI',         status: 'pending' },
+            { name: 'MACD',        status: 'pending' },
+            { name: 'SQUEEZE',     status: 'pending' },
+            { name: 'ADX',         status: 'pending' },
+            { name: 'BOLLINGER_ATR', status: 'pending' },
+            { name: 'VOLUME_EMA',  status: 'pending' },
+            { name: 'VWAP',        status: 'pending' },
+        ];
 
         try {
             const historyRes = await fetch('/api/history');
@@ -147,14 +150,31 @@
 
             const body = {
                 position: app.currentPosition,
+                entry_price: app.currentPosition !== 'None' ? (parseFloat(app.entryPriceVal) || 0).toString() : '',
                 historical_prices: prices,
                 indicators: {
                     rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
                     squeeze_on: snap.squeeze_on ?? null,
+                    squeeze_momentum: snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null,
+                    macd_line: snap.macd_line ? parseFloat(String(snap.macd_line)) : null,
+                    macd_signal: snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null,
                     macd_histogram: snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null,
+                    macd_histogram_trend: snap.macd_hist ? (parseFloat(String(snap.macd_hist)) > 0 ? 'increasing' : 'decreasing') : null,
                     adx: snap.adx_14 ? parseFloat(String(snap.adx_14)) : null,
+                    adx_plus: snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null,
+                    adx_minus: snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null,
+                    bb_upper: snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null,
+                    bb_middle: snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null,
+                    bb_lower: snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null,
+                    atr: snap.atr_14 ? parseFloat(String(snap.atr_14)) : null,
+                    current_price: snap.mid_price ? parseFloat(String(snap.mid_price)) : null,
+                    volume: snap.volume ? parseFloat(String(snap.volume)) : null,
+                    average_volume: snap.average_volume ? parseFloat(String(snap.average_volume)) : null,
                     ema_fast: snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null,
+                    ema_medium: snap.ema_medium ? parseFloat(String(snap.ema_medium)) : null,
                     ema_slow: snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null,
+                    ema_long: snap.ema_long ? parseFloat(String(snap.ema_long)) : null,
+                    vwap: snap.vwap ? parseFloat(String(snap.vwap)) : null,
                 },
             };
 
@@ -168,16 +188,144 @@
                 throw new Error(`Server returned ${res.status}`);
             }
 
-            const analysis: AssistantAnalysis = await res.json();
-            analysisProgressStep = 2;
-            app.assistantResponse = analysis;
+            const analysis: MultiAgentAnalysis = await res.json();
+            app.multiAgentResponse = analysis;
+            app.individualResults = analysis.phase_one;
+
+            for (let i = 0; i < app.agentProgress.length; i++) {
+                const result = analysis.phase_one.find(r => r.indicator_name === app.agentProgress[i].name);
+                if (result) {
+                    app.agentProgress[i].status = result.signal === 'UNAVAILABLE' ? 'failed' : 'complete';
+                } else {
+                    app.agentProgress[i].status = 'failed';
+                }
+            }
+            app.analysisPhase = 'complete';
             fetchAssistantHistory();
         } catch (e: any) {
             app.assistantError = e.message || 'Unknown error during analysis';
+            app.analysisPhase = 'idle';
         } finally {
-            if (progressTimer) clearInterval(progressTimer);
-            progressTimer = null;
             app.assistantLoading = false;
+        }
+    }
+
+    function scrollChatToBottom() {
+        requestAnimationFrame(() => {
+            if (chatContainer) {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        });
+    }
+
+    function openAssistantModal() {
+        if (!app.multiAgentResponse) return;
+        const resp = app.multiAgentResponse!;
+        const phaseTwo = resp.phase_two;
+        const snap = app.latestSnapshot || {};
+
+        const contextLines: string[] = [];
+        contextLines.push(`Current position: ${app.currentPosition}`);
+        contextLines.push(`Symbol: ${app.activeSymbol}`);
+        if (app.currentPosition !== 'None' && app.entryPriceVal) {
+            contextLines.push(`Entry price: $${app.entryPriceVal}`);
+        }
+
+        const rsi = snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null;
+        const squeezeOn = snap.squeeze_on ?? null;
+        const squeezeMom = snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null;
+        const macdHist = snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null;
+        const adx = snap.adx_14 ? parseFloat(String(snap.adx_14)) : null;
+        const atr = snap.atr_14 ? parseFloat(String(snap.atr_14)) : null;
+        const emaFast = snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null;
+        const emaSlow = snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null;
+        const vwap = snap.vwap ? parseFloat(String(snap.vwap)) : null;
+        const bbUpper = snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null;
+        const bbLower = snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null;
+        const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : null;
+
+        if (price !== null) contextLines.push(`Current price: $${price.toFixed(4)}`);
+        if (rsi !== null) {
+            const rsiDesc = rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral';
+            contextLines.push(`RSI(14): ${rsi.toFixed(2)} (${rsiDesc})`);
+        }
+        if (squeezeOn !== null) contextLines.push(`Squeeze: ${squeezeOn ? 'ON (potential breakout)' : 'OFF'}`);
+        if (macdHist !== null) contextLines.push(`MACD Histogram: ${macdHist.toFixed(4)}`);
+        if (adx !== null) contextLines.push(`ADX(14): ${adx.toFixed(2)}`);
+        if (atr !== null) contextLines.push(`ATR(14): ${atr.toFixed(4)}`);
+        if (emaFast !== null && emaSlow !== null) {
+            contextLines.push(`EMA Fast: ${emaFast.toFixed(4)}, EMA Slow: ${emaSlow.toFixed(4)}`);
+        }
+        if (vwap !== null) contextLines.push(`VWAP: ${vwap.toFixed(4)}`);
+        if (bbUpper !== null && bbLower !== null) {
+            contextLines.push(`BB Upper: ${bbUpper.toFixed(4)}, BB Lower: ${bbLower.toFixed(4)}`);
+        }
+        contextLines.push(`Phase 1 Signals: ${phaseTwo.indicator_synthesis.summary_count}`);
+        contextLines.push(`Trend: ${phaseTwo.general_trend}`);
+        contextLines.push(`Support: ${phaseTwo.support_and_resistance.detected_support_levels.join(', ')}`);
+        contextLines.push(`Resistance: ${phaseTwo.support_and_resistance.detected_resistance_levels.join(', ')}`);
+        contextLines.push(`Recommendation: ${phaseTwo.position_recommendation.action} — ${phaseTwo.position_recommendation.rationale}`);
+
+        const systemContext = contextLines.join('\n');
+
+        const assistantGreeting = [
+            `Hello! Based on my multi-agent technical analysis, I recommend **${phaseTwo.position_recommendation.action}**.`,
+            ``,
+            `**Market Trend:** ${phaseTwo.general_trend}`,
+            ``,
+            `**Indicator Consensus:** ${phaseTwo.indicator_synthesis.summary_count}`,
+            `${phaseTwo.indicator_synthesis.evaluation}`,
+            ``,
+            `**Support/Resistance Analysis:** ${phaseTwo.support_and_resistance.structural_analysis}`,
+            ``,
+            `**Rationale:** ${phaseTwo.position_recommendation.rationale}`,
+            ``,
+            `Feel free to ask me about any specific indicator or market condition — I'm here to help you understand the data.`,
+        ].join('\n');
+
+        app.chatHistory = [
+            { role: 'system', content: systemContext },
+            { role: 'assistant', content: assistantGreeting },
+        ];
+        app.isAssistantModalOpen = true;
+        scrollChatToBottom();
+    }
+
+    function closeAssistantModal() {
+        app.isAssistantModalOpen = false;
+    }
+
+    async function sendChatMessage() {
+        const text = app.chatInputText.trim();
+        if (!text || app.isChatLoading) return;
+
+        app.chatHistory.push({ role: 'user', content: text });
+        app.chatInputText = '';
+        app.isChatLoading = true;
+        scrollChatToBottom();
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ history: app.chatHistory }),
+            });
+
+            if (!res.ok) {
+                throw new Error(`Server returned ${res.status}`);
+            }
+
+            const data = await res.json();
+            app.chatHistory.push({ role: 'assistant', content: data.reply });
+            scrollChatToBottom();
+        } catch (e: any) {
+            app.chatHistory.push({
+                role: 'assistant',
+                content: `Sorry, I couldn't process that request: ${e.message || 'Unknown error'}`,
+            });
+            scrollChatToBottom();
+        } finally {
+            app.isChatLoading = false;
         }
     }
 </script>
@@ -272,6 +420,14 @@
                         </label>
                     </div>
 
+                    {#if app.currentPosition !== 'None'}
+                        <div class="entry-price-input">
+                            <label for="entryPrice">Entry Price ($):</label>
+                            <input id="entryPrice" type="number" step="any"
+                                   bind:value={app.entryPriceVal} placeholder="0.00" />
+                        </div>
+                    {/if}
+
                     <button
                         class="analyze-btn"
                         onclick={requestAnalysis}
@@ -287,14 +443,29 @@
                     {#if app.assistantLoading}
                         <div class="loading-indicator">
                             <span class="dot pulse-blue"></span>
-                            <span class="status-text">Running sequential analysis...</span>
+                            <span class="status-text">
+                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 7 indicator agents...' : 'Phase 2: Synthesizing master report...'}
+                            </span>
                         </div>
-                        <div class="analysis-progress">
-                            <span class="step" class:active={analysisProgressStep >= 0}>Trend Check</span>
-                            <span class="step-arrow" class:active-arrow={analysisProgressStep >= 1}>→</span>
-                            <span class="step" class:active={analysisProgressStep >= 1}>Indicators</span>
-                            <span class="step-arrow" class:active-arrow={analysisProgressStep >= 2}>→</span>
-                            <span class="step" class:active={analysisProgressStep >= 2}>Recommendation</span>
+                        <div class="agent-progress-list">
+                            {#each app.agentProgress as agent (agent.name)}
+                                <div class="agent-progress-item"
+                                    class:ap-complete={agent.status === 'complete'}
+                                    class:ap-failed={agent.status === 'failed'}
+                                    class:ap-running={agent.status === 'pending' && app.analysisPhase === 'phase1'}
+                                >
+                                    <span class="ap-name">{agent.name}</span>
+                                    <span class="ap-status">
+                                        {#if agent.status === 'complete'}
+                                            ✓
+                                        {:else if agent.status === 'failed'}
+                                            ✗
+                                        {:else}
+                                            ···
+                                        {/if}
+                                    </span>
+                                </div>
+                            {/each}
                         </div>
                     {/if}
 
@@ -304,45 +475,46 @@
                         </div>
                     {/if}
 
-                    {#if app.assistantResponse && !app.assistantLoading}
-                        {@const resp = app.assistantResponse}
-                        <div class="analysis-result">
+                    {#if app.multiAgentResponse && !app.assistantLoading}
+                        {@const resp = app.multiAgentResponse}
+                        {@const pt = resp.phase_two}
+                        <div class="analysis-result clickable-result" onclick={openAssistantModal} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') openAssistantModal() }}>
                             <div class="result-block reveal" style="animation-delay: 0ms">
-                                <h4 class="result-stage-title">1. Price Action Trend</h4>
-                                <span class="result-badge"
-                                    class:badge-up={resp.trend_analysis.classification === 'trending upwards'}
-                                    class:badge-down={resp.trend_analysis.classification === 'trending downwards'}
-                                    class:badge-side={resp.trend_analysis.classification === 'sideways'}
+                                <h4 class="result-stage-title">Phase 1 — Indicator Consensus</h4>
+                                <span class="consensus-badge"
+                                    class:badge-up={pt.general_trend === 'UPWARD'}
+                                    class:badge-down={pt.general_trend === 'DOWNWARD'}
+                                    class:badge-side={pt.general_trend === 'SIDEWAYS'}
                                 >
-                                    {resp.trend_analysis.classification}
+                                    {pt.indicator_synthesis.summary_count}
                                 </span>
-                                <p class="result-reasoning">{resp.trend_analysis.structural_reasoning}</p>
                             </div>
 
-                            <div class="result-block reveal" style="animation-delay: 200ms">
-                                <h4 class="result-stage-title">2. Indicator Alignment</h4>
+                            <div class="result-block reveal" style="animation-delay: 150ms">
+                                <h4 class="result-stage-title">Phase 2 — Trend & Structure</h4>
                                 <span class="result-badge"
-                                    class:badge-supportive={resp.indicator_alignment.classification === 'supportive'}
-                                    class:badge-conflicting={resp.indicator_alignment.classification === 'conflicting'}
-                                    class:badge-neutral={resp.indicator_alignment.classification === 'neutral'}
+                                    class:badge-up={pt.general_trend === 'UPWARD'}
+                                    class:badge-down={pt.general_trend === 'DOWNWARD'}
+                                    class:badge-side={pt.general_trend === 'SIDEWAYS'}
                                 >
-                                    {resp.indicator_alignment.classification}
+                                    {pt.general_trend}
                                 </span>
-                                <p class="result-reasoning">{resp.indicator_alignment.observation}</p>
+                                <p class="result-reasoning">{pt.indicator_synthesis.evaluation.substring(0, 120)}...</p>
                             </div>
 
-                            <div class="result-block result-action reveal" style="animation-delay: 400ms">
+                            <div class="result-block result-action reveal" style="animation-delay: 300ms">
                                 <h4 class="result-stage-title">3. Position Recommendation</h4>
                                 <span
                                     class="action-call"
-                                    class:action-green={resp.position_recommendation.action === 'Hold' || resp.position_recommendation.action === 'Open Long'}
-                                    class:action-red={resp.position_recommendation.action === 'Close'}
-                                    class:action-amber={resp.position_recommendation.action === 'Wait' || resp.position_recommendation.action === 'Open Short'}
+                                    class:action-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'}
+                                    class:action-red={pt.position_recommendation.action === 'Close'}
+                                    class:action-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}
                                 >
-                                    {resp.position_recommendation.action}
+                                    {pt.position_recommendation.action}
                                 </span>
-                                <p class="result-reasoning">{resp.position_recommendation.rationale}</p>
+                                <p class="result-reasoning">{pt.position_recommendation.rationale.substring(0, 150)}...</p>
                             </div>
+                            <div class="click-hint">Click for full multi-agent analysis & chat</div>
                         </div>
                     {:else if !app.assistantLoading && !app.assistantError}
                         <p class="signals-placeholder">
@@ -371,7 +543,7 @@
                                 </thead>
                                 <tbody>
                                     {#each app.assistantHistory as rec}
-                                        {@const recPrice = parseFloat(rec.close_price) || 0}
+                                        {@const recPrice = parseFloat(rec.price_at_analysis) || 0}
                                         {@const latestPrice = parseFloat(app.historyLatestClose) || 0}
                                         {@const delta = recPrice > 0 ? ((latestPrice - recPrice) / recPrice * 100) : 0}
                                         <tr>
@@ -384,7 +556,7 @@
                                             >
                                                 {rec.recommended_action.substring(0, 4)}
                                             </td>
-                                            <td class="col-price">{rec.close_price.substring(0, 8)}</td>
+                                            <td class="col-price">{rec.price_at_analysis.substring(0, 8)}</td>
                                             <td class="col-delta"
                                                 class:delta-positive={delta > 0}
                                                 class:delta-negative={delta < 0}
@@ -403,6 +575,168 @@
     </div>
 
     <SettingsPanel />
+
+    {#if app.isAssistantModalOpen && app.multiAgentResponse}
+        {@const resp = app.multiAgentResponse!}
+        {@const pt = resp.phase_two}
+        {@const indicators = resp.phase_one}
+        {@const snap = app.latestSnapshot || {}}
+        {@const rsi = snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null}
+        {@const squeezeOn = snap.squeeze_on ?? null}
+        {@const squeezeMom = snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null}
+        {@const macdHist = snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null}
+        {@const macdLine = snap.macd_line ? parseFloat(String(snap.macd_line)) : null}
+        {@const macdSig = snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null}
+        {@const adx = snap.adx_14 ? parseFloat(String(snap.adx_14)) : null}
+        {@const adxPlus = snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null}
+        {@const adxMinus = snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null}
+        {@const atr = snap.atr_14 ? parseFloat(String(snap.atr_14)) : null}
+        {@const emaFast = snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null}
+        {@const emaSlow = snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null}
+        {@const vwap = snap.vwap ? parseFloat(String(snap.vwap)) : null}
+        {@const bbUpper = snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null}
+        {@const bbMiddle = snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null}
+        {@const bbLower = snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null}
+        {@const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : null}
+        <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
+        <div class="modal-backdrop" onclick={closeAssistantModal} role="dialog">
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="modal-window" onclick={(e) => e.stopPropagation()}>
+                <div class="modal-header">
+                    <h2 class="modal-title">AI Copilot Intelligence Hub — {app.activeSymbol}</h2>
+                    <button class="modal-close-btn" onclick={closeAssistantModal}>&#10005;</button>
+                </div>
+
+                <div class="modal-body">
+                    <!-- LEFT: Multi-Agent Analysis -->
+                    <div class="modal-left">
+                        <!-- Phase 2: Master Synthesis -->
+                        <div class="master-synthesis">
+                            <h3 class="section-heading">Phase 2 — Master Synthesis</h3>
+
+                            <div class="sr-ribbon">
+                                <div class="sr-block sr-support">
+                                    <span class="sr-label">SUPPORT</span>
+                                    {#if pt.support_and_resistance.detected_support_levels.length > 0}
+                                        {#each pt.support_and_resistance.detected_support_levels as lvl}
+                                            <span class="sr-level">{lvl}</span>
+                                        {/each}
+                                    {:else}
+                                        <span class="sr-level sr-none">None detected</span>
+                                    {/if}
+                                </div>
+                                <div class="sr-block sr-current">
+                                    <span class="sr-label">PRICE</span>
+                                    <span class="sr-level sr-price-label">{price !== null ? price.toFixed(4) : '--'}</span>
+                                </div>
+                                <div class="sr-block sr-resistance">
+                                    <span class="sr-label">RESISTANCE</span>
+                                    {#if pt.support_and_resistance.detected_resistance_levels.length > 0}
+                                        {#each pt.support_and_resistance.detected_resistance_levels as lvl}
+                                            <span class="sr-level">{lvl}</span>
+                                        {/each}
+                                    {:else}
+                                        <span class="sr-level sr-none">None detected</span>
+                                    {/if}
+                                </div>
+                            </div>
+                            <p class="sr-structural">{pt.support_and_resistance.structural_analysis}</p>
+
+                            <div class="decision-callout"
+                                class:decision-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'}
+                                class:decision-red={pt.position_recommendation.action === 'Close'}
+                                class:decision-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}
+                            >
+                                <span class="decision-action">{pt.position_recommendation.action}</span>
+                                <span class="decision-trend">{pt.general_trend}</span>
+                                <p class="decision-rationale">{pt.position_recommendation.rationale}</p>
+                            </div>
+
+                            <div class="synthesis-summary">
+                                <span class="synth-count">{pt.indicator_synthesis.summary_count}</span>
+                                <p class="synth-eval">{pt.indicator_synthesis.evaluation}</p>
+                            </div>
+                        </div>
+
+                        <!-- Phase 1: Individual Indicator Grid -->
+                        <h3 class="section-heading">Phase 1 — Individual Indicator Agents</h3>
+                        <div class="indicator-grid">
+                            {#each indicators as ind}
+                                <div class="phase-one-card"
+                                    class:poc-bullish={ind.signal === 'BULLISH'}
+                                    class:poc-bearish={ind.signal === 'BEARISH'}
+                                    class:poc-sideways={ind.signal === 'SIDEWAYS'}
+                                    class:poc-unavailable={ind.signal === 'UNAVAILABLE'}
+                                >
+                                    <span class="poc-name">{ind.indicator_name}</span>
+                                    <span class="poc-signal">
+                                        {#if ind.signal === 'BULLISH'}
+                                            ▲ BULLISH
+                                        {:else if ind.signal === 'BEARISH'}
+                                            ▼ BEARISH
+                                        {:else if ind.signal === 'SIDEWAYS'}
+                                            ◆ SIDEWAYS
+                                        {:else}
+                                            ✕ UNAVAILABLE
+                                        {/if}
+                                    </span>
+                                    <p class="poc-reason">{ind.reason}</p>
+                                </div>
+                            {/each}
+                        </div>
+
+                        <!-- Assistant Summary -->
+                        <div class="assistant-summary">
+                            <h3 class="section-heading">Assistant Summary</h3>
+                            <div class="summary-message">
+                                {#each app.chatHistory.filter(m => m.role === 'assistant') as msg}
+                                    <p class="summary-text">{msg.content}</p>
+                                {/each}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT: Interactive Chat -->
+                    <div class="modal-right">
+                        <h3 class="section-heading">Real-time Chat</h3>
+
+                        <div class="chat-thread" bind:this={chatContainer}>
+                            {#each app.chatHistory.filter(m => m.role !== 'system') as msg, i (i)}
+                                <div class="chat-bubble" class:user-bubble={msg.role === 'user'} class:assistant-bubble={msg.role === 'assistant'}>
+                                    <span class="bubble-role">{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                                    <span class="bubble-content">{msg.content}</span>
+                                </div>
+                            {/each}
+                            {#if app.isChatLoading}
+                                <div class="chat-bubble assistant-bubble typing-bubble">
+                                    <span class="bubble-role">Assistant</span>
+                                    <span class="bubble-content"><span class="typing-dots">Thinking<span class="dot-anim">.</span><span class="dot-anim">.</span><span class="dot-anim">.</span></span></span>
+                                </div>
+                            {/if}
+                        </div>
+
+                        <div class="chat-input-area">
+                            <input
+                                type="text"
+                                class="chat-input"
+                                placeholder="Ask about indicators, market conditions..."
+                                bind:value={app.chatInputText}
+                                disabled={app.isChatLoading}
+                                onkeydown={(e) => { if (e.key === 'Enter') sendChatMessage() }}
+                            />
+                            <button
+                                class="chat-send-btn"
+                                onclick={sendChatMessage}
+                                disabled={app.isChatLoading || !app.chatInputText.trim()}
+                            >
+                                Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -610,32 +944,6 @@
         margin-bottom: 8px;
     }
 
-    .analysis-progress {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        margin-bottom: 10px;
-    }
-    .step {
-        font-size: 9px;
-        font-weight: 600;
-        color: #4c525e;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .step.active {
-        color: #3b82f6;
-    }
-    .step-arrow {
-        color: #4c525e;
-        font-size: 9px;
-        transition: color 0.3s;
-    }
-    .step-arrow.active-arrow {
-        color: #3b82f6;
-    }
-
     .error-box {
         background-color: rgba(239, 68, 68, 0.08);
         border: 1px solid rgba(239, 68, 68, 0.3);
@@ -684,9 +992,6 @@
     .badge-up { background: rgba(16, 185, 129, 0.15); color: #10b981; }
     .badge-down { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
     .badge-side { background: rgba(251, 191, 36, 0.15); color: #f59e0b; }
-    .badge-supportive { background: rgba(16, 185, 129, 0.15); color: #10b981; }
-    .badge-conflicting { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-    .badge-neutral { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
     .result-reasoning {
         font-size: 10px;
         color: #94a3b8;
@@ -769,4 +1074,557 @@
     .text-rose-500 { color: #f43f5e; }
     .text-slate-300 { color: #cbd5e1; }
     .text-orange-400 { color: #f1c40f; }
+
+    /* Clickable result area */
+    .clickable-result {
+        cursor: pointer;
+        border-radius: 6px;
+        padding: 2px;
+        transition: box-shadow 0.2s, border-color 0.2s;
+        border: 1px solid transparent;
+    }
+    .clickable-result:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
+    }
+    .click-hint {
+        text-align: center;
+        font-size: 9px;
+        color: #64748b;
+        margin-top: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* Modal overlay */
+    .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .modal-window {
+        background: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 12px;
+        width: 95vw;
+        max-width: 1100px;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        animation: fadeInUp 0.25s ease;
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 24px;
+        border-bottom: 1px solid #1e293b;
+    }
+    .modal-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #e2e8f0;
+        margin: 0;
+        letter-spacing: 0.03em;
+    }
+    .modal-close-btn {
+        background: none;
+        border: 1px solid #2a2e39;
+        color: #94a3b8;
+        font-size: 16px;
+        cursor: pointer;
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s, color 0.15s;
+    }
+    .modal-close-btn:hover {
+        background: #1e293b;
+        color: #f1f5f9;
+    }
+
+    .modal-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    /* Left column: Indicator breakdown */
+    .modal-left {
+        width: 50%;
+        padding: 20px;
+        overflow-y: auto;
+        border-right: 1px solid #1e293b;
+    }
+    .modal-left .section-heading {
+        font-size: 11px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0 0 12px 0;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #1e293b;
+    }
+
+    /* Assistant summary */
+    .assistant-summary {
+        margin-top: 16px;
+    }
+    .summary-message {
+        background: rgba(59, 130, 246, 0.05);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        border-radius: 8px;
+        padding: 12px;
+    }
+    .summary-text {
+        font-size: 11px;
+        color: #cbd5e1;
+        line-height: 1.6;
+        margin: 0 0 4px 0;
+        white-space: pre-wrap;
+    }
+
+    /* Right column: Chat */
+    .modal-right {
+        width: 50%;
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        overflow: hidden;
+    }
+    .modal-right .section-heading {
+        font-size: 11px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0 0 12px 0;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #1e293b;
+        flex-shrink: 0;
+    }
+
+    .chat-thread {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-right: 4px;
+    }
+    .chat-thread::-webkit-scrollbar {
+        width: 4px;
+    }
+    .chat-thread::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .chat-thread::-webkit-scrollbar-thumb {
+        background: #2a2e39;
+        border-radius: 2px;
+    }
+
+    .chat-bubble {
+        max-width: 85%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 11px;
+        line-height: 1.5;
+        animation: fadeInUp 0.2s ease;
+    }
+    .user-bubble {
+        align-self: flex-end;
+        background: #1e40af;
+        border: 1px solid #3b82f6;
+        color: #e2e8f0;
+    }
+    .assistant-bubble {
+        align-self: flex-start;
+        background: #0f131c;
+        border: 1px solid #1e293b;
+        color: #cbd5e1;
+    }
+    .bubble-role {
+        display: block;
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 3px;
+        color: #64748b;
+    }
+    .bubble-content {
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .typing-bubble {
+        opacity: 0.7;
+    }
+    .typing-dots {
+        color: #94a3b8;
+        font-style: italic;
+    }
+    .dot-anim {
+        animation: dotPulse 1.4s infinite;
+    }
+    .dot-anim:nth-child(1) { animation-delay: 0s; }
+    .dot-anim:nth-child(2) { animation-delay: 0.2s; }
+    .dot-anim:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dotPulse {
+        0%, 20% { opacity: 0; }
+        50% { opacity: 1; }
+        80%, 100% { opacity: 0; }
+    }
+
+    .chat-input-area {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-shrink: 0;
+    }
+    .chat-input {
+        flex: 1;
+        background: #0f131c;
+        border: 1px solid #2a2e39;
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: #e2e8f0;
+        font-size: 11px;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        outline: none;
+        transition: border-color 0.15s;
+    }
+    .chat-input:focus {
+        border-color: #3b82f6;
+    }
+    .chat-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .chat-input::placeholder {
+        color: #4c525e;
+    }
+    .chat-send-btn {
+        background: linear-gradient(135deg, #1e40af, #3b82f6);
+        color: #f1f5f9;
+        border: 1px solid #3b82f6;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        white-space: nowrap;
+    }
+    .chat-send-btn:hover:not(:disabled) {
+        background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    }
+    .chat-send-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    @media (max-width: 768px) {
+        .modal-window {
+            max-width: 100vw;
+            max-height: 100vh;
+            border-radius: 0;
+        }
+        .modal-body {
+            flex-direction: column;
+        }
+        .modal-left {
+            width: 100%;
+            max-height: none;
+            border-right: none;
+            border-bottom: 1px solid #1e293b;
+        }
+        .modal-right {
+            width: 100%;
+            flex: 1;
+            max-height: 50vh;
+        }
+        .indicator-grid {
+            grid-template-columns: 1fr;
+        }
+        .sr-ribbon {
+            flex-direction: column;
+            gap: 6px;
+        }
+    }
+
+    /* Entry price input */
+    .entry-price-input {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+    .entry-price-input label {
+        font-size: 10px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+    }
+    .entry-price-input input {
+        flex: 1;
+        background: #0f131c;
+        border: 1px solid #2a2e39;
+        border-radius: 4px;
+        padding: 5px 8px;
+        color: #e2e8f0;
+        font-size: 11px;
+        font-family: ui-monospace, monospace;
+        outline: none;
+        width: 100%;
+    }
+    .entry-price-input input:focus {
+        border-color: #3b82f6;
+    }
+
+    /* Agent progress list */
+    .agent-progress-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-bottom: 8px;
+    }
+    .agent-progress-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 3px 6px;
+        border-radius: 3px;
+        font-size: 9px;
+        background: #0f131c;
+    }
+    .ap-name {
+        color: #94a3b8;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+    }
+    .ap-status {
+        font-size: 10px;
+    }
+    .ap-complete { background: rgba(16, 185, 129, 0.08); }
+    .ap-complete .ap-status { color: #10b981; }
+    .ap-failed { background: rgba(239, 68, 68, 0.08); }
+    .ap-failed .ap-status { color: #ef4444; }
+    .ap-running .ap-status { color: #3b82f6; animation: pulse 1.5s infinite; }
+
+    /* Consensus badge */
+    .consensus-badge {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 4px;
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+    }
+
+    /* Master synthesis */
+    .master-synthesis {
+        margin-bottom: 16px;
+    }
+
+    /* Support / Resistance ribbon */
+    .sr-ribbon {
+        display: flex;
+        gap: 2px;
+        margin-bottom: 8px;
+    }
+    .sr-block {
+        flex: 1;
+        padding: 8px;
+        border-radius: 6px;
+        text-align: center;
+    }
+    .sr-support {
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+    .sr-resistance {
+        background: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    .sr-current {
+        background: rgba(59, 130, 246, 0.08);
+        border: 1px solid rgba(59, 130, 246, 0.25);
+    }
+    .sr-label {
+        display: block;
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 3px;
+        color: #64748b;
+    }
+    .sr-level {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: ui-monospace, monospace;
+        color: #e2e8f0;
+    }
+    .sr-support .sr-level { color: #10b981; }
+    .sr-resistance .sr-level { color: #ef4444; }
+    .sr-current .sr-level { color: #3b82f6; }
+    .sr-price-label { font-size: 13px; font-weight: 800; }
+    .sr-none { font-size: 9px; color: #4c525e !important; font-style: italic; }
+    .sr-structural {
+        font-size: 10px;
+        color: #94a3b8;
+        line-height: 1.4;
+        margin: 0 0 8px 0;
+    }
+
+    /* Decision callout */
+    .decision-callout {
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        text-align: center;
+    }
+    .decision-green {
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .decision-red {
+        background: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+    .decision-amber {
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.25);
+    }
+    .decision-action {
+        display: block;
+        font-size: 16px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 2px;
+    }
+    .decision-green .decision-action { color: #10b981; }
+    .decision-red .decision-action { color: #ef4444; }
+    .decision-amber .decision-action { color: #f59e0b; }
+    .decision-trend {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 6px;
+    }
+    .decision-rationale {
+        font-size: 10px;
+        color: #94a3b8;
+        line-height: 1.4;
+        margin: 0;
+    }
+
+    /* Synthesis summary */
+    .synthesis-summary {
+        background: #0f131c;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 10px;
+    }
+    .synth-count {
+        display: block;
+        font-size: 11px;
+        font-weight: 700;
+        color: #3b82f6;
+        margin-bottom: 4px;
+    }
+    .synth-eval {
+        font-size: 10px;
+        color: #94a3b8;
+        line-height: 1.4;
+        margin: 0;
+    }
+
+    /* Phase 1 indicator grid */
+    .indicator-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 16px;
+    }
+    .phase-one-card {
+        background: #0f131c;
+        border: 1px solid #1e293b;
+        border-radius: 5px;
+        padding: 8px 10px;
+    }
+    .phase-one-card.poc-bullish {
+        border-color: rgba(16, 185, 129, 0.3);
+        background: rgba(16, 185, 129, 0.04);
+    }
+    .phase-one-card.poc-bearish {
+        border-color: rgba(239, 68, 68, 0.3);
+        background: rgba(239, 68, 68, 0.04);
+    }
+    .phase-one-card.poc-sideways {
+        border-color: rgba(251, 191, 36, 0.3);
+        background: rgba(251, 191, 36, 0.04);
+    }
+    .phase-one-card.poc-unavailable {
+        border-color: rgba(100, 116, 139, 0.2);
+        background: rgba(100, 116, 139, 0.03);
+        opacity: 0.6;
+    }
+    .poc-name {
+        display: block;
+        font-size: 9px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 2px;
+    }
+    .poc-signal {
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        margin-bottom: 3px;
+    }
+    .poc-bullish .poc-signal { color: #10b981; }
+    .poc-bearish .poc-signal { color: #ef4444; }
+    .poc-sideways .poc-signal { color: #f59e0b; }
+    .poc-unavailable .poc-signal { color: #64748b; }
+    .poc-reason {
+        font-size: 9px;
+        color: #94a3b8;
+        line-height: 1.3;
+        margin: 0;
+    }
 </style>

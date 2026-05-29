@@ -1,12 +1,3 @@
-mod websocket;
-mod config;
-mod db;
-mod server;
-mod risk;
-mod candle_builder;
-mod analyzer;
-mod llm;
-
 use std::sync::Arc;
 use std::collections::VecDeque;
 use std::process;
@@ -14,6 +5,8 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::{broadcast, watch, RwLock};
 use rust_decimal::Decimal;
 use shared::models::MarketSnapshot;
+
+use engine::{config, db, server, websocket, analyzer, llm};
 
 #[tokio::main]
 async fn main() {
@@ -26,7 +19,7 @@ async fn main() {
         process::exit(1);
     }
 
-    println!("⚙️ DeX AI Trading Assistant: Loading Master Configuration...");
+    println!("⚙️ AI Trading Assistant: Loading Master Configuration...");
     let app_config = Arc::new(config::load_config());
     println!("✅ Configuration Loaded: System configured dynamically.");
 
