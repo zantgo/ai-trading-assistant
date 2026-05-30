@@ -168,6 +168,14 @@ destroy_all() {
     rm -f "telemetry.db-shm"
     rm -f "telemetry.db-wal"
 
+    if [ -f "config.default.toml" ]; then
+        echo "⚙️  Restoring config.toml from config.default.toml template..."
+        cp "config.default.toml" "config.toml"
+    else
+        echo "❌ Error: config.default.toml is missing! Cannot restore default configuration."
+        exit 1
+    fi
+
     echo "✨ Absolutely everything has been purged and destroyed."
 }
 

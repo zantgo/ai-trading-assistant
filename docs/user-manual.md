@@ -63,6 +63,8 @@ squeeze_period = 20
 
 Changes take effect on restart. The frontend reads settings from the engine via `GET /api/config` at page load.
 
+An immutable fallback configuration is stored at `config.default.toml` to serve as a baseline reference. Always modify `config.toml` to adjust active indicator looks or symbols. The default configuration file will never be overwritten by the engine, nor will standard `clean` commands touch your active `config.toml` changes.
+
 ---
 
 ## LLM Setup (DeepSeek)
@@ -164,10 +166,9 @@ Expected startup output:
 If you need to completely reset the application, clear your historical assistant records, wipe the telemetry database, and clean all workspace folders:
 
 ```bash
+# Safely terminates engine, purges db, and overwrites config.toml from config.default.toml
 ./manage.sh destroy
 ```
-
-This command safely terminates any background execution paths before deleting `telemetry.db` along with its temporary SQLite write-ahead logging logs (`-wal` and `-shm` files).
 
 ---
 
