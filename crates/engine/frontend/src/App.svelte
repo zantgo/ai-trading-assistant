@@ -28,6 +28,9 @@
 
             app.apiKeyConfigured = config.api_key_configured ?? true;
 
+            if (config.candles) app.globalCandlesConfig = config.candles;
+            if (config.indicators) app.globalIndicatorsConfig = config.indicators;
+
             const pairConfigs = config.pairs || {};
             const symbols: string[] = config.symbols || ['Hyperliquid:BTC'];
 
@@ -389,72 +392,74 @@
 
     <div class="main-layout">
         <!-- Center column showing active visual panels -->
-        <main class="dashboard-stack">
-            <div class="panel-box pane-price">
-                <div class="absolute-label font-sans">
-                    <span class="price-header">Price: <span>{app.priceText}</span></span>
-                    {#if app.showVwap}
-                        <span class="text-orange-400 font-medium">VWAP: <span>{app.vwapText}</span></span>
-                    {/if}
-                    {#if app.showEmas}
-                        <span class="text-blue-400 font-medium">{app.emaFastLabel}: <span>{app.emaFastText}</span></span>
-                        <span class="text-amber-500 font-medium">{app.emaMediumLabel}: <span>{app.emaMediumText}</span></span>
-                        <span class="text-rose-500 font-medium">{app.emaSlowLabel}: <span>{app.emaSlowText}</span></span>
-                        <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{app.emaLongText}</span></span>
-                    {/if}
+        {#each Object.keys(app.pairsMap) as tabKey (tabKey)}
+            <main class="dashboard-stack" class:hidden-pane={tabKey !== app.activeTab}>
+                <div class="panel-box pane-price">
+                    <div class="absolute-label font-sans">
+                        <span class="price-header">Price: <span>{app.pairsMap[tabKey].priceText}</span></span>
+                        {#if app.pairsMap[tabKey].showVwap}
+                            <span class="text-orange-400 font-medium">VWAP: <span>{app.pairsMap[tabKey].vwapText}</span></span>
+                        {/if}
+                        {#if app.pairsMap[tabKey].showEmas}
+                            <span class="text-blue-400 font-medium">{app.emaFastLabel}: <span>{app.pairsMap[tabKey].emaFastText}</span></span>
+                            <span class="text-amber-500 font-medium">{app.emaMediumLabel}: <span>{app.pairsMap[tabKey].emaMediumText}</span></span>
+                            <span class="text-rose-500 font-medium">{app.emaSlowLabel}: <span>{app.pairsMap[tabKey].emaSlowText}</span></span>
+                            <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{app.pairsMap[tabKey].emaLongText}</span></span>
+                        {/if}
+                    </div>
+                    <PriceChart pairKey={tabKey} />
                 </div>
-                <PriceChart />
-            </div>
 
-            <div class="panel-box pane-vol" class:hidden-pane={!app.showVolume}>
-                <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-teal-400 font-bold">Volume: <span>{app.volText}</span></span>
+                <div class="panel-box pane-vol" class:hidden-pane={!app.pairsMap[tabKey].showVolume}>
+                    <div class="absolute-label font-sans label-text-xs">
+                        <span class="text-teal-400 font-bold">Volume: <span>{app.pairsMap[tabKey].volText}</span></span>
+                    </div>
+                    <VolumeChart pairKey={tabKey} />
                 </div>
-                <VolumeChart />
-            </div>
 
-            <div class="panel-box pane-adx" class:hidden-pane={!app.showAdx}>
-                <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-yellow-400 font-bold">ADX: <span>{app.adxText}</span></span>
-                    <span class="text-emerald-400 font-medium">+DI: <span>{app.adxPlusText}</span></span>
-                    <span class="text-red-500 font-medium">-DI: <span>{app.adxMinusText}</span></span>
+                <div class="panel-box pane-adx" class:hidden-pane={!app.pairsMap[tabKey].showAdx}>
+                    <div class="absolute-label font-sans label-text-xs">
+                        <span class="text-yellow-400 font-bold">ADX: <span>{app.pairsMap[tabKey].adxText}</span></span>
+                        <span class="text-emerald-400 font-medium">+DI: <span>{app.pairsMap[tabKey].adxPlusText}</span></span>
+                        <span class="text-red-500 font-medium">-DI: <span>{app.pairsMap[tabKey].adxMinusText}</span></span>
+                    </div>
+                    <AdxChart pairKey={tabKey} />
                 </div>
-                <AdxChart />
-            </div>
 
-            <div class="panel-box pane-atr" class:hidden-pane={!app.showAtr}>
-                <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{app.atrText}</span></span>
+                <div class="panel-box pane-atr" class:hidden-pane={!app.pairsMap[tabKey].showAtr}>
+                    <div class="absolute-label font-sans label-text-xs">
+                        <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{app.pairsMap[tabKey].atrText}</span></span>
+                    </div>
+                    <AtrChart pairKey={tabKey} />
                 </div>
-                <AtrChart />
-            </div>
 
-            <div class="panel-box pane-rsi" class:hidden-pane={!app.showRsi}>
-                <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-purple-400">{app.rsiLabel}: <span>{app.rsiText}</span></span>
+                <div class="panel-box pane-rsi" class:hidden-pane={!app.pairsMap[tabKey].showRsi}>
+                    <div class="absolute-label font-sans label-text-xs">
+                        <span class="text-purple-400">{app.rsiLabel}: <span>{app.pairsMap[tabKey].rsiText}</span></span>
+                    </div>
+                    <RsiChart pairKey={tabKey} />
                 </div>
-                <RsiChart />
-            </div>
 
-            <div class="panel-box pane-macd" class:hidden-pane={!app.showMacd}>
-                <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-slate-300 font-bold">{app.macdLabel}</span>
-                    <span class="text-blue-400">Line: <span>{app.macdLineText}</span></span>
-                    <span class="text-amber-500">Signal: <span>{app.macdSigText}</span></span>
-                    <span class="text-teal-400">Hist: <span>{app.macdHistText}</span></span>
+                <div class="panel-box pane-macd" class:hidden-pane={!app.pairsMap[tabKey].showMacd}>
+                    <div class="absolute-label font-sans label-text-xs">
+                        <span class="text-slate-300 font-bold">{app.macdLabel}</span>
+                        <span class="text-blue-400">Line: <span>{app.pairsMap[tabKey].macdLineText}</span></span>
+                        <span class="text-amber-500">Signal: <span>{app.pairsMap[tabKey].macdSigText}</span></span>
+                        <span class="text-teal-400">Hist: <span>{app.pairsMap[tabKey].macdHistText}</span></span>
+                    </div>
+                    <MacdChart pairKey={tabKey} />
                 </div>
-                <MacdChart />
-            </div>
 
-            <div class="panel-box pane-squeeze" class:hidden-pane={!app.showSqueeze}>
-                <div class="absolute-label font-sans label-text-xs">
-                    <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
-                    <span class="text-emerald-400">Value: <span>{app.sqzValText}</span></span>
-                    <span class={app.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {app.sqzStatusText}</span>
+                <div class="panel-box pane-squeeze" class:hidden-pane={!app.pairsMap[tabKey].showSqueeze}>
+                    <div class="absolute-label font-sans label-text-xs">
+                        <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
+                        <span class="text-emerald-400">Value: <span>{app.pairsMap[tabKey].sqzValText}</span></span>
+                        <span class={app.pairsMap[tabKey].isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {app.pairsMap[tabKey].sqzStatusText}</span>
+                    </div>
+                    <SqueezeChart pairKey={tabKey} />
                 </div>
-                <SqueezeChart />
-            </div>
-        </main>
+            </main>
+        {/each}
 
         <!-- Right Side Panel containing settings variables & signal pipeline states -->
         <aside class="sidebar-panel font-sans">

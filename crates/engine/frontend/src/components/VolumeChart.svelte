@@ -6,6 +6,9 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = getState();
+    let { pairKey } = $props();
+    const pair = $derived(app.pairsMap[pairKey]);
+
     let container: HTMLDivElement;
     let chart: IChartApi;
     let volumeSeries: ISeriesApi<'Histogram'>;
@@ -45,7 +48,8 @@
     });
 
     $effect(() => {
-        const snap = app.latestSnapshot;
+        if (!pair) return;
+        const snap = pair.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.open != null && snap.close != null) {

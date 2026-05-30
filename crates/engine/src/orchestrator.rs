@@ -25,28 +25,39 @@ impl MarketDataOrchestrator {
         self.adapters.push(Arc::from(adapter));
     }
 
-    pub async fn run(&mut self, symbols: Vec<String>) -> Receiver<NormalizedEvent> {
+    pub async fn run(&mut self, _symbols: Vec<String>) -> Receiver<NormalizedEvent> {
         let rx = self.event_rx.take().expect("Orchestrator already running");
 
         for adapter in &self.adapters {
             let adapter_clone = Arc::clone(adapter);
             let tx_clone = self.event_tx.clone();
             let mapper_clone = Arc::clone(&self.mapper);
-            let symbols_clone = symbols.clone();
-
             tokio::spawn(async move {
                 let mut retry_cooldown_secs = 2u64;
                 let mut consecutive_failures = 0u32;
                 loop {
                     let exchange_label = adapter_clone.exchange();
 
+                    let active_symbols = mapper_clone.get_normalized_for_exchange(exchange_label).await;
+
+                    if active_symbols.is_empty() {
+                        let _ = tx_clone.send(NormalizedEvent::Status {
+                            exchange: exchange_label,
+                            status: ConnectionStatus::Disconnected,
+                            message: "Dormant (no configured symbols)".to_string(),
+                        }).await;
+
+                        sleep(Duration::from_secs(2)).await;
+                        continue;
+                    }
+
                     let _ = tx_clone.send(NormalizedEvent::Status {
                         exchange: exchange_label,
                         status: ConnectionStatus::Connecting,
-                        message: format!("Supervisor: Starting {} adapter", exchange_label),
+                        message: format!("Supervisor: Starting {} adapter handshake", exchange_label),
                     }).await;
 
-                    match adapter_clone.start(symbols_clone.clone(), tx_clone.clone(), mapper_clone.clone()).await {
+                    match adapter_clone.start(active_symbols.clone(), tx_clone.clone(), mapper_clone.clone()).await {
                         Ok(()) => {
                             consecutive_failures = 0;
                             eprintln!("⚠️  Orchestrator: {} adapter terminated cleanly.", exchange_label);

@@ -6,6 +6,9 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = getState();
+    let { pairKey } = $props();
+    const pair = $derived(app.pairsMap[pairKey]);
+
     let container: HTMLDivElement;
     let chart: IChartApi;
     let macdLineSeries: ISeriesApi<'Line'>;
@@ -49,7 +52,8 @@
     });
 
     $effect(() => {
-        const snap = app.latestSnapshot;
+        if (!pair) return;
+        const snap = pair.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.macd_line != null) {
@@ -61,11 +65,11 @@
             macdSigSeries.update({ time: timeSec as Time, value: mSig });
 
             let histColor = mHist >= 0
-                ? (mHist >= app.lastMacdHist ? '#26a69a' : '#b2dfdb')
-                : (mHist < app.lastMacdHist ? '#ef5350' : '#ffcdd2');
+                ? (mHist >= pair.lastMacdHist ? '#26a69a' : '#b2dfdb')
+                : (mHist < pair.lastMacdHist ? '#ef5350' : '#ffcdd2');
 
             macdHistSeries.update({ time: timeSec as Time, value: mHist, color: histColor });
-            app.lastMacdHist = mHist;
+            pair.lastMacdHist = mHist;
         }
     });
 </script>

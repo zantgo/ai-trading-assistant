@@ -128,6 +128,17 @@ impl SymbolMapper {
         to_r.get(&(exchange, normalized.to_string())).cloned()
     }
 
+    pub async fn get_normalized_for_exchange(&self, exchange: Exchange) -> Vec<String> {
+        let to_norm = self.to_normalized.read().await;
+        let mut result = Vec::new();
+        for ((ex, _raw), normalized) in to_norm.iter() {
+            if *ex == exchange {
+                result.push(normalized.clone());
+            }
+        }
+        result
+    }
+
     pub async fn load_default_mappings(&self) {
         self.register(Exchange::Hyperliquid, "BTC", "BTC-USD").await;
         self.register(Exchange::Hyperliquid, "ETH", "ETH-USD").await;

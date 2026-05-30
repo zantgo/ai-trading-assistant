@@ -6,6 +6,9 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = getState();
+    let { pairKey } = $props();
+    const pair = $derived(app.pairsMap[pairKey]);
+
     let container: HTMLDivElement;
     let chart: IChartApi;
     let candleSeries: ISeriesApi<'Candlestick'>;
@@ -65,27 +68,28 @@
     });
 
     $effect(() => {
-        if (!ema10Series || !ema50Series || !ema100Series || !ema200Series) return;
-        ema10Series.applyOptions({ visible: app.showEmas });
-        ema50Series.applyOptions({ visible: app.showEmas });
-        ema100Series.applyOptions({ visible: app.showEmas });
-        ema200Series.applyOptions({ visible: app.showEmas });
+        if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
+        ema10Series.applyOptions({ visible: pair.showEmas });
+        ema50Series.applyOptions({ visible: pair.showEmas });
+        ema100Series.applyOptions({ visible: pair.showEmas });
+        ema200Series.applyOptions({ visible: pair.showEmas });
     });
 
     $effect(() => {
-        if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries) return;
-        bbUpperSeries.applyOptions({ visible: app.showBb });
-        bbMiddleSeries.applyOptions({ visible: app.showBb });
-        bbLowerSeries.applyOptions({ visible: app.showBb });
+        if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries || !pair) return;
+        bbUpperSeries.applyOptions({ visible: pair.showBb });
+        bbMiddleSeries.applyOptions({ visible: pair.showBb });
+        bbLowerSeries.applyOptions({ visible: pair.showBb });
     });
 
     $effect(() => {
-        if (!vwapSeries) return;
-        vwapSeries.applyOptions({ visible: app.showVwap });
+        if (!vwapSeries || !pair) return;
+        vwapSeries.applyOptions({ visible: pair.showVwap });
     });
 
     $effect(() => {
-        const snap = app.latestSnapshot;
+        if (!pair) return;
+        const snap = pair.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
 

@@ -6,6 +6,9 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = getState();
+    let { pairKey } = $props();
+    const pair = $derived(app.pairsMap[pairKey]);
+
     let container: HTMLDivElement;
     let chart: IChartApi;
     let squeezeMomSeries: ISeriesApi<'Histogram'>;
@@ -46,19 +49,20 @@
         }
     });
 
-$effect(() => {
-        const snap = app.latestSnapshot;
+    $effect(() => {
+        if (!pair) return;
+        const snap = pair.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.squeeze_momentum != null) {
             const momVal = parseFloat(String(snap.squeeze_momentum));
 
             let momColor = momVal >= 0
-                ? (momVal >= app.lastSqzMom ? '#4caf50' : '#086014')
-                : (momVal < app.lastSqzMom ? '#ff1744' : '#800b1d');
+                ? (momVal >= pair.lastSqzMom ? '#4caf50' : '#086014')
+                : (momVal < pair.lastSqzMom ? '#ff1744' : '#800b1d');
 
             squeezeMomSeries.update({ time: timeSec as Time, value: momVal, color: momColor });
-            app.lastSqzMom = momVal;
+            pair.lastSqzMom = momVal;
 
             let dotColor = snap.squeeze_on ? '#ef5350' : '#4caf50';
             squeezeDotSeries.update({ time: timeSec as Time, value: 0.1, color: dotColor });

@@ -44,6 +44,7 @@ impl ExchangeAdapter for MockFaultyAdapter {
 async fn test_supervisor_retry_and_reconnection_loop() {
     tokio::time::timeout(tokio::time::Duration::from_secs(10), async {
         let mapper = Arc::new(SymbolMapper::new());
+        mapper.register(Exchange::Kraken, "BTC-USD", "BTC-USD").await;
         let mut orchestrator = engine::orchestrator::MarketDataOrchestrator::new(Arc::clone(&mapper));
 
         let execs = Arc::new(AtomicUsize::new(0));

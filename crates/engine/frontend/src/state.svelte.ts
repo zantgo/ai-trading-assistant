@@ -189,18 +189,18 @@ function createPairState(symbol: string, exchange: string): PairState {
         chatInputText: '',
         isChatLoading: false,
 
-        barDurationSec: 60,
-        emaFastVal: 10,
-        emaMediumVal: 50,
-        emaSlowVal: 100,
-        emaLongVal: 200,
-        rsiPeriodVal: 14,
-        macdFastVal: 12,
-        macdSlowVal: 26,
-        macdSignalVal: 9,
-        adxPeriodVal: 14,
-        atrPeriodVal: 14,
-        squeezePeriodVal: 20,
+        barDurationSec: globalCandlesConfig.duration_seconds,
+        emaFastVal: globalIndicatorsConfig.ema_fast,
+        emaMediumVal: globalIndicatorsConfig.ema_medium,
+        emaSlowVal: globalIndicatorsConfig.ema_slow,
+        emaLongVal: globalIndicatorsConfig.ema_long,
+        rsiPeriodVal: globalIndicatorsConfig.rsi_period,
+        macdFastVal: globalIndicatorsConfig.macd_fast,
+        macdSlowVal: globalIndicatorsConfig.macd_slow,
+        macdSignalVal: globalIndicatorsConfig.macd_signal,
+        adxPeriodVal: globalIndicatorsConfig.adx_period,
+        atrPeriodVal: globalIndicatorsConfig.atr_period,
+        squeezePeriodVal: globalIndicatorsConfig.squeeze_period,
 
         showEmas: true,
         showBb: true,
@@ -222,6 +222,21 @@ let activeTab = $state<string>('Hyperliquid-BTC');
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
 let showSettingsPanel = $state(false);
+
+let globalCandlesConfig = $state({ duration_seconds: 60 });
+let globalIndicatorsConfig = $state({
+    ema_fast: 10,
+    ema_medium: 50,
+    ema_slow: 100,
+    ema_long: 200,
+    rsi_period: 14,
+    macd_fast: 12,
+    macd_slow: 26,
+    macd_signal: 9,
+    adx_period: 14,
+    atr_period: 14,
+    squeeze_period: 20,
+});
 
 // Labels (global for display)
 let emaFastLabel = $state('EMA-10');
@@ -397,6 +412,11 @@ export function getState() {
         set chatInputText(v: string) { activePair().chatInputText = v; },
         get isChatLoading() { return activePair().isChatLoading; },
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
+
+        get globalCandlesConfig() { return globalCandlesConfig; },
+        set globalCandlesConfig(v) { globalCandlesConfig = v; },
+        get globalIndicatorsConfig() { return globalIndicatorsConfig; },
+        set globalIndicatorsConfig(v) { globalIndicatorsConfig = v; },
     };
 
     return app;
