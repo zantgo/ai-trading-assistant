@@ -8,6 +8,7 @@
     let tfUnit = $state<'seconds' | 'minutes' | 'hours'>('seconds');
 
     let draftSymbol = $state('');
+    let draftExchange = $state('Hyperliquid');
     let draftEmaFast = $state(10);
     let draftEmaMedium = $state(50);
     let draftEmaSlow = $state(100);
@@ -43,6 +44,7 @@
             validationError = null;
 
             draftSymbol = app.activeSymbol;
+            draftExchange = app.activeExchange;
             draftEmaFast = app.emaFastVal;
             draftEmaMedium = app.emaMediumVal;
             draftEmaSlow = app.emaSlowVal;
@@ -88,6 +90,7 @@
 
     let isTechnicalChanged = $derived(
         draftSymbol.trim().toUpperCase() !== app.activeSymbol ||
+        draftExchange !== app.activeExchange ||
         draftDuration !== app.barDurationSec ||
         draftEmaFast !== app.emaFastVal ||
         draftEmaMedium !== app.emaMediumVal ||
@@ -225,28 +228,83 @@
                 }
             };
 
-            try {
-                const pairKey = app.activeTab;
-                const res = await fetch(`/api/pairs/${encodeURIComponent(pairKey)}/config`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) throw new Error('API server rejected config save');
+            const isIdentityChanged = cleanedSymbol !== app.activeSymbol || draftExchange !== app.activeExchange;
 
-                // Apply to active pair state immediately
-                app.barDurationSec = draftDuration;
-                app.emaFastVal = draftEmaFast;
-                app.emaMediumVal = draftEmaMedium;
-                app.emaSlowVal = draftEmaSlow;
-                app.emaLongVal = draftEmaLong;
-                app.rsiPeriodVal = draftRsiPeriod;
-                app.macdFastVal = draftMacdFast;
-                app.macdSlowVal = draftMacdSlow;
-                app.macdSignalVal = draftMacdSignal;
-                app.adxPeriodVal = draftAdxPeriod;
-                app.atrPeriodVal = draftAtrPeriod;
-                app.squeezePeriodVal = draftSqueezePeriod;
+            try {
+                if (isIdentityChanged) {
+                    const oldPairKey = app.activeTab;
+                    const newPairKey = `${draftExchange}-${cleanedSymbol}`;
+
+                    // 1. Add the new pair on the backend
+                    const addRes = await fetch(`/api/pairs`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ symbol: cleanedSymbol, exchange: draftExchange }),
+                    });
+                    if (!addRes.ok) throw new Error('API server failed to add new pair');
+
+                    // 2. Save technical configuration for the new pair key
+                    const configRes = await fetch(`/api/pairs/${encodeURIComponent(newPairKey)}/config`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    if (!configRes.ok) throw new Error('API server failed to save configuration for new pair');
+
+                    // 3. Delete old pair on the backend
+                    await fetch(`/api/pairs/${encodeURIComponent(oldPairKey)}`, {
+                        method: 'DELETE'
+                    });
+
+                    // 4. Initialize new pair locally
+                    app.initPair(cleanedSymbol, draftExchange);
+
+                    // 5. Apply configuration locally
+                    const targetState = app.pairsMap[newPairKey];
+                    if (targetState) {
+                        targetState.barDurationSec = draftDuration;
+                        targetState.emaFastVal = draftEmaFast;
+                        targetState.emaMediumVal = draftEmaMedium;
+                        targetState.emaSlowVal = draftEmaSlow;
+                        targetState.emaLongVal = draftEmaLong;
+                        targetState.rsiPeriodVal = draftRsiPeriod;
+                        targetState.macdFastVal = draftMacdFast;
+                        targetState.macdSlowVal = draftMacdSlow;
+                        targetState.macdSignalVal = draftMacdSignal;
+                        targetState.adxPeriodVal = draftAdxPeriod;
+                        targetState.atrPeriodVal = draftAtrPeriod;
+                        targetState.squeezePeriodVal = draftSqueezePeriod;
+                    }
+
+                    // 6. Cleanly wipe the old Svelte tab state
+                    app.removePair(oldPairKey);
+
+                    // 7. Route the user to the newly updated tab
+                    app.activeTab = newPairKey;
+
+                } else {
+                    // Identity remains unchanged, update current configuration
+                    const pairKey = app.activeTab;
+                    const res = await fetch(`/api/pairs/${encodeURIComponent(pairKey)}/config`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    if (!res.ok) throw new Error('API server rejected config save');
+
+                    app.barDurationSec = draftDuration;
+                    app.emaFastVal = draftEmaFast;
+                    app.emaMediumVal = draftEmaMedium;
+                    app.emaSlowVal = draftEmaSlow;
+                    app.emaLongVal = draftEmaLong;
+                    app.rsiPeriodVal = draftRsiPeriod;
+                    app.macdFastVal = draftMacdFast;
+                    app.macdSlowVal = draftMacdSlow;
+                    app.macdSignalVal = draftMacdSignal;
+                    app.adxPeriodVal = draftAdxPeriod;
+                    app.atrPeriodVal = draftAtrPeriod;
+                    app.squeezePeriodVal = draftSqueezePeriod;
+                }
 
                 applyVisualsOnly();
                 closePanel();
@@ -321,6 +379,18 @@
             <h3 class="panel-section-title">Technical Parameters</h3>
 
             <div class="parameter-inputs-scroll">
+                <div class="input-row">
+                    <label for="exchange">Exchange Source:</label>
+                    <select id="exchange" bind:value={draftExchange} class="tf-unit-select" style="width: 140px; text-align: left;">
+                        <option value="Hyperliquid">Hyperliquid</option>
+                        <option value="Bybit">Bybit</option>
+                        <option value="Coinbase">Coinbase</option>
+                        <option value="Kraken">Kraken</option>
+                        <option value="Bitget">Bitget</option>
+                        <option value="EdgeX">EdgeX</option>
+                    </select>
+                </div>
+
                 <div class="input-row">
                     <label for="symbol">Market Pair:</label>
                     <input id="symbol" type="text" bind:value={draftSymbol} placeholder="e.g. ETH" />

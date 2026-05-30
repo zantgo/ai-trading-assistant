@@ -988,15 +988,38 @@ async fn serve_add_pair(
     let pair_key = format!("{}-{}", exchange, raw_symbol);
     let normalized = format!("{}-USD", raw_symbol);
 
+    // Resolve correct Exchange enum from payload string to avoid hardcoding Hyperliquid
+    use shared::normalized::Exchange;
+    let exchange_enum = match exchange {
+        "Hyperliquid" => Exchange::Hyperliquid,
+        "EdgeX" => Exchange::EdgeX,
+        "Bybit" => Exchange::Bybit,
+        "Bitget" => Exchange::Bitget,
+        "Kraken" => Exchange::Kraken,
+        "Coinbase" => Exchange::Coinbase,
+        _ => Exchange::Hyperliquid,
+    };
+
     {
         let pairs = state.pairs.read().await;
         if pairs.contains_key(&pair_key) {
             return (axum::http::StatusCode::CONFLICT, "Pair already active").into_response();
         }
 
-        // Register the normalized symbol mapping
-        use shared::normalized::Exchange;
-        state.symbol_mapper.register(Exchange::Hyperliquid, &raw_symbol, &normalized).await;
+        // Register the normalized symbol mapping dynamically
+        state.symbol_mapper.register(exchange_enum, &raw_symbol, &normalized).await;
+    }
+
+    // Persist Symbol addition: append new symbol to config.toml so it survives engine restarts
+    {
+        let mut config = state.config.write().await;
+        let symbol_entry = format!("{}:{}", exchange, raw_symbol);
+        if !config.symbols.contains(&symbol_entry) {
+            config.symbols.push(symbol_entry);
+            if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+                let _ = std::fs::write("config.toml", toml_str);
+            }
+        }
     }
 
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(100);
@@ -1049,7 +1072,30 @@ async fn serve_remove_pair(
 
     match pair {
         Some(pair) => {
+            // Terminate backend analyzer loop task cleanly
             pair.cancel.cancel();
+
+            // Persist Symbol removal and clean pairs.json
+            {
+                let mut config = state.config.write().await;
+
+                // 1. Remove from config's active symbols array
+                let parts: Vec<&str> = pair_key.split('-').collect();
+                if parts.len() == 2 {
+                    let symbol_entry = format!("{}:{}", parts[0], parts[1]);
+                    if let Some(pos) = config.symbols.iter().position(|s| s == &symbol_entry) {
+                        config.symbols.remove(pos);
+                        if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+                            let _ = std::fs::write("config.toml", toml_str);
+                        }
+                    }
+                }
+
+                // 2. Remove pair-specific config block and save pairs.json
+                config.pairs.remove(&pair_key);
+                crate::config::save_pairs(&config.pairs);
+            }
+
             println!("✅ Pair removed: {}", pair_key);
             (axum::http::StatusCode::OK, format!("Pair {} removed", pair_key)).into_response()
         }
