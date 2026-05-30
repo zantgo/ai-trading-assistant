@@ -46,4 +46,31 @@ describe('AI Trading Assistant Global State Tests', () => {
         expect(app.chatHistory.length).toBe(1);
         expect(app.chatHistory[0].role).toBe('assistant');
     });
+
+    it('should initialize pairsMap with exchange-symbol key', () => {
+        app.initPair('BTC');
+        expect(app.pairsMap['Hyperliquid-BTC']).toBeDefined();
+        expect(app.pairsMap['Hyperliquid-BTC'].symbol).toBe('BTC');
+        expect(app.pairsMap['Hyperliquid-BTC'].exchange).toBe('Hyperliquid');
+        expect(app.pairsMap['Hyperliquid-BTC'].priceText).toBe('--');
+    });
+
+    it('should route snapshot data by exchange key to correct pair', () => {
+        app.initPair('BTC');
+        app.initPair('ETH');
+
+        app.pairsMap['Hyperliquid-BTC'].priceText = '50000.00';
+        app.pairsMap['Hyperliquid-BTC'].latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
+
+        expect(app.pairsMap['Hyperliquid-BTC'].priceText).toBe('50000.00');
+        expect(app.pairsMap['Hyperliquid-ETH'].priceText).toBe('--');
+    });
+
+    it('should toggle apiKeyConfigured flag', () => {
+        expect(app.apiKeyConfigured).toBe(true);
+        app.apiKeyConfigured = false;
+        expect(app.apiKeyConfigured).toBe(false);
+        app.apiKeyConfigured = true;
+        expect(app.apiKeyConfigured).toBe(true);
+    });
 });

@@ -25,3 +25,38 @@ impl Sma {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_returns_none_before_full_period() {
+        let mut sma = Sma::new(5);
+        assert_eq!(sma.update(dec!(10.00)), None);
+        assert_eq!(sma.update(dec!(20.00)), None);
+        assert_eq!(sma.update(dec!(30.00)), None);
+        assert_eq!(sma.update(dec!(40.00)), None);
+    }
+
+    #[test]
+    fn test_returns_average_at_period_boundary() {
+        let mut sma = Sma::new(3);
+        sma.update(dec!(10.00));
+        sma.update(dec!(20.00));
+        let result = sma.update(dec!(30.00)).unwrap();
+        assert_eq!(result, dec!(20.00));
+    }
+
+    #[test]
+    fn test_sliding_window_evicts_oldest() {
+        let mut sma = Sma::new(3);
+        sma.update(dec!(10.00));
+        sma.update(dec!(20.00));
+        sma.update(dec!(30.00));
+        let result = sma.update(dec!(60.00)).unwrap();
+        let expected = (dec!(20.00) + dec!(30.00) + dec!(60.00)) / Decimal::from(3);
+        assert_eq!(result, expected);
+    }
+}

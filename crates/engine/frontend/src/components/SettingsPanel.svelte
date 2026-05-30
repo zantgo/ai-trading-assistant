@@ -30,6 +30,14 @@
     let draftShowMacd = $state(true);
     let draftShowSqueeze = $state(true);
 
+    let draftApiKey = $state('');
+    let apiKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+    let apiKeyError = $state('');
+
+    let showRulesEditor = $state(false);
+    let draftRules = $state('');
+    let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
+
     $effect(() => {
         if (app.showSettingsPanel) {
             validationError = null;
@@ -112,6 +120,69 @@
         app.showSettingsPanel = false;
     };
 
+    const fetchRules = async () => {
+        rulesStatus = 'loading';
+        try {
+            const res = await fetch('/api/rules');
+            const data = await res.json();
+            draftRules = data.content || '';
+            app.rulesContent = draftRules;
+            rulesStatus = 'idle';
+        } catch (e) {
+            console.error('Failed to fetch rules:', e);
+            rulesStatus = 'error';
+        }
+    };
+
+    const saveRules = async () => {
+        rulesStatus = 'saving';
+        try {
+            const res = await fetch('/api/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: draftRules }),
+            });
+            if (res.ok) {
+                app.rulesContent = draftRules;
+                rulesStatus = 'success';
+                setTimeout(() => { rulesStatus = 'idle'; }, 2000);
+            } else {
+                rulesStatus = 'error';
+            }
+        } catch (e) {
+            console.error('Failed to save rules:', e);
+            rulesStatus = 'error';
+        }
+    };
+
+    const saveApiKey = async () => {
+        const key = draftApiKey.trim();
+        if (!key) return;
+
+        apiKeyStatus = 'saving';
+        apiKeyError = '';
+        try {
+            const res = await fetch('/api/config/key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: key }),
+            });
+            if (res.ok) {
+                app.apiKeyConfigured = true;
+                draftApiKey = '';
+                apiKeyStatus = 'success';
+                setTimeout(() => { apiKeyStatus = 'idle'; }, 2000);
+            } else {
+                const text = await res.text();
+                apiKeyError = text;
+                apiKeyStatus = 'error';
+            }
+        } catch (e: any) {
+            apiKeyError = e.message || 'Connection failed';
+            apiKeyStatus = 'error';
+        }
+    };
+
     const applyVisualsOnly = () => {
         app.showEmas = draftShowEmas;
         app.showBb = draftShowBb;
@@ -136,7 +207,6 @@
 
         if (isTechnicalChanged) {
             const body = {
-                symbol: cleanedSymbol,
                 candles: {
                     duration_seconds: Number(draftDuration)
                 },
@@ -156,14 +226,15 @@
             };
 
             try {
-                const res = await fetch('/api/config', {
+                const pairKey = app.activeTab;
+                const res = await fetch(`/api/pairs/${encodeURIComponent(pairKey)}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
                 if (!res.ok) throw new Error('API server rejected config save');
 
-                app.activeSymbol = cleanedSymbol;
+                // Apply to active pair state immediately
                 app.barDurationSec = draftDuration;
                 app.emaFastVal = draftEmaFast;
                 app.emaMediumVal = draftEmaMedium;
@@ -178,10 +249,7 @@
                 app.squeezePeriodVal = draftSqueezePeriod;
 
                 applyVisualsOnly();
-
                 closePanel();
-
-                window.location.reload();
             } catch (err) {
                 validationError = "Save Failed: Unable to contact engine API to write changes.";
                 console.error(err);
@@ -317,6 +385,70 @@
                     <input id="sqzlen" type="number" bind:value={draftSqueezePeriod} min="1" />
                 </div>
             </div>
+        </div>
+
+        <div class="panel-section">
+            <h3 class="panel-section-title">API Key Configuration</h3>
+            <div class="setting-group-box">
+                <span class="selectors-label">DeepSeek API Key</span>
+                <div class="key-input-row">
+                    <input
+                        type="password"
+                        class="key-field"
+                        placeholder="sk-..."
+                        bind:value={draftApiKey}
+                    />
+                    <button
+                        class="key-save-btn"
+                        disabled={apiKeyStatus === 'saving'}
+                        onclick={saveApiKey}
+                    >
+                        {apiKeyStatus === 'saving' ? '...' : 'Save Key'}
+                    </button>
+                </div>
+                {#if apiKeyStatus === 'success'}
+                    <div class="status-msg success-msg">Key validated and saved.</div>
+                {/if}
+                {#if apiKeyStatus === 'error' && apiKeyError}
+                    <div class="status-msg error-msg">{apiKeyError}</div>
+                {/if}
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <h3 class="panel-section-title">
+                Edit Technical Rules
+                <button class="rules-toggle-btn" onclick={() => {
+                    showRulesEditor = !showRulesEditor;
+                    if (showRulesEditor && !draftRules) fetchRules();
+                }}>
+                    {showRulesEditor ? '▲ Hide' : '▼ Show'}
+                </button>
+            </h3>
+            {#if showRulesEditor}
+                <div class="setting-group-box">
+                    <textarea
+                        class="rules-editor"
+                        rows="12"
+                        bind:value={draftRules}
+                    ></textarea>
+                    <div class="rules-actions">
+                        <button
+                            class="key-save-btn"
+                            disabled={rulesStatus === 'saving'}
+                            onclick={saveRules}
+                        >
+                            {rulesStatus === 'saving' ? 'Saving...' : 'Save Rules'}
+                        </button>
+                        {#if rulesStatus === 'success'}
+                            <span class="status-msg success-msg">Rules updated successfully.</span>
+                        {/if}
+                        {#if rulesStatus === 'error'}
+                            <span class="status-msg error-msg">Failed to save rules.</span>
+                        {/if}
+                    </div>
+                </div>
+            {/if}
         </div>
     </div>
 
@@ -582,5 +714,89 @@
     }
     .btn-active:hover {
         background: linear-gradient(135deg, #1e3a8a, #2563eb) !important;
+    }
+    .key-input-row {
+        display: flex;
+        gap: 6px;
+    }
+    .key-field {
+        flex: 1;
+        background-color: #171b26;
+        border: 1px solid #2a2e39;
+        color: #f1f5f9;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        padding: 6px 8px;
+        border-radius: 4px;
+        outline: none;
+    }
+    .key-field:focus {
+        border-color: #3b82f6;
+    }
+    .key-save-btn {
+        background-color: #1e40af;
+        border: 1px solid #3b82f6;
+        color: #f1f5f9;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        text-transform: uppercase;
+        white-space: nowrap;
+        transition: all 0.15s;
+    }
+    .key-save-btn:hover {
+        background-color: #1e3a8a;
+    }
+    .key-save-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .status-msg {
+        font-size: 10px;
+        padding: 4px 0;
+    }
+    .success-msg {
+        color: #10b981;
+    }
+    .error-msg {
+        color: #ef4444;
+    }
+    .rules-toggle-btn {
+        background: none;
+        border: 1px solid #2a2e39;
+        color: #8f929d;
+        font-size: 9px;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 3px;
+        padding: 1px 6px;
+        margin-left: 8px;
+    }
+    .rules-toggle-btn:hover {
+        color: #cbd5e1;
+        border-color: #3b82f6;
+    }
+    .rules-editor {
+        width: 100%;
+        background-color: #0a0d14;
+        border: 1px solid #2a2e39;
+        color: #cbd5e1;
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        line-height: 1.5;
+        padding: 8px;
+        border-radius: 4px;
+        resize: vertical;
+        outline: none;
+    }
+    .rules-editor:focus {
+        border-color: #3b82f6;
+    }
+    .rules-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 </style>

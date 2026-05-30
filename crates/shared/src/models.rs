@@ -5,10 +5,12 @@
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use crate::normalized::Exchange;
 
-/// Represents a unified price snapshot alongside all computed technical indicators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exchange: Option<Exchange>,
     pub timestamp: u64,
     pub symbol: String,
     pub mid_price: Decimal,

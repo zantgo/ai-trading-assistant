@@ -1,29 +1,33 @@
 use std::sync::Arc;
-use std::collections::VecDeque;
+use std::sync::atomic::AtomicBool;
+use std::collections::{HashMap, VecDeque};
 use axum::{
-    extract::{State, WebSocketUpgrade},
+    extract::{Path, State, WebSocketUpgrade, Query},
     extract::ws::{WebSocket, Message as AxumMessage},
     http::header,
     response::{IntoResponse, Redirect},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router, Json,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
-use rust_decimal::Decimal;
+use shared::normalized::{NormalizedEvent, SymbolMapper};
 use shared::models::MarketSnapshot;
 use crate::config::AppConfig;
+use crate::analyzer::{self, ActivePair};
 use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult};
 
+use tokio_util::sync::CancellationToken;
+
 pub struct AppState {
-    pub tx: tokio::sync::broadcast::Sender<MarketSnapshot>,
+    pub pairs: Arc<RwLock<HashMap<String, Arc<ActivePair>>>>,
     pub config: Arc<RwLock<AppConfig>>,
-    pub history: Arc<RwLock<VecDeque<Decimal>>>,
     pub pool: SqlitePool,
-    pub llm_client: LlmClient,
-    pub symbol_tx: watch::Sender<String>,
+    pub llm_client: Arc<RwLock<LlmClient>>,
+    pub api_key_configured: Arc<AtomicBool>,
+    pub symbol_mapper: Arc<SymbolMapper>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +37,56 @@ pub struct AnalyzeRequest {
     pub entry_price: String,
     pub historical_prices: Vec<f64>,
     pub indicators: IndicatorSnapshot,
+    #[serde(default)]
+    pub symbol: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetKeyRequest {
+    pub api_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetRulesRequest {
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RulesResponse {
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddPairRequest {
+    pub symbol: String,
+    #[serde(default)]
+    pub exchange: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PairsListResponse {
+    pub symbols: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfigResponse {
+    pub api_key_configured: bool,
+    pub symbols: Vec<String>,
+    pub candles: crate::config::CandlesConfig,
+    pub indicators: crate::config::IndicatorsConfig,
+    pub pairs: std::collections::HashMap<String, crate::config::PairSpecificConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryQuery {
+    #[serde(default)]
+    pub symbol: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WsQuery {
+    #[serde(default)]
+    pub symbol: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,6 +150,12 @@ pub struct MultiAgentAnalysisResponse {
     pub phase_two: PhaseTwoResponse,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PairConfigPayload {
+    pub candles: crate::config::CandlesConfig,
+    pub indicators: crate::config::IndicatorsConfig,
+}
+
 #[derive(Debug, Serialize)]
 pub struct HistoryResponse {
     pub prices: Vec<String>,
@@ -137,10 +197,15 @@ pub struct MasterHistoryResponse {
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/config", get(serve_config).post(update_config))
+        .route("/api/config/key", post(serve_set_key))
+        .route("/api/rules", get(serve_get_rules).post(serve_set_rules))
         .route("/api/history", get(serve_history))
         .route("/api/analyze", post(serve_analyze))
         .route("/api/chat", post(serve_chat))
         .route("/api/assistant-records", get(serve_assistant_records))
+        .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
+        .route("/api/pairs/:pair_key", delete(serve_remove_pair))
+        .route("/api/pairs/:pair_key/config", post(serve_update_pair_config))
         .route("/ws", get(ws_handler))
         .route("/favicon.ico", get(|| async { Redirect::to("/favicon.svg") }))
         .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
@@ -149,7 +214,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
 async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let current_config = state.config.read().await.clone();
-    let json = axum::Json(current_config);
+    let api_key_configured = state.api_key_configured.load(std::sync::atomic::Ordering::Relaxed);
+    let response_body = ConfigResponse {
+        api_key_configured,
+        symbols: current_config.symbols.clone(),
+        candles: current_config.candles.clone(),
+        indicators: current_config.indicators.clone(),
+        pairs: current_config.pairs.clone(),
+    };
+    let json = axum::Json(response_body);
     let mut response = json.into_response();
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -168,17 +241,9 @@ async fn update_config(
                 eprintln!("❌ Database/Config Error: Failed to write configuration updates to config.toml: {}", e);
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist configuration file").into_response();
             }
-            let _ = state.symbol_tx.send_if_modified(|current| {
-                if *current != payload.symbol {
-                    *current = payload.symbol.clone();
-                    true
-                } else {
-                    false
-                }
-            });
             *state.config.write().await = payload;
             println!("✅ Configuration Updated: successfully synchronized config.toml dynamically.");
-            (axum::http::StatusCode::OK, "Configuration successfully saved. Restart recommended for full indicator parameter re-initialization.").into_response()
+            (axum::http::StatusCode::OK, "Configuration successfully saved.").into_response()
         }
         Err(e) => {
             eprintln!("❌ TOML Serialization Error: {}", e);
@@ -187,9 +252,27 @@ async fn update_config(
     }
 }
 
-async fn serve_history(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let hist = state.history.read().await;
-    let prices: Vec<String> = hist.iter().map(|d| d.to_string()).collect();
+async fn serve_history(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<HistoryQuery>,
+) -> impl IntoResponse {
+    let pair_key = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
+        format!("{}-{}", ex, sym.to_uppercase())
+    } else {
+        query.symbol
+    };
+
+    let pairs = state.pairs.read().await;
+    let prices = match pairs.get(&pair_key) {
+        Some(pair) => {
+            let hist = pair.history.read().await;
+            hist.iter().map(|d| d.to_string()).collect::<Vec<String>>()
+        }
+        None => vec![],
+    };
     Json(HistoryResponse { prices })
 }
 
@@ -197,12 +280,29 @@ async fn serve_analyze(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<AnalyzeRequest>,
 ) -> impl IntoResponse {
-    let symbol = state.config.read().await.symbol.clone();
-    let hist = state.history.read().await;
+    let symbol = if payload.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
+        format!("{}-{}", ex, sym.to_uppercase())
+    } else {
+        payload.symbol.clone()
+    };
+
     let prices = payload.historical_prices.clone();
     let indicators = &payload.indicators;
 
-    let last_close = hist.back().map(|d| d.to_string()).unwrap_or_else(|| "0".to_string());
+    let last_close = {
+        let pair_key = symbol.clone();
+        let pairs = state.pairs.read().await;
+        if let Some(pair) = pairs.get(&pair_key) {
+            let hist = pair.history.read().await;
+            hist.back().map(|d| d.to_string()).unwrap_or_else(|| "0".to_string())
+        } else {
+            "0".to_string()
+        }
+    };
+
     let current_price = indicators.current_price.unwrap_or_else(|| {
         prices.last().copied().unwrap_or(0.0)
     });
@@ -222,8 +322,9 @@ async fn serve_analyze(
     )
     .await;
 
+    let llm = state.llm_client.read().await;
     let phase_one_results = run_phase_one_agents(
-        &state.llm_client,
+        &llm,
         indicators,
         &prices,
         &atr_trend,
@@ -234,7 +335,7 @@ async fn serve_analyze(
 
     let phase_one_json = serde_json::to_string(&phase_one_results).unwrap_or_else(|_| "[]".into());
 
-    let phase_two = match state.llm_client.run_master_orchestrator(
+    let phase_two = match llm.run_master_orchestrator(
         &payload.position,
         &entry_price,
         &prices,
@@ -284,9 +385,10 @@ async fn serve_analyze(
             heuristic
         }
     };
+    drop(llm);
 
     let response = MultiAgentAnalysisResponse {
-        phase_one: phase_one_results,
+        phase_one: phase_one_results.clone(),
         phase_two: PhaseTwoResponse {
             general_trend: phase_two.general_trend,
             support_and_resistance: SupportResistanceResponse {
@@ -715,7 +817,8 @@ async fn serve_chat(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ChatHistoryRequest>,
 ) -> impl IntoResponse {
-    match state.llm_client.chat(payload.history).await {
+    let llm = state.llm_client.read().await;
+    match llm.chat(payload.history).await {
         Ok(reply) => Json(ChatReplResponse { reply }).into_response(),
         Err(e) => {
             eprintln!("⚠️  LLM chat failed: {}", e);
@@ -730,8 +833,18 @@ async fn serve_chat(
 
 async fn serve_assistant_records(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let records = crate::db::query_master_records(&state.pool, 50).await;
-    let hist = state.history.read().await;
-    let latest_close = hist.back().map(|d| d.to_string()).unwrap_or_else(|| "0".to_string());
+    let default_symbol = state.config.read().await.symbols.first().cloned().unwrap_or_default();
+    let latest_close = {
+        let (ex, sym) = default_symbol.split_once(':').unwrap_or(("Hyperliquid", &default_symbol));
+        let pair_key = format!("{}-{}", ex, sym.to_uppercase());
+        let pairs = state.pairs.read().await;
+        if let Some(pair) = pairs.get(&pair_key) {
+            let hist = pair.history.read().await;
+            hist.back().map(|d| d.to_string()).unwrap_or_else(|| "0".to_string())
+        } else {
+            "0".to_string()
+        }
+    };
 
     let records_json: Vec<MasterRecordJson> = records
         .into_iter()
@@ -762,21 +875,212 @@ async fn serve_assistant_records(State(state): State<Arc<AppState>>) -> impl Int
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
+    Query(query): Query<WsQuery>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_ws_socket(socket, state))
+    let pair_key = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
+        format!("{}-{}", ex, sym.to_uppercase())
+    } else {
+        query.symbol
+    };
+    ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key))
 }
 
-async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>) {
-    let mut rx = state.tx.subscribe();
+async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key: String) {
+    let rx = {
+        let pairs = state.pairs.read().await;
+        match pairs.get(&pair_key) {
+            Some(pair) => pair.broadcast_tx.subscribe(),
+            None => return,
+        }
+    };
 
-    while let Ok(snapshot) = rx.recv().await {
+    let mut rx_stream = rx;
+    while let Ok(snapshot) = rx_stream.recv().await {
         if let Ok(json_str) = serde_json::to_string(&snapshot) {
             if socket.send(AxumMessage::Text(json_str.into())).await.is_err() {
                 break;
             }
         }
     }
+}
+
+async fn serve_set_key(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SetKeyRequest>,
+) -> impl IntoResponse {
+    let key = payload.api_key.trim().to_string();
+    if key.is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "API key cannot be empty").into_response();
+    }
+
+    {
+        let mut llm = state.llm_client.write().await;
+        llm.set_api_key(key.clone());
+    }
+
+    let llm = state.llm_client.read().await;
+    match llm.validate_key().await {
+        Ok(()) => {
+            drop(llm);
+            let mut llm = state.llm_client.write().await;
+            llm.set_api_key(key.clone());
+            drop(llm);
+
+            let env_entry = format!("DEEPSEEK_API_KEY={}", key);
+            if let Err(e) = std::fs::write(".env", &env_entry) {
+                eprintln!("⚠️ Failed to persist API key to .env: {}", e);
+            }
+
+            state.api_key_configured.store(true, std::sync::atomic::Ordering::Relaxed);
+            println!("✅ API key configured and validated successfully.");
+            (axum::http::StatusCode::OK, "API key validated and saved.").into_response()
+        }
+        Err(e) => {
+            state.api_key_configured.store(false, std::sync::atomic::Ordering::Relaxed);
+            eprintln!("❌ API key validation failed: {}", e);
+            (axum::http::StatusCode::UNAUTHORIZED, format!("Key validation failed: {}", e)).into_response()
+        }
+    }
+}
+
+async fn serve_get_rules() -> impl IntoResponse {
+    match std::fs::read_to_string("docs/indicators-guide.md") {
+        Ok(content) => Json(RulesResponse { content }).into_response(),
+        Err(e) => {
+            eprintln!("❌ Failed to read indicators guide: {}", e);
+            (axum::http::StatusCode::NOT_FOUND, "Indicators guide not found").into_response()
+        }
+    }
+}
+
+async fn serve_set_rules(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SetRulesRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = std::fs::write("docs/indicators-guide.md", &payload.content) {
+        eprintln!("❌ Failed to write indicators guide: {}", e);
+        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to save rules").into_response();
+    }
+
+    {
+        let mut llm = state.llm_client.write().await;
+        llm.set_indicators_guide(payload.content);
+    }
+
+    println!("✅ Indicators guide updated successfully.");
+    (axum::http::StatusCode::OK, "Rules updated successfully.").into_response()
+}
+
+async fn serve_add_pair(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AddPairRequest>,
+) -> impl IntoResponse {
+    let raw_symbol = payload.symbol.trim().to_uppercase().to_string();
+    if raw_symbol.is_empty() || raw_symbol.len() > 10 {
+        return (axum::http::StatusCode::BAD_REQUEST, "Invalid symbol").into_response();
+    }
+
+    let exchange = payload.exchange.as_deref().unwrap_or("Hyperliquid");
+    let pair_key = format!("{}-{}", exchange, raw_symbol);
+    let normalized = format!("{}-USD", raw_symbol);
+
+    {
+        let pairs = state.pairs.read().await;
+        if pairs.contains_key(&pair_key) {
+            return (axum::http::StatusCode::CONFLICT, "Pair already active").into_response();
+        }
+
+        // Register the normalized symbol mapping
+        use shared::normalized::Exchange;
+        state.symbol_mapper.register(Exchange::Hyperliquid, &raw_symbol, &normalized).await;
+    }
+
+    let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(100);
+    let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
+    let history = Arc::new(RwLock::new(VecDeque::with_capacity(100)));
+    let cancel = CancellationToken::new();
+
+    let pair = Arc::new(ActivePair {
+        symbol: raw_symbol.clone(),
+        history: history.clone(),
+        broadcast_tx: broadcast_tx.clone(),
+        snapshot_tx: snapshot_tx.clone(),
+        cancel: cancel.clone(),
+    });
+
+    state.pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
+
+    let analyzer_config = state.config.clone();
+    let analyzer_pool = state.pool.clone();
+    let analyzer_history = history.clone();
+    let analyzer_broadcast = broadcast_tx.clone();
+    let analyzer_cancel = cancel.clone();
+    let analyzer_symbol = raw_symbol.clone();
+    let analyzer_pair_key = pair_key.clone();
+    tokio::spawn(async move {
+        analyzer::run_single(
+            snapshot_rx,
+            analyzer_pool,
+            analyzer_broadcast,
+            analyzer_config,
+            analyzer_history,
+            analyzer_symbol,
+            analyzer_pair_key,
+            analyzer_cancel,
+        ).await;
+    });
+
+    println!("✅ Pair added: {}", pair_key);
+    (axum::http::StatusCode::CREATED, format!("Pair {} added", pair_key)).into_response()
+}
+
+async fn serve_remove_pair(
+    State(state): State<Arc<AppState>>,
+    Path(pair_key): Path<String>,
+) -> impl IntoResponse {
+    let pair = {
+        let mut pairs = state.pairs.write().await;
+        pairs.remove(&pair_key)
+    };
+
+    match pair {
+        Some(pair) => {
+            pair.cancel.cancel();
+            println!("✅ Pair removed: {}", pair_key);
+            (axum::http::StatusCode::OK, format!("Pair {} removed", pair_key)).into_response()
+        }
+        None => {
+            (axum::http::StatusCode::NOT_FOUND, "Pair not found").into_response()
+        }
+    }
+}
+
+async fn serve_update_pair_config(
+    State(state): State<Arc<AppState>>,
+    Path(pair_key): Path<String>,
+    Json(payload): Json<PairConfigPayload>,
+) -> impl IntoResponse {
+    let mut config = state.config.write().await;
+
+    let specific_config = crate::config::PairSpecificConfig {
+        candles: payload.candles,
+        indicators: payload.indicators,
+    };
+
+    config.pairs.insert(pair_key.clone(), specific_config);
+    crate::config::save_pairs(&config.pairs);
+    println!("✅ Pair config saved: {}", pair_key);
+    (axum::http::StatusCode::OK, "Pair configuration saved successfully").into_response()
+}
+
+async fn serve_list_pairs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let pairs = state.pairs.read().await;
+    let symbols: Vec<String> = pairs.keys().cloned().collect();
+    Json(PairsListResponse { symbols })
 }
 
 #[cfg(test)]

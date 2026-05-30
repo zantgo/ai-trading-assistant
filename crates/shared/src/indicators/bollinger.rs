@@ -17,7 +17,6 @@ impl BollingerBands {
         }
     }
 
-    /// Update with a closed price, returning (upper, middle, lower)
     pub fn update(&mut self, close: Decimal) -> Option<(Decimal, Decimal, Decimal)> {
         self.prices_history.push(close);
         if self.prices_history.len() > 20 {
@@ -45,5 +44,52 @@ impl BollingerBands {
         let lower = sma - std_dev * Decimal::from(2);
 
         Some((upper, sma, lower))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_returns_none_before_20_values() {
+        let mut bb = BollingerBands::new();
+        for _ in 0..19 {
+            assert_eq!(bb.update(dec!(100.00)), None);
+        }
+    }
+
+    #[test]
+    fn test_returns_bands_at_20_values() {
+        let mut bb = BollingerBands::new();
+        for _ in 0..19 {
+            bb.update(dec!(100.00));
+        }
+        let result = bb.update(dec!(100.00)).unwrap();
+        assert!(result.0 >= result.1);
+        assert!(result.1 >= result.2);
+    }
+
+    #[test]
+    fn test_upper_band_widens_with_volatility() {
+        let mut bb = BollingerBands::new();
+        for _ in 0..20 {
+            bb.update(dec!(100.00));
+        }
+        let narrow = bb.update(dec!(100.00)).unwrap();
+
+        let mut bb2 = BollingerBands::new();
+        let mut price = dec!(100.00);
+        for _ in 0..10 {
+            bb2.update(price);
+            price += dec!(10.00);
+        }
+        for _ in 0..10 {
+            bb2.update(price);
+            price -= dec!(10.00);
+        }
+        let wide = bb2.update(dec!(100.00)).unwrap();
+        assert!(wide.0 > narrow.0, "Volatile prices should widen upper band");
     }
 }

@@ -26,7 +26,6 @@ impl Adx {
         }
     }
 
-    /// Update ADX returning (ADX Line, +DI Line, -DI Line)
     pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<(Decimal, Decimal, Decimal)> {
         let (p_high, p_low, p_close) = match (self.prev_high, self.prev_low, self.prev_close) {
             (Some(h), Some(l), Some(c)) => (h, l, c),
@@ -73,5 +72,50 @@ impl Adx {
         let adx = self.dx_ema.update(dx);
 
         Some((adx, plus_di, minus_di))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_first_update_returns_none() {
+        let mut adx = Adx::new(14);
+        assert_eq!(adx.update(dec!(100.00), dec!(95.00), dec!(98.00)), None);
+    }
+
+    #[test]
+    fn test_strong_up_trend_plus_di_above_minus_di() {
+        let mut adx = Adx::new(14);
+        let mut high = dec!(100.00);
+        let mut low = dec!(95.00);
+        let mut close = dec!(98.00);
+        adx.update(high, low, close);
+
+        for _ in 0..20 {
+            high += dec!(2.00);
+            low += dec!(1.50);
+            close += dec!(2.00);
+            adx.update(high, low, close);
+        }
+
+        let (_adx_val, plus_di, minus_di) = adx.update(high + dec!(2.00), low + dec!(1.50), close + dec!(2.00)).unwrap();
+        assert!(plus_di > minus_di, "Strong uptrend: +DI should exceed -DI");
+    }
+
+    #[test]
+    fn test_zero_movement_periods_produce_symmetric_di() {
+        let mut adx = Adx::new(14);
+        let price = dec!(100.00);
+        adx.update(price, price, price);
+        for _ in 0..20 {
+            let result = adx.update(price, price, price);
+            if let Some((_adx, plus_di, minus_di)) = result {
+                assert!((plus_di - minus_di).abs() < dec!(1.00),
+                    "Zero movement: +DI and -DI should be near equal");
+            }
+        }
     }
 }

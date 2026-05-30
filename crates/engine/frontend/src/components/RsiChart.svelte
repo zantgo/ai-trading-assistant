@@ -5,7 +5,7 @@
     import { getState } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    const state = getState();
+    const app = getState();
     let container: HTMLDivElement;
     let chart: IChartApi;
     let rsiSeries: ISeriesApi<'Line'>;
@@ -45,7 +45,7 @@
     });
 
     $effect(() => {
-        const snap = state.latestSnapshot;
+        const snap = app.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.rsi_14 != null) {

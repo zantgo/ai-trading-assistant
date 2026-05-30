@@ -15,8 +15,9 @@ pub async fn init_db() -> SqlitePool {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp INTEGER NOT NULL,
+            exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
             symbol TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
             mid_price TEXT NOT NULL,
             bid_price TEXT NOT NULL,
             ask_price TEXT NOT NULL,
@@ -49,6 +50,14 @@ pub async fn init_db() -> SqlitePool {
     .execute(&pool)
     .await
     .expect("❌ Database Setup: Failed to build schema table");
+
+    // Migration: add exchange column for existing databases
+    sqlx::query(
+        "ALTER TABLE market_snapshots ADD COLUMN exchange TEXT NOT NULL DEFAULT 'Hyperliquid'"
+    )
+    .execute(&pool)
+    .await
+    .ok(); // Ignore error if column already exists
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS individual_indicator_logs (
@@ -90,17 +99,19 @@ pub async fn init_db() -> SqlitePool {
 
 pub async fn insert_snapshot(pool: &SqlitePool, snapshot: &MarketSnapshot) {
     let sqz_on_db_val = snapshot.squeeze_on.map(|s| if s { 1 } else { 0 });
+    let exchange_label = snapshot.exchange.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "Hyperliquid".to_string());
 
     if let Err(e) = sqlx::query(
         "INSERT INTO market_snapshots (
-            timestamp, symbol, mid_price, bid_price, ask_price,
+            exchange, timestamp, symbol, mid_price, bid_price, ask_price,
             open, high, low, close, volume, average_volume,
             bb_upper, bb_middle, bb_lower, atr_14, vwap,
             ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
             macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
             squeeze_on, squeeze_momentum
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)"
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)"
     )
+    .bind(exchange_label)
     .bind(snapshot.timestamp as i64)
     .bind(&snapshot.symbol)
     .bind(snapshot.mid_price.to_string())

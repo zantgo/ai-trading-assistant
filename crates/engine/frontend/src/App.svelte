@@ -4,6 +4,7 @@
     import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis } from './state.svelte';
 
     import Header from './components/Header.svelte';
+    import TabHeader from './components/TabHeader.svelte';
     import SettingsPanel from './components/SettingsPanel.svelte';
     import PriceChart from './components/PriceChart.svelte';
     import VolumeChart from './components/VolumeChart.svelte';
@@ -18,26 +19,48 @@
     // svelte-ignore non_reactive_update
     let chatContainer: HTMLDivElement | null = null;
 
-    // Descargar parámetros de configuración desde el backend
+    // Fetch configuration parameters from backend
     async function fetchConfig() {
         try {
             const res = await fetch(`/api/config?_=${Date.now()}`);
             if (!res.ok) return;
             const config = await res.json();
-            
-            app.activeSymbol = config.symbol || 'ETH';
-            app.barDurationSec = config.candles.duration_seconds;
-            app.emaFastVal = config.indicators.ema_fast;
-            app.emaMediumVal = config.indicators.ema_medium;
-            app.emaSlowVal = config.indicators.ema_slow;
-            app.emaLongVal = config.indicators.ema_long;
-            app.rsiPeriodVal = config.indicators.rsi_period;
-            app.macdFastVal = config.indicators.macd_fast;
-            app.macdSlowVal = config.indicators.macd_slow;
-            app.macdSignalVal = config.indicators.macd_signal;
-            app.adxPeriodVal = config.indicators.adx_period;
-            app.atrPeriodVal = config.indicators.atr_period;
-            app.squeezePeriodVal = config.indicators.squeeze_period;
+
+            app.apiKeyConfigured = config.api_key_configured ?? true;
+
+            const pairConfigs = config.pairs || {};
+            const symbols: string[] = config.symbols || ['Hyperliquid:BTC'];
+
+            for (const item of symbols) {
+                const parts = item.split(':');
+                const exchange = parts[0] || 'Hyperliquid';
+                const symbol = parts[1] || 'BTC';
+
+                app.initPair(symbol, exchange);
+
+                const pairKey = `${exchange}-${symbol}`;
+                const specific = pairConfigs[pairKey];
+                const targetState = app.pairsMap[pairKey];
+
+                if (specific && targetState) {
+                    targetState.barDurationSec = specific.candles.duration_seconds;
+                    targetState.emaFastVal = specific.indicators.ema_fast;
+                    targetState.emaMediumVal = specific.indicators.ema_medium;
+                    targetState.emaSlowVal = specific.indicators.ema_slow;
+                    targetState.emaLongVal = specific.indicators.ema_long;
+                    targetState.rsiPeriodVal = specific.indicators.rsi_period;
+                    targetState.macdFastVal = specific.indicators.macd_fast;
+                    targetState.macdSlowVal = specific.indicators.macd_slow;
+                    targetState.macdSignalVal = specific.indicators.macd_signal;
+                    targetState.adxPeriodVal = specific.indicators.adx_period;
+                    targetState.atrPeriodVal = specific.indicators.atr_period;
+                    targetState.squeezePeriodVal = specific.indicators.squeeze_period;
+                }
+            }
+            if (symbols.length > 0) {
+                const parts = symbols[0].split(':');
+                app.activeTab = `${parts[0] || 'Hyperliquid'}-${parts[1] || 'BTC'}`;
+            }
         } catch (e) {
             console.error('Failed to fetch config from server:', e);
         }
@@ -54,11 +77,24 @@
         }
     }
 
-    // Establecer conexión con el canal de telemetría en tiempo real
+    let currentWsSymbol: string = '';
+
+    // Establish real-time telemetry WebSocket connection
     function connectWebsocket() {
+        if (ws) {
+            ws.onclose = null;
+            ws.onerror = null;
+            ws.close();
+            ws = null;
+        }
+
+        const symbol = app.activeTab;
+        if (!symbol) return;
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-        
+        const wsUrl = `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}`;
+
+        currentWsSymbol = symbol;
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
@@ -68,33 +104,35 @@
         ws.onmessage = (event) => {
             try {
                 const snapshot = JSON.parse(event.data);
-                app.latestSnapshot = snapshot;
 
-                // Actualizar textos reactivos en el estado global
-                if (snapshot.mid_price) app.priceText = parseFloat(snapshot.mid_price).toFixed(2);
-                if (snapshot.vwap) app.vwapText = parseFloat(snapshot.vwap).toFixed(2);
-                if (snapshot.ema_fast) app.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
-                if (snapshot.ema_medium) app.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
-                if (snapshot.ema_slow) app.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
-                if (snapshot.ema_long) app.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
-                
-                if (snapshot.adx_14) app.adxText = parseFloat(snapshot.adx_14).toFixed(2);
-                if (snapshot.adx_plus) app.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
-                if (snapshot.adx_minus) app.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
-                
-                if (snapshot.atr_14) app.atrText = parseFloat(snapshot.atr_14).toFixed(2);
-                if (snapshot.rsi_14) app.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
-                
-                if (snapshot.macd_line) app.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
-                if (snapshot.macd_signal) app.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
-                if (snapshot.macd_hist) app.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
-                
-                if (snapshot.squeeze_momentum) app.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
-                app.isSqueezeOn = snapshot.squeeze_on ?? false;
-                app.sqzStatusText = app.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
-                
-                if (snapshot.volume) app.volText = parseFloat(snapshot.volume).toFixed(2);
-                if (snapshot.average_volume) app.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
+                const exchangeStr = snapshot.exchange || 'Hyperliquid';
+                const symbolStr = snapshot.symbol || 'BTC';
+                const tabKey = `${exchangeStr}-${symbolStr}`;
+
+                // Route data directly to its corresponding tab's state by symbol key
+                if (app.pairsMap[tabKey]) {
+                    const pair = app.pairsMap[tabKey];
+                    pair.latestSnapshot = snapshot;
+                    if (snapshot.mid_price) pair.priceText = parseFloat(snapshot.mid_price).toFixed(2);
+                    if (snapshot.vwap) pair.vwapText = parseFloat(snapshot.vwap).toFixed(2);
+                    if (snapshot.ema_fast) pair.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
+                    if (snapshot.ema_medium) pair.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
+                    if (snapshot.ema_slow) pair.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
+                    if (snapshot.ema_long) pair.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
+                    if (snapshot.adx_14) pair.adxText = parseFloat(snapshot.adx_14).toFixed(2);
+                    if (snapshot.adx_plus) pair.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
+                    if (snapshot.adx_minus) pair.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
+                    if (snapshot.atr_14) pair.atrText = parseFloat(snapshot.atr_14).toFixed(2);
+                    if (snapshot.rsi_14) pair.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
+                    if (snapshot.macd_line) pair.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
+                    if (snapshot.macd_signal) pair.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
+                    if (snapshot.macd_hist) pair.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
+                    if (snapshot.squeeze_momentum) pair.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
+                    pair.isSqueezeOn = snapshot.squeeze_on ?? false;
+                    pair.sqzStatusText = pair.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
+                    if (snapshot.volume) pair.volText = parseFloat(snapshot.volume).toFixed(2);
+                    if (snapshot.average_volume) pair.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
+                }
             } catch (err) {
                 console.error("Error parsing market snapshot JSON:", err);
             }
@@ -120,7 +158,16 @@
 
     onDestroy(() => {
         if (ws) {
+            ws.onclose = null;
+            ws.onerror = null;
             ws.close();
+        }
+    });
+
+    $effect(() => {
+        const tab = app.activeTab;
+        if (tab && tab !== currentWsSymbol) {
+            connectWebsocket();
         }
     });
 
@@ -142,13 +189,14 @@
         ];
 
         try {
-            const historyRes = await fetch('/api/history');
+            const historyRes = await fetch(`/api/history?symbol=${encodeURIComponent(app.activeTab)}`);
             const historyData = await historyRes.json();
             const prices: number[] = (historyData.prices || []).map(Number);
 
             const snap = app.latestSnapshot || {};
 
             const body = {
+                symbol: app.activeTab,
                 position: app.currentPosition,
                 entry_price: app.currentPosition !== 'None' ? (parseFloat(app.entryPriceVal) || 0).toString() : '',
                 historical_prices: prices,
@@ -331,7 +379,13 @@
 </script>
 
 <div class="terminal-body">
-    <Header />
+    {#if !app.apiKeyConfigured}
+        <div class="api-key-banner">
+            ⚠️ DeepSeek AI API Key is not configured. Falling back to local heuristic mode.
+            <button class="banner-btn" onclick={() => app.showSettingsPanel = true}>Configure Key Now</button>
+        </div>
+    {/if}
+    <TabHeader />
 
     <div class="main-layout">
         <!-- Center column showing active visual panels -->
@@ -745,6 +799,32 @@
         color: #f1f5f9;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         min-height: 100vh;
+    }
+    .api-key-banner {
+        background: rgba(127, 29, 29, 0.5);
+        border: 1px solid #ef4444;
+        color: #fca5a5;
+        font-size: 12px;
+        padding: 8px 16px;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        font-family: 'Courier New', monospace;
+    }
+    .banner-btn {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 3px 12px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-family: 'Courier New', monospace;
+        cursor: pointer;
+    }
+    .banner-btn:hover {
+        background: #dc2626;
     }
     .main-layout {
         display: flex;

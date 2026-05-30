@@ -1,0 +1,194 @@
+use std::str::FromStr;
+use std::sync::Arc;
+use async_trait::async_trait;
+use futures_util::{SinkExt, StreamExt};
+use rust_decimal::Decimal;
+use serde::Deserialize;
+use tokio::sync::mpsc::Sender;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use shared::normalized::{
+    Exchange, ExchangeAdapter, NormalizedEvent, NormalizedTrade, NormalizedOrderBook,
+    SymbolMapper, TradeSide, ConnectionStatus,
+};
+
+const HYPERLIQUID_TESTNET_WS: &str = "wss://api.hyperliquid-testnet.xyz/ws";
+
+pub struct HyperliquidAdapter;
+
+#[derive(Debug, Deserialize)]
+struct L2BookEnvelope {
+    #[allow(dead_code)]
+    channel: String,
+    data: Option<L2BookPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct L2BookPayload {
+    coin: String,
+    time: u64,
+    levels: Vec<Vec<BookLevel>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct BookLevel {
+    px: String,
+    sz: String,
+    n: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct TradesEnvelope {
+    channel: String,
+    data: Option<Vec<TradePayload>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct TradePayload {
+    coin: String,
+    side: String,
+    px: String,
+    sz: String,
+    hash: String,
+    tid: u64,
+    time: u64,
+}
+
+fn to_internal_symbol(raw: &str) -> String {
+    format!("{}-USD", raw)
+}
+
+#[async_trait]
+impl ExchangeAdapter for HyperliquidAdapter {
+    fn exchange(&self) -> Exchange {
+        Exchange::Hyperliquid
+    }
+
+    async fn start(
+        &self,
+        symbols: Vec<String>,
+        event_tx: Sender<NormalizedEvent>,
+        mapper: Arc<SymbolMapper>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let url = url::Url::parse(HYPERLIQUID_TESTNET_WS)?;
+
+        let (ws_stream, _) = connect_async(url.as_str()).await?;
+        println!("✅ Hyperliquid Adapter: TCP/WS Handshake completed.");
+        let (mut write, mut read) = ws_stream.split();
+
+        let _ = event_tx.send(NormalizedEvent::Status {
+            exchange: Exchange::Hyperliquid,
+            status: ConnectionStatus::Connected,
+            message: "Testnet WS connection established.".to_string(),
+        }).await;
+
+        let mut subscriptions = Vec::new();
+        for sym in &symbols {
+            if let Some(raw_sym) = mapper.get_raw(Exchange::Hyperliquid, sym).await {
+                subscriptions.push(serde_json::json!({"type": "trades", "coin": raw_sym}));
+                subscriptions.push(serde_json::json!({"type": "l2Book", "coin": raw_sym}));
+                println!("📡 Hyperliquid Adapter: Subscribed to trades + l2Book for {} ({})", sym, raw_sym);
+            }
+        }
+
+        if subscriptions.is_empty() {
+            return Err("No valid symbols mapped for Hyperliquid".into());
+        }
+
+        for sub in subscriptions {
+            let sub_request = serde_json::json!({
+                "method": "subscribe",
+                "subscription": sub
+            });
+            println!("📡 Hyperliquid Adapter: Subscribing to stream: {}", sub_request);
+            write.send(Message::Text(sub_request.to_string().into())).await?;
+        }
+
+        while let Some(msg) = read.next().await {
+            let msg = match msg {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("⚠️ Hyperliquid Adapter: Socket error: {}", e);
+                    break;
+                }
+            };
+
+            match msg {
+                Message::Text(raw_text) => {
+                    if raw_text.contains("\"channel\":\"l2Book\"") {
+                        if let Ok(envelope) = serde_json::from_str::<L2BookEnvelope>(&raw_text) {
+                            if let Some(payload) = envelope.data {
+                                if payload.levels.len() >= 2
+                                    && !payload.levels[0].is_empty()
+                                    && !payload.levels[1].is_empty()
+                                {
+                                    let symbol = to_internal_symbol(&payload.coin);
+                                    let bids: Vec<(Decimal, Decimal)> = payload.levels[0]
+                                        .iter()
+                                        .filter_map(|l| {
+                                            let p = Decimal::from_str(&l.px).ok()?;
+                                            let s = Decimal::from_str(&l.sz).ok()?;
+                                            Some((p, s))
+                                        })
+                                        .collect();
+                                    let asks: Vec<(Decimal, Decimal)> = payload.levels[1]
+                                        .iter()
+                                        .filter_map(|l| {
+                                            let p = Decimal::from_str(&l.px).ok()?;
+                                            let s = Decimal::from_str(&l.sz).ok()?;
+                                            Some((p, s))
+                                        })
+                                        .collect();
+
+                                    let event = NormalizedEvent::OrderBook(NormalizedOrderBook {
+                                        exchange: Exchange::Hyperliquid,
+                                        symbol,
+                                        bids,
+                                        asks,
+                                        timestamp_ms: payload.time,
+                                    });
+                                    let _ = event_tx.send(event).await;
+                                }
+                            }
+                        }
+                    } else if raw_text.contains("\"channel\":\"trades\"") {
+                        if let Ok(envelope) = serde_json::from_str::<TradesEnvelope>(&raw_text) {
+                            if let Some(trades) = envelope.data {
+                                for t in trades {
+                                    let symbol = to_internal_symbol(&t.coin);
+                                    let price = Decimal::from_str(&t.px).unwrap_or(Decimal::ZERO);
+                                    let size = Decimal::from_str(&t.sz).unwrap_or(Decimal::ZERO);
+                                    let side = if t.side == "A" { TradeSide::Sell } else { TradeSide::Buy };
+
+                                    let event = NormalizedEvent::Trade(NormalizedTrade {
+                                        exchange: Exchange::Hyperliquid,
+                                        symbol,
+                                        price,
+                                        size,
+                                        side,
+                                        timestamp_ms: t.time,
+                                        trade_id: t.tid.to_string(),
+                                    });
+                                    let _ = event_tx.send(event).await;
+                                }
+                            }
+                        }
+                    }
+                }
+                Message::Ping(ping) => {
+                    let _ = write.send(Message::Pong(ping)).await;
+                }
+                Message::Close(_) => {
+                    println!("🔌 Hyperliquid Adapter: Connection closed by server.");
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+}

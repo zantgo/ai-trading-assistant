@@ -6,3 +6,4 @@
 
 pub mod models;
 pub mod indicators;
+pub mod normalized;

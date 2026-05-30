@@ -117,6 +117,29 @@ pub struct LlmClient {
 }
 
 impl LlmClient {
+    pub fn from_env() -> (Self, bool) {
+        let api_key = std::env::var("DEEPSEEK_API_KEY")
+            .map(|k| k.trim().to_string())
+            .unwrap_or_default();
+
+        let base_url = std::env::var("DEEPSEEK_BASE_URL")
+            .unwrap_or_else(|_| "https://api.deepseek.com/v1".into());
+        let model = std::env::var("DEEPSEEK_MODEL")
+            .unwrap_or_else(|_| "deepseek-chat".into());
+
+        let indicators_guide = std::fs::read_to_string("docs/indicators-guide.md")
+            .unwrap_or_else(|_| String::new());
+
+        let key_present = !api_key.is_empty();
+
+        (LlmClient {
+            base_url,
+            api_key,
+            model,
+            indicators_guide,
+        }, key_present)
+    }
+
     pub fn from_dotenv() -> Result<Self, String> {
         let api_key = std::env::var("DEEPSEEK_API_KEY")
             .map_err(|_| "DEEPSEEK_API_KEY not found in .env file. Create a .env file at the project root with: DEEPSEEK_API_KEY=sk-...".to_string())?;
@@ -148,7 +171,18 @@ impl LlmClient {
         })
     }
 
+    pub fn set_api_key(&mut self, key: String) {
+        self.api_key = key;
+    }
+
+    pub fn set_indicators_guide(&mut self, guide: String) {
+        self.indicators_guide = guide;
+    }
+
     pub async fn validate_key(&self) -> Result<(), String> {
+        if self.api_key.is_empty() {
+            return Err("No API key configured".to_string());
+        }
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()

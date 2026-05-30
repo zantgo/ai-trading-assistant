@@ -5,7 +5,7 @@
     import { getState } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    const state = getState();
+    const app = getState();
     let container: HTMLDivElement;
     let chart: IChartApi;
     let candleSeries: ISeriesApi<'Candlestick'>;
@@ -66,26 +66,26 @@
 
     $effect(() => {
         if (!ema10Series || !ema50Series || !ema100Series || !ema200Series) return;
-        ema10Series.applyOptions({ visible: state.showEmas });
-        ema50Series.applyOptions({ visible: state.showEmas });
-        ema100Series.applyOptions({ visible: state.showEmas });
-        ema200Series.applyOptions({ visible: state.showEmas });
+        ema10Series.applyOptions({ visible: app.showEmas });
+        ema50Series.applyOptions({ visible: app.showEmas });
+        ema100Series.applyOptions({ visible: app.showEmas });
+        ema200Series.applyOptions({ visible: app.showEmas });
     });
 
     $effect(() => {
         if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries) return;
-        bbUpperSeries.applyOptions({ visible: state.showBb });
-        bbMiddleSeries.applyOptions({ visible: state.showBb });
-        bbLowerSeries.applyOptions({ visible: state.showBb });
+        bbUpperSeries.applyOptions({ visible: app.showBb });
+        bbMiddleSeries.applyOptions({ visible: app.showBb });
+        bbLowerSeries.applyOptions({ visible: app.showBb });
     });
 
     $effect(() => {
         if (!vwapSeries) return;
-        vwapSeries.applyOptions({ visible: state.showVwap });
+        vwapSeries.applyOptions({ visible: app.showVwap });
     });
 
     $effect(() => {
-        const snap = state.latestSnapshot;
+        const snap = app.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
 

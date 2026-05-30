@@ -60,3 +60,48 @@ impl Rsi {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_first_update_returns_none() {
+        let mut rsi = Rsi::new(14);
+        assert_eq!(rsi.update(dec!(100.00)), None);
+    }
+
+    #[test]
+    fn test_second_update_returns_none() {
+        let mut rsi = Rsi::new(14);
+        rsi.update(dec!(100.00));
+        assert_eq!(rsi.update(dec!(105.00)), None);
+    }
+
+    #[test]
+    fn test_all_gains_yields_high_rsi() {
+        let mut rsi = Rsi::new(14);
+        rsi.update(dec!(100.00));
+        let mut price = dec!(100.00);
+        for _ in 0..14 {
+            price += dec!(1.00);
+            rsi.update(price);
+        }
+        let result = rsi.update(price + dec!(1.00)).unwrap();
+        assert!(result > dec!(50.00), "All gains should yield RSI > 50");
+    }
+
+    #[test]
+    fn test_all_losses_yields_low_rsi() {
+        let mut rsi = Rsi::new(14);
+        rsi.update(dec!(100.00));
+        let mut price = dec!(100.00);
+        for _ in 0..14 {
+            price -= dec!(1.00);
+            rsi.update(price);
+        }
+        let result = rsi.update(price - dec!(1.00)).unwrap();
+        assert!(result < dec!(50.00), "All losses should yield RSI < 50");
+    }
+}

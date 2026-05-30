@@ -27,3 +27,27 @@ impl Macd {
         Some((macd_line, signal_line, histogram))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_first_update_seeds_emas() {
+        let mut macd = Macd::new();
+        let (line, signal, hist) = macd.update(dec!(100.00)).unwrap();
+        assert_eq!(line, dec!(0.00), "First update: fast=slow=price, macd_line should be 0");
+        assert_eq!(signal, dec!(0.00));
+        assert_eq!(hist, dec!(0.00));
+    }
+
+    #[test]
+    fn test_histogram_sign_matches_macd_line_minus_signal() {
+        let mut macd = Macd::new();
+        macd.update(dec!(100.00));
+        macd.update(dec!(101.00));
+        let (line, signal, hist) = macd.update(dec!(102.00)).unwrap();
+        assert_eq!(hist, line - signal, "Histogram should equal macd_line - signal_line");
+    }
+}

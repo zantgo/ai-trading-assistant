@@ -1,26 +1,26 @@
 <script lang="ts">
     import { getState } from '../state.svelte';
-    const state = getState();
+    const app = getState();
 </script>
 
 <header class="terminal-header">
     <div class="header-left-col">
-        <button class="settings-btn" onclick={() => state.showSettingsPanel = !state.showSettingsPanel} aria-label="Toggle Settings">
+        <button class="settings-btn" onclick={() => app.showSettingsPanel = !app.showSettingsPanel} aria-label="Toggle Settings">
             ⚙️ Settings
         </button>
     </div>
 
     <div class="header-center-col">
-        <h1 class="logo-title">{state.activeSymbol}USD</h1>
+        <h1 class="logo-title">{app.activeSymbol}USD</h1>
         <div class="time-badge">
-            {state.candleTimeframeLabel}
+            {app.candleTimeframeLabel}
         </div>
     </div>
 
     <div class="header-right-col">
-        <div class="status-badge" class:status-online={state.isConnected} class:status-offline={!state.isConnected}>
-            <span class="status-pulse-dot {state.isConnected ? 'dot-online' : 'dot-offline'} animate-pulse"></span>
-            <span>{state.isConnected ? 'LIVE STREAM ACTIVE' : 'OFFLINE'}</span>
+        <div class="status-badge" class:status-online={app.isConnected} class:status-offline={!app.isConnected}>
+            <span class="status-pulse-dot {app.isConnected ? 'dot-online' : 'dot-offline'} animate-pulse"></span>
+            <span>{app.isConnected ? 'LIVE STREAM ACTIVE' : 'OFFLINE'}</span>
         </div>
     </div>
 </header>

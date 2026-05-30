@@ -40,12 +40,10 @@ impl SqueezeMomentum {
             self.low_history.remove(0);
         }
 
-        // Keep underlying SMA, EMA, and ATR instances updated on every iteration
         let sma = self.sma_20.update(close);
         let ema = self.ema_20.update(close);
         let atr = self.atr_20.update(high, low, close);
 
-        // Always compute and track momentum metrics to warm up linear regression
         let highest_high = self.high_history.iter().max().copied().unwrap_or(high);
         let lowest_low = self.low_history.iter().min().copied().unwrap_or(low);
         let avg = ((highest_high + lowest_low) / Decimal::from(2) + ema) / Decimal::from(2);
@@ -56,7 +54,6 @@ impl SqueezeMomentum {
             self.val_history.remove(0);
         }
 
-        // We require at least 20 historical candles to form valid bands and channels
         if self.prices_history.len() < 20 {
             return None;
         }
@@ -78,14 +75,12 @@ impl SqueezeMomentum {
         let bb_upper = sma_val + std_dev * Decimal::from(2);
         let bb_lower = sma_val - std_dev * Decimal::from(2);
 
-        let kc_upper = ema + atr_val * Decimal::new(15, 1); // 1.5 multiplier
+        let kc_upper = ema + atr_val * Decimal::new(15, 1);
         let kc_lower = ema - atr_val * Decimal::new(15, 1);
 
-        // Squeeze active: Bollinger Bands are compressed inside Keltner Channels
         let squeeze_on = bb_lower > kc_lower && bb_upper < kc_upper;
 
         if self.val_history.len() == 20 {
-            // Linear regression of the last 20 'val' points (x: 0..19)
             let n = 20.0;
             let sum_x: f64 = 190.0;
             let sum_x_sq: f64 = 2470.0;
@@ -114,5 +109,44 @@ impl SqueezeMomentum {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_returns_none_before_20_values() {
+        let mut sqz = SqueezeMomentum::new(20);
+        for _ in 0..19 {
+            let price = dec!(100.00);
+            assert_eq!(sqz.update(price, price, price), None);
+        }
+    }
+
+    #[test]
+    fn test_returns_result_at_20_values() {
+        let mut sqz = SqueezeMomentum::new(20);
+        let mut price = dec!(100.00);
+        for _ in 0..19 {
+            sqz.update(price, price, price);
+            price += dec!(0.10);
+        }
+        let result = sqz.update(price, price, price);
+        assert!(result.is_some(), "At 20 values, squeeze should return a result");
+    }
+
+    #[test]
+    fn test_momentum_sign_matches_direction() {
+        let mut sqz = SqueezeMomentum::new(20);
+        let mut price = dec!(100.00);
+        for _ in 0..20 {
+            sqz.update(price, price, price);
+            price += dec!(0.50);
+        }
+        let (_on, momentum) = sqz.update(price, price, price).unwrap();
+        assert!(momentum > dec!(0.00), "Rising prices should produce positive momentum");
     }
 }

@@ -2,7 +2,7 @@
 # Standard fallback configuration template. 
 # Do not modify this file directly; edit config.toml instead.
 
-symbol = "BTC"
+symbols = ["Hyperliquid:BTC"]
 
 [candles]
 duration_seconds = 60

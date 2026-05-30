@@ -42,3 +42,15 @@ reqwest = { version = "0.12", features = ["json"] }
 
 # .env file loader
 dotenvy = "0.15"
+
+# Cancellation token for graceful task shutdown
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Async trait support
+async-trait = "0.1"
+
+# Timestamp parsing for Kraken/Coinbase RFC3339
+chrono = "0.4"
+
+[dev-dependencies]
+rust_decimal_macros = "1"
