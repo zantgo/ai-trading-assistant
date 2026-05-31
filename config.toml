@@ -1,6 +1,10 @@
 symbols = [
     "Hyperliquid:BTC",
-    "Hyperliquid:ETH",
+    "Hyperliquid:SOL",
+    "Hyperliquid:XRP",
+    "Hyperliquid:WIF",
+    "Hyperliquid:DOGE",
+    "Hyperliquid:FARTCOIN",
 ]
 
 [candles]

@@ -5,7 +5,7 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use engine::{config, db, server, analyzer, llm, adapters, orchestrator};
+use engine::{config, db, server, analyzer, llm, adapters};
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 
@@ -76,23 +76,8 @@ async fn main() {
         println!("🧭 Symbol Mapper: Registered active mapping: {} -> {} ({})", raw_symbol, normalized, exchange_str);
     }
 
-    // Build normalized symbols for orchestrator (format: "BTC-USD")
-    let config_normalized_symbols: Vec<String> = initial_symbols
-        .iter()
-        .map(|s| {
-            let raw = s.split(':').nth(1).unwrap_or(s).to_uppercase();
-            format!("{}-USD", raw)
-        })
-        .collect();
-
-    // Build market data orchestrator with exchange adapters
     let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
-
-    let mut market_orchestrator = orchestrator::MarketDataOrchestrator::new(symbol_mapper.clone());
-    market_orchestrator.register_adapter(Box::new(adapters::HyperliquidAdapter::new(hl_ws_url)));
-
-    let mut event_rx = market_orchestrator.run(config_normalized_symbols.clone()).await;
 
     let pairs: Arc<RwLock<HashMap<String, Arc<analyzer::ActivePair>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -105,6 +90,7 @@ async fn main() {
         api_key_configured: api_key_configured.clone(),
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
+        ws_url: hl_ws_url.clone(),
     });
 
     let app = server::build_router(app_state.clone());
@@ -149,6 +135,7 @@ async fn main() {
         let analyzer_broadcast = broadcast_tx.clone();
         let analyzer_cancel = cancel.clone();
         let analyzer_symbol = raw_symbol.to_uppercase();
+        let analyzer_pair_key = pair_key.clone();
         handles.push(tokio::spawn(async move {
             analyzer::run_single(
                 snapshot_rx,
@@ -157,31 +144,19 @@ async fn main() {
                 analyzer_config,
                 analyzer_history,
                 analyzer_symbol,
-                pair_key,
+                analyzer_pair_key,
                 analyzer_cancel,
             ).await;
         }));
+
+        let ws_symbol = raw_symbol.to_uppercase();
+        let ws_tx = snapshot_tx.clone();
+        let ws_cancel = cancel.clone();
+        let ws_url = hl_ws_url.clone();
+        handles.push(tokio::spawn(async move {
+            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
+        }));
     }
-
-    // Demux task: routes NormalizedEvents to per-pair analyzer channels
-    let demux_pairs = pairs.clone();
-    handles.push(tokio::spawn(async move {
-        while let Some(event) = event_rx.recv().await {
-            let (exchange, raw_symbol) = match &event {
-                NormalizedEvent::Trade(t) => ("Hyperliquid".to_string(), t.symbol.clone()),
-                NormalizedEvent::OrderBook(o) => ("Hyperliquid".to_string(), o.symbol.clone()),
-                NormalizedEvent::Status { .. } => continue,
-            };
-
-            let raw = raw_symbol.trim_end_matches("-USD").to_uppercase();
-            let pair_key = format!("{}-{}", exchange, raw);
-
-            let pairs_lock = demux_pairs.read().await;
-            if let Some(pair) = pairs_lock.get(&pair_key) {
-                let _ = pair.snapshot_tx.send(event.clone()).await;
-            }
-        }
-    }));
 
     handles.push(server_handle);
 

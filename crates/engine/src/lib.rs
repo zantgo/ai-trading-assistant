@@ -1,5 +1,4 @@
 pub mod adapters;
-pub mod orchestrator;
 pub mod config;
 pub mod db;
 pub mod server;

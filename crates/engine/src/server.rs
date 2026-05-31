@@ -15,6 +15,7 @@ use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::models::MarketSnapshot;
+use crate::adapters;
 use crate::config::AppConfig;
 use crate::analyzer::{self, ActivePair};
 use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult};
@@ -29,6 +30,7 @@ pub struct AppState {
     pub api_key_configured: Arc<AtomicBool>,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
+    pub ws_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1072,6 +1074,14 @@ async fn serve_add_pair(
             analyzer_pair_key,
             analyzer_cancel,
         ).await;
+    });
+
+    let ws_symbol = raw_symbol.clone();
+    let ws_tx = snapshot_tx.clone();
+    let ws_cancel = cancel.clone();
+    let ws_url = state.ws_url.clone();
+    tokio::spawn(async move {
+        adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
     });
 
     println!("✅ Pair added: {}", pair_key);
