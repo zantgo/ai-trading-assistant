@@ -42,16 +42,19 @@
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
                 const data = await res.json();
                 if (data.prices && data.prices.length > 0) {
+                    const hasCandles = data.candles && data.candles.length > 0;
+                    const source = hasCandles ? data.candles : data.prices;
+
                     const now = Math.floor(Date.now() / 1000);
                     const step = pair.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const placeholderLine = data.prices.map((_: string, idx: number) => ({
-                        time: (baseTime + (idx * step)) as Time,
+                    const placeholderLine = source.map((item: any, idx: number) => ({
+                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
                         value: 0
                     }));
-                    const placeholderHist = data.prices.map((_: string, idx: number) => ({
-                        time: (baseTime + (idx * step)) as Time,
+                    const placeholderHist = source.map((item: any, idx: number) => ({
+                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
                         value: 0,
                         color: '#131722'
                     }));

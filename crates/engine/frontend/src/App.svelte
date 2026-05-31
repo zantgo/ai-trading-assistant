@@ -16,6 +16,7 @@
 
     const app = getState();
     let ws: WebSocket | null = null;
+    let configReady = false;
     // svelte-ignore non_reactive_update
     let chatContainer: HTMLDivElement | null = null;
 
@@ -64,8 +65,11 @@
                 const parts = symbols[0].split(':');
                 app.activeTab = `${parts[0] || 'Hyperliquid'}-${parts[1] || 'BTC'}`;
             }
+            configReady = true;
+            connectWebsocket();
         } catch (e) {
             console.error('Failed to fetch config from server:', e);
+            configReady = true;
         }
     }
 
@@ -85,9 +89,11 @@
     // Establish real-time telemetry WebSocket connection
     function connectWebsocket() {
         if (ws) {
-            ws.onclose = null;
-            ws.onerror = null;
-            ws.close();
+            if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.close();
+            }
             ws = null;
         }
 
@@ -156,7 +162,6 @@
     onMount(() => {
         fetchConfig();
         fetchAssistantHistory();
-        connectWebsocket();
     });
 
     onDestroy(() => {
@@ -169,7 +174,7 @@
 
     $effect(() => {
         const tab = app.activeTab;
-        if (tab && tab !== currentWsSymbol) {
+        if (configReady && tab && tab !== currentWsSymbol) {
             connectWebsocket();
         }
     });

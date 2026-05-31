@@ -11,9 +11,15 @@ use shared::normalized::{
     SymbolMapper, TradeSide, ConnectionStatus,
 };
 
-const HYPERLIQUID_TESTNET_WS: &str = "wss://api.hyperliquid-testnet.xyz/ws";
+pub struct HyperliquidAdapter {
+    pub ws_url: String,
+}
 
-pub struct HyperliquidAdapter;
+impl HyperliquidAdapter {
+    pub fn new(ws_url: String) -> Self {
+        Self { ws_url }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct L2BookEnvelope {
@@ -73,7 +79,7 @@ impl ExchangeAdapter for HyperliquidAdapter {
         event_tx: Sender<NormalizedEvent>,
         mapper: Arc<SymbolMapper>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let url = url::Url::parse(HYPERLIQUID_TESTNET_WS)?;
+        let url = url::Url::parse(&self.ws_url)?;
 
         let (ws_stream, _) = connect_async(url.as_str()).await?;
         println!("✅ Hyperliquid Adapter: TCP/WS Handshake completed.");

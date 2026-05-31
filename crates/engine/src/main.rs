@@ -86,8 +86,11 @@ async fn main() {
         .collect();
 
     // Build market data orchestrator with exchange adapters
+    let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
+    println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
+
     let mut market_orchestrator = orchestrator::MarketDataOrchestrator::new(symbol_mapper.clone());
-    market_orchestrator.register_adapter(Box::new(adapters::HyperliquidAdapter));
+    market_orchestrator.register_adapter(Box::new(adapters::HyperliquidAdapter::new(hl_ws_url)));
 
     let mut event_rx = market_orchestrator.run(config_normalized_symbols.clone()).await;
 

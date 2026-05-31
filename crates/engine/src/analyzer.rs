@@ -97,10 +97,14 @@ pub async fn run_single(
             sqz_mom = SqueezeMomentum::new(cur_indicators.squeeze_period);
             atr_standalone = Atr::new(cur_indicators.atr_period);
             active_indicators = cur_indicators.clone();
+
+            history.write().await.clear();
         }
 
         if candle_gen.duration_ms != cur_candles.duration_seconds * 1000 {
             candle_gen = CandleGenerator::new(&symbol, cur_candles.duration_seconds);
+
+            history.write().await.clear();
         }
 
         match event {

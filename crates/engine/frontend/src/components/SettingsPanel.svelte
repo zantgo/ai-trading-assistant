@@ -304,6 +304,30 @@
                     app.adxPeriodVal = draftAdxPeriod;
                     app.atrPeriodVal = draftAtrPeriod;
                     app.squeezePeriodVal = draftSqueezePeriod;
+
+                    const targetState = app.pairsMap[pairKey];
+                    if (targetState) {
+                        targetState.latestSnapshot = null;
+                        targetState.priceText = '--';
+                        targetState.vwapText = '--';
+                        targetState.avgVolText = '--';
+                        targetState.emaFastText = '--';
+                        targetState.emaMediumText = '--';
+                        targetState.emaSlowText = '--';
+                        targetState.emaLongText = '--';
+                        targetState.adxText = '--';
+                        targetState.adxPlusText = '--';
+                        targetState.adxMinusText = '--';
+                        targetState.atrText = '--';
+                        targetState.rsiText = '--';
+                        targetState.macdLineText = '--';
+                        targetState.macdSigText = '--';
+                        targetState.macdHistText = '--';
+                        targetState.sqzValText = '--';
+                        targetState.sqzStatusText = '--';
+                        targetState.isSqueezeOn = false;
+                        targetState.volText = '--';
+                    }
                 }
 
                 applyVisualsOnly();

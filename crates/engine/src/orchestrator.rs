@@ -35,6 +35,8 @@ impl MarketDataOrchestrator {
             tokio::spawn(async move {
                 let mut retry_cooldown_secs = 2u64;
                 let mut consecutive_failures = 0u32;
+                let mut last_failure_ts = std::time::Instant::now()
+                    - std::time::Duration::from_secs(301);
                 loop {
                     let exchange_label = adapter_clone.exchange();
 
@@ -63,16 +65,21 @@ impl MarketDataOrchestrator {
                             eprintln!("⚠️  Orchestrator: {} adapter terminated cleanly.", exchange_label);
                         }
                         Err(e) => {
+                            let now = std::time::Instant::now();
+                            if now.duration_since(last_failure_ts) > Duration::from_secs(300) {
+                                consecutive_failures = 0;
+                            }
+                            last_failure_ts = now;
                             consecutive_failures += 1;
                             eprintln!("❌ Orchestrator: {} adapter crashed: {}.", exchange_label, e);
                         }
                     }
 
-                    if consecutive_failures >= 3 {
+                    if consecutive_failures >= 5 {
                         let _ = tx_clone.send(NormalizedEvent::Status {
                             exchange: exchange_label,
                             status: ConnectionStatus::Disconnected,
-                            message: "Permanently disabled after 3 consecutive failed attempts.".to_string(),
+                            message: "Permanently disabled after 5 consecutive failed attempts.".to_string(),
                         }).await;
                         eprintln!("🛑 Orchestrator: {} adapter permanently disabled.", exchange_label);
                         break;
