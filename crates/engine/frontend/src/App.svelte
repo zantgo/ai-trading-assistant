@@ -407,14 +407,18 @@
                             <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{app.pairsMap[tabKey].emaLongText}</span></span>
                         {/if}
                     </div>
-                    <PriceChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.emaFastVal}-${app.pairsMap[tabKey]?.emaMediumVal}-${app.pairsMap[tabKey]?.emaSlowVal}-${app.pairsMap[tabKey]?.emaLongVal}`}
+                        <PriceChart pairKey={tabKey} />
+                    {/key}
                 </div>
 
                 <div class="panel-box pane-vol" class:hidden-pane={!app.pairsMap[tabKey].showVolume}>
                     <div class="absolute-label font-sans label-text-xs">
                         <span class="text-teal-400 font-bold">Volume: <span>{app.pairsMap[tabKey].volText}</span></span>
                     </div>
-                    <VolumeChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}`}
+                        <VolumeChart pairKey={tabKey} />
+                    {/key}
                 </div>
 
                 <div class="panel-box pane-adx" class:hidden-pane={!app.pairsMap[tabKey].showAdx}>
@@ -423,21 +427,27 @@
                         <span class="text-emerald-400 font-medium">+DI: <span>{app.pairsMap[tabKey].adxPlusText}</span></span>
                         <span class="text-red-500 font-medium">-DI: <span>{app.pairsMap[tabKey].adxMinusText}</span></span>
                     </div>
-                    <AdxChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.adxPeriodVal}`}
+                        <AdxChart pairKey={tabKey} />
+                    {/key}
                 </div>
 
                 <div class="panel-box pane-atr" class:hidden-pane={!app.pairsMap[tabKey].showAtr}>
                     <div class="absolute-label font-sans label-text-xs">
                         <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{app.pairsMap[tabKey].atrText}</span></span>
                     </div>
-                    <AtrChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.atrPeriodVal}`}
+                        <AtrChart pairKey={tabKey} />
+                    {/key}
                 </div>
 
                 <div class="panel-box pane-rsi" class:hidden-pane={!app.pairsMap[tabKey].showRsi}>
                     <div class="absolute-label font-sans label-text-xs">
                         <span class="text-purple-400">{app.rsiLabel}: <span>{app.pairsMap[tabKey].rsiText}</span></span>
                     </div>
-                    <RsiChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.rsiPeriodVal}`}
+                        <RsiChart pairKey={tabKey} />
+                    {/key}
                 </div>
 
                 <div class="panel-box pane-macd" class:hidden-pane={!app.pairsMap[tabKey].showMacd}>
@@ -447,7 +457,9 @@
                         <span class="text-amber-500">Signal: <span>{app.pairsMap[tabKey].macdSigText}</span></span>
                         <span class="text-teal-400">Hist: <span>{app.pairsMap[tabKey].macdHistText}</span></span>
                     </div>
-                    <MacdChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.macdFastVal}-${app.pairsMap[tabKey]?.macdSlowVal}-${app.pairsMap[tabKey]?.macdSignalVal}`}
+                        <MacdChart pairKey={tabKey} />
+                    {/key}
                 </div>
 
                 <div class="panel-box pane-squeeze" class:hidden-pane={!app.pairsMap[tabKey].showSqueeze}>
@@ -456,7 +468,9 @@
                         <span class="text-emerald-400">Value: <span>{app.pairsMap[tabKey].sqzValText}</span></span>
                         <span class={app.pairsMap[tabKey].isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {app.pairsMap[tabKey].sqzStatusText}</span>
                     </div>
-                    <SqueezeChart pairKey={tabKey} />
+                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.squeezePeriodVal}`}
+                        <SqueezeChart pairKey={tabKey} />
+                    {/key}
                 </div>
             </main>
         {/each}

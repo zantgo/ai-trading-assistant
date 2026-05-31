@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::collections::VecDeque;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{broadcast, RwLock};
-use sqlx::SqlitePool;
 use rust_decimal::Decimal;
 use tokio_util::sync::CancellationToken;
 
@@ -16,7 +15,7 @@ use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, A
 
 pub struct ActivePair {
     pub symbol: String,
-    pub history: Arc<RwLock<VecDeque<Decimal>>>,
+    pub history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub broadcast_tx: broadcast::Sender<MarketSnapshot>,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
@@ -24,10 +23,10 @@ pub struct ActivePair {
 
 pub async fn run_single(
     mut rx: Receiver<NormalizedEvent>,
-    pool: SqlitePool,
+    telemetry_tx: tokio::sync::mpsc::Sender<db::TelemetryMsg>,
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
     config_lock: Arc<RwLock<AppConfig>>,
-    history: Arc<RwLock<VecDeque<Decimal>>>,
+    history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     symbol: String,
     pair_key: String,
     cancel: CancellationToken,
@@ -144,22 +143,31 @@ pub async fn run_single(
                     let final_bb = bollinger.update(completed.close);
                     let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
 
-                    println!("--------------------------------------------------------------------------------");
-                    println!("🕯️  [{} Candle Closed] Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
-                        symbol, completed.start_time_ms, completed.close, completed.volume, completed.trades_count);
-                    println!(
-                        "   📈 EMAs:   Fast ({}): {} | Med ({}): {} | Slow ({}): {} | Long ({}): {}",
-                        cur_indicators.ema_fast, opt_dec_str(Some(final_ema_fast)),
-                        cur_indicators.ema_medium, opt_dec_str(Some(final_ema_medium)),
-                        cur_indicators.ema_slow, opt_dec_str(Some(final_ema_slow)),
-                        cur_indicators.ema_long, opt_dec_str(Some(final_ema_long))
-                    );
+                    let mut log_lines = vec![
+                        "--------------------------------------------------------------------------------".to_string(),
+                        format!(
+                            "🕯️  [{} Candle Closed] Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
+                            symbol, completed.start_time_ms, completed.close, completed.volume, completed.trades_count
+                        ),
+                        format!(
+                            "   📈 EMAs:   Fast ({}): {} | Med ({}): {} | Slow ({}): {} | Long ({}): {}",
+                            cur_indicators.ema_fast, opt_dec_str(Some(final_ema_fast)),
+                            cur_indicators.ema_medium, opt_dec_str(Some(final_ema_medium)),
+                            cur_indicators.ema_slow, opt_dec_str(Some(final_ema_slow)),
+                            cur_indicators.ema_long, opt_dec_str(Some(final_ema_long))
+                        ),
+                    ];
+
                     if let Some(vw) = final_vwap {
-                        println!("   📊 VWAP:   Weighted Average Equilibrium Price: ${:.4}", vw);
+                        log_lines.push(format!("   📊 VWAP:   Weighted Average Equilibrium Price: ${:.4}", vw));
                     }
                     if let Some(ad) = final_adx {
-                        println!("   🧭 ADX:    Trend: {:.4} | +DI: {:.4} | -DI: {:.4}", ad.0, ad.1, ad.2);
+                        log_lines.push(format!("   🧭 ADX:    Trend: {:.4} | +DI: {:.4} | -DI: {:.4}", ad.0, ad.1, ad.2));
                     }
+
+                    let display_log = log_lines.join("\n");
+
+                    let _ = telemetry_tx.send(db::TelemetryMsg::ConsoleLog(display_log)).await;
 
                     volume_history.push_back(completed.volume);
                     if volume_history.len() > 20 {
@@ -208,11 +216,11 @@ pub async fn run_single(
                         squeeze_momentum: final_sqz.map(|s| s.1),
                     };
 
-                    db::insert_snapshot(&pool, &completed_snapshot).await;
+                    let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot)).await;
 
                     {
                         let mut hist = history.write().await;
-                        hist.push_back(completed.close);
+                        hist.push_back(completed.clone());
                         if hist.len() > 100 {
                             hist.pop_front();
                         }
@@ -263,30 +271,31 @@ pub async fn run_single(
                     shadow_ask = best_ask.0;
                 }
 
-                // Broadcast shadow update
-                let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
-                let shadow_candle = NormalizedCandle {
-                    symbol: symbol.clone(),
-                    start_time_ms: candle_gen.current_start_ms,
-                    duration_ms: candle_gen.duration_ms,
-                    open: candle_gen.current_open,
-                    high: candle_gen.current_high.max(mid),
-                    low: candle_gen.current_low.min(mid),
-                    close: mid,
-                    volume: candle_gen.current_volume,
-                    trades_count: candle_gen.current_trades,
-                };
+                if candle_gen.current_candle.is_some() {
+                    let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
+                    let shadow_candle = NormalizedCandle {
+                        symbol: symbol.clone(),
+                        start_time_ms: candle_gen.current_start_ms,
+                        duration_ms: candle_gen.duration_ms,
+                        open: candle_gen.current_open,
+                        high: candle_gen.current_high.max(mid),
+                        low: candle_gen.current_low.min(mid),
+                        close: mid,
+                        volume: candle_gen.current_volume,
+                        trades_count: candle_gen.current_trades,
+                    };
 
-                broadcast_live_snapshot(
-                    &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
-                    shadow_bid, shadow_ask,
-                    &ema_fast, &ema_medium, &ema_slow, &ema_long,
-                    &rsi_14, &macd, &adx_14, &sqz_mom,
-                    &bollinger, &atr_standalone,
-                    &vwap_sum_tp_vol, &vwap_sum_vol,
-                    &volume_history,
-                    &config,
-                );
+                    broadcast_live_snapshot(
+                        &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
+                        shadow_bid, shadow_ask,
+                        &ema_fast, &ema_medium, &ema_slow, &ema_long,
+                        &rsi_14, &macd, &adx_14, &sqz_mom,
+                        &bollinger, &atr_standalone,
+                        &vwap_sum_tp_vol, &vwap_sum_vol,
+                        &volume_history,
+                        &config,
+                    );
+                }
             }
 
             NormalizedEvent::Status { exchange, status, message } => {

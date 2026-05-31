@@ -2,6 +2,67 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use shared::models::MarketSnapshot;
 
+#[derive(Debug)]
+pub enum TelemetryMsg {
+    InsertSnapshot(MarketSnapshot),
+    InsertIndividualLog {
+        master_record_id: i64,
+        indicator_name: String,
+        signal: String,
+        reason: String,
+    },
+    UpdateMasterRecord {
+        master_id: i64,
+        general_trend: String,
+        support_levels: String,
+        resistance_levels: String,
+        indicator_synthesis_summary: String,
+        indicator_synthesis_evaluation: String,
+        recommended_action: String,
+        recommendation_rationale: String,
+    },
+    ConsoleLog(String),
+}
+
+pub async fn run_telemetry_logger(pool: SqlitePool, mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>) {
+    println!("📝 Telemetry & Logging Worker: Background log thread running.");
+    while let Some(msg) = rx.recv().await {
+        match msg {
+            TelemetryMsg::InsertSnapshot(snapshot) => {
+                insert_snapshot_internal(&pool, &snapshot).await;
+            }
+            TelemetryMsg::InsertIndividualLog { master_record_id, indicator_name, signal, reason } => {
+                insert_individual_log_internal(&pool, master_record_id, &indicator_name, &signal, &reason).await;
+            }
+            TelemetryMsg::UpdateMasterRecord {
+                master_id,
+                general_trend,
+                support_levels,
+                resistance_levels,
+                indicator_synthesis_summary,
+                indicator_synthesis_evaluation,
+                recommended_action,
+                recommendation_rationale,
+            } => {
+                update_master_record_internal(
+                    &pool,
+                    master_id,
+                    &general_trend,
+                    &support_levels,
+                    &resistance_levels,
+                    &indicator_synthesis_summary,
+                    &indicator_synthesis_evaluation,
+                    &recommended_action,
+                    &recommendation_rationale,
+                ).await;
+            }
+            TelemetryMsg::ConsoleLog(log_text) => {
+                println!("{}", log_text);
+            }
+        }
+    }
+}
+
 pub async fn init_db() -> SqlitePool {
     let db_options = SqliteConnectOptions::new()
         .filename("telemetry.db")
@@ -51,13 +112,12 @@ pub async fn init_db() -> SqlitePool {
     .await
     .expect("❌ Database Setup: Failed to build schema table");
 
-    // Migration: add exchange column for existing databases
     sqlx::query(
         "ALTER TABLE market_snapshots ADD COLUMN exchange TEXT NOT NULL DEFAULT 'Hyperliquid'"
     )
     .execute(&pool)
     .await
-    .ok(); // Ignore error if column already exists
+    .ok();
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS individual_indicator_logs (
@@ -97,7 +157,7 @@ pub async fn init_db() -> SqlitePool {
     pool
 }
 
-pub async fn insert_snapshot(pool: &SqlitePool, snapshot: &MarketSnapshot) {
+async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
     let sqz_on_db_val = snapshot.squeeze_on.map(|s| if s { 1 } else { 0 });
     let exchange_label = snapshot.exchange.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "Hyperliquid".to_string());
 
@@ -185,7 +245,7 @@ pub async fn insert_master_placeholder(
     }
 }
 
-pub async fn insert_individual_log(
+async fn insert_individual_log_internal(
     pool: &SqlitePool,
     master_record_id: i64,
     indicator_name: &str,
@@ -217,7 +277,7 @@ pub async fn insert_individual_log(
     }
 }
 
-pub async fn update_master_record(
+async fn update_master_record_internal(
     pool: &SqlitePool,
     master_id: i64,
     general_trend: &str,

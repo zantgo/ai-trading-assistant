@@ -383,11 +383,6 @@
                     <label for="exchange">Exchange Source:</label>
                     <select id="exchange" bind:value={draftExchange} class="tf-unit-select" style="width: 140px; text-align: left;">
                         <option value="Hyperliquid">Hyperliquid</option>
-                        <option value="Bybit">Bybit</option>
-                        <option value="Coinbase">Coinbase</option>
-                        <option value="Kraken">Kraken</option>
-                        <option value="Bitget">Bitget</option>
-                        <option value="EdgeX">EdgeX</option>
                     </select>
                 </div>
 

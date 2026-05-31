@@ -1,3 +1,4 @@
+use engine::db::{TelemetryMsg, run_telemetry_logger};
 use sqlx::SqlitePool;
 
 async fn setup_test_db() -> SqlitePool {
@@ -47,6 +48,14 @@ async fn setup_test_db() -> SqlitePool {
 async fn test_orchestrator_database_pipeline() {
     let pool = setup_test_db().await;
 
+    let (tx, rx) = tokio::sync::mpsc::channel::<TelemetryMsg>(100);
+
+    // Spawn background logger to process channel messages
+    let logger_pool = pool.clone();
+    tokio::spawn(async move {
+        run_telemetry_logger(logger_pool, rx).await;
+    });
+
     let master_id = engine::db::insert_master_placeholder(
         &pool,
         "Long",
@@ -56,25 +65,26 @@ async fn test_orchestrator_database_pipeline() {
     ).await;
     assert!(master_id > 0, "Master ID should be a valid incrementing integer");
 
-    engine::db::insert_individual_log(
-        &pool,
-        master_id,
-        "RSI",
-        "BULLISH",
-        "RSI is above 50 and rising"
-    ).await;
+    tx.send(TelemetryMsg::InsertIndividualLog {
+        master_record_id: master_id,
+        indicator_name: "RSI".to_string(),
+        signal: "BULLISH".to_string(),
+        reason: "RSI is above 50 and rising".to_string(),
+    }).await.expect("Failed to send InsertIndividualLog");
 
-    engine::db::update_master_record(
-        &pool,
+    tx.send(TelemetryMsg::UpdateMasterRecord {
         master_id,
-        "UPWARD",
-        "[\"3100.00\"]",
-        "[\"3150.00\"]",
-        "1 Bullish, 0 Bearish",
-        "Supported by technical indicators",
-        "Hold",
-        "Trend is upward and indicators are strong"
-    ).await;
+        general_trend: "UPWARD".to_string(),
+        support_levels: "[\"3100.00\"]".to_string(),
+        resistance_levels: "[\"3150.00\"]".to_string(),
+        indicator_synthesis_summary: "1 Bullish, 0 Bearish".to_string(),
+        indicator_synthesis_evaluation: "Supported by technical indicators".to_string(),
+        recommended_action: "Hold".to_string(),
+        recommendation_rationale: "Trend is upward and indicators are strong".to_string(),
+    }).await.expect("Failed to send UpdateMasterRecord");
+
+    // Give the logger a moment to process
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let records = engine::db::query_master_records(&pool, 1).await;
     assert_eq!(records.len(), 1);

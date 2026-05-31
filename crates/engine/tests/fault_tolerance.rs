@@ -14,7 +14,7 @@ struct MockFaultyAdapter {
 #[async_trait]
 impl ExchangeAdapter for MockFaultyAdapter {
     fn exchange(&self) -> Exchange {
-        Exchange::Kraken
+        Exchange::Hyperliquid
     }
 
     async fn start(
@@ -30,7 +30,7 @@ impl ExchangeAdapter for MockFaultyAdapter {
         }
 
         let _ = event_tx.send(NormalizedEvent::Status {
-            exchange: Exchange::Kraken,
+            exchange: Exchange::Hyperliquid,
             status: ConnectionStatus::Connected,
             message: "Reconnection recovered".to_string(),
         }).await;
@@ -44,7 +44,7 @@ impl ExchangeAdapter for MockFaultyAdapter {
 async fn test_supervisor_retry_and_reconnection_loop() {
     tokio::time::timeout(tokio::time::Duration::from_secs(10), async {
         let mapper = Arc::new(SymbolMapper::new());
-        mapper.register(Exchange::Kraken, "BTC-USD", "BTC-USD").await;
+        mapper.register(Exchange::Hyperliquid, "BTC-USD", "BTC-USD").await;
         let mut orchestrator = engine::orchestrator::MarketDataOrchestrator::new(Arc::clone(&mapper));
 
         let execs = Arc::new(AtomicUsize::new(0));

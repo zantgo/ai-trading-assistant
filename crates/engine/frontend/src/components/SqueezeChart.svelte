@@ -34,6 +34,31 @@
 
         registerChart(chart);
 
+        (async () => {
+            if (!pair) return;
+            try {
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
+                const data = await res.json();
+                if (data.prices && data.prices.length > 0) {
+                    const now = Math.floor(Date.now() / 1000);
+                    const step = pair.barDurationSec || 60;
+                    const baseTime = now - (data.prices.length * step);
+
+                    const placeholder = data.prices.map((_: string, idx: number) => ({
+                        time: (baseTime + (idx * step)) as Time,
+                        value: 0,
+                        color: '#131722'
+                    }));
+
+                    squeezeMomSeries.setData(placeholder);
+                    squeezeDotSeries.setData(placeholder);
+                    chart.timeScale().fitContent();
+                }
+            } catch (err) {
+                console.error("Error bootstrapping squeeze chart history:", err);
+            }
+        })();
+
         const ro = new ResizeObserver(() => {
             if (container && chart) chart.resize(container.clientWidth, container.clientHeight);
         });
