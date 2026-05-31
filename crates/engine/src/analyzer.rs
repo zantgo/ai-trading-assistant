@@ -247,12 +247,12 @@ pub async fn run_single(
                 broadcast_live_snapshot(
                     &broadcast_tx, &symbol, &live_candle, shadow_exchange,
                     shadow_bid, shadow_ask,
-                    &mut ema_fast, &mut ema_medium, &mut ema_slow, &mut ema_long,
-                    &mut rsi_14, &mut macd, &mut adx_14, &mut sqz_mom,
-                    &mut bollinger, &mut atr_standalone,
+                    &ema_fast, &ema_medium, &ema_slow, &ema_long,
+                    &rsi_14, &macd, &adx_14, &sqz_mom,
+                    &bollinger, &atr_standalone,
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
-                    &config, trade.timestamp_ms / 1000,
+                    &config,
                 );
             }
 
@@ -280,12 +280,12 @@ pub async fn run_single(
                 broadcast_live_snapshot(
                     &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
                     shadow_bid, shadow_ask,
-                    &mut ema_fast, &mut ema_medium, &mut ema_slow, &mut ema_long,
-                    &mut rsi_14, &mut macd, &mut adx_14, &mut sqz_mom,
-                    &mut bollinger, &mut atr_standalone,
+                    &ema_fast, &ema_medium, &ema_slow, &ema_long,
+                    &rsi_14, &macd, &adx_14, &sqz_mom,
+                    &bollinger, &atr_standalone,
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
-                    &config, book.timestamp_ms / 1000,
+                    &config,
                 );
             }
 
@@ -304,32 +304,31 @@ fn broadcast_live_snapshot(
     exchange: Option<Exchange>,
     bid_price: Decimal,
     ask_price: Decimal,
-    ema_fast: &mut Ema,
-    ema_medium: &mut Ema,
-    ema_slow: &mut Ema,
-    ema_long: &mut Ema,
-    rsi_14: &mut Rsi,
-    macd: &mut Macd,
-    adx_14: &mut Adx,
-    sqz_mom: &mut SqueezeMomentum,
-    bollinger: &mut BollingerBands,
-    atr_standalone: &mut Atr,
+    ema_fast: &Ema,
+    ema_medium: &Ema,
+    ema_slow: &Ema,
+    ema_long: &Ema,
+    rsi_14: &Rsi,
+    macd: &Macd,
+    adx_14: &Adx,
+    sqz_mom: &SqueezeMomentum,
+    bollinger: &BollingerBands,
+    atr_standalone: &Atr,
     vwap_sum_tp_vol: &Decimal,
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
     _config: &AppConfig,
-    timestamp_sec: u64,
 ) {
-    let val_ema_fast = ema_fast.update(candle.close);
-    let val_ema_medium = ema_medium.update(candle.close);
-    let val_ema_slow = ema_slow.update(candle.close);
-    let val_ema_long = ema_long.update(candle.close);
-    let val_rsi = rsi_14.update(candle.close);
-    let val_macd = macd.update(candle.close);
-    let val_adx = adx_14.update(candle.high, candle.low, candle.close);
-    let val_sqz = sqz_mom.update(candle.high, candle.low, candle.close);
-    let val_bb = bollinger.update(candle.close);
-    let val_atr = atr_standalone.update(candle.high, candle.low, candle.close);
+    let val_ema_fast = ema_fast.clone().update(candle.close);
+    let val_ema_medium = ema_medium.clone().update(candle.close);
+    let val_ema_slow = ema_slow.clone().update(candle.close);
+    let val_ema_long = ema_long.clone().update(candle.close);
+    let val_rsi = rsi_14.clone().update(candle.close);
+    let val_macd = macd.clone().update(candle.close);
+    let val_adx = adx_14.clone().update(candle.high, candle.low, candle.close);
+    let val_sqz = sqz_mom.clone().update(candle.high, candle.low, candle.close);
+    let val_bb = bollinger.clone().update(candle.close);
+    let val_atr = atr_standalone.clone().update(candle.high, candle.low, candle.close);
 
     let typical_price = (candle.high + candle.low + candle.close) / Decimal::from(3);
     let temp_sum_tp_vol = *vwap_sum_tp_vol + typical_price * candle.volume;
@@ -349,7 +348,7 @@ fn broadcast_live_snapshot(
 
     let snapshot = MarketSnapshot {
         exchange,
-        timestamp: timestamp_sec,
+        timestamp: candle.start_time_ms / 1000,
         symbol: symbol.to_string(),
         mid_price: candle.close,
         bid_price,

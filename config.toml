@@ -1,7 +1,4 @@
-symbols = [
-    "Bybit:BTC",
-    "Hyperliquid:BTC",
-]
+symbols = ["Hyperliquid:BTC"]
 
 [candles]
 duration_seconds = 60
