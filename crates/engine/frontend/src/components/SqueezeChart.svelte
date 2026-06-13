@@ -27,9 +27,15 @@
         });
 
         squeezeMomSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
-        squeezeDotSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
+        squeezeDotSeries = chart.addSeries(HistogramSeries, {
+            base: 0,
+            priceLineVisible: false,
+            priceScaleId: 'squeeze-overlay',
+            scaleMargins: { top: 0.85, bottom: 0.05 },
+        });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
+        chart.priceScale('squeeze-overlay').applyOptions({ visible: false });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart);
