@@ -107,6 +107,7 @@ export interface PairState {
     historyPrices: number[];
     currentPosition: 'None' | 'Long' | 'Short';
     entryPriceVal: string;
+    stopLossVal: string;
     assistantLoading: boolean;
     assistantError: string | null;
     assistantResponse: AssistantAnalysis | null;
@@ -177,6 +178,7 @@ function createPairState(symbol: string, exchange: string): PairState {
         historyPrices: [],
         currentPosition: 'None',
         entryPriceVal: '',
+        stopLossVal: '',
         assistantLoading: false,
         assistantError: null,
         assistantResponse: null,
@@ -299,6 +301,63 @@ export interface UserTrade {
     reward_multiplier: number;
 }
 
+function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
+    const entryPrice = parseFloat(pair.entryPriceVal);
+    const exitPrice = parseFloat(pair.priceText);
+
+    if (isNaN(entryPrice) || isNaN(exitPrice) || entryPrice <= 0 || exitPrice <= 0) {
+        console.warn("⚠️ Trade Logger Bypassed: Entry Price or Current Market Price is invalid.");
+        return;
+    }
+
+    const stopLoss = parseFloat(pair.stopLossVal);
+    let riskDistance = 0;
+    if (!isNaN(stopLoss) && stopLoss > 0 && stopLoss !== entryPrice) {
+        riskDistance = Math.abs(entryPrice - stopLoss);
+    } else {
+        riskDistance = entryPrice * 0.01;
+    }
+
+    let pnl = 0;
+    if (oldPosition === 'Long') {
+        pnl = exitPrice - entryPrice;
+    } else {
+        pnl = entryPrice - exitPrice;
+    }
+
+    const outcome = pnl >= 0 ? 'WIN' : 'LOSS';
+    const rewardDistance = Math.abs(pnl);
+    const rewardMultiplier = riskDistance > 0 ? (rewardDistance / riskDistance) : 1.0;
+
+    const payload = {
+        symbol: pair.symbol.toUpperCase(),
+        direction: oldPosition,
+        outcome,
+        risk_multiplier: 1.0,
+        reward_multiplier: parseFloat(rewardMultiplier.toFixed(2)),
+    };
+
+    fetch('/api/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    })
+    .then(res => {
+        if (res.ok) {
+            console.log(`✅ Auto-Logged Trade: ${payload.symbol} ${payload.direction} ${payload.outcome} (R:R Ratio 1:${payload.reward_multiplier})`);
+            fetch(`/api/trades?_=${Date.now()}`)
+                .then(r => r.json())
+                .then(data => { userTrades = data || []; })
+                .catch(() => {});
+        } else {
+            console.error("❌ Auto-Logger Error: API server rejected the trade record.");
+        }
+    })
+    .catch(err => {
+        console.error("❌ Auto-Logger Network Error:", err);
+    });
+}
+
 export function getState() {
     const app = {
         initPair(symbol: string, exchange: string = 'Hyperliquid') { initPair(symbol, exchange); },
@@ -414,9 +473,20 @@ export function getState() {
         get historyPrices() { return activePair().historyPrices; },
         set historyPrices(v: number[]) { activePair().historyPrices = v; },
         get currentPosition() { return activePair().currentPosition; },
-        set currentPosition(v: 'None' | 'Long' | 'Short') { activePair().currentPosition = v; },
+        set currentPosition(v: 'None' | 'Long' | 'Short') {
+            const pair = activePair();
+            const oldVal = pair.currentPosition;
+            if (oldVal !== 'None' && v === 'None') {
+                autoLogTrade(pair, oldVal);
+                pair.entryPriceVal = '';
+                pair.stopLossVal = '';
+            }
+            pair.currentPosition = v;
+        },
         get entryPriceVal() { return activePair().entryPriceVal; },
         set entryPriceVal(v: string) { activePair().entryPriceVal = v; },
+        get stopLossVal() { return activePair().stopLossVal; },
+        set stopLossVal(v: string) { activePair().stopLossVal = v; },
         get assistantLoading() { return activePair().assistantLoading; },
         set assistantLoading(v: boolean) { activePair().assistantLoading = v; },
         get assistantError() { return activePair().assistantError; },

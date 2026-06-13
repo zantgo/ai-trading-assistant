@@ -506,6 +506,14 @@
                             <input id="entryPrice" type="number" step="any"
                                    bind:value={app.entryPriceVal} placeholder="0.00" />
                         </div>
+                        <div class="entry-price-input" style="margin-top: 8px;">
+                            <label for="stopLoss">Stop Loss ($):</label>
+                            <input id="stopLoss" type="number" step="any"
+                                   bind:value={app.stopLossVal} placeholder="0.00" />
+                            <small style="font-size: 9px; color: #64748b; margin-top: 2px; display: block;">
+                                Left blank? Auto-defaults to 1% risk distance.
+                            </small>
+                        </div>
                     {/if}
 
                     <button
