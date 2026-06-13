@@ -22,6 +22,12 @@ fn default_hyperliquid_ws_url() -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandlesConfig {
     pub duration_seconds: u64,
+    #[serde(default = "default_analysis_limit")]
+    pub analysis_limit: usize,
+}
+
+fn default_analysis_limit() -> usize {
+    100
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

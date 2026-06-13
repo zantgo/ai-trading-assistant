@@ -14,7 +14,7 @@ const MASTER_ORCHESTRATOR_PROMPT: &str = r#"You are the Master AI Trading Orches
 RULES:
 - If Position is Long or Short, only recommend Hold or Close. Never recommend opening a new position when one is already held.
 - If Position is None, only recommend Wait, Open Long, or Open Short.
-- Evaluate the last 100 prices to understand the trend structure. Use the provided support and resistance levels to frame your analysis.
+- Evaluate the provided price sequence to understand the trend structure. Use the provided support and resistance levels to frame your analysis.
 - Consider the Phase 1 indicator signals as expert sub-agent opinions. Weight them by their alignment with each other and with price action.
 - Output strictly JSON, no markdown fences, no conversational preambles.
 

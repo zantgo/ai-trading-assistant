@@ -11,6 +11,11 @@
     import MacdChart from './components/MacdChart.svelte';
     import SqueezeChart from './components/SqueezeChart.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
+    import DecisionTrading from './components/DecisionTrading.svelte';
+    import RiskCalculator from './components/RiskCalculator.svelte';
+    import ExchangeSettings from './components/ExchangeSettings.svelte';
+    import AnalyticsDashboard from './components/AnalyticsDashboard.svelte';
+    import TradeListLedger from './components/TradeListLedger.svelte';
     import TabHeader from './components/TabHeader.svelte';
 
     const app = getState();
@@ -35,6 +40,8 @@
     let draftAdxPeriod = $state(14);
     let draftAtrPeriod = $state(14);
     let draftSqueezePeriod = $state(20);
+
+    let draftAnalysisLimit = $state(100);
 
     let draftShowEmas = $state(true);
     let draftShowBb = $state(true);
@@ -86,6 +93,8 @@
         draftAdxPeriod = pair.adxPeriodVal;
         draftAtrPeriod = pair.atrPeriodVal;
         draftSqueezePeriod = pair.squeezePeriodVal;
+
+        draftAnalysisLimit = pair.analysisLimit;
 
         draftShowEmas = pair.showEmas;
         draftShowBb = pair.showBb;
@@ -142,7 +151,10 @@
         }
 
         const body = {
-            candles: { duration_seconds: Number(calculatedDuration) },
+            candles: { 
+                duration_seconds: Number(calculatedDuration),
+                analysis_limit: Number(draftAnalysisLimit)
+            },
             indicators: {
                 ema_fast: Number(draftEmaFast),
                 ema_medium: Number(draftEmaMedium),
@@ -198,6 +210,7 @@
                     next.adxPeriodVal = draftAdxPeriod;
                     next.atrPeriodVal = draftAtrPeriod;
                     next.squeezePeriodVal = draftSqueezePeriod;
+                    next.analysisLimit = draftAnalysisLimit;
                     next.automationEnabled = draftAutomationEnabled;
                     next.automationIntervalValue = draftAutomationIntervalValue;
                     next.automationIntervalUnit = draftAutomationIntervalUnit;
@@ -225,6 +238,7 @@
                 pair.adxPeriodVal = draftAdxPeriod;
                 pair.atrPeriodVal = draftAtrPeriod;
                 pair.squeezePeriodVal = draftSqueezePeriod;
+                pair.analysisLimit = draftAnalysisLimit;
 
                 pair.latestSnapshot = null;
                 pair.priceText = '--';
@@ -349,6 +363,7 @@
                     targetState.adxPeriodVal = specific.indicators.adx_period;
                     targetState.atrPeriodVal = specific.indicators.atr_period;
                     targetState.squeezePeriodVal = specific.indicators.squeeze_period;
+                    targetState.analysisLimit = specific.candles.analysis_limit ?? 100;
 
                     if (specific.automation) {
                         targetState.automationEnabled = specific.automation.enabled ?? false;
@@ -757,6 +772,41 @@
                         >
                             ⚙️ Workspace Settings
                         </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'decision'}
+                            onclick={() => { pair.currentView = 'decision'; }}
+                        >
+                            🎯 Decision Trading
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'risk'}
+                            onclick={() => { pair.currentView = 'risk'; }}
+                        >
+                            🛡️ Risk Management
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'exchange'}
+                            onclick={() => { pair.currentView = 'exchange'; }}
+                        >
+                            🔐 Exchange Settings
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'analytics'}
+                            onclick={() => { pair.currentView = 'analytics'; }}
+                        >
+                            📊 Trade Audit
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'ledger'}
+                            onclick={() => { pair.currentView = 'ledger'; }}
+                        >
+                            📋 Trade Ledger
+                        </button>
                     </div>
                     <div class="time-badge">
                         {pair.symbol}USD — {pair.barDurationSec >= 3600 ? (pair.barDurationSec / 3600) + 'h' : pair.barDurationSec >= 60 ? (pair.barDurationSec / 60) + 'm' : pair.barDurationSec + 's'}
@@ -1152,6 +1202,10 @@
                                             </select>
                                         </div>
                                     </div>
+                                    <div class="input-row">
+                                        <label for="analysisLimit">AI Analysis Lookback (Candles):</label>
+                                        <input id="analysisLimit" type="number" bind:value={draftAnalysisLimit} min="10" max="500" step="5" />
+                                    </div>
                                     <hr class="section-divider" />
                                     <div class="input-row"><label for="emaf">EMA Fast:</label><input id="emaf" type="number" bind:value={draftEmaFast} /></div>
                                     <div class="input-row"><label for="emam">EMA Med:</label><input id="emam" type="number" bind:value={draftEmaMedium} /></div>
@@ -1261,6 +1315,36 @@
                             </div>
 
                         </div>
+                    </div>
+
+                <!-- 4. Decision Trading View -->
+                {:else if pair.currentView === 'decision'}
+                    <div class="workspace-inner-content animate-fade">
+                        <DecisionTrading />
+                    </div>
+
+                <!-- 5. Risk Calculator View -->
+                {:else if pair.currentView === 'risk'}
+                    <div class="workspace-inner-content animate-fade">
+                        <RiskCalculator />
+                    </div>
+
+                <!-- 6. Exchange Settings View -->
+                {:else if pair.currentView === 'exchange'}
+                    <div class="workspace-inner-content animate-fade">
+                        <ExchangeSettings />
+                    </div>
+
+                <!-- 7. Analytics Dashboard View -->
+                {:else if pair.currentView === 'analytics'}
+                    <div class="workspace-inner-content animate-fade">
+                        <AnalyticsDashboard />
+                    </div>
+
+                <!-- 8. Trade Ledger View -->
+                {:else if pair.currentView === 'ledger'}
+                    <div class="workspace-inner-content animate-fade">
+                        <TradeListLedger />
                     </div>
                 {/if}
 

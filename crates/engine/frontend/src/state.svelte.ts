@@ -43,6 +43,149 @@ export interface ChatMessage {
     content: string;
 }
 
+export interface IndicatorRule {
+    id: number;
+    profile_id: number;
+    indicator_name: string;
+    weight: number;
+    override_status: string;
+}
+
+export interface DecisionProfile {
+    id: number;
+    profile_name: string;
+    long_threshold: number;
+    short_threshold: number;
+    indicators: IndicatorRule[];
+}
+
+export interface IndicatorResult {
+    indicator_name: string;
+    signal: string;
+    weight: number;
+    weighted_contribution: number;
+    override_active: boolean;
+}
+
+export interface DecisionScore {
+    profile_name: string;
+    score: number;
+    recommendation: string;
+    momentum_bias: number;
+    indicator_results: IndicatorResult[];
+}
+
+export interface RiskProfile {
+    id: number;
+    profile_name: string;
+    capital: number;
+    max_risk_pct: number;
+    leverage: number;
+    commission_pct: number;
+    funding_rate_8h: number;
+    spread: number;
+}
+
+export interface RiskCalculation {
+    risk_capital: number;
+    price_distance: number;
+    position_size_units: number;
+    position_notional: number;
+    leverage_required: number;
+    leverage_selected: number;
+    margin_required: number;
+    liquidation_price: number;
+    risk_reward_ratio: number | null;
+    estimated_profit: number;
+    total_fees: number;
+    net_pnl: number;
+}
+
+export interface ExchangeAccount {
+    id: number;
+    exchange: string;
+    account_name: string;
+    api_key: string;
+    api_secret: string;
+    passphrase: string;
+    referred_uid: string;
+    is_active: boolean;
+    last_sync_timestamp: number | null;
+}
+
+export interface CoreStats {
+    total_pnl: number;
+    win_rate: number;
+    avg_loss: number;
+    avg_gain: number;
+    expectancy: number;
+    avg_risk_reward_ratio: number;
+    largest_loss: number;
+    largest_gain: number;
+    total_trades: number;
+    wins: number;
+    losses: number;
+}
+
+export interface DailyActivity {
+    date: string;
+    longs: number;
+    shorts: number;
+    win_rate: number;
+}
+
+export interface DailyPnl { date: string; pnl: number; }
+export interface HourlyWinRate { hour: number; win_rate: number; volume: number; }
+export interface WeekdayWinRate { weekday: string; win_rate: number; volume: number; }
+export interface DirectionBreakdown { longs: number; shorts: number; long_expectancy: number; short_expectancy: number; }
+export interface StyleSegment { count: number; avg_duration_minutes: number; win_rate: number; }
+export interface TraderStyleBreakdown { scalper: StyleSegment; day_trader: StyleSegment; swing_trader: StyleSegment; }
+export interface StreakMetrics { avg_streak_length: number; max_consecutive_value: number; max_streak_length: number; }
+export interface CalendarDay { date: string; pnl: number; month: number; day: number; }
+export interface PairStat { symbol: string; value: number; }
+export interface DailyCommission { date: string; fees: number; }
+export interface FeePnlRatio { date: string; ratio: number; }
+export interface MonthlySummary { month: string; net_pnl: number; win_rate: number; trade_count: number; }
+
+export interface DashboardStats {
+    core_stats: CoreStats;
+    equity_curve: [number, number][];
+    daily_activity: DailyActivity[];
+    daily_pnl: DailyPnl[];
+    win_rate_by_hour: HourlyWinRate[];
+    win_rate_by_weekday: WeekdayWinRate[];
+    direction_breakdown: DirectionBreakdown;
+    trader_style: TraderStyleBreakdown;
+    winning_streaks: StreakMetrics;
+    losing_streaks: StreakMetrics;
+    post_loss_recovery_pct: number;
+    pnl_calendar: CalendarDay[];
+    pair_volume: PairStat[];
+    top_pairs_profitability: PairStat[];
+    bottom_pairs_profitability: PairStat[];
+    daily_commissions: DailyCommission[];
+    cumulative_commissions: [number, number][];
+    fee_pnl_ratio: FeePnlRatio[];
+    monthly_summary: MonthlySummary[];
+}
+
+export interface TradeLedgerRecord {
+    id: number;
+    exchange: string;
+    symbol: string;
+    direction: string;
+    entry_timestamp: number;
+    exit_timestamp: number;
+    entry_price: number;
+    exit_price: number;
+    size: number;
+    commission_fees: number;
+    funding_fees: number;
+    realized_pnl: number;
+    roi_percentage: number;
+    trigger_source: string;
+}
+
 export interface IndividualIndicatorResult {
     indicator_name: string;
     signal: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' | 'UNAVAILABLE';
@@ -122,7 +265,10 @@ export interface PairState {
     isChatLoading: boolean;
 
     // Per-pair workspace view tab
-        currentView: 'terminal' | 'performance' | 'settings' | 'positions';
+    currentView: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'exchange' | 'analytics' | 'ledger';
+
+    // Analysis lookback
+    analysisLimit: number;
 
     // Per-pair configuration
     barDurationSec: number;
@@ -219,6 +365,8 @@ function createPairState(symbol: string, exchange: string): PairState {
 
         currentView: 'terminal',
 
+        analysisLimit: globalCandlesConfig.analysis_limit ?? 100,
+
         barDurationSec: globalCandlesConfig.duration_seconds,
         emaFastVal: globalIndicatorsConfig.ema_fast,
         emaMediumVal: globalIndicatorsConfig.ema_medium,
@@ -272,7 +420,7 @@ let activeTab = $state<string>('Hyperliquid-BTC');
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
 
-let globalCandlesConfig = $state({ duration_seconds: 60 });
+let globalCandlesConfig = $state({ duration_seconds: 60, analysis_limit: 100 });
 let globalIndicatorsConfig = $state({
     ema_fast: 10,
     ema_medium: 50,
@@ -296,6 +444,43 @@ let rsiLabel = $state('RSI (14)');
 let adxLabel = $state('ADX (14)');
 let atrLabel = $state('ATR (14)');
 let macdLabel = $state('MACD (12,26,9)');
+
+// ─── Decision Trading ───────────────────────────────────────────
+let activeDecisionProfileId = $state(1);
+let decisionProfiles = $state<DecisionProfile[]>([]);
+let calculatedDecisionScore = $state<DecisionScore | null>(null);
+let decisionLoading = $state(false);
+
+// ─── Risk Management ────────────────────────────────────────────
+let activeRiskProfileId = $state(1);
+let riskProfiles = $state<RiskProfile[]>([]);
+let riskDirection = $state<'LONG' | 'SHORT'>('LONG');
+let riskEntryPrice = $state('0');
+let riskStopLoss = $state('0');
+let riskTakeProfit = $state('0');
+let riskCalculation = $state<RiskCalculation | null>(null);
+let riskCalculating = $state(false);
+
+// ─── Exchange Accounts ──────────────────────────────────────────
+let exchangeAccounts = $state<ExchangeAccount[]>([]);
+let exchangeActiveCount = $state(0);
+let exchangeMaxAccounts = $state(3);
+let exchangeFormDraft = $state({
+    exchange: 'Bitget',
+    account_name: '',
+    api_key: '',
+    api_secret: '',
+    passphrase: '',
+    referred_uid: '',
+    is_active: true,
+});
+
+// ─── Dashboard ──────────────────────────────────────────────────
+let dashboardStats = $state<DashboardStats | null>(null);
+let dashboardActiveFilter = $state('summary');
+let dashboardPeriod = $state('Todo');
+let dashboardOrigin = $state('Todos');
+let tradeLedgerRecords = $state<TradeLedgerRecord[]>([]);
 
 // --- Helper to get/set active pair ---
 function activePair(): PairState {
@@ -324,6 +509,7 @@ export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
         pair.adxPeriodVal = globalIndicatorsConfig.adx_period;
         pair.atrPeriodVal = globalIndicatorsConfig.atr_period;
         pair.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
     }
 }
 
@@ -555,7 +741,9 @@ export function getState() {
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
 
         get currentView() { return activePair().currentView; },
-        set currentView(v: 'terminal' | 'performance' | 'settings' | 'positions') { activePair().currentView = v; },
+        set currentView(v: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'exchange' | 'analytics' | 'ledger') { activePair().currentView = v; },
+        get analysisLimit() { return activePair().analysisLimit; },
+        set analysisLimit(v: number) { activePair().analysisLimit = v; },
         get userTrades() { return userTrades; },
         set userTrades(v: UserTrade[]) { userTrades = v; },
 
@@ -710,6 +898,244 @@ export function getState() {
         set globalCandlesConfig(v) { globalCandlesConfig = v; },
         get globalIndicatorsConfig() { return globalIndicatorsConfig; },
         set globalIndicatorsConfig(v) { globalIndicatorsConfig = v; },
+
+        // ─── Decision Trading Accessors ────────────────────────
+        get activeDecisionProfileId() { return activeDecisionProfileId; },
+        set activeDecisionProfileId(v: number) { activeDecisionProfileId = v; },
+        get decisionProfiles() { return decisionProfiles; },
+        set decisionProfiles(v: DecisionProfile[]) { decisionProfiles = v; },
+        get calculatedDecisionScore() { return calculatedDecisionScore; },
+        set calculatedDecisionScore(v: DecisionScore | null) { calculatedDecisionScore = v; },
+        get decisionLoading() { return decisionLoading; },
+        set decisionLoading(v: boolean) { decisionLoading = v; },
+
+        async fetchDecisionProfiles() {
+            try {
+                const res = await fetch('/api/decision-profiles');
+                if (res.ok) { decisionProfiles = await res.json(); }
+            } catch (_) {}
+        },
+
+        async createDecisionProfile(name: string, longT: number, shortT: number) {
+            try {
+                const res = await fetch('/api/decision-profiles', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile_name: name, long_threshold: longT, short_threshold: shortT }),
+                });
+                if (res.ok) { await (app as any).fetchDecisionProfiles(); return true; }
+            } catch (_) {}
+            return false;
+        },
+
+        async deleteDecisionProfile(id: number) {
+            try {
+                await fetch(`/api/decision-profiles/${id}`, { method: 'DELETE' });
+                await (app as any).fetchDecisionProfiles();
+            } catch (_) {}
+        },
+
+        async updateDecisionProfile(id: number, name: string, longT: number, shortT: number) {
+            try {
+                await fetch(`/api/decision-profiles/${id}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile_name: name, long_threshold: longT, short_threshold: shortT }),
+                });
+                await (app as any).fetchDecisionProfiles();
+            } catch (_) {}
+        },
+
+        async addProfileIndicator(profileId: number, name: string, weight: number, overrideStatus: string) {
+            try {
+                await fetch(`/api/decision-profiles/${profileId}/indicators`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ indicator_name: name, weight, override_status: overrideStatus }),
+                });
+                await (app as any).fetchDecisionProfiles();
+            } catch (_) {}
+        },
+
+        async updateProfileIndicator(profileId: number, indicatorId: number, weight: number, overrideStatus: string) {
+            try {
+                await fetch(`/api/decision-profiles/${profileId}/indicators/${indicatorId}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ weight, override_status: overrideStatus }),
+                });
+                await (app as any).fetchDecisionProfiles();
+            } catch (_) {}
+        },
+
+        async deleteProfileIndicator(profileId: number, indicatorId: number) {
+            try {
+                await fetch(`/api/decision-profiles/${profileId}/indicators/${indicatorId}`, { method: 'DELETE' });
+                await (app as any).fetchDecisionProfiles();
+            } catch (_) {}
+        },
+
+        async evaluateDecision(profileId: number, snap: Record<string, unknown>, historyPrices: number[]) {
+            decisionLoading = true;
+            try {
+                const res = await fetch(`/api/decision-profiles/${profileId}/evaluate`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
+                        squeeze_on: snap.squeeze_on ?? null,
+                        squeeze_momentum: snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null,
+                        macd_line: snap.macd_line ? parseFloat(String(snap.macd_line)) : null,
+                        macd_signal: snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null,
+                        macd_hist: snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null,
+                        adx: snap.adx_14 ? parseFloat(String(snap.adx_14)) : null,
+                        adx_plus: snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null,
+                        adx_minus: snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null,
+                        bb_upper: snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null,
+                        bb_middle: snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null,
+                        bb_lower: snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null,
+                        atr: snap.atr_14 ? parseFloat(String(snap.atr_14)) : null,
+                        ema_fast: snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null,
+                        ema_medium: snap.ema_medium ? parseFloat(String(snap.ema_medium)) : null,
+                        ema_slow: snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null,
+                        ema_long: snap.ema_long ? parseFloat(String(snap.ema_long)) : null,
+                        vwap: snap.vwap ? parseFloat(String(snap.vwap)) : null,
+                        close: snap.close ? parseFloat(String(snap.close)) : null,
+                        volume: snap.volume ? parseFloat(String(snap.volume)) : null,
+                        average_volume: snap.average_volume ? parseFloat(String(snap.average_volume)) : null,
+                        current_price: snap.mid_price ? parseFloat(String(snap.mid_price)) : 0,
+                        historical_prices: historyPrices,
+                    }),
+                });
+                if (res.ok) { calculatedDecisionScore = await res.json(); }
+            } catch (_) {} finally {
+                decisionLoading = false;
+            }
+        },
+
+        // ─── Risk Management Accessors ─────────────────────────
+        get activeRiskProfileId() { return activeRiskProfileId; },
+        set activeRiskProfileId(v: number) { activeRiskProfileId = v; },
+        get riskProfiles() { return riskProfiles; },
+        set riskProfiles(v: RiskProfile[]) { riskProfiles = v; },
+        get riskDirection() { return riskDirection; },
+        set riskDirection(v: 'LONG' | 'SHORT') { riskDirection = v; },
+        get riskEntryPrice() { return riskEntryPrice; },
+        set riskEntryPrice(v: string) { riskEntryPrice = v; },
+        get riskStopLoss() { return riskStopLoss; },
+        set riskStopLoss(v: string) { riskStopLoss = v; },
+        get riskTakeProfit() { return riskTakeProfit; },
+        set riskTakeProfit(v: string) { riskTakeProfit = v; },
+        get riskCalculation() { return riskCalculation; },
+        set riskCalculation(v: RiskCalculation | null) { riskCalculation = v; },
+        get riskCalculating() { return riskCalculating; },
+        set riskCalculating(v: boolean) { riskCalculating = v; },
+
+        async fetchRiskProfiles() {
+            try {
+                const res = await fetch('/api/risk-profiles');
+                if (res.ok) { riskProfiles = await res.json(); }
+            } catch (_) {}
+        },
+
+        async createRiskProfile(name: string, capital: number, maxRisk: number, leverage: number, commission: number, funding: number, spread: number) {
+            try {
+                const res = await fetch('/api/risk-profiles', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile_name: name, capital, max_risk_pct: maxRisk, leverage, commission_pct: commission, funding_rate_8h: funding, spread }),
+                });
+                if (res.ok) { await (app as any).fetchRiskProfiles(); return true; }
+            } catch (_) {}
+            return false;
+        },
+
+        async deleteRiskProfile(id: number) {
+            try {
+                await fetch(`/api/risk-profiles/${id}`, { method: 'DELETE' });
+                await (app as any).fetchRiskProfiles();
+            } catch (_) {}
+        },
+
+        async calculateRisk() {
+            riskCalculating = true;
+            try {
+                const res = await fetch('/api/risk/calculate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        direction: riskDirection,
+                        entry_price: parseFloat(riskEntryPrice) || 0,
+                        stop_loss_price: parseFloat(riskStopLoss) || 0,
+                        take_profit_price: parseFloat(riskTakeProfit) || 0,
+                        profile_id: activeRiskProfileId || null,
+                    }),
+                });
+                if (res.ok) { riskCalculation = await res.json(); }
+            } catch (_) {} finally {
+                riskCalculating = false;
+            }
+        },
+
+        // ─── Exchange Accounts Accessors ────────────────────────
+        get exchangeAccounts() { return exchangeAccounts; },
+        set exchangeAccounts(v: ExchangeAccount[]) { exchangeAccounts = v; },
+        get exchangeActiveCount() { return exchangeActiveCount; },
+        set exchangeActiveCount(v: number) { exchangeActiveCount = v; },
+        get exchangeMaxAccounts() { return exchangeMaxAccounts; },
+        get exchangeFormDraft() { return exchangeFormDraft; },
+        set exchangeFormDraft(v: typeof exchangeFormDraft) { exchangeFormDraft = v; },
+
+        async fetchExchangeAccounts() {
+            try {
+                const res = await fetch('/api/exchange-keys');
+                if (res.ok) {
+                    const data = await res.json();
+                    exchangeAccounts = data.accounts || [];
+                    exchangeActiveCount = data.active_count || 0;
+                    exchangeMaxAccounts = data.max_accounts || 3;
+                }
+            } catch (_) {}
+        },
+
+        async addExchangeAccount() {
+            try {
+                const res = await fetch('/api/exchange-keys', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(exchangeFormDraft),
+                });
+                if (res.ok) {
+                    await (app as any).fetchExchangeAccounts();
+                    exchangeFormDraft = { exchange: 'Bitget', account_name: '', api_key: '', api_secret: '', passphrase: '', referred_uid: '', is_active: true };
+                }
+            } catch (_) {}
+        },
+
+        async deleteExchangeAccount(id: number) {
+            try {
+                await fetch(`/api/exchange-keys/${id}`, { method: 'DELETE' });
+                await (app as any).fetchExchangeAccounts();
+            } catch (_) {}
+        },
+
+        // ─── Dashboard Accessors ────────────────────────────────
+        get dashboardStats() { return dashboardStats; },
+        set dashboardStats(v: DashboardStats | null) { dashboardStats = v; },
+        get dashboardActiveFilter() { return dashboardActiveFilter; },
+        set dashboardActiveFilter(v: string) { dashboardActiveFilter = v; },
+        get dashboardPeriod() { return dashboardPeriod; },
+        set dashboardPeriod(v: string) { dashboardPeriod = v; },
+        get dashboardOrigin() { return dashboardOrigin; },
+        set dashboardOrigin(v: string) { dashboardOrigin = v; },
+        get tradeLedgerRecords() { return tradeLedgerRecords; },
+        set tradeLedgerRecords(v: TradeLedgerRecord[]) { tradeLedgerRecords = v; },
+
+        async fetchDashboardStats() {
+            try {
+                const res = await fetch('/api/dashboard/stats');
+                if (res.ok) { dashboardStats = await res.json(); }
+            } catch (_) {}
+        },
+
+        async fetchTradeLedger(limit: number = 200) {
+            try {
+                const res = await fetch(`/api/trade-ledger?limit=${limit}`);
+                if (res.ok) { tradeLedgerRecords = await res.json(); }
+            } catch (_) {}
+        },
     };
 
     return app;

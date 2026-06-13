@@ -267,6 +267,19 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
         .route("/api/pairs/:pair_key", delete(serve_remove_pair))
         .route("/api/pairs/:pair_key/config", post(serve_update_pair_config))
+        .route("/api/decision-profiles", get(serve_decision_profiles_list).post(serve_decision_profile_create))
+        .route("/api/decision-profiles/:id", delete(serve_decision_profile_delete).post(serve_decision_profile_update))
+        .route("/api/decision-profiles/:id/evaluate", post(serve_decision_evaluate))
+        .route("/api/decision-profiles/:id/indicators", post(serve_profile_indicator_add))
+        .route("/api/decision-profiles/:id/indicators/:iid", post(serve_profile_indicator_update).delete(serve_profile_indicator_delete))
+        .route("/api/risk-profiles", get(serve_risk_profiles_list).post(serve_risk_profile_create))
+        .route("/api/risk-profiles/:id", delete(serve_risk_profile_delete).post(serve_risk_profile_update))
+        .route("/api/risk/calculate", post(serve_risk_calculate))
+        .route("/api/exchange-keys", get(serve_exchange_keys_list).post(serve_exchange_keys_add))
+        .route("/api/exchange-keys/:id", delete(serve_exchange_keys_delete).post(serve_exchange_keys_sync))
+        .route("/api/dashboard/stats", get(serve_dashboard_stats))
+        .route("/api/trade-ledger", get(serve_trade_ledger))
+        .route("/api/trades/telemetry", post(serve_trade_telemetry_add))
         .route("/ws", get(ws_handler))
         .route("/favicon.ico", get(|| async { Redirect::to("/favicon.svg") }))
         .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
@@ -346,7 +359,10 @@ async fn serve_history(
         None => (vec![], vec![]),
     };
 
-    let indicator_rows = crate::db::query_indicator_snapshots(&state.pool, &raw_symbol, 100).await;
+    let config_guard = state.config.read().await;
+    let pair_cfg = config_guard.pairs.get(&pair_key);
+    let current_limit = pair_cfg.map(|p| p.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit);
+    let indicator_rows = crate::db::query_indicator_snapshots(&state.pool, &raw_symbol, current_limit as u32).await;
     let mut indicator_history = IndicatorHistoryArrays {
         times: Vec::with_capacity(indicator_rows.len()),
         rsi_14: Vec::with_capacity(indicator_rows.len()),
@@ -1407,7 +1423,10 @@ async fn serve_add_pair(
 
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(100);
     let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
-    let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(100)));
+    let config_guard = state.config.read().await;
+    let pair_cfg = config_guard.pairs.get(&pair_key);
+    let current_limit = pair_cfg.map(|p| p.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit);
+    let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(current_limit)));
     let latest_snap = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let cancel = CancellationToken::new();
 
@@ -1573,6 +1592,449 @@ async fn serve_add_trade(
 async fn serve_get_trades(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let trades = crate::db::query_user_trades(&state.pool, 100).await;
     Json(trades)
+}
+
+// ─── Decision Profiles ───────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DecisionProfileCreate {
+    pub profile_name: String,
+    #[serde(default = "default_long_threshold")]
+    pub long_threshold: i32,
+    #[serde(default = "default_short_threshold")]
+    pub short_threshold: i32,
+}
+fn default_long_threshold() -> i32 { 40 }
+fn default_short_threshold() -> i32 { -40 }
+
+#[derive(Debug, Deserialize)]
+pub struct DecisionProfileUpdate {
+    pub profile_name: String,
+    pub long_threshold: i32,
+    pub short_threshold: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileIndicatorAdd {
+    pub indicator_name: String,
+    #[serde(default = "default_weight")]
+    pub weight: i32,
+    #[serde(default)]
+    pub override_status: String,
+}
+fn default_weight() -> i32 { 10 }
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileIndicatorUpdate {
+    pub weight: i32,
+    #[serde(default)]
+    pub override_status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EvaluateRequest {
+    pub rsi: Option<f64>,
+    pub squeeze_on: Option<bool>,
+    pub squeeze_momentum: Option<f64>,
+    pub macd_line: Option<f64>,
+    pub macd_signal: Option<f64>,
+    pub macd_hist: Option<f64>,
+    pub adx: Option<f64>,
+    pub adx_plus: Option<f64>,
+    pub adx_minus: Option<f64>,
+    pub bb_upper: Option<f64>,
+    pub bb_middle: Option<f64>,
+    pub bb_lower: Option<f64>,
+    pub atr: Option<f64>,
+    pub ema_fast: Option<f64>,
+    pub ema_medium: Option<f64>,
+    pub ema_slow: Option<f64>,
+    pub ema_long: Option<f64>,
+    pub vwap: Option<f64>,
+    pub close: Option<f64>,
+    pub volume: Option<f64>,
+    pub average_volume: Option<f64>,
+    pub current_price: f64,
+    #[serde(default)]
+    pub historical_prices: Vec<f64>,
+}
+
+async fn serve_decision_profiles_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let profiles = crate::db::decision_profiles_list(&state.pool).await;
+    Json(profiles)
+}
+
+async fn serve_decision_profile_create(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<DecisionProfileCreate>,
+) -> impl IntoResponse {
+    if payload.profile_name.trim().is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "Profile name required").into_response();
+    }
+    let id = crate::db::decision_profile_insert(
+        &state.pool, payload.profile_name.trim(), payload.long_threshold, payload.short_threshold,
+    ).await;
+    if id > 0 {
+        (axum::http::StatusCode::CREATED, format!("Profile created with id {}", id)).into_response()
+    } else {
+        (axum::http::StatusCode::CONFLICT, "Profile name already exists or DB error").into_response()
+    }
+}
+
+async fn serve_decision_profile_update(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(payload): Json<DecisionProfileUpdate>,
+) -> impl IntoResponse {
+    let ok = crate::db::decision_profile_update(
+        &state.pool, id, &payload.profile_name, payload.long_threshold, payload.short_threshold,
+    ).await;
+    if ok {
+        (axum::http::StatusCode::OK, "Profile updated").into_response()
+    } else {
+        (axum::http::StatusCode::NOT_FOUND, "Profile not found").into_response()
+    }
+}
+
+async fn serve_decision_profile_delete(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    crate::db::decision_profile_delete(&state.pool, id).await;
+    (axum::http::StatusCode::OK, "Profile deleted").into_response()
+}
+
+async fn serve_decision_evaluate(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(payload): Json<EvaluateRequest>,
+) -> impl IntoResponse {
+    let snap = crate::profile_evaluation::SnapshotValues {
+        rsi: payload.rsi,
+        squeeze_on: payload.squeeze_on,
+        squeeze_momentum: payload.squeeze_momentum,
+        macd_line: payload.macd_line,
+        macd_signal: payload.macd_signal,
+        macd_hist: payload.macd_hist,
+        adx: payload.adx,
+        adx_plus: payload.adx_plus,
+        adx_minus: payload.adx_minus,
+        bb_upper: payload.bb_upper,
+        bb_middle: payload.bb_middle,
+        bb_lower: payload.bb_lower,
+        atr: payload.atr,
+        ema_fast: payload.ema_fast,
+        ema_medium: payload.ema_medium,
+        ema_slow: payload.ema_slow,
+        ema_long: payload.ema_long,
+        vwap: payload.vwap,
+        close: payload.close,
+        volume: payload.volume,
+        average_volume: payload.average_volume,
+        current_price: payload.current_price,
+    };
+    let score = crate::profile_evaluation::evaluate_profile(
+        &state.pool, id, &snap, &payload.historical_prices,
+    ).await;
+    Json(score)
+}
+
+async fn serve_profile_indicator_add(
+    State(state): State<Arc<AppState>>,
+    Path(profile_id): Path<i64>,
+    Json(payload): Json<ProfileIndicatorAdd>,
+) -> impl IntoResponse {
+    let status = if payload.override_status.is_empty() { "NONE" } else { &payload.override_status };
+    let id = crate::db::profile_indicator_insert(
+        &state.pool, profile_id, &payload.indicator_name, payload.weight, status,
+    ).await;
+    if id > 0 {
+        (axum::http::StatusCode::CREATED, format!("Indicator added with id {}", id)).into_response()
+    } else {
+        (axum::http::StatusCode::BAD_REQUEST, "Failed to add indicator").into_response()
+    }
+}
+
+async fn serve_profile_indicator_update(
+    State(state): State<Arc<AppState>>,
+    Path((_profile_id, indicator_id)): Path<(i64, i64)>,
+    Json(payload): Json<ProfileIndicatorUpdate>,
+) -> impl IntoResponse {
+    let status = if payload.override_status.is_empty() { "NONE" } else { &payload.override_status };
+    let ok = crate::db::profile_indicator_update(&state.pool, indicator_id, payload.weight, status).await;
+    if ok {
+        (axum::http::StatusCode::OK, "Indicator updated").into_response()
+    } else {
+        (axum::http::StatusCode::NOT_FOUND, "Indicator not found").into_response()
+    }
+}
+
+async fn serve_profile_indicator_delete(
+    State(state): State<Arc<AppState>>,
+    Path((_profile_id, indicator_id)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    crate::db::profile_indicator_delete(&state.pool, indicator_id).await;
+    (axum::http::StatusCode::OK, "Indicator removed").into_response()
+}
+
+// ─── Risk Profiles ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct RiskProfileCreate {
+    pub profile_name: String,
+    #[serde(default = "default_capital")]
+    pub capital: f64,
+    #[serde(default = "default_max_risk")]
+    pub max_risk_pct: f64,
+    #[serde(default = "default_leverage_i32")]
+    pub leverage: i32,
+    #[serde(default = "default_commission")]
+    pub commission_pct: f64,
+    #[serde(default)]
+    pub funding_rate_8h: f64,
+    #[serde(default)]
+    pub spread: f64,
+}
+fn default_capital() -> f64 { 1000.0 }
+fn default_max_risk() -> f64 { 2.0 }
+fn default_leverage_i32() -> i32 { 20 }
+fn default_commission() -> f64 { 0.06 }
+
+#[derive(Debug, Deserialize)]
+pub struct RiskCalculateRequest {
+    pub direction: String,
+    pub entry_price: f64,
+    pub stop_loss_price: f64,
+    pub take_profit_price: f64,
+    #[serde(default)]
+    pub profile_id: Option<i64>,
+    pub capital: Option<f64>,
+    pub max_risk_pct: Option<f64>,
+    pub leverage: Option<i32>,
+    pub commission_pct: Option<f64>,
+    pub funding_rate_8h: Option<f64>,
+    pub spread: Option<f64>,
+}
+
+async fn serve_risk_profiles_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let profiles = crate::db::risk_profiles_list(&state.pool).await;
+    Json(profiles)
+}
+
+async fn serve_risk_profile_create(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RiskProfileCreate>,
+) -> impl IntoResponse {
+    if payload.profile_name.trim().is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "Profile name required").into_response();
+    }
+    let id = crate::db::risk_profile_insert(
+        &state.pool, payload.profile_name.trim(),
+        payload.capital, payload.max_risk_pct, payload.leverage,
+        payload.commission_pct, payload.funding_rate_8h, payload.spread,
+    ).await;
+    if id > 0 {
+        (axum::http::StatusCode::CREATED, format!("Risk profile created with id {}", id)).into_response()
+    } else {
+        (axum::http::StatusCode::CONFLICT, "Profile name already exists or DB error").into_response()
+    }
+}
+
+async fn serve_risk_profile_update(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(payload): Json<RiskProfileCreate>,
+) -> impl IntoResponse {
+    let ok = crate::db::risk_profile_update(
+        &state.pool, id, &payload.profile_name,
+        payload.capital, payload.max_risk_pct, payload.leverage,
+        payload.commission_pct, payload.funding_rate_8h, payload.spread,
+    ).await;
+    if ok {
+        (axum::http::StatusCode::OK, "Risk profile updated").into_response()
+    } else {
+        (axum::http::StatusCode::NOT_FOUND, "Risk profile not found").into_response()
+    }
+}
+
+async fn serve_risk_profile_delete(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    crate::db::risk_profile_delete(&state.pool, id).await;
+    (axum::http::StatusCode::OK, "Risk profile deleted").into_response()
+}
+
+async fn serve_risk_calculate(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RiskCalculateRequest>,
+) -> impl IntoResponse {
+    let (capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread) =
+        if let Some(pid) = payload.profile_id {
+            if let Some(profile) = crate::db::risk_profile_by_id(&state.pool, pid).await {
+                (profile.capital, profile.max_risk_pct, profile.leverage,
+                 profile.commission_pct, profile.funding_rate_8h, profile.spread)
+            } else {
+                (payload.capital.unwrap_or(1000.0), payload.max_risk_pct.unwrap_or(2.0),
+                 payload.leverage.unwrap_or(20), payload.commission_pct.unwrap_or(0.06),
+                 payload.funding_rate_8h.unwrap_or(0.0), payload.spread.unwrap_or(0.0))
+            }
+        } else {
+            (payload.capital.unwrap_or(1000.0), payload.max_risk_pct.unwrap_or(2.0),
+             payload.leverage.unwrap_or(20), payload.commission_pct.unwrap_or(0.06),
+             payload.funding_rate_8h.unwrap_or(0.0), payload.spread.unwrap_or(0.0))
+        };
+
+    let input = crate::risk_calculator::RiskCalculationInput {
+        capital,
+        max_risk_pct,
+        leverage,
+        direction: payload.direction,
+        entry_price: payload.entry_price,
+        stop_loss_price: payload.stop_loss_price,
+        take_profit_price: payload.take_profit_price,
+        commission_pct,
+        funding_rate_8h,
+        spread,
+    };
+
+    match crate::risk_calculator::compute_risk(&input) {
+        Ok(calc) => Json(calc).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+// ─── Exchange Keys ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ExchangeKeyRequest {
+    pub exchange: String,
+    pub account_name: String,
+    pub api_key: String,
+    pub api_secret: String,
+    #[serde(default)]
+    pub passphrase: String,
+    #[serde(default)]
+    pub referred_uid: String,
+    #[serde(default)]
+    pub is_active: bool,
+}
+
+async fn serve_exchange_keys_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let keys = crate::db::exchange_keys_list(&state.pool).await;
+    let active_count = crate::db::exchange_keys_active_count(&state.pool).await;
+    #[derive(Serialize)]
+    struct ExchangeKeysResponse {
+        accounts: Vec<crate::db::ExchangeKey>,
+        active_count: i64,
+        max_accounts: i64,
+    }
+    Json(ExchangeKeysResponse { accounts: keys, active_count, max_accounts: 3 })
+}
+
+async fn serve_exchange_keys_add(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ExchangeKeyRequest>,
+) -> impl IntoResponse {
+    if payload.exchange.is_empty() || payload.account_name.is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "Exchange and account name required").into_response();
+    }
+    let id = crate::db::exchange_keys_insert(
+        &state.pool, &payload.exchange, &payload.account_name,
+        &payload.api_key, &payload.api_secret, &payload.passphrase,
+        &payload.referred_uid, payload.is_active,
+    ).await;
+    if id > 0 {
+        (axum::http::StatusCode::CREATED, format!("Exchange key created with id {}", id)).into_response()
+    } else {
+        (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to add exchange key").into_response()
+    }
+}
+
+async fn serve_exchange_keys_delete(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    crate::db::exchange_keys_delete(&state.pool, id).await;
+    (axum::http::StatusCode::OK, "Exchange key deleted").into_response()
+}
+
+async fn serve_exchange_keys_sync(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    crate::db::exchange_keys_update_sync(&state.pool, id, now).await;
+    (axum::http::StatusCode::OK, "Sync timestamp updated").into_response()
+}
+
+// ─── Dashboard Stats ──────────────────────────────────────────────
+
+async fn serve_dashboard_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let stats = crate::stats_compiler::compile_dashboard_stats(&state.pool).await;
+    Json(stats)
+}
+
+// ─── Trade Ledger ─────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TradeLedgerQuery {
+    #[serde(default = "default_limit")]
+    pub limit: u32,
+}
+fn default_limit() -> u32 { 200 }
+
+async fn serve_trade_ledger(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<TradeLedgerQuery>,
+) -> impl IntoResponse {
+    let trades = crate::db::trade_telemetry_query_all(&state.pool, query.limit).await;
+    Json(trades)
+}
+
+// ─── Trade Telemetry ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TradeTelemetryRequest {
+    pub exchange: String,
+    pub symbol: String,
+    pub direction: String,
+    pub entry_timestamp: i64,
+    pub exit_timestamp: i64,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub size: f64,
+    #[serde(default)]
+    pub commission_fees: f64,
+    #[serde(default)]
+    pub funding_fees: f64,
+    pub realized_pnl: f64,
+    #[serde(default)]
+    pub roi_percentage: f64,
+    #[serde(default = "default_trigger")]
+    pub trigger_source: String,
+}
+fn default_trigger() -> String { "MANUAL".to_string() }
+
+async fn serve_trade_telemetry_add(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<TradeTelemetryRequest>,
+) -> impl IntoResponse {
+    let id = crate::db::trade_telemetry_insert(
+        &state.pool, &payload.exchange, &payload.symbol, &payload.direction,
+        payload.entry_timestamp, payload.exit_timestamp,
+        payload.entry_price, payload.exit_price, payload.size,
+        payload.commission_fees, payload.funding_fees,
+        payload.realized_pnl, payload.roi_percentage, &payload.trigger_source,
+    ).await;
+    if id > 0 {
+        (axum::http::StatusCode::CREATED, format!("Trade logged with id {}", id)).into_response()
+    } else {
+        (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to log trade").into_response()
+    }
 }
 
 #[cfg(test)]

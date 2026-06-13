@@ -109,6 +109,14 @@ pub async fn run_single(
             history.write().await.clear();
         }
 
+        let current_limit = cur_candles.analysis_limit;
+        {
+            let mut hist = history.write().await;
+            while hist.len() > current_limit {
+                hist.pop_front();
+            }
+        }
+
         match event {
             NormalizedEvent::Trade(ref trade) => {
                 shadow_exchange = Some(trade.exchange);
@@ -232,7 +240,8 @@ pub async fn run_single(
                     {
                         let mut hist = history.write().await;
                         hist.push_back(completed.clone());
-                        if hist.len() > 100 {
+                        let current_limit = cur_candles.analysis_limit;
+                        if hist.len() > current_limit {
                             hist.pop_front();
                         }
                     }

@@ -260,6 +260,28 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                                 &ctx.symbol, current_price, "AUTOMATED",
                             ).await;
                             println!("📄 Auto Paper: {} {}", ctx.pair_key, res.message);
+
+                            // Log paper trade to telemetry history
+                            if let Some(ref p) = pos {
+                                let pnl = if p.direction == "LONG" {
+                                    (current_price - p.entry_price) * p.size
+                                } else {
+                                    (p.entry_price - current_price) * p.size
+                                };
+                                let roi = if p.allocated_usd > 0.0 {
+                                    (pnl / p.allocated_usd) * 100.0
+                                } else { 0.0 };
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as i64;
+                                db::trade_telemetry_insert(
+                                    &ctx.pool, "Hyperliquid", &ctx.symbol, &p.direction,
+                                    p.entry_timestamp, now,
+                                    p.entry_price, current_price, p.size,
+                                    p.allocated_usd * 0.0006, 0.0, pnl, roi, "AUTOMATED",
+                                ).await;
+                            }
                         }
                     }
                     _ => {}

@@ -116,7 +116,10 @@ async fn main() {
 
         let (snapshot_tx, snapshot_rx) = channel::<NormalizedEvent>(100);
         let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
-        let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(100)));
+        let cfg = app_config.read().await;
+        let pair_cfg = cfg.pairs.get(&pair_key);
+        let current_limit = pair_cfg.map(|p| p.candles.analysis_limit).unwrap_or(cfg.candles.analysis_limit);
+        let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(current_limit)));
         let latest_snap = Arc::new(RwLock::new(None::<MarketSnapshot>));
         let cancel = CancellationToken::new();
 

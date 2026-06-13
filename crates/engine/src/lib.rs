@@ -8,3 +8,7 @@ pub mod llm;
 pub mod automation;
 pub mod paper_trading;
 pub mod performance_evaluator;
+pub mod profile_evaluation;
+pub mod risk_calculator;
+pub mod stats_compiler;
+pub mod sync_scheduler;
