@@ -23,8 +23,8 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: { borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true },
-            handleScale: false,
-            handleScroll: false,
+            handleScale: true,
+            handleScroll: true,
         });
 
         macdLineSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 2, priceLineVisible: false });
@@ -35,6 +35,59 @@
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart);
+
+        (async () => {
+            if (!pair) return;
+            try {
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
+                const data = await res.json();
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.macd_line && indicatorHistory.macd_line.length > 0) {
+                    const lineData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.macd_line[i] ? parseFloat(indicatorHistory.macd_line[i]) : 0
+                    }));
+                    const sigData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.macd_signal[i] ? parseFloat(indicatorHistory.macd_signal[i]) : 0
+                    }));
+                    const histData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.macd_hist[i] ? parseFloat(indicatorHistory.macd_hist[i]) : 0,
+                        color: indicatorHistory.macd_hist[i] ? (parseFloat(indicatorHistory.macd_hist[i]) >= 0 ? '#26a69a' : '#ef5350') : '#131722'
+                    }));
+
+                    macdLineSeries.setData(lineData);
+                    macdSigSeries.setData(sigData);
+                    macdHistSeries.setData(histData);
+                    chart.timeScale().fitContent();
+                } else if (data.prices && data.prices.length > 0) {
+                    const hasCandles = data.candles && data.candles.length > 0;
+                    const source = hasCandles ? data.candles : data.prices;
+
+                    const now = Math.floor(Date.now() / 1000);
+                    const step = pair.barDurationSec || 60;
+                    const baseTime = now - (data.prices.length * step);
+
+                    const placeholderLine = source.map((item: any, idx: number) => ({
+                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
+                        value: 0
+                    }));
+                    const placeholderHist = source.map((item: any, idx: number) => ({
+                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
+                        value: 0,
+                        color: '#131722'
+                    }));
+
+                    macdLineSeries.setData(placeholderLine);
+                    macdSigSeries.setData(placeholderLine);
+                    macdHistSeries.setData(placeholderHist);
+                    chart.timeScale().fitContent();
+                }
+            } catch (err) {
+                console.error("Error bootstrapping MACD chart history:", err);
+            }
+        })();
 
         const ro = new ResizeObserver(() => {
             if (container && chart) chart.resize(container.clientWidth, container.clientHeight);

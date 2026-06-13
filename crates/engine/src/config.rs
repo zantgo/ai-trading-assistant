@@ -2,6 +2,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HyperliquidConfig {
+    #[serde(default = "default_hyperliquid_ws_url")]
+    pub ws_url: String,
+}
+
+impl Default for HyperliquidConfig {
+    fn default() -> Self {
+        Self {
+            ws_url: default_hyperliquid_ws_url(),
+        }
+    }
+}
+
+fn default_hyperliquid_ws_url() -> String {
+    "wss://api.hyperliquid.xyz/ws".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandlesConfig {
     pub duration_seconds: u64,
 }
@@ -32,6 +50,8 @@ pub struct AppConfig {
     pub symbols: Vec<String>,
     pub candles: CandlesConfig,
     pub indicators: IndicatorsConfig,
+    #[serde(default)]
+    pub hyperliquid: HyperliquidConfig,
     #[serde(default, skip_serializing)]
     pub pairs: HashMap<String, PairSpecificConfig>,
 }

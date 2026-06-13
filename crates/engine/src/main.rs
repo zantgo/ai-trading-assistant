@@ -5,9 +5,9 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use engine::{config, db, server, analyzer, llm, adapters, orchestrator};
+use engine::{config, db, server, analyzer, llm, adapters};
 use shared::models::MarketSnapshot;
-use shared::normalized::{NormalizedEvent, SymbolMapper};
+use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 
 #[tokio::main]
 async fn main() {
@@ -54,30 +54,30 @@ async fn main() {
     let db_pool = db::init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
+    // Initialize telemetry queue
+    let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(10000);
+    let logger_pool = db_pool.clone();
+
+    // Dedicate a background worker task entirely to logging and disk I/O
+    let logger_handle = tokio::spawn(async move {
+        db::run_telemetry_logger(logger_pool, telemetry_rx).await;
+    });
+
     // Initialize symbol mapping system
     let symbol_mapper = Arc::new(SymbolMapper::new());
-    symbol_mapper.load_default_mappings().await;
-    println!("🧭 Symbol Mapper: Default exchange mappings loaded.");
+    for item in &initial_symbols {
+        let (exchange_str, raw_symbol) = item.split_once(':').unwrap_or(("Hyperliquid", item));
+        let exchange_enum = match exchange_str {
+            "Hyperliquid" => shared::normalized::Exchange::Hyperliquid,
+            _ => continue,
+        };
+        let normalized = format!("{}-USD", raw_symbol.to_uppercase());
+        symbol_mapper.register(exchange_enum, &raw_symbol.to_uppercase(), &normalized).await;
+        println!("🧭 Symbol Mapper: Registered active mapping: {} -> {} ({})", raw_symbol, normalized, exchange_str);
+    }
 
-    // Build normalized symbols for orchestrator (format: "BTC-USD")
-    let config_normalized_symbols: Vec<String> = initial_symbols
-        .iter()
-        .map(|s| {
-            let raw = s.split(':').nth(1).unwrap_or(s).to_uppercase();
-            format!("{}-USD", raw)
-        })
-        .collect();
-
-    // Build market data orchestrator with exchange adapters
-    let mut market_orchestrator = orchestrator::MarketDataOrchestrator::new(symbol_mapper.clone());
-    market_orchestrator.register_adapter(Box::new(adapters::HyperliquidAdapter));
-    market_orchestrator.register_adapter(Box::new(adapters::EdgeXAdapter));
-    market_orchestrator.register_adapter(Box::new(adapters::BybitAdapter));
-    market_orchestrator.register_adapter(Box::new(adapters::BitgetAdapter));
-    market_orchestrator.register_adapter(Box::new(adapters::KrakenAdapter));
-    market_orchestrator.register_adapter(Box::new(adapters::CoinbaseAdapter));
-
-    let mut event_rx = market_orchestrator.run(config_normalized_symbols.clone()).await;
+    let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
+    println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
 
     let pairs: Arc<RwLock<HashMap<String, Arc<analyzer::ActivePair>>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -89,6 +89,8 @@ async fn main() {
         llm_client: llm_client.clone(),
         api_key_configured: api_key_configured.clone(),
         symbol_mapper: symbol_mapper.clone(),
+        telemetry_tx: telemetry_tx.clone(),
+        ws_url: hl_ws_url.clone(),
     });
 
     let app = server::build_router(app_state.clone());
@@ -104,6 +106,7 @@ async fn main() {
     });
 
     let mut handles = Vec::new();
+    handles.push(logger_handle);
 
     for item in &initial_symbols {
         let (exchange, raw_symbol) = item.split_once(':').unwrap_or(("Hyperliquid", item));
@@ -113,7 +116,7 @@ async fn main() {
 
         let (snapshot_tx, snapshot_rx) = channel::<NormalizedEvent>(100);
         let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
-        let history = Arc::new(RwLock::new(VecDeque::with_capacity(100)));
+        let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(100)));
         let cancel = CancellationToken::new();
 
         let pair = Arc::new(analyzer::ActivePair {
@@ -127,64 +130,33 @@ async fn main() {
         pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
 
         let analyzer_config = app_config.clone();
-        let analyzer_pool = db_pool.clone();
+        let analyzer_telemetry = telemetry_tx.clone();
         let analyzer_history = history.clone();
         let analyzer_broadcast = broadcast_tx.clone();
         let analyzer_cancel = cancel.clone();
         let analyzer_symbol = raw_symbol.to_uppercase();
+        let analyzer_pair_key = pair_key.clone();
         handles.push(tokio::spawn(async move {
             analyzer::run_single(
                 snapshot_rx,
-                analyzer_pool,
+                analyzer_telemetry,
                 analyzer_broadcast,
                 analyzer_config,
                 analyzer_history,
                 analyzer_symbol,
-                pair_key,
+                analyzer_pair_key,
                 analyzer_cancel,
             ).await;
         }));
+
+        let ws_symbol = raw_symbol.to_uppercase();
+        let ws_tx = snapshot_tx.clone();
+        let ws_cancel = cancel.clone();
+        let ws_url = hl_ws_url.clone();
+        handles.push(tokio::spawn(async move {
+            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
+        }));
     }
-
-    // Demux task: routes NormalizedEvents to per-pair analyzer channels
-    let demux_pairs = pairs.clone();
-    handles.push(tokio::spawn(async move {
-        while let Some(event) = event_rx.recv().await {
-            let (exchange, raw_symbol) = match &event {
-                NormalizedEvent::Trade(t) => {
-                    let ex = match t.exchange {
-                        shared::normalized::Exchange::Hyperliquid => "Hyperliquid",
-                        shared::normalized::Exchange::EdgeX => "EdgeX",
-                        shared::normalized::Exchange::Bybit => "Bybit",
-                        shared::normalized::Exchange::Bitget => "Bitget",
-                        shared::normalized::Exchange::Kraken => "Kraken",
-                        shared::normalized::Exchange::Coinbase => "Coinbase",
-                    };
-                    (ex.to_string(), t.symbol.clone())
-                }
-                NormalizedEvent::OrderBook(o) => {
-                    let ex = match o.exchange {
-                        shared::normalized::Exchange::Hyperliquid => "Hyperliquid",
-                        shared::normalized::Exchange::EdgeX => "EdgeX",
-                        shared::normalized::Exchange::Bybit => "Bybit",
-                        shared::normalized::Exchange::Bitget => "Bitget",
-                        shared::normalized::Exchange::Kraken => "Kraken",
-                        shared::normalized::Exchange::Coinbase => "Coinbase",
-                    };
-                    (ex.to_string(), o.symbol.clone())
-                }
-                NormalizedEvent::Status { .. } => continue,
-            };
-
-            let raw = raw_symbol.trim_end_matches("-USD").to_uppercase();
-            let pair_key = format!("{}-{}", exchange, raw);
-
-            let pairs_lock = demux_pairs.read().await;
-            if let Some(pair) = pairs_lock.get(&pair_key) {
-                let _ = pair.snapshot_tx.send(event.clone()).await;
-            }
-        }
-    }));
 
     handles.push(server_handle);
 

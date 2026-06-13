@@ -8,11 +8,6 @@ use async_trait::async_trait;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Exchange {
     Hyperliquid,
-    EdgeX,
-    Bybit,
-    Bitget,
-    Kraken,
-    Coinbase,
 }
 
 impl std::fmt::Display for Exchange {
@@ -140,19 +135,7 @@ impl SymbolMapper {
     }
 
     pub async fn load_default_mappings(&self) {
-        self.register(Exchange::Hyperliquid, "BTC", "BTC-USD").await;
-        self.register(Exchange::Hyperliquid, "ETH", "ETH-USD").await;
-        self.register(Exchange::Hyperliquid, "SOL", "SOL-USD").await;
-        self.register(Exchange::EdgeX, "BTCUSD", "BTC-USD").await;
-        self.register(Exchange::EdgeX, "ETHUSD", "ETH-USD").await;
-        self.register(Exchange::Bybit, "BTCUSDT", "BTC-USD").await;
-        self.register(Exchange::Bybit, "ETHUSDT", "ETH-USD").await;
-        self.register(Exchange::Bitget, "BTCUSDT", "BTC-USD").await;
-        self.register(Exchange::Bitget, "ETHUSDT", "ETH-USD").await;
-        self.register(Exchange::Kraken, "BTC/USD", "BTC-USD").await;
-        self.register(Exchange::Kraken, "ETH/USD", "ETH-USD").await;
-        self.register(Exchange::Coinbase, "BTC-USD", "BTC-USD").await;
-        self.register(Exchange::Coinbase, "ETH-USD", "ETH-USD").await;
+        // Left empty — symbol mappings are registered dynamically from config.toml at startup
     }
 }
 
@@ -331,9 +314,9 @@ mod symbol_mapper_tests {
     #[tokio::test]
     async fn test_register_and_normalize() {
         let mapper = SymbolMapper::new();
-        mapper.register(Exchange::Bybit, "BTCUSDT", "BTC-USD").await;
+        mapper.register(Exchange::Hyperliquid, "BTCUSDT", "BTC-USD").await;
         assert_eq!(
-            mapper.normalize(Exchange::Bybit, "BTCUSDT").await,
+            mapper.normalize(Exchange::Hyperliquid, "BTCUSDT").await,
             Some("BTC-USD".to_string())
         );
     }
@@ -341,9 +324,9 @@ mod symbol_mapper_tests {
     #[tokio::test]
     async fn test_get_raw_reverse_mapping() {
         let mapper = SymbolMapper::new();
-        mapper.register(Exchange::Coinbase, "BTC-USD", "BTC-USD").await;
+        mapper.register(Exchange::Hyperliquid, "BTC-USD", "BTC-USD").await;
         assert_eq!(
-            mapper.get_raw(Exchange::Coinbase, "BTC-USD").await,
+            mapper.get_raw(Exchange::Hyperliquid, "BTC-USD").await,
             Some("BTC-USD".to_string())
         );
     }
@@ -351,29 +334,31 @@ mod symbol_mapper_tests {
     #[tokio::test]
     async fn test_unknown_mapping_returns_none() {
         let mapper = SymbolMapper::new();
-        assert_eq!(mapper.normalize(Exchange::Kraken, "UNKNOWN").await, None);
+        assert_eq!(mapper.normalize(Exchange::Hyperliquid, "UNKNOWN").await, None);
     }
 
     #[tokio::test]
     async fn test_case_sensitive_keys() {
         let mapper = SymbolMapper::new();
-        mapper.register(Exchange::Bybit, "BTCUSDT", "BTC-USD").await;
+        mapper.register(Exchange::Hyperliquid, "BTCUSDT", "BTC-USD").await;
         assert_eq!(
-            mapper.normalize(Exchange::Bybit, "btcusdt").await,
+            mapper.normalize(Exchange::Hyperliquid, "btcusdt").await,
             None,
             "SymbolMapper keys are case-sensitive; lowercase should not match"
         );
     }
 
     #[tokio::test]
-    async fn test_load_default_mappings_covers_all_exchanges() {
+    async fn test_dynamic_mappings_registration() {
         let mapper = SymbolMapper::new();
-        mapper.load_default_mappings().await;
+        
+        // Simulate dynamic configuration load for BTC
+        mapper.register(Exchange::Hyperliquid, "BTC", "BTC-USD").await;
 
-        assert_eq!(mapper.normalize(Exchange::Hyperliquid, "BTC").await, Some("BTC-USD".to_string()));
-        assert_eq!(mapper.normalize(Exchange::Bybit, "BTCUSDT").await, Some("BTC-USD".to_string()));
-        assert_eq!(mapper.normalize(Exchange::Coinbase, "BTC-USD").await, Some("BTC-USD".to_string()));
-        assert_eq!(mapper.normalize(Exchange::Kraken, "BTC/USD").await, Some("BTC-USD".to_string()));
+        assert_eq!(
+            mapper.normalize(Exchange::Hyperliquid, "BTC").await, 
+            Some("BTC-USD".to_string())
+        );
     }
 }
 
@@ -479,7 +464,7 @@ mod candle_tests {
     fn test_interval_alignment() {
         let mut generator = CandleGenerator::new("SOL-USD", 60);
         let trade = NormalizedTrade {
-            exchange: Exchange::Bybit,
+            exchange: Exchange::Hyperliquid,
             symbol: "SOL-USD".to_string(),
             price: dec!(100.00),
             size: dec!(5.0),

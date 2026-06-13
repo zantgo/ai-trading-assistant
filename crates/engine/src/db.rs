@@ -2,6 +2,78 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use shared::models::MarketSnapshot;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct UserTrade {
+    pub id: i64,
+    pub timestamp: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub outcome: String,
+    pub risk_multiplier: f64,
+    pub reward_multiplier: f64,
+}
+
+#[derive(Debug)]
+pub enum TelemetryMsg {
+    InsertSnapshot(MarketSnapshot),
+    InsertIndividualLog {
+        master_record_id: i64,
+        indicator_name: String,
+        signal: String,
+        reason: String,
+    },
+    UpdateMasterRecord {
+        master_id: i64,
+        general_trend: String,
+        support_levels: String,
+        resistance_levels: String,
+        indicator_synthesis_summary: String,
+        indicator_synthesis_evaluation: String,
+        recommended_action: String,
+        recommendation_rationale: String,
+    },
+    ConsoleLog(String),
+}
+
+pub async fn run_telemetry_logger(pool: SqlitePool, mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>) {
+    println!("📝 Telemetry & Logging Worker: Background log thread running.");
+    while let Some(msg) = rx.recv().await {
+        match msg {
+            TelemetryMsg::InsertSnapshot(snapshot) => {
+                insert_snapshot_internal(&pool, &snapshot).await;
+            }
+            TelemetryMsg::InsertIndividualLog { master_record_id, indicator_name, signal, reason } => {
+                insert_individual_log_internal(&pool, master_record_id, &indicator_name, &signal, &reason).await;
+            }
+            TelemetryMsg::UpdateMasterRecord {
+                master_id,
+                general_trend,
+                support_levels,
+                resistance_levels,
+                indicator_synthesis_summary,
+                indicator_synthesis_evaluation,
+                recommended_action,
+                recommendation_rationale,
+            } => {
+                update_master_record_internal(
+                    &pool,
+                    master_id,
+                    &general_trend,
+                    &support_levels,
+                    &resistance_levels,
+                    &indicator_synthesis_summary,
+                    &indicator_synthesis_evaluation,
+                    &recommended_action,
+                    &recommendation_rationale,
+                ).await;
+            }
+            TelemetryMsg::ConsoleLog(log_text) => {
+                println!("{}", log_text);
+            }
+        }
+    }
+}
+
 pub async fn init_db() -> SqlitePool {
     let db_options = SqliteConnectOptions::new()
         .filename("telemetry.db")
@@ -51,13 +123,12 @@ pub async fn init_db() -> SqlitePool {
     .await
     .expect("❌ Database Setup: Failed to build schema table");
 
-    // Migration: add exchange column for existing databases
     sqlx::query(
         "ALTER TABLE market_snapshots ADD COLUMN exchange TEXT NOT NULL DEFAULT 'Hyperliquid'"
     )
     .execute(&pool)
     .await
-    .ok(); // Ignore error if column already exists
+    .ok();
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS individual_indicator_logs (
@@ -94,10 +165,25 @@ pub async fn init_db() -> SqlitePool {
     .await
     .expect("❌ Database Setup: Failed to build master_assistant_records table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS user_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            risk_multiplier REAL NOT NULL,
+            reward_multiplier REAL NOT NULL
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build user_trades table");
+
     pool
 }
 
-pub async fn insert_snapshot(pool: &SqlitePool, snapshot: &MarketSnapshot) {
+async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
     let sqz_on_db_val = snapshot.squeeze_on.map(|s| if s { 1 } else { 0 });
     let exchange_label = snapshot.exchange.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "Hyperliquid".to_string());
 
@@ -185,7 +271,7 @@ pub async fn insert_master_placeholder(
     }
 }
 
-pub async fn insert_individual_log(
+async fn insert_individual_log_internal(
     pool: &SqlitePool,
     master_record_id: i64,
     indicator_name: &str,
@@ -217,7 +303,7 @@ pub async fn insert_individual_log(
     }
 }
 
-pub async fn update_master_record(
+async fn update_master_record_internal(
     pool: &SqlitePool,
     master_id: i64,
     general_trend: &str,
@@ -314,6 +400,87 @@ pub async fn query_master_records(pool: &SqlitePool, limit: u32) -> Vec<MasterRe
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct IndicatorSnapshotRow {
+    pub timestamp: i64,
+    pub rsi_14: Option<String>,
+    pub squeeze_on: Option<bool>,
+    pub squeeze_momentum: Option<String>,
+    pub macd_line: Option<String>,
+    pub macd_signal: Option<String>,
+    pub macd_hist: Option<String>,
+    pub adx_14: Option<String>,
+    pub adx_plus: Option<String>,
+    pub adx_minus: Option<String>,
+    pub atr_14: Option<String>,
+    pub bb_upper: Option<String>,
+    pub bb_middle: Option<String>,
+    pub bb_lower: Option<String>,
+    pub ema_fast: Option<String>,
+    pub ema_medium: Option<String>,
+    pub ema_slow: Option<String>,
+    pub ema_long: Option<String>,
+    pub average_volume: Option<String>,
+}
+
+pub async fn query_indicator_snapshots(
+    pool: &SqlitePool,
+    symbol: &str,
+    limit: u32,
+) -> Vec<IndicatorSnapshotRow> {
+    let rows = sqlx::query(
+        "SELECT timestamp, rsi_14, squeeze_on, squeeze_momentum,
+                macd_line, macd_signal, macd_hist,
+                adx_14, adx_plus, adx_minus,
+                atr_14, bb_upper, bb_middle, bb_lower,
+                ema_fast, ema_medium, ema_slow, ema_long,
+                average_volume
+         FROM market_snapshots
+         WHERE symbol = ?1
+           AND close IS NOT NULL
+         ORDER BY timestamp ASC
+         LIMIT ?2"
+    )
+    .bind(symbol)
+    .bind(limit as i64)
+    .fetch_all(&*pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                IndicatorSnapshotRow {
+                    timestamp: row.get(0),
+                    rsi_14: row.get(1),
+                    squeeze_on: row.get(2),
+                    squeeze_momentum: row.get(3),
+                    macd_line: row.get(4),
+                    macd_signal: row.get(5),
+                    macd_hist: row.get(6),
+                    adx_14: row.get(7),
+                    adx_plus: row.get(8),
+                    adx_minus: row.get(9),
+                    atr_14: row.get(10),
+                    bb_upper: row.get(11),
+                    bb_middle: row.get(12),
+                    bb_lower: row.get(13),
+                    ema_fast: row.get(14),
+                    ema_medium: row.get(15),
+                    ema_slow: row.get(16),
+                    ema_long: row.get(17),
+                    average_volume: row.get(18),
+                }
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query indicator snapshots: {}", e);
+            vec![]
+        }
+    }
+}
+
 pub async fn query_atr_snapshots(pool: &SqlitePool, limit: u32) -> Vec<Option<String>> {
     let rows = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT atr_14 FROM market_snapshots
@@ -329,6 +496,68 @@ pub async fn query_atr_snapshots(pool: &SqlitePool, limit: u32) -> Vec<Option<St
         Ok(rows) => rows.into_iter().map(|(atr,)| atr).collect(),
         Err(e) => {
             eprintln!("⚠️ Database Error: Failed to query ATR snapshots: {}", e);
+            vec![]
+        }
+    }
+}
+
+pub async fn insert_user_trade(
+    pool: &SqlitePool,
+    symbol: &str,
+    direction: &str,
+    outcome: &str,
+    risk: f64,
+    reward: f64,
+) -> Result<i64, sqlx::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let res = sqlx::query(
+        "INSERT INTO user_trades (timestamp, symbol, direction, outcome, risk_multiplier, reward_multiplier)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+    )
+    .bind(now)
+    .bind(symbol)
+    .bind(direction)
+    .bind(outcome)
+    .bind(risk)
+    .bind(reward)
+    .execute(pool)
+    .await?;
+
+    Ok(res.last_insert_rowid())
+}
+
+pub async fn query_user_trades(pool: &SqlitePool, limit: u32) -> Vec<UserTrade> {
+    let rows = sqlx::query_as::<_, (i64, i64, String, String, String, f64, f64)>(
+        "SELECT id, timestamp, symbol, direction, outcome, risk_multiplier, reward_multiplier
+         FROM user_trades
+         ORDER BY id DESC
+         LIMIT ?1"
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(id, timestamp, symbol, direction, outcome, risk_multiplier, reward_multiplier)| {
+                UserTrade {
+                    id,
+                    timestamp,
+                    symbol,
+                    direction,
+                    outcome,
+                    risk_multiplier,
+                    reward_multiplier,
+                }
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query user trades: {}", e);
             vec![]
         }
     }

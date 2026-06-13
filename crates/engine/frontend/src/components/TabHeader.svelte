@@ -48,10 +48,6 @@
 
 <div class="tab-bar">
     <div class="tab-left-section">
-        <button class="settings-btn" onclick={() => app.showSettingsPanel = !app.showSettingsPanel} aria-label="Toggle Settings">
-            ⚙️ Settings
-        </button>
-
         <div class="tabs-container">
             {#each Object.keys(app.pairsMap) as symbol (symbol)}
                 <button
@@ -109,27 +105,6 @@
         display: flex;
         align-items: center;
         gap: 4px;
-    }
-    .settings-btn {
-        background-color: #171b26;
-        border: 1px solid #2a2e39;
-        color: #8f929d;
-        font-size: 11px;
-        font-weight: 700;
-        cursor: pointer;
-        padding: 5px 12px;
-        border-radius: 4px;
-        transition: all 0.2s;
-        text-transform: uppercase;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-family: 'Courier New', monospace;
-    }
-    .settings-btn:hover {
-        color: #ccd6f6;
-        border-color: #3498db;
-        background-color: rgba(52, 152, 219, 0.1);
     }
     .tab-btn {
         background: #1a2030;

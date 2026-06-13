@@ -107,6 +107,7 @@ export interface PairState {
     historyPrices: number[];
     currentPosition: 'None' | 'Long' | 'Short';
     entryPriceVal: string;
+    stopLossVal: string;
     assistantLoading: boolean;
     assistantError: string | null;
     assistantResponse: AssistantAnalysis | null;
@@ -118,6 +119,9 @@ export interface PairState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
+
+    // Per-pair workspace view tab
+    currentView: 'terminal' | 'performance' | 'settings';
 
     // Per-pair configuration
     barDurationSec: number;
@@ -177,6 +181,7 @@ function createPairState(symbol: string, exchange: string): PairState {
         historyPrices: [],
         currentPosition: 'None',
         entryPriceVal: '',
+        stopLossVal: '',
         assistantLoading: false,
         assistantError: null,
         assistantResponse: null,
@@ -188,6 +193,8 @@ function createPairState(symbol: string, exchange: string): PairState {
         isAssistantModalOpen: false,
         chatInputText: '',
         isChatLoading: false,
+
+        currentView: 'terminal',
 
         barDurationSec: globalCandlesConfig.duration_seconds,
         emaFastVal: globalIndicatorsConfig.ema_fast,
@@ -221,7 +228,6 @@ let activeTab = $state<string>('Hyperliquid-BTC');
 // --- Global configuration ---
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
-let showSettingsPanel = $state(false);
 
 let globalCandlesConfig = $state({ duration_seconds: 60 });
 let globalIndicatorsConfig = $state({
@@ -261,6 +267,20 @@ export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
     const key = `${exchange}-${symbol}`;
     if (!pairsMap[key]) {
         pairsMap[key] = createPairState(symbol, exchange);
+    } else {
+        const pair = pairsMap[key];
+        pair.barDurationSec = globalCandlesConfig.duration_seconds;
+        pair.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
     }
 }
 
@@ -270,6 +290,75 @@ export function removePair(key: string) {
 
 export function switchTab(key: string) {
     activeTab = key;
+}
+
+let userTrades = $state<UserTrade[]>([]);
+
+export interface UserTrade {
+    id: number;
+    timestamp: number;
+    symbol: string;
+    direction: string;
+    outcome: 'WIN' | 'LOSS';
+    risk_multiplier: number;
+    reward_multiplier: number;
+}
+
+function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
+    const entryPrice = parseFloat(pair.entryPriceVal);
+    const exitPrice = parseFloat(pair.priceText);
+
+    if (isNaN(entryPrice) || isNaN(exitPrice) || entryPrice <= 0 || exitPrice <= 0) {
+        console.warn("⚠️ Trade Logger Bypassed: Entry Price or Current Market Price is invalid.");
+        return;
+    }
+
+    const stopLoss = parseFloat(pair.stopLossVal);
+    let riskDistance = 0;
+    if (!isNaN(stopLoss) && stopLoss > 0 && stopLoss !== entryPrice) {
+        riskDistance = Math.abs(entryPrice - stopLoss);
+    } else {
+        riskDistance = entryPrice * 0.01;
+    }
+
+    let pnl = 0;
+    if (oldPosition === 'Long') {
+        pnl = exitPrice - entryPrice;
+    } else {
+        pnl = entryPrice - exitPrice;
+    }
+
+    const outcome = pnl >= 0 ? 'WIN' : 'LOSS';
+    const rewardDistance = Math.abs(pnl);
+    const rewardMultiplier = riskDistance > 0 ? (rewardDistance / riskDistance) : 1.0;
+
+    const payload = {
+        symbol: pair.symbol.toUpperCase(),
+        direction: oldPosition,
+        outcome,
+        risk_multiplier: 1.0,
+        reward_multiplier: parseFloat(rewardMultiplier.toFixed(2)),
+    };
+
+    fetch('/api/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    })
+    .then(res => {
+        if (res.ok) {
+            console.log(`✅ Auto-Logged Trade: ${payload.symbol} ${payload.direction} ${payload.outcome} (R:R Ratio 1:${payload.reward_multiplier})`);
+            fetch(`/api/trades?_=${Date.now()}`)
+                .then(r => r.json())
+                .then(data => { userTrades = data || []; })
+                .catch(() => {});
+        } else {
+            console.error("❌ Auto-Logger Error: API server rejected the trade record.");
+        }
+    })
+    .catch(err => {
+        console.error("❌ Auto-Logger Network Error:", err);
+    });
 }
 
 export function getState() {
@@ -285,8 +374,6 @@ export function getState() {
         set apiKeyConfigured(v: boolean) { apiKeyConfigured = v; },
         get rulesContent() { return rulesContent; },
         set rulesContent(v: string) { rulesContent = v; },
-        get showSettingsPanel() { return showSettingsPanel; },
-        set showSettingsPanel(v: boolean) { showSettingsPanel = v; },
 
         // Visibility — proxied per-pair
         get showEmas() { return activePair().showEmas; }, set showEmas(v: boolean) { activePair().showEmas = v; },
@@ -387,9 +474,20 @@ export function getState() {
         get historyPrices() { return activePair().historyPrices; },
         set historyPrices(v: number[]) { activePair().historyPrices = v; },
         get currentPosition() { return activePair().currentPosition; },
-        set currentPosition(v: 'None' | 'Long' | 'Short') { activePair().currentPosition = v; },
+        set currentPosition(v: 'None' | 'Long' | 'Short') {
+            const pair = activePair();
+            const oldVal = pair.currentPosition;
+            if (oldVal !== 'None' && v === 'None') {
+                autoLogTrade(pair, oldVal);
+                pair.entryPriceVal = '';
+                pair.stopLossVal = '';
+            }
+            pair.currentPosition = v;
+        },
         get entryPriceVal() { return activePair().entryPriceVal; },
         set entryPriceVal(v: string) { activePair().entryPriceVal = v; },
+        get stopLossVal() { return activePair().stopLossVal; },
+        set stopLossVal(v: string) { activePair().stopLossVal = v; },
         get assistantLoading() { return activePair().assistantLoading; },
         set assistantLoading(v: boolean) { activePair().assistantLoading = v; },
         get assistantError() { return activePair().assistantError; },
@@ -412,6 +510,23 @@ export function getState() {
         set chatInputText(v: string) { activePair().chatInputText = v; },
         get isChatLoading() { return activePair().isChatLoading; },
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
+
+        get currentView() { return activePair().currentView; },
+        set currentView(v: 'terminal' | 'performance' | 'settings') { activePair().currentView = v; },
+        get userTrades() { return userTrades; },
+        set userTrades(v: UserTrade[]) { userTrades = v; },
+
+        async fetchTrades() {
+            try {
+                const res = await fetch(`/api/trades?_=${Date.now()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    userTrades = data || [];
+                }
+            } catch (e) {
+                console.error("Failed to fetch user trades:", e);
+            }
+        },
 
         get globalCandlesConfig() { return globalCandlesConfig; },
         set globalCandlesConfig(v) { globalCandlesConfig = v; },

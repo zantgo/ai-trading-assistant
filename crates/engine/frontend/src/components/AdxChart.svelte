@@ -23,8 +23,8 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: { borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true },
-            handleScale: false,
-            handleScroll: false,
+            handleScale: true,
+            handleScroll: true,
         });
 
         adxSeries = chart.addSeries(LineSeries, { color: '#f1c40f', lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false });
@@ -44,6 +44,53 @@
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart);
+
+        (async () => {
+            if (!pair) return;
+            try {
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
+                const data = await res.json();
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.adx_14 && indicatorHistory.adx_14.length > 0) {
+                    const adxData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.adx_14[i] ? parseFloat(indicatorHistory.adx_14[i]) : 0
+                    }));
+                    const plusData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.adx_plus[i] ? parseFloat(indicatorHistory.adx_plus[i]) : 0
+                    }));
+                    const minusData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.adx_minus[i] ? parseFloat(indicatorHistory.adx_minus[i]) : 0
+                    }));
+
+                    adxSeries.setData(adxData);
+                    adxPlusSeries.setData(plusData);
+                    adxMinusSeries.setData(minusData);
+                    chart.timeScale().fitContent();
+                } else if (data.prices && data.prices.length > 0) {
+                    const hasCandles = data.candles && data.candles.length > 0;
+                    const source = hasCandles ? data.candles : data.prices;
+
+                    const now = Math.floor(Date.now() / 1000);
+                    const step = pair.barDurationSec || 60;
+                    const baseTime = now - (data.prices.length * step);
+
+                    const placeholder = source.map((item: any, idx: number) => ({
+                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
+                        value: 0
+                    }));
+
+                    adxSeries.setData(placeholder);
+                    adxPlusSeries.setData(placeholder);
+                    adxMinusSeries.setData(placeholder);
+                    chart.timeScale().fitContent();
+                }
+            } catch (err) {
+                console.error("Error bootstrapping ADX chart history:", err);
+            }
+        })();
 
         const ro = new ResizeObserver(() => {
             if (container && chart) chart.resize(container.clientWidth, container.clientHeight);
