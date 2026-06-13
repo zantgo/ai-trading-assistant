@@ -37,7 +37,16 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
                 const data = await res.json();
-                if (data.prices && data.prices.length > 0) {
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.atr_14 && indicatorHistory.atr_14.length > 0) {
+                    const atrData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.atr_14[i] ? parseFloat(indicatorHistory.atr_14[i]) : 0
+                    }));
+
+                    atrSeries.setData(atrData);
+                    chart.timeScale().fitContent();
+                } else if (data.prices && data.prices.length > 0) {
                     const hasCandles = data.candles && data.candles.length > 0;
                     const source = hasCandles ? data.candles : data.prices;
 

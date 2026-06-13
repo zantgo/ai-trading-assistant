@@ -2,6 +2,17 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use shared::models::MarketSnapshot;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct UserTrade {
+    pub id: i64,
+    pub timestamp: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub outcome: String,
+    pub risk_multiplier: f64,
+    pub reward_multiplier: f64,
+}
+
 #[derive(Debug)]
 pub enum TelemetryMsg {
     InsertSnapshot(MarketSnapshot),
@@ -153,6 +164,21 @@ pub async fn init_db() -> SqlitePool {
     .execute(&pool)
     .await
     .expect("❌ Database Setup: Failed to build master_assistant_records table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS user_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            risk_multiplier REAL NOT NULL,
+            reward_multiplier REAL NOT NULL
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build user_trades table");
 
     pool
 }
@@ -374,6 +400,87 @@ pub async fn query_master_records(pool: &SqlitePool, limit: u32) -> Vec<MasterRe
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct IndicatorSnapshotRow {
+    pub timestamp: i64,
+    pub rsi_14: Option<String>,
+    pub squeeze_on: Option<bool>,
+    pub squeeze_momentum: Option<String>,
+    pub macd_line: Option<String>,
+    pub macd_signal: Option<String>,
+    pub macd_hist: Option<String>,
+    pub adx_14: Option<String>,
+    pub adx_plus: Option<String>,
+    pub adx_minus: Option<String>,
+    pub atr_14: Option<String>,
+    pub bb_upper: Option<String>,
+    pub bb_middle: Option<String>,
+    pub bb_lower: Option<String>,
+    pub ema_fast: Option<String>,
+    pub ema_medium: Option<String>,
+    pub ema_slow: Option<String>,
+    pub ema_long: Option<String>,
+    pub average_volume: Option<String>,
+}
+
+pub async fn query_indicator_snapshots(
+    pool: &SqlitePool,
+    symbol: &str,
+    limit: u32,
+) -> Vec<IndicatorSnapshotRow> {
+    let rows = sqlx::query(
+        "SELECT timestamp, rsi_14, squeeze_on, squeeze_momentum,
+                macd_line, macd_signal, macd_hist,
+                adx_14, adx_plus, adx_minus,
+                atr_14, bb_upper, bb_middle, bb_lower,
+                ema_fast, ema_medium, ema_slow, ema_long,
+                average_volume
+         FROM market_snapshots
+         WHERE symbol = ?1
+           AND close IS NOT NULL
+         ORDER BY timestamp ASC
+         LIMIT ?2"
+    )
+    .bind(symbol)
+    .bind(limit as i64)
+    .fetch_all(&*pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .iter()
+            .map(|row| {
+                use sqlx::Row;
+                IndicatorSnapshotRow {
+                    timestamp: row.get(0),
+                    rsi_14: row.get(1),
+                    squeeze_on: row.get(2),
+                    squeeze_momentum: row.get(3),
+                    macd_line: row.get(4),
+                    macd_signal: row.get(5),
+                    macd_hist: row.get(6),
+                    adx_14: row.get(7),
+                    adx_plus: row.get(8),
+                    adx_minus: row.get(9),
+                    atr_14: row.get(10),
+                    bb_upper: row.get(11),
+                    bb_middle: row.get(12),
+                    bb_lower: row.get(13),
+                    ema_fast: row.get(14),
+                    ema_medium: row.get(15),
+                    ema_slow: row.get(16),
+                    ema_long: row.get(17),
+                    average_volume: row.get(18),
+                }
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query indicator snapshots: {}", e);
+            vec![]
+        }
+    }
+}
+
 pub async fn query_atr_snapshots(pool: &SqlitePool, limit: u32) -> Vec<Option<String>> {
     let rows = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT atr_14 FROM market_snapshots
@@ -389,6 +496,68 @@ pub async fn query_atr_snapshots(pool: &SqlitePool, limit: u32) -> Vec<Option<St
         Ok(rows) => rows.into_iter().map(|(atr,)| atr).collect(),
         Err(e) => {
             eprintln!("⚠️ Database Error: Failed to query ATR snapshots: {}", e);
+            vec![]
+        }
+    }
+}
+
+pub async fn insert_user_trade(
+    pool: &SqlitePool,
+    symbol: &str,
+    direction: &str,
+    outcome: &str,
+    risk: f64,
+    reward: f64,
+) -> Result<i64, sqlx::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let res = sqlx::query(
+        "INSERT INTO user_trades (timestamp, symbol, direction, outcome, risk_multiplier, reward_multiplier)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+    )
+    .bind(now)
+    .bind(symbol)
+    .bind(direction)
+    .bind(outcome)
+    .bind(risk)
+    .bind(reward)
+    .execute(pool)
+    .await?;
+
+    Ok(res.last_insert_rowid())
+}
+
+pub async fn query_user_trades(pool: &SqlitePool, limit: u32) -> Vec<UserTrade> {
+    let rows = sqlx::query_as::<_, (i64, i64, String, String, String, f64, f64)>(
+        "SELECT id, timestamp, symbol, direction, outcome, risk_multiplier, reward_multiplier
+         FROM user_trades
+         ORDER BY id DESC
+         LIMIT ?1"
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(id, timestamp, symbol, direction, outcome, risk_multiplier, reward_multiplier)| {
+                UserTrade {
+                    id,
+                    timestamp,
+                    symbol,
+                    direction,
+                    outcome,
+                    risk_multiplier,
+                    reward_multiplier,
+                }
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query user trades: {}", e);
             vec![]
         }
     }

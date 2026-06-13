@@ -50,7 +50,26 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
                 const data = await res.json();
-                if (data.prices && data.prices.length > 0) {
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.adx_14 && indicatorHistory.adx_14.length > 0) {
+                    const adxData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.adx_14[i] ? parseFloat(indicatorHistory.adx_14[i]) : 0
+                    }));
+                    const plusData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.adx_plus[i] ? parseFloat(indicatorHistory.adx_plus[i]) : 0
+                    }));
+                    const minusData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.adx_minus[i] ? parseFloat(indicatorHistory.adx_minus[i]) : 0
+                    }));
+
+                    adxSeries.setData(adxData);
+                    adxPlusSeries.setData(plusData);
+                    adxMinusSeries.setData(minusData);
+                    chart.timeScale().fitContent();
+                } else if (data.prices && data.prices.length > 0) {
                     const hasCandles = data.candles && data.candles.length > 0;
                     const source = hasCandles ? data.candles : data.prices;
 

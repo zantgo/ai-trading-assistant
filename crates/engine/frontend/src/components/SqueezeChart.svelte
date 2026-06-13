@@ -45,7 +45,26 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
                 const data = await res.json();
-                if (data.prices && data.prices.length > 0) {
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.squeeze_momentum && indicatorHistory.squeeze_momentum.length > 0) {
+                    const momData = indicatorHistory.times.map((t: number, i: number) => {
+                        const val = indicatorHistory.squeeze_momentum[i] ? parseFloat(indicatorHistory.squeeze_momentum[i]) : 0;
+                        return {
+                            time: t as Time,
+                            value: val,
+                            color: val >= 0 ? (i > 0 ? '#4caf50' : '#26a69a') : '#ef5350'
+                        };
+                    });
+                    const dotData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: 0.1,
+                        color: indicatorHistory.squeeze_on[i] ? '#ef5350' : '#4caf50'
+                    }));
+
+                    squeezeMomSeries.setData(momData);
+                    squeezeDotSeries.setData(dotData);
+                    chart.timeScale().fitContent();
+                } else if (data.prices && data.prices.length > 0) {
                     const hasCandles = data.candles && data.candles.length > 0;
                     const source = hasCandles ? data.candles : data.prices;
 

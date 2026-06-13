@@ -170,9 +170,29 @@ pub struct HistoryCandle {
 }
 
 #[derive(Debug, Serialize)]
+pub struct IndicatorHistoryArrays {
+    pub times: Vec<u64>,
+    pub rsi_14: Vec<Option<String>>,
+    pub squeeze_on: Vec<Option<bool>>,
+    pub squeeze_momentum: Vec<Option<String>>,
+    pub macd_line: Vec<Option<String>>,
+    pub macd_signal: Vec<Option<String>>,
+    pub macd_hist: Vec<Option<String>>,
+    pub adx_14: Vec<Option<String>>,
+    pub adx_plus: Vec<Option<String>>,
+    pub adx_minus: Vec<Option<String>>,
+    pub atr_14: Vec<Option<String>>,
+    pub ema_fast: Vec<Option<String>>,
+    pub ema_medium: Vec<Option<String>>,
+    pub ema_slow: Vec<Option<String>>,
+    pub ema_long: Vec<Option<String>>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct HistoryResponse {
     pub prices: Vec<String>,
     pub candles: Vec<HistoryCandle>,
+    pub indicator_history: IndicatorHistoryArrays,
 }
 
 #[derive(Debug, Serialize)]
@@ -183,6 +203,15 @@ pub struct ChatReplResponse {
 #[derive(Debug, Deserialize)]
 pub struct ChatHistoryRequest {
     pub history: Vec<ChatMessage>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddTradeRequest {
+    pub symbol: String,
+    pub direction: String,
+    pub outcome: String,
+    pub risk_multiplier: f64,
+    pub reward_multiplier: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,6 +245,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/history", get(serve_history))
         .route("/api/analyze", post(serve_analyze))
         .route("/api/chat", post(serve_chat))
+        .route("/api/trades", get(serve_get_trades).post(serve_add_trade))
         .route("/api/assistant-records", get(serve_assistant_records))
         .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
         .route("/api/pairs/:pair_key", delete(serve_remove_pair))
@@ -279,8 +309,10 @@ async fn serve_history(
         query.symbol
     };
 
+    let raw_symbol = pair_key.split('-').nth(1).unwrap_or(&pair_key).to_string();
+
     let pairs = state.pairs.read().await;
-    let prices = match pairs.get(&pair_key) {
+    let (prices, candles) = match pairs.get(&pair_key) {
         Some(pair) => {
             let hist = pair.history.read().await;
             let candles: Vec<HistoryCandle> = hist.iter().map(|c| HistoryCandle {
@@ -292,11 +324,48 @@ async fn serve_history(
                 volume: c.volume.to_string(),
             }).collect();
             let price_list: Vec<String> = candles.iter().map(|c| c.close.clone()).collect();
-            return Json(HistoryResponse { prices: price_list, candles });
+            (price_list, candles)
         }
-        None => vec![],
+        None => (vec![], vec![]),
     };
-    Json(HistoryResponse { prices, candles: vec![] })
+
+    let indicator_rows = crate::db::query_indicator_snapshots(&state.pool, &raw_symbol, 100).await;
+    let mut indicator_history = IndicatorHistoryArrays {
+        times: Vec::with_capacity(indicator_rows.len()),
+        rsi_14: Vec::with_capacity(indicator_rows.len()),
+        squeeze_on: Vec::with_capacity(indicator_rows.len()),
+        squeeze_momentum: Vec::with_capacity(indicator_rows.len()),
+        macd_line: Vec::with_capacity(indicator_rows.len()),
+        macd_signal: Vec::with_capacity(indicator_rows.len()),
+        macd_hist: Vec::with_capacity(indicator_rows.len()),
+        adx_14: Vec::with_capacity(indicator_rows.len()),
+        adx_plus: Vec::with_capacity(indicator_rows.len()),
+        adx_minus: Vec::with_capacity(indicator_rows.len()),
+        atr_14: Vec::with_capacity(indicator_rows.len()),
+        ema_fast: Vec::with_capacity(indicator_rows.len()),
+        ema_medium: Vec::with_capacity(indicator_rows.len()),
+        ema_slow: Vec::with_capacity(indicator_rows.len()),
+        ema_long: Vec::with_capacity(indicator_rows.len()),
+    };
+    for row in indicator_rows {
+        indicator_history.times.push(row.timestamp as u64);
+        indicator_history.rsi_14.push(row.rsi_14);
+        indicator_history.squeeze_on.push(row.squeeze_on);
+        indicator_history.squeeze_momentum.push(row.squeeze_momentum);
+        indicator_history.macd_line.push(row.macd_line);
+        indicator_history.macd_signal.push(row.macd_signal);
+        indicator_history.macd_hist.push(row.macd_hist);
+        indicator_history.adx_14.push(row.adx_14);
+        indicator_history.adx_plus.push(row.adx_plus);
+        indicator_history.adx_minus.push(row.adx_minus);
+        indicator_history.atr_14.push(row.atr_14);
+        indicator_history.ema_fast.push(row.ema_fast);
+        indicator_history.ema_medium.push(row.ema_medium);
+        indicator_history.ema_slow.push(row.ema_slow);
+        indicator_history.ema_long.push(row.ema_long);
+    }
+
+    Json(HistoryResponse { prices, candles, indicator_history })
 }
 
 async fn serve_analyze(
@@ -918,9 +987,20 @@ async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key:
     };
 
     let mut rx_stream = rx;
-    while let Ok(snapshot) = rx_stream.recv().await {
-        if let Ok(json_str) = serde_json::to_string(&snapshot) {
-            if socket.send(AxumMessage::Text(json_str.into())).await.is_err() {
+    loop {
+        match rx_stream.recv().await {
+            Ok(snapshot) => {
+                if let Ok(json_str) = serde_json::to_string(&snapshot) {
+                    if socket.send(AxumMessage::Text(json_str.into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                eprintln!("⚠️ WS: Client fell behind by {} snapshots, resuming...", missed);
+                continue;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                 break;
             }
         }
@@ -1154,6 +1234,41 @@ async fn serve_list_pairs(State(state): State<Arc<AppState>>) -> impl IntoRespon
     let pairs = state.pairs.read().await;
     let symbols: Vec<String> = pairs.keys().cloned().collect();
     Json(PairsListResponse { symbols })
+}
+
+async fn serve_add_trade(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AddTradeRequest>,
+) -> impl IntoResponse {
+    let outcome_upper = payload.outcome.trim().to_uppercase();
+    if outcome_upper != "WIN" && outcome_upper != "LOSS" {
+        return (axum::http::StatusCode::BAD_REQUEST, "Outcome must be WIN or LOSS").into_response();
+    }
+
+    match crate::db::insert_user_trade(
+        &state.pool,
+        &payload.symbol,
+        &payload.direction,
+        &outcome_upper,
+        payload.risk_multiplier,
+        payload.reward_multiplier,
+    )
+    .await
+    {
+        Ok(id) => {
+            (axum::http::StatusCode::CREATED, format!("Trade logged with ID {}", id)).into_response()
+        }
+        Err(e) => {
+            eprintln!("❌ Web API Error: Failed to log trade record: {}", e);
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to persist trade record")
+                .into_response()
+        }
+    }
+}
+
+async fn serve_get_trades(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let trades = crate::db::query_user_trades(&state.pool, 100).await;
+    Json(trades)
 }
 
 #[cfg(test)]

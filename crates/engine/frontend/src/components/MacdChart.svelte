@@ -41,7 +41,27 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
                 const data = await res.json();
-                if (data.prices && data.prices.length > 0) {
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.macd_line && indicatorHistory.macd_line.length > 0) {
+                    const lineData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.macd_line[i] ? parseFloat(indicatorHistory.macd_line[i]) : 0
+                    }));
+                    const sigData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.macd_signal[i] ? parseFloat(indicatorHistory.macd_signal[i]) : 0
+                    }));
+                    const histData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.macd_hist[i] ? parseFloat(indicatorHistory.macd_hist[i]) : 0,
+                        color: indicatorHistory.macd_hist[i] ? (parseFloat(indicatorHistory.macd_hist[i]) >= 0 ? '#26a69a' : '#ef5350') : '#131722'
+                    }));
+
+                    macdLineSeries.setData(lineData);
+                    macdSigSeries.setData(sigData);
+                    macdHistSeries.setData(histData);
+                    chart.timeScale().fitContent();
+                } else if (data.prices && data.prices.length > 0) {
                     const hasCandles = data.candles && data.candles.length > 0;
                     const source = hasCandles ? data.candles : data.prices;
 

@@ -13,6 +13,7 @@
     import RsiChart from './components/RsiChart.svelte';
     import MacdChart from './components/MacdChart.svelte';
     import SqueezeChart from './components/SqueezeChart.svelte';
+    import PerformanceDashboard from './components/PerformanceDashboard.svelte';
 
     const app = getState();
     let ws: WebSocket | null = null;
@@ -396,6 +397,7 @@
     <TabHeader />
 
     <div class="main-layout">
+        {#if app.currentView === 'terminal'}
         <!-- Center column showing active visual panels -->
         {#each Object.keys(app.pairsMap) as tabKey (tabKey)}
             <main class="dashboard-stack" class:hidden-pane={tabKey !== app.activeTab}>
@@ -650,6 +652,11 @@
                 </div>
             </div>
         </aside>
+        {:else if app.currentView === 'performance'}
+            <div class="performance-container" style="flex: 1;">
+                <PerformanceDashboard />
+            </div>
+        {/if}
     </div>
 
     <SettingsPanel />

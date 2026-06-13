@@ -82,6 +82,23 @@
                 <button class="tab-btn add-tab-btn" onclick={() => showAddInput = true}>[ + Add Pair ]</button>
             {/if}
         </div>
+
+        <div class="view-toggles">
+            <button
+                class="view-toggle-btn"
+                class:vt-active={app.currentView === 'terminal'}
+                onclick={() => app.currentView = 'terminal'}
+            >
+                📈 Terminal
+            </button>
+            <button
+                class="view-toggle-btn"
+                class:vt-active={app.currentView === 'performance'}
+                onclick={() => app.currentView = 'performance'}
+            >
+                📊 Performance
+            </button>
+        </div>
     </div>
 
     <div class="status-badge" class:status-online={app.isConnected} class:status-offline={!app.isConnected}>
@@ -240,5 +257,31 @@
     .dot-offline {
         background: #ef4444;
         box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    }
+    .view-toggles {
+        display: flex;
+        gap: 4px;
+        margin-left: 8px;
+    }
+    .view-toggle-btn {
+        background: #171b26;
+        border: 1px solid #2a2e39;
+        color: #8f929d;
+        font-size: 11px;
+        font-family: 'Courier New', monospace;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 5px 12px;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+    .view-toggle-btn:hover {
+        color: #cbd5e1;
+        border-color: #3b82f6;
+    }
+    .vt-active {
+        background: #1e3a5f;
+        border-color: #3b82f6;
+        color: #64ffda;
     }
 </style>

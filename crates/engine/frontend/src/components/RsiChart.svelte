@@ -37,7 +37,18 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
                 const data = await res.json();
-                if (data.prices && data.prices.length > 0) {
+                const indicatorHistory = data.indicator_history;
+                if (indicatorHistory && indicatorHistory.rsi_14 && indicatorHistory.rsi_14.length > 0) {
+                    const rsiData = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        value: indicatorHistory.rsi_14[i] ? parseFloat(indicatorHistory.rsi_14[i]) : null
+                    })).filter((d: { value: number | null }) => d.value !== null);
+
+                    if (rsiData.length > 0) {
+                        rsiSeries.setData(rsiData);
+                        chart.timeScale().fitContent();
+                    }
+                } else if (data.prices && data.prices.length > 0) {
                     const hasCandles = data.candles && data.candles.length > 0;
                     const source = hasCandles ? data.candles : data.prices;
 

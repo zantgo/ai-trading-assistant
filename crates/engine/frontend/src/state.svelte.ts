@@ -261,6 +261,20 @@ export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
     const key = `${exchange}-${symbol}`;
     if (!pairsMap[key]) {
         pairsMap[key] = createPairState(symbol, exchange);
+    } else {
+        const pair = pairsMap[key];
+        pair.barDurationSec = globalCandlesConfig.duration_seconds;
+        pair.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
     }
 }
 
@@ -270,6 +284,19 @@ export function removePair(key: string) {
 
 export function switchTab(key: string) {
     activeTab = key;
+}
+
+let currentView = $state<'terminal' | 'performance'>('terminal');
+let userTrades = $state<UserTrade[]>([]);
+
+export interface UserTrade {
+    id: number;
+    timestamp: number;
+    symbol: string;
+    direction: string;
+    outcome: 'WIN' | 'LOSS';
+    risk_multiplier: number;
+    reward_multiplier: number;
 }
 
 export function getState() {
@@ -412,6 +439,23 @@ export function getState() {
         set chatInputText(v: string) { activePair().chatInputText = v; },
         get isChatLoading() { return activePair().isChatLoading; },
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
+
+        get currentView() { return currentView; },
+        set currentView(v: 'terminal' | 'performance') { currentView = v; },
+        get userTrades() { return userTrades; },
+        set userTrades(v: UserTrade[]) { userTrades = v; },
+
+        async fetchTrades() {
+            try {
+                const res = await fetch(`/api/trades?_=${Date.now()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    userTrades = data || [];
+                }
+            } catch (e) {
+                console.error("Failed to fetch user trades:", e);
+            }
+        },
 
         get globalCandlesConfig() { return globalCandlesConfig; },
         set globalCandlesConfig(v) { globalCandlesConfig = v; },
