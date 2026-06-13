@@ -220,10 +220,12 @@ export interface AgentProgress {
     status: 'pending' | 'running' | 'complete' | 'failed';
 }
 
-export interface PairState {
+// ─── Multi-Timeframe Telemetry ────────────────────────────────
+
+export interface TimeframeTelemetry {
     symbol: string;
     exchange: string;
-    isConnected: boolean;
+    barDurationSec: number;
     priceText: string;
     vwapText: string;
     avgVolText: string;
@@ -246,9 +248,40 @@ export interface PairState {
     lastMacdHist: number;
     lastSqzMom: number;
     latestSnapshot: Record<string, unknown> | null;
+    historyPrices: number[];
+    showEmas: boolean;
+    showBb: boolean;
+    showVwap: boolean;
+    showVolume: boolean;
+    showAdx: boolean;
+    showAtr: boolean;
+    showRsi: boolean;
+    showMacd: boolean;
+    showSqueeze: boolean;
+    // Indicator config
+    emaFastVal: number;
+    emaMediumVal: number;
+    emaSlowVal: number;
+    emaLongVal: number;
+    rsiPeriodVal: number;
+    macdFastVal: number;
+    macdSlowVal: number;
+    macdSignalVal: number;
+    adxPeriodVal: number;
+    atrPeriodVal: number;
+    squeezePeriodVal: number;
+    analysisLimit: number;
+}
+
+export interface PairState {
+    symbol: string;
+    exchange: string;
+    isConnected: boolean;
+    shortTerm: TimeframeTelemetry;
+    midTerm: TimeframeTelemetry;
+    longTerm: TimeframeTelemetry;
     assistantHistory: AssistantHistoryRecord[];
     chatHistory: ChatMessage[];
-    historyPrices: number[];
     currentPosition: 'None' | 'Long' | 'Short';
     entryPriceVal: string;
     stopLossVal: string;
@@ -263,45 +296,11 @@ export interface PairState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
-
-    // Per-pair workspace view tab
     currentView: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'exchange' | 'analytics' | 'ledger';
-
-    // Analysis lookback
-    analysisLimit: number;
-
-    // Per-pair configuration
-    barDurationSec: number;
-    emaFastVal: number;
-    emaMediumVal: number;
-    emaSlowVal: number;
-    emaLongVal: number;
-    rsiPeriodVal: number;
-    macdFastVal: number;
-    macdSlowVal: number;
-    macdSignalVal: number;
-    adxPeriodVal: number;
-    atrPeriodVal: number;
-    squeezePeriodVal: number;
-
-    // Per-pair visibility
-    showEmas: boolean;
-    showBb: boolean;
-    showVwap: boolean;
-    showVolume: boolean;
-    showAdx: boolean;
-    showAtr: boolean;
-    showRsi: boolean;
-    showMacd: boolean;
-    showSqueeze: boolean;
-
-    // Automation scheduling
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
     nextEvaluationIn: string;
-
-    // Paper trading
     paperCashBalance: number;
     paperInitialUSD: number;
     paperAllocationPct: number;
@@ -318,11 +317,11 @@ export interface PairState {
     paperLoading: boolean;
 }
 
-function createPairState(symbol: string, exchange: string): PairState {
+function createTimeframeTelemetry(symbol: string, exchange: string, barDurationSec: number): TimeframeTelemetry {
     return {
         symbol,
         exchange,
-        isConnected: false,
+        barDurationSec,
         priceText: '--',
         vwapText: '--',
         avgVolText: '--',
@@ -345,9 +344,41 @@ function createPairState(symbol: string, exchange: string): PairState {
         lastMacdHist: 0,
         lastSqzMom: 0,
         latestSnapshot: null,
+        historyPrices: [],
+        showEmas: true,
+        showBb: true,
+        showVwap: true,
+        showVolume: true,
+        showAdx: true,
+        showAtr: true,
+        showRsi: true,
+        showMacd: true,
+        showSqueeze: true,
+        emaFastVal: 10,
+        emaMediumVal: 50,
+        emaSlowVal: 100,
+        emaLongVal: 200,
+        rsiPeriodVal: 14,
+        macdFastVal: 12,
+        macdSlowVal: 26,
+        macdSignalVal: 9,
+        adxPeriodVal: 14,
+        atrPeriodVal: 14,
+        squeezePeriodVal: 20,
+        analysisLimit: 100,
+    };
+}
+
+function createPairState(symbol: string, exchange: string): PairState {
+    return {
+        symbol,
+        exchange,
+        isConnected: false,
+        shortTerm: createTimeframeTelemetry(symbol, exchange, 15),
+        midTerm: createTimeframeTelemetry(symbol, exchange, 60),
+        longTerm: createTimeframeTelemetry(symbol, exchange, 300),
         assistantHistory: [],
         chatHistory: [],
-        historyPrices: [],
         currentPosition: 'None',
         entryPriceVal: '',
         stopLossVal: '',
@@ -362,39 +393,11 @@ function createPairState(symbol: string, exchange: string): PairState {
         isAssistantModalOpen: false,
         chatInputText: '',
         isChatLoading: false,
-
         currentView: 'terminal',
-
-        analysisLimit: globalCandlesConfig.analysis_limit ?? 100,
-
-        barDurationSec: globalCandlesConfig.duration_seconds,
-        emaFastVal: globalIndicatorsConfig.ema_fast,
-        emaMediumVal: globalIndicatorsConfig.ema_medium,
-        emaSlowVal: globalIndicatorsConfig.ema_slow,
-        emaLongVal: globalIndicatorsConfig.ema_long,
-        rsiPeriodVal: globalIndicatorsConfig.rsi_period,
-        macdFastVal: globalIndicatorsConfig.macd_fast,
-        macdSlowVal: globalIndicatorsConfig.macd_slow,
-        macdSignalVal: globalIndicatorsConfig.macd_signal,
-        adxPeriodVal: globalIndicatorsConfig.adx_period,
-        atrPeriodVal: globalIndicatorsConfig.atr_period,
-        squeezePeriodVal: globalIndicatorsConfig.squeeze_period,
-
-        showEmas: true,
-        showBb: true,
-        showVwap: true,
-        showVolume: true,
-        showAdx: true,
-        showAtr: true,
-        showRsi: true,
-        showMacd: true,
-        showSqueeze: true,
-
         automationEnabled: false,
         automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
         nextEvaluationIn: '--',
-
         paperCashBalance: 10000,
         paperInitialUSD: 10000,
         paperAllocationPct: 10,
@@ -412,11 +415,9 @@ function createPairState(symbol: string, exchange: string): PairState {
     };
 }
 
-// --- Per-pair state map ---
 let pairsMap = $state<Record<string, PairState>>({});
 let activeTab = $state<string>('Hyperliquid-BTC');
 
-// --- Global configuration ---
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
 
@@ -435,7 +436,6 @@ let globalIndicatorsConfig = $state({
     squeeze_period: 20,
 });
 
-// Labels (global for display)
 let emaFastLabel = $state('EMA-10');
 let emaMediumLabel = $state('EMA-50');
 let emaSlowLabel = $state('EMA-100');
@@ -445,13 +445,11 @@ let adxLabel = $state('ADX (14)');
 let atrLabel = $state('ATR (14)');
 let macdLabel = $state('MACD (12,26,9)');
 
-// ─── Decision Trading ───────────────────────────────────────────
 let activeDecisionProfileId = $state(1);
 let decisionProfiles = $state<DecisionProfile[]>([]);
 let calculatedDecisionScore = $state<DecisionScore | null>(null);
 let decisionLoading = $state(false);
 
-// ─── Risk Management ────────────────────────────────────────────
 let activeRiskProfileId = $state(1);
 let riskProfiles = $state<RiskProfile[]>([]);
 let riskDirection = $state<'LONG' | 'SHORT'>('LONG');
@@ -461,7 +459,6 @@ let riskTakeProfit = $state('0');
 let riskCalculation = $state<RiskCalculation | null>(null);
 let riskCalculating = $state(false);
 
-// ─── Exchange Accounts ──────────────────────────────────────────
 let exchangeAccounts = $state<ExchangeAccount[]>([]);
 let exchangeActiveCount = $state(0);
 let exchangeMaxAccounts = $state(3);
@@ -475,51 +472,11 @@ let exchangeFormDraft = $state({
     is_active: true,
 });
 
-// ─── Dashboard ──────────────────────────────────────────────────
 let dashboardStats = $state<DashboardStats | null>(null);
 let dashboardActiveFilter = $state('summary');
 let dashboardPeriod = $state('Todo');
 let dashboardOrigin = $state('Todos');
 let tradeLedgerRecords = $state<TradeLedgerRecord[]>([]);
-
-// --- Helper to get/set active pair ---
-function activePair(): PairState {
-    if (!pairsMap[activeTab]) {
-        const parts = activeTab.split('-');
-        pairsMap[activeTab] = createPairState(parts[1] || 'BTC', parts[0] || 'Hyperliquid');
-    }
-    return pairsMap[activeTab];
-}
-
-export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
-    const key = `${exchange}-${symbol}`;
-    if (!pairsMap[key]) {
-        pairsMap[key] = createPairState(symbol, exchange);
-    } else {
-        const pair = pairsMap[key];
-        pair.barDurationSec = globalCandlesConfig.duration_seconds;
-        pair.emaFastVal = globalIndicatorsConfig.ema_fast;
-        pair.emaMediumVal = globalIndicatorsConfig.ema_medium;
-        pair.emaSlowVal = globalIndicatorsConfig.ema_slow;
-        pair.emaLongVal = globalIndicatorsConfig.ema_long;
-        pair.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
-        pair.macdFastVal = globalIndicatorsConfig.macd_fast;
-        pair.macdSlowVal = globalIndicatorsConfig.macd_slow;
-        pair.macdSignalVal = globalIndicatorsConfig.macd_signal;
-        pair.adxPeriodVal = globalIndicatorsConfig.adx_period;
-        pair.atrPeriodVal = globalIndicatorsConfig.atr_period;
-        pair.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
-        pair.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
-    }
-}
-
-export function removePair(key: string) {
-    delete pairsMap[key];
-}
-
-export function switchTab(key: string) {
-    activeTab = key;
-}
 
 let userTrades = $state<UserTrade[]>([]);
 
@@ -533,9 +490,78 @@ export interface UserTrade {
     reward_multiplier: number;
 }
 
+function activePair(): PairState {
+    if (!pairsMap[activeTab]) {
+        const parts = activeTab.split('-');
+        pairsMap[activeTab] = createPairState(parts[1] || 'BTC', parts[0] || 'Hyperliquid');
+    }
+    return pairsMap[activeTab];
+}
+
+// Helper: get the mid-term state (default for backward-compatible accessors)
+function mid(): TimeframeTelemetry { return activePair().midTerm; }
+
+export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
+    const key = `${exchange}-${symbol}`;
+    if (!pairsMap[key]) {
+        pairsMap[key] = createPairState(symbol, exchange);
+    } else {
+        const pair = pairsMap[key];
+        pair.shortTerm.barDurationSec = 15;
+        pair.shortTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.shortTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.shortTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.shortTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.shortTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.shortTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.shortTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.shortTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.shortTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.shortTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.shortTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.shortTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+
+        pair.midTerm.barDurationSec = 60;
+        pair.midTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.midTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.midTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.midTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.midTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.midTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.midTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.midTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.midTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.midTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.midTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.midTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+
+        pair.longTerm.barDurationSec = 300;
+        pair.longTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.longTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.longTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.longTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.longTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.longTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.longTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.longTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.longTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.longTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.longTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.longTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+    }
+}
+
+export function removePair(key: string) {
+    delete pairsMap[key];
+}
+
+export function switchTab(key: string) {
+    activeTab = key;
+}
+
 function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
     const entryPrice = parseFloat(pair.entryPriceVal);
-    const exitPrice = parseFloat(pair.priceText);
+    const exitPrice = parseFloat(pair.midTerm.priceText);
 
     if (isNaN(entryPrice) || isNaN(exitPrice) || entryPrice <= 0 || exitPrice <= 0) {
         console.warn("⚠️ Trade Logger Bypassed: Entry Price or Current Market Price is invalid.");
@@ -551,11 +577,8 @@ function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
     }
 
     let pnl = 0;
-    if (oldPosition === 'Long') {
-        pnl = exitPrice - entryPrice;
-    } else {
-        pnl = entryPrice - exitPrice;
-    }
+    if (oldPosition === 'Long') { pnl = exitPrice - entryPrice; }
+    else { pnl = entryPrice - exitPrice; }
 
     const outcome = pnl >= 0 ? 'WIN' : 'LOSS';
     const rewardDistance = Math.abs(pnl);
@@ -581,13 +604,9 @@ function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
                 .then(r => r.json())
                 .then(data => { userTrades = data || []; })
                 .catch(() => {});
-        } else {
-            console.error("❌ Auto-Logger Error: API server rejected the trade record.");
         }
     })
-    .catch(err => {
-        console.error("❌ Auto-Logger Network Error:", err);
-    });
+    .catch(err => console.error("❌ Auto-Logger Network Error:", err));
 }
 
 export function getState() {
@@ -598,44 +617,95 @@ export function getState() {
         get activeTab() { return activeTab; },
         set activeTab(v: string) { activeTab = v; },
 
-        // Global
         get apiKeyConfigured() { return apiKeyConfigured; },
         set apiKeyConfigured(v: boolean) { apiKeyConfigured = v; },
         get rulesContent() { return rulesContent; },
         set rulesContent(v: string) { rulesContent = v; },
 
-        // Visibility — proxied per-pair
-        get showEmas() { return activePair().showEmas; }, set showEmas(v: boolean) { activePair().showEmas = v; },
-        get showBb() { return activePair().showBb; }, set showBb(v: boolean) { activePair().showBb = v; },
-        get showVwap() { return activePair().showVwap; }, set showVwap(v: boolean) { activePair().showVwap = v; },
-        get showVolume() { return activePair().showVolume; }, set showVolume(v: boolean) { activePair().showVolume = v; },
-        get showAdx() { return activePair().showAdx; }, set showAdx(v: boolean) { activePair().showAdx = v; },
-        get showAtr() { return activePair().showAtr; }, set showAtr(v: boolean) { activePair().showAtr = v; },
-        get showRsi() { return activePair().showRsi; }, set showRsi(v: boolean) { activePair().showRsi = v; },
-        get showMacd() { return activePair().showMacd; }, set showMacd(v: boolean) { activePair().showMacd = v; },
-        get showSqueeze() { return activePair().showSqueeze; }, set showSqueeze(v: boolean) { activePair().showSqueeze = v; },
+        // Multi-timeframe telemetry access
+        get shortTerm() { return activePair().shortTerm; },
+        get midTerm() { return activePair().midTerm; },
+        get longTerm() { return activePair().longTerm; },
 
-        // Indicator config — proxied per-pair
-        get barDurationSec() { return activePair().barDurationSec; }, set barDurationSec(v: number) { activePair().barDurationSec = v; },
-        get emaFastVal() { return activePair().emaFastVal; }, set emaFastVal(v: number) { activePair().emaFastVal = v; },
-        get emaMediumVal() { return activePair().emaMediumVal; }, set emaMediumVal(v: number) { activePair().emaMediumVal = v; },
-        get emaSlowVal() { return activePair().emaSlowVal; }, set emaSlowVal(v: number) { activePair().emaSlowVal = v; },
-        get emaLongVal() { return activePair().emaLongVal; }, set emaLongVal(v: number) { activePair().emaLongVal = v; },
-        get rsiPeriodVal() { return activePair().rsiPeriodVal; }, set rsiPeriodVal(v: number) { activePair().rsiPeriodVal = v; },
-        get macdFastVal() { return activePair().macdFastVal; }, set macdFastVal(v: number) { activePair().macdFastVal = v; },
-        get macdSlowVal() { return activePair().macdSlowVal; }, set macdSlowVal(v: number) { activePair().macdSlowVal = v; },
-        get macdSignalVal() { return activePair().macdSignalVal; }, set macdSignalVal(v: number) { activePair().macdSignalVal = v; },
-        get adxPeriodVal() { return activePair().adxPeriodVal; }, set adxPeriodVal(v: number) { activePair().adxPeriodVal = v; },
-        get atrPeriodVal() { return activePair().atrPeriodVal; }, set atrPeriodVal(v: number) { activePair().atrPeriodVal = v; },
-        get squeezePeriodVal() { return activePair().squeezePeriodVal; }, set squeezePeriodVal(v: number) { activePair().squeezePeriodVal = v; },
+        // Backward-compatible accessors (proxied to mid-term by default)
+        get activeSymbol() { return activePair().symbol; },
+        get activeExchange() { return activePair().exchange; },
+        get isConnected() { return activePair().isConnected; },
+        set isConnected(v: boolean) { activePair().isConnected = v; },
 
-        // Dynamic timeframe label
-        get candleTimeframeLabel() {
-            const sec = activePair().barDurationSec;
-            if (sec % 3600 === 0) return `${sec / 3600}h`;
-            if (sec % 60 === 0) return `${sec / 60}m`;
-            return `${sec}s`;
-        },
+        get priceText() { return mid().priceText; },
+        set priceText(v: string) { mid().priceText = v; },
+        get vwapText() { return mid().vwapText; },
+        set vwapText(v: string) { mid().vwapText = v; },
+        get avgVolText() { return mid().avgVolText; },
+        set avgVolText(v: string) { mid().avgVolText = v; },
+        get emaFastText() { return mid().emaFastText; },
+        set emaFastText(v: string) { mid().emaFastText = v; },
+        get emaMediumText() { return mid().emaMediumText; },
+        set emaMediumText(v: string) { mid().emaMediumText = v; },
+        get emaSlowText() { return mid().emaSlowText; },
+        set emaSlowText(v: string) { mid().emaSlowText = v; },
+        get emaLongText() { return mid().emaLongText; },
+        set emaLongText(v: string) { mid().emaLongText = v; },
+        get adxText() { return mid().adxText; },
+        set adxText(v: string) { mid().adxText = v; },
+        get adxPlusText() { return mid().adxPlusText; },
+        set adxPlusText(v: string) { mid().adxPlusText = v; },
+        get adxMinusText() { return mid().adxMinusText; },
+        set adxMinusText(v: string) { mid().adxMinusText = v; },
+        get atrText() { return mid().atrText; },
+        set atrText(v: string) { mid().atrText = v; },
+        get rsiText() { return mid().rsiText; },
+        set rsiText(v: string) { mid().rsiText = v; },
+        get macdLineText() { return mid().macdLineText; },
+        set macdLineText(v: string) { mid().macdLineText = v; },
+        get macdSigText() { return mid().macdSigText; },
+        set macdSigText(v: string) { mid().macdSigText = v; },
+        get macdHistText() { return mid().macdHistText; },
+        set macdHistText(v: string) { mid().macdHistText = v; },
+        get sqzValText() { return mid().sqzValText; },
+        set sqzValText(v: string) { mid().sqzValText = v; },
+        get sqzStatusText() { return mid().sqzStatusText; },
+        set sqzStatusText(v: string) { mid().sqzStatusText = v; },
+        get isSqueezeOn() { return mid().isSqueezeOn; },
+        set isSqueezeOn(v: boolean) { mid().isSqueezeOn = v; },
+        get volText() { return mid().volText; },
+        set volText(v: string) { mid().volText = v; },
+        get lastMacdHist() { return mid().lastMacdHist; },
+        set lastMacdHist(v: number) { mid().lastMacdHist = v; },
+        get lastSqzMom() { return mid().lastSqzMom; },
+        set lastSqzMom(v: number) { mid().lastSqzMom = v; },
+        get latestSnapshot() { return mid().latestSnapshot; },
+        set latestSnapshot(v: Record<string, unknown> | null) { mid().latestSnapshot = v; },
+        get historyPrices() { return mid().historyPrices; },
+        set historyPrices(v: number[]) { mid().historyPrices = v; },
+
+        // Show/hide toggles
+        get showEmas() { return mid().showEmas; }, set showEmas(v: boolean) { mid().showEmas = v; },
+        get showBb() { return mid().showBb; }, set showBb(v: boolean) { mid().showBb = v; },
+        get showVwap() { return mid().showVwap; }, set showVwap(v: boolean) { mid().showVwap = v; },
+        get showVolume() { return mid().showVolume; }, set showVolume(v: boolean) { mid().showVolume = v; },
+        get showAdx() { return mid().showAdx; }, set showAdx(v: boolean) { mid().showAdx = v; },
+        get showAtr() { return mid().showAtr; }, set showAtr(v: boolean) { mid().showAtr = v; },
+        get showRsi() { return mid().showRsi; }, set showRsi(v: boolean) { mid().showRsi = v; },
+        get showMacd() { return mid().showMacd; }, set showMacd(v: boolean) { mid().showMacd = v; },
+        get showSqueeze() { return mid().showSqueeze; }, set showSqueeze(v: boolean) { mid().showSqueeze = v; },
+
+        // Config values
+        get barDurationSec() { return mid().barDurationSec; }, set barDurationSec(v: number) { mid().barDurationSec = v; },
+        get emaFastVal() { return mid().emaFastVal; }, set emaFastVal(v: number) { mid().emaFastVal = v; },
+        get emaMediumVal() { return mid().emaMediumVal; }, set emaMediumVal(v: number) { mid().emaMediumVal = v; },
+        get emaSlowVal() { return mid().emaSlowVal; }, set emaSlowVal(v: number) { mid().emaSlowVal = v; },
+        get emaLongVal() { return mid().emaLongVal; }, set emaLongVal(v: number) { mid().emaLongVal = v; },
+        get rsiPeriodVal() { return mid().rsiPeriodVal; }, set rsiPeriodVal(v: number) { mid().rsiPeriodVal = v; },
+        get macdFastVal() { return mid().macdFastVal; }, set macdFastVal(v: number) { mid().macdFastVal = v; },
+        get macdSlowVal() { return mid().macdSlowVal; }, set macdSlowVal(v: number) { mid().macdSlowVal = v; },
+        get macdSignalVal() { return mid().macdSignalVal; }, set macdSignalVal(v: number) { mid().macdSignalVal = v; },
+        get adxPeriodVal() { return mid().adxPeriodVal; }, set adxPeriodVal(v: number) { mid().adxPeriodVal = v; },
+        get atrPeriodVal() { return mid().atrPeriodVal; }, set atrPeriodVal(v: number) { mid().atrPeriodVal = v; },
+        get squeezePeriodVal() { return mid().squeezePeriodVal; }, set squeezePeriodVal(v: number) { mid().squeezePeriodVal = v; },
+        get analysisLimit() { return mid().analysisLimit; }, set analysisLimit(v: number) { mid().analysisLimit = v; },
+        get candleTimeframeLabel() { const sec = mid().barDurationSec; if (sec % 3600 === 0) return `${sec / 3600}h`; if (sec % 60 === 0) return `${sec / 60}m`; return `${sec}s`; },
 
         // Labels
         get emaFastLabel() { return emaFastLabel; }, set emaFastLabel(v: string) { emaFastLabel = v; },
@@ -647,61 +717,11 @@ export function getState() {
         get atrLabel() { return atrLabel; }, set atrLabel(v: string) { atrLabel = v; },
         get macdLabel() { return macdLabel; }, set macdLabel(v: string) { macdLabel = v; },
 
-        // Proxied per-pair fields
-        get activeSymbol() { return activePair().symbol; },
-        get activeExchange() { return activePair().exchange; },
-        get isConnected() { return activePair().isConnected; },
-        set isConnected(v: boolean) { activePair().isConnected = v; },
-        get priceText() { return activePair().priceText; },
-        set priceText(v: string) { activePair().priceText = v; },
-        get vwapText() { return activePair().vwapText; },
-        set vwapText(v: string) { activePair().vwapText = v; },
-        get avgVolText() { return activePair().avgVolText; },
-        set avgVolText(v: string) { activePair().avgVolText = v; },
-        get emaFastText() { return activePair().emaFastText; },
-        set emaFastText(v: string) { activePair().emaFastText = v; },
-        get emaMediumText() { return activePair().emaMediumText; },
-        set emaMediumText(v: string) { activePair().emaMediumText = v; },
-        get emaSlowText() { return activePair().emaSlowText; },
-        set emaSlowText(v: string) { activePair().emaSlowText = v; },
-        get emaLongText() { return activePair().emaLongText; },
-        set emaLongText(v: string) { activePair().emaLongText = v; },
-        get adxText() { return activePair().adxText; },
-        set adxText(v: string) { activePair().adxText = v; },
-        get adxPlusText() { return activePair().adxPlusText; },
-        set adxPlusText(v: string) { activePair().adxPlusText = v; },
-        get adxMinusText() { return activePair().adxMinusText; },
-        set adxMinusText(v: string) { activePair().adxMinusText = v; },
-        get atrText() { return activePair().atrText; },
-        set atrText(v: string) { activePair().atrText = v; },
-        get rsiText() { return activePair().rsiText; },
-        set rsiText(v: string) { activePair().rsiText = v; },
-        get macdLineText() { return activePair().macdLineText; },
-        set macdLineText(v: string) { activePair().macdLineText = v; },
-        get macdSigText() { return activePair().macdSigText; },
-        set macdSigText(v: string) { activePair().macdSigText = v; },
-        get macdHistText() { return activePair().macdHistText; },
-        set macdHistText(v: string) { activePair().macdHistText = v; },
-        get sqzValText() { return activePair().sqzValText; },
-        set sqzValText(v: string) { activePair().sqzValText = v; },
-        get sqzStatusText() { return activePair().sqzStatusText; },
-        set sqzStatusText(v: string) { activePair().sqzStatusText = v; },
-        get isSqueezeOn() { return activePair().isSqueezeOn; },
-        set isSqueezeOn(v: boolean) { activePair().isSqueezeOn = v; },
-        get volText() { return activePair().volText; },
-        set volText(v: string) { activePair().volText = v; },
-        get lastMacdHist() { return activePair().lastMacdHist; },
-        set lastMacdHist(v: number) { activePair().lastMacdHist = v; },
-        get lastSqzMom() { return activePair().lastSqzMom; },
-        set lastSqzMom(v: number) { activePair().lastSqzMom = v; },
-        get latestSnapshot() { return activePair().latestSnapshot; },
-        set latestSnapshot(v: Record<string, unknown> | null) { activePair().latestSnapshot = v; },
+        // Assistant & analysis
         get assistantHistory() { return activePair().assistantHistory; },
         set assistantHistory(v: AssistantHistoryRecord[]) { activePair().assistantHistory = v; },
         get chatHistory() { return activePair().chatHistory; },
         set chatHistory(v: ChatMessage[]) { activePair().chatHistory = v; },
-        get historyPrices() { return activePair().historyPrices; },
-        set historyPrices(v: number[]) { activePair().historyPrices = v; },
         get currentPosition() { return activePair().currentPosition; },
         set currentPosition(v: 'None' | 'Long' | 'Short') {
             const pair = activePair();
@@ -739,11 +759,8 @@ export function getState() {
         set chatInputText(v: string) { activePair().chatInputText = v; },
         get isChatLoading() { return activePair().isChatLoading; },
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
-
         get currentView() { return activePair().currentView; },
-        set currentView(v: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'exchange' | 'analytics' | 'ledger') { activePair().currentView = v; },
-        get analysisLimit() { return activePair().analysisLimit; },
-        set analysisLimit(v: number) { activePair().analysisLimit = v; },
+        set currentView(v) { activePair().currentView = v; },
         get userTrades() { return userTrades; },
         set userTrades(v: UserTrade[]) { userTrades = v; },
 
@@ -788,7 +805,7 @@ export function getState() {
         async fetchPaperStatus() {
             const pair = activePair();
             try {
-                const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(app.activeTab)}`);
+                const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(activeTab)}`);
                 if (!res.ok) return;
                 const data = await res.json();
                 pair.paperCashBalance = data.current_cash ?? 10000;
@@ -813,14 +830,10 @@ export function getState() {
                 const res = await fetch('/api/paper/order', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol: app.activeTab, direction, action: 'OPEN' }),
+                    body: JSON.stringify({ symbol: activeTab, direction, action: 'OPEN' }),
                 });
-                if (res.ok) {
-                    await (app as any).fetchPaperStatus();
-                }
-            } catch (_) {} finally {
-                pair.paperLoading = false;
-            }
+                if (res.ok) await (app as any).fetchPaperStatus();
+            } catch (_) {} finally { pair.paperLoading = false; }
         },
 
         async closePaperPosition() {
@@ -830,40 +843,22 @@ export function getState() {
                 const res = await fetch('/api/paper/order', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol: app.activeTab, direction: '', action: 'CLOSE' }),
+                    body: JSON.stringify({ symbol: activeTab, direction: '', action: 'CLOSE' }),
                 });
-                if (res.ok) {
-                    await (app as any).fetchPaperStatus();
-                }
-            } catch (_) {} finally {
-                pair.paperLoading = false;
-            }
+                if (res.ok) await (app as any).fetchPaperStatus();
+            } catch (_) {} finally { pair.paperLoading = false; }
         },
 
         async resetPaperAccount() {
-            const pair = activePair();
             try {
-                await fetch('/api/paper/reset', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol: app.activeTab }),
-                });
+                await fetch('/api/paper/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: activeTab }) });
                 await (app as any).fetchPaperStatus();
             } catch (_) {}
         },
 
         async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) {
             try {
-                await fetch('/api/paper/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        symbol: app.activeTab,
-                        initial_usd: initialUSD,
-                        allocation_pct: allocationPct,
-                        auto_execute: autoExecute,
-                    }),
-                });
+                await fetch('/api/paper/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: activeTab, initial_usd: initialUSD, allocation_pct: allocationPct, auto_execute: autoExecute }) });
                 await (app as any).fetchPaperStatus();
             } catch (_) {}
         },
@@ -871,27 +866,17 @@ export function getState() {
         async fetchPaperHistory(symbol?: string) {
             const pair = activePair();
             try {
-                const url = symbol
-                    ? `/api/paper/performance?symbol=${encodeURIComponent(symbol)}`
-                    : '/api/paper/performance';
+                const url = symbol ? `/api/paper/performance?symbol=${encodeURIComponent(symbol)}` : '/api/paper/performance';
                 const res = await fetch(url);
-                if (res.ok) {
-                    const data = await res.json();
-                    pair.paperHistory = data.trades || [];
-                }
+                if (res.ok) { const data = await res.json(); pair.paperHistory = data.trades || []; }
             } catch (_) {}
         },
 
         async fetchTrades() {
             try {
                 const res = await fetch(`/api/trades?_=${Date.now()}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    userTrades = data || [];
-                }
-            } catch (e) {
-                console.error("Failed to fetch user trades:", e);
-            }
+                if (res.ok) { const data = await res.json(); userTrades = data || []; }
+            } catch (e) { console.error("Failed to fetch user trades:", e); }
         },
 
         get globalCandlesConfig() { return globalCandlesConfig; },
@@ -899,7 +884,6 @@ export function getState() {
         get globalIndicatorsConfig() { return globalIndicatorsConfig; },
         set globalIndicatorsConfig(v) { globalIndicatorsConfig = v; },
 
-        // ─── Decision Trading Accessors ────────────────────────
         get activeDecisionProfileId() { return activeDecisionProfileId; },
         set activeDecisionProfileId(v: number) { activeDecisionProfileId = v; },
         get decisionProfiles() { return decisionProfiles; },
@@ -918,13 +902,9 @@ export function getState() {
 
         async createDecisionProfile(name: string, longT: number, shortT: number) {
             try {
-                const res = await fetch('/api/decision-profiles', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ profile_name: name, long_threshold: longT, short_threshold: shortT }),
-                });
-                if (res.ok) { await (app as any).fetchDecisionProfiles(); return true; }
+                await fetch('/api/decision-profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile_name: name, long_threshold: longT, short_threshold: shortT }) });
+                await (app as any).fetchDecisionProfiles();
             } catch (_) {}
-            return false;
         },
 
         async deleteDecisionProfile(id: number) {
@@ -934,32 +914,23 @@ export function getState() {
             } catch (_) {}
         },
 
-        async updateDecisionProfile(id: number, name: string, longT: number, shortT: number) {
+        async updateDecisionProfileThresholds(id: number, longT: number, shortT: number) {
             try {
-                await fetch(`/api/decision-profiles/${id}`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ profile_name: name, long_threshold: longT, short_threshold: shortT }),
-                });
+                await fetch(`/api/decision-profiles/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ long_threshold: longT, short_threshold: shortT }) });
                 await (app as any).fetchDecisionProfiles();
             } catch (_) {}
         },
 
         async addProfileIndicator(profileId: number, name: string, weight: number, overrideStatus: string) {
             try {
-                await fetch(`/api/decision-profiles/${profileId}/indicators`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ indicator_name: name, weight, override_status: overrideStatus }),
-                });
+                await fetch(`/api/decision-profiles/${profileId}/indicators`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ indicator_name: name, weight, override_status: overrideStatus }) });
                 await (app as any).fetchDecisionProfiles();
             } catch (_) {}
         },
 
         async updateProfileIndicator(profileId: number, indicatorId: number, weight: number, overrideStatus: string) {
             try {
-                await fetch(`/api/decision-profiles/${profileId}/indicators/${indicatorId}`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ weight, override_status: overrideStatus }),
-                });
+                await fetch(`/api/decision-profiles/${profileId}/indicators/${indicatorId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ weight, override_status: overrideStatus }) });
                 await (app as any).fetchDecisionProfiles();
             } catch (_) {}
         },
@@ -971,44 +942,22 @@ export function getState() {
             } catch (_) {}
         },
 
-        async evaluateDecision(profileId: number, snap: Record<string, unknown>, historyPrices: number[]) {
+        async evaluateDecision(profileId: number) {
             decisionLoading = true;
             try {
+                const pair = activePair();
                 const res = await fetch(`/api/decision-profiles/${profileId}/evaluate`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
-                        squeeze_on: snap.squeeze_on ?? null,
-                        squeeze_momentum: snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null,
-                        macd_line: snap.macd_line ? parseFloat(String(snap.macd_line)) : null,
-                        macd_signal: snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null,
-                        macd_hist: snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null,
-                        adx: snap.adx_14 ? parseFloat(String(snap.adx_14)) : null,
-                        adx_plus: snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null,
-                        adx_minus: snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null,
-                        bb_upper: snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null,
-                        bb_middle: snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null,
-                        bb_lower: snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null,
-                        atr: snap.atr_14 ? parseFloat(String(snap.atr_14)) : null,
-                        ema_fast: snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null,
-                        ema_medium: snap.ema_medium ? parseFloat(String(snap.ema_medium)) : null,
-                        ema_slow: snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null,
-                        ema_long: snap.ema_long ? parseFloat(String(snap.ema_long)) : null,
-                        vwap: snap.vwap ? parseFloat(String(snap.vwap)) : null,
-                        close: snap.close ? parseFloat(String(snap.close)) : null,
-                        volume: snap.volume ? parseFloat(String(snap.volume)) : null,
-                        average_volume: snap.average_volume ? parseFloat(String(snap.average_volume)) : null,
-                        current_price: snap.mid_price ? parseFloat(String(snap.mid_price)) : 0,
-                        historical_prices: historyPrices,
+                        symbol: activeTab,
+                        latest_snapshot: pair.midTerm.latestSnapshot,
                     }),
                 });
                 if (res.ok) { calculatedDecisionScore = await res.json(); }
-            } catch (_) {} finally {
-                decisionLoading = false;
-            }
+            } catch (_) {} finally { decisionLoading = false; }
         },
 
-        // ─── Risk Management Accessors ─────────────────────────
         get activeRiskProfileId() { return activeRiskProfileId; },
         set activeRiskProfileId(v: number) { activeRiskProfileId = v; },
         get riskProfiles() { return riskProfiles; },
@@ -1033,15 +982,11 @@ export function getState() {
             } catch (_) {}
         },
 
-        async createRiskProfile(name: string, capital: number, maxRisk: number, leverage: number, commission: number, funding: number, spread: number) {
+        async createRiskProfile(name: string, capital: number, riskPct: number, leverage: number) {
             try {
-                const res = await fetch('/api/risk-profiles', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ profile_name: name, capital, max_risk_pct: maxRisk, leverage, commission_pct: commission, funding_rate_8h: funding, spread }),
-                });
-                if (res.ok) { await (app as any).fetchRiskProfiles(); return true; }
+                await fetch('/api/risk-profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile_name: name, capital, max_risk_pct: riskPct, leverage }) });
+                await (app as any).fetchRiskProfiles();
             } catch (_) {}
-            return false;
         },
 
         async deleteRiskProfile(id: number) {
@@ -1055,63 +1000,49 @@ export function getState() {
             riskCalculating = true;
             try {
                 const res = await fetch('/api/risk/calculate', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        profile_id: activeRiskProfileId,
                         direction: riskDirection,
                         entry_price: parseFloat(riskEntryPrice) || 0,
-                        stop_loss_price: parseFloat(riskStopLoss) || 0,
-                        take_profit_price: parseFloat(riskTakeProfit) || 0,
-                        profile_id: activeRiskProfileId || null,
+                        stop_loss: parseFloat(riskStopLoss) || 0,
+                        take_profit: parseFloat(riskTakeProfit) || 0,
                     }),
                 });
                 if (res.ok) { riskCalculation = await res.json(); }
-            } catch (_) {} finally {
-                riskCalculating = false;
-            }
+            } catch (_) {} finally { riskCalculating = false; }
         },
 
-        // ─── Exchange Accounts Accessors ────────────────────────
         get exchangeAccounts() { return exchangeAccounts; },
         set exchangeAccounts(v: ExchangeAccount[]) { exchangeAccounts = v; },
+        get exchangeFormDraft() { return exchangeFormDraft; },
+        set exchangeFormDraft(v) { exchangeFormDraft = v; },
+        get exchangeMaxAccounts() { return exchangeMaxAccounts; },
         get exchangeActiveCount() { return exchangeActiveCount; },
         set exchangeActiveCount(v: number) { exchangeActiveCount = v; },
-        get exchangeMaxAccounts() { return exchangeMaxAccounts; },
-        get exchangeFormDraft() { return exchangeFormDraft; },
-        set exchangeFormDraft(v: typeof exchangeFormDraft) { exchangeFormDraft = v; },
 
-        async fetchExchangeAccounts() {
+        async fetchExchangeKeys() {
             try {
                 const res = await fetch('/api/exchange-keys');
-                if (res.ok) {
-                    const data = await res.json();
-                    exchangeAccounts = data.accounts || [];
-                    exchangeActiveCount = data.active_count || 0;
-                    exchangeMaxAccounts = data.max_accounts || 3;
-                }
+                if (res.ok) { exchangeAccounts = await res.json(); exchangeActiveCount = exchangeAccounts.filter(a => a.is_active).length; }
             } catch (_) {}
         },
 
-        async addExchangeAccount() {
+        async addExchangeKey() {
             try {
-                const res = await fetch('/api/exchange-keys', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(exchangeFormDraft),
-                });
-                if (res.ok) {
-                    await (app as any).fetchExchangeAccounts();
-                    exchangeFormDraft = { exchange: 'Bitget', account_name: '', api_key: '', api_secret: '', passphrase: '', referred_uid: '', is_active: true };
-                }
+                const res = await fetch('/api/exchange-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(exchangeFormDraft) });
+                if (res.ok) { exchangeFormDraft = { exchange: 'Bitget', account_name: '', api_key: '', api_secret: '', passphrase: '', referred_uid: '', is_active: true }; await (app as any).fetchExchangeKeys(); }
             } catch (_) {}
         },
 
-        async deleteExchangeAccount(id: number) {
+        async deleteExchangeKey(id: number) {
             try {
                 await fetch(`/api/exchange-keys/${id}`, { method: 'DELETE' });
-                await (app as any).fetchExchangeAccounts();
+                await (app as any).fetchExchangeKeys();
             } catch (_) {}
         },
 
-        // ─── Dashboard Accessors ────────────────────────────────
         get dashboardStats() { return dashboardStats; },
         set dashboardStats(v: DashboardStats | null) { dashboardStats = v; },
         get dashboardActiveFilter() { return dashboardActiveFilter; },
@@ -1130,13 +1061,12 @@ export function getState() {
             } catch (_) {}
         },
 
-        async fetchTradeLedger(limit: number = 200) {
+        async fetchTradeLedger() {
             try {
-                const res = await fetch(`/api/trade-ledger?limit=${limit}`);
+                const res = await fetch('/api/trade-ledger');
                 if (res.ok) { tradeLedgerRecords = await res.json(); }
             } catch (_) {}
         },
     };
-
     return app;
 }

@@ -22,6 +22,7 @@ pub enum TelemetryMsg {
         indicator_name: String,
         signal: String,
         reason: String,
+        timeframe_secs: u64,
     },
     UpdateMasterRecord {
         master_id: i64,
@@ -60,8 +61,8 @@ pub async fn run_telemetry_logger(pool: SqlitePool, mut rx: tokio::sync::mpsc::R
             TelemetryMsg::InsertSnapshot(snapshot) => {
                 insert_snapshot_internal(&pool, &snapshot).await;
             }
-            TelemetryMsg::InsertIndividualLog { master_record_id, indicator_name, signal, reason } => {
-                insert_individual_log_internal(&pool, master_record_id, &indicator_name, &signal, &reason).await;
+            TelemetryMsg::InsertIndividualLog { master_record_id, indicator_name, signal, reason, timeframe_secs } => {
+                insert_individual_log_internal(&pool, master_record_id, &indicator_name, &signal, &reason, timeframe_secs).await;
             }
             TelemetryMsg::UpdateMasterRecord {
                 master_id,
@@ -116,6 +117,7 @@ pub async fn init_db() -> SqlitePool {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
             symbol TEXT NOT NULL,
+            timeframe_secs INTEGER NOT NULL DEFAULT 60,
             timestamp INTEGER NOT NULL,
             mid_price TEXT NOT NULL,
             bid_price TEXT NOT NULL,
@@ -157,6 +159,28 @@ pub async fn init_db() -> SqlitePool {
     .await
     .ok();
 
+    // ─── Auto-Migration: timeframe_secs column ───────────────────
+    sqlx::query(
+        "ALTER TABLE market_snapshots ADD COLUMN timeframe_secs INTEGER NOT NULL DEFAULT 60"
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
+    sqlx::query(
+        "ALTER TABLE individual_indicator_logs ADD COLUMN timeframe_secs INTEGER NOT NULL DEFAULT 60"
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_lookup ON market_snapshots (symbol, timeframe_secs, timestamp DESC)"
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS individual_indicator_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,6 +188,7 @@ pub async fn init_db() -> SqlitePool {
             indicator_name TEXT NOT NULL,
             signal TEXT NOT NULL,
             reason TEXT NOT NULL,
+            timeframe_secs INTEGER NOT NULL DEFAULT 60,
             timestamp INTEGER NOT NULL
         )"
     )
@@ -390,15 +415,16 @@ async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) 
 
     if let Err(e) = sqlx::query(
         "INSERT INTO market_snapshots (
-            exchange, timestamp, symbol, mid_price, bid_price, ask_price,
+            exchange, timeframe_secs, timestamp, symbol, mid_price, bid_price, ask_price,
             open, high, low, close, volume, average_volume,
             bb_upper, bb_middle, bb_lower, atr_14, vwap,
             ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
             macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
             squeeze_on, squeeze_momentum
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)"
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)"
     )
     .bind(exchange_label)
+    .bind(snapshot.timeframe_secs as i64)
     .bind(snapshot.timestamp as i64)
     .bind(&snapshot.symbol)
     .bind(snapshot.mid_price.to_string())
@@ -481,6 +507,7 @@ async fn insert_individual_log_internal(
     indicator_name: &str,
     signal: &str,
     reason: &str,
+    timeframe_secs: u64,
 ) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -489,13 +516,14 @@ async fn insert_individual_log_internal(
 
     if let Err(e) = sqlx::query(
         "INSERT INTO individual_indicator_logs (
-            master_record_id, indicator_name, signal, reason, timestamp
-        ) VALUES (?1, ?2, ?3, ?4, ?5)"
+            master_record_id, indicator_name, signal, reason, timeframe_secs, timestamp
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
     )
     .bind(master_record_id)
     .bind(indicator_name)
     .bind(signal)
     .bind(reason)
+    .bind(timeframe_secs as i64)
     .bind(now)
     .execute(&*pool)
     .await
@@ -632,6 +660,7 @@ pub struct IndicatorSnapshotRow {
 pub async fn query_indicator_snapshots(
     pool: &SqlitePool,
     symbol: &str,
+    timeframe_secs: u64,
     limit: u32,
 ) -> Vec<IndicatorSnapshotRow> {
     let rows = sqlx::query(
@@ -643,11 +672,13 @@ pub async fn query_indicator_snapshots(
                 average_volume
          FROM market_snapshots
          WHERE symbol = ?1
+           AND timeframe_secs = ?2
            AND close IS NOT NULL
          ORDER BY timestamp ASC
-         LIMIT ?2"
+         LIMIT ?3"
     )
     .bind(symbol)
+    .bind(timeframe_secs as i64)
     .bind(limit as i64)
     .fetch_all(&*pool)
     .await;
@@ -687,13 +718,14 @@ pub async fn query_indicator_snapshots(
     }
 }
 
-pub async fn query_atr_snapshots(pool: &SqlitePool, limit: u32) -> Vec<Option<String>> {
+pub async fn query_atr_snapshots(pool: &SqlitePool, timeframe_secs: u64, limit: u32) -> Vec<Option<String>> {
     let rows = sqlx::query_as::<_, (Option<String>,)>(
         "SELECT atr_14 FROM market_snapshots
-         WHERE atr_14 IS NOT NULL
+         WHERE atr_14 IS NOT NULL AND timeframe_secs = ?1
          ORDER BY id DESC
-         LIMIT ?1"
+         LIMIT ?2"
     )
+    .bind(timeframe_secs as i64)
     .bind(limit as i64)
     .fetch_all(&*pool)
     .await;
@@ -759,6 +791,7 @@ pub async fn query_master_records_by_trigger(
 pub async fn query_latest_snapshot(
     pool: &SqlitePool,
     symbol: &str,
+    timeframe_secs: u64,
 ) -> Option<MarketSnapshot> {
     use sqlx::Row;
     let row = sqlx::query(
@@ -769,11 +802,12 @@ pub async fn query_latest_snapshot(
                 macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
                 squeeze_on, squeeze_momentum
          FROM market_snapshots
-         WHERE symbol = ?1 AND close IS NOT NULL
+         WHERE symbol = ?1 AND timeframe_secs = ?2 AND close IS NOT NULL
          ORDER BY id DESC
          LIMIT 1"
     )
     .bind(symbol)
+    .bind(timeframe_secs as i64)
     .fetch_optional(&*pool)
     .await
     .ok()
@@ -783,6 +817,7 @@ pub async fn query_latest_snapshot(
         let parse_dec = |val: Option<String>| val.and_then(|s| rust_decimal::Decimal::from_str_exact(&s).ok());
         MarketSnapshot {
             exchange: Some(shared::normalized::Exchange::Hyperliquid),
+            timeframe_secs: timeframe_secs,
             timestamp: r.get::<i64, _>(1) as u64,
             symbol: r.get(2),
             mid_price: parse_dec(Some(r.get::<String, _>(3))).unwrap_or(rust_decimal::Decimal::ZERO),
@@ -990,15 +1025,17 @@ pub async fn query_master_action_by_id(pool: &SqlitePool, master_id: i64) -> Opt
 pub async fn query_closest_close_price(
     pool: &SqlitePool,
     symbol: &str,
+    timeframe_secs: u64,
     target_timestamp_secs: u64,
 ) -> Option<f64> {
     use sqlx::Row;
     let row = sqlx::query(
         "SELECT close FROM market_snapshots
-         WHERE symbol = ?1 AND close IS NOT NULL AND timestamp >= ?2
+         WHERE symbol = ?1 AND timeframe_secs = ?2 AND close IS NOT NULL AND timestamp >= ?3
          ORDER BY timestamp ASC LIMIT 1"
     )
     .bind(symbol)
+    .bind(timeframe_secs as i64)
     .bind(target_timestamp_secs as i64)
     .fetch_optional(&*pool)
     .await
@@ -1013,10 +1050,11 @@ pub async fn query_closest_close_price(
         None => {
             let fallback = sqlx::query(
                 "SELECT close FROM market_snapshots
-                 WHERE symbol = ?1 AND close IS NOT NULL AND timestamp <= ?2
+                 WHERE symbol = ?1 AND timeframe_secs = ?2 AND close IS NOT NULL AND timestamp <= ?3
                  ORDER BY timestamp DESC LIMIT 1"
             )
             .bind(symbol)
+            .bind(timeframe_secs as i64)
             .bind(target_timestamp_secs as i64)
             .fetch_optional(&*pool)
             .await

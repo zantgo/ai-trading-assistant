@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use engine::adapters;
 use engine::analyzer;
-use engine::config::AppConfig;
+use engine::config::{AppConfig, TimeframeConfig};
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle};
 
@@ -26,7 +26,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
 
         let test_config = AppConfig {
             symbols: vec!["Hyperliquid:BTC".to_string()],
-            candles: engine::config::CandlesConfig { duration_seconds: 60 },
+            candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
             indicators: engine::config::IndicatorsConfig {
                 ema_fast: 10,
                 ema_medium: 50,
@@ -43,14 +43,14 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             hyperliquid: Default::default(),
             pairs: HashMap::new(),
         };
-        let config = Arc::new(tokio::sync::RwLock::new(test_config));
+        let indicators = test_config.indicators.clone();
+        let tf_cfg = TimeframeConfig::new(60, indicators);
 
         let analyzer_cancel = cancel.clone();
         let analyzer_history = history.clone();
         let analyzer_latest_snap = latest_snap.clone();
         let analyzer_broadcast = broadcast_tx.clone();
         let analyzer_telemetry = telemetry_tx.clone();
-        let analyzer_config = config.clone();
         let analyzer_symbol = symbol.clone();
         let analyzer_pair_key = pair_key.clone();
         let analyzer_handle = tokio::spawn(async move {
@@ -58,11 +58,13 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 snapshot_rx,
                 analyzer_telemetry,
                 analyzer_broadcast,
-                analyzer_config,
+                tf_cfg,
                 analyzer_history,
                 analyzer_latest_snap,
                 analyzer_symbol,
                 analyzer_pair_key,
+                60,
+                "Mid",
                 analyzer_cancel,
             )
             .await;

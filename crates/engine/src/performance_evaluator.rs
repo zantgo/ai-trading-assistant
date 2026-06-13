@@ -63,7 +63,7 @@ pub async fn run_performance_evaluator(cfg: EvaluatorConfig) {
             if price_1h.is_none() {
                 let target_ts = created_ts + 3600;
                 if now_ts >= target_ts {
-                    if let Some(px) = db::query_closest_close_price(&cfg.pool, &entry.symbol, target_ts as u64).await {
+                    if let Some(px) = db::query_closest_close_price(&cfg.pool, &entry.symbol, 60, target_ts as u64).await {
                         price_1h = Some(px.to_string());
                         corr_1h = evaluate_direction(&action, signal_price, px);
                     }
@@ -74,7 +74,7 @@ pub async fn run_performance_evaluator(cfg: EvaluatorConfig) {
             if price_4h.is_none() {
                 let target_ts = created_ts + 14400;
                 if now_ts >= target_ts {
-                    if let Some(px) = db::query_closest_close_price(&cfg.pool, &entry.symbol, target_ts as u64).await {
+                    if let Some(px) = db::query_closest_close_price(&cfg.pool, &entry.symbol, 60, target_ts as u64).await {
                         price_4h = Some(px.to_string());
                         corr_4h = evaluate_direction(&action, signal_price, px);
                     }
@@ -85,7 +85,7 @@ pub async fn run_performance_evaluator(cfg: EvaluatorConfig) {
             if price_24h.is_none() {
                 let target_ts = created_ts + 86400;
                 if now_ts >= target_ts {
-                    if let Some(px) = db::query_closest_close_price(&cfg.pool, &entry.symbol, target_ts as u64).await {
+                    if let Some(px) = db::query_closest_close_price(&cfg.pool, &entry.symbol, 60, target_ts as u64).await {
                         price_24h = Some(px.to_string());
                         corr_24h = evaluate_direction(&action, signal_price, px);
                     }

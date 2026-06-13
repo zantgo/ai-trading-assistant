@@ -73,6 +73,7 @@ async fn test_orchestrator_database_pipeline() {
         indicator_name: "RSI".to_string(),
         signal: "BULLISH".to_string(),
         reason: "RSI is above 50 and rising".to_string(),
+        timeframe_secs: 60,
     }).await.expect("Failed to send InsertIndividualLog");
 
     tx.send(TelemetryMsg::UpdateMasterRecord {

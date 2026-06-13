@@ -9,13 +9,19 @@ use crate::config::{AppConfig, AutomationConfig};
 use crate::db;
 use crate::llm::LlmClient;
 use crate::paper_trading;
+use shared::models::MarketSnapshot;
 use shared::normalized::NormalizedCandle;
 use shared::TriggerType;
 
 pub struct AutomationContext {
     pub pair_key: String,
     pub symbol: String,
-    pub history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub short_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub mid_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub long_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub mid_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub long_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
     pub llm_client: Arc<RwLock<LlmClient>>,
@@ -117,7 +123,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
-        let history_guard = ctx.history.read().await;
+        let history_guard = ctx.mid_history.read().await;
         let candle_count = history_guard.len();
         if candle_count < 10 {
             drop(history_guard);
@@ -136,13 +142,17 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
-        let snapshot = db::query_latest_snapshot(&ctx.pool, &ctx.symbol).await;
-        let indicators = build_indicator_snapshot(&snapshot);
+        // Gather snapshots from all 3 timeframes
+        let snapshot_short = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 15).await;
+        let snapshot_mid = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
+        let snapshot_long = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 300).await;
+
+        let indicators_short = build_indicator_snapshot(&snapshot_short);
+        let indicators_mid = build_indicator_snapshot(&snapshot_mid);
+        let indicators_long = build_indicator_snapshot(&snapshot_long);
 
         let (support_levels, resistance_levels) =
             crate::server::compute_support_resistance(&prices, last_close);
-
-        let atr_trend = crate::server::determine_atr_trend(&ctx.pool, indicators.atr).await;
 
         let master_id = db::insert_master_placeholder(
             &ctx.pool,
@@ -162,11 +172,12 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         )
         .await;
 
-        let phase_one_results = crate::server::run_phase_one_agents(
+        let phase_one_results = crate::server::run_phase_one_agents_mtf(
             &llm,
-            &indicators,
+            &indicators_short,
+            &indicators_mid,
+            &indicators_long,
             &prices,
-            &atr_trend,
             master_id,
             &ctx.telemetry_tx,
         )
@@ -174,10 +185,9 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
         let phase_one_json = serde_json::to_string(&phase_one_results).unwrap_or_else(|_| "[]".into());
 
-        let phase_two = match llm.run_master_orchestrator(
+        let phase_two = match llm.run_multi_timeframe_orchestrator(
             "None",
             "",
-            &prices,
             &ctx.symbol,
             &phase_one_json,
             &support_levels.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
@@ -204,7 +214,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 let heuristic = crate::server::heuristic_master_synthesis(
                     "None",
                     &prices,
-                    &indicators,
+                    &indicators_mid,
                     &support_levels,
                     &resistance_levels,
                     &phase_one_results,
@@ -237,20 +247,48 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 let action = phase_two.position_recommendation.action.as_str();
                 let current_price = prices.last().copied().unwrap_or(0.0);
 
+                // Apply confluence rules: require 2/3 timeframe agreement for entry
+                let short_trend = &phase_one_results.iter()
+                    .filter(|r| r.indicator_name.starts_with("short-"))
+                    .map(|r| r.signal.as_str())
+                    .collect::<Vec<_>>();
+                let mid_trend = &phase_one_results.iter()
+                    .filter(|r| r.indicator_name.starts_with("mid-"))
+                    .map(|r| r.signal.as_str())
+                    .collect::<Vec<_>>();
+                let long_trend = &phase_one_results.iter()
+                    .filter(|r| r.indicator_name.starts_with("long-"))
+                    .map(|r| r.signal.as_str())
+                    .collect::<Vec<_>>();
+
+                let short_consensus = if short_trend.iter().filter(|&&s| s == "BULLISH").count() >= short_trend.len() / 2 { "BULLISH" } else if short_trend.iter().filter(|&&s| s == "BEARISH").count() >= short_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+                let mid_consensus = if mid_trend.iter().filter(|&&s| s == "BULLISH").count() >= mid_trend.len() / 2 { "BULLISH" } else if mid_trend.iter().filter(|&&s| s == "BEARISH").count() >= mid_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+                let long_consensus = if long_trend.iter().filter(|&&s| s == "BULLISH").count() >= long_trend.len() / 2 { "BULLISH" } else if long_trend.iter().filter(|&&s| s == "BEARISH").count() >= long_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+
+                let (confluence, count) = evaluate_confluence(short_consensus, mid_consensus, long_consensus);
+
                 match action {
                     "Open Long" => {
-                        let res = paper_trading::verify_margin_and_open(
-                            &ctx.pool, &ctx.telemetry_tx,
-                            &ctx.symbol, "LONG", current_price,
-                        ).await;
-                        println!("📄 Auto Paper: {} {}", ctx.pair_key, res.message);
+                        if confluence == "BULLISH" {
+                            let res = paper_trading::verify_margin_and_open(
+                                &ctx.pool, &ctx.telemetry_tx,
+                                &ctx.symbol, "LONG", current_price,
+                            ).await;
+                            println!("📄 Auto Paper: {} {} (confluence {}/3)", ctx.pair_key, res.message, count);
+                        } else {
+                            println!("📄 Auto Paper: {} skipping Open Long — no confluence ({}/3 aligned)", ctx.pair_key, count);
+                        }
                     }
                     "Open Short" => {
-                        let res = paper_trading::verify_margin_and_open(
-                            &ctx.pool, &ctx.telemetry_tx,
-                            &ctx.symbol, "SHORT", current_price,
-                        ).await;
-                        println!("📄 Auto Paper: {} {}", ctx.pair_key, res.message);
+                        if confluence == "BEARISH" {
+                            let res = paper_trading::verify_margin_and_open(
+                                &ctx.pool, &ctx.telemetry_tx,
+                                &ctx.symbol, "SHORT", current_price,
+                            ).await;
+                            println!("📄 Auto Paper: {} {} (confluence {}/3)", ctx.pair_key, res.message, count);
+                        } else {
+                            println!("📄 Auto Paper: {} skipping Open Short — no confluence ({}/3 aligned)", ctx.pair_key, count);
+                        }
                     }
                     "Close" => {
                         let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
@@ -293,6 +331,29 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
     }
 
     println!("🛑 Automation Task: {} scheduler terminated.", ctx.pair_key);
+}
+
+fn evaluate_confluence(short_signal: &str, mid_signal: &str, long_signal: &str) -> (&'static str, usize) {
+    let bullish = ["BULLISH", "UPWARD"];
+    let bearish = ["BEARISH", "DOWNWARD"];
+
+    let short_bull = bullish.iter().any(|&s| short_signal.to_uppercase().contains(s));
+    let short_bear = bearish.iter().any(|&s| short_signal.to_uppercase().contains(s));
+    let mid_bull = bullish.iter().any(|&s| mid_signal.to_uppercase().contains(s));
+    let mid_bear = bearish.iter().any(|&s| mid_signal.to_uppercase().contains(s));
+    let long_bull = bullish.iter().any(|&s| long_signal.to_uppercase().contains(s));
+    let long_bear = bearish.iter().any(|&s| long_signal.to_uppercase().contains(s));
+
+    let bull_count = [short_bull, mid_bull, long_bull].iter().filter(|&&x| x).count();
+    let bear_count = [short_bear, mid_bear, long_bear].iter().filter(|&&x| x).count();
+
+    if bull_count >= 2 {
+        ("BULLISH", bull_count)
+    } else if bear_count >= 2 {
+        ("BEARISH", bear_count)
+    } else {
+        ("SIDEWAYS", 0)
+    }
 }
 
 fn build_indicator_snapshot(snapshot: &Option<shared::models::MarketSnapshot>) -> crate::server::IndicatorSnapshot {

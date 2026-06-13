@@ -17,7 +17,7 @@ use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::models::MarketSnapshot;
 use shared::TriggerType;
 use crate::adapters;
-use crate::config::{AppConfig, AutomationConfig};
+use crate::config::{AppConfig, AutomationConfig, TimeframeConfig};
 use crate::analyzer::{self, ActivePair};
 use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult};
 use crate::automation;
@@ -44,6 +44,15 @@ pub struct AnalyzeRequest {
     pub indicators: IndicatorSnapshot,
     #[serde(default)]
     pub symbol: String,
+    #[serde(default)]
+    pub timeframes: Option<MultiTimeframeIndicators>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MultiTimeframeIndicators {
+    pub short_term: IndicatorSnapshot,
+    pub mid_term: IndicatorSnapshot,
+    pub long_term: IndicatorSnapshot,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,12 +101,16 @@ pub struct AssistantRecordsQuery {
 pub struct HistoryQuery {
     #[serde(default)]
     pub symbol: String,
+    #[serde(default)]
+    pub timeframe_secs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct WsQuery {
     #[serde(default)]
     pub symbol: String,
+    #[serde(default)]
+    pub timeframe_secs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,8 +176,9 @@ pub struct MultiAgentAnalysisResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct PairConfigPayload {
-    pub candles: crate::config::CandlesConfig,
-    pub indicators: crate::config::IndicatorsConfig,
+    pub short_term: crate::config::TimeframeConfig,
+    pub mid_term: crate::config::TimeframeConfig,
+    pub long_term: crate::config::TimeframeConfig,
     #[serde(default)]
     pub automation: AutomationConfig,
 }
@@ -339,12 +353,27 @@ async fn serve_history(
         query.symbol
     };
 
+    let tf_secs = query.timeframe_secs.unwrap_or(60);
     let raw_symbol = pair_key.split('-').nth(1).unwrap_or(&pair_key).to_string();
+
+    let config_guard = state.config.read().await;
+    let pair_cfg = config_guard.pairs.get(&pair_key);
+    let current_limit = match tf_secs {
+        15 => pair_cfg.map(|p| p.short_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
+        300 => pair_cfg.map(|p| p.long_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
+        _ => pair_cfg.map(|p| p.mid_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
+    };
 
     let pairs = state.pairs.read().await;
     let (prices, candles) = match pairs.get(&pair_key) {
         Some(pair) => {
-            let hist = pair.history.read().await;
+            let hist = if tf_secs == 15 {
+                pair.short.history.read().await
+            } else if tf_secs == 300 {
+                pair.long.history.read().await
+            } else {
+                pair.mid.history.read().await
+            };
             let candles: Vec<HistoryCandle> = hist.iter().map(|c| HistoryCandle {
                 time: c.start_time_ms,
                 open: c.open.to_string(),
@@ -359,10 +388,7 @@ async fn serve_history(
         None => (vec![], vec![]),
     };
 
-    let config_guard = state.config.read().await;
-    let pair_cfg = config_guard.pairs.get(&pair_key);
-    let current_limit = pair_cfg.map(|p| p.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit);
-    let indicator_rows = crate::db::query_indicator_snapshots(&state.pool, &raw_symbol, current_limit as u32).await;
+    let indicator_rows = crate::db::query_indicator_snapshots(&state.pool, &raw_symbol, tf_secs, current_limit as u32).await;
     let mut indicator_history = IndicatorHistoryArrays {
         times: Vec::with_capacity(indicator_rows.len()),
         rsi_14: Vec::with_capacity(indicator_rows.len()),
@@ -397,6 +423,7 @@ async fn serve_history(
         indicator_history.ema_slow.push(row.ema_slow);
         indicator_history.ema_long.push(row.ema_long);
     }
+    drop(config_guard);
 
     Json(HistoryResponse { prices, candles, indicator_history })
 }
@@ -421,7 +448,7 @@ async fn serve_analyze(
         let pair_key = symbol.clone();
         let pairs = state.pairs.read().await;
         if let Some(pair) = pairs.get(&pair_key) {
-            let hist = pair.history.read().await;
+            let hist = pair.mid.history.read().await;
             hist.back().map(|c| c.close.to_string()).unwrap_or_else(|| "0".to_string())
         } else {
             "0".to_string()
@@ -436,7 +463,7 @@ async fn serve_analyze(
 
     let (support_levels, resistance_levels) = compute_support_resistance(&prices, current_price);
 
-    let atr_trend = determine_atr_trend(&state.pool, indicators.atr).await;
+    let atr_trend = determine_atr_trend(&state.pool, indicators.atr, 60).await;
 
     let master_id = crate::db::insert_master_placeholder(
         &state.pool,
@@ -449,15 +476,29 @@ async fn serve_analyze(
     .await;
 
     let llm = state.llm_client.read().await;
-    let phase_one_results = run_phase_one_agents(
-        &llm,
-        indicators,
-        &prices,
-        &atr_trend,
-        master_id,
-        &state.telemetry_tx,
-    )
-    .await;
+
+    let phase_one_results = if let Some(ref mtf) = payload.timeframes {
+        run_phase_one_agents_mtf(
+            &llm,
+            &mtf.short_term,
+            &mtf.mid_term,
+            &mtf.long_term,
+            &prices,
+            master_id,
+            &state.telemetry_tx,
+        )
+        .await
+    } else {
+        run_phase_one_agents(
+            &llm,
+            indicators,
+            &prices,
+            &atr_trend,
+            master_id,
+            &state.telemetry_tx,
+        )
+        .await
+    };
 
     let phase_one_json = serde_json::to_string(&phase_one_results).unwrap_or_else(|_| "[]".into());
 
@@ -621,13 +662,13 @@ fn filter_levels(
     filtered
 }
 
-pub async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>) -> String {
+pub async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>, timeframe_secs: u64) -> String {
     let current_atr = match current_atr {
         Some(v) => v,
         None => return "flat".to_string(),
     };
 
-    let rows = crate::db::query_atr_snapshots(pool, 5).await;
+    let rows = crate::db::query_atr_snapshots(pool, timeframe_secs, 5).await;
 
     if rows.len() < 5 {
         return "flat".to_string();
@@ -652,6 +693,155 @@ pub async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>) ->
         "falling".to_string()
     } else {
         "flat".to_string()
+    }
+}
+
+pub async fn run_phase_one_agents_mtf(
+    client: &LlmClient,
+    short: &IndicatorSnapshot,
+    mid: &IndicatorSnapshot,
+    long: &IndicatorSnapshot,
+    _prices: &[f64],
+    master_id: i64,
+    telemetry_tx: &mpsc::Sender<crate::db::TelemetryMsg>,
+) -> Vec<IndividualIndicatorResult> {
+    let rsi_section = client.get_guide_section("RSI");
+    let macd_section = client.get_guide_section("MACD");
+    let squeeze_section = client.get_guide_section("SQUEEZE");
+    let adx_section = client.get_guide_section("ADX");
+    let bb_atr_section = client.get_guide_section("BOLLINGER_ATR");
+    let vol_ema_section = client.get_guide_section("VOLUME_EMA");
+    let vwap_section = client.get_guide_section("VWAP");
+
+    let indicator_names = ["RSI", "MACD", "SQUEEZE", "ADX", "BOLLINGER_ATR", "VOLUME_EMA", "VWAP"];
+    let sections = [&rsi_section, &macd_section, &squeeze_section, &adx_section, &bb_atr_section, &vol_ema_section, &vwap_section];
+    let timeframes: [(&str, &IndicatorSnapshot, u64); 3] = [
+        ("short", short, 15),
+        ("mid", mid, 60),
+        ("long", long, 300),
+    ];
+
+    let mut handles = Vec::new();
+    for (tf_label, indicator_snap, tf_secs) in &timeframes {
+        for i in 0..7 {
+            let name = indicator_names[i].to_string();
+            let section = sections[i].to_string();
+            let context = build_indicator_context(indicator_names[i], indicator_snap);
+            let tf_label = tf_label.to_string();
+            let _tf_secs = *tf_secs;
+            let client_base = client.base_url.clone();
+            let client_key = client.api_key.clone();
+            let client_model = client.model.clone();
+
+            let handle = tokio::spawn(async move {
+                let temp_client = LlmClient {
+                    base_url: client_base,
+                    api_key: client_key,
+                    model: client_model,
+                    indicators_guide: String::new(),
+                };
+
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    temp_client.run_indicator_agent(&name, &section, &context),
+                )
+                .await
+                {
+                    Ok(Ok(result)) => IndividualIndicatorResult {
+                        indicator_name: format!("{}-{}", tf_label, result.indicator_name),
+                        signal: result.signal,
+                        reason: result.reason,
+                    },
+                    Ok(Err(e)) => IndividualIndicatorResult {
+                        indicator_name: format!("{}-{}", tf_label, name),
+                        signal: "UNAVAILABLE".to_string(),
+                        reason: format!("Agent error: {}", e),
+                    },
+                    Err(_) => IndividualIndicatorResult {
+                        indicator_name: format!("{}-{}", tf_label, name),
+                        signal: "UNAVAILABLE".to_string(),
+                        reason: "Agent timed out after 10 seconds".to_string(),
+                    },
+                }
+            });
+            handles.push(handle);
+        }
+    }
+
+    use futures_util::future::join_all;
+    let results: Vec<IndividualIndicatorResult> = join_all(handles)
+        .await
+        .into_iter()
+        .map(|r| r.unwrap_or_else(|e| IndividualIndicatorResult {
+            indicator_name: "UNKNOWN".to_string(),
+            signal: "UNAVAILABLE".to_string(),
+            reason: format!("Task panic: {}", e),
+        }))
+        .collect();
+
+    for (tf_label, _, tf_secs) in &timeframes {
+        for result in &results {
+            if result.indicator_name.starts_with(&format!("{}-", tf_label)) {
+                let _ = telemetry_tx.send(crate::db::TelemetryMsg::InsertIndividualLog {
+                    master_record_id: master_id,
+                    indicator_name: result.indicator_name.clone(),
+                    signal: result.signal.clone(),
+                    reason: result.reason.clone(),
+                    timeframe_secs: *tf_secs,
+                }).await;
+            }
+        }
+    }
+
+    results
+}
+
+fn build_indicator_context(indicator_name: &str, snap: &IndicatorSnapshot) -> String {
+    match indicator_name {
+        "RSI" => format!(
+            r#"{{ "rsi_value": {}, "current_price": {} }}"#,
+            snap.rsi.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.current_price.map_or("null".to_string(), |v| format!("{:.2}", v)),
+        ),
+        "MACD" => format!(
+            r#"{{ "macd_line": {}, "signal_line": {}, "histogram_value": {} }}"#,
+            snap.macd_line.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.macd_signal.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.macd_histogram.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        ),
+        "SQUEEZE" => format!(
+            r#"{{ "squeeze_on": {}, "momentum_value": {} }}"#,
+            snap.squeeze_on.map_or("null".to_string(), |v| v.to_string()),
+            snap.squeeze_momentum.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        ),
+        "ADX" => format!(
+            r#"{{ "adx_line": {}, "di_plus": {}, "di_minus": {} }}"#,
+            snap.adx.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.adx_plus.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.adx_minus.map_or("null".to_string(), |v| format!("{:.2}", v)),
+        ),
+        "BOLLINGER_ATR" => format!(
+            r#"{{ "mid_price": {}, "bb_upper": {}, "bb_middle": {}, "bb_lower": {}, "atr_value": {} }}"#,
+            snap.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.bb_upper.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.bb_middle.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.bb_lower.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.atr.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        ),
+        "VOLUME_EMA" => format!(
+            r#"{{ "close": {}, "ema_fast": {}, "ema_slow": {}, "volume": {}, "average_volume": {} }}"#,
+            snap.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.ema_fast.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.ema_slow.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.volume.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.average_volume.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        ),
+        "VWAP" => format!(
+            r#"{{ "close": {}, "vwap": {} }}"#,
+            snap.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.vwap.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        ),
+        _ => "{}".to_string(),
     }
 }
 
@@ -798,6 +988,7 @@ pub async fn run_phase_one_agents(
             indicator_name: result.indicator_name.clone(),
             signal: result.signal.clone(),
             reason: result.reason.clone(),
+            timeframe_secs: 60,
         }).await;
     }
 
@@ -967,7 +1158,7 @@ async fn serve_assistant_records(
         let pair_key = format!("{}-{}", ex, sym.to_uppercase());
         let pairs = state.pairs.read().await;
         if let Some(pair) = pairs.get(&pair_key) {
-            let hist = pair.history.read().await;
+            let hist = pair.mid.history.read().await;
             hist.back().map(|c| c.close.to_string()).unwrap_or_else(|| "0".to_string())
         } else {
             "0".to_string()
@@ -1092,7 +1283,7 @@ async fn serve_paper_status(
         pairs.get(&symbol).cloned()
     };
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.latest_snapshot.read().await;
+        let snap = pair.mid.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
@@ -1156,7 +1347,7 @@ async fn serve_paper_order(
         pairs.get(&payload.symbol).cloned()
     };
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.latest_snapshot.read().await;
+        let snap = pair.mid.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
@@ -1274,14 +1465,23 @@ async fn ws_handler(
     } else {
         query.symbol
     };
-    ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key))
+    let tf_secs = query.timeframe_secs.unwrap_or(60);
+    ws.on_upgrade(move |socket| handle_ws_socket(socket, state, pair_key, tf_secs))
 }
 
-async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key: String) {
+async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key: String, tf_secs: u64) {
     let rx = {
         let pairs = state.pairs.read().await;
         match pairs.get(&pair_key) {
-            Some(pair) => pair.broadcast_tx.subscribe(),
+            Some(pair) => {
+                if tf_secs == 15 {
+                    pair.short.broadcast_tx.subscribe()
+                } else if tf_secs == 300 {
+                    pair.long.broadcast_tx.subscribe()
+                } else {
+                    pair.mid.broadcast_tx.subscribe()
+                }
+            }
             None => return,
         }
     };
@@ -1421,48 +1621,111 @@ async fn serve_add_pair(
         }
     }
 
-    let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(100);
-    let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
+    let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let config_guard = state.config.read().await;
     let pair_cfg = config_guard.pairs.get(&pair_key);
-    let current_limit = pair_cfg.map(|p| p.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit);
-    let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(current_limit)));
-    let latest_snap = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let default_indicators = config_guard.indicators.clone();
     let cancel = CancellationToken::new();
+
+    let short_cfg = pair_cfg
+        .map(|p| p.short_term.clone())
+        .unwrap_or_else(|| TimeframeConfig::new(15, default_indicators.clone()));
+    let mid_cfg = pair_cfg
+        .map(|p| p.mid_term.clone())
+        .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
+    let long_cfg = pair_cfg
+        .map(|p| p.long_term.clone())
+        .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
+    drop(config_guard);
+
+    let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+
+    let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(short_cfg.candles.analysis_limit)));
+    let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
+    let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
+
+    let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
 
     let pair = Arc::new(ActivePair {
         symbol: raw_symbol.clone(),
-        history: history.clone(),
-        broadcast_tx: broadcast_tx.clone(),
+        short: analyzer::TimeframePipeline {
+            history: short_history.clone(),
+            broadcast_tx: short_broadcast_tx.clone(),
+            latest_snapshot: short_latest.clone(),
+            timeframe_secs: 15,
+            timeframe_label: "Short",
+        },
+        mid: analyzer::TimeframePipeline {
+            history: mid_history.clone(),
+            broadcast_tx: mid_broadcast_tx.clone(),
+            latest_snapshot: mid_latest.clone(),
+            timeframe_secs: 60,
+            timeframe_label: "Mid",
+        },
+        long: analyzer::TimeframePipeline {
+            history: long_history.clone(),
+            broadcast_tx: long_broadcast_tx.clone(),
+            latest_snapshot: long_latest.clone(),
+            timeframe_secs: 300,
+            timeframe_label: "Long",
+        },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
-        latest_snapshot: latest_snap.clone(),
     });
 
     state.pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
 
-    let analyzer_config = state.config.clone();
-    let analyzer_history = history.clone();
-    let analyzer_latest_snap = latest_snap.clone();
-    let analyzer_broadcast = broadcast_tx.clone();
-    let analyzer_cancel = cancel.clone();
-    let analyzer_symbol = raw_symbol.clone();
-    let analyzer_pair_key = pair_key.clone();
-    let analyzer_telemetry = state.telemetry_tx.clone();
+    // Spawn 3 pipeline channels from the router
+    let (short_chan_tx, short_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (mid_chan_tx, mid_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (long_chan_tx, long_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+
+    // Event router: fan out WS events to all 3 timeframes
+    let router_symbol = raw_symbol.clone();
+    let router_cancel = cancel.clone();
     tokio::spawn(async move {
-        analyzer::run_single(
+        analyzer::run_event_router(
             snapshot_rx,
-            analyzer_telemetry,
-            analyzer_broadcast,
-            analyzer_config,
-            analyzer_history,
-            analyzer_latest_snap,
-            analyzer_symbol,
-            analyzer_pair_key,
-            analyzer_cancel,
+            short_chan_tx,
+            mid_chan_tx,
+            long_chan_tx,
+            router_symbol,
+            router_cancel,
         ).await;
     });
 
+    // Spawn 3 independent pipeline tasks
+    for (rx, tf_cfg, hist, snap, label, tf_secs, bcast) in [
+        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone()),
+        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone()),
+        (long_chan_rx, long_cfg, long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone()),
+    ] {
+        let a_symbol = raw_symbol.clone();
+        let a_pair_key = pair_key.clone();
+        let a_telemetry = state.telemetry_tx.clone();
+        let a_cancel = cancel.clone();
+        tokio::spawn(async move {
+            analyzer::run_single(
+                rx,
+                a_telemetry,
+                bcast,
+                tf_cfg,
+                hist,
+                snap,
+                a_symbol,
+                a_pair_key,
+                tf_secs,
+                label,
+                a_cancel,
+            ).await;
+        });
+    }
+
+    // WebSocket adapter
     let ws_symbol = raw_symbol.clone();
     let ws_tx = snapshot_tx.clone();
     let ws_cancel = cancel.clone();
@@ -1474,7 +1737,12 @@ async fn serve_add_pair(
     let auto_ctx = automation::AutomationContext {
         pair_key: pair_key.clone(),
         symbol: raw_symbol.clone(),
-        history: history.clone(),
+        short_history: short_history.clone(),
+        mid_history: mid_history.clone(),
+        long_history: long_history.clone(),
+        short_latest: short_latest.clone(),
+        mid_latest: mid_latest.clone(),
+        long_latest: long_latest.clone(),
         config: state.config.clone(),
         pool: state.pool.clone(),
         llm_client: state.llm_client.clone(),
@@ -1542,8 +1810,9 @@ async fn serve_update_pair_config(
     let mut config = state.config.write().await;
 
     let specific_config = crate::config::PairSpecificConfig {
-        candles: payload.candles,
-        indicators: payload.indicators,
+        short_term: payload.short_term,
+        mid_term: payload.mid_term,
+        long_term: payload.long_term,
         automation: payload.automation,
     };
 

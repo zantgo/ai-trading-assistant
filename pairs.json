@@ -1,56 +1,65 @@
 {
-  "Bybit-BTC": {
-    "candles": {
-      "duration_seconds": 10
-    },
-    "indicators": {
-      "ema_fast": 10,
-      "ema_medium": 50,
-      "ema_slow": 100,
-      "ema_long": 200,
-      "rsi_period": 14,
-      "macd_fast": 12,
-      "macd_slow": 26,
-      "macd_signal": 9,
-      "adx_period": 14,
-      "atr_period": 14,
-      "squeeze_period": 20
-    }
-  },
-  "Hyperliquid-SOL": {
-    "candles": {
-      "duration_seconds": 5
-    },
-    "indicators": {
-      "ema_fast": 10,
-      "ema_medium": 50,
-      "ema_slow": 100,
-      "ema_long": 200,
-      "rsi_period": 14,
-      "macd_fast": 12,
-      "macd_slow": 26,
-      "macd_signal": 9,
-      "adx_period": 14,
-      "atr_period": 14,
-      "squeeze_period": 20
-    }
-  },
   "Hyperliquid-BTC": {
-    "candles": {
-      "duration_seconds": 10
+    "short_term": {
+      "candles": {
+        "duration_seconds": 15,
+        "analysis_limit": 100
+      },
+      "indicators": {
+        "ema_fast": 10,
+        "ema_medium": 50,
+        "ema_slow": 100,
+        "ema_long": 200,
+        "rsi_period": 14,
+        "macd_fast": 12,
+        "macd_slow": 26,
+        "macd_signal": 9,
+        "adx_period": 14,
+        "atr_period": 14,
+        "squeeze_period": 20
+      }
     },
-    "indicators": {
-      "ema_fast": 10,
-      "ema_medium": 50,
-      "ema_slow": 100,
-      "ema_long": 200,
-      "rsi_period": 14,
-      "macd_fast": 12,
-      "macd_slow": 26,
-      "macd_signal": 9,
-      "adx_period": 14,
-      "atr_period": 14,
-      "squeeze_period": 20
+    "mid_term": {
+      "candles": {
+        "duration_seconds": 60,
+        "analysis_limit": 100
+      },
+      "indicators": {
+        "ema_fast": 10,
+        "ema_medium": 50,
+        "ema_slow": 100,
+        "ema_long": 200,
+        "rsi_period": 14,
+        "macd_fast": 12,
+        "macd_slow": 26,
+        "macd_signal": 9,
+        "adx_period": 14,
+        "atr_period": 14,
+        "squeeze_period": 20
+      }
+    },
+    "long_term": {
+      "candles": {
+        "duration_seconds": 300,
+        "analysis_limit": 100
+      },
+      "indicators": {
+        "ema_fast": 10,
+        "ema_medium": 50,
+        "ema_slow": 100,
+        "ema_long": 200,
+        "rsi_period": 14,
+        "macd_fast": 12,
+        "macd_slow": 26,
+        "macd_signal": 9,
+        "adx_period": 14,
+        "atr_period": 14,
+        "squeeze_period": 20
+      }
+    },
+    "automation": {
+      "enabled": false,
+      "interval_seconds": 900
     }
   }
 }

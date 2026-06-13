@@ -1,25 +1,21 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { getState } from './state.svelte';
-    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis, PairState } from './state.svelte';
+    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis, PairState, TimeframeTelemetry } from './state.svelte';
 
-    import PriceChart from './components/PriceChart.svelte';
-    import VolumeChart from './components/VolumeChart.svelte';
-    import AdxChart from './components/AdxChart.svelte';
-    import AtrChart from './components/AtrChart.svelte';
-    import RsiChart from './components/RsiChart.svelte';
-    import MacdChart from './components/MacdChart.svelte';
-    import SqueezeChart from './components/SqueezeChart.svelte';
+    import Sidebar from './components/Sidebar.svelte';
+    import LiveTerminal from './components/LiveTerminal.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
     import RiskCalculator from './components/RiskCalculator.svelte';
     import ExchangeSettings from './components/ExchangeSettings.svelte';
     import AnalyticsDashboard from './components/AnalyticsDashboard.svelte';
     import TradeListLedger from './components/TradeListLedger.svelte';
-    import TabHeader from './components/TabHeader.svelte';
 
     const app = getState();
-    let ws: WebSocket | null = null;
+    let wsShort: WebSocket | null = null;
+    let wsMid: WebSocket | null = null;
+    let wsLong: WebSocket | null = null;
     let configReady = false;
     let chatContainer: HTMLDivElement | null = null;
 
@@ -70,54 +66,41 @@
         draftSymbol = pair.symbol;
         draftExchange = pair.exchange;
 
-        const sec = pair.barDurationSec;
-        if (sec % 3600 === 0) {
-            draftDurationValue = sec / 3600;
-            draftDurationUnit = 'hours';
-        } else if (sec % 60 === 0) {
-            draftDurationValue = sec / 60;
-            draftDurationUnit = 'minutes';
-        } else {
-            draftDurationValue = sec;
-            draftDurationUnit = 'seconds';
-        }
+        const sec = pair.midTerm.barDurationSec;
+        if (sec % 3600 === 0) { draftDurationValue = sec / 3600; draftDurationUnit = 'hours'; }
+        else if (sec % 60 === 0) { draftDurationValue = sec / 60; draftDurationUnit = 'minutes'; }
+        else { draftDurationValue = sec; draftDurationUnit = 'seconds'; }
 
-        draftEmaFast = pair.emaFastVal;
-        draftEmaMedium = pair.emaMediumVal;
-        draftEmaSlow = pair.emaSlowVal;
-        draftEmaLong = pair.emaLongVal;
-        draftRsiPeriod = pair.rsiPeriodVal;
-        draftMacdFast = pair.macdFastVal;
-        draftMacdSlow = pair.macdSlowVal;
-        draftMacdSignal = pair.macdSignalVal;
-        draftAdxPeriod = pair.adxPeriodVal;
-        draftAtrPeriod = pair.atrPeriodVal;
-        draftSqueezePeriod = pair.squeezePeriodVal;
+        draftEmaFast = pair.midTerm.emaFastVal;
+        draftEmaMedium = pair.midTerm.emaMediumVal;
+        draftEmaSlow = pair.midTerm.emaSlowVal;
+        draftEmaLong = pair.midTerm.emaLongVal;
+        draftRsiPeriod = pair.midTerm.rsiPeriodVal;
+        draftMacdFast = pair.midTerm.macdFastVal;
+        draftMacdSlow = pair.midTerm.macdSlowVal;
+        draftMacdSignal = pair.midTerm.macdSignalVal;
+        draftAdxPeriod = pair.midTerm.adxPeriodVal;
+        draftAtrPeriod = pair.midTerm.atrPeriodVal;
+        draftSqueezePeriod = pair.midTerm.squeezePeriodVal;
 
-        draftAnalysisLimit = pair.analysisLimit;
+        draftAnalysisLimit = pair.midTerm.analysisLimit;
 
-        draftShowEmas = pair.showEmas;
-        draftShowBb = pair.showBb;
-        draftShowVwap = pair.showVwap;
-        draftShowVolume = pair.showVolume;
-        draftShowAdx = pair.showAdx;
-        draftShowAtr = pair.showAtr;
-        draftShowRsi = pair.showRsi;
-        draftShowMacd = pair.showMacd;
-        draftShowSqueeze = pair.showSqueeze;
+        draftShowEmas = pair.midTerm.showEmas;
+        draftShowBb = pair.midTerm.showBb;
+        draftShowVwap = pair.midTerm.showVwap;
+        draftShowVolume = pair.midTerm.showVolume;
+        draftShowAdx = pair.midTerm.showAdx;
+        draftShowAtr = pair.midTerm.showAtr;
+        draftShowRsi = pair.midTerm.showRsi;
+        draftShowMacd = pair.midTerm.showMacd;
+        draftShowSqueeze = pair.midTerm.showSqueeze;
 
         draftAutomationEnabled = pair.automationEnabled;
-        const autoSec = pair.automationIntervalValue;
-        if (pair.automationIntervalUnit === 'hours') {
-            draftAutomationIntervalValue = autoSec / 3600;
-            draftAutomationIntervalUnit = 'hours';
-        } else if (pair.automationIntervalUnit === 'minutes') {
-            draftAutomationIntervalValue = autoSec / 60;
-            draftAutomationIntervalUnit = 'minutes';
-        } else {
-            draftAutomationIntervalValue = autoSec;
-            draftAutomationIntervalUnit = 'seconds';
-        }
+        const autoSec = pair.automationIntervalUnit === 'hours' ? pair.automationIntervalValue * 3600
+            : pair.automationIntervalUnit === 'minutes' ? pair.automationIntervalValue * 60 : pair.automationIntervalValue;
+        if (autoSec % 3600 === 0) { draftAutomationIntervalValue = autoSec / 3600; draftAutomationIntervalUnit = 'hours'; }
+        else if (autoSec % 60 === 0) { draftAutomationIntervalValue = autoSec / 60; draftAutomationIntervalUnit = 'minutes'; }
+        else { draftAutomationIntervalValue = autoSec; draftAutomationIntervalUnit = 'seconds'; }
     }
 
     let calculatedDuration = $derived.by(() => {
@@ -151,27 +134,34 @@
         }
 
         const body = {
-            candles: { 
-                duration_seconds: Number(calculatedDuration),
-                analysis_limit: Number(draftAnalysisLimit)
+            short_term: {
+                candles: { duration_seconds: 15, analysis_limit: Number(draftAnalysisLimit) },
+                indicators: {
+                    ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
+                    rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
+                    adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
+                },
             },
-            indicators: {
-                ema_fast: Number(draftEmaFast),
-                ema_medium: Number(draftEmaMedium),
-                ema_slow: Number(draftEmaSlow),
-                ema_long: Number(draftEmaLong),
-                rsi_period: Number(draftRsiPeriod),
-                macd_fast: Number(draftMacdFast),
-                macd_slow: Number(draftMacdSlow),
-                macd_signal: Number(draftMacdSignal),
-                adx_period: Number(draftAdxPeriod),
-                atr_period: Number(draftAtrPeriod),
-                squeeze_period: Number(draftSqueezePeriod)
+            mid_term: {
+                candles: { duration_seconds: Number(calculatedDuration), analysis_limit: Number(draftAnalysisLimit) },
+                indicators: {
+                    ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
+                    rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
+                    adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
+                },
+            },
+            long_term: {
+                candles: { duration_seconds: 300, analysis_limit: Number(draftAnalysisLimit) },
+                indicators: {
+                    ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
+                    rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
+                    adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
+                },
             },
             automation: {
                 enabled: draftAutomationEnabled,
-                interval_seconds: Number(calculatedAutomationInterval)
-            }
+                interval_seconds: Number(calculatedAutomationInterval),
+            },
         };
 
         const isIdentityChanged = cleanedSymbol !== pair.symbol || draftExchange !== pair.exchange;
@@ -226,34 +216,37 @@
                     body: JSON.stringify(body)
                 });
 
-                pair.barDurationSec = calculatedDuration;
-                pair.emaFastVal = draftEmaFast;
-                pair.emaMediumVal = draftEmaMedium;
-                pair.emaSlowVal = draftEmaSlow;
-                pair.emaLongVal = draftEmaLong;
-                pair.rsiPeriodVal = draftRsiPeriod;
-                pair.macdFastVal = draftMacdFast;
-                pair.macdSlowVal = draftMacdSlow;
-                pair.macdSignalVal = draftMacdSignal;
-                pair.adxPeriodVal = draftAdxPeriod;
-                pair.atrPeriodVal = draftAtrPeriod;
-                pair.squeezePeriodVal = draftSqueezePeriod;
-                pair.analysisLimit = draftAnalysisLimit;
-
-                pair.latestSnapshot = null;
-                pair.priceText = '--';
-                pair.vwapText = '--';
+                pair.midTerm.barDurationSec = calculatedDuration;
+                for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm]) {
+                    tf.emaFastVal = draftEmaFast;
+                    tf.emaMediumVal = draftEmaMedium;
+                    tf.emaSlowVal = draftEmaSlow;
+                    tf.emaLongVal = draftEmaLong;
+                    tf.rsiPeriodVal = draftRsiPeriod;
+                    tf.macdFastVal = draftMacdFast;
+                    tf.macdSlowVal = draftMacdSlow;
+                    tf.macdSignalVal = draftMacdSignal;
+                    tf.adxPeriodVal = draftAdxPeriod;
+                    tf.atrPeriodVal = draftAtrPeriod;
+                    tf.squeezePeriodVal = draftSqueezePeriod;
+                    tf.analysisLimit = draftAnalysisLimit;
+                    tf.latestSnapshot = null;
+                    tf.priceText = '--';
+                    tf.vwapText = '--';
+                }
             }
 
-            pair.showEmas = draftShowEmas;
-            pair.showBb = draftShowBb;
-            pair.showVwap = draftShowVwap;
-            pair.showVolume = draftShowVolume;
-            pair.showAdx = draftShowAdx;
-            pair.showAtr = draftShowAtr;
-            pair.showRsi = draftShowRsi;
-            pair.showMacd = draftShowMacd;
-            pair.showSqueeze = draftShowSqueeze;
+            for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm]) {
+                tf.showEmas = draftShowEmas;
+                tf.showBb = draftShowBb;
+                tf.showVwap = draftShowVwap;
+                tf.showVolume = draftShowVolume;
+                tf.showAdx = draftShowAdx;
+                tf.showAtr = draftShowAtr;
+                tf.showRsi = draftShowRsi;
+                tf.showMacd = draftShowMacd;
+                tf.showSqueeze = draftShowSqueeze;
+            }
 
             pair.automationEnabled = draftAutomationEnabled;
             pair.automationIntervalValue = draftAutomationIntervalValue;
@@ -351,33 +344,63 @@
                 const targetState = app.pairsMap[pairKey];
 
                 if (specific && targetState) {
-                    targetState.barDurationSec = specific.candles.duration_seconds;
-                    targetState.emaFastVal = specific.indicators.ema_fast;
-                    targetState.emaMediumVal = specific.indicators.ema_medium;
-                    targetState.emaSlowVal = specific.indicators.ema_slow;
-                    targetState.emaLongVal = specific.indicators.ema_long;
-                    targetState.rsiPeriodVal = specific.indicators.rsi_period;
-                    targetState.macdFastVal = specific.indicators.macd_fast;
-                    targetState.macdSlowVal = specific.indicators.macd_slow;
-                    targetState.macdSignalVal = specific.indicators.macd_signal;
-                    targetState.adxPeriodVal = specific.indicators.adx_period;
-                    targetState.atrPeriodVal = specific.indicators.atr_period;
-                    targetState.squeezePeriodVal = specific.indicators.squeeze_period;
-                    targetState.analysisLimit = specific.candles.analysis_limit ?? 100;
-
+                    if (specific.short_term) {
+                        targetState.shortTerm.barDurationSec = specific.short_term.candles.duration_seconds;
+                        Object.assign(targetState.shortTerm, {
+                            emaFastVal: specific.short_term.indicators.ema_fast,
+                            emaMediumVal: specific.short_term.indicators.ema_medium,
+                            emaSlowVal: specific.short_term.indicators.ema_slow,
+                            emaLongVal: specific.short_term.indicators.ema_long,
+                            rsiPeriodVal: specific.short_term.indicators.rsi_period,
+                            macdFastVal: specific.short_term.indicators.macd_fast,
+                            macdSlowVal: specific.short_term.indicators.macd_slow,
+                            macdSignalVal: specific.short_term.indicators.macd_signal,
+                            adxPeriodVal: specific.short_term.indicators.adx_period,
+                            atrPeriodVal: specific.short_term.indicators.atr_period,
+                            squeezePeriodVal: specific.short_term.indicators.squeeze_period,
+                            analysisLimit: specific.short_term.candles.analysis_limit ?? 100,
+                        });
+                    }
+                    if (specific.mid_term) {
+                        targetState.midTerm.barDurationSec = specific.mid_term.candles.duration_seconds;
+                        Object.assign(targetState.midTerm, {
+                            emaFastVal: specific.mid_term.indicators.ema_fast,
+                            emaMediumVal: specific.mid_term.indicators.ema_medium,
+                            emaSlowVal: specific.mid_term.indicators.ema_slow,
+                            emaLongVal: specific.mid_term.indicators.ema_long,
+                            rsiPeriodVal: specific.mid_term.indicators.rsi_period,
+                            macdFastVal: specific.mid_term.indicators.macd_fast,
+                            macdSlowVal: specific.mid_term.indicators.macd_slow,
+                            macdSignalVal: specific.mid_term.indicators.macd_signal,
+                            adxPeriodVal: specific.mid_term.indicators.adx_period,
+                            atrPeriodVal: specific.mid_term.indicators.atr_period,
+                            squeezePeriodVal: specific.mid_term.indicators.squeeze_period,
+                            analysisLimit: specific.mid_term.candles.analysis_limit ?? 100,
+                        });
+                    }
+                    if (specific.long_term) {
+                        targetState.longTerm.barDurationSec = specific.long_term.candles.duration_seconds;
+                        Object.assign(targetState.longTerm, {
+                            emaFastVal: specific.long_term.indicators.ema_fast,
+                            emaMediumVal: specific.long_term.indicators.ema_medium,
+                            emaSlowVal: specific.long_term.indicators.ema_slow,
+                            emaLongVal: specific.long_term.indicators.ema_long,
+                            rsiPeriodVal: specific.long_term.indicators.rsi_period,
+                            macdFastVal: specific.long_term.indicators.macd_fast,
+                            macdSlowVal: specific.long_term.indicators.macd_slow,
+                            macdSignalVal: specific.long_term.indicators.macd_signal,
+                            adxPeriodVal: specific.long_term.indicators.adx_period,
+                            atrPeriodVal: specific.long_term.indicators.atr_period,
+                            squeezePeriodVal: specific.long_term.indicators.squeeze_period,
+                            analysisLimit: specific.long_term.candles.analysis_limit ?? 100,
+                        });
+                    }
                     if (specific.automation) {
                         targetState.automationEnabled = specific.automation.enabled ?? false;
                         const autoSec = specific.automation.interval_seconds ?? 900;
-                        if (autoSec % 3600 === 0) {
-                            targetState.automationIntervalValue = autoSec / 3600;
-                            targetState.automationIntervalUnit = 'hours';
-                        } else if (autoSec % 60 === 0) {
-                            targetState.automationIntervalValue = autoSec / 60;
-                            targetState.automationIntervalUnit = 'minutes';
-                        } else {
-                            targetState.automationIntervalValue = autoSec;
-                            targetState.automationIntervalUnit = 'seconds';
-                        }
+                        if (autoSec % 3600 === 0) { targetState.automationIntervalValue = autoSec / 3600; targetState.automationIntervalUnit = 'hours'; }
+                        else if (autoSec % 60 === 0) { targetState.automationIntervalValue = autoSec / 60; targetState.automationIntervalUnit = 'minutes'; }
+                        else { targetState.automationIntervalValue = autoSec; targetState.automationIntervalUnit = 'seconds'; }
                         targetState.nextEvaluationIn = targetState.automationEnabled ? formatIntervalRemaining(autoSec) : '--';
                     }
                 }
@@ -405,90 +428,85 @@
 
     let currentWsSymbol: string = '';
 
-    // Establish real-time telemetry WebSocket connection
-    function connectWebsocket() {
-        if (ws) {
-            if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
-                ws.onclose = null;
-                ws.onerror = null;
-                ws.close();
-            }
-            ws = null;
+    function buildWsUrl(timeframeSecs: number): string {
+        const symbol = app.activeTab;
+        if (!symbol) return '';
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}&timeframe_secs=${timeframeSecs}`;
+    }
+
+    function closeWs(ws: WebSocket | null) {
+        if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+            try { ws.onclose = null; ws.onerror = null; ws.close(); } catch (_) {}
         }
+    }
+
+    function onWsMessage(tf: TimeframeTelemetry, wsRef: { current: WebSocket | null }, event: MessageEvent) {
+        try {
+            const snapshot = JSON.parse(event.data);
+            if (snapshot.mid_price) tf.priceText = parseFloat(snapshot.mid_price).toFixed(2);
+            if (snapshot.vwap) tf.vwapText = parseFloat(snapshot.vwap).toFixed(2);
+            if (snapshot.ema_fast) tf.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
+            if (snapshot.ema_medium) tf.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
+            if (snapshot.ema_slow) tf.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
+            if (snapshot.ema_long) tf.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
+            if (snapshot.adx_14) tf.adxText = parseFloat(snapshot.adx_14).toFixed(2);
+            if (snapshot.adx_plus) tf.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
+            if (snapshot.adx_minus) tf.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
+            if (snapshot.atr_14) tf.atrText = parseFloat(snapshot.atr_14).toFixed(2);
+            if (snapshot.rsi_14) tf.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
+            if (snapshot.macd_line) tf.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
+            if (snapshot.macd_signal) tf.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
+            if (snapshot.macd_hist) tf.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
+            if (snapshot.squeeze_momentum) tf.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
+            tf.isSqueezeOn = snapshot.squeeze_on ?? false;
+            tf.sqzStatusText = tf.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
+            if (snapshot.volume) tf.volText = parseFloat(snapshot.volume).toFixed(2);
+            if (snapshot.average_volume) tf.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
+            tf.latestSnapshot = snapshot;
+        } catch (_) {}
+    }
+
+    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsShort' | 'wsMid' | 'wsLong', tfSecs: number) {
+        closeWs(self[wsKey] as WebSocket | null);
+
+        const url = buildWsUrl(tfSecs);
+        if (!url) return;
+
+        const newWs = new WebSocket(url);
+        (self as any)[wsKey] = newWs;
+
+        newWs.onopen = () => { app.isConnected = true; };
+        newWs.onmessage = (event) => onWsMessage(tf, { current: newWs }, event);
+        newWs.onclose = () => {
+            app.isConnected = false;
+            if ((self as any)[wsKey] === newWs) {
+                (self as any)[wsKey] = null;
+            }
+            setTimeout(() => {
+                if (app.activeTab === currentWsSymbol) {
+                    connectWebsocketForTimeframe(tf, wsKey, tfSecs);
+                }
+            }, 3000);
+        };
+        newWs.onerror = () => { newWs.close(); };
+    }
+
+    function connectWebsocket() {
+        closeWs(wsShort); wsShort = null;
+        closeWs(wsMid); wsMid = null;
+        closeWs(wsLong); wsLong = null;
 
         const symbol = app.activeTab;
         if (!symbol) return;
-
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}`;
-
         currentWsSymbol = symbol;
-        ws = new WebSocket(wsUrl);
 
-        ws.onopen = () => {
-            app.isConnected = true;
-        };
+        const pair = app.pairsMap[symbol];
+        if (!pair) return;
 
-        ws.onmessage = (event) => {
-            try {
-                const snapshot = JSON.parse(event.data);
-
-                const exchangeStr = snapshot.exchange || 'Hyperliquid';
-                const symbolStr = snapshot.symbol || 'BTC';
-                const tabKey = `${exchangeStr}-${symbolStr}`;
-
-                if (app.pairsMap[tabKey]) {
-                    const pair = app.pairsMap[tabKey];
-                    pair.latestSnapshot = snapshot;
-                    if (snapshot.mid_price) pair.priceText = parseFloat(snapshot.mid_price).toFixed(2);
-                    if (snapshot.vwap) pair.vwapText = parseFloat(snapshot.vwap).toFixed(2);
-                    if (snapshot.ema_fast) pair.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
-                    if (snapshot.ema_medium) pair.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
-                    if (snapshot.ema_slow) pair.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
-                    if (snapshot.ema_long) pair.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
-                    if (snapshot.adx_14) pair.adxText = parseFloat(snapshot.adx_14).toFixed(2);
-                    if (snapshot.adx_plus) pair.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
-                    if (snapshot.adx_minus) pair.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
-                    if (snapshot.atr_14) pair.atrText = parseFloat(snapshot.atr_14).toFixed(2);
-                    if (snapshot.rsi_14) pair.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
-                    if (snapshot.macd_line) pair.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
-                    if (snapshot.macd_signal) pair.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
-                    if (snapshot.macd_hist) pair.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
-                    if (snapshot.squeeze_momentum) pair.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
-                    pair.isSqueezeOn = snapshot.squeeze_on ?? false;
-                    pair.sqzStatusText = pair.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
-                    if (snapshot.volume) pair.volText = parseFloat(snapshot.volume).toFixed(2);
-                    if (snapshot.average_volume) pair.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
-
-                    const pos = pair.activePaperPosition as any;
-                    if (pos && snapshot.mid_price) {
-                        const currentPrice = parseFloat(snapshot.mid_price);
-                        const entryPrice = pos.entry_price ?? 0;
-                        const size = pos.size ?? 0;
-                        const allocated = pos.allocated_usd ?? 0;
-                        if (pos.direction === 'LONG') {
-                            pair.paperUnrealizedPnl = (currentPrice - entryPrice) * size;
-                        } else {
-                            pair.paperUnrealizedPnl = (entryPrice - currentPrice) * size;
-                        }
-                        pair.paperUnrealizedRoi = allocated > 0 ? (pair.paperUnrealizedPnl / allocated) * 100 : 0;
-                        pair.paperTotalAccountValue = pair.paperCashBalance + allocated + pair.paperUnrealizedPnl;
-                    }
-                }
-            } catch (err) {
-                console.error("Error parsing market snapshot JSON:", err);
-            }
-        };
-
-        ws.onclose = () => {
-            app.isConnected = false;
-            setTimeout(connectWebsocket, 3000);
-        };
-
-        ws.onerror = () => {
-            app.isConnected = false;
-            ws?.close();
-        };
+        connectWebsocketForTimeframe(pair.shortTerm, 'wsShort', 15);
+        connectWebsocketForTimeframe(pair.midTerm, 'wsMid', 60);
+        connectWebsocketForTimeframe(pair.longTerm, 'wsLong', 300);
     }
 
     onMount(() => {
@@ -497,11 +515,9 @@
     });
 
     onDestroy(() => {
-        if (ws) {
-            ws.onclose = null;
-            ws.onerror = null;
-            ws.close();
-        }
+        closeWs(wsShort); wsShort = null;
+        closeWs(wsMid); wsMid = null;
+        closeWs(wsLong); wsLong = null;
     });
 
     $effect(() => {
@@ -528,50 +544,61 @@
         app.individualResults = [];
         app.analysisPhase = 'phase1';
         app.agentProgress = [
-            { name: 'RSI',         status: 'pending' },
-            { name: 'MACD',        status: 'pending' },
-            { name: 'SQUEEZE',     status: 'pending' },
-            { name: 'ADX',         status: 'pending' },
-            { name: 'BOLLINGER_ATR', status: 'pending' },
-            { name: 'VOLUME_EMA',  status: 'pending' },
-            { name: 'VWAP',        status: 'pending' },
+            { name: 'short-RSI', status: 'pending' }, { name: 'short-MACD', status: 'pending' },
+            { name: 'short-SQUEEZE', status: 'pending' }, { name: 'short-ADX', status: 'pending' },
+            { name: 'short-BOLLINGER_ATR', status: 'pending' }, { name: 'short-VOLUME_EMA', status: 'pending' },
+            { name: 'short-VWAP', status: 'pending' },
+            { name: 'mid-RSI', status: 'pending' }, { name: 'mid-MACD', status: 'pending' },
+            { name: 'mid-SQUEEZE', status: 'pending' }, { name: 'mid-ADX', status: 'pending' },
+            { name: 'mid-BOLLINGER_ATR', status: 'pending' }, { name: 'mid-VOLUME_EMA', status: 'pending' },
+            { name: 'mid-VWAP', status: 'pending' },
+            { name: 'long-RSI', status: 'pending' }, { name: 'long-MACD', status: 'pending' },
+            { name: 'long-SQUEEZE', status: 'pending' }, { name: 'long-ADX', status: 'pending' },
+            { name: 'long-BOLLINGER_ATR', status: 'pending' }, { name: 'long-VOLUME_EMA', status: 'pending' },
+            { name: 'long-VWAP', status: 'pending' },
         ];
 
         try {
-            const historyRes = await fetch(`/api/history?symbol=${encodeURIComponent(app.activeTab)}`);
+            const historyRes = await fetch(`/api/history?symbol=${encodeURIComponent(app.activeTab)}&timeframe_secs=60`);
             const historyData = await historyRes.json();
             const prices: number[] = (historyData.prices || []).map(Number);
 
-            const snap = app.latestSnapshot || {};
+            const snap = app.midTerm.latestSnapshot || {};
+            const buildIndicators = (snap: Record<string, unknown>) => ({
+                rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
+                squeeze_on: snap.squeeze_on ?? null,
+                squeeze_momentum: snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null,
+                macd_line: snap.macd_line ? parseFloat(String(snap.macd_line)) : null,
+                macd_signal: snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null,
+                macd_histogram: snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null,
+                macd_histogram_trend: null,
+                adx: snap.adx_14 ? parseFloat(String(snap.adx_14)) : null,
+                adx_plus: snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null,
+                adx_minus: snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null,
+                bb_upper: snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null,
+                bb_middle: snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null,
+                bb_lower: snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null,
+                atr: snap.atr_14 ? parseFloat(String(snap.atr_14)) : null,
+                current_price: snap.mid_price ? parseFloat(String(snap.mid_price)) : null,
+                volume: snap.volume ? parseFloat(String(snap.volume)) : null,
+                average_volume: snap.average_volume ? parseFloat(String(snap.average_volume)) : null,
+                ema_fast: snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null,
+                ema_medium: snap.ema_medium ? parseFloat(String(snap.ema_medium)) : null,
+                ema_slow: snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null,
+                ema_long: snap.ema_long ? parseFloat(String(snap.ema_long)) : null,
+                vwap: snap.vwap ? parseFloat(String(snap.vwap)) : null,
+            });
 
             const body = {
                 symbol: app.activeTab,
                 position: app.currentPosition,
                 entry_price: app.currentPosition !== 'None' ? (parseFloat(app.entryPriceVal) || 0).toString() : '',
                 historical_prices: prices,
-                indicators: {
-                    rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
-                    squeeze_on: snap.squeeze_on ?? null,
-                    squeeze_momentum: snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null,
-                    macd_line: snap.macd_line ? parseFloat(String(snap.macd_line)) : null,
-                    macd_signal: snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null,
-                    macd_histogram: snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null,
-                    macd_histogram_trend: snap.macd_hist ? (parseFloat(String(snap.macd_hist)) > 0 ? 'increasing' : 'decreasing') : null,
-                    adx: snap.adx_14 ? parseFloat(String(snap.adx_14)) : null,
-                    adx_plus: snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null,
-                    adx_minus: snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null,
-                    bb_upper: snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null,
-                    bb_middle: snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null,
-                    bb_lower: snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null,
-                    atr: snap.atr_14 ? parseFloat(String(snap.atr_14)) : null,
-                    current_price: snap.mid_price ? parseFloat(String(snap.mid_price)) : null,
-                    volume: snap.volume ? parseFloat(String(snap.volume)) : null,
-                    average_volume: snap.average_volume ? parseFloat(String(snap.average_volume)) : null,
-                    ema_fast: snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null,
-                    ema_medium: snap.ema_medium ? parseFloat(String(snap.ema_medium)) : null,
-                    ema_slow: snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null,
-                    ema_long: snap.ema_long ? parseFloat(String(snap.ema_long)) : null,
-                    vwap: snap.vwap ? parseFloat(String(snap.vwap)) : null,
+                indicators: buildIndicators(snap),
+                timeframes: {
+                    short_term: buildIndicators(app.shortTerm.latestSnapshot || {}),
+                    mid_term: buildIndicators(app.midTerm.latestSnapshot || {}),
+                    long_term: buildIndicators(app.longTerm.latestSnapshot || {}),
                 },
             };
 
@@ -581,9 +608,7 @@
                 body: JSON.stringify(body),
             });
 
-            if (!res.ok) {
-                throw new Error(`Server returned ${res.status}`);
-            }
+            if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
             const analysis: MultiAgentAnalysis = await res.json();
             app.multiAgentResponse = analysis;
@@ -734,9 +759,10 @@
         </div>
     {/if}
 
-    <TabHeader />
+    <div class="app-layout">
+        <Sidebar />
 
-    <div class="workspace-viewport">
+        <div class="workspace-viewport">
         {#each Object.keys(app.pairsMap) as tabKey (tabKey)}
             {@const pair = app.pairsMap[tabKey]}
             <div class="workspace-window" class:hidden-pane={tabKey !== app.activeTab}>
@@ -809,93 +835,14 @@
                         </button>
                     </div>
                     <div class="time-badge">
-                        {pair.symbol}USD — {pair.barDurationSec >= 3600 ? (pair.barDurationSec / 3600) + 'h' : pair.barDurationSec >= 60 ? (pair.barDurationSec / 60) + 'm' : pair.barDurationSec + 's'}
+                        {pair.symbol}USD — MTF (15s/1m/5m)
                     </div>
                 </div>
 
                 <!-- 1. Live Terminal Inner View -->
                 {#if pair.currentView === 'terminal'}
                     <div class="main-layout animate-fade">
-                        <div class="dashboard-stack">
-                            <div class="panel-box pane-price">
-                                <div class="absolute-label font-sans">
-                                    <span class="price-header">Price: <span>{pair.priceText}</span></span>
-                                    {#if pair.showVwap}
-                                        <span class="text-orange-400 font-medium">VWAP: <span>{pair.vwapText}</span></span>
-                                    {/if}
-                                    {#if pair.showEmas}
-                                        <span class="text-blue-400 font-medium">{app.emaFastLabel}: <span>{pair.emaFastText}</span></span>
-                                        <span class="text-amber-500 font-medium">{app.emaMediumLabel}: <span>{pair.emaMediumText}</span></span>
-                                        <span class="text-rose-500 font-medium">{app.emaSlowLabel}: <span>{pair.emaSlowText}</span></span>
-                                        <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{pair.emaLongText}</span></span>
-                                    {/if}
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}-${pair.emaFastVal}-${pair.emaMediumVal}-${pair.emaSlowVal}-${pair.emaLongVal}`}
-                                    <PriceChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-
-                            <div class="panel-box pane-vol" class:hidden-pane={!pair.showVolume}>
-                                <div class="absolute-label font-sans label-text-xs">
-                                    <span class="text-teal-400 font-bold">Volume: <span>{pair.volText}</span></span>
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}`}
-                                    <VolumeChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-
-                            <div class="panel-box pane-adx" class:hidden-pane={!pair.showAdx}>
-                                <div class="absolute-label font-sans label-text-xs">
-                                    <span class="text-yellow-400 font-bold">ADX: <span>{pair.adxText}</span></span>
-                                    <span class="text-emerald-400 font-medium">+DI: <span>{pair.adxPlusText}</span></span>
-                                    <span class="text-red-500 font-medium">-DI: <span>{pair.adxMinusText}</span></span>
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}-${pair.adxPeriodVal}`}
-                                    <AdxChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-
-                            <div class="panel-box pane-atr" class:hidden-pane={!pair.showAtr}>
-                                <div class="absolute-label font-sans label-text-xs">
-                                    <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{pair.atrText}</span></span>
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}-${pair.atrPeriodVal}`}
-                                    <AtrChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-
-                            <div class="panel-box pane-rsi" class:hidden-pane={!pair.showRsi}>
-                                <div class="absolute-label font-sans label-text-xs">
-                                    <span class="text-purple-400">{app.rsiLabel}: <span>{pair.rsiText}</span></span>
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}-${pair.rsiPeriodVal}`}
-                                    <RsiChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-
-                            <div class="panel-box pane-macd" class:hidden-pane={!pair.showMacd}>
-                                <div class="absolute-label font-sans label-text-xs">
-                                    <span class="text-slate-300 font-bold">{app.macdLabel}</span>
-                                    <span class="text-blue-400">Line: <span>{pair.macdLineText}</span></span>
-                                    <span class="text-amber-500">Signal: <span>{pair.macdSigText}</span></span>
-                                    <span class="text-teal-400">Hist: <span>{pair.macdHistText}</span></span>
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}-${pair.macdFastVal}-${pair.macdSlowVal}-${pair.macdSignalVal}`}
-                                    <MacdChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-
-                            <div class="panel-box pane-squeeze" class:hidden-pane={!pair.showSqueeze}>
-                                <div class="absolute-label font-sans label-text-xs">
-                                    <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
-                                    <span class="text-emerald-400">Value: <span>{pair.sqzValText}</span></span>
-                                    <span class={pair.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {pair.sqzStatusText}</span>
-                                </div>
-                                {#key `${tabKey}-${pair.barDurationSec}-${pair.squeezePeriodVal}`}
-                                    <SqueezeChart pairKey={tabKey} />
-                                {/key}
-                            </div>
-                        </div>
+                        <LiveTerminal pairKey={tabKey} />
 
                         <aside class="sidebar-panel font-sans">
                             <div class="sidebar-section signals-box">
@@ -938,11 +885,11 @@
                                         <div class="loading-indicator">
                                             <span class="dot pulse-blue"></span>
                                             <span class="status-text">
-                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running indicator agents...' : 'Phase 2: Synthesizing master report...'}
+                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 21 MTF indicator agents...' : 'Phase 2: Synthesizing master report...'}
                                             </span>
                                         </div>
                                         <div class="agent-progress-list">
-                                            {#each app.agentProgress as agent (agent.name)}
+                                            {#each app.agentProgress.slice(0, 21) as agent (agent.name)}
                                                 <div class="agent-progress-item"
                                                     class:ap-complete={agent.status === 'complete'}
                                                     class:ap-failed={agent.status === 'failed'}
@@ -966,12 +913,11 @@
                                         {@const pt = resp.phase_two}
                                         <div class="analysis-result clickable-result" onclick={openAssistantModal} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') openAssistantModal() }}>
                                             <div class="result-block reveal" style="animation-delay: 0ms">
-                                                <h4 class="result-stage-title">Phase 1 — Indicator Consensus</h4>
+                                                <h4 class="result-stage-title">Phase 1 — MTF Consensus</h4>
                                                 <span class="consensus-badge" class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
                                                     {pt.indicator_synthesis.summary_count}
                                                 </span>
                                             </div>
-
                                             <div class="result-block reveal" style="animation-delay: 150ms">
                                                 <h4 class="result-stage-title">Phase 2 — Trend & Structure</h4>
                                                 <span class="result-badge" class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
@@ -979,7 +925,6 @@
                                                 </span>
                                                 <p class="result-reasoning">{pt.indicator_synthesis.evaluation.substring(0, 120)}...</p>
                                             </div>
-
                                             <div class="result-block result-action reveal" style="animation-delay: 300ms">
                                                 <h4 class="result-stage-title">3. Position Recommendation</h4>
                                                 <span class="action-call" class:action-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'} class:action-red={pt.position_recommendation.action === 'Close'} class:action-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}>
@@ -991,7 +936,7 @@
                                         </div>
                                     {:else if !app.assistantLoading && !app.assistantError}
                                         <p class="signals-placeholder">
-                                            Select your current position and request an AI market analysis.
+                                            Select your current position and request an AI multi-timeframe market analysis.
                                         </p>
                                     {/if}
                                 </div>
@@ -1351,6 +1296,7 @@
             </div>
         {/each}
     </div>
+</div>
 
     <!-- Modals -->
     {#if app.isAssistantModalOpen && app.multiAgentResponse}
@@ -1470,6 +1416,11 @@
         min-height: 100vh;
         display: flex;
         flex-direction: column;
+    }
+    .app-layout {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
     }
     .api-key-banner {
         background: rgba(127, 29, 29, 0.5);

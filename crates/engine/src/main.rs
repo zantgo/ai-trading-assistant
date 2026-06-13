@@ -54,16 +54,13 @@ async fn main() {
     let db_pool = db::init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
-    // Initialize telemetry queue
     let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(10000);
     let logger_pool = db_pool.clone();
 
-    // Dedicate a background worker task entirely to logging and disk I/O
     let logger_handle = tokio::spawn(async move {
         db::run_telemetry_logger(logger_pool, telemetry_rx).await;
     });
 
-    // Initialize symbol mapping system
     let symbol_mapper = Arc::new(SymbolMapper::new());
     for item in &initial_symbols {
         let (exchange_str, raw_symbol) = item.split_once(':').unwrap_or(("Hyperliquid", item));
@@ -112,50 +109,114 @@ async fn main() {
         let (exchange, raw_symbol) = item.split_once(':').unwrap_or(("Hyperliquid", item));
         let pair_key = format!("{}-{}", exchange, raw_symbol.to_uppercase());
         let normalized = format!("{}-USD", raw_symbol.to_uppercase());
-        println!("🚀 Starting analysis pipeline for {} ({})...", pair_key, normalized);
+        println!("🚀 Starting multi-timeframe analysis pipeline for {} ({})...", pair_key, normalized);
 
-        let (snapshot_tx, snapshot_rx) = channel::<NormalizedEvent>(100);
-        let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
-        let cfg = app_config.read().await;
-        let pair_cfg = cfg.pairs.get(&pair_key);
-        let current_limit = pair_cfg.map(|p| p.candles.analysis_limit).unwrap_or(cfg.candles.analysis_limit);
-        let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(current_limit)));
-        let latest_snap = Arc::new(RwLock::new(None::<MarketSnapshot>));
+        let config_guard = app_config.read().await;
+        let pair_cfg = config_guard.pairs.get(&pair_key);
+        let default_indicators = config_guard.indicators.clone();
+
+        let short_cfg = pair_cfg
+            .map(|p| p.short_term.clone())
+            .unwrap_or_else(|| config::TimeframeConfig::new(15, default_indicators.clone()));
+        let mid_cfg = pair_cfg
+            .map(|p| p.mid_term.clone())
+            .unwrap_or_else(|| config::TimeframeConfig::new(60, default_indicators.clone()));
+        let long_cfg = pair_cfg
+            .map(|p| p.long_term.clone())
+            .unwrap_or_else(|| config::TimeframeConfig::new(300, default_indicators.clone()));
+        drop(config_guard);
+
+        let (snapshot_tx, snapshot_rx) = channel::<NormalizedEvent>(500);
         let cancel = CancellationToken::new();
 
+        let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+        let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+        let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+
+        let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(short_cfg.candles.analysis_limit)));
+        let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
+        let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
+
+        let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+        let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+        let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+
         let pair = Arc::new(analyzer::ActivePair {
-            symbol: pair_key.clone(),
-            history: history.clone(),
-            broadcast_tx: broadcast_tx.clone(),
+            symbol: raw_symbol.to_uppercase(),
+            short: analyzer::TimeframePipeline {
+                history: short_history.clone(),
+                broadcast_tx: short_broadcast_tx.clone(),
+                latest_snapshot: short_latest.clone(),
+                timeframe_secs: 15,
+                timeframe_label: "Short",
+            },
+            mid: analyzer::TimeframePipeline {
+                history: mid_history.clone(),
+                broadcast_tx: mid_broadcast_tx.clone(),
+                latest_snapshot: mid_latest.clone(),
+                timeframe_secs: 60,
+                timeframe_label: "Mid",
+            },
+            long: analyzer::TimeframePipeline {
+                history: long_history.clone(),
+                broadcast_tx: long_broadcast_tx.clone(),
+                latest_snapshot: long_latest.clone(),
+                timeframe_secs: 300,
+                timeframe_label: "Long",
+            },
             snapshot_tx: snapshot_tx.clone(),
             cancel: cancel.clone(),
-            latest_snapshot: latest_snap.clone(),
         });
 
         pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
 
-        let analyzer_config = app_config.clone();
-        let analyzer_telemetry = telemetry_tx.clone();
-        let analyzer_history = history.clone();
-        let analyzer_latest_snap = latest_snap.clone();
-        let analyzer_broadcast = broadcast_tx.clone();
-        let analyzer_cancel = cancel.clone();
-        let analyzer_symbol = raw_symbol.to_uppercase();
-        let analyzer_pair_key = pair_key.clone();
+        // Three pipeline channels from the event router
+        let (short_chan_tx, short_chan_rx) = channel::<NormalizedEvent>(200);
+        let (mid_chan_tx, mid_chan_rx) = channel::<NormalizedEvent>(200);
+        let (long_chan_tx, long_chan_rx) = channel::<NormalizedEvent>(200);
+
+        // Event router
+        let router_symbol = raw_symbol.to_uppercase();
+        let router_cancel = cancel.clone();
         handles.push(tokio::spawn(async move {
-            analyzer::run_single(
+            analyzer::run_event_router(
                 snapshot_rx,
-                analyzer_telemetry,
-                analyzer_broadcast,
-                analyzer_config,
-                analyzer_history,
-                analyzer_latest_snap,
-                analyzer_symbol,
-                analyzer_pair_key,
-                analyzer_cancel,
+                short_chan_tx,
+                mid_chan_tx,
+                long_chan_tx,
+                router_symbol,
+                router_cancel,
             ).await;
         }));
 
+        // Three concurrent pipeline tasks
+        for (rx, tf_cfg, hist, snap, label, tf_secs, bcast) in [
+            (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone()),
+            (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone()),
+            (long_chan_rx, long_cfg, long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone()),
+        ] {
+            let a_symbol = raw_symbol.to_uppercase();
+            let a_pair_key = pair_key.clone();
+            let a_telemetry = telemetry_tx.clone();
+            let a_cancel = cancel.clone();
+            handles.push(tokio::spawn(async move {
+                analyzer::run_single(
+                    rx,
+                    a_telemetry,
+                    bcast,
+                    tf_cfg,
+                    hist,
+                    snap,
+                    a_symbol,
+                    a_pair_key,
+                    tf_secs,
+                    label,
+                    a_cancel,
+                ).await;
+            }));
+        }
+
+        // WebSocket adapter
         let ws_symbol = raw_symbol.to_uppercase();
         let ws_tx = snapshot_tx.clone();
         let ws_cancel = cancel.clone();
@@ -164,10 +225,16 @@ async fn main() {
             adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
         }));
 
+        // Automation loop
         let auto_ctx = automation::AutomationContext {
             pair_key: pair_key.clone(),
             symbol: raw_symbol.to_uppercase(),
-            history: history.clone(),
+            short_history: short_history.clone(),
+            mid_history: mid_history.clone(),
+            long_history: long_history.clone(),
+            short_latest: short_latest.clone(),
+            mid_latest: mid_latest.clone(),
+            long_latest: long_latest.clone(),
             config: app_config.clone(),
             pool: db_pool.clone(),
             llm_client: llm_client.clone(),

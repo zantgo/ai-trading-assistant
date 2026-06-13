@@ -1,11 +1,11 @@
-# config.default.toml
-# Standard fallback configuration template. 
-# Do not modify this file directly; edit config.toml instead.
-
-symbols = ["Hyperliquid:BTC"]
+symbols = [
+    "Hyperliquid:BTC",
+    "Hyperliquid:ETH",
+]
 
 [candles]
 duration_seconds = 60
+analysis_limit = 100
 
 [indicators]
 ema_fast = 10
@@ -19,3 +19,6 @@ macd_signal = 9
 adx_period = 14
 atr_period = 14
 squeeze_period = 20
+
+[hyperliquid]
+ws_url = "wss://api.hyperliquid.xyz/ws"

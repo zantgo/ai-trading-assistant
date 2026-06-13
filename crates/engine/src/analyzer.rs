@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::collections::VecDeque;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{broadcast, RwLock};
 use rust_decimal::Decimal;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::AppConfig;
+use crate::config::TimeframeConfig;
 use crate::risk;
 use crate::db;
 
@@ -13,48 +13,90 @@ use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr};
 
-pub struct ActivePair {
-    pub symbol: String,
+pub struct TimeframePipeline {
     pub history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub broadcast_tx: broadcast::Sender<MarketSnapshot>,
+    pub latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub timeframe_secs: u64,
+    pub timeframe_label: &'static str,
+}
+
+pub struct ActivePair {
+    pub symbol: String,
+    pub short: TimeframePipeline,
+    pub mid: TimeframePipeline,
+    pub long: TimeframePipeline,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
-    pub latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
+}
+
+pub async fn run_event_router(
+    mut rx: Receiver<NormalizedEvent>,
+    short_tx: Sender<NormalizedEvent>,
+    mid_tx: Sender<NormalizedEvent>,
+    long_tx: Sender<NormalizedEvent>,
+    symbol: String,
+    cancel: CancellationToken,
+) {
+    println!("🔄 Event Router: Started for {} (fanning out to 3 timeframes)...", symbol);
+
+    loop {
+        let event = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                println!("🛑 Event Router: {} cancelled, shutting down.", symbol);
+                break;
+            }
+            result = rx.recv() => {
+                match result {
+                    Some(e) => e,
+                    None => {
+                        println!("🛑 Event Router: {} upstream channel closed.", symbol);
+                        break;
+                    }
+                }
+            }
+        };
+
+        let _ = short_tx.send(event.clone()).await;
+        let _ = mid_tx.send(event.clone()).await;
+        let _ = long_tx.send(event).await;
+    }
 }
 
 pub async fn run_single(
     mut rx: Receiver<NormalizedEvent>,
     telemetry_tx: tokio::sync::mpsc::Sender<db::TelemetryMsg>,
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
-    config_lock: Arc<RwLock<AppConfig>>,
+    tf_config: TimeframeConfig,
     history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
     symbol: String,
     pair_key: String,
+    timeframe_secs: u64,
+    timeframe_label: &'static str,
     cancel: CancellationToken,
 ) {
-    println!("📊 Analysis Task: Started for {} ({})...", symbol, pair_key);
+    println!(
+        "📊 Analysis Task: Started {} ({}) — {} ({})s candles...",
+        symbol, pair_key, timeframe_label, tf_config.candles.duration_seconds
+    );
 
-    let init_config = config_lock.read().await.clone();
-    let init_pair_cfg = init_config.pairs.get(&pair_key);
-    let init_indicators = init_pair_cfg.map(|p| &p.indicators).unwrap_or(&init_config.indicators);
-    let init_candles = init_pair_cfg.map(|p| &p.candles).unwrap_or(&init_config.candles);
+    let active_indicators = tf_config.indicators.clone();
 
-    let mut ema_fast = Ema::new(init_indicators.ema_fast);
-    let mut ema_medium = Ema::new(init_indicators.ema_medium);
-    let mut ema_slow = Ema::new(init_indicators.ema_slow);
-    let mut ema_long = Ema::new(init_indicators.ema_long);
-    let mut rsi_14 = Rsi::new(init_indicators.rsi_period);
+    let mut ema_fast = Ema::new(active_indicators.ema_fast);
+    let mut ema_medium = Ema::new(active_indicators.ema_medium);
+    let mut ema_slow = Ema::new(active_indicators.ema_slow);
+    let mut ema_long = Ema::new(active_indicators.ema_long);
+    let mut rsi_14 = Rsi::new(active_indicators.rsi_period);
 
     let mut macd = Macd::new();
-    let mut adx_14 = Adx::new(init_indicators.adx_period);
-    let mut sqz_mom = SqueezeMomentum::new(init_indicators.squeeze_period);
+    let mut adx_14 = Adx::new(active_indicators.adx_period);
+    let mut sqz_mom = SqueezeMomentum::new(active_indicators.squeeze_period);
     let mut bollinger = BollingerBands::new();
-    let mut atr_standalone = Atr::new(init_indicators.atr_period);
+    let mut atr_standalone = Atr::new(active_indicators.atr_period);
 
-    let mut active_indicators = init_indicators.clone();
-
-    let mut candle_gen = CandleGenerator::new(&symbol, init_candles.duration_seconds);
+    let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
 
     let mut vwap_sum_tp_vol = Decimal::ZERO;
     let mut vwap_sum_vol = Decimal::ZERO;
@@ -70,49 +112,25 @@ pub async fn run_single(
         let event = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
-                println!("🛑 Analysis Task: {} cancelled, shutting down.", symbol);
+                println!("🛑 Analysis Task: {} ({}) cancelled, shutting down.", symbol, timeframe_label);
                 break;
             }
             result = rx.recv() => {
                 match result {
                     Some(e) => e,
                     None => {
-                        println!("🛑 Analysis Task: {} channel closed, shutting down.", symbol);
+                        println!("🛑 Analysis Task: {} ({}) channel closed.", symbol, timeframe_label);
                         break;
                     }
                 }
             }
         };
 
-        let config = config_lock.read().await.clone();
-        let pair_cfg = config.pairs.get(&pair_key);
-        let cur_indicators = pair_cfg.map(|p| &p.indicators).unwrap_or(&config.indicators);
-        let cur_candles = pair_cfg.map(|p| &p.candles).unwrap_or(&config.candles);
+        let cur_candles = &tf_config.candles;
 
-        if *cur_indicators != active_indicators {
-            ema_fast = Ema::new(cur_indicators.ema_fast);
-            ema_medium = Ema::new(cur_indicators.ema_medium);
-            ema_slow = Ema::new(cur_indicators.ema_slow);
-            ema_long = Ema::new(cur_indicators.ema_long);
-            rsi_14 = Rsi::new(cur_indicators.rsi_period);
-            adx_14 = Adx::new(cur_indicators.adx_period);
-            sqz_mom = SqueezeMomentum::new(cur_indicators.squeeze_period);
-            atr_standalone = Atr::new(cur_indicators.atr_period);
-            active_indicators = cur_indicators.clone();
-
-            history.write().await.clear();
-        }
-
-        if candle_gen.duration_ms != cur_candles.duration_seconds * 1000 {
-            candle_gen = CandleGenerator::new(&symbol, cur_candles.duration_seconds);
-
-            history.write().await.clear();
-        }
-
-        let current_limit = cur_candles.analysis_limit;
         {
             let mut hist = history.write().await;
-            while hist.len() > current_limit {
+            while hist.len() > cur_candles.analysis_limit {
                 hist.pop_front();
             }
         }
@@ -121,14 +139,12 @@ pub async fn run_single(
             NormalizedEvent::Trade(ref trade) => {
                 shadow_exchange = Some(trade.exchange);
 
-                // Process trade through CandleGenerator
                 let (completed_opt, live_candle) = candle_gen.process_trade(trade);
                 if let Some(completed) = completed_opt {
                     let candle_close_sec = completed.start_time_ms / 1000;
                     let day_index = candle_close_sec / 86400;
                     if let Some(prev_day) = last_day_index {
                         if day_index > prev_day {
-                            println!("🕒 VWAP: New UTC Day transition detected. Resetting volume buffers.");
                             vwap_sum_tp_vol = Decimal::ZERO;
                             vwap_sum_vol = Decimal::ZERO;
                         }
@@ -151,37 +167,17 @@ pub async fn run_single(
                     let final_ema_long = ema_long.update(completed.close);
                     let final_rsi = rsi_14.update(completed.close);
                     let final_macd = macd.update(completed.close);
-                    // ADX needs high/low/close — use trade candle values
                     let final_adx = adx_14.update(completed.high, completed.low, completed.close);
                     let final_sqz = sqz_mom.update(completed.high, completed.low, completed.close);
                     let final_bb = bollinger.update(completed.close);
                     let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
 
-                    let mut log_lines = vec![
-                        "--------------------------------------------------------------------------------".to_string(),
-                        format!(
-                            "🕯️  [{} Candle Closed] Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
-                            symbol, completed.start_time_ms, completed.close, completed.volume, completed.trades_count
-                        ),
-                        format!(
-                            "   📈 EMAs:   Fast ({}): {} | Med ({}): {} | Slow ({}): {} | Long ({}): {}",
-                            cur_indicators.ema_fast, opt_dec_str(Some(final_ema_fast)),
-                            cur_indicators.ema_medium, opt_dec_str(Some(final_ema_medium)),
-                            cur_indicators.ema_slow, opt_dec_str(Some(final_ema_slow)),
-                            cur_indicators.ema_long, opt_dec_str(Some(final_ema_long))
-                        ),
-                    ];
-
-                    if let Some(vw) = final_vwap {
-                        log_lines.push(format!("   📊 VWAP:   Weighted Average Equilibrium Price: ${:.4}", vw));
-                    }
-                    if let Some(ad) = final_adx {
-                        log_lines.push(format!("   🧭 ADX:    Trend: {:.4} | +DI: {:.4} | -DI: {:.4}", ad.0, ad.1, ad.2));
-                    }
-
-                    let display_log = log_lines.join("\n");
-
-                    let _ = telemetry_tx.send(db::TelemetryMsg::ConsoleLog(display_log)).await;
+                    let log_line = format!(
+                        "🕯️  [{}] {} Candle Closed | Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
+                        symbol, timeframe_label, completed.start_time_ms, completed.close,
+                        completed.volume, completed.trades_count
+                    );
+                    let _ = telemetry_tx.send(db::TelemetryMsg::ConsoleLog(log_line)).await;
 
                     volume_history.push_back(completed.volume);
                     if volume_history.len() > 20 {
@@ -196,6 +192,7 @@ pub async fn run_single(
 
                     let completed_snapshot = MarketSnapshot {
                         exchange: shadow_exchange,
+                        timeframe_secs,
                         timestamp: candle_close_sec,
                         symbol: symbol.clone(),
                         mid_price: completed.close,
@@ -240,8 +237,7 @@ pub async fn run_single(
                     {
                         let mut hist = history.write().await;
                         hist.push_back(completed.clone());
-                        let current_limit = cur_candles.analysis_limit;
-                        if hist.len() > current_limit {
+                        while hist.len() > cur_candles.analysis_limit {
                             hist.pop_front();
                         }
                     }
@@ -251,6 +247,7 @@ pub async fn run_single(
                 {
                     let tick = MarketSnapshot {
                         exchange: shadow_exchange,
+                        timeframe_secs,
                         timestamp: trade.timestamp_ms / 1000,
                         symbol: symbol.clone(),
                         mid_price: trade.price,
@@ -280,7 +277,7 @@ pub async fn run_single(
                     &bollinger, &atr_standalone,
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
-                    &config,
+                    timeframe_secs,
                 );
             }
 
@@ -313,13 +310,13 @@ pub async fn run_single(
                         &bollinger, &atr_standalone,
                         &vwap_sum_tp_vol, &vwap_sum_vol,
                         &volume_history,
-                        &config,
+                        timeframe_secs,
                     );
                 }
             }
 
             NormalizedEvent::Status { exchange, status, message } => {
-                println!("[STATUS] {}: {:?} — {}", exchange, status, message);
+                println!("[STATUS {}] {}: {:?} — {}", timeframe_label, exchange, status, message);
             }
         }
     }
@@ -346,7 +343,7 @@ fn broadcast_live_snapshot(
     vwap_sum_tp_vol: &Decimal,
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
-    _config: &AppConfig,
+    timeframe_secs: u64,
 ) {
     let val_ema_fast = ema_fast.clone().update(candle.close);
     let val_ema_medium = ema_medium.clone().update(candle.close);
@@ -377,6 +374,7 @@ fn broadcast_live_snapshot(
 
     let snapshot = MarketSnapshot {
         exchange,
+        timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
         symbol: symbol.to_string(),
         mid_price: candle.close,
@@ -412,11 +410,4 @@ fn broadcast_live_snapshot(
     };
 
     let _ = broadcast_tx.send(snapshot);
-}
-
-fn opt_dec_str(val: Option<Decimal>) -> String {
-    match val {
-        Some(d) => format!("{:.4}", d),
-        None => "Uninitialized".to_string(),
-    }
 }

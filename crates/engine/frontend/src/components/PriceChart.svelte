@@ -6,7 +6,7 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = getState();
-    let { pairKey } = $props();
+    let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.pairsMap[pairKey]);
 
     let container: HTMLDivElement;
@@ -55,7 +55,7 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}`);
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
                 if (data.prices && data.prices.length > 0) {
                     const now = Math.floor(Date.now() / 1000);

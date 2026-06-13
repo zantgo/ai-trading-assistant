@@ -66,10 +66,29 @@ fn default_automation_interval() -> u64 {
     900
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairSpecificConfig {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimeframeConfig {
     pub candles: CandlesConfig,
     pub indicators: IndicatorsConfig,
+}
+
+impl TimeframeConfig {
+    pub fn new(duration_seconds: u64, indicators: IndicatorsConfig) -> Self {
+        Self {
+            candles: CandlesConfig {
+                duration_seconds,
+                analysis_limit: 100,
+            },
+            indicators,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PairSpecificConfig {
+    pub short_term: TimeframeConfig,
+    pub mid_term: TimeframeConfig,
+    pub long_term: TimeframeConfig,
     #[serde(default)]
     pub automation: AutomationConfig,
 }

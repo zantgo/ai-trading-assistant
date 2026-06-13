@@ -34,6 +34,40 @@ OUTPUT SCHEMA:
   }
 }"#;
 
+const MULTI_TF_MASTER_ORCHESTRATOR_PROMPT: &str = r#"You are the Master AI Multi-Timeframe Trading Orchestrator. Your role is to analyze a structured dataset representing market data across three independent timescales: Short-Term (15s), Mid-Term (1m), and Long-Term (5m).
+
+DIAGNOSTIC PROCESS:
+1. Trend Confluence: Examine the direction and indicators of each timeframe. Note if they are aligned or in conflict.
+   - Long-Term: Defines the macro structural regime (Trend direction, major value areas).
+   - Mid-Term: Identifies intermediate swing context and trend alignment.
+   - Short-Term: Highlights short-term momentum and local entry/exit triggers.
+2. Signal Consolidation: Synthesize these levels to determine overall market bias.
+3. Decision Matching: Apply standard risk mitigation parameters to provide a final recommendation matching the user's current position constraints.
+
+RULES:
+- If Position is Long or Short, only recommend Hold or Close.
+- If Position is None, only recommend Wait, Open Long, or Open Short.
+- Phase 1 results are labeled by timeframe prefix (short-, mid-, long-) before the indicator name.
+- Long-term signals carry the most weight for structural direction; short-term signals identify local entry/exit timing.
+- When timeframes conflict, default to the majority view with a preference for the longer timeframe.
+- Output strictly JSON, no markdown fences.
+
+OUTPUT SCHEMA:
+{
+  "general_trend": "UPWARD" | "DOWNWARD" | "SIDEWAYS",
+  "support_and_resistance": {
+    "structural_analysis": "Brief description of how price levels constrain action across timeframes. 1-2 sentences."
+  },
+  "indicator_synthesis": {
+    "summary_count": "e.g., 'Short: 3/7 Bullish, Mid: 4/7 Bearish, Long: 5/7 Bullish'",
+    "evaluation": "How indicators from all three timeframes converge or diverge. Mention which timeframe dominates the consensus. 2-3 sentences."
+  },
+  "position_recommendation": {
+    "action": "Hold" | "Close" | "Wait" | "Open Long" | "Open Short",
+    "rationale": "Clear operational reasoning synthesizing multi-timeframe signals into an actionable trade decision. 2-4 sentences."
+  }
+}"#;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
@@ -375,6 +409,94 @@ RULES:
 
         let mut result: MasterOrchestratorResult = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse master orchestrator JSON: {}. Raw content: {}", e, content))?;
+
+        result.support_and_resistance = SupportResistance {
+            detected_support_levels: support_levels.to_vec(),
+            detected_resistance_levels: resistance_levels.to_vec(),
+            structural_analysis: result.support_and_resistance.structural_analysis,
+        };
+
+        Ok(result)
+    }
+
+    pub async fn run_multi_timeframe_orchestrator(
+        &self,
+        position: &str,
+        entry_price: &str,
+        symbol: &str,
+        phase_one_results_json: &str,
+        support_levels: &[String],
+        resistance_levels: &[String],
+    ) -> Result<MasterOrchestratorResult, String> {
+        let supports_str = serde_json::to_string(support_levels)
+            .unwrap_or_else(|_| "[]".into());
+        let resistances_str = serde_json::to_string(resistance_levels)
+            .unwrap_or_else(|_| "[]".into());
+
+        let entry_info = if entry_price.is_empty() || entry_price == "0" || entry_price == "0.00" {
+            "None (no open position)".to_string()
+        } else {
+            format!("${}", entry_price)
+        };
+
+        let user_message = format!(
+            "CURRENT MARKET ASSET: {}\n\
+             USER'S OPEN POSITION: {}\n\
+             USER'S ENTRY PRICE: {}\n\
+             COMPUTED SUPPORT LEVELS: {}\n\
+             COMPUTED RESISTANCE LEVELS: {}\n\
+             PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (short/mid/long prefix):\n{}",
+            symbol, position, entry_info,
+            supports_str, resistances_str,
+            phase_one_results_json,
+        );
+
+        let request_body = ChatRequest {
+            model: self.model.clone(),
+            messages: vec![
+                ChatMessage { role: "system".into(), content: MULTI_TF_MASTER_ORCHESTRATOR_PROMPT.into() },
+                ChatMessage { role: "user".into(), content: user_message },
+            ],
+            temperature: 0.3,
+            response_format: Some(ResponseFormat { format_type: "json_object".into() }),
+            max_tokens: 1024,
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+        let response = client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| format!("Multi-TF orchestrator request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
+            return Err(format!("Multi-TF orchestrator API returned {}: {}", status, body));
+        }
+
+        let chat_response: ChatResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse multi-TF orchestrator response: {}", e))?;
+
+        let content = chat_response
+            .choices
+            .first()
+            .ok_or("Multi-TF orchestrator response had no choices")?
+            .message
+            .content
+            .clone();
+
+        let mut result: MasterOrchestratorResult = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse multi-TF orchestrator JSON: {}. Raw content: {}", e, content))?;
 
         result.support_and_resistance = SupportResistance {
             detected_support_levels: support_levels.to_vec(),

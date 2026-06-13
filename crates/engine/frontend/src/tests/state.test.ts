@@ -52,18 +52,18 @@ describe('AI Trading Assistant Global State Tests', () => {
         expect(app.pairsMap['Hyperliquid-BTC']).toBeDefined();
         expect(app.pairsMap['Hyperliquid-BTC'].symbol).toBe('BTC');
         expect(app.pairsMap['Hyperliquid-BTC'].exchange).toBe('Hyperliquid');
-        expect(app.pairsMap['Hyperliquid-BTC'].priceText).toBe('--');
+        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.priceText).toBe('--');
     });
 
     it('should route snapshot data by exchange key to correct pair', () => {
         app.initPair('BTC');
         app.initPair('ETH');
 
-        app.pairsMap['Hyperliquid-BTC'].priceText = '50000.00';
-        app.pairsMap['Hyperliquid-BTC'].latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
+        app.pairsMap['Hyperliquid-BTC'].midTerm.priceText = '50000.00';
+        app.pairsMap['Hyperliquid-BTC'].midTerm.latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
 
-        expect(app.pairsMap['Hyperliquid-BTC'].priceText).toBe('50000.00');
-        expect(app.pairsMap['Hyperliquid-ETH'].priceText).toBe('--');
+        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.priceText).toBe('50000.00');
+        expect(app.pairsMap['Hyperliquid-ETH'].midTerm.priceText).toBe('--');
     });
 
     it('should toggle apiKeyConfigured flag', () => {
