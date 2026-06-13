@@ -120,6 +120,9 @@ export interface PairState {
     chatInputText: string;
     isChatLoading: boolean;
 
+    // Per-pair workspace view tab
+    currentView: 'terminal' | 'performance' | 'settings';
+
     // Per-pair configuration
     barDurationSec: number;
     emaFastVal: number;
@@ -191,6 +194,8 @@ function createPairState(symbol: string, exchange: string): PairState {
         chatInputText: '',
         isChatLoading: false,
 
+        currentView: 'terminal',
+
         barDurationSec: globalCandlesConfig.duration_seconds,
         emaFastVal: globalIndicatorsConfig.ema_fast,
         emaMediumVal: globalIndicatorsConfig.ema_medium,
@@ -223,7 +228,6 @@ let activeTab = $state<string>('Hyperliquid-BTC');
 // --- Global configuration ---
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
-let showSettingsPanel = $state(false);
 
 let globalCandlesConfig = $state({ duration_seconds: 60 });
 let globalIndicatorsConfig = $state({
@@ -288,7 +292,6 @@ export function switchTab(key: string) {
     activeTab = key;
 }
 
-let currentView = $state<'terminal' | 'performance'>('terminal');
 let userTrades = $state<UserTrade[]>([]);
 
 export interface UserTrade {
@@ -371,8 +374,6 @@ export function getState() {
         set apiKeyConfigured(v: boolean) { apiKeyConfigured = v; },
         get rulesContent() { return rulesContent; },
         set rulesContent(v: string) { rulesContent = v; },
-        get showSettingsPanel() { return showSettingsPanel; },
-        set showSettingsPanel(v: boolean) { showSettingsPanel = v; },
 
         // Visibility — proxied per-pair
         get showEmas() { return activePair().showEmas; }, set showEmas(v: boolean) { activePair().showEmas = v; },
@@ -510,8 +511,8 @@ export function getState() {
         get isChatLoading() { return activePair().isChatLoading; },
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
 
-        get currentView() { return currentView; },
-        set currentView(v: 'terminal' | 'performance') { currentView = v; },
+        get currentView() { return activePair().currentView; },
+        set currentView(v: 'terminal' | 'performance' | 'settings') { activePair().currentView = v; },
         get userTrades() { return userTrades; },
         set userTrades(v: UserTrade[]) { userTrades = v; },
 

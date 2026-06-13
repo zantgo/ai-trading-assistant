@@ -1,6 +1,7 @@
 symbols = [
     "Hyperliquid:BTC",
     "Hyperliquid:ETH",
+    "Hyperliquid:XRP",
 ]
 
 [candles]

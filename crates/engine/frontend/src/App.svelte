@@ -1,11 +1,8 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { getState } from './state.svelte';
-    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis } from './state.svelte';
+    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis, PairState } from './state.svelte';
 
-    import Header from './components/Header.svelte';
-    import TabHeader from './components/TabHeader.svelte';
-    import SettingsPanel from './components/SettingsPanel.svelte';
     import PriceChart from './components/PriceChart.svelte';
     import VolumeChart from './components/VolumeChart.svelte';
     import AdxChart from './components/AdxChart.svelte';
@@ -14,12 +11,258 @@
     import MacdChart from './components/MacdChart.svelte';
     import SqueezeChart from './components/SqueezeChart.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
+    import TabHeader from './components/TabHeader.svelte';
 
     const app = getState();
     let ws: WebSocket | null = null;
     let configReady = false;
-    // svelte-ignore non_reactive_update
     let chatContainer: HTMLDivElement | null = null;
+
+    // Config draft states for localized workspace settings editing
+    let activeSettingsPairKey = $state('');
+    let draftSymbol = $state('');
+    let draftExchange = $state('Hyperliquid');
+    let draftDurationValue = $state(60);
+    let draftDurationUnit = $state<'seconds' | 'minutes' | 'hours'>('seconds');
+    let draftEmaFast = $state(10);
+    let draftEmaMedium = $state(50);
+    let draftEmaSlow = $state(100);
+    let draftEmaLong = $state(200);
+    let draftRsiPeriod = $state(14);
+    let draftMacdFast = $state(12);
+    let draftMacdSlow = $state(26);
+    let draftMacdSignal = $state(9);
+    let draftAdxPeriod = $state(14);
+    let draftAtrPeriod = $state(14);
+    let draftSqueezePeriod = $state(20);
+
+    let draftShowEmas = $state(true);
+    let draftShowBb = $state(true);
+    let draftShowVwap = $state(true);
+    let draftShowVolume = $state(true);
+    let draftShowAdx = $state(true);
+    let draftShowAtr = $state(true);
+    let draftShowRsi = $state(true);
+    let draftShowMacd = $state(true);
+    let draftShowSqueeze = $state(true);
+
+    let draftApiKey = $state('');
+    let apiKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+    let apiKeyError = $state('');
+
+    let draftRules = $state('');
+    let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
+
+    // Load active settings states when settings tab opens on any pair
+    function syncSettingsDraft(pairKey: string, pair: PairState) {
+        activeSettingsPairKey = pairKey;
+        draftSymbol = pair.symbol;
+        draftExchange = pair.exchange;
+
+        const sec = pair.barDurationSec;
+        if (sec % 3600 === 0) {
+            draftDurationValue = sec / 3600;
+            draftDurationUnit = 'hours';
+        } else if (sec % 60 === 0) {
+            draftDurationValue = sec / 60;
+            draftDurationUnit = 'minutes';
+        } else {
+            draftDurationValue = sec;
+            draftDurationUnit = 'seconds';
+        }
+
+        draftEmaFast = pair.emaFastVal;
+        draftEmaMedium = pair.emaMediumVal;
+        draftEmaSlow = pair.emaSlowVal;
+        draftEmaLong = pair.emaLongVal;
+        draftRsiPeriod = pair.rsiPeriodVal;
+        draftMacdFast = pair.macdFastVal;
+        draftMacdSlow = pair.macdSlowVal;
+        draftMacdSignal = pair.macdSignalVal;
+        draftAdxPeriod = pair.adxPeriodVal;
+        draftAtrPeriod = pair.atrPeriodVal;
+        draftSqueezePeriod = pair.squeezePeriodVal;
+
+        draftShowEmas = pair.showEmas;
+        draftShowBb = pair.showBb;
+        draftShowVwap = pair.showVwap;
+        draftShowVolume = pair.showVolume;
+        draftShowAdx = pair.showAdx;
+        draftShowAtr = pair.showAtr;
+        draftShowRsi = pair.showRsi;
+        draftShowMacd = pair.showMacd;
+        draftShowSqueeze = pair.showSqueeze;
+    }
+
+    let calculatedDuration = $derived.by(() => {
+        const val = Number(draftDurationValue) || 1;
+        if (draftDurationUnit === 'hours') return val * 3600;
+        if (draftDurationUnit === 'minutes') return val * 60;
+        return val;
+    });
+
+    async function applySettings(pairKey: string, pair: PairState) {
+        const cleanedSymbol = draftSymbol.trim().toUpperCase();
+        if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
+            alert("Invalid Ticker. Must be 2-10 characters (alphanumeric).");
+            return;
+        }
+
+        const body = {
+            candles: { duration_seconds: Number(calculatedDuration) },
+            indicators: {
+                ema_fast: Number(draftEmaFast),
+                ema_medium: Number(draftEmaMedium),
+                ema_slow: Number(draftEmaSlow),
+                ema_long: Number(draftEmaLong),
+                rsi_period: Number(draftRsiPeriod),
+                macd_fast: Number(draftMacdFast),
+                macd_slow: Number(draftMacdSlow),
+                macd_signal: Number(draftMacdSignal),
+                adx_period: Number(draftAdxPeriod),
+                atr_period: Number(draftAtrPeriod),
+                squeeze_period: Number(draftSqueezePeriod)
+            }
+        };
+
+        const isIdentityChanged = cleanedSymbol !== pair.symbol || draftExchange !== pair.exchange;
+
+        try {
+            if (isIdentityChanged) {
+                const newPairKey = `${draftExchange}-${cleanedSymbol}`;
+
+                await fetch(`/api/pairs`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: cleanedSymbol, exchange: draftExchange }),
+                });
+
+                await fetch(`/api/pairs/${encodeURIComponent(newPairKey)}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                await fetch(`/api/pairs/${encodeURIComponent(pairKey)}`, { method: 'DELETE' });
+
+                app.initPair(cleanedSymbol, draftExchange);
+
+                const next = app.pairsMap[newPairKey];
+                if (next) {
+                    next.barDurationSec = calculatedDuration;
+                    next.emaFastVal = draftEmaFast;
+                    next.emaMediumVal = draftEmaMedium;
+                    next.emaSlowVal = draftEmaSlow;
+                    next.emaLongVal = draftEmaLong;
+                    next.rsiPeriodVal = draftRsiPeriod;
+                    next.macdFastVal = draftMacdFast;
+                    next.macdSlowVal = draftMacdSlow;
+                    next.macdSignalVal = draftMacdSignal;
+                    next.adxPeriodVal = draftAdxPeriod;
+                    next.atrPeriodVal = draftAtrPeriod;
+                    next.squeezePeriodVal = draftSqueezePeriod;
+                }
+
+                app.removePair(pairKey);
+                app.activeTab = newPairKey;
+            } else {
+                await fetch(`/api/pairs/${encodeURIComponent(pairKey)}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                pair.barDurationSec = calculatedDuration;
+                pair.emaFastVal = draftEmaFast;
+                pair.emaMediumVal = draftEmaMedium;
+                pair.emaSlowVal = draftEmaSlow;
+                pair.emaLongVal = draftEmaLong;
+                pair.rsiPeriodVal = draftRsiPeriod;
+                pair.macdFastVal = draftMacdFast;
+                pair.macdSlowVal = draftMacdSlow;
+                pair.macdSignalVal = draftMacdSignal;
+                pair.adxPeriodVal = draftAdxPeriod;
+                pair.atrPeriodVal = draftAtrPeriod;
+                pair.squeezePeriodVal = draftSqueezePeriod;
+
+                pair.latestSnapshot = null;
+                pair.priceText = '--';
+                pair.vwapText = '--';
+            }
+
+            pair.showEmas = draftShowEmas;
+            pair.showBb = draftShowBb;
+            pair.showVwap = draftShowVwap;
+            pair.showVolume = draftShowVolume;
+            pair.showAdx = draftShowAdx;
+            pair.showAtr = draftShowAtr;
+            pair.showRsi = draftShowRsi;
+            pair.showMacd = draftShowMacd;
+            pair.showSqueeze = draftShowSqueeze;
+
+            pair.currentView = 'terminal';
+        } catch (e) {
+            console.error("Save config exception:", e);
+        }
+    }
+
+    async function fetchRules() {
+        rulesStatus = 'loading';
+        try {
+            const res = await fetch('/api/rules');
+            const data = await res.json();
+            draftRules = data.content || '';
+            app.rulesContent = draftRules;
+            rulesStatus = 'idle';
+        } catch (_) {
+            rulesStatus = 'error';
+        }
+    }
+
+    async function saveRules() {
+        rulesStatus = 'saving';
+        try {
+            const res = await fetch('/api/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: draftRules }),
+            });
+            if (res.ok) {
+                app.rulesContent = draftRules;
+                rulesStatus = 'success';
+                setTimeout(() => { rulesStatus = 'idle'; }, 2000);
+            } else {
+                rulesStatus = 'error';
+            }
+        } catch (_) {
+            rulesStatus = 'error';
+        }
+    }
+
+    async function saveApiKey() {
+        const key = draftApiKey.trim();
+        if (!key) return;
+        apiKeyStatus = 'saving';
+        try {
+            const res = await fetch('/api/config/key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: key }),
+            });
+            if (res.ok) {
+                app.apiKeyConfigured = true;
+                draftApiKey = '';
+                apiKeyStatus = 'success';
+                setTimeout(() => { apiKeyStatus = 'idle'; }, 2000);
+            } else {
+                apiKeyError = 'Rejected by Server';
+                apiKeyStatus = 'error';
+            }
+        } catch (e: any) {
+            apiKeyError = e.message || 'Connection failed';
+            apiKeyStatus = 'error';
+        }
+    }
 
     // Fetch configuration parameters from backend
     async function fetchConfig() {
@@ -80,9 +323,7 @@
             const data = await res.json();
             app.assistantHistory = data.records || [];
             app.historyLatestClose = data.latest_close || '0';
-        } catch (_) {
-            // Silencioso
-        }
+        } catch (_) {}
     }
 
     let currentWsSymbol: string = '';
@@ -119,7 +360,6 @@
                 const symbolStr = snapshot.symbol || 'BTC';
                 const tabKey = `${exchangeStr}-${symbolStr}`;
 
-                // Route data directly to its corresponding tab's state by symbol key
                 if (app.pairsMap[tabKey]) {
                     const pair = app.pairsMap[tabKey];
                     pair.latestSnapshot = snapshot;
@@ -150,7 +390,6 @@
 
         ws.onclose = () => {
             app.isConnected = false;
-            // Intentar reconectar automáticamente cada 3 segundos
             setTimeout(connectWebsocket, 3000);
         };
 
@@ -177,6 +416,15 @@
         const tab = app.activeTab;
         if (configReady && tab && tab !== currentWsSymbol) {
             connectWebsocket();
+        }
+    });
+
+    // Auto-sync setting draft state when moving to setting tab views
+    $effect(() => {
+        const key = app.activeTab;
+        const pair = app.pairsMap[key];
+        if (pair && pair.currentView === 'settings' && activeSettingsPairKey !== key) {
+            syncSettingsDraft(key, pair);
         }
     });
 
@@ -391,309 +639,402 @@
     {#if !app.apiKeyConfigured}
         <div class="api-key-banner">
             ⚠️ DeepSeek AI API Key is not configured. Falling back to local heuristic mode.
-            <button class="banner-btn" onclick={() => app.showSettingsPanel = true}>Configure Key Now</button>
         </div>
     {/if}
+
     <TabHeader />
 
-    <div class="main-layout">
-        {#if app.currentView === 'terminal'}
-        <!-- Center column showing active visual panels -->
+    <div class="workspace-viewport">
         {#each Object.keys(app.pairsMap) as tabKey (tabKey)}
-            <main class="dashboard-stack" class:hidden-pane={tabKey !== app.activeTab}>
-                <div class="panel-box pane-price">
-                    <div class="absolute-label font-sans">
-                        <span class="price-header">Price: <span>{app.pairsMap[tabKey].priceText}</span></span>
-                        {#if app.pairsMap[tabKey].showVwap}
-                            <span class="text-orange-400 font-medium">VWAP: <span>{app.pairsMap[tabKey].vwapText}</span></span>
-                        {/if}
-                        {#if app.pairsMap[tabKey].showEmas}
-                            <span class="text-blue-400 font-medium">{app.emaFastLabel}: <span>{app.pairsMap[tabKey].emaFastText}</span></span>
-                            <span class="text-amber-500 font-medium">{app.emaMediumLabel}: <span>{app.pairsMap[tabKey].emaMediumText}</span></span>
-                            <span class="text-rose-500 font-medium">{app.emaSlowLabel}: <span>{app.pairsMap[tabKey].emaSlowText}</span></span>
-                            <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{app.pairsMap[tabKey].emaLongText}</span></span>
-                        {/if}
+            {@const pair = app.pairsMap[tabKey]}
+            <div class="workspace-window" class:hidden-pane={tabKey !== app.activeTab}>
+
+                <!-- Secondary navigation bar within each pair's self-contained layout -->
+                <div class="workspace-sub-header">
+                    <div class="sub-tabs-container">
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'terminal'}
+                            onclick={() => pair.currentView = 'terminal'}
+                        >
+                            📈 Live Terminal
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'performance'}
+                            onclick={() => pair.currentView = 'performance'}
+                        >
+                            📊 Performance Metrics
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'settings'}
+                            onclick={() => { pair.currentView = 'settings'; syncSettingsDraft(tabKey, pair); }}
+                        >
+                            ⚙️ Workspace Settings
+                        </button>
                     </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.emaFastVal}-${app.pairsMap[tabKey]?.emaMediumVal}-${app.pairsMap[tabKey]?.emaSlowVal}-${app.pairsMap[tabKey]?.emaLongVal}`}
-                        <PriceChart pairKey={tabKey} />
-                    {/key}
+                    <div class="time-badge">
+                        {pair.symbol}USD — {pair.barDurationSec >= 3600 ? (pair.barDurationSec / 3600) + 'h' : pair.barDurationSec >= 60 ? (pair.barDurationSec / 60) + 'm' : pair.barDurationSec + 's'}
+                    </div>
                 </div>
 
-                <div class="panel-box pane-vol" class:hidden-pane={!app.pairsMap[tabKey].showVolume}>
-                    <div class="absolute-label font-sans label-text-xs">
-                        <span class="text-teal-400 font-bold">Volume: <span>{app.pairsMap[tabKey].volText}</span></span>
-                    </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}`}
-                        <VolumeChart pairKey={tabKey} />
-                    {/key}
-                </div>
-
-                <div class="panel-box pane-adx" class:hidden-pane={!app.pairsMap[tabKey].showAdx}>
-                    <div class="absolute-label font-sans label-text-xs">
-                        <span class="text-yellow-400 font-bold">ADX: <span>{app.pairsMap[tabKey].adxText}</span></span>
-                        <span class="text-emerald-400 font-medium">+DI: <span>{app.pairsMap[tabKey].adxPlusText}</span></span>
-                        <span class="text-red-500 font-medium">-DI: <span>{app.pairsMap[tabKey].adxMinusText}</span></span>
-                    </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.adxPeriodVal}`}
-                        <AdxChart pairKey={tabKey} />
-                    {/key}
-                </div>
-
-                <div class="panel-box pane-atr" class:hidden-pane={!app.pairsMap[tabKey].showAtr}>
-                    <div class="absolute-label font-sans label-text-xs">
-                        <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{app.pairsMap[tabKey].atrText}</span></span>
-                    </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.atrPeriodVal}`}
-                        <AtrChart pairKey={tabKey} />
-                    {/key}
-                </div>
-
-                <div class="panel-box pane-rsi" class:hidden-pane={!app.pairsMap[tabKey].showRsi}>
-                    <div class="absolute-label font-sans label-text-xs">
-                        <span class="text-purple-400">{app.rsiLabel}: <span>{app.pairsMap[tabKey].rsiText}</span></span>
-                    </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.rsiPeriodVal}`}
-                        <RsiChart pairKey={tabKey} />
-                    {/key}
-                </div>
-
-                <div class="panel-box pane-macd" class:hidden-pane={!app.pairsMap[tabKey].showMacd}>
-                    <div class="absolute-label font-sans label-text-xs">
-                        <span class="text-slate-300 font-bold">{app.macdLabel}</span>
-                        <span class="text-blue-400">Line: <span>{app.pairsMap[tabKey].macdLineText}</span></span>
-                        <span class="text-amber-500">Signal: <span>{app.pairsMap[tabKey].macdSigText}</span></span>
-                        <span class="text-teal-400">Hist: <span>{app.pairsMap[tabKey].macdHistText}</span></span>
-                    </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.macdFastVal}-${app.pairsMap[tabKey]?.macdSlowVal}-${app.pairsMap[tabKey]?.macdSignalVal}`}
-                        <MacdChart pairKey={tabKey} />
-                    {/key}
-                </div>
-
-                <div class="panel-box pane-squeeze" class:hidden-pane={!app.pairsMap[tabKey].showSqueeze}>
-                    <div class="absolute-label font-sans label-text-xs">
-                        <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
-                        <span class="text-emerald-400">Value: <span>{app.pairsMap[tabKey].sqzValText}</span></span>
-                        <span class={app.pairsMap[tabKey].isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {app.pairsMap[tabKey].sqzStatusText}</span>
-                    </div>
-                    {#key `${tabKey}-${app.pairsMap[tabKey]?.barDurationSec}-${app.pairsMap[tabKey]?.squeezePeriodVal}`}
-                        <SqueezeChart pairKey={tabKey} />
-                    {/key}
-                </div>
-            </main>
-        {/each}
-
-        <!-- Right Side Panel containing settings variables & signal pipeline states -->
-        <aside class="sidebar-panel font-sans">
-            <div class="sidebar-section signals-box">
-                <h3 class="section-title">AI ASSISTANT</h3>
-                <div class="signals-content">
-                    <div class="position-selector">
-                        <span class="sub-title">Current Position:</span>
-                        <label>
-                            <input type="radio" bind:group={app.currentPosition} value="None" /> None
-                        </label>
-                        <label>
-                            <input type="radio" bind:group={app.currentPosition} value="Long" /> Long
-                        </label>
-                        <label>
-                            <input type="radio" bind:group={app.currentPosition} value="Short" /> Short
-                        </label>
-                    </div>
-
-                    {#if app.currentPosition !== 'None'}
-                        <div class="entry-price-input">
-                            <label for="entryPrice">Entry Price ($):</label>
-                            <input id="entryPrice" type="number" step="any"
-                                   bind:value={app.entryPriceVal} placeholder="0.00" />
-                        </div>
-                        <div class="entry-price-input" style="margin-top: 8px;">
-                            <label for="stopLoss">Stop Loss ($):</label>
-                            <input id="stopLoss" type="number" step="any"
-                                   bind:value={app.stopLossVal} placeholder="0.00" />
-                            <small style="font-size: 9px; color: #64748b; margin-top: 2px; display: block;">
-                                Left blank? Auto-defaults to 1% risk distance.
-                            </small>
-                        </div>
-                    {/if}
-
-                    <button
-                        class="analyze-btn"
-                        onclick={requestAnalysis}
-                        disabled={app.assistantLoading}
-                    >
-                        {#if app.assistantLoading}
-                            Analyzing Market...
-                        {:else}
-                            Request AI Assistant Analysis
-                        {/if}
-                    </button>
-
-                    {#if app.assistantLoading}
-                        <div class="loading-indicator">
-                            <span class="dot pulse-blue"></span>
-                            <span class="status-text">
-                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 7 indicator agents...' : 'Phase 2: Synthesizing master report...'}
-                            </span>
-                        </div>
-                        <div class="agent-progress-list">
-                            {#each app.agentProgress as agent (agent.name)}
-                                <div class="agent-progress-item"
-                                    class:ap-complete={agent.status === 'complete'}
-                                    class:ap-failed={agent.status === 'failed'}
-                                    class:ap-running={agent.status === 'pending' && app.analysisPhase === 'phase1'}
-                                >
-                                    <span class="ap-name">{agent.name}</span>
-                                    <span class="ap-status">
-                                        {#if agent.status === 'complete'}
-                                            ✓
-                                        {:else if agent.status === 'failed'}
-                                            ✗
-                                        {:else}
-                                            ···
-                                        {/if}
-                                    </span>
+                <!-- 1. Live Terminal Inner View -->
+                {#if pair.currentView === 'terminal'}
+                    <div class="main-layout animate-fade">
+                        <div class="dashboard-stack">
+                            <div class="panel-box pane-price">
+                                <div class="absolute-label font-sans">
+                                    <span class="price-header">Price: <span>{pair.priceText}</span></span>
+                                    {#if pair.showVwap}
+                                        <span class="text-orange-400 font-medium">VWAP: <span>{pair.vwapText}</span></span>
+                                    {/if}
+                                    {#if pair.showEmas}
+                                        <span class="text-blue-400 font-medium">{app.emaFastLabel}: <span>{pair.emaFastText}</span></span>
+                                        <span class="text-amber-500 font-medium">{app.emaMediumLabel}: <span>{pair.emaMediumText}</span></span>
+                                        <span class="text-rose-500 font-medium">{app.emaSlowLabel}: <span>{pair.emaSlowText}</span></span>
+                                        <span class="text-purple-400 font-medium">{app.emaLongLabel}: <span>{pair.emaLongText}</span></span>
+                                    {/if}
                                 </div>
-                            {/each}
-                        </div>
-                    {/if}
-
-                    {#if app.assistantError}
-                        <div class="error-box">
-                            <span>Failed: {app.assistantError}</span>
-                        </div>
-                    {/if}
-
-                    {#if app.multiAgentResponse && !app.assistantLoading}
-                        {@const resp = app.multiAgentResponse}
-                        {@const pt = resp.phase_two}
-                        <div class="analysis-result clickable-result" onclick={openAssistantModal} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') openAssistantModal() }}>
-                            <div class="result-block reveal" style="animation-delay: 0ms">
-                                <h4 class="result-stage-title">Phase 1 — Indicator Consensus</h4>
-                                <span class="consensus-badge"
-                                    class:badge-up={pt.general_trend === 'UPWARD'}
-                                    class:badge-down={pt.general_trend === 'DOWNWARD'}
-                                    class:badge-side={pt.general_trend === 'SIDEWAYS'}
-                                >
-                                    {pt.indicator_synthesis.summary_count}
-                                </span>
+                                {#key `${tabKey}-${pair.barDurationSec}-${pair.emaFastVal}-${pair.emaMediumVal}-${pair.emaSlowVal}-${pair.emaLongVal}`}
+                                    <PriceChart pairKey={tabKey} />
+                                {/key}
                             </div>
 
-                            <div class="result-block reveal" style="animation-delay: 150ms">
-                                <h4 class="result-stage-title">Phase 2 — Trend & Structure</h4>
-                                <span class="result-badge"
-                                    class:badge-up={pt.general_trend === 'UPWARD'}
-                                    class:badge-down={pt.general_trend === 'DOWNWARD'}
-                                    class:badge-side={pt.general_trend === 'SIDEWAYS'}
-                                >
-                                    {pt.general_trend}
-                                </span>
-                                <p class="result-reasoning">{pt.indicator_synthesis.evaluation.substring(0, 120)}...</p>
+                            <div class="panel-box pane-vol" class:hidden-pane={!pair.showVolume}>
+                                <div class="absolute-label font-sans label-text-xs">
+                                    <span class="text-teal-400 font-bold">Volume: <span>{pair.volText}</span></span>
+                                </div>
+                                {#key `${tabKey}-${pair.barDurationSec}`}
+                                    <VolumeChart pairKey={tabKey} />
+                                {/key}
                             </div>
 
-                            <div class="result-block result-action reveal" style="animation-delay: 300ms">
-                                <h4 class="result-stage-title">3. Position Recommendation</h4>
-                                <span
-                                    class="action-call"
-                                    class:action-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'}
-                                    class:action-red={pt.position_recommendation.action === 'Close'}
-                                    class:action-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}
-                                >
-                                    {pt.position_recommendation.action}
-                                </span>
-                                <p class="result-reasoning">{pt.position_recommendation.rationale.substring(0, 150)}...</p>
+                            <div class="panel-box pane-adx" class:hidden-pane={!pair.showAdx}>
+                                <div class="absolute-label font-sans label-text-xs">
+                                    <span class="text-yellow-400 font-bold">ADX: <span>{pair.adxText}</span></span>
+                                    <span class="text-emerald-400 font-medium">+DI: <span>{pair.adxPlusText}</span></span>
+                                    <span class="text-red-500 font-medium">-DI: <span>{pair.adxMinusText}</span></span>
+                                </div>
+                                {#key `${tabKey}-${pair.barDurationSec}-${pair.adxPeriodVal}`}
+                                    <AdxChart pairKey={tabKey} />
+                                {/key}
                             </div>
-                            <div class="click-hint">Click for full multi-agent analysis & chat</div>
-                        </div>
-                    {:else if !app.assistantLoading && !app.assistantError}
-                        <p class="signals-placeholder">
-                            Select your current position and request an AI market analysis.
-                        </p>
-                    {/if}
-                </div>
-            </div>
 
-            <div class="sidebar-section history-box">
-                <h3 class="section-title">ANALYSIS HISTORY</h3>
-                <div class="history-content">
-                    {#if app.assistantHistory.length === 0}
-                        <p class="signals-placeholder">No analysis history recorded yet.</p>
-                    {:else}
-                        <div class="history-table-wrap">
-                            <table class="history-table">
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>Pos</th>
-                                        <th>Action</th>
-                                        <th>Entry $</th>
-                                        <th>Δ%</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {#each app.assistantHistory as rec}
-                                        {@const recPrice = parseFloat(rec.price_at_analysis) || 0}
-                                        {@const latestPrice = parseFloat(app.historyLatestClose) || 0}
-                                        {@const delta = recPrice > 0 ? ((latestPrice - recPrice) / recPrice * 100) : 0}
-                                        <tr>
-                                            <td class="col-time">{rec.created_at.substring(11, 19)}</td>
-                                            <td>{rec.position}</td>
-                                            <td class="col-action"
-                                                class:action-text-green={rec.recommended_action === 'Hold' || rec.recommended_action === 'Open Long'}
-                                                class:action-text-red={rec.recommended_action === 'Close'}
-                                                class:action-text-amber={rec.recommended_action === 'Wait' || rec.recommended_action === 'Open Short'}
-                                            >
-                                                {rec.recommended_action.substring(0, 4)}
-                                            </td>
-                                            <td class="col-price">{rec.price_at_analysis.substring(0, 8)}</td>
-                                            <td class="col-delta"
-                                                class:delta-positive={delta > 0}
-                                                class:delta-negative={delta < 0}
-                                            >
-                                                {delta.toFixed(2)}%
-                                            </td>
-                                        </tr>
-                                    {/each}
-                                </tbody>
-                            </table>
+                            <div class="panel-box pane-atr" class:hidden-pane={!pair.showAtr}>
+                                <div class="absolute-label font-sans label-text-xs">
+                                    <span class="text-purple-400 font-bold">{app.atrLabel}: <span>{pair.atrText}</span></span>
+                                </div>
+                                {#key `${tabKey}-${pair.barDurationSec}-${pair.atrPeriodVal}`}
+                                    <AtrChart pairKey={tabKey} />
+                                {/key}
+                            </div>
+
+                            <div class="panel-box pane-rsi" class:hidden-pane={!pair.showRsi}>
+                                <div class="absolute-label font-sans label-text-xs">
+                                    <span class="text-purple-400">{app.rsiLabel}: <span>{pair.rsiText}</span></span>
+                                </div>
+                                {#key `${tabKey}-${pair.barDurationSec}-${pair.rsiPeriodVal}`}
+                                    <RsiChart pairKey={tabKey} />
+                                {/key}
+                            </div>
+
+                            <div class="panel-box pane-macd" class:hidden-pane={!pair.showMacd}>
+                                <div class="absolute-label font-sans label-text-xs">
+                                    <span class="text-slate-300 font-bold">{app.macdLabel}</span>
+                                    <span class="text-blue-400">Line: <span>{pair.macdLineText}</span></span>
+                                    <span class="text-amber-500">Signal: <span>{pair.macdSigText}</span></span>
+                                    <span class="text-teal-400">Hist: <span>{pair.macdHistText}</span></span>
+                                </div>
+                                {#key `${tabKey}-${pair.barDurationSec}-${pair.macdFastVal}-${pair.macdSlowVal}-${pair.macdSignalVal}`}
+                                    <MacdChart pairKey={tabKey} />
+                                {/key}
+                            </div>
+
+                            <div class="panel-box pane-squeeze" class:hidden-pane={!pair.showSqueeze}>
+                                <div class="absolute-label font-sans label-text-xs">
+                                    <span class="text-slate-300 font-bold">Squeeze Momentum (LazyBear)</span>
+                                    <span class="text-emerald-400">Value: <span>{pair.sqzValText}</span></span>
+                                    <span class={pair.isSqueezeOn ? 'text-red-500 font-bold' : 'text-emerald-500 font-bold'}>Status: {pair.sqzStatusText}</span>
+                                </div>
+                                {#key `${tabKey}-${pair.barDurationSec}-${pair.squeezePeriodVal}`}
+                                    <SqueezeChart pairKey={tabKey} />
+                                {/key}
+                            </div>
                         </div>
-                    {/if}
-                </div>
+
+                        <aside class="sidebar-panel font-sans">
+                            <div class="sidebar-section signals-box">
+                                <h3 class="section-title">AI ASSISTANT</h3>
+                                <div class="signals-content">
+                                    <div class="position-selector">
+                                        <span class="sub-title">Current Position:</span>
+                                        <label>
+                                            <input type="radio" bind:group={app.currentPosition} value="None" /> None
+                                        </label>
+                                        <label>
+                                            <input type="radio" bind:group={app.currentPosition} value="Long" /> Long
+                                        </label>
+                                        <label>
+                                            <input type="radio" bind:group={app.currentPosition} value="Short" /> Short
+                                        </label>
+                                    </div>
+
+                                    {#if app.currentPosition !== 'None'}
+                                        <div class="entry-price-input">
+                                            <label for="entryPrice">Entry Price ($):</label>
+                                            <input id="entryPrice" type="number" step="any"
+                                                   bind:value={app.entryPriceVal} placeholder="0.00" />
+                                        </div>
+                                        <div class="entry-price-input" style="margin-top: 8px;">
+                                            <label for="stopLoss">Stop Loss ($):</label>
+                                            <input id="stopLoss" type="number" step="any"
+                                                   bind:value={app.stopLossVal} placeholder="0.00" />
+                                            <small style="font-size: 9px; color: #64748b; margin-top: 2px; display: block;">
+                                                Left blank? Defaults to 1% risk distance.
+                                            </small>
+                                        </div>
+                                    {/if}
+
+                                    <button class="analyze-btn" onclick={requestAnalysis} disabled={app.assistantLoading}>
+                                        {app.assistantLoading ? 'Analyzing Market...' : 'Request AI Assistant Analysis'}
+                                    </button>
+
+                                    {#if app.assistantLoading}
+                                        <div class="loading-indicator">
+                                            <span class="dot pulse-blue"></span>
+                                            <span class="status-text">
+                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running indicator agents...' : 'Phase 2: Synthesizing master report...'}
+                                            </span>
+                                        </div>
+                                        <div class="agent-progress-list">
+                                            {#each app.agentProgress as agent (agent.name)}
+                                                <div class="agent-progress-item"
+                                                    class:ap-complete={agent.status === 'complete'}
+                                                    class:ap-failed={agent.status === 'failed'}
+                                                    class:ap-running={agent.status === 'pending' && app.analysisPhase === 'phase1'}
+                                                >
+                                                    <span class="ap-name">{agent.name}</span>
+                                                    <span class="ap-status">{agent.status === 'complete' ? '✓' : agent.status === 'failed' ? '✗' : '···'}</span>
+                                                </div>
+                                            {/each}
+                                        </div>
+                                    {/if}
+
+                                    {#if app.assistantError}
+                                        <div class="error-box">
+                                            <span>Failed: {app.assistantError}</span>
+                                        </div>
+                                    {/if}
+
+                                    {#if app.multiAgentResponse && !app.assistantLoading}
+                                        {@const resp = app.multiAgentResponse}
+                                        {@const pt = resp.phase_two}
+                                        <div class="analysis-result clickable-result" onclick={openAssistantModal} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') openAssistantModal() }}>
+                                            <div class="result-block reveal" style="animation-delay: 0ms">
+                                                <h4 class="result-stage-title">Phase 1 — Indicator Consensus</h4>
+                                                <span class="consensus-badge" class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
+                                                    {pt.indicator_synthesis.summary_count}
+                                                </span>
+                                            </div>
+
+                                            <div class="result-block reveal" style="animation-delay: 150ms">
+                                                <h4 class="result-stage-title">Phase 2 — Trend & Structure</h4>
+                                                <span class="result-badge" class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
+                                                    {pt.general_trend}
+                                                </span>
+                                                <p class="result-reasoning">{pt.indicator_synthesis.evaluation.substring(0, 120)}...</p>
+                                            </div>
+
+                                            <div class="result-block result-action reveal" style="animation-delay: 300ms">
+                                                <h4 class="result-stage-title">3. Position Recommendation</h4>
+                                                <span class="action-call" class:action-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'} class:action-red={pt.position_recommendation.action === 'Close'} class:action-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}>
+                                                    {pt.position_recommendation.action}
+                                                </span>
+                                                <p class="result-reasoning">{pt.position_recommendation.rationale.substring(0, 150)}...</p>
+                                            </div>
+                                            <div class="click-hint">Click for full analysis & chat</div>
+                                        </div>
+                                    {:else if !app.assistantLoading && !app.assistantError}
+                                        <p class="signals-placeholder">
+                                            Select your current position and request an AI market analysis.
+                                        </p>
+                                    {/if}
+                                </div>
+                            </div>
+
+                            <div class="sidebar-section history-box">
+                                <h3 class="section-title">ANALYSIS HISTORY</h3>
+                                <div class="history-content">
+                                    {#if app.assistantHistory.length === 0}
+                                        <p class="signals-placeholder">No history recorded yet.</p>
+                                    {:else}
+                                        <div class="history-table-wrap">
+                                            <table class="history-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Time</th>
+                                                        <th>Pos</th>
+                                                        <th>Action</th>
+                                                        <th>Entry $</th>
+                                                        <th>Δ%</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {#each app.assistantHistory as rec}
+                                                        {@const recPrice = parseFloat(rec.price_at_analysis) || 0}
+                                                        {@const latestPrice = parseFloat(app.historyLatestClose) || 0}
+                                                        {@const delta = recPrice > 0 ? ((latestPrice - recPrice) / recPrice * 100) : 0}
+                                                        <tr>
+                                                            <td class="col-time">{rec.created_at.substring(11, 19)}</td>
+                                                            <td>{rec.position}</td>
+                                                            <td class="col-action" class:action-text-green={rec.recommended_action === 'Hold' || rec.recommended_action === 'Open Long'} class:action-text-red={rec.recommended_action === 'Close'} class:action-text-amber={rec.recommended_action === 'Wait' || rec.recommended_action === 'Open Short'}>
+                                                                {rec.recommended_action.substring(0, 4)}
+                                                            </td>
+                                                            <td class="col-price">{rec.price_at_analysis.substring(0, 8)}</td>
+                                                            <td class="col-delta" class:delta-positive={delta > 0} class:delta-negative={delta < 0}>{delta.toFixed(2)}%</td>
+                                                        </tr>
+                                                    {/each}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {/if}
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+
+                <!-- 2. Performance Metrics Inner View -->
+                {:else if pair.currentView === 'performance'}
+                    <div class="workspace-inner-content">
+                        <PerformanceDashboard />
+                    </div>
+
+                <!-- 3. Local Workspace Settings Tab View -->
+                {:else if pair.currentView === 'settings'}
+                    <div class="settings-workspace-tab animate-fade">
+                        <div class="settings-grid">
+
+                            <!-- Visual Layout Column -->
+                            <div class="settings-col">
+                                <h3 class="card-title">Visual Overlays</h3>
+                                <div class="setting-group-box">
+                                    <span class="selectors-label">Chart Display Items</span>
+                                    <div class="toggle-grid">
+                                        <button class="selector-btn" class:active={draftShowEmas} onclick={() => draftShowEmas = !draftShowEmas}>EMAs</button>
+                                        <button class="selector-btn" class:active={draftShowBb} onclick={() => draftShowBb = !draftShowBb}>Bollinger</button>
+                                        <button class="selector-btn" class:active={draftShowVwap} onclick={() => draftShowVwap = !draftShowVwap}>VWAP</button>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">Indicator Panels</span>
+                                    <div class="toggle-grid">
+                                        <button class="selector-btn" class:active={draftShowVolume} onclick={() => draftShowVolume = !draftShowVolume}>Volume</button>
+                                        <button class="selector-btn" class:active={draftShowAdx} onclick={() => draftShowAdx = !draftShowAdx}>ADX</button>
+                                        <button class="selector-btn" class:active={draftShowAtr} onclick={() => draftShowAtr = !draftShowAtr}>ATR</button>
+                                        <button class="selector-btn" class:active={draftShowRsi} onclick={() => draftShowRsi = !draftShowRsi}>RSI</button>
+                                        <button class="selector-btn" class:active={draftShowMacd} onclick={() => draftShowMacd = !draftShowMacd}>MACD</button>
+                                        <button class="selector-btn" class:active={draftShowSqueeze} onclick={() => draftShowSqueeze = !draftShowSqueeze}>Squeeze</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Indicator Parameters Column -->
+                            <div class="settings-col">
+                                <h3 class="card-title">Technical Parameters</h3>
+                                <div class="parameter-inputs-scroll font-mono">
+                                    <div class="input-row">
+                                        <label for="exchange">Exchange Source:</label>
+                                        <select id="exchange" bind:value={draftExchange} class="tf-unit-select">
+                                            <option value="Hyperliquid">Hyperliquid</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-row">
+                                        <label for="symbol">Market Pair:</label>
+                                        <input id="symbol" type="text" bind:value={draftSymbol} />
+                                    </div>
+                                    <div class="input-row">
+                                        <label for="tf">Timeframe:</label>
+                                        <div class="tf-split-group">
+                                            <input id="tf" type="number" bind:value={draftDurationValue} min="1" class="tf-number-input" />
+                                            <select bind:value={draftDurationUnit} class="tf-unit-select">
+                                                <option value="seconds">Seconds</option>
+                                                <option value="minutes">Minutes</option>
+                                                <option value="hours">Hours</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <hr class="section-divider" />
+                                    <div class="input-row"><label for="emaf">EMA Fast:</label><input id="emaf" type="number" bind:value={draftEmaFast} /></div>
+                                    <div class="input-row"><label for="emam">EMA Med:</label><input id="emam" type="number" bind:value={draftEmaMedium} /></div>
+                                    <div class="input-row"><label for="emas">EMA Slow:</label><input id="emas" type="number" bind:value={draftEmaSlow} /></div>
+                                    <div class="input-row"><label for="emal">EMA Long:</label><input id="emal" type="number" bind:value={draftEmaLong} /></div>
+                                    <div class="input-row"><label for="rsi">RSI Window:</label><input id="rsi" type="number" bind:value={draftRsiPeriod} /></div>
+                                    <div class="input-row"><label for="macdf">MACD Fast:</label><input id="macdf" type="number" bind:value={draftMacdFast} /></div>
+                                    <div class="input-row"><label for="macds">MACD Slow:</label><input id="macds" type="number" bind:value={draftMacdSlow} /></div>
+                                    <div class="input-row"><label for="macdsig">MACD Signal:</label><input id="macdsig" type="number" bind:value={draftMacdSignal} /></div>
+                                    <div class="input-row"><label for="adx">ADX Period:</label><input id="adx" type="number" bind:value={draftAdxPeriod} /></div>
+                                    <div class="input-row"><label for="atr">ATR Period:</label><input id="atr" type="number" bind:value={draftAtrPeriod} /></div>
+                                    <div class="input-row"><label for="sqz">Squeeze Wave:</label><input id="sqz" type="number" bind:value={draftSqueezePeriod} /></div>
+                                </div>
+
+                                <div class="settings-footer-row" style="margin-top: 16px;">
+                                    <button class="apply-workspace-btn" onclick={() => applySettings(tabKey, pair)}>
+                                        Apply Workspace Configuration
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Backend Secrets & Prompts Guide Column -->
+                            <div class="settings-col">
+                                <h3 class="card-title">Backend & AI Prompts</h3>
+
+                                <!-- API Key Config -->
+                                <div class="setting-group-box">
+                                    <span class="selectors-label">DeepSeek API Secret Key</span>
+                                    <div class="key-input-row">
+                                        <input type="password" class="key-field" placeholder="sk-..." bind:value={draftApiKey} />
+                                        <button class="key-save-btn" disabled={apiKeyStatus === 'saving'} onclick={saveApiKey}>
+                                            {apiKeyStatus === 'saving' ? '...' : 'Save'}
+                                        </button>
+                                    </div>
+                                    {#if apiKeyStatus === 'success'}
+                                        <div class="status-msg success-msg">Key saved.</div>
+                                    {/if}
+                                </div>
+
+                                <!-- Rules Editor -->
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">Technical rules guide handbook (Markdown)</span>
+                                    <textarea class="rules-editor" rows="6" bind:value={draftRules}></textarea>
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                                        <button class="key-save-btn" onclick={fetchRules}>Fetch</button>
+                                        <button class="key-save-btn" disabled={rulesStatus === 'saving'} onclick={saveRules}>
+                                            {rulesStatus === 'saving' ? '...' : 'Update Rules'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                {/if}
+
             </div>
-        </aside>
-        {:else if app.currentView === 'performance'}
-            <div class="performance-container" style="flex: 1;">
-                <PerformanceDashboard />
-            </div>
-        {/if}
+        {/each}
     </div>
 
-    <SettingsPanel />
-
+    <!-- Modals -->
     {#if app.isAssistantModalOpen && app.multiAgentResponse}
         {@const resp = app.multiAgentResponse!}
         {@const pt = resp.phase_two}
         {@const indicators = resp.phase_one}
         {@const snap = app.latestSnapshot || {}}
-        {@const rsi = snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null}
-        {@const squeezeOn = snap.squeeze_on ?? null}
-        {@const squeezeMom = snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null}
-        {@const macdHist = snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null}
-        {@const macdLine = snap.macd_line ? parseFloat(String(snap.macd_line)) : null}
-        {@const macdSig = snap.macd_signal ? parseFloat(String(snap.macd_signal)) : null}
-        {@const adx = snap.adx_14 ? parseFloat(String(snap.adx_14)) : null}
-        {@const adxPlus = snap.adx_plus ? parseFloat(String(snap.adx_plus)) : null}
-        {@const adxMinus = snap.adx_minus ? parseFloat(String(snap.adx_minus)) : null}
-        {@const atr = snap.atr_14 ? parseFloat(String(snap.atr_14)) : null}
-        {@const emaFast = snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null}
-        {@const emaSlow = snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null}
-        {@const vwap = snap.vwap ? parseFloat(String(snap.vwap)) : null}
-        {@const bbUpper = snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null}
-        {@const bbMiddle = snap.bb_middle ? parseFloat(String(snap.bb_middle)) : null}
-        {@const bbLower = snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null}
         {@const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : null}
+
         <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
         <div class="modal-backdrop" onclick={closeAssistantModal} role="dialog">
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="modal-window" onclick={(e) => e.stopPropagation()}>
                 <div class="modal-header">
                     <h2 class="modal-title">AI Copilot Intelligence Hub — {app.activeSymbol}</h2>
@@ -701,9 +1042,7 @@
                 </div>
 
                 <div class="modal-body">
-                    <!-- LEFT: Multi-Agent Analysis -->
                     <div class="modal-left">
-                        <!-- Phase 2: Master Synthesis -->
                         <div class="master-synthesis">
                             <h3 class="section-heading">Phase 2 — Master Synthesis</h3>
 
@@ -715,7 +1054,7 @@
                                             <span class="sr-level">{lvl}</span>
                                         {/each}
                                     {:else}
-                                        <span class="sr-level sr-none">None detected</span>
+                                        <span class="sr-level sr-none">None</span>
                                     {/if}
                                 </div>
                                 <div class="sr-block sr-current">
@@ -729,7 +1068,7 @@
                                             <span class="sr-level">{lvl}</span>
                                         {/each}
                                     {:else}
-                                        <span class="sr-level sr-none">None detected</span>
+                                        <span class="sr-level sr-none">None</span>
                                     {/if}
                                 </div>
                             </div>
@@ -751,7 +1090,6 @@
                             </div>
                         </div>
 
-                        <!-- Phase 1: Individual Indicator Grid -->
                         <h3 class="section-heading">Phase 1 — Individual Indicator Agents</h3>
                         <div class="indicator-grid">
                             {#each indicators as ind}
@@ -762,37 +1100,15 @@
                                     class:poc-unavailable={ind.signal === 'UNAVAILABLE'}
                                 >
                                     <span class="poc-name">{ind.indicator_name}</span>
-                                    <span class="poc-signal">
-                                        {#if ind.signal === 'BULLISH'}
-                                            ▲ BULLISH
-                                        {:else if ind.signal === 'BEARISH'}
-                                            ▼ BEARISH
-                                        {:else if ind.signal === 'SIDEWAYS'}
-                                            ◆ SIDEWAYS
-                                        {:else}
-                                            ✕ UNAVAILABLE
-                                        {/if}
-                                    </span>
+                                    <span class="poc-signal">{ind.signal}</span>
                                     <p class="poc-reason">{ind.reason}</p>
                                 </div>
                             {/each}
                         </div>
-
-                        <!-- Assistant Summary -->
-                        <div class="assistant-summary">
-                            <h3 class="section-heading">Assistant Summary</h3>
-                            <div class="summary-message">
-                                {#each app.chatHistory.filter(m => m.role === 'assistant') as msg}
-                                    <p class="summary-text">{msg.content}</p>
-                                {/each}
-                            </div>
-                        </div>
                     </div>
 
-                    <!-- RIGHT: Interactive Chat -->
                     <div class="modal-right">
                         <h3 class="section-heading">Real-time Chat</h3>
-
                         <div class="chat-thread" bind:this={chatContainer}>
                             {#each app.chatHistory.filter(m => m.role !== 'system') as msg, i (i)}
                                 <div class="chat-bubble" class:user-bubble={msg.role === 'user'} class:assistant-bubble={msg.role === 'assistant'}>
@@ -809,21 +1125,8 @@
                         </div>
 
                         <div class="chat-input-area">
-                            <input
-                                type="text"
-                                class="chat-input"
-                                placeholder="Ask about indicators, market conditions..."
-                                bind:value={app.chatInputText}
-                                disabled={app.isChatLoading}
-                                onkeydown={(e) => { if (e.key === 'Enter') sendChatMessage() }}
-                            />
-                            <button
-                                class="chat-send-btn"
-                                onclick={sendChatMessage}
-                                disabled={app.isChatLoading || !app.chatInputText.trim()}
-                            >
-                                Send
-                            </button>
+                            <input type="text" class="chat-input" placeholder="Ask details..." bind:value={app.chatInputText} disabled={app.isChatLoading} onkeydown={(e) => { if (e.key === 'Enter') sendChatMessage() }} />
+                            <button class="chat-send-btn" onclick={sendChatMessage} disabled={app.isChatLoading || !app.chatInputText.trim()}>Send</button>
                         </div>
                     </div>
                 </div>
@@ -836,34 +1139,71 @@
     .terminal-body {
         background-color: #0b0e14;
         color: #f1f5f9;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-family: ui-sans-serif, system-ui, sans-serif;
         min-height: 100vh;
+        display: flex;
+        flex-direction: column;
     }
     .api-key-banner {
         background: rgba(127, 29, 29, 0.5);
-        border: 1px solid #ef4444;
+        border-bottom: 1px solid #ef4444;
         color: #fca5a5;
-        font-size: 12px;
-        padding: 8px 16px;
+        font-size: 11px;
+        padding: 6px 16px;
         text-align: center;
+        font-family: 'Courier New', monospace;
+    }
+    .workspace-viewport {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .workspace-window {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    .workspace-sub-header {
+        background-color: #0f111a;
+        border-bottom: 1px solid #1e293b;
+        padding: 8px 16px;
         display: flex;
         align-items: center;
-        justify-content: center;
-        gap: 12px;
-        font-family: 'Courier New', monospace;
+        justify-content: space-between;
     }
-    .banner-btn {
-        background: #ef4444;
-        color: white;
-        border: none;
-        padding: 3px 12px;
-        border-radius: 4px;
+    .sub-tabs-container {
+        display: flex;
+        gap: 6px;
+    }
+    .sub-tab-btn {
+        background: transparent;
+        border: 1px solid transparent;
+        color: #64748b;
         font-size: 11px;
-        font-family: 'Courier New', monospace;
+        font-weight: 700;
         cursor: pointer;
+        padding: 4px 10px;
+        border-radius: 4px;
+        transition: all 0.2s;
     }
-    .banner-btn:hover {
-        background: #dc2626;
+    .sub-tab-btn:hover {
+        color: #cbd5e1;
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+    .sub-tab-active {
+        background: #1a2030;
+        border-color: #2a3040;
+        color: #f8fafc;
+    }
+    .time-badge {
+        font-size: 10px;
+        font-weight: 600;
+        color: #64748b;
+        background: #1a2030;
+        border: 1px solid #2a3040;
+        border-radius: 4px;
+        padding: 3px 10px;
+        font-family: 'Courier New', monospace;
     }
     .main-layout {
         display: flex;
@@ -871,6 +1211,8 @@
         margin: 0 auto;
         padding: 16px;
         gap: 16px;
+        width: 100%;
+        box-sizing: border-box;
     }
     .dashboard-stack {
         flex: 1;
@@ -889,7 +1231,7 @@
         border: 1px solid #2a2e39;
         border-radius: 8px;
         padding: 16px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         display: flex;
         flex-direction: column;
     }
@@ -948,28 +1290,14 @@
     }
 
     @keyframes pulse {
-        0% {
-            transform: scale(0.95);
-            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
-        }
-        70% {
-            transform: scale(1);
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
-        }
-        100% {
-            transform: scale(0.95);
-            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-        }
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
     }
 
-    /* Fallback layout adjustment for compact screen sizes */
     @media (max-width: 1024px) {
-        .main-layout {
-            flex-direction: column;
-        }
-        .sidebar-panel {
-            width: 100%;
-        }
+        .main-layout { flex-direction: column; }
+        .sidebar-panel { width: 100%; }
     }
 
     .panel-box {
@@ -977,9 +1305,8 @@
         background-color: #131722;
         border: 1px solid #2a2e39;
         border-radius: 8px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         overflow: hidden;
-        transition: opacity 0.15s ease-in-out;
         resize: vertical;
         min-height: 80px;
         max-height: 800px;
@@ -1008,7 +1335,6 @@
     .label-text-xs { font-size: 10px; }
     .price-header { font-weight: 700; color: #e2e8f0; }
 
-    /* AI Assistant styles */
     .position-selector {
         display: flex;
         align-items: center;
@@ -1041,7 +1367,7 @@
         text-transform: uppercase;
         letter-spacing: 0.05em;
         cursor: pointer;
-        transition: opacity 0.2s, background 0.2s;
+        transition: opacity 0.2s;
         margin-bottom: 10px;
     }
     .analyze-btn:hover:not(:disabled) {
@@ -1085,9 +1411,7 @@
         padding: 10px;
         opacity: 0;
     }
-    .result-block.reveal {
-        animation: fadeInUp 0.4s ease forwards;
-    }
+    .result-block.reveal { animation: fadeInUp 0.4s ease forwards; }
     .result-block.result-action {
         border-color: #3b82f6;
         background-color: rgba(59, 130, 246, 0.05);
@@ -1130,7 +1454,6 @@
     .action-red { color: #ef4444; }
     .action-amber { color: #f59e0b; }
 
-    /* Analysis History table */
     .history-box {
         flex: 0 0 auto;
         max-height: 240px;
@@ -1169,9 +1492,7 @@
         border-bottom: 1px solid #0f131c;
         white-space: nowrap;
     }
-    .history-table tbody tr:hover {
-        background-color: #1a1f2e;
-    }
+    .history-table tbody tr:hover { background-color: #1a1f2e; }
     .col-time { color: #64748b; width: 54px; }
     .col-action { font-weight: 700; }
     .col-price { font-family: ui-monospace, monospace; text-align: right; }
@@ -1182,7 +1503,6 @@
     .delta-positive { color: #10b981; }
     .delta-negative { color: #ef4444; }
 
-    /* Indicator colors */
     .text-emerald-500 { color: #10b981; }
     .text-red-500 { color: #ef5350; }
     .text-teal-400 { color: #26a69a; }
@@ -1194,7 +1514,6 @@
     .text-slate-300 { color: #cbd5e1; }
     .text-orange-400 { color: #f1c40f; }
 
-    /* Clickable result area */
     .clickable-result {
         cursor: pointer;
         border-radius: 6px;
@@ -1215,7 +1534,6 @@
         letter-spacing: 0.05em;
     }
 
-    /* Modal overlay */
     .modal-backdrop {
         position: fixed;
         inset: 0;
@@ -1226,10 +1544,7 @@
         justify-content: center;
         animation: fadeIn 0.2s ease;
     }
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes fadeInUp {
         from { opacity: 0; transform: translateY(6px); }
         to { opacity: 1; transform: translateY(0); }
@@ -1274,26 +1589,14 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: background 0.15s, color 0.15s;
     }
     .modal-close-btn:hover {
         background: #1e293b;
         color: #f1f5f9;
     }
 
-    .modal-body {
-        display: flex;
-        flex: 1;
-        overflow: hidden;
-    }
-
-    /* Left column: Indicator breakdown */
-    .modal-left {
-        width: 50%;
-        padding: 20px;
-        overflow-y: auto;
-        border-right: 1px solid #1e293b;
-    }
+    .modal-body { display: flex; flex: 1; overflow: hidden; }
+    .modal-left { width: 50%; padding: 20px; overflow-y: auto; border-right: 1px solid #1e293b; }
     .modal-left .section-heading {
         font-size: 11px;
         font-weight: 700;
@@ -1305,32 +1608,16 @@
         border-bottom: 1px solid #1e293b;
     }
 
-    /* Assistant summary */
-    .assistant-summary {
-        margin-top: 16px;
-    }
+    .assistant-summary { margin-top: 16px; }
     .summary-message {
         background: rgba(59, 130, 246, 0.05);
         border: 1px solid rgba(59, 130, 246, 0.15);
         border-radius: 8px;
         padding: 12px;
     }
-    .summary-text {
-        font-size: 11px;
-        color: #cbd5e1;
-        line-height: 1.6;
-        margin: 0 0 4px 0;
-        white-space: pre-wrap;
-    }
+    .summary-text { font-size: 11px; color: #cbd5e1; line-height: 1.6; margin: 0; white-space: pre-wrap; }
 
-    /* Right column: Chat */
-    .modal-right {
-        width: 50%;
-        display: flex;
-        flex-direction: column;
-        padding: 20px;
-        overflow: hidden;
-    }
+    .modal-right { width: 50%; display: flex; flex-direction: column; padding: 20px; overflow: hidden; }
     .modal-right .section-heading {
         font-size: 11px;
         font-weight: 700;
@@ -1343,407 +1630,248 @@
         flex-shrink: 0;
     }
 
-    .chat-thread {
-        flex: 1;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding-right: 4px;
-    }
-    .chat-thread::-webkit-scrollbar {
-        width: 4px;
-    }
-    .chat-thread::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    .chat-thread::-webkit-scrollbar-thumb {
-        background: #2a2e39;
-        border-radius: 2px;
-    }
+    .chat-thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+    .chat-thread::-webkit-scrollbar { width: 4px; }
+    .chat-thread::-webkit-scrollbar-track { background: transparent; }
+    .chat-thread::-webkit-scrollbar-thumb { background: #2a2e39; border-radius: 2px; }
 
-    .chat-bubble {
-        max-width: 85%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        font-size: 11px;
-        line-height: 1.5;
-        animation: fadeInUp 0.2s ease;
-    }
-    .user-bubble {
-        align-self: flex-end;
-        background: #1e40af;
-        border: 1px solid #3b82f6;
-        color: #e2e8f0;
-    }
-    .assistant-bubble {
-        align-self: flex-start;
-        background: #0f131c;
-        border: 1px solid #1e293b;
-        color: #cbd5e1;
-    }
-    .bubble-role {
-        display: block;
-        font-size: 8px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 3px;
-        color: #64748b;
-    }
-    .bubble-content {
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
+    .chat-bubble { max-width: 85%; padding: 10px 12px; border-radius: 8px; font-size: 11px; line-height: 1.5; }
+    .user-bubble { align-self: flex-end; background: #1e40af; border: 1px solid #3b82f6; color: #e2e8f0; }
+    .assistant-bubble { align-self: flex-start; background: #0f131c; border: 1px solid #1e293b; color: #cbd5e1; }
+    .bubble-role { display: block; font-size: 8px; font-weight: 700; text-transform: uppercase; color: #64748b; }
+    .bubble-content { white-space: pre-wrap; word-break: break-word; }
 
-    .typing-bubble {
-        opacity: 0.7;
-    }
-    .typing-dots {
-        color: #94a3b8;
-        font-style: italic;
-    }
-    .dot-anim {
-        animation: dotPulse 1.4s infinite;
-    }
+    .typing-bubble { opacity: 0.7; }
+    .typing-dots { color: #94a3b8; font-style: italic; }
+    .dot-anim { animation: dotPulse 1.4s infinite; }
     .dot-anim:nth-child(1) { animation-delay: 0s; }
     .dot-anim:nth-child(2) { animation-delay: 0.2s; }
     .dot-anim:nth-child(3) { animation-delay: 0.4s; }
 
-    @keyframes dotPulse {
-        0%, 20% { opacity: 0; }
-        50% { opacity: 1; }
-        80%, 100% { opacity: 0; }
-    }
+    @keyframes dotPulse { 0%, 20% { opacity: 0; } 50% { opacity: 1; } 80%, 100% { opacity: 0; } }
 
-    .chat-input-area {
-        display: flex;
-        gap: 8px;
-        margin-top: 12px;
-        flex-shrink: 0;
-    }
+    .chat-input-area { display: flex; gap: 8px; margin-top: 12px; flex-shrink: 0; }
     .chat-input {
-        flex: 1;
-        background: #0f131c;
-        border: 1px solid #2a2e39;
-        border-radius: 6px;
-        padding: 8px 12px;
-        color: #e2e8f0;
-        font-size: 11px;
-        font-family: ui-sans-serif, system-ui, sans-serif;
-        outline: none;
-        transition: border-color 0.15s;
+        flex: 1; background: #0f131c; border: 1px solid #2a2e39; border-radius: 6px;
+        padding: 8px 12px; color: #e2e8f0; font-size: 11px; outline: none;
     }
-    .chat-input:focus {
-        border-color: #3b82f6;
-    }
-    .chat-input:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    .chat-input::placeholder {
-        color: #4c525e;
-    }
+    .chat-input:focus { border-color: #3b82f6; }
+    .chat-input:disabled { opacity: 0.5; }
+    .chat-input::placeholder { color: #4c525e; }
     .chat-send-btn {
-        background: linear-gradient(135deg, #1e40af, #3b82f6);
-        color: #f1f5f9;
-        border: 1px solid #3b82f6;
-        border-radius: 6px;
-        padding: 8px 16px;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        background: linear-gradient(135deg, #1e40af, #3b82f6); color: #f1f5f9; border: 1px solid #3b82f6;
+        border-radius: 6px; padding: 8px 16px; font-size: 11px; font-weight: 700; text-transform: uppercase;
         cursor: pointer;
-        transition: opacity 0.2s;
-        white-space: nowrap;
     }
-    .chat-send-btn:hover:not(:disabled) {
-        background: linear-gradient(135deg, #1e3a8a, #2563eb);
-    }
-    .chat-send-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
+    .chat-send-btn:disabled { opacity: 0.5; }
 
     @media (max-width: 768px) {
-        .modal-window {
-            max-width: 100vw;
-            max-height: 100vh;
-            border-radius: 0;
-        }
-        .modal-body {
-            flex-direction: column;
-        }
-        .modal-left {
-            width: 100%;
-            max-height: none;
-            border-right: none;
-            border-bottom: 1px solid #1e293b;
-        }
-        .modal-right {
-            width: 100%;
-            flex: 1;
-            max-height: 50vh;
-        }
-        .indicator-grid {
-            grid-template-columns: 1fr;
-        }
-        .sr-ribbon {
-            flex-direction: column;
-            gap: 6px;
-        }
+        .modal-window { max-width: 100vw; max-height: 100vh; border-radius: 0; }
+        .modal-body { flex-direction: column; }
+        .modal-left { width: 100%; border-right: none; border-bottom: 1px solid #1e293b; }
+        .modal-right { width: 100%; flex: 1; max-height: 50vh; }
     }
 
-    /* Entry price input */
-    .entry-price-input {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 10px;
-    }
-    .entry-price-input label {
-        font-size: 10px;
-        font-weight: 600;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        white-space: nowrap;
-    }
+    .entry-price-input { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .entry-price-input label { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; white-space: nowrap; }
     .entry-price-input input {
-        flex: 1;
-        background: #0f131c;
-        border: 1px solid #2a2e39;
-        border-radius: 4px;
-        padding: 5px 8px;
-        color: #e2e8f0;
-        font-size: 11px;
-        font-family: ui-monospace, monospace;
-        outline: none;
-        width: 100%;
+        flex: 1; background: #0f131c; border: 1px solid #2a2e39; border-radius: 4px;
+        padding: 5px 8px; color: #e2e8f0; font-size: 11px; outline: none; width: 100%;
     }
-    .entry-price-input input:focus {
-        border-color: #3b82f6;
-    }
+    .entry-price-input input:focus { border-color: #3b82f6; }
 
-    /* Agent progress list */
-    .agent-progress-list {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        margin-bottom: 8px;
-    }
+    .agent-progress-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
     .agent-progress-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 3px 6px;
-        border-radius: 3px;
-        font-size: 9px;
-        background: #0f131c;
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 3px 6px; border-radius: 3px; font-size: 9px; background: #0f131c;
     }
-    .ap-name {
-        color: #94a3b8;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-    }
-    .ap-status {
-        font-size: 10px;
-    }
+    .ap-name { color: #94a3b8; font-weight: 600; }
+    .ap-status { font-size: 10px; }
     .ap-complete { background: rgba(16, 185, 129, 0.08); }
     .ap-complete .ap-status { color: #10b981; }
     .ap-failed { background: rgba(239, 68, 68, 0.08); }
     .ap-failed .ap-status { color: #ef4444; }
     .ap-running .ap-status { color: #3b82f6; animation: pulse 1.5s infinite; }
 
-    /* Consensus badge */
-    .consensus-badge {
-        display: inline-block;
-        font-size: 10px;
-        font-weight: 700;
-        padding: 3px 10px;
-        border-radius: 4px;
-        background: rgba(59, 130, 246, 0.1);
-        color: #3b82f6;
-    }
+    .consensus-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 4px; background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
 
-    /* Master synthesis */
-    .master-synthesis {
-        margin-bottom: 16px;
-    }
-
-    /* Support / Resistance ribbon */
-    .sr-ribbon {
-        display: flex;
-        gap: 2px;
-        margin-bottom: 8px;
-    }
-    .sr-block {
-        flex: 1;
-        padding: 8px;
-        border-radius: 6px;
-        text-align: center;
-    }
-    .sr-support {
-        background: rgba(16, 185, 129, 0.08);
-        border: 1px solid rgba(16, 185, 129, 0.2);
-    }
-    .sr-resistance {
-        background: rgba(239, 68, 68, 0.08);
-        border: 1px solid rgba(239, 68, 68, 0.2);
-    }
-    .sr-current {
-        background: rgba(59, 130, 246, 0.08);
-        border: 1px solid rgba(59, 130, 246, 0.25);
-    }
-    .sr-label {
-        display: block;
-        font-size: 8px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 3px;
-        color: #64748b;
-    }
-    .sr-level {
-        display: block;
-        font-size: 11px;
-        font-weight: 600;
-        font-family: ui-monospace, monospace;
-        color: #e2e8f0;
-    }
+    .master-synthesis { margin-bottom: 16px; }
+    .sr-ribbon { display: flex; gap: 2px; margin-bottom: 8px; }
+    .sr-block { flex: 1; padding: 8px; border-radius: 6px; text-align: center; }
+    .sr-support { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); }
+    .sr-resistance { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); }
+    .sr-current { background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); }
+    .sr-label { display: block; font-size: 8px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px; }
+    .sr-level { display: block; font-size: 11px; font-weight: 600; color: #e2e8f0; }
     .sr-support .sr-level { color: #10b981; }
     .sr-resistance .sr-level { color: #ef4444; }
     .sr-current .sr-level { color: #3b82f6; }
     .sr-price-label { font-size: 13px; font-weight: 800; }
     .sr-none { font-size: 9px; color: #4c525e !important; font-style: italic; }
-    .sr-structural {
-        font-size: 10px;
-        color: #94a3b8;
-        line-height: 1.4;
-        margin: 0 0 8px 0;
-    }
+    .sr-structural { font-size: 10px; color: #94a3b8; line-height: 1.4; margin: 0 0 8px 0; }
 
-    /* Decision callout */
-    .decision-callout {
-        padding: 12px;
-        border-radius: 8px;
-        margin-bottom: 10px;
-        text-align: center;
-    }
-    .decision-green {
-        background: rgba(16, 185, 129, 0.08);
-        border: 1px solid rgba(16, 185, 129, 0.25);
-    }
-    .decision-red {
-        background: rgba(239, 68, 68, 0.08);
-        border: 1px solid rgba(239, 68, 68, 0.25);
-    }
-    .decision-amber {
-        background: rgba(251, 191, 36, 0.08);
-        border: 1px solid rgba(251, 191, 36, 0.25);
-    }
-    .decision-action {
-        display: block;
-        font-size: 16px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 2px;
-    }
+    .decision-callout { padding: 12px; border-radius: 8px; margin-bottom: 10px; text-align: center; }
+    .decision-green { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); }
+    .decision-red { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); }
+    .decision-amber { background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.25); }
+    .decision-action { display: block; font-size: 16px; font-weight: 800; text-transform: uppercase; margin-bottom: 2px; }
     .decision-green .decision-action { color: #10b981; }
     .decision-red .decision-action { color: #ef4444; }
     .decision-amber .decision-action { color: #f59e0b; }
-    .decision-trend {
-        display: block;
-        font-size: 10px;
-        font-weight: 600;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 6px;
-    }
-    .decision-rationale {
-        font-size: 10px;
-        color: #94a3b8;
-        line-height: 1.4;
-        margin: 0;
-    }
+    .decision-trend { display: block; font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-bottom: 6px; }
+    .decision-rationale { font-size: 10px; color: #94a3b8; line-height: 1.4; margin: 0; }
 
-    /* Synthesis summary */
-    .synthesis-summary {
-        background: #0f131c;
-        border: 1px solid #1e293b;
-        border-radius: 6px;
-        padding: 10px;
-    }
-    .synth-count {
-        display: block;
-        font-size: 11px;
-        font-weight: 700;
-        color: #3b82f6;
-        margin-bottom: 4px;
-    }
-    .synth-eval {
-        font-size: 10px;
-        color: #94a3b8;
-        line-height: 1.4;
-        margin: 0;
-    }
+    .synthesis-summary { background: #0f131c; border: 1px solid #1e293b; border-radius: 6px; padding: 10px; }
+    .synth-count { display: block; font-size: 11px; font-weight: 700; color: #3b82f6; margin-bottom: 4px; }
+    .synth-eval { font-size: 10px; color: #94a3b8; line-height: 1.4; margin: 0; }
 
-    /* Phase 1 indicator grid */
-    .indicator-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
-        margin-bottom: 16px;
-    }
-    .phase-one-card {
-        background: #0f131c;
-        border: 1px solid #1e293b;
-        border-radius: 5px;
-        padding: 8px 10px;
-    }
-    .phase-one-card.poc-bullish {
-        border-color: rgba(16, 185, 129, 0.3);
-        background: rgba(16, 185, 129, 0.04);
-    }
-    .phase-one-card.poc-bearish {
-        border-color: rgba(239, 68, 68, 0.3);
-        background: rgba(239, 68, 68, 0.04);
-    }
-    .phase-one-card.poc-sideways {
-        border-color: rgba(251, 191, 36, 0.3);
-        background: rgba(251, 191, 36, 0.04);
-    }
-    .phase-one-card.poc-unavailable {
-        border-color: rgba(100, 116, 139, 0.2);
-        background: rgba(100, 116, 139, 0.03);
-        opacity: 0.6;
-    }
-    .poc-name {
-        display: block;
-        font-size: 9px;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 2px;
-    }
-    .poc-signal {
-        display: block;
-        font-size: 10px;
-        font-weight: 700;
-        margin-bottom: 3px;
-    }
+    .indicator-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
+    .phase-one-card { background: #0f131c; border: 1px solid #1e293b; border-radius: 5px; padding: 8px 10px; }
+    .phase-one-card.poc-bullish { border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04); }
+    .phase-one-card.poc-bearish { border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.04); }
+    .phase-one-card.poc-sideways { border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.04); }
+    .phase-one-card.poc-unavailable { border-color: rgba(100, 116, 139, 0.2); background: rgba(100, 116, 139, 0.03); opacity: 0.6; }
+    .poc-name { display: block; font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
+    .poc-signal { display: block; font-size: 10px; font-weight: 700; margin-bottom: 3px; }
     .poc-bullish .poc-signal { color: #10b981; }
     .poc-bearish .poc-signal { color: #ef4444; }
     .poc-sideways .poc-signal { color: #f59e0b; }
     .poc-unavailable .poc-signal { color: #64748b; }
-    .poc-reason {
+    .poc-reason { font-size: 9px; color: #94a3b8; line-height: 1.3; margin: 0; }
+
+    /* Local Workspace Settings Layout */
+    .settings-workspace-tab {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 16px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .settings-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px;
+    }
+    .settings-col {
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+    }
+    .card-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin-top: 0;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 6px;
+    }
+    .setting-group-box {
+        background-color: #0e111a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .selectors-label {
         font-size: 9px;
-        color: #94a3b8;
-        line-height: 1.3;
-        margin: 0;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+    .toggle-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+    }
+    .selector-btn {
+        background-color: #171b26;
+        border: 1px solid #2a2e39;
+        color: #8f929d;
+        font-size: 9px;
+        font-weight: 800;
+        padding: 6px 0;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        text-align: center;
+    }
+    .selector-btn:hover { border-color: #4c526e; color: #cbd5e1; }
+    .selector-btn.active {
+        background-color: rgba(59, 130, 246, 0.12);
+        border-color: #3b82f6;
+        color: #3b82f6;
+        box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+    }
+    .parameter-inputs-scroll {
+        background-color: #0e111a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 280px;
+        overflow-y: auto;
+    }
+    .input-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .input-row label { font-size: 10px; color: #94a3b8; font-weight: 600; }
+    .input-row input {
+        background-color: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+        font-family: ui-monospace, monospace; font-size: 11px; padding: 4px 8px;
+        border-radius: 4px; width: 80px; text-align: right; outline: none;
+    }
+    .input-row input:focus { border-color: #3b82f6; }
+    .section-divider { border: 0; border-top: 1px solid #1e293b; margin: 6px 0; }
+    .tf-split-group { display: flex; gap: 4px; width: 140px; }
+    .tf-number-input { width: 50px !important; }
+    .tf-unit-select {
+        background-color: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+        font-size: 10px; font-weight: bold; padding: 2px 4px; border-radius: 4px;
+        flex: 1; outline: none; cursor: pointer;
+    }
+    .apply-workspace-btn {
+        width: 100%;
+        background: linear-gradient(135deg, #1e40af, #3b82f6);
+        border: 1px solid #3b82f6;
+        color: #f1f5f9;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        padding: 10px 0;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .apply-workspace-btn:hover { background: linear-gradient(135deg, #1e3a8a, #2563eb); }
+    .key-input-row { display: flex; gap: 6px; }
+    .key-field {
+        flex: 1; background-color: #171b26; border: 1px solid #2a2e39;
+        color: #f1f5f9; font-family: 'Courier New', monospace; font-size: 11px;
+        padding: 6px 8px; border-radius: 4px; outline: none;
+    }
+    .key-save-btn {
+        background-color: #1e40af; border: 1px solid #3b82f6; color: #f1f5f9;
+        font-size: 10px; font-weight: 700; padding: 6px 12px; border-radius: 4px;
+        cursor: pointer; text-transform: uppercase;
+    }
+    .status-msg { font-size: 10px; padding: 4px 0; }
+    .success-msg { color: #10b981; }
+    .rules-editor {
+        width: 100%; background-color: #0a0d14; border: 1px solid #2a2e39;
+        color: #cbd5e1; font-family: 'Courier New', monospace; font-size: 10px;
+        line-height: 1.5; padding: 8px; border-radius: 4px; resize: vertical; outline: none;
+    }
+    .workspace-inner-content {
+        flex: 1;
+        overflow-y: auto;
     }
 </style>

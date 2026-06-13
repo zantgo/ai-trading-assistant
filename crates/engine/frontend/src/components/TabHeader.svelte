@@ -48,10 +48,6 @@
 
 <div class="tab-bar">
     <div class="tab-left-section">
-        <button class="settings-btn" onclick={() => app.showSettingsPanel = !app.showSettingsPanel} aria-label="Toggle Settings">
-            ⚙️ Settings
-        </button>
-
         <div class="tabs-container">
             {#each Object.keys(app.pairsMap) as symbol (symbol)}
                 <button
@@ -82,23 +78,6 @@
                 <button class="tab-btn add-tab-btn" onclick={() => showAddInput = true}>[ + Add Pair ]</button>
             {/if}
         </div>
-
-        <div class="view-toggles">
-            <button
-                class="view-toggle-btn"
-                class:vt-active={app.currentView === 'terminal'}
-                onclick={() => app.currentView = 'terminal'}
-            >
-                📈 Terminal
-            </button>
-            <button
-                class="view-toggle-btn"
-                class:vt-active={app.currentView === 'performance'}
-                onclick={() => app.currentView = 'performance'}
-            >
-                📊 Performance
-            </button>
-        </div>
     </div>
 
     <div class="status-badge" class:status-online={app.isConnected} class:status-offline={!app.isConnected}>
@@ -126,27 +105,6 @@
         display: flex;
         align-items: center;
         gap: 4px;
-    }
-    .settings-btn {
-        background-color: #171b26;
-        border: 1px solid #2a2e39;
-        color: #8f929d;
-        font-size: 11px;
-        font-weight: 700;
-        cursor: pointer;
-        padding: 5px 12px;
-        border-radius: 4px;
-        transition: all 0.2s;
-        text-transform: uppercase;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-family: 'Courier New', monospace;
-    }
-    .settings-btn:hover {
-        color: #ccd6f6;
-        border-color: #3498db;
-        background-color: rgba(52, 152, 219, 0.1);
     }
     .tab-btn {
         background: #1a2030;
@@ -257,31 +215,5 @@
     .dot-offline {
         background: #ef4444;
         box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
-    }
-    .view-toggles {
-        display: flex;
-        gap: 4px;
-        margin-left: 8px;
-    }
-    .view-toggle-btn {
-        background: #171b26;
-        border: 1px solid #2a2e39;
-        color: #8f929d;
-        font-size: 11px;
-        font-family: 'Courier New', monospace;
-        font-weight: 700;
-        cursor: pointer;
-        padding: 5px 12px;
-        border-radius: 4px;
-        transition: all 0.2s;
-    }
-    .view-toggle-btn:hover {
-        color: #cbd5e1;
-        border-color: #3b82f6;
-    }
-    .vt-active {
-        background: #1e3a5f;
-        border-color: #3b82f6;
-        color: #64ffda;
     }
 </style>
