@@ -1071,15 +1071,17 @@ async fn serve_paper_status(
         query.symbol
     };
 
-    let current_price = {
+    let pair_arc = {
         let pairs = state.pairs.read().await;
-        pairs.get(&symbol)
-            .and_then(|p| {
-                p.latest_snapshot.blocking_read()
-                    .as_ref()
-                    .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
-            })
+        pairs.get(&symbol).cloned()
+    };
+    let current_price = if let Some(pair) = pair_arc {
+        let snap = pair.latest_snapshot.read().await;
+        snap.as_ref()
+            .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
+    } else {
+        0.0
     };
 
     let metrics = crate::db::paper_get_account_metrics(&state.pool, &symbol, current_price).await;
@@ -1133,15 +1135,17 @@ async fn serve_paper_order(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<PaperOrderRequest>,
 ) -> impl IntoResponse {
-    let current_price = {
+    let pair_arc = {
         let pairs = state.pairs.read().await;
-        pairs.get(&payload.symbol)
-            .and_then(|p| {
-                p.latest_snapshot.blocking_read()
-                    .as_ref()
-                    .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
-            })
+        pairs.get(&payload.symbol).cloned()
+    };
+    let current_price = if let Some(pair) = pair_arc {
+        let snap = pair.latest_snapshot.read().await;
+        snap.as_ref()
+            .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
+    } else {
+        0.0
     };
 
     if current_price <= 0.0 {
