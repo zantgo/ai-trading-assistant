@@ -7,3 +7,5 @@
 pub mod models;
 pub mod indicators;
 pub mod normalized;
+
+pub use normalized::TriggerType;

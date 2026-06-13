@@ -46,6 +46,10 @@
     let draftShowMacd = $state(true);
     let draftShowSqueeze = $state(true);
 
+    let draftAutomationEnabled = $state(false);
+    let draftAutomationIntervalValue = $state(15);
+    let draftAutomationIntervalUnit = $state<'seconds' | 'minutes' | 'hours'>('minutes');
+
     let draftApiKey = $state('');
     let apiKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
     let apiKeyError = $state('');
@@ -92,6 +96,19 @@
         draftShowRsi = pair.showRsi;
         draftShowMacd = pair.showMacd;
         draftShowSqueeze = pair.showSqueeze;
+
+        draftAutomationEnabled = pair.automationEnabled;
+        const autoSec = pair.automationIntervalValue;
+        if (pair.automationIntervalUnit === 'hours') {
+            draftAutomationIntervalValue = autoSec / 3600;
+            draftAutomationIntervalUnit = 'hours';
+        } else if (pair.automationIntervalUnit === 'minutes') {
+            draftAutomationIntervalValue = autoSec / 60;
+            draftAutomationIntervalUnit = 'minutes';
+        } else {
+            draftAutomationIntervalValue = autoSec;
+            draftAutomationIntervalUnit = 'seconds';
+        }
     }
 
     let calculatedDuration = $derived.by(() => {
@@ -100,6 +117,22 @@
         if (draftDurationUnit === 'minutes') return val * 60;
         return val;
     });
+
+    let calculatedAutomationInterval = $derived.by(() => {
+        const val = Number(draftAutomationIntervalValue) || 1;
+        if (draftAutomationIntervalUnit === 'hours') return val * 3600;
+        if (draftAutomationIntervalUnit === 'minutes') return val * 60;
+        return val;
+    });
+
+    function formatIntervalRemaining(totalSeconds: number): string {
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
+        if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+        return `${s}s`;
+    }
 
     async function applySettings(pairKey: string, pair: PairState) {
         const cleanedSymbol = draftSymbol.trim().toUpperCase();
@@ -122,6 +155,10 @@
                 adx_period: Number(draftAdxPeriod),
                 atr_period: Number(draftAtrPeriod),
                 squeeze_period: Number(draftSqueezePeriod)
+            },
+            automation: {
+                enabled: draftAutomationEnabled,
+                interval_seconds: Number(calculatedAutomationInterval)
             }
         };
 
@@ -161,6 +198,10 @@
                     next.adxPeriodVal = draftAdxPeriod;
                     next.atrPeriodVal = draftAtrPeriod;
                     next.squeezePeriodVal = draftSqueezePeriod;
+                    next.automationEnabled = draftAutomationEnabled;
+                    next.automationIntervalValue = draftAutomationIntervalValue;
+                    next.automationIntervalUnit = draftAutomationIntervalUnit;
+                    next.nextEvaluationIn = draftAutomationEnabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
                 }
 
                 app.removePair(pairKey);
@@ -199,6 +240,11 @@
             pair.showRsi = draftShowRsi;
             pair.showMacd = draftShowMacd;
             pair.showSqueeze = draftShowSqueeze;
+
+            pair.automationEnabled = draftAutomationEnabled;
+            pair.automationIntervalValue = draftAutomationIntervalValue;
+            pair.automationIntervalUnit = draftAutomationIntervalUnit;
+            pair.nextEvaluationIn = draftAutomationEnabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
 
             pair.currentView = 'terminal';
         } catch (e) {
@@ -303,6 +349,22 @@
                     targetState.adxPeriodVal = specific.indicators.adx_period;
                     targetState.atrPeriodVal = specific.indicators.atr_period;
                     targetState.squeezePeriodVal = specific.indicators.squeeze_period;
+
+                    if (specific.automation) {
+                        targetState.automationEnabled = specific.automation.enabled ?? false;
+                        const autoSec = specific.automation.interval_seconds ?? 900;
+                        if (autoSec % 3600 === 0) {
+                            targetState.automationIntervalValue = autoSec / 3600;
+                            targetState.automationIntervalUnit = 'hours';
+                        } else if (autoSec % 60 === 0) {
+                            targetState.automationIntervalValue = autoSec / 60;
+                            targetState.automationIntervalUnit = 'minutes';
+                        } else {
+                            targetState.automationIntervalValue = autoSec;
+                            targetState.automationIntervalUnit = 'seconds';
+                        }
+                        targetState.nextEvaluationIn = targetState.automationEnabled ? formatIntervalRemaining(autoSec) : '--';
+                    }
                 }
             }
             if (symbols.length > 0) {
@@ -382,6 +444,21 @@
                     pair.sqzStatusText = pair.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
                     if (snapshot.volume) pair.volText = parseFloat(snapshot.volume).toFixed(2);
                     if (snapshot.average_volume) pair.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
+
+                    const pos = pair.activePaperPosition as any;
+                    if (pos && snapshot.mid_price) {
+                        const currentPrice = parseFloat(snapshot.mid_price);
+                        const entryPrice = pos.entry_price ?? 0;
+                        const size = pos.size ?? 0;
+                        const allocated = pos.allocated_usd ?? 0;
+                        if (pos.direction === 'LONG') {
+                            pair.paperUnrealizedPnl = (currentPrice - entryPrice) * size;
+                        } else {
+                            pair.paperUnrealizedPnl = (entryPrice - currentPrice) * size;
+                        }
+                        pair.paperUnrealizedRoi = allocated > 0 ? (pair.paperUnrealizedPnl / allocated) * 100 : 0;
+                        pair.paperTotalAccountValue = pair.paperCashBalance + allocated + pair.paperUnrealizedPnl;
+                    }
                 }
             } catch (err) {
                 console.error("Error parsing market snapshot JSON:", err);
@@ -661,6 +738,13 @@
                         </button>
                         <button
                             class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'positions'}
+                            onclick={() => { pair.currentView = 'positions'; app.fetchPaperStatus(); }}
+                        >
+                            💰 Positions
+                        </button>
+                        <button
+                            class="sub-tab-btn"
                             class:sub-tab-active={pair.currentView === 'performance'}
                             onclick={() => pair.currentView = 'performance'}
                         >
@@ -904,6 +988,82 @@
                         </aside>
                     </div>
 
+                <!-- 1.5 Positions Inner View -->
+                {:else if pair.currentView === 'positions'}
+                    <div class="workspace-inner-content animate-fade">
+                        <div class="paper-layout">
+                            <div class="paper-positions-col">
+                                <h3 class="card-title" style="margin-top: 0;">Active Paper Position</h3>
+                                {#if pair.activePaperPosition}
+                                    {@const pos = pair.activePaperPosition as any}
+                                    <div class="paper-position-card" class:direction-long={pos.direction === 'LONG'} class:direction-short={pos.direction === 'SHORT'}>
+                                        <div class="pp-header">
+                                            <span class="pp-direction">{pos.direction}</span>
+                                            <span class="pp-symbol">{pos.symbol}</span>
+                                        </div>
+                                        <div class="pp-details">
+                                            <div class="pp-row"><span>Entry Price:</span><span>${(pos.entry_price ?? 0).toFixed(2)}</span></div>
+                                            <div class="pp-row"><span>Size:</span><span>{(pos.size ?? 0).toFixed(4)} units</span></div>
+                                            <div class="pp-row"><span>Allocated:</span><span>${(pos.allocated_usd ?? 0).toFixed(2)}</span></div>
+                                        </div>
+                                        <div class="pp-pnl-section">
+                                            <div class="pp-row"><span>Unrealized P&L:</span>
+                                                <span class:pnl-positive={pair.paperUnrealizedPnl >= 0} class:pnl-negative={pair.paperUnrealizedPnl < 0}>
+                                                    {pair.paperUnrealizedPnl >= 0 ? '+' : ''}${pair.paperUnrealizedPnl.toFixed(2)}
+                                                </span>
+                                            </div>
+                                            <div class="pp-row"><span>ROI:</span>
+                                                <span class:pnl-positive={pair.paperUnrealizedRoi >= 0} class:pnl-negative={pair.paperUnrealizedRoi < 0}>
+                                                    {pair.paperUnrealizedRoi.toFixed(2)}%
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button class="paper-close-btn" onclick={() => app.closePaperPosition()}
+                                                disabled={pair.paperLoading}>
+                                            Close Position (Market)
+                                        </button>
+                                    </div>
+                                {:else}
+                                    <div class="paper-empty-state">
+                                        <p>No active paper position.</p>
+                                        <div class="paper-action-btns">
+                                            <button class="paper-open-btn direction-long" onclick={() => app.openPaperPosition('LONG')}
+                                                    disabled={pair.paperLoading}>
+                                                Open Long
+                                            </button>
+                                            <button class="paper-open-btn direction-short" onclick={() => app.openPaperPosition('SHORT')}
+                                                    disabled={pair.paperLoading}>
+                                                Open Short
+                                            </button>
+                                        </div>
+                                    </div>
+                                {/if}
+                            </div>
+
+                            <div class="paper-ledger-col">
+                                <h3 class="card-title" style="margin-top: 0;">Account Ledger</h3>
+                                <div class="paper-ledger-card">
+                                    <div class="ledger-row"><span>Total Balance:</span><span class="mono">${pair.paperTotalAccountValue.toFixed(2)}</span></div>
+                                    <div class="ledger-row"><span>Available Cash:</span><span class="mono">${pair.paperCashBalance.toFixed(2)}</span></div>
+                                    <div class="ledger-row"><span>Margin Used:</span><span class="mono">
+                                        ${pair.paperMarginUsed.toFixed(2)} ({pair.paperAllocationPct}%)
+                                    </span></div>
+                                    <div class="ledger-divider"></div>
+                                    <div class="ledger-row"><span>Trade Capacity:</span></div>
+                                    <div class="capacity-bar-container">
+                                        <div class="capacity-bar-track">
+                                            <div class="capacity-bar-fill" style="width: {pair.paperMaxTrades > 0 ? (pair.paperActiveTrades / pair.paperMaxTrades * 100) : 0}%"></div>
+                                        </div>
+                                        <span class="capacity-text">{pair.paperActiveTrades} / {pair.paperMaxTrades} Active</span>
+                                    </div>
+                                    <div class="ledger-row" style="margin-top: 8px;">
+                                        <span>Available Trades:</span><span class="mono">{pair.paperAvailableTrades}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 <!-- 2. Performance Metrics Inner View -->
                 {:else if pair.currentView === 'performance'}
                     <div class="workspace-inner-content">
@@ -937,6 +1097,33 @@
                                         <button class="selector-btn" class:active={draftShowMacd} onclick={() => draftShowMacd = !draftShowMacd}>MACD</button>
                                         <button class="selector-btn" class:active={draftShowSqueeze} onclick={() => draftShowSqueeze = !draftShowSqueeze}>Squeeze</button>
                                     </div>
+                                </div>
+
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">Automated AI Evaluation</span>
+                                    <div class="toggle-row">
+                                        <span class="toggle-label">Status</span>
+                                        <button class="selector-btn" class:active={draftAutomationEnabled}
+                                                onclick={() => draftAutomationEnabled = !draftAutomationEnabled}>
+                                            {draftAutomationEnabled ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                    {#if draftAutomationEnabled}
+                                        <div class="input-row" style="margin-top: 8px;">
+                                            <label for="autoInterval">Interval:</label>
+                                            <div class="tf-split-group">
+                                                <input id="autoInterval" type="number" bind:value={draftAutomationIntervalValue} min="1" class="tf-number-input" />
+                                                <select bind:value={draftAutomationIntervalUnit} class="tf-unit-select">
+                                                    <option value="seconds">Seconds</option>
+                                                    <option value="minutes">Minutes</option>
+                                                    <option value="hours">Hours</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="live-counter" style="margin-top: 8px; font-size: 10px; color: #3b82f6;">
+                                            Next evaluation in: {pair.nextEvaluationIn}
+                                        </div>
+                                    {/if}
                                 </div>
                             </div>
 
@@ -1014,6 +1201,62 @@
                                             {rulesStatus === 'saving' ? '...' : 'Update Rules'}
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Paper Trading Rules Column -->
+                            <div class="settings-col">
+                                <h3 class="card-title">Paper Trading Rules</h3>
+
+                                <div class="setting-group-box">
+                                    <span class="selectors-label">Account Configuration</span>
+                                    <div class="input-row" style="margin-top: 4px;">
+                                        <label for="paperUSD">Initial USD:</label>
+                                        <input id="paperUSD" type="number" bind:value={pair.paperInitialUSD} min="100" step="100" />
+                                    </div>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="paperAlloc">Allocation %:</label>
+                                        <input id="paperAlloc" type="number" bind:value={pair.paperAllocationPct} min="1" max="100" step="1" />
+                                    </div>
+                                    <button class="key-save-btn" style="margin-top: 8px; width: 100%;"
+                                            onclick={() => app.savePaperConfig(
+                                                pair.paperInitialUSD,
+                                                pair.paperAllocationPct,
+                                                pair.paperAutoExecute
+                                            )}>
+                                        Save Paper Config
+                                    </button>
+                                </div>
+
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">Auto-Execution</span>
+                                    <div class="toggle-row">
+                                        <span class="toggle-label">Auto-Place Orders</span>
+                                        <button class="selector-btn" class:active={pair.paperAutoExecute}
+                                                onclick={() => {
+                                                    pair.paperAutoExecute = !pair.paperAutoExecute;
+                                                    app.savePaperConfig(
+                                                        pair.paperInitialUSD,
+                                                        pair.paperAllocationPct,
+                                                        pair.paperAutoExecute
+                                                    );
+                                                }}>
+                                            {pair.paperAutoExecute ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                    <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
+                                        When enabled, automated AI signals will automatically place paper orders.
+                                    </p>
+                                </div>
+
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <button class="paper-reset-btn" onclick={() => {
+                                        if (confirm('Reset paper account? This will close any active position and restore initial balance.')) {
+                                            app.resetPaperAccount();
+                                        }
+                                    }}>
+                                        Reset Account Balance
+                                    </button>
                                 </div>
                             </div>
 
@@ -1873,5 +2116,185 @@
     .workspace-inner-content {
         flex: 1;
         overflow-y: auto;
+    }
+    .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+    .toggle-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: #94a3b8;
+    }
+    .live-counter {
+        font-family: 'Courier New', monospace;
+        font-weight: 700;
+    }
+    .paper-layout {
+        display: grid;
+        grid-template-columns: 1fr 320px;
+        gap: 16px;
+        max-width: 1100px;
+        margin: 0 auto;
+        width: 100%;
+    }
+    .paper-positions-col, .paper-ledger-col {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .paper-position-card {
+        background: #0f131c;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+    }
+    .direction-long { border-color: rgba(16, 185, 129, 0.4); }
+    .direction-short { border-color: rgba(239, 68, 68, 0.4); }
+    .pp-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+    .pp-direction {
+        font-size: 13px;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+    .direction-long .pp-direction { color: #10b981; }
+    .direction-short .pp-direction { color: #ef4444; }
+    .pp-symbol {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 600;
+    }
+    .pp-details, .pp-pnl-section {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .pp-pnl-section {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #1e293b;
+    }
+    .pp-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #94a3b8;
+    }
+    .paper-close-btn {
+        width: 100%;
+        margin-top: 14px;
+        padding: 10px;
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        color: #ef4444;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 6px;
+        cursor: pointer;
+        text-transform: uppercase;
+    }
+    .paper-close-btn:hover { background: rgba(239, 68, 68, 0.25); }
+    .paper-close-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .paper-empty-state {
+        background: #0f131c;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 24px;
+        text-align: center;
+        color: #64748b;
+        font-size: 12px;
+    }
+    .paper-action-btns {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+    }
+    .paper-open-btn {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        cursor: pointer;
+        background: transparent;
+    }
+    .paper-open-btn.direction-long {
+        color: #10b981;
+        border-color: rgba(16, 185, 129, 0.35);
+    }
+    .paper-open-btn.direction-long:hover { background: rgba(16, 185, 129, 0.1); }
+    .paper-open-btn.direction-short {
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.35);
+    }
+    .paper-open-btn.direction-short:hover { background: rgba(239, 68, 68, 0.1); }
+    .paper-open-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .paper-ledger-card {
+        background: #0f131c;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .ledger-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #94a3b8;
+    }
+    .ledger-divider {
+        border-top: 1px solid #1e293b;
+        margin: 2px 0;
+    }
+    .capacity-bar-container {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .capacity-bar-track {
+        height: 6px;
+        background: #1a1f2e;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+    .capacity-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #60a5fa);
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+    .capacity-text {
+        font-size: 9px;
+        color: #64748b;
+        text-align: right;
+    }
+    .pnl-positive { color: #10b981; font-weight: 700; }
+    .pnl-negative { color: #ef4444; font-weight: 700; }
+    .paper-reset-btn {
+        width: 100%;
+        padding: 8px;
+        background: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 4px;
+        cursor: pointer;
+        text-transform: uppercase;
+    }
+    .paper-reset-btn:hover { background: rgba(239, 68, 68, 0.18); }
+    @media (max-width: 768px) {
+        .paper-layout { grid-template-columns: 1fr; }
     }
 </style>

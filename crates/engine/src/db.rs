@@ -1,6 +1,7 @@
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use shared::models::MarketSnapshot;
+use shared::TriggerType;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct UserTrade {
@@ -33,6 +34,23 @@ pub enum TelemetryMsg {
         recommendation_rationale: String,
     },
     ConsoleLog(String),
+    PaperOpenPosition {
+        symbol: String,
+        direction: String,
+        entry_price: f64,
+        size: f64,
+        allocated_usd: f64,
+    },
+    PaperClosePosition {
+        symbol: String,
+        exit_price: f64,
+        exit_timestamp: i64,
+        trigger: String,
+    },
+    PaperUpdateBalance {
+        symbol: String,
+        current_cash: f64,
+    },
 }
 
 pub async fn run_telemetry_logger(pool: SqlitePool, mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>) {
@@ -69,6 +87,15 @@ pub async fn run_telemetry_logger(pool: SqlitePool, mut rx: tokio::sync::mpsc::R
             }
             TelemetryMsg::ConsoleLog(log_text) => {
                 println!("{}", log_text);
+            }
+            TelemetryMsg::PaperOpenPosition { symbol, direction, entry_price, size, allocated_usd } => {
+                paper_open_position_internal(&pool, &symbol, &direction, entry_price, size, allocated_usd).await;
+            }
+            TelemetryMsg::PaperClosePosition { symbol, exit_price, exit_timestamp, trigger } => {
+                paper_close_position_internal(&pool, &symbol, exit_price, exit_timestamp, &trigger).await;
+            }
+            TelemetryMsg::PaperUpdateBalance { symbol, current_cash } => {
+                paper_update_balance_internal(&pool, &symbol, current_cash).await;
             }
         }
     }
@@ -180,6 +207,88 @@ pub async fn init_db() -> SqlitePool {
     .await
     .expect("❌ Database Setup: Failed to build user_trades table");
 
+    sqlx::query(
+        "ALTER TABLE master_assistant_records ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'Manual'"
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
+    sqlx::query(
+        "ALTER TABLE master_assistant_records ADD COLUMN stop_loss_trigger TEXT"
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS automated_performance_tracker (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            master_record_id INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            price_at_signal TEXT NOT NULL,
+            price_at_1h TEXT,
+            price_at_4h TEXT,
+            price_at_24h TEXT,
+            direction_correct_1h INTEGER,
+            direction_correct_4h INTEGER,
+            direction_correct_24h INTEGER,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (master_record_id) REFERENCES master_assistant_records(id)
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build automated_performance_tracker table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS paper_balances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL UNIQUE,
+            initial_usd REAL NOT NULL DEFAULT 10000.0,
+            current_cash REAL NOT NULL DEFAULT 10000.0,
+            allocation_pct REAL NOT NULL DEFAULT 10.0,
+            auto_execute INTEGER NOT NULL DEFAULT 0
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build paper_balances table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS active_positions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL UNIQUE,
+            direction TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            size REAL NOT NULL,
+            allocated_usd REAL NOT NULL,
+            entry_timestamp INTEGER NOT NULL
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build active_positions table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS paper_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            size REAL NOT NULL,
+            realized_pnl REAL NOT NULL,
+            roi_pct REAL NOT NULL,
+            entry_timestamp INTEGER NOT NULL,
+            exit_timestamp INTEGER NOT NULL,
+            trigger TEXT NOT NULL DEFAULT 'MANUAL'
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build paper_trades table");
+
     pool
 }
 
@@ -240,14 +349,16 @@ pub async fn insert_master_placeholder(
     entry_price: &str,
     price_at_analysis: &str,
     symbol: &str,
+    trigger_type: TriggerType,
 ) -> i64 {
+    let trigger_str = trigger_type.to_string();
     match sqlx::query(
         "INSERT INTO master_assistant_records (
             position, entry_price, price_at_analysis, general_trend,
             support_levels, resistance_levels,
             indicator_synthesis_summary, indicator_synthesis_evaluation,
-            recommended_action, recommendation_rationale, symbol
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+            recommended_action, recommendation_rationale, symbol, trigger_type
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
     )
     .bind(position)
     .bind(entry_price)
@@ -260,6 +371,7 @@ pub async fn insert_master_placeholder(
     .bind("PENDING")
     .bind("PENDING")
     .bind(symbol)
+    .bind(&trigger_str)
     .execute(&*pool)
     .await
     {
@@ -355,14 +467,15 @@ pub struct MasterRecord {
     pub recommended_action: String,
     pub recommendation_rationale: String,
     pub symbol: String,
+    pub trigger_type: String,
 }
 
 pub async fn query_master_records(pool: &SqlitePool, limit: u32) -> Vec<MasterRecord> {
-    let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, String, String, String, String, String, String, String, String, String)>(
+    let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, String, String, String, String, String, String, String, String, String, String)>(
         "SELECT id, created_at, position, entry_price, price_at_analysis,
                 general_trend, support_levels, resistance_levels,
                 indicator_synthesis_summary, indicator_synthesis_evaluation,
-                recommended_action, recommendation_rationale, symbol
+                recommended_action, recommendation_rationale, symbol, trigger_type
          FROM master_assistant_records
          WHERE general_trend != 'PENDING'
          ORDER BY id DESC
@@ -375,7 +488,7 @@ pub async fn query_master_records(pool: &SqlitePool, limit: u32) -> Vec<MasterRe
     match rows {
         Ok(rows) => rows
             .into_iter()
-            .map(|(id, created_at, position, entry_price, price_at_analysis, general_trend, support_levels, resistance_levels, indicator_synthesis_summary, indicator_synthesis_evaluation, recommended_action, recommendation_rationale, symbol)| {
+            .map(|(id, created_at, position, entry_price, price_at_analysis, general_trend, support_levels, resistance_levels, indicator_synthesis_summary, indicator_synthesis_evaluation, recommended_action, recommendation_rationale, symbol, trigger_type)| {
                 MasterRecord {
                     id,
                     created_at,
@@ -390,6 +503,7 @@ pub async fn query_master_records(pool: &SqlitePool, limit: u32) -> Vec<MasterRe
                     recommended_action,
                     recommendation_rationale,
                     symbol,
+                    trigger_type,
                 }
             })
             .collect(),
@@ -501,6 +615,329 @@ pub async fn query_atr_snapshots(pool: &SqlitePool, limit: u32) -> Vec<Option<St
     }
 }
 
+pub async fn query_master_records_by_trigger(
+    pool: &SqlitePool,
+    trigger_type: &str,
+    limit: u32,
+) -> Vec<MasterRecord> {
+    let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, String, String, String, String, String, String, String, String, String, String)>(
+        "SELECT id, created_at, position, entry_price, price_at_analysis,
+                general_trend, support_levels, resistance_levels,
+                indicator_synthesis_summary, indicator_synthesis_evaluation,
+                recommended_action, recommendation_rationale, symbol, trigger_type
+         FROM master_assistant_records
+         WHERE general_trend != 'PENDING' AND trigger_type = ?1
+         ORDER BY id DESC
+         LIMIT ?2"
+    )
+    .bind(trigger_type)
+    .bind(limit as i64)
+    .fetch_all(&*pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(id, created_at, position, entry_price, price_at_analysis, general_trend, support_levels, resistance_levels, indicator_synthesis_summary, indicator_synthesis_evaluation, recommended_action, recommendation_rationale, symbol, trigger_type)| {
+                MasterRecord {
+                    id,
+                    created_at,
+                    position,
+                    entry_price,
+                    price_at_analysis,
+                    general_trend,
+                    support_levels,
+                    resistance_levels,
+                    indicator_synthesis_summary,
+                    indicator_synthesis_evaluation,
+                    recommended_action,
+                    recommendation_rationale,
+                    symbol,
+                    trigger_type,
+                }
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query master records by trigger: {}", e);
+            vec![]
+        }
+    }
+}
+
+pub async fn query_latest_snapshot(
+    pool: &SqlitePool,
+    symbol: &str,
+) -> Option<MarketSnapshot> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT exchange, timestamp, symbol, mid_price, bid_price, ask_price,
+                open, high, low, close, volume, average_volume,
+                bb_upper, bb_middle, bb_lower, atr_14, vwap,
+                ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
+                macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
+                squeeze_on, squeeze_momentum
+         FROM market_snapshots
+         WHERE symbol = ?1 AND close IS NOT NULL
+         ORDER BY id DESC
+         LIMIT 1"
+    )
+    .bind(symbol)
+    .fetch_optional(&*pool)
+    .await
+    .ok()
+    .flatten();
+
+    row.map(|r| {
+        let parse_dec = |val: Option<String>| val.and_then(|s| rust_decimal::Decimal::from_str_exact(&s).ok());
+        MarketSnapshot {
+            exchange: Some(shared::normalized::Exchange::Hyperliquid),
+            timestamp: r.get::<i64, _>(1) as u64,
+            symbol: r.get(2),
+            mid_price: parse_dec(Some(r.get::<String, _>(3))).unwrap_or(rust_decimal::Decimal::ZERO),
+            bid_price: parse_dec(Some(r.get::<String, _>(4))).unwrap_or(rust_decimal::Decimal::ZERO),
+            ask_price: parse_dec(Some(r.get::<String, _>(5))).unwrap_or(rust_decimal::Decimal::ZERO),
+            bid_size: None,
+            ask_size: None,
+            funding_rate: None,
+            open: parse_dec(r.get::<Option<String>, _>(6)),
+            high: parse_dec(r.get::<Option<String>, _>(7)),
+            low: parse_dec(r.get::<Option<String>, _>(8)),
+            close: parse_dec(r.get::<Option<String>, _>(9)),
+            volume: parse_dec(r.get::<Option<String>, _>(10)),
+            average_volume: parse_dec(r.get::<Option<String>, _>(11)),
+            bb_upper: parse_dec(r.get::<Option<String>, _>(12)),
+            bb_middle: parse_dec(r.get::<Option<String>, _>(13)),
+            bb_lower: parse_dec(r.get::<Option<String>, _>(14)),
+            atr_14: parse_dec(r.get::<Option<String>, _>(15)),
+            vwap: parse_dec(r.get::<Option<String>, _>(16)),
+            ema_fast: parse_dec(r.get::<Option<String>, _>(17)),
+            ema_medium: parse_dec(r.get::<Option<String>, _>(18)),
+            ema_slow: parse_dec(r.get::<Option<String>, _>(19)),
+            ema_long: parse_dec(r.get::<Option<String>, _>(20)),
+            rsi_14: parse_dec(r.get::<Option<String>, _>(21)),
+            macd_line: parse_dec(r.get::<Option<String>, _>(22)),
+            macd_signal: parse_dec(r.get::<Option<String>, _>(23)),
+            macd_hist: parse_dec(r.get::<Option<String>, _>(24)),
+            adx_14: parse_dec(r.get::<Option<String>, _>(25)),
+            adx_plus: parse_dec(r.get::<Option<String>, _>(26)),
+            adx_minus: parse_dec(r.get::<Option<String>, _>(27)),
+            squeeze_on: r.get::<Option<i32>, _>(28).map(|v| v != 0),
+            squeeze_momentum: parse_dec(r.get::<Option<String>, _>(29)),
+        }
+    })
+}
+
+pub async fn insert_automated_performance_baseline(
+    pool: &SqlitePool,
+    master_record_id: i64,
+    symbol: &str,
+    price_at_signal: &str,
+) {
+    if let Err(e) = sqlx::query(
+        "INSERT INTO automated_performance_tracker (master_record_id, symbol, price_at_signal)
+         VALUES (?1, ?2, ?3)"
+    )
+    .bind(master_record_id)
+    .bind(symbol)
+    .bind(price_at_signal)
+    .execute(&*pool)
+    .await
+    {
+        eprintln!("⚠️ Database Error: Failed to insert automated performance baseline: {}", e);
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AutomatedPerformanceRow {
+    pub id: i64,
+    pub master_record_id: i64,
+    pub symbol: String,
+    pub price_at_signal: String,
+    pub price_at_1h: Option<String>,
+    pub price_at_4h: Option<String>,
+    pub price_at_24h: Option<String>,
+    pub direction_correct_1h: Option<bool>,
+    pub direction_correct_4h: Option<bool>,
+    pub direction_correct_24h: Option<bool>,
+    pub created_at: String,
+}
+
+pub async fn query_automated_performance(
+    pool: &SqlitePool,
+    limit: u32,
+) -> Vec<AutomatedPerformanceRow> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT id, master_record_id, symbol, price_at_signal,
+                price_at_1h, price_at_4h, price_at_24h,
+                direction_correct_1h, direction_correct_4h, direction_correct_24h,
+                created_at
+         FROM automated_performance_tracker
+         ORDER BY id DESC
+         LIMIT ?1"
+    )
+    .bind(limit as i64)
+    .fetch_all(&*pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .iter()
+            .map(|r| AutomatedPerformanceRow {
+                id: r.get(0),
+                master_record_id: r.get(1),
+                symbol: r.get(2),
+                price_at_signal: r.get(3),
+                price_at_1h: r.get(4),
+                price_at_4h: r.get(5),
+                price_at_24h: r.get(6),
+                direction_correct_1h: r.get::<Option<i32>, _>(7).map(|v| v != 0),
+                direction_correct_4h: r.get::<Option<i32>, _>(8).map(|v| v != 0),
+                direction_correct_24h: r.get::<Option<i32>, _>(9).map(|v| v != 0),
+                created_at: r.get(10),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query automated performance: {}", e);
+            vec![]
+        }
+    }
+}
+
+pub async fn update_performance_tracker_prices(
+    pool: &SqlitePool,
+    tracker_id: i64,
+    price_at_1h: Option<&str>,
+    direction_correct_1h: Option<bool>,
+    price_at_4h: Option<&str>,
+    direction_correct_4h: Option<bool>,
+    price_at_24h: Option<&str>,
+    direction_correct_24h: Option<bool>,
+) {
+    let corr_1h = direction_correct_1h.map(|v| if v { 1 } else { 0 });
+    let corr_4h = direction_correct_4h.map(|v| if v { 1 } else { 0 });
+    let corr_24h = direction_correct_24h.map(|v| if v { 1 } else { 0 });
+
+    if let Err(e) = sqlx::query(
+        "UPDATE automated_performance_tracker SET
+            price_at_1h = COALESCE(?2, price_at_1h),
+            direction_correct_1h = COALESCE(?3, direction_correct_1h),
+            price_at_4h = COALESCE(?4, price_at_4h),
+            direction_correct_4h = COALESCE(?5, direction_correct_4h),
+            price_at_24h = COALESCE(?6, price_at_24h),
+            direction_correct_24h = COALESCE(?7, direction_correct_24h)
+         WHERE id = ?1"
+    )
+    .bind(tracker_id)
+    .bind(price_at_1h)
+    .bind(corr_1h)
+    .bind(price_at_4h)
+    .bind(corr_4h)
+    .bind(price_at_24h)
+    .bind(corr_24h)
+    .execute(&*pool)
+    .await
+    {
+        eprintln!("⚠️ Database Error: Failed to update performance tracker {}: {}", tracker_id, e);
+    }
+}
+
+pub async fn query_pending_performance_entries(
+    pool: &SqlitePool,
+) -> Vec<AutomatedPerformanceRow> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT id, master_record_id, symbol, price_at_signal,
+                price_at_1h, price_at_4h, price_at_24h,
+                direction_correct_1h, direction_correct_4h, direction_correct_24h,
+                created_at
+         FROM automated_performance_tracker
+         WHERE price_at_24h IS NULL
+         ORDER BY id ASC"
+    )
+    .fetch_all(&*pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .iter()
+            .map(|r| AutomatedPerformanceRow {
+                id: r.get(0),
+                master_record_id: r.get(1),
+                symbol: r.get(2),
+                price_at_signal: r.get(3),
+                price_at_1h: r.get(4),
+                price_at_4h: r.get(5),
+                price_at_24h: r.get(6),
+                direction_correct_1h: r.get::<Option<i32>, _>(7).map(|v| v != 0),
+                direction_correct_4h: r.get::<Option<i32>, _>(8).map(|v| v != 0),
+                direction_correct_24h: r.get::<Option<i32>, _>(9).map(|v| v != 0),
+                created_at: r.get(10),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query pending performance entries: {}", e);
+            vec![]
+        }
+    }
+}
+
+pub async fn query_master_action_by_id(pool: &SqlitePool, master_id: i64) -> Option<String> {
+    use sqlx::Row;
+    sqlx::query(
+        "SELECT recommended_action FROM master_assistant_records WHERE id = ?1"
+    )
+    .bind(master_id)
+    .fetch_optional(&*pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| r.get(0))
+}
+
+pub async fn query_closest_close_price(
+    pool: &SqlitePool,
+    symbol: &str,
+    target_timestamp_secs: u64,
+) -> Option<f64> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT close FROM market_snapshots
+         WHERE symbol = ?1 AND close IS NOT NULL AND timestamp >= ?2
+         ORDER BY timestamp ASC LIMIT 1"
+    )
+    .bind(symbol)
+    .bind(target_timestamp_secs as i64)
+    .fetch_optional(&*pool)
+    .await
+    .ok()
+    .flatten();
+
+    match row {
+        Some(r) => {
+            let s: String = r.get(0);
+            s.parse::<f64>().ok()
+        }
+        None => {
+            let fallback = sqlx::query(
+                "SELECT close FROM market_snapshots
+                 WHERE symbol = ?1 AND close IS NOT NULL AND timestamp <= ?2
+                 ORDER BY timestamp DESC LIMIT 1"
+            )
+            .bind(symbol)
+            .bind(target_timestamp_secs as i64)
+            .fetch_optional(&*pool)
+            .await
+            .ok()
+            .flatten();
+            fallback.and_then(|r: sqlx::sqlite::SqliteRow| {
+                let s: String = r.get(0);
+                s.parse::<f64>().ok()
+            })
+        }
+    }
+}
+
 pub async fn insert_user_trade(
     pool: &SqlitePool,
     symbol: &str,
@@ -560,5 +997,399 @@ pub async fn query_user_trades(pool: &SqlitePool, limit: u32) -> Vec<UserTrade> 
             eprintln!("⚠️ Database Error: Failed to query user trades: {}", e);
             vec![]
         }
+    }
+}
+
+// ─── Paper Trading Functions ───────────────────────────────────────
+
+async fn paper_open_position_internal(
+    pool: &SqlitePool,
+    symbol: &str,
+    direction: &str,
+    entry_price: f64,
+    size: f64,
+    allocated_usd: f64,
+) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    if let Err(e) = sqlx::query(
+        "INSERT OR REPLACE INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+    )
+    .bind(symbol)
+    .bind(direction)
+    .bind(entry_price)
+    .bind(size)
+    .bind(allocated_usd)
+    .bind(now)
+    .execute(&*pool)
+    .await
+    {
+        eprintln!("⚠️ Paper DB: Failed to open position for {}: {}", symbol, e);
+    } else {
+        println!("📄 Paper Position: OPEN {} {} @ ${:.2} (Size: {:.4}, Allocated: ${:.2})",
+            symbol, direction, entry_price, size, allocated_usd);
+    }
+}
+
+async fn paper_close_position_internal(
+    pool: &SqlitePool,
+    symbol: &str,
+    exit_price: f64,
+    exit_timestamp: i64,
+    trigger: &str,
+) {
+    let position = sqlx::query_as::<_, (i64, String, String, f64, f64, f64, i64)>(
+        "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp
+         FROM active_positions WHERE symbol = ?1"
+    )
+    .bind(symbol)
+    .fetch_optional(&*pool)
+    .await;
+
+    match position {
+        Ok(Some((_id, sym, direction, entry_price, size, allocated_usd, entry_ts))) => {
+            let realized_pnl = if direction == "LONG" {
+                (exit_price - entry_price) * size
+            } else {
+                (entry_price - exit_price) * size
+            };
+            let roi_pct = if allocated_usd > 0.0 {
+                (realized_pnl / allocated_usd) * 100.0
+            } else {
+                0.0
+            };
+
+            if let Err(e) = sqlx::query(
+                "INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+            )
+            .bind(&sym)
+            .bind(&direction)
+            .bind(entry_price)
+            .bind(exit_price)
+            .bind(size)
+            .bind(realized_pnl)
+            .bind(roi_pct)
+            .bind(entry_ts)
+            .bind(exit_timestamp)
+            .bind(trigger)
+            .execute(&*pool)
+            .await
+            {
+                eprintln!("⚠️ Paper DB: Failed to record trade for {}: {}", symbol, e);
+            }
+
+            if let Err(e) = sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
+                .bind(symbol)
+                .execute(&*pool)
+                .await
+            {
+                eprintln!("⚠️ Paper DB: Failed to clear active position for {}: {}", symbol, e);
+            }
+
+            sqlx::query(
+                "UPDATE paper_balances SET current_cash = current_cash + ?2 WHERE symbol = ?1"
+            )
+            .bind(symbol)
+            .bind(allocated_usd + realized_pnl)
+            .execute(&*pool)
+            .await
+            .ok();
+
+            println!(
+                "📄 Paper Position: CLOSE {} {} @ ${:.2} → PnL: ${:.2} (ROI: {:.2}%) [{}]",
+                symbol, direction, exit_price, realized_pnl, roi_pct, trigger
+            );
+        }
+        Ok(None) => {
+            eprintln!("⚠️ Paper DB: No active position to close for {}", symbol);
+        }
+        Err(e) => {
+            eprintln!("⚠️ Paper DB: Error querying active position for {}: {}", symbol, e);
+        }
+    }
+}
+
+async fn paper_update_balance_internal(
+    pool: &SqlitePool,
+    symbol: &str,
+    current_cash: f64,
+) {
+    if let Err(e) = sqlx::query(
+        "INSERT OR REPLACE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute)
+         VALUES (?1, ?2, ?2, 10.0, 0)"
+    )
+    .bind(symbol)
+    .bind(current_cash)
+    .execute(&*pool)
+    .await
+    {
+        eprintln!("⚠️ Paper DB: Failed to update balance for {}: {}", symbol, e);
+    }
+}
+
+pub async fn paper_ensure_balance(pool: &SqlitePool, symbol: &str) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute)
+         VALUES (?1, 10000.0, 10000.0, 10.0, 0)"
+    )
+    .bind(symbol)
+    .execute(&*pool)
+    .await
+    .ok();
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperBalance {
+    pub id: i64,
+    pub symbol: String,
+    pub initial_usd: f64,
+    pub current_cash: f64,
+    pub allocation_pct: f64,
+    pub auto_execute: bool,
+}
+
+pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance {
+    use sqlx::Row;
+    paper_ensure_balance(pool, symbol).await;
+    let row = sqlx::query(
+        "SELECT id, symbol, initial_usd, current_cash, allocation_pct, auto_execute
+         FROM paper_balances WHERE symbol = ?1"
+    )
+    .bind(symbol)
+    .fetch_optional(&*pool)
+    .await
+    .ok()
+    .flatten();
+
+    match row {
+        Some(r) => PaperBalance {
+            id: r.get(0),
+            symbol: r.get(1),
+            initial_usd: r.get(2),
+            current_cash: r.get(3),
+            allocation_pct: r.get(4),
+            auto_execute: r.get::<i32, _>(5) != 0,
+        },
+        None => PaperBalance {
+            id: 0,
+            symbol: symbol.to_string(),
+            initial_usd: 10000.0,
+            current_cash: 10000.0,
+            allocation_pct: 10.0,
+            auto_execute: false,
+        },
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ActivePaperPosition {
+    pub id: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub entry_price: f64,
+    pub size: f64,
+    pub allocated_usd: f64,
+    pub entry_timestamp: i64,
+}
+
+pub async fn paper_get_active_position(pool: &SqlitePool, symbol: &str) -> Option<ActivePaperPosition> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp
+         FROM active_positions WHERE symbol = ?1"
+    )
+    .bind(symbol)
+    .fetch_optional(&*pool)
+    .await
+    .ok()
+    .flatten();
+
+    row.map(|r| ActivePaperPosition {
+        id: r.get(0),
+        symbol: r.get(1),
+        direction: r.get(2),
+        entry_price: r.get(3),
+        size: r.get(4),
+        allocated_usd: r.get(5),
+        entry_timestamp: r.get(6),
+    })
+}
+
+pub async fn paper_set_balance_config(
+    pool: &SqlitePool,
+    symbol: &str,
+    initial_usd: f64,
+    allocation_pct: f64,
+    auto_execute: bool,
+) {
+    let auto_val: i32 = if auto_execute { 1 } else { 0 };
+    sqlx::query(
+        "INSERT INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute)
+         VALUES (?1, ?2, ?2, ?3, ?4)
+         ON CONFLICT(symbol) DO UPDATE SET
+            initial_usd = excluded.initial_usd,
+            current_cash = excluded.initial_usd,
+            allocation_pct = excluded.allocation_pct,
+            auto_execute = excluded.auto_execute"
+    )
+    .bind(symbol)
+    .bind(initial_usd)
+    .bind(allocation_pct)
+    .bind(auto_val)
+    .execute(&*pool)
+    .await
+    .ok();
+}
+
+pub async fn paper_reset_account(pool: &SqlitePool, symbol: &str) {
+    let balance = paper_get_balance(pool, symbol).await;
+    sqlx::query(
+        "UPDATE paper_balances SET current_cash = ?2 WHERE symbol = ?1"
+    )
+    .bind(symbol)
+    .bind(balance.initial_usd)
+    .execute(&*pool)
+    .await
+    .ok();
+
+    sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
+        .bind(symbol)
+        .execute(&*pool)
+        .await
+        .ok();
+
+    println!("📄 Paper Account: {} reset to initial balance ${:.2}", symbol, balance.initial_usd);
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperTradeRecord {
+    pub id: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub size: f64,
+    pub realized_pnl: f64,
+    pub roi_pct: f64,
+    pub entry_timestamp: i64,
+    pub exit_timestamp: i64,
+    pub trigger: String,
+}
+
+pub async fn paper_query_trades(pool: &SqlitePool, symbol: Option<&str>, limit: u32) -> Vec<PaperTradeRecord> {
+    use sqlx::Row;
+    let rows = if let Some(sym) = symbol {
+        sqlx::query(
+            "SELECT id, symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger
+             FROM paper_trades WHERE symbol = ?1 ORDER BY id DESC LIMIT ?2"
+        )
+        .bind(sym)
+        .bind(limit as i64)
+        .fetch_all(&*pool)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT id, symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger
+             FROM paper_trades ORDER BY id DESC LIMIT ?1"
+        )
+        .bind(limit as i64)
+        .fetch_all(&*pool)
+        .await
+    };
+
+    match rows {
+        Ok(rows) => rows
+            .iter()
+            .map(|r| PaperTradeRecord {
+                id: r.get(0),
+                symbol: r.get(1),
+                direction: r.get(2),
+                entry_price: r.get(3),
+                exit_price: r.get(4),
+                size: r.get(5),
+                realized_pnl: r.get(6),
+                roi_pct: r.get(7),
+                entry_timestamp: r.get(8),
+                exit_timestamp: r.get(9),
+                trigger: r.get(10),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("⚠️ Database Error: Failed to query paper trades: {}", e);
+            vec![]
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperAccountMetrics {
+    pub symbol: String,
+    pub initial_usd: f64,
+    pub current_cash: f64,
+    pub allocation_pct: f64,
+    pub auto_execute: bool,
+    pub unrealized_pnl: f64,
+    pub unrealized_roi_pct: f64,
+    pub total_account_value: f64,
+    pub margin_used: f64,
+    pub max_trades: u32,
+    pub active_trades: u32,
+    pub available_trades: u32,
+    pub active_position: Option<ActivePaperPosition>,
+}
+
+pub async fn paper_get_account_metrics(
+    pool: &SqlitePool,
+    symbol: &str,
+    current_price: f64,
+) -> PaperAccountMetrics {
+    let balance = paper_get_balance(pool, symbol).await;
+    let position = paper_get_active_position(pool, symbol).await;
+
+    let (unrealized_pnl, unrealized_roi, margin_used) = match &position {
+        Some(pos) => {
+            let pnl = if pos.direction == "LONG" {
+                (current_price - pos.entry_price) * pos.size
+            } else {
+                (pos.entry_price - current_price) * pos.size
+            };
+            let roi = if pos.allocated_usd > 0.0 {
+                (pnl / pos.allocated_usd) * 100.0
+            } else {
+                0.0
+            };
+            (pnl, roi, pos.allocated_usd)
+        }
+        None => (0.0, 0.0, 0.0),
+    };
+
+    let total_account_value = balance.current_cash + margin_used + unrealized_pnl;
+    let max_trades = if balance.allocation_pct > 0.0 {
+        (100.0 / balance.allocation_pct).floor() as u32
+    } else {
+        0
+    };
+    let active_trades = if position.is_some() { 1u32 } else { 0u32 };
+    let available_trades = max_trades.saturating_sub(active_trades);
+
+    PaperAccountMetrics {
+        symbol: symbol.to_string(),
+        initial_usd: balance.initial_usd,
+        current_cash: balance.current_cash,
+        allocation_pct: balance.allocation_pct,
+        auto_execute: balance.auto_execute,
+        unrealized_pnl,
+        unrealized_roi_pct: unrealized_roi,
+        total_account_value,
+        margin_used,
+        max_trades,
+        active_trades,
+        available_trades,
+        active_position: position,
     }
 }

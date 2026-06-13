@@ -5,7 +5,7 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use engine::{config, db, server, analyzer, llm, adapters};
+use engine::{config, db, server, analyzer, llm, adapters, automation, performance_evaluator};
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 
@@ -117,6 +117,7 @@ async fn main() {
         let (snapshot_tx, snapshot_rx) = channel::<NormalizedEvent>(100);
         let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
         let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(100)));
+        let latest_snap = Arc::new(RwLock::new(None::<MarketSnapshot>));
         let cancel = CancellationToken::new();
 
         let pair = Arc::new(analyzer::ActivePair {
@@ -125,6 +126,7 @@ async fn main() {
             broadcast_tx: broadcast_tx.clone(),
             snapshot_tx: snapshot_tx.clone(),
             cancel: cancel.clone(),
+            latest_snapshot: latest_snap.clone(),
         });
 
         pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
@@ -132,6 +134,7 @@ async fn main() {
         let analyzer_config = app_config.clone();
         let analyzer_telemetry = telemetry_tx.clone();
         let analyzer_history = history.clone();
+        let analyzer_latest_snap = latest_snap.clone();
         let analyzer_broadcast = broadcast_tx.clone();
         let analyzer_cancel = cancel.clone();
         let analyzer_symbol = raw_symbol.to_uppercase();
@@ -143,6 +146,7 @@ async fn main() {
                 analyzer_broadcast,
                 analyzer_config,
                 analyzer_history,
+                analyzer_latest_snap,
                 analyzer_symbol,
                 analyzer_pair_key,
                 analyzer_cancel,
@@ -156,7 +160,33 @@ async fn main() {
         handles.push(tokio::spawn(async move {
             adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
         }));
+
+        let auto_ctx = automation::AutomationContext {
+            pair_key: pair_key.clone(),
+            symbol: raw_symbol.to_uppercase(),
+            history: history.clone(),
+            config: app_config.clone(),
+            pool: db_pool.clone(),
+            llm_client: llm_client.clone(),
+            telemetry_tx: telemetry_tx.clone(),
+            cancel: cancel.clone(),
+            api_key_configured: api_key_configured.clone(),
+        };
+        handles.push(tokio::spawn(async move {
+            automation::run_pair_automation_loop(auto_ctx).await;
+        }));
     }
+
+    let eval_cancel = CancellationToken::new();
+    handles.push(tokio::spawn(async move {
+        performance_evaluator::run_performance_evaluator(
+            performance_evaluator::EvaluatorConfig {
+                pool: db_pool.clone(),
+                cancel: eval_cancel,
+                eval_interval_secs: 300,
+            },
+        ).await;
+    }));
 
     handles.push(server_handle);
 

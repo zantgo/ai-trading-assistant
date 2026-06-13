@@ -5,3 +5,6 @@ pub mod server;
 pub mod risk;
 pub mod analyzer;
 pub mod llm;
+pub mod automation;
+pub mod paper_trading;
+pub mod performance_evaluator;

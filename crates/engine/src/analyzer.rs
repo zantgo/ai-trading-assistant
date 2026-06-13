@@ -19,6 +19,7 @@ pub struct ActivePair {
     pub broadcast_tx: broadcast::Sender<MarketSnapshot>,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
+    pub latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
 }
 
 pub async fn run_single(
@@ -27,6 +28,7 @@ pub async fn run_single(
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
     config_lock: Arc<RwLock<AppConfig>>,
     history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
     symbol: String,
     pair_key: String,
     cancel: CancellationToken,
@@ -220,7 +222,12 @@ pub async fn run_single(
                         squeeze_momentum: final_sqz.map(|s| s.1),
                     };
 
-                    let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot)).await;
+                    let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
+
+                    {
+                        let mut snap = latest_snapshot.write().await;
+                        *snap = Some(completed_snapshot);
+                    }
 
                     {
                         let mut hist = history.write().await;

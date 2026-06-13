@@ -39,10 +39,33 @@ pub struct IndicatorsConfig {
     pub squeeze_period: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutomationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_automation_interval")]
+    pub interval_seconds: u64,
+}
+
+impl Default for AutomationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_seconds: default_automation_interval(),
+        }
+    }
+}
+
+fn default_automation_interval() -> u64 {
+    900
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairSpecificConfig {
     pub candles: CandlesConfig,
     pub indicators: IndicatorsConfig,
+    #[serde(default)]
+    pub automation: AutomationConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

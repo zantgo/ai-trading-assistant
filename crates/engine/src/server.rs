@@ -15,10 +15,12 @@ use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::models::MarketSnapshot;
+use shared::TriggerType;
 use crate::adapters;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, AutomationConfig};
 use crate::analyzer::{self, ActivePair};
 use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult};
+use crate::automation;
 
 use tokio_util::sync::CancellationToken;
 
@@ -78,6 +80,12 @@ pub struct ConfigResponse {
     pub candles: crate::config::CandlesConfig,
     pub indicators: crate::config::IndicatorsConfig,
     pub pairs: std::collections::HashMap<String, crate::config::PairSpecificConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssistantRecordsQuery {
+    #[serde(default)]
+    pub trigger_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,6 +165,8 @@ pub struct MultiAgentAnalysisResponse {
 pub struct PairConfigPayload {
     pub candles: crate::config::CandlesConfig,
     pub indicators: crate::config::IndicatorsConfig,
+    #[serde(default)]
+    pub automation: AutomationConfig,
 }
 
 #[derive(Debug, Serialize)]
@@ -229,6 +239,7 @@ pub struct MasterRecordJson {
     pub support_levels: String,
     pub resistance_levels: String,
     pub symbol: String,
+    pub trigger_type: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -247,6 +258,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/chat", post(serve_chat))
         .route("/api/trades", get(serve_get_trades).post(serve_add_trade))
         .route("/api/assistant-records", get(serve_assistant_records))
+        .route("/api/automated-performance", get(serve_automated_performance))
+        .route("/api/paper/status", get(serve_paper_status))
+        .route("/api/paper/config", post(serve_paper_config))
+        .route("/api/paper/reset", post(serve_paper_reset))
+        .route("/api/paper/order", post(serve_paper_order))
+        .route("/api/paper/performance", get(serve_paper_performance))
         .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
         .route("/api/pairs/:pair_key", delete(serve_remove_pair))
         .route("/api/pairs/:pair_key/config", post(serve_update_pair_config))
@@ -411,6 +428,7 @@ async fn serve_analyze(
         &entry_price,
         &last_close,
         &symbol,
+        TriggerType::Manual,
     )
     .await;
 
@@ -500,7 +518,7 @@ async fn serve_analyze(
     Json(response)
 }
 
-fn compute_support_resistance(
+pub fn compute_support_resistance(
     prices: &[f64],
     current_price: f64,
 ) -> (Vec<String>, Vec<String>) {
@@ -587,7 +605,7 @@ fn filter_levels(
     filtered
 }
 
-async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>) -> String {
+pub async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>) -> String {
     let current_atr = match current_atr {
         Some(v) => v,
         None => return "flat".to_string(),
@@ -621,7 +639,7 @@ async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>) -> Str
     }
 }
 
-async fn run_phase_one_agents(
+pub async fn run_phase_one_agents(
     client: &LlmClient,
     indicators: &IndicatorSnapshot,
     prices: &[f64],
@@ -786,7 +804,7 @@ fn compute_squeeze_momentum_trend(momentum: Option<f64>) -> String {
     }
 }
 
-fn heuristic_master_synthesis(
+pub fn heuristic_master_synthesis(
     position: &str,
     prices: &[f64],
     indicators: &IndicatorSnapshot,
@@ -919,8 +937,14 @@ async fn serve_chat(
     }
 }
 
-async fn serve_assistant_records(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let records = crate::db::query_master_records(&state.pool, 50).await;
+async fn serve_assistant_records(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<AssistantRecordsQuery>,
+) -> impl IntoResponse {
+    let records = match &query.trigger_type {
+        Some(t) => crate::db::query_master_records_by_trigger(&state.pool, t, 50).await,
+        None => crate::db::query_master_records(&state.pool, 50).await,
+    };
     let default_symbol = state.config.read().await.symbols.first().cloned().unwrap_or_default();
     let latest_close = {
         let (ex, sym) = default_symbol.split_once(':').unwrap_or(("Hyperliquid", &default_symbol));
@@ -952,12 +976,268 @@ async fn serve_assistant_records(State(state): State<Arc<AppState>>) -> impl Int
             support_levels: r.support_levels,
             resistance_levels: r.resistance_levels,
             symbol: r.symbol,
+            trigger_type: r.trigger_type,
         }})
         .collect();
 
     Json(MasterHistoryResponse {
         records: records_json,
         latest_close,
+    })
+}
+
+async fn serve_automated_performance(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let records = crate::db::query_automated_performance(&state.pool, 50).await;
+
+    #[derive(Debug, Serialize)]
+    struct AutomatedPerformanceJson {
+        id: i64,
+        master_record_id: i64,
+        symbol: String,
+        price_at_signal: String,
+        price_at_1h: Option<String>,
+        price_at_4h: Option<String>,
+        price_at_24h: Option<String>,
+        direction_correct_1h: Option<bool>,
+        direction_correct_4h: Option<bool>,
+        direction_correct_24h: Option<bool>,
+        created_at: String,
+    }
+
+    let records_json: Vec<AutomatedPerformanceJson> = records
+        .into_iter()
+        .map(|r| AutomatedPerformanceJson {
+            id: r.id,
+            master_record_id: r.master_record_id,
+            symbol: r.symbol,
+            price_at_signal: r.price_at_signal,
+            price_at_1h: r.price_at_1h,
+            price_at_4h: r.price_at_4h,
+            price_at_24h: r.price_at_24h,
+            direction_correct_1h: r.direction_correct_1h,
+            direction_correct_4h: r.direction_correct_4h,
+            direction_correct_24h: r.direction_correct_24h,
+            created_at: r.created_at,
+        })
+        .collect();
+
+    Json(records_json)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperStatusQuery {
+    #[serde(default)]
+    pub symbol: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperConfigRequest {
+    pub symbol: String,
+    pub initial_usd: f64,
+    pub allocation_pct: f64,
+    pub auto_execute: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperResetRequest {
+    pub symbol: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperOrderRequest {
+    pub symbol: String,
+    pub direction: String,
+    pub action: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperPerformanceQuery {
+    #[serde(default)]
+    pub symbol: Option<String>,
+}
+
+async fn serve_paper_status(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PaperStatusQuery>,
+) -> impl IntoResponse {
+    let symbol = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
+        format!("{}-{}", ex, sym.to_uppercase())
+    } else {
+        query.symbol
+    };
+
+    let current_price = {
+        let pairs = state.pairs.read().await;
+        pairs.get(&symbol)
+            .and_then(|p| {
+                p.latest_snapshot.blocking_read()
+                    .as_ref()
+                    .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+            })
+            .unwrap_or(0.0)
+    };
+
+    let metrics = crate::db::paper_get_account_metrics(&state.pool, &symbol, current_price).await;
+
+    Json(metrics)
+}
+
+async fn serve_paper_config(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperConfigRequest>,
+) -> impl IntoResponse {
+    let allocation = payload.allocation_pct.clamp(1.0, 100.0);
+    crate::db::paper_set_balance_config(
+        &state.pool,
+        &payload.symbol,
+        payload.initial_usd,
+        allocation,
+        payload.auto_execute,
+    ).await;
+
+    println!(
+        "📄 Paper Config: {} initial=${:.2} allocation={:.1}% auto_execute={}",
+        payload.symbol, payload.initial_usd, allocation, payload.auto_execute
+    );
+    (axum::http::StatusCode::OK, "Paper trading config saved").into_response()
+}
+
+async fn serve_paper_reset(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperResetRequest>,
+) -> impl IntoResponse {
+    let position = crate::db::paper_get_active_position(&state.pool, &payload.symbol).await;
+    if position.is_some() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let _ = state.telemetry_tx.send(crate::db::TelemetryMsg::PaperClosePosition {
+            symbol: payload.symbol.clone(),
+            exit_price: 0.0,
+            exit_timestamp: now,
+            trigger: "RESET".to_string(),
+        }).await;
+    }
+
+    crate::db::paper_reset_account(&state.pool, &payload.symbol).await;
+    (axum::http::StatusCode::OK, "Paper account reset").into_response()
+}
+
+async fn serve_paper_order(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperOrderRequest>,
+) -> impl IntoResponse {
+    let current_price = {
+        let pairs = state.pairs.read().await;
+        pairs.get(&payload.symbol)
+            .and_then(|p| {
+                p.latest_snapshot.blocking_read()
+                    .as_ref()
+                    .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+            })
+            .unwrap_or(0.0)
+    };
+
+    if current_price <= 0.0 {
+        return (axum::http::StatusCode::BAD_REQUEST, "No price data available for this pair").into_response();
+    }
+
+    if payload.action == "CLOSE" {
+        let result = crate::paper_trading::close_paper_position(
+            &state.pool,
+            &state.telemetry_tx,
+            &payload.symbol,
+            current_price,
+            "MANUAL",
+        ).await;
+
+        if result.success {
+            (axum::http::StatusCode::OK, result.message).into_response()
+        } else {
+            (axum::http::StatusCode::BAD_REQUEST, result.message).into_response()
+        }
+    } else if payload.action == "OPEN" {
+        let dir = payload.direction.to_uppercase();
+        if dir != "LONG" && dir != "SHORT" {
+            return (axum::http::StatusCode::BAD_REQUEST, "Direction must be LONG or SHORT").into_response();
+        }
+
+        let result = crate::paper_trading::verify_margin_and_open(
+            &state.pool,
+            &state.telemetry_tx,
+            &payload.symbol,
+            &dir,
+            current_price,
+        ).await;
+
+        if result.success {
+            (axum::http::StatusCode::CREATED, result.message).into_response()
+        } else {
+            (axum::http::StatusCode::BAD_REQUEST, result.message).into_response()
+        }
+    } else {
+        (axum::http::StatusCode::BAD_REQUEST, "Action must be OPEN or CLOSE").into_response()
+    }
+}
+
+async fn serve_paper_performance(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PaperPerformanceQuery>,
+) -> impl IntoResponse {
+    let trades = crate::db::paper_query_trades(&state.pool, query.symbol.as_deref(), 100).await;
+
+    #[derive(Debug, Serialize)]
+    struct PaperPerformanceResponse {
+        trades: Vec<crate::db::PaperTradeRecord>,
+        total_trades: usize,
+        wins: usize,
+        losses: usize,
+        win_rate: f64,
+        profit_factor: f64,
+        total_pnl: f64,
+        avg_roi: f64,
+        max_drawdown_pct: f64,
+    }
+
+    let total = trades.len();
+    let wins = trades.iter().filter(|t| t.realized_pnl > 0.0).count();
+    let losses = trades.iter().filter(|t| t.realized_pnl < 0.0).count();
+    let win_rate = if total > 0 { wins as f64 / total as f64 } else { 0.0 };
+
+    let gross_profit: f64 = trades.iter().filter(|t| t.realized_pnl > 0.0).map(|t| t.realized_pnl).sum();
+    let gross_loss: f64 = trades.iter().filter(|t| t.realized_pnl < 0.0).map(|t| t.realized_pnl.abs()).sum();
+    let profit_factor = if gross_loss > 0.0 { gross_profit / gross_loss } else if gross_profit > 0.0 { f64::INFINITY } else { 0.0 };
+
+    let total_pnl: f64 = trades.iter().map(|t| t.realized_pnl).sum();
+    let avg_roi = if total > 0 { trades.iter().map(|t| t.roi_pct).sum::<f64>() / total as f64 } else { 0.0 };
+
+    let mut cumulative = 0.0;
+    let mut peak = 0.0;
+    let mut max_dd = 0.0;
+    for t in trades.iter().rev() {
+        cumulative += t.realized_pnl;
+        if cumulative > peak { peak = cumulative; }
+        let dd = peak - cumulative;
+        if dd > max_dd { max_dd = dd; }
+    }
+    let max_drawdown_pct = if peak > 0.0 { (max_dd / peak) * 100.0 } else { 0.0 };
+
+    Json(PaperPerformanceResponse {
+        trades,
+        total_trades: total,
+        wins,
+        losses,
+        win_rate,
+        profit_factor,
+        total_pnl,
+        avg_roi,
+        max_drawdown_pct,
     })
 }
 
@@ -1123,7 +1403,8 @@ async fn serve_add_pair(
 
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(100);
     let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
-        let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(100)));
+    let history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(100)));
+    let latest_snap = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let cancel = CancellationToken::new();
 
     let pair = Arc::new(ActivePair {
@@ -1132,12 +1413,14 @@ async fn serve_add_pair(
         broadcast_tx: broadcast_tx.clone(),
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
+        latest_snapshot: latest_snap.clone(),
     });
 
     state.pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
 
     let analyzer_config = state.config.clone();
     let analyzer_history = history.clone();
+    let analyzer_latest_snap = latest_snap.clone();
     let analyzer_broadcast = broadcast_tx.clone();
     let analyzer_cancel = cancel.clone();
     let analyzer_symbol = raw_symbol.clone();
@@ -1150,6 +1433,7 @@ async fn serve_add_pair(
             analyzer_broadcast,
             analyzer_config,
             analyzer_history,
+            analyzer_latest_snap,
             analyzer_symbol,
             analyzer_pair_key,
             analyzer_cancel,
@@ -1162,6 +1446,21 @@ async fn serve_add_pair(
     let ws_url = state.ws_url.clone();
     tokio::spawn(async move {
         adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
+    });
+
+    let auto_ctx = automation::AutomationContext {
+        pair_key: pair_key.clone(),
+        symbol: raw_symbol.clone(),
+        history: history.clone(),
+        config: state.config.clone(),
+        pool: state.pool.clone(),
+        llm_client: state.llm_client.clone(),
+        telemetry_tx: state.telemetry_tx.clone(),
+        cancel: cancel.clone(),
+        api_key_configured: state.api_key_configured.clone(),
+    };
+    tokio::spawn(async move {
+        automation::run_pair_automation_loop(auto_ctx).await;
     });
 
     println!("✅ Pair added: {}", pair_key);
@@ -1222,6 +1521,7 @@ async fn serve_update_pair_config(
     let specific_config = crate::config::PairSpecificConfig {
         candles: payload.candles,
         indicators: payload.indicators,
+        automation: payload.automation,
     };
 
     config.pairs.insert(pair_key.clone(), specific_config);

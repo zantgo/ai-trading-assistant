@@ -35,6 +35,7 @@ export interface AssistantHistoryRecord {
     support_levels?: string;
     resistance_levels?: string;
     symbol: string;
+    trigger_type: string;
 }
 
 export interface ChatMessage {
@@ -121,7 +122,7 @@ export interface PairState {
     isChatLoading: boolean;
 
     // Per-pair workspace view tab
-    currentView: 'terminal' | 'performance' | 'settings';
+        currentView: 'terminal' | 'performance' | 'settings' | 'positions';
 
     // Per-pair configuration
     barDurationSec: number;
@@ -147,6 +148,28 @@ export interface PairState {
     showRsi: boolean;
     showMacd: boolean;
     showSqueeze: boolean;
+
+    // Automation scheduling
+    automationEnabled: boolean;
+    automationIntervalValue: number;
+    automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
+    nextEvaluationIn: string;
+
+    // Paper trading
+    paperCashBalance: number;
+    paperInitialUSD: number;
+    paperAllocationPct: number;
+    paperAutoExecute: boolean;
+    activePaperPosition: Record<string, unknown> | null;
+    paperUnrealizedPnl: number;
+    paperUnrealizedRoi: number;
+    paperTotalAccountValue: number;
+    paperMarginUsed: number;
+    paperMaxTrades: number;
+    paperActiveTrades: number;
+    paperAvailableTrades: number;
+    paperHistory: Record<string, unknown>[];
+    paperLoading: boolean;
 }
 
 function createPairState(symbol: string, exchange: string): PairState {
@@ -218,6 +241,26 @@ function createPairState(symbol: string, exchange: string): PairState {
         showRsi: true,
         showMacd: true,
         showSqueeze: true,
+
+        automationEnabled: false,
+        automationIntervalValue: 15,
+        automationIntervalUnit: 'minutes',
+        nextEvaluationIn: '--',
+
+        paperCashBalance: 10000,
+        paperInitialUSD: 10000,
+        paperAllocationPct: 10,
+        paperAutoExecute: false,
+        activePaperPosition: null,
+        paperUnrealizedPnl: 0,
+        paperUnrealizedRoi: 0,
+        paperTotalAccountValue: 10000,
+        paperMarginUsed: 0,
+        paperMaxTrades: 10,
+        paperActiveTrades: 0,
+        paperAvailableTrades: 10,
+        paperHistory: [],
+        paperLoading: false,
     };
 }
 
@@ -512,9 +555,144 @@ export function getState() {
         set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
 
         get currentView() { return activePair().currentView; },
-        set currentView(v: 'terminal' | 'performance' | 'settings') { activePair().currentView = v; },
+        set currentView(v: 'terminal' | 'performance' | 'settings' | 'positions') { activePair().currentView = v; },
         get userTrades() { return userTrades; },
         set userTrades(v: UserTrade[]) { userTrades = v; },
+
+        get automationEnabled() { return activePair().automationEnabled; },
+        set automationEnabled(v: boolean) { activePair().automationEnabled = v; },
+        get automationIntervalValue() { return activePair().automationIntervalValue; },
+        set automationIntervalValue(v: number) { activePair().automationIntervalValue = v; },
+        get automationIntervalUnit() { return activePair().automationIntervalUnit; },
+        set automationIntervalUnit(v: 'seconds' | 'minutes' | 'hours') { activePair().automationIntervalUnit = v; },
+        get nextEvaluationIn() { return activePair().nextEvaluationIn; },
+        set nextEvaluationIn(v: string) { activePair().nextEvaluationIn = v; },
+
+        get paperCashBalance() { return activePair().paperCashBalance; },
+        set paperCashBalance(v: number) { activePair().paperCashBalance = v; },
+        get paperInitialUSD() { return activePair().paperInitialUSD; },
+        set paperInitialUSD(v: number) { activePair().paperInitialUSD = v; },
+        get paperAllocationPct() { return activePair().paperAllocationPct; },
+        set paperAllocationPct(v: number) { activePair().paperAllocationPct = v; },
+        get paperAutoExecute() { return activePair().paperAutoExecute; },
+        set paperAutoExecute(v: boolean) { activePair().paperAutoExecute = v; },
+        get activePaperPosition() { return activePair().activePaperPosition; },
+        set activePaperPosition(v: Record<string, unknown> | null) { activePair().activePaperPosition = v; },
+        get paperUnrealizedPnl() { return activePair().paperUnrealizedPnl; },
+        set paperUnrealizedPnl(v: number) { activePair().paperUnrealizedPnl = v; },
+        get paperUnrealizedRoi() { return activePair().paperUnrealizedRoi; },
+        set paperUnrealizedRoi(v: number) { activePair().paperUnrealizedRoi = v; },
+        get paperTotalAccountValue() { return activePair().paperTotalAccountValue; },
+        set paperTotalAccountValue(v: number) { activePair().paperTotalAccountValue = v; },
+        get paperMarginUsed() { return activePair().paperMarginUsed; },
+        set paperMarginUsed(v: number) { activePair().paperMarginUsed = v; },
+        get paperMaxTrades() { return activePair().paperMaxTrades; },
+        set paperMaxTrades(v: number) { activePair().paperMaxTrades = v; },
+        get paperActiveTrades() { return activePair().paperActiveTrades; },
+        set paperActiveTrades(v: number) { activePair().paperActiveTrades = v; },
+        get paperAvailableTrades() { return activePair().paperAvailableTrades; },
+        set paperAvailableTrades(v: number) { activePair().paperAvailableTrades = v; },
+        get paperHistory() { return activePair().paperHistory; },
+        set paperHistory(v: Record<string, unknown>[]) { activePair().paperHistory = v; },
+        get paperLoading() { return activePair().paperLoading; },
+        set paperLoading(v: boolean) { activePair().paperLoading = v; },
+
+        async fetchPaperStatus() {
+            const pair = activePair();
+            try {
+                const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(app.activeTab)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                pair.paperCashBalance = data.current_cash ?? 10000;
+                pair.paperInitialUSD = data.initial_usd ?? 10000;
+                pair.paperAllocationPct = data.allocation_pct ?? 10;
+                pair.paperAutoExecute = data.auto_execute ?? false;
+                pair.activePaperPosition = data.active_position ?? null;
+                pair.paperUnrealizedPnl = data.unrealized_pnl ?? 0;
+                pair.paperUnrealizedRoi = data.unrealized_roi_pct ?? 0;
+                pair.paperTotalAccountValue = data.total_account_value ?? 10000;
+                pair.paperMarginUsed = data.margin_used ?? 0;
+                pair.paperMaxTrades = data.max_trades ?? 10;
+                pair.paperActiveTrades = data.active_trades ?? 0;
+                pair.paperAvailableTrades = data.available_trades ?? 10;
+            } catch (_) {}
+        },
+
+        async openPaperPosition(direction: 'LONG' | 'SHORT') {
+            const pair = activePair();
+            pair.paperLoading = true;
+            try {
+                const res = await fetch('/api/paper/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: app.activeTab, direction, action: 'OPEN' }),
+                });
+                if (res.ok) {
+                    await (app as any).fetchPaperStatus();
+                }
+            } catch (_) {} finally {
+                pair.paperLoading = false;
+            }
+        },
+
+        async closePaperPosition() {
+            const pair = activePair();
+            pair.paperLoading = true;
+            try {
+                const res = await fetch('/api/paper/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: app.activeTab, direction: '', action: 'CLOSE' }),
+                });
+                if (res.ok) {
+                    await (app as any).fetchPaperStatus();
+                }
+            } catch (_) {} finally {
+                pair.paperLoading = false;
+            }
+        },
+
+        async resetPaperAccount() {
+            const pair = activePair();
+            try {
+                await fetch('/api/paper/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: app.activeTab }),
+                });
+                await (app as any).fetchPaperStatus();
+            } catch (_) {}
+        },
+
+        async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) {
+            try {
+                await fetch('/api/paper/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: app.activeTab,
+                        initial_usd: initialUSD,
+                        allocation_pct: allocationPct,
+                        auto_execute: autoExecute,
+                    }),
+                });
+                await (app as any).fetchPaperStatus();
+            } catch (_) {}
+        },
+
+        async fetchPaperHistory(symbol?: string) {
+            const pair = activePair();
+            try {
+                const url = symbol
+                    ? `/api/paper/performance?symbol=${encodeURIComponent(symbol)}`
+                    : '/api/paper/performance';
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    pair.paperHistory = data.trades || [];
+                }
+            } catch (_) {}
+        },
 
         async fetchTrades() {
             try {

@@ -19,6 +19,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let history = Arc::new(tokio::sync::RwLock::new(
             VecDeque::<NormalizedCandle>::with_capacity(100),
         ));
+        let latest_snap = Arc::new(tokio::sync::RwLock::new(None::<MarketSnapshot>));
         let cancel = CancellationToken::new();
 
         let (telemetry_tx, _telemetry_rx) = mpsc::channel(10);
@@ -46,6 +47,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
 
         let analyzer_cancel = cancel.clone();
         let analyzer_history = history.clone();
+        let analyzer_latest_snap = latest_snap.clone();
         let analyzer_broadcast = broadcast_tx.clone();
         let analyzer_telemetry = telemetry_tx.clone();
         let analyzer_config = config.clone();
@@ -58,6 +60,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_broadcast,
                 analyzer_config,
                 analyzer_history,
+                analyzer_latest_snap,
                 analyzer_symbol,
                 analyzer_pair_key,
                 analyzer_cancel,

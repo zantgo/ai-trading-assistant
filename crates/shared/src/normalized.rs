@@ -22,6 +22,18 @@ pub enum TradeSide {
     Sell,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TriggerType {
+    Manual,
+    Automated,
+}
+
+impl std::fmt::Display for TriggerType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedTrade {
     pub exchange: Exchange,

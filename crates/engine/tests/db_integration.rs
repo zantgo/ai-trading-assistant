@@ -1,5 +1,6 @@
 use engine::db::{TelemetryMsg, run_telemetry_logger};
 use sqlx::SqlitePool;
+use shared::TriggerType;
 
 async fn setup_test_db() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -34,7 +35,8 @@ async fn setup_test_db() -> SqlitePool {
             indicator_synthesis_evaluation TEXT NOT NULL,
             recommended_action TEXT NOT NULL,
             recommendation_rationale TEXT NOT NULL,
-            symbol TEXT NOT NULL
+            symbol TEXT NOT NULL,
+            trigger_type TEXT NOT NULL DEFAULT 'Manual'
         )"
     )
     .execute(&pool)
@@ -61,7 +63,8 @@ async fn test_orchestrator_database_pipeline() {
         "Long",
         "3100.00",
         "3125.50",
-        "ETH"
+        "ETH",
+        TriggerType::Manual,
     ).await;
     assert!(master_id > 0, "Master ID should be a valid incrementing integer");
 
