@@ -1,0 +1,541 @@
+use rust_decimal::Decimal;
+
+/// Full Fibonacci Level Set — all retracement and extension levels
+/// as defined by Section 2.3.1 of the Unified Strategy Framework.
+#[derive(Debug, Clone, Default)]
+pub struct FibonacciRange {
+    pub swing_high: Option<Decimal>,
+    pub swing_low: Option<Decimal>,
+    pub swing_distance: Option<Decimal>,
+    pub swing_type: Option<SwingLegType>,
+
+    pub fib_0236: Option<Decimal>,
+    pub fib_0382: Option<Decimal>,
+    pub fib_0500: Option<Decimal>,
+    pub fib_0618: Option<Decimal>,
+    pub fib_0660: Option<Decimal>,
+    pub fib_0786: Option<Decimal>,
+
+    pub golden_pocket_low: Option<Decimal>,
+    pub golden_pocket_high: Option<Decimal>,
+
+    pub ext_1272: Option<Decimal>,
+    pub ext_1618: Option<Decimal>,
+    pub ext_2000: Option<Decimal>,
+    pub ext_2618: Option<Decimal>,
+
+    pub retracement_levels: Vec<Decimal>,
+    pub extension_levels: Vec<Decimal>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SwingLegType {
+    Bullish,
+    Bearish,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PivotType {
+    High,
+    Low,
+}
+
+#[derive(Debug, Clone)]
+pub struct PivotPoint {
+    pub index: usize,
+    pub price: Decimal,
+    pub pivot_type: PivotType,
+    pub strength: usize,
+}
+
+impl FibonacciRange {
+    /// Computes bullish Fibonacci levels from swing_low → swing_high.
+    /// Retracements are computed downward from swing_high.
+    /// Extensions are computed upward from swing_high.
+    pub fn compute_bullish(
+        swing_low: Decimal,
+        swing_high: Decimal,
+        retracement_coeffs: &[f64],
+        extension_coeffs: &[f64],
+    ) -> Self {
+        let distance = swing_high - swing_low;
+        if distance <= Decimal::ZERO {
+            return Self::default();
+        }
+
+        let mut retracement_levels: Vec<Decimal> = retracement_coeffs
+            .iter()
+            .map(|c| swing_high - distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
+            .collect();
+
+        retracement_levels.sort_by(|a, b| b.cmp(a));
+
+        let extension_levels: Vec<Decimal> = extension_coeffs
+            .iter()
+            .map(|c| swing_low + distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
+            .collect();
+
+        let get_fib = |coeff: f64| -> Option<Decimal> {
+            let d = Decimal::from_f64_retain(coeff)?;
+            Some(swing_high - distance * d)
+        };
+
+        let get_ext = |coeff: f64| -> Option<Decimal> {
+            let d = Decimal::from_f64_retain(coeff)?;
+            Some(swing_low + distance * d)
+        };
+
+        Self {
+            swing_high: Some(swing_high),
+            swing_low: Some(swing_low),
+            swing_distance: Some(distance),
+            swing_type: Some(SwingLegType::Bullish),
+            fib_0236: get_fib(0.236),
+            fib_0382: get_fib(0.382),
+            fib_0500: get_fib(0.500),
+            fib_0618: get_fib(0.618),
+            fib_0660: get_fib(0.660),
+            fib_0786: get_fib(0.786),
+            golden_pocket_low: get_fib(0.660),
+            golden_pocket_high: get_fib(0.618),
+            ext_1272: get_ext(1.272),
+            ext_1618: get_ext(1.618),
+            ext_2000: get_ext(2.000),
+            ext_2618: get_ext(2.618),
+            retracement_levels,
+            extension_levels,
+        }
+    }
+
+    /// Computes bearish Fibonacci levels from swing_high → swing_low.
+    /// Retracements are computed upward from swing_low.
+    /// Extensions are computed downward from swing_low.
+    pub fn compute_bearish(
+        swing_high: Decimal,
+        swing_low: Decimal,
+        retracement_coeffs: &[f64],
+        extension_coeffs: &[f64],
+    ) -> Self {
+        let distance = swing_high - swing_low;
+        if distance <= Decimal::ZERO {
+            return Self::default();
+        }
+
+        let mut retracement_levels: Vec<Decimal> = retracement_coeffs
+            .iter()
+            .map(|c| swing_low + distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
+            .collect();
+
+        retracement_levels.sort_by(|a, b| a.cmp(b));
+
+        let extension_levels: Vec<Decimal> = extension_coeffs
+            .iter()
+            .map(|c| swing_high - distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
+            .collect();
+
+        let get_fib = |coeff: f64| -> Option<Decimal> {
+            let d = Decimal::from_f64_retain(coeff)?;
+            Some(swing_low + distance * d)
+        };
+
+        let get_ext = |coeff: f64| -> Option<Decimal> {
+            let d = Decimal::from_f64_retain(coeff)?;
+            Some(swing_high - distance * d)
+        };
+
+        Self {
+            swing_high: Some(swing_high),
+            swing_low: Some(swing_low),
+            swing_distance: Some(distance),
+            swing_type: Some(SwingLegType::Bearish),
+            fib_0236: get_fib(0.236),
+            fib_0382: get_fib(0.382),
+            fib_0500: get_fib(0.500),
+            fib_0618: get_fib(0.618),
+            fib_0660: get_fib(0.660),
+            fib_0786: get_fib(0.786),
+            golden_pocket_low: get_fib(0.618),
+            golden_pocket_high: get_fib(0.660),
+            ext_1272: get_ext(1.272),
+            ext_1618: get_ext(1.618),
+            ext_2000: get_ext(2.000),
+            ext_2618: get_ext(2.618),
+            retracement_levels,
+            extension_levels,
+        }
+    }
+
+    /// Detects pivot high/low points with minimum strength N over a scan range.
+    /// A pivot high at index t has the maximum high in [t-N, t+N].
+    /// A pivot low at index t has the minimum low in [t-N, t+N].
+    pub fn detect_pivots(
+        candles_high: &[Decimal],
+        candles_low: &[Decimal],
+        pivot_strength: usize,
+        scan_range: usize,
+    ) -> Vec<PivotPoint> {
+        let total = candles_high.len().min(candles_low.len());
+        if total < 2 * pivot_strength + 1 {
+            return vec![];
+        }
+
+        let start = pivot_strength;
+        let end = total - pivot_strength;
+        let lookback_end = if scan_range > 0 && scan_range < total {
+            total.saturating_sub(scan_range)
+        } else {
+            0
+        };
+        let search_start = start.max(lookback_end);
+
+        let mut pivots = Vec::new();
+
+        for i in search_start..end {
+            let candidate_high = candles_high[i];
+            let candidate_low = candles_low[i];
+
+            let mut is_high_pivot = true;
+            let mut is_low_pivot = true;
+
+            for j in i - pivot_strength..=i + pivot_strength {
+                if j == i {
+                    continue;
+                }
+                if candles_high[j] >= candidate_high {
+                    is_high_pivot = false;
+                }
+                if candles_low[j] <= candidate_low {
+                    is_low_pivot = false;
+                }
+                if !is_high_pivot && !is_low_pivot {
+                    break;
+                }
+            }
+
+            if is_high_pivot {
+                pivots.push(PivotPoint {
+                    index: i,
+                    price: candidate_high,
+                    pivot_type: PivotType::High,
+                    strength: pivot_strength,
+                });
+            }
+            if is_low_pivot {
+                pivots.push(PivotPoint {
+                    index: i,
+                    price: candidate_low,
+                    pivot_type: PivotType::Low,
+                    strength: pivot_strength,
+                });
+            }
+        }
+
+        pivots
+    }
+
+    /// Finds the most recent structural swing leg from pivot points.
+    /// Returns (older_anchor, newer_anchor) and the leg type.
+    /// For Bullish Leg: older is Pivot Low, newer is Pivot High (upward impulse).
+    /// For Bearish Leg: older is Pivot High, newer is Pivot Low (downward impulse).
+    pub fn detect_swing_leg(pivots: &[PivotPoint]) -> Option<(PivotPoint, PivotPoint, SwingLegType, Decimal)> {
+        let end_idx = pivots.len();
+        if end_idx < 2 {
+            return None;
+        }
+
+        for i in (1..end_idx).rev() {
+            let newer = &pivots[i];
+            let older = &pivots[i - 1];
+
+            match (older.pivot_type, newer.pivot_type) {
+                (PivotType::Low, PivotType::High) => {
+                    let distance = newer.price - older.price;
+                    if distance > Decimal::ZERO {
+                        return Some((older.clone(), newer.clone(), SwingLegType::Bullish, distance));
+                    }
+                }
+                (PivotType::High, PivotType::Low) => {
+                    let distance = older.price - newer.price;
+                    if distance > Decimal::ZERO {
+                        return Some((older.clone(), newer.clone(), SwingLegType::Bearish, distance));
+                    }
+                }
+                _ => continue,
+            }
+        }
+
+        None
+    }
+
+    /// Full pipeline: detect pivots → find swing leg → compute Fibonacci levels.
+    pub fn compute_from_candles(
+        candles_high: &[Decimal],
+        candles_low: &[Decimal],
+        pivot_strength: usize,
+        scan_range: usize,
+        retracement_coeffs: &[f64],
+        extension_coeffs: &[f64],
+    ) -> Self {
+        let pivots = Self::detect_pivots(candles_high, candles_low, pivot_strength, scan_range);
+        match Self::detect_swing_leg(&pivots) {
+            Some((older, newer, leg_type, _distance)) => match leg_type {
+                SwingLegType::Bullish => {
+                    Self::compute_bullish(older.price, newer.price, retracement_coeffs, extension_coeffs)
+                }
+                SwingLegType::Bearish => {
+                    Self::compute_bearish(older.price, newer.price, retracement_coeffs, extension_coeffs)
+                }
+            },
+            None => Self::default(),
+        }
+    }
+
+    // Legacy compatibility methods
+
+    pub fn compute(swing_high: Decimal, swing_low: Decimal) -> Self {
+        Self::compute_bullish(
+            swing_low,
+            swing_high,
+            &[0.618, 0.660],
+            &[1.618, 2.618],
+        )
+    }
+
+    pub fn compute_bearish_legacy(swing_high: Decimal, swing_low: Decimal) -> Self {
+        Self::compute_bearish(
+            swing_high,
+            swing_low,
+            &[0.618, 0.660],
+            &[1.618, 2.618],
+        )
+    }
+
+    /// Detects the most recent swing high from price history (legacy).
+    pub fn detect_swing_high(prices: &[(Decimal, Decimal)], lookback: usize) -> Option<usize> {
+        if prices.len() < 2 * lookback + 1 {
+            return None;
+        }
+        let end = prices.len() - lookback;
+        for i in (lookback..end).rev() {
+            let (_, candidate_high) = prices[i];
+            let mut is_peak = true;
+            for j in i - lookback..=i + lookback {
+                if j == i {
+                    continue;
+                }
+                let (_, other_high) = prices[j];
+                if other_high >= candidate_high {
+                    is_peak = false;
+                    break;
+                }
+            }
+            if is_peak {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Detects the most recent swing low from price history (legacy).
+    pub fn detect_swing_low(prices: &[(Decimal, Decimal)], lookback: usize) -> Option<usize> {
+        if prices.len() < 2 * lookback + 1 {
+            return None;
+        }
+        let end = prices.len() - lookback;
+        for i in (lookback..end).rev() {
+            let (candidate_low, _) = prices[i];
+            let mut is_trough = true;
+            for j in i - lookback..=i + lookback {
+                if j == i {
+                    continue;
+                }
+                let (other_low, _) = prices[j];
+                if other_low <= candidate_low {
+                    is_trough = false;
+                    break;
+                }
+            }
+            if is_trough {
+                return Some(i);
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn test_compute_bullish_full_levels() {
+        let fib = FibonacciRange::compute_bullish(
+            dec!(100.00),
+            dec!(200.00),
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+            &[1.272, 1.618, 2.000, 2.618],
+        );
+        assert_eq!(fib.swing_low.unwrap(), dec!(100.00));
+        assert_eq!(fib.swing_high.unwrap(), dec!(200.00));
+        assert!(fib.fib_0236.is_some());
+        assert!(fib.fib_0382.is_some());
+        assert!(fib.fib_0500.is_some());
+        assert!(fib.fib_0618.is_some());
+        assert!(fib.fib_0660.is_some());
+        assert!(fib.fib_0786.is_some());
+        assert!(fib.ext_1272.is_some());
+        assert!(fib.ext_1618.is_some());
+        assert!(fib.ext_2000.is_some());
+        assert!(fib.ext_2618.is_some());
+        assert_eq!(fib.retracement_levels.len(), 6);
+        assert_eq!(fib.extension_levels.len(), 4);
+        assert!(fib.golden_pocket_low.unwrap() < fib.golden_pocket_high.unwrap());
+    }
+
+    #[test]
+    fn test_compute_bearish_full_levels() {
+        let fib = FibonacciRange::compute_bearish(
+            dec!(200.00),
+            dec!(100.00),
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+            &[1.272, 1.618, 2.000, 2.618],
+        );
+        assert_eq!(fib.retracement_levels.len(), 6);
+        assert_eq!(fib.extension_levels.len(), 4);
+        assert!(fib.golden_pocket_low.unwrap() < fib.golden_pocket_high.unwrap());
+    }
+
+    #[test]
+    fn test_detect_pivots_n10() {
+        let mut highs = vec![dec!(1.0); 30];
+        let mut lows = vec![dec!(1.0); 30];
+        highs[15] = dec!(5.0);
+        lows[25] = dec!(0.5);
+
+        let pivots = FibonacciRange::detect_pivots(&highs, &lows, 10, 30);
+        assert!(!pivots.is_empty());
+    }
+
+    #[test]
+    fn test_detect_swing_leg_bullish() {
+        let pivots = vec![
+            PivotPoint { index: 10, price: dec!(100.0), pivot_type: PivotType::Low, strength: 10 },
+            PivotPoint { index: 20, price: dec!(150.0), pivot_type: PivotType::High, strength: 10 },
+        ];
+        let leg = FibonacciRange::detect_swing_leg(&pivots);
+        assert!(leg.is_some());
+        let (_, _, leg_type, dist) = leg.unwrap();
+        assert_eq!(leg_type, SwingLegType::Bullish);
+        assert_eq!(dist, dec!(50.0));
+    }
+
+    #[test]
+    fn test_detect_swing_leg_bearish() {
+        let pivots = vec![
+            PivotPoint { index: 10, price: dec!(200.0), pivot_type: PivotType::High, strength: 10 },
+            PivotPoint { index: 20, price: dec!(150.0), pivot_type: PivotType::Low, strength: 10 },
+        ];
+        let leg = FibonacciRange::detect_swing_leg(&pivots);
+        assert!(leg.is_some());
+        let (_, _, leg_type, dist) = leg.unwrap();
+        assert_eq!(leg_type, SwingLegType::Bearish);
+        assert_eq!(dist, dec!(50.0));
+    }
+
+    #[test]
+    fn test_bullish_retracement_order() {
+        let fib = FibonacciRange::compute_bullish(
+            dec!(100.00),
+            dec!(200.00),
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+            &[1.272, 1.618, 2.000, 2.618],
+        );
+        for i in 1..fib.retracement_levels.len() {
+            assert!(fib.retracement_levels[i - 1] > fib.retracement_levels[i],
+                "retracement levels should be descending for bullish");
+        }
+    }
+
+    #[test]
+    fn test_bearish_retracement_order() {
+        let fib = FibonacciRange::compute_bearish(
+            dec!(200.00),
+            dec!(100.00),
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+            &[1.272, 1.618, 2.000, 2.618],
+        );
+        for i in 1..fib.retracement_levels.len() {
+            assert!(fib.retracement_levels[i - 1] < fib.retracement_levels[i],
+                "retracement levels should be ascending for bearish");
+        }
+    }
+
+    #[test]
+    fn test_zero_distance_returns_default() {
+        let fib = FibonacciRange::compute_bullish(dec!(100.00), dec!(100.00), &[0.618], &[1.618]);
+        assert!(fib.swing_high.is_none());
+    }
+
+    #[test]
+    fn test_legacy_compute_still_works() {
+        let fib = FibonacciRange::compute(dec!(200.00), dec!(100.00));
+        assert!(fib.golden_pocket_low.is_some());
+        assert!(fib.golden_pocket_high.is_some());
+        assert!(fib.ext_1618.is_some());
+        assert!(fib.ext_2618.is_some());
+    }
+
+    #[test]
+    fn test_legacy_compute_bearish_still_works() {
+        let fib = FibonacciRange::compute_bearish_legacy(dec!(200.00), dec!(100.00));
+        assert!(fib.golden_pocket_low.is_some());
+        assert!(fib.ext_1618.is_some());
+    }
+
+    #[test]
+    fn test_compute_from_candles() {
+        let n = 60;
+        let mut highs = vec![dec!(105.0); n];
+        let mut lows = vec![dec!(95.0); n];
+        lows[20] = dec!(80.0);
+        highs[20] = dec!(85.0);
+        highs[45] = dec!(180.0);
+        lows[45] = dec!(175.0);
+
+        let fib = FibonacciRange::compute_from_candles(
+            &highs, &lows, 10, 60,
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+            &[1.272, 1.618, 2.000, 2.618],
+        );
+        assert!(fib.swing_low.is_some(), "expected swing low to be found");
+        assert!(fib.swing_high.is_some(), "expected swing high to be found");
+        assert_eq!(fib.retracement_levels.len(), 6);
+    }
+
+    #[test]
+    fn test_legacy_detect_swing_high_finds_peak() {
+        let prices: Vec<(Decimal, Decimal)> = vec![
+            (dec!(10.00), dec!(11.00)),
+            (dec!(12.00), dec!(13.00)),
+            (dec!(14.00), dec!(15.00)),
+            (dec!(13.00), dec!(14.00)),
+            (dec!(11.00), dec!(12.00)),
+        ];
+        let idx = FibonacciRange::detect_swing_high(&prices, 2);
+        assert_eq!(idx, Some(2));
+    }
+
+    #[test]
+    fn test_legacy_detect_swing_low_finds_trough() {
+        let prices: Vec<(Decimal, Decimal)> = vec![
+            (dec!(15.00), dec!(16.00)),
+            (dec!(13.00), dec!(14.00)),
+            (dec!(11.00), dec!(12.00)),
+            (dec!(14.00), dec!(15.00)),
+            (dec!(16.00), dec!(17.00)),
+        ];
+        let idx = FibonacciRange::detect_swing_low(&prices, 2);
+        assert_eq!(idx, Some(2));
+    }
+}

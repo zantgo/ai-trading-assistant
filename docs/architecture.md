@@ -7,6 +7,14 @@ The AI Trading Assistant acts as a data pipeline and UI cockpit designed for str
 - `crates/engine`: High-performance daemon that maintains live WebSocket connections, aggregates telemetry, caches historical sequences, and hosts the visual dashboard.
 - `crates/engine/frontend`: A lightweight Svelte 5 application providing interactive layout panels, real-time charting, and manual AI analysis triggers.
 
+### Commission Module (`crates/engine/src/commission.rs`)
+Provides fee-aware trade viability analysis:
+- **Fee Table Generator:** Computes minimum profit % needed to cover round-trip fees for any (leverage, capital) combination
+- **Dual-Entry Projection:** Calculates position metrics for a two-entry trading strategy with Entry 1/2, Stop Loss 1/2, and Take Profit 1/2
+- **Fee Breakdown:** Separates maker vs taker fees, per-entry commission, and funding costs
+- **Viability Gate:** Determines whether `max_gain_net_after_fees > 0` — blocks trades that would lose money after fees
+- **Scenario Projections:** Max gain/loss scenarios (gross and net of fees)
+
 ```
 +------------------+       Live Websocket       +---------------+
 |   Hyperliquid    |  ======================>   |  Rust Engine  |

@@ -101,6 +101,65 @@ export interface RiskCalculation {
     net_pnl: number;
 }
 
+export interface FeeTableRow {
+    exchange_fee_pct: number;
+    leverage: number;
+    capital: number;
+    min_profit_pct_to_cover_fees: number;
+    fees_in_dollars: number;
+}
+
+export interface FeeBreakdown {
+    maker_fee_pct: number;
+    taker_fee_pct: number;
+    order_type: string;
+    effective_fee_pct: number;
+    entry_1_fees: number;
+    entry_2_fees: number;
+    total_fees: number;
+    funding_rate_8h: number;
+    funding_cost: number;
+}
+
+export interface EntryMetrics {
+    entry_number: number;
+    entry_price: number;
+    stop_loss_price: number;
+    take_profit_price: number;
+    capital_allocated: number;
+    capital_pct: number;
+    position_size_units: number;
+    position_notional: number;
+    margin_required: number;
+    risk_amount: number;
+    potential_profit: number;
+    fees: number;
+    net_profit: number;
+}
+
+export interface CommissionProjection {
+    direction: string;
+    leverage: number;
+    total_capital: number;
+    total_position_notional: number;
+    total_margin_required: number;
+    weighted_avg_entry: number;
+    effective_stop_loss: number;
+    effective_take_profit: number;
+    total_risk_amount: number;
+    fee_breakdown: FeeBreakdown;
+    entry_1: EntryMetrics;
+    entry_2: EntryMetrics;
+    max_gain_scenario: number;
+    max_loss_scenario: number;
+    max_gain_net_after_fees: number;
+    max_loss_net_after_fees: number;
+    trade_viable: boolean;
+    viability_reason: string;
+    min_profit_pct_to_cover_fees: number;
+    required_price_move_pct: number;
+}
+
 export interface ExchangeAccount {
     id: number;
     exchange: string;
@@ -186,10 +245,31 @@ export interface TradeLedgerRecord {
     trigger_source: string;
 }
 
+export interface TradeJournalRecord {
+    id: number;
+    trade_id: number;
+    entry_date: string;
+    exit_date: string;
+    asset: string;
+    direction: string;
+    entry_reason: string;
+    roe_percentage: number;
+    final_analysis: string;
+    execution_score: number;
+    human_notes: string;
+    created_at: string;
+    symbol: string;
+    realized_pnl: number;
+    roi_percentage: number;
+}
+
 export interface IndividualIndicatorResult {
     indicator_name: string;
     signal: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' | 'UNAVAILABLE';
     reason: string;
+    divergence_status?: 'none' | 'potential' | 'confirmed';
+    divergence_type?: 'bullish' | 'bearish' | null;
+    is_confirmed?: boolean;
 }
 
 export interface SupportResistance {
@@ -228,11 +308,13 @@ export interface TimeframeTelemetry {
     barDurationSec: number;
     priceText: string;
     vwapText: string;
+    vwapBias: string;
     avgVolText: string;
     emaFastText: string;
     emaMediumText: string;
     emaSlowText: string;
     emaLongText: string;
+    emaStackState: string;
     adxText: string;
     adxPlusText: string;
     adxMinusText: string;
@@ -245,8 +327,43 @@ export interface TimeframeTelemetry {
     sqzStatusText: string;
     isSqueezeOn: boolean;
     volText: string;
+    bbwpText: string;
+    fibGoldenLowText: string;
+    fibGoldenHighText: string;
+    fibExt1618Text: string;
+    fibExt2618Text: string;
     lastMacdHist: number;
     lastSqzMom: number;
+    lastBbwp: number;
+    // Divergence tracking
+    rsiDivergenceStatus: 'none' | 'potential' | 'confirmed';
+    macdDivergenceStatus: 'none' | 'potential' | 'confirmed';
+    rsiDivergenceCoords: string | null;
+    macdDivergenceCoords: string | null;
+    // MACD momentum tracking
+    macdHistPeak: number;
+    macdContractionTriggered: boolean;
+    macdCrossoverDetected: boolean;
+    macdCrossoverDirection: string;
+    // ADX trend tracking
+    adxSlope: number;
+    adxTrendingRegime: string;
+    adxExhaustionReached: boolean;
+    adxDiCrossoverDetected: boolean;
+    adxDiCrossoverDirection: string;
+    // Squeeze momentum tracking
+    squeezeDuration: number;
+    squeezeReleaseTrigger: boolean;
+    squeezeMomentumDirection: string;
+    // Chart pattern tracking
+    activePattern: string;
+    patternConfidence: number;
+    showPatterns: boolean;
+    // ATR volatility tracking
+    atrVolatilityRegime: string;
+    atrSlope: number;
+    rvol: number;
+    isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
     historyPrices: number[];
     showEmas: boolean;
@@ -258,6 +375,8 @@ export interface TimeframeTelemetry {
     showRsi: boolean;
     showMacd: boolean;
     showSqueeze: boolean;
+    showBbwp: boolean;
+    showFib: boolean;
     // Indicator config
     emaFastVal: number;
     emaMediumVal: number;
@@ -270,6 +389,8 @@ export interface TimeframeTelemetry {
     adxPeriodVal: number;
     atrPeriodVal: number;
     squeezePeriodVal: number;
+    bbwpPeriodVal: number;
+    bbwpLookbackVal: number;
     analysisLimit: number;
 }
 
@@ -280,6 +401,8 @@ export interface PairState {
     shortTerm: TimeframeTelemetry;
     midTerm: TimeframeTelemetry;
     longTerm: TimeframeTelemetry;
+    macroTerm: TimeframeTelemetry;
+    supermacroTerm: TimeframeTelemetry;
     assistantHistory: AssistantHistoryRecord[];
     chatHistory: ChatMessage[];
     currentPosition: 'None' | 'Long' | 'Short';
@@ -296,7 +419,7 @@ export interface PairState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
-    currentView: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'exchange' | 'analytics' | 'ledger';
+    currentView: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs';
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
@@ -315,6 +438,50 @@ export interface PairState {
     paperAvailableTrades: number;
     paperHistory: Record<string, unknown>[];
     paperLoading: boolean;
+    paperScaleInPortions: ScaleInPortion[];
+    paperTakeProfitTargets: TakeProfitTarget[];
+    paperAvgEntryPrice: number;
+    paperInvalidationLevel: number;
+    paperFilledPortions: number;
+    paperMaxRiskPct: number;
+    paperLeverage: number;
+    paperAutoExecuteIntervals: number;
+    paperLookbackTrades: number;
+    totalPointsScore: number;
+    allocatedCapitalPct: number;
+    activeOppositeSignalsCount: number;
+    markedSupportLevels: number[];
+    markedResistanceLevels: number[];
+    srFlipEvents: string;
+    // Token cost tracking
+    costPriceInput: number;
+    costPriceOutput: number;
+    costIntervalSecs: number;
+    costRunsPerDay: number;
+    costTokensPerRunInput: number;
+    costTokensPerRunOutput: number;
+    costDailyProjected: number;
+    costWeeklyProjected: number;
+    costMonthlyProjected: number;
+    costActualInputTokens: number;
+    costActualOutputTokens: number;
+    costActualTotal: number;
+    costLoading: boolean;
+}
+
+export interface ScaleInPortion {
+    id: number;
+    entry_price: number;
+    size: number;
+    allocated_usd: number;
+    portion_number: number;
+}
+
+export interface TakeProfitTarget {
+    id: number;
+    target_price: number;
+    size_fraction: number;
+    is_hit: boolean;
 }
 
 function createTimeframeTelemetry(symbol: string, exchange: string, barDurationSec: number): TimeframeTelemetry {
@@ -324,11 +491,13 @@ function createTimeframeTelemetry(symbol: string, exchange: string, barDurationS
         barDurationSec,
         priceText: '--',
         vwapText: '--',
+        vwapBias: 'equilibrium',
         avgVolText: '--',
         emaFastText: '--',
         emaMediumText: '--',
         emaSlowText: '--',
         emaLongText: '--',
+        emaStackState: 'tangled',
         adxText: '--',
         adxPlusText: '--',
         adxMinusText: '--',
@@ -341,8 +510,37 @@ function createTimeframeTelemetry(symbol: string, exchange: string, barDurationS
         sqzStatusText: '--',
         isSqueezeOn: false,
         volText: '--',
+        bbwpText: '--',
+        fibGoldenLowText: '--',
+        fibGoldenHighText: '--',
+        fibExt1618Text: '--',
+        fibExt2618Text: '--',
         lastMacdHist: 0,
         lastSqzMom: 0,
+        lastBbwp: 0,
+        rsiDivergenceStatus: 'none' as const,
+        macdDivergenceStatus: 'none' as const,
+        rsiDivergenceCoords: null,
+        macdDivergenceCoords: null,
+        macdHistPeak: 0,
+        macdContractionTriggered: false,
+        macdCrossoverDetected: false,
+        macdCrossoverDirection: 'NONE',
+        adxSlope: 0,
+        adxTrendingRegime: 'congestion',
+        adxExhaustionReached: false,
+        adxDiCrossoverDetected: false,
+        adxDiCrossoverDirection: 'NONE',
+        squeezeDuration: 0,
+        squeezeReleaseTrigger: false,
+        squeezeMomentumDirection: 'Flat',
+        activePattern: 'None',
+        patternConfidence: 0,
+        showPatterns: true,
+        atrVolatilityRegime: 'stable',
+        atrSlope: 0,
+        rvol: 0,
+        isCompleted: false,
         latestSnapshot: null,
         historyPrices: [],
         showEmas: true,
@@ -354,6 +552,8 @@ function createTimeframeTelemetry(symbol: string, exchange: string, barDurationS
         showRsi: true,
         showMacd: true,
         showSqueeze: true,
+        showBbwp: true,
+        showFib: true,
         emaFastVal: 10,
         emaMediumVal: 50,
         emaSlowVal: 100,
@@ -365,6 +565,8 @@ function createTimeframeTelemetry(symbol: string, exchange: string, barDurationS
         adxPeriodVal: 14,
         atrPeriodVal: 14,
         squeezePeriodVal: 20,
+        bbwpPeriodVal: 20,
+        bbwpLookbackVal: 252,
         analysisLimit: 100,
     };
 }
@@ -377,6 +579,8 @@ function createPairState(symbol: string, exchange: string): PairState {
         shortTerm: createTimeframeTelemetry(symbol, exchange, 15),
         midTerm: createTimeframeTelemetry(symbol, exchange, 60),
         longTerm: createTimeframeTelemetry(symbol, exchange, 300),
+        macroTerm: createTimeframeTelemetry(symbol, exchange, 900),
+        supermacroTerm: createTimeframeTelemetry(symbol, exchange, 3600),
         assistantHistory: [],
         chatHistory: [],
         currentPosition: 'None',
@@ -412,6 +616,34 @@ function createPairState(symbol: string, exchange: string): PairState {
         paperAvailableTrades: 10,
         paperHistory: [],
         paperLoading: false,
+        paperScaleInPortions: [],
+        paperTakeProfitTargets: [],
+        paperAvgEntryPrice: 0,
+        paperInvalidationLevel: 0,
+        paperFilledPortions: 0,
+        paperMaxRiskPct: 2.0,
+        paperLeverage: 20,
+        paperAutoExecuteIntervals: 15,
+        paperLookbackTrades: 10,
+        totalPointsScore: 0,
+        allocatedCapitalPct: 0,
+        activeOppositeSignalsCount: 0,
+        markedSupportLevels: [],
+        markedResistanceLevels: [],
+        srFlipEvents: '[]',
+        costPriceInput: 0.27,
+        costPriceOutput: 1.10,
+        costIntervalSecs: 900,
+        costRunsPerDay: 0,
+        costTokensPerRunInput: 0,
+        costTokensPerRunOutput: 0,
+        costDailyProjected: 0,
+        costWeeklyProjected: 0,
+        costMonthlyProjected: 0,
+        costActualInputTokens: 0,
+        costActualOutputTokens: 0,
+        costActualTotal: 0,
+        costLoading: false,
     };
 }
 
@@ -458,6 +690,22 @@ let riskStopLoss = $state('0');
 let riskTakeProfit = $state('0');
 let riskCalculation = $state<RiskCalculation | null>(null);
 let riskCalculating = $state(false);
+let useDynamicAtr = $state(false);
+let atrValue = $state(0);
+
+let commissionDirection = $state<'LONG' | 'SHORT'>('LONG');
+let commissionEntry1 = $state('');
+let commissionEntry2 = $state('');
+let commissionSL1 = $state('');
+let commissionSL2 = $state('');
+let commissionTP1 = $state('');
+let commissionTP2 = $state('');
+let commissionCapitalSplit = $state(50);
+let commissionOrderType = $state<'maker' | 'taker'>('taker');
+let commissionProjection = $state<CommissionProjection | null>(null);
+let commissionLoading = $state(false);
+let feeTable = $state<FeeTableRow[]>([]);
+let feeTableLoading = $state(false);
 
 let exchangeAccounts = $state<ExchangeAccount[]>([]);
 let exchangeActiveCount = $state(0);
@@ -477,6 +725,9 @@ let dashboardActiveFilter = $state('summary');
 let dashboardPeriod = $state('Todo');
 let dashboardOrigin = $state('Todos');
 let tradeLedgerRecords = $state<TradeLedgerRecord[]>([]);
+
+let tradeJournalRecords = $state<TradeJournalRecord[]>([]);
+let journalLookbackDepth = $state(10);
 
 let userTrades = $state<UserTrade[]>([]);
 
@@ -548,6 +799,34 @@ export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
         pair.longTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
         pair.longTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
         pair.longTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+
+        pair.macroTerm.barDurationSec = 900;
+        pair.macroTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.macroTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.macroTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.macroTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.macroTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.macroTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.macroTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.macroTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.macroTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.macroTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.macroTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.macroTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+
+        pair.supermacroTerm.barDurationSec = 3600;
+        pair.supermacroTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.supermacroTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.supermacroTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.supermacroTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.supermacroTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.supermacroTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.supermacroTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.supermacroTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.supermacroTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.supermacroTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.supermacroTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.supermacroTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
     }
 }
 
@@ -626,6 +905,8 @@ export function getState() {
         get shortTerm() { return activePair().shortTerm; },
         get midTerm() { return activePair().midTerm; },
         get longTerm() { return activePair().longTerm; },
+        get macroTerm() { return activePair().macroTerm; },
+        get supermacroTerm() { return activePair().supermacroTerm; },
 
         // Backward-compatible accessors (proxied to mid-term by default)
         get activeSymbol() { return activePair().symbol; },
@@ -802,6 +1083,69 @@ export function getState() {
         get paperLoading() { return activePair().paperLoading; },
         set paperLoading(v: boolean) { activePair().paperLoading = v; },
 
+        get totalPointsScore() { return activePair().totalPointsScore; },
+        set totalPointsScore(v: number) { activePair().totalPointsScore = v; },
+        get allocatedCapitalPct() { return activePair().allocatedCapitalPct; },
+        set allocatedCapitalPct(v: number) { activePair().allocatedCapitalPct = v; },
+        get activeOppositeSignalsCount() { return activePair().activeOppositeSignalsCount; },
+        set activeOppositeSignalsCount(v: number) { activePair().activeOppositeSignalsCount = v; },
+        get markedSupportLevels() { return activePair().markedSupportLevels; },
+        set markedSupportLevels(v: number[]) { activePair().markedSupportLevels = v; },
+        get markedResistanceLevels() { return activePair().markedResistanceLevels; },
+        set markedResistanceLevels(v: number[]) { activePair().markedResistanceLevels = v; },
+        get srFlipEvents() { return activePair().srFlipEvents; },
+        set srFlipEvents(v: string) { activePair().srFlipEvents = v; },
+
+        get costPriceInput() { return activePair().costPriceInput; },
+        set costPriceInput(v: number) { activePair().costPriceInput = v; },
+        get costPriceOutput() { return activePair().costPriceOutput; },
+        set costPriceOutput(v: number) { activePair().costPriceOutput = v; },
+        get costIntervalSecs() { return activePair().costIntervalSecs; },
+        set costIntervalSecs(v: number) { activePair().costIntervalSecs = v; },
+        get costRunsPerDay() { return activePair().costRunsPerDay; },
+        set costRunsPerDay(v: number) { activePair().costRunsPerDay = v; },
+        get costTokensPerRunInput() { return activePair().costTokensPerRunInput; },
+        set costTokensPerRunInput(v: number) { activePair().costTokensPerRunInput = v; },
+        get costTokensPerRunOutput() { return activePair().costTokensPerRunOutput; },
+        set costTokensPerRunOutput(v: number) { activePair().costTokensPerRunOutput = v; },
+        get costDailyProjected() { return activePair().costDailyProjected; },
+        set costDailyProjected(v: number) { activePair().costDailyProjected = v; },
+        get costWeeklyProjected() { return activePair().costWeeklyProjected; },
+        set costWeeklyProjected(v: number) { activePair().costWeeklyProjected = v; },
+        get costMonthlyProjected() { return activePair().costMonthlyProjected; },
+        set costMonthlyProjected(v: number) { activePair().costMonthlyProjected = v; },
+        get costActualInputTokens() { return activePair().costActualInputTokens; },
+        set costActualInputTokens(v: number) { activePair().costActualInputTokens = v; },
+        get costActualOutputTokens() { return activePair().costActualOutputTokens; },
+        set costActualOutputTokens(v: number) { activePair().costActualOutputTokens = v; },
+        get costActualTotal() { return activePair().costActualTotal; },
+        set costActualTotal(v: number) { activePair().costActualTotal = v; },
+        get costLoading() { return activePair().costLoading; },
+        set costLoading(v: boolean) { activePair().costLoading = v; },
+
+        async fetchCostEstimate() {
+            const pair = activePair();
+            pair.costLoading = true;
+            try {
+                const res = await fetch(`/api/cost-estimate?pair_key=${encodeURIComponent(activeTab)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    pair.costPriceInput = data.price_per_1m_input_tokens ?? 0.27;
+                    pair.costPriceOutput = data.price_per_1m_output_tokens ?? 1.10;
+                    pair.costIntervalSecs = data.interval_seconds ?? 900;
+                    pair.costRunsPerDay = data.runs_per_day ?? 0;
+                    pair.costTokensPerRunInput = data.input_tokens_per_run ?? 0;
+                    pair.costTokensPerRunOutput = data.output_tokens_per_run ?? 0;
+                    pair.costDailyProjected = data.projected_daily_cost ?? 0;
+                    pair.costWeeklyProjected = data.projected_weekly_cost ?? 0;
+                    pair.costMonthlyProjected = data.projected_monthly_cost ?? 0;
+                    pair.costActualInputTokens = data.actual_input_tokens_used ?? 0;
+                    pair.costActualOutputTokens = data.actual_output_tokens_used ?? 0;
+                    pair.costActualTotal = data.actual_total_cost ?? 0;
+                }
+            } catch (_) {} finally { pair.costLoading = false; }
+        },
+
         async fetchPaperStatus() {
             const pair = activePair();
             try {
@@ -820,6 +1164,15 @@ export function getState() {
                 pair.paperMaxTrades = data.max_trades ?? 10;
                 pair.paperActiveTrades = data.active_trades ?? 0;
                 pair.paperAvailableTrades = data.available_trades ?? 10;
+                pair.paperScaleInPortions = data.scale_in_portions ?? [];
+                pair.paperTakeProfitTargets = data.take_profit_targets ?? [];
+                pair.paperAvgEntryPrice = data.active_position?.average_entry_price ?? data.active_position?.entry_price ?? 0;
+                pair.paperInvalidationLevel = data.active_position?.final_invalidation_level ?? 0;
+                pair.paperFilledPortions = data.active_position?.current_portions ?? 0;
+                pair.paperMaxRiskPct = data.max_risk_pct ?? 2.0;
+                pair.paperLeverage = data.leverage ?? 20;
+                pair.paperAutoExecuteIntervals = data.auto_execute_intervals ?? 15;
+                pair.paperLookbackTrades = data.lookback_trades ?? 10;
             } catch (_) {}
         },
 
@@ -858,7 +1211,21 @@ export function getState() {
 
         async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) {
             try {
-                await fetch('/api/paper/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: activeTab, initial_usd: initialUSD, allocation_pct: allocationPct, auto_execute: autoExecute }) });
+                const pair = activePair();
+                await fetch('/api/paper/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        symbol: activeTab,
+                        initial_usd: initialUSD,
+                        allocation_pct: allocationPct,
+                        auto_execute: autoExecute,
+                        max_risk_pct: pair.paperMaxRiskPct,
+                        leverage: pair.paperLeverage,
+                        auto_execute_intervals: pair.paperAutoExecuteIntervals,
+                        lookback_trades: pair.paperLookbackTrades,
+                    })
+                });
                 await (app as any).fetchPaperStatus();
             } catch (_) {}
         },
@@ -973,6 +1340,8 @@ export function getState() {
         get riskCalculation() { return riskCalculation; },
         set riskCalculation(v: RiskCalculation | null) { riskCalculation = v; },
         get riskCalculating() { return riskCalculating; },
+        get useDynamicAtr() { return useDynamicAtr; }, set useDynamicAtr(v: boolean) { useDynamicAtr = v; },
+        get atrValue() { return atrValue; }, set atrValue(v: number) { atrValue = v; },
         set riskCalculating(v: boolean) { riskCalculating = v; },
 
         async fetchRiskProfiles() {
@@ -1012,6 +1381,62 @@ export function getState() {
                 });
                 if (res.ok) { riskCalculation = await res.json(); }
             } catch (_) {} finally { riskCalculating = false; }
+        },
+
+        get commissionDirection() { return commissionDirection; },
+        set commissionDirection(v: 'LONG' | 'SHORT') { commissionDirection = v; },
+        get commissionEntry1() { return commissionEntry1; },
+        set commissionEntry1(v: string) { commissionEntry1 = v; },
+        get commissionEntry2() { return commissionEntry2; },
+        set commissionEntry2(v: string) { commissionEntry2 = v; },
+        get commissionSL1() { return commissionSL1; },
+        set commissionSL1(v: string) { commissionSL1 = v; },
+        get commissionSL2() { return commissionSL2; },
+        set commissionSL2(v: string) { commissionSL2 = v; },
+        get commissionTP1() { return commissionTP1; },
+        set commissionTP1(v: string) { commissionTP1 = v; },
+        get commissionTP2() { return commissionTP2; },
+        set commissionTP2(v: string) { commissionTP2 = v; },
+        get commissionCapitalSplit() { return commissionCapitalSplit; },
+        set commissionCapitalSplit(v: number) { commissionCapitalSplit = v; },
+        get commissionOrderType() { return commissionOrderType; },
+        set commissionOrderType(v: 'maker' | 'taker') { commissionOrderType = v; },
+        get commissionProjection() { return commissionProjection; },
+        set commissionProjection(v: CommissionProjection | null) { commissionProjection = v; },
+        get commissionLoading() { return commissionLoading; },
+        set commissionLoading(v: boolean) { commissionLoading = v; },
+        get feeTable() { return feeTable; },
+        set feeTable(v: FeeTableRow[]) { feeTable = v; },
+
+        async fetchFeeTable() {
+            feeTableLoading = true;
+            try {
+                const res = await fetch(`/api/risk/fee-table?order_type=${commissionOrderType}`);
+                if (res.ok) { feeTable = await res.json(); }
+            } catch (_) {} finally { feeTableLoading = false; }
+        },
+
+        async calculateCommissionProjection() {
+            commissionLoading = true;
+            try {
+                const res = await fetch('/api/risk/commission-projection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        profile_id: activeRiskProfileId,
+                        direction: commissionDirection,
+                        entry_1: parseFloat(commissionEntry1) || 0,
+                        entry_2: parseFloat(commissionEntry2) || 0,
+                        stop_loss_1: parseFloat(commissionSL1) || 0,
+                        stop_loss_2: parseFloat(commissionSL2) || 0,
+                        take_profit_1: parseFloat(commissionTP1) || 0,
+                        take_profit_2: parseFloat(commissionTP2) || 0,
+                        capital_entry_1_pct: commissionCapitalSplit,
+                        order_type: commissionOrderType,
+                    }),
+                });
+                if (res.ok) { commissionProjection = await res.json(); }
+            } catch (_) {} finally { commissionLoading = false; }
         },
 
         get exchangeAccounts() { return exchangeAccounts; },
@@ -1054,6 +1479,11 @@ export function getState() {
         get tradeLedgerRecords() { return tradeLedgerRecords; },
         set tradeLedgerRecords(v: TradeLedgerRecord[]) { tradeLedgerRecords = v; },
 
+        get tradeJournalRecords() { return tradeJournalRecords; },
+        set tradeJournalRecords(v: TradeJournalRecord[]) { tradeJournalRecords = v; },
+        get journalLookbackDepth() { return journalLookbackDepth; },
+        set journalLookbackDepth(v: number) { journalLookbackDepth = v; },
+
         async fetchDashboardStats() {
             try {
                 const res = await fetch('/api/dashboard/stats');
@@ -1066,6 +1496,39 @@ export function getState() {
                 const res = await fetch('/api/trade-ledger');
                 if (res.ok) { tradeLedgerRecords = await res.json(); }
             } catch (_) {}
+        },
+
+        async fetchTradeJournal(limit: number = 50) {
+            try {
+                const res = await fetch(`/api/trade-journal?limit=${limit}`);
+                if (res.ok) { tradeJournalRecords = await res.json(); }
+            } catch (_) {}
+        },
+
+        async updateJournalNotes(id: number, notes: string, score: number) {
+            try {
+                const res = await fetch(`/api/trade-journal/${id}/notes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ human_notes: notes, execution_score: score }),
+                });
+                if (res.ok) {
+                    const idx = tradeJournalRecords.findIndex(r => r.id === id);
+                    if (idx >= 0) {
+                        tradeJournalRecords[idx].human_notes = notes;
+                        tradeJournalRecords[idx].execution_score = score;
+                        tradeJournalRecords = [...tradeJournalRecords];
+                    }
+                }
+            } catch (_) {}
+        },
+
+        exportJournalCSV() {
+            window.open('/api/trade-journal/export/csv', '_blank');
+        },
+
+        exportJournalJSON() {
+            window.open('/api/trade-journal/export/json', '_blank');
         },
     };
     return app;

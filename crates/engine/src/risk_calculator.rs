@@ -23,11 +23,21 @@ pub struct RiskCalculationInput {
     pub leverage: i32,
     pub direction: String,
     pub entry_price: f64,
+    #[serde(default)]
     pub stop_loss_price: f64,
+    #[serde(default)]
     pub take_profit_price: f64,
     pub commission_pct: f64,
     pub funding_rate_8h: f64,
     pub spread: f64,
+    #[serde(default)]
+    pub atr_value: Option<f64>,
+    #[serde(default)]
+    pub atr_multiplier: Option<f64>,
+    #[serde(default)]
+    pub atr_target_rr: Option<f64>,
+    #[serde(default)]
+    pub use_dynamic_atr: bool,
 }
 
 pub fn compute_risk(input: &RiskCalculationInput) -> Result<RiskCalculation, String> {
@@ -144,6 +154,51 @@ pub fn compute_risk_from_profile(
         commission_pct: profile.commission_pct,
         funding_rate_8h: profile.funding_rate_8h,
         spread: profile.spread,
+        atr_value: None,
+        atr_multiplier: None,
+        atr_target_rr: None,
+        use_dynamic_atr: false,
     };
     compute_risk(&input)
+}
+
+/// Compute risk with ATR-scaled dynamic stop-loss and take-profit.
+/// When `use_dynamic_atr` is true and `atr_value` is provided, the SL and TP
+/// are calculated from the ATR instead of using fixed price inputs.
+pub fn compute_risk_with_atr(input: &RiskCalculationInput) -> Result<RiskCalculation, String> {
+    let atr = input.atr_value.unwrap_or(0.0);
+    let multiplier = input.atr_multiplier.unwrap_or(2.0);
+    let target_rr = input.atr_target_rr.unwrap_or(2.5);
+    let is_long = input.direction.to_uppercase() == "LONG";
+
+    let (stop_loss, take_profit) = if input.use_dynamic_atr && atr > 0.0 {
+        let sl_distance = atr * multiplier;
+        let tp_distance = atr * multiplier * target_rr;
+        if is_long {
+            (input.entry_price - sl_distance, input.entry_price + tp_distance)
+        } else {
+            (input.entry_price + sl_distance, input.entry_price - tp_distance)
+        }
+    } else {
+        (input.stop_loss_price, input.take_profit_price)
+    };
+
+    let resolved_input = RiskCalculationInput {
+        capital: input.capital,
+        max_risk_pct: input.max_risk_pct,
+        leverage: input.leverage,
+        direction: input.direction.clone(),
+        entry_price: input.entry_price,
+        stop_loss_price: stop_loss,
+        take_profit_price: take_profit,
+        commission_pct: input.commission_pct,
+        funding_rate_8h: input.funding_rate_8h,
+        spread: input.spread,
+        atr_value: input.atr_value,
+        atr_multiplier: input.atr_multiplier,
+        atr_target_rr: input.atr_target_rr,
+        use_dynamic_atr: false,
+    };
+
+    compute_risk(&resolved_input)
 }

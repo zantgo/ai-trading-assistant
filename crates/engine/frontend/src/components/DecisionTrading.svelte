@@ -7,6 +7,22 @@
     let newIndicatorName = $state('');
     let newIndicatorWeight = $state(10);
 
+    let eightFactorScore = $state(0);
+    let eightFactorMax = $state(90);
+    let eightFactorSignals = $state<Record<string, { passed: boolean; points: number; maxPoints: number; weight: number }>>({});
+    let computedAllocPct = $state(1);
+
+    const FACTOR_WEIGHTS: Record<string, number> = {
+        'RSI (Oversold/Overbought)': 12,
+        'MACD Crossover': 12,
+        'Divergence': 10,
+        'Support Level': 12,
+        'Resistance Level': 8,
+        '15m Trend': 12,
+        '200 EMA Position': 12,
+        'Chart Pattern': 12,
+    };
+
     $effect(() => {
         app.fetchDecisionProfiles();
     });
@@ -15,9 +31,64 @@
         return app.decisionProfiles.find(p => p.id === app.activeDecisionProfileId);
     }
 
+    function computeEightFactorScore() {
+        const snap = app.latestSnapshot || {};
+        const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : 0;
+        const rsi = snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : 50;
+        const macdLine = snap.macd_line ? parseFloat(String(snap.macd_line)) : 0;
+        const macdSignal = snap.macd_signal ? parseFloat(String(snap.macd_signal)) : 0;
+        const macdHist = snap.macd_hist ? parseFloat(String(snap.macd_hist)) : 0;
+        const squeezeOn = snap.squeeze_on ?? false;
+        const squeezeMom = snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : 0;
+        const emaLong = snap.ema_long ? parseFloat(String(snap.ema_long)) : price;
+
+        const supports = (app.markedSupportLevels.length > 0 ? app.markedSupportLevels : [price * 0.99, price * 0.98]);
+        const resistances = (app.markedResistanceLevels.length > 0 ? app.markedResistanceLevels : [price * 1.01, price * 1.02]);
+
+        const isBullish = app.currentPosition !== 'Short';
+
+        const rsiAligned = isBullish ? rsi < 30 : rsi > 70;
+        const macdAligned = isBullish ? macdLine > macdSignal : macdLine < macdSignal;
+        const divergence = isBullish ? (rsi < 40 || macdHist > 0) : (rsi > 60 || macdHist < 0);
+        const supportAligned = supports.some(s => Math.abs(price - s) < s * 0.005);
+        const resistanceAligned = resistances.some(r => Math.abs(price - r) < r * 0.005);
+        const trendAligned = isBullish;
+        const ema200Aligned = isBullish ? price > emaLong : price < emaLong;
+        const patternAligned = squeezeOn && (isBullish ? squeezeMom > 0 : squeezeMom < 0);
+
+        const factorResults: Record<string, boolean> = {
+            'RSI (Oversold/Overbought)': rsiAligned,
+            'MACD Crossover': macdAligned,
+            'Divergence': divergence,
+            'Support Level': supportAligned,
+            'Resistance Level': resistanceAligned,
+            '15m Trend': trendAligned,
+            '200 EMA Position': ema200Aligned,
+            'Chart Pattern': patternAligned,
+        };
+
+        eightFactorSignals = {};
+        eightFactorScore = 0;
+        for (const [name, passed] of Object.entries(factorResults)) {
+            const weight = FACTOR_WEIGHTS[name] ?? 10;
+            eightFactorSignals[name] = { passed, points: passed ? weight : 0, maxPoints: weight, weight };
+            if (passed) eightFactorScore += weight;
+        }
+
+        if (eightFactorScore >= 60) computedAllocPct = 3;
+        else if (eightFactorScore >= 40) computedAllocPct = 2;
+        else computedAllocPct = 1;
+
+        app.totalPointsScore = eightFactorScore;
+        app.allocatedCapitalPct = computedAllocPct;
+        app.markedSupportLevels = supports;
+        app.markedResistanceLevels = resistances;
+    }
+
     async function handleEvaluate() {
         const snap = app.latestSnapshot || {};
         await app.evaluateDecision(app.activeDecisionProfileId, snap, app.historyPrices);
+        computeEightFactorScore();
     }
 
     async function addNewIndicator() {
@@ -108,6 +179,26 @@
                 <button class="dt-eval-btn" onclick={handleEvaluate} disabled={app.decisionLoading}>
                     {app.decisionLoading ? 'Evaluating...' : 'Evaluate Decision'}
                 </button>
+            </div>
+
+            <!-- 8-Factor Score & Capital Allocation -->
+            <div class="dt-card">
+                <div class="dt-eight-header">
+                    <h3 class="dt-card-title">8-FACTOR WEIGHTED SCORING</h3>
+                    <div class="dt-eight-badges">
+                        <span class="dt-score-badge">Score: {eightFactorScore} / {eightFactorMax}</span>
+                        <span class="dt-alloc-badge">Capital to Use: {computedAllocPct}%</span>
+                    </div>
+                </div>
+                <div class="dt-checklist">
+                    {#each Object.entries(eightFactorSignals) as [name, factor] (name)}
+                        <div class="dt-check-item" class:dt-check-pass={factor.passed} class:dt-check-fail={!factor.passed}>
+                            <span class="dt-check-icon">{factor.passed ? '✓' : '✗'}</span>
+                            <span class="dt-check-label">{name}</span>
+                            <span class="dt-check-weight">{factor.points}/{factor.maxPoints}</span>
+                        </div>
+                    {/each}
+                </div>
             </div>
 
             <!-- Threshold Config -->
@@ -276,6 +367,23 @@
         padding: 3px 6px; border-radius: 3px; font-size: 10px; outline: none; cursor: pointer;
     }
     .dt-ind-delete { background: none; border: none; color: #ef4444; font-size: 14px; cursor: pointer; padding: 0 4px; }
+
+    .dt-eight-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .dt-eight-badges { display: flex; gap: 8px; }
+    .dt-alloc-badge {
+        font-size: 14px; font-weight: 700; color: #f59e0b; background: rgba(245,158,11,0.1);
+        padding: 4px 12px; border-radius: 4px; font-family: monospace; white-space: nowrap;
+    }
+    .dt-checklist { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .dt-check-item {
+        display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+        border-radius: 4px; font-size: 11px;
+    }
+    .dt-check-pass { background: rgba(16,185,129,0.06); color: #10b981; }
+    .dt-check-fail { background: rgba(239,68,68,0.06); color: #ef4444; }
+    .dt-check-icon { font-size: 14px; font-weight: 700; width: 18px; text-align: center; }
+    .dt-check-label { font-weight: 600; }
+    .dt-check-weight { margin-left: auto; font-size: 10px; font-weight: 700; font-family: monospace; opacity: 0.8; }
 
     @media (max-width: 768px) {
         .dt-layout { grid-template-columns: 1fr; }

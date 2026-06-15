@@ -1,0 +1,54 @@
+# 📈 Volume Weighted Average Price (VWAP) Protocol
+
+## 1. Introduction
+The Volume Weighted Average Price (VWAP) represents the true average price of an asset over a given trading session, weighted by cumulative transaction volume. Unlike standard moving averages, which only account for time, VWAP incorporates both price and volume to identify the statistical value area of a market.
+
+Because institutions use VWAP as their primary benchmark for executing large block orders (aiming to buy below VWAP and sell above VWAP), the VWAP line acts as a highly reliable support, resistance, and mean-reversion zone.
+
+---
+
+## 2. Technical Structure and Calculations
+The VWAP is a cumulative calculation that typically resets at the start of each daily session (every 86,400 seconds) to align with institutional intraday trading cycles.
+
+### 2.1 The Mathematical Model
+The calculation consists of three sequential steps executed on every closed interval:
+
+1.  **Calculate the Typical Price ($TP_t$):** Representing the average price of the current interval:
+    $$TP_t = \frac{High_t + Low_t + Close_t}{3}$$
+
+2.  **Calculate Cumulative Typical Price times Volume ($\sum TP \times V$):** Accumulating the volume-weighted value over the current daily session:
+    $$\text{Cumulative Volume-Weighted Price}_t = \sum_{i=1}^{t} (TP_i \times Volume_i)$$
+
+3.  **Calculate Cumulative Volume ($\sum V$):** Accumulating the total volume executed over the daily session:
+    $$\text{Cumulative Volume}_t = \sum_{i=1}^{t} Volume_i$$
+
+The VWAP is then calculated by dividing the cumulative volume-weighted price by the cumulative volume:
+$$VWAP_t = \frac{\sum_{i=1}^{t} (TP_i \times Volume_i)}{\sum_{i=1}^{t} Volume_i}$$
+
+---
+
+## 3. Structural Regime Classification
+
+VWAP defines the value equilibrium of the market, dividing the daily price distribution into premium, discount, and fair value zones.
+
+### 3.1 Intraday Bias Selection
+*   **Premium Territory (Price > VWAP × 1.001):** Price is trading above the volume-weighted average by more than 0.1%. The intraday bias is bullish. Buying pressure is dominant.
+*   **Discount Territory (Price < VWAP × 0.999):** Price is trading below the volume-weighted average by more than 0.1%. The intraday bias is bearish. Selling pressure is dominant.
+*   **Value Equilibrium (Price ≈ VWAP):** Price oscillates within ±0.1% of the VWAP line, showing minor deviations. The market is sideways, indicating that institutions are executing orders at fair value.
+
+---
+
+## 4. Entry and Position Management Rules
+
+### 4.1 The Institutional Cost Pullback Entry
+During a strongly aligned trending market (confirmed by your 4-EMA stacking order), VWAP serves as the primary "institutional pullback" entry zone:
+*   **Bullish Pullback Entry:** 
+    *   *Condition:* The EMAs are in a full bullish stack, and the price is above the VWAP.
+    *   *Execution:* Wait for price to pull back and touch the VWAP line. If price wicks off the VWAP line and closes back above your EMA 10, enter a long position (buying at the institutional average cost).
+*   **Bearish Pullback Entry:**
+    *   *Condition:* The EMAs are in a full bearish stack, and the price is below the VWAP.
+    *   *Execution:* Wait for price to rally and touch the VWAP line. If price wicks off the VWAP line and closes back below your EMA 10, enter a short position (shorting at the institutional average cost).
+
+### 4.2 Mean-Reversion Exits and Targets
+During ranging or sideways market regimes (confirmed by tangled EMAs and flat ADX), VWAP acts as a powerful magnetic target:
+*   **Reversion Target:** If you enter a position near extreme support or resistance levels during a range regime, set the VWAP line as your primary take-profit target ($TP_1$), as price has a high statistical probability of returning to value equilibrium.

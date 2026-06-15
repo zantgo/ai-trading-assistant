@@ -246,6 +246,85 @@ The rationale explains *why* the action is recommended based on the confluence o
 
 ---
 
+## Commission & Fee Calculation
+
+The Fee Projection tool (`💸 Fee Projection` tab) helps you determine whether a dual-entry trade is viable after accounting for exchange fees, funding costs, and leverage. It prevents you from executing trades where the net gains are negative.
+
+### Fee Table
+
+The **Fee Reference Table** shows, for any combination of leverage and capital, the minimum percentage profit your trade must achieve just to cover the round-trip (open + close) exchange fees:
+
+| Exchange Fee % | Leverage | Capital ($) | Min % Profit to Cover Fees | Fees ($) |
+|---|---|---|---|---|
+| 0.06 (Taker) | 10x | 50 | 1.20% | 0.60 |
+| 0.06 (Taker) | 20x | 50 | 2.40% | 1.20 |
+| 0.06 (Taker) | 25x | 50 | 3.00% | 1.50 |
+| 0.06 (Taker) | 40x | 50 | 4.80% | 2.40 |
+| 0.06 (Taker) | 50x | 10 | 6.00% | 0.60 |
+
+**Formula:** `Fees = Fee% × Capital × Leverage × 2` (×2 for round-trip open + close).  
+`Min Profit % = Fees / Capital × 100`.
+
+### Dual-Entry Projection
+
+The tool calculates projections for a **two-entry** trading strategy:
+
+| Parameter | Description |
+|---|---|
+| **Entry 1 / Entry 2** | Two price levels where you split your entry |
+| **Stop Loss 1 / Stop Loss 2** | Per-entry stop-loss levels |
+| **Take Profit 1 / Take Profit 2** | Per-entry take-profit targets |
+| **Capital Split** | Percentage of capital allocated to Entry 1 (Entry 2 gets the remainder) |
+| **Order Type** | Maker (limit order, lower fee) or Taker (market order, higher fee) |
+
+### Projection Output
+
+The tool returns:
+
+- **Combined Position:** Weighted average entry, effective stop-loss/take-profit, total notional, total margin, total risk
+- **Per-Entry Metrics:** Capital allocated, position size, notional value, margin required, risk amount, potential profit, fees, and net profit for each entry
+- **Fee Breakdown:** Maker vs taker fee rates, per-entry commission, total commission, funding costs, and the minimum profit % needed to break even
+- **Scenario Projections:** Maximum gain (gross and net), maximum loss (gross and net), required price move %
+- **Viability Gate:** A yes/no decision — if the maximum net gain after fees is negative or zero, the trade is flagged as **NOT VIABLE** and should not be executed
+
+### Configuration
+
+Exchange fee rates are configured in `config.toml`:
+
+```toml
+[fees]
+maker_fee_pct = 0.02    # 0.02% for limit orders
+taker_fee_pct = 0.06    # 0.06% for market orders
+```
+
+Per-profile commission overrides are stored in each Risk Profile (via the `🛡️ Risk Management` tab).
+
+### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/risk/fee-table?order_type=taker` | Returns the fee reference table |
+| `POST` | `/api/risk/commission-projection` | Full dual-entry projection |
+
+`POST /api/risk/commission-projection` request body:
+
+```json
+{
+  "profile_id": 1,
+  "direction": "LONG",
+  "entry_1": 3120.0,
+  "entry_2": 3100.0,
+  "stop_loss_1": 3080.0,
+  "stop_loss_2": 3070.0,
+  "take_profit_1": 3180.0,
+  "take_profit_2": 3220.0,
+  "capital_entry_1_pct": 50,
+  "order_type": "taker"
+}
+```
+
+---
+
 ## Understanding the Analysis Logic
 
 ### When using DeepSeek (LLM mode)

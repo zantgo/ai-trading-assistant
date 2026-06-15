@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
-    import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+    import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { getState } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
@@ -14,6 +14,8 @@
     let adxSeries: ISeriesApi<'Line'>;
     let adxPlusSeries: ISeriesApi<'Line'>;
     let adxMinusSeries: ISeriesApi<'Line'>;
+    let trendLine: IPriceLine | null = null;
+    let exhaustionLine: IPriceLine | null = null;
 
     onMount(() => {
         chart = createChart(container, {
@@ -31,13 +33,24 @@
         adxPlusSeries = chart.addSeries(LineSeries, { color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false });
         adxMinusSeries = chart.addSeries(LineSeries, { color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false });
 
-        adxSeries.createPriceLine({
+        // Trend threshold line at 20 (dashed gray)
+        trendLine = adxSeries.createPriceLine({
             price: 20,
             color: '#4c525e',
             lineWidth: 1,
-            lineStyle: LineStyle.Dotted,
+            lineStyle: LineStyle.Dashed,
             axisLabelVisible: true,
-            title: 'KEY LEVEL'
+            title: 'TREND',
+        });
+
+        // Exhaustion threshold line at 40 (dashed red)
+        exhaustionLine = adxSeries.createPriceLine({
+            price: 40,
+            color: '#ff5252',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: 'EXHAUST',
         });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
@@ -107,15 +120,41 @@
         }
     });
 
+    function adxLineColor(val: number, slope: number, regime: string): string {
+        if (val > 40) return '#ff5252';         // Pulsing Red — extreme exhaustion
+        if (val < 20) return '#4c525e';          // Dull Gray — congestion
+        if (slope > 0) return '#f1c40f';          // Bright Yellow/Gold — accelerating
+        return '#f97316';                          // Orange — decelerating (above trend)
+    }
+
     $effect(() => {
         if (!pair) return;
         const snap = pair.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.adx_14 != null) {
-            adxSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_14)) });
+            const adxVal = parseFloat(String(snap.adx_14));
+            const slope = snap.adx_slope != null ? parseFloat(String(snap.adx_slope)) : 0;
+            const regime = snap.adx_regime != null ? String(snap.adx_regime) : 'congestion';
+
+            adxSeries.update({ time: timeSec as Time, value: adxVal });
             if (snap.adx_plus) adxPlusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_plus)) });
             if (snap.adx_minus) adxMinusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_minus)) });
+
+            // Dynamic ADX line coloring
+            const color = adxLineColor(adxVal, slope, regime);
+            adxSeries.applyOptions({ color });
+
+            // Update state
+            pair.adxSlope = slope;
+            pair.adxTrendingRegime = regime;
+            pair.adxExhaustionReached = adxVal > 40;
+        }
+        if (snap.adx_di_crossover_detected != null) {
+            pair.adxDiCrossoverDetected = !!snap.adx_di_crossover_detected;
+        }
+        if (snap.adx_di_crossover_direction != null) {
+            pair.adxDiCrossoverDirection = String(snap.adx_di_crossover_direction);
         }
     });
 </script>

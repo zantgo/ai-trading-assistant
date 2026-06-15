@@ -11,11 +11,14 @@
     import ExchangeSettings from './components/ExchangeSettings.svelte';
     import AnalyticsDashboard from './components/AnalyticsDashboard.svelte';
     import TradeListLedger from './components/TradeListLedger.svelte';
+    import CommissionCalculator from './components/CommissionCalculator.svelte';
 
     const app = getState();
     let wsShort: WebSocket | null = null;
     let wsMid: WebSocket | null = null;
     let wsLong: WebSocket | null = null;
+    let wsMacro: WebSocket | null = null;
+    let wsSupermacro: WebSocket | null = null;
     let configReady = false;
     let chatContainer: HTMLDivElement | null = null;
 
@@ -37,6 +40,28 @@
     let draftAtrPeriod = $state(14);
     let draftSqueezePeriod = $state(20);
 
+    let draftMacdExtremeHigh = $state(1000);
+    let draftMacdExtremeLow = $state(-1000);
+    let draftMacdContraction = $state(0.30);
+
+    let draftAdxTrendThreshold = $state(20);
+    let draftAdxExhaustionThreshold = $state(40);
+    let draftAdxSlopeLookback = $state(3);
+
+    let draftSqueezeMinDuration = $state(5);
+    let draftSqueezeBbStdDev = $state(2.0);
+    let draftSqueezeKcAtrMult = $state(1.5);
+
+    let draftSrProximityThreshold = $state(0.5);
+    let draftSrFlipTolerance = $state(0.3);
+
+    let draftAtrMultiplier = $state(2.0);
+    let draftAtrTargetRR = $state(2.5);
+
+    let draftVolumeAvgPeriod = $state(20);
+    let draftRvolInstitutional = $state(1.5);
+    let draftRvolClimax = $state(3.0);
+
     let draftAnalysisLimit = $state(100);
 
     let draftShowEmas = $state(true);
@@ -48,6 +73,8 @@
     let draftShowRsi = $state(true);
     let draftShowMacd = $state(true);
     let draftShowSqueeze = $state(true);
+    let draftShowBbwp = $state(true);
+    let draftShowFib = $state(true);
 
     let draftAutomationEnabled = $state(false);
     let draftAutomationIntervalValue = $state(15);
@@ -59,6 +86,35 @@
 
     let draftRules = $state('');
     let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
+
+    let draftCostInputPrice = $state(0.27);
+    let draftCostOutputPrice = $state(1.10);
+    let costSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+
+    async function saveCostConfig() {
+        costSaveStatus = 'saving';
+        try {
+            const res = await fetch('/api/config');
+            const config = await res.json();
+            config.costs = {
+                price_per_1m_input_tokens: Number(draftCostInputPrice),
+                price_per_1m_output_tokens: Number(draftCostOutputPrice),
+            };
+            const saveRes = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            if (saveRes.ok) {
+                costSaveStatus = 'success';
+                setTimeout(() => { costSaveStatus = 'idle'; }, 2000);
+            } else {
+                costSaveStatus = 'error';
+            }
+        } catch (_) {
+            costSaveStatus = 'error';
+        }
+    }
 
     // Load active settings states when settings tab opens on any pair
     function syncSettingsDraft(pairKey: string, pair: PairState) {
@@ -94,6 +150,8 @@
         draftShowRsi = pair.midTerm.showRsi;
         draftShowMacd = pair.midTerm.showMacd;
         draftShowSqueeze = pair.midTerm.showSqueeze;
+        draftShowBbwp = pair.midTerm.showBbwp;
+        draftShowFib = pair.midTerm.showFib;
 
         draftAutomationEnabled = pair.automationEnabled;
         const autoSec = pair.automationIntervalUnit === 'hours' ? pair.automationIntervalValue * 3600
@@ -152,6 +210,22 @@
             },
             long_term: {
                 candles: { duration_seconds: 300, analysis_limit: Number(draftAnalysisLimit) },
+                indicators: {
+                    ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
+                    rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
+                    adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
+                },
+            },
+            macro_term: {
+                candles: { duration_seconds: 900, analysis_limit: Number(draftAnalysisLimit) },
+                indicators: {
+                    ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
+                    rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
+                    adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
+                },
+            },
+            supermacro_term: {
+                candles: { duration_seconds: 3600, analysis_limit: Number(draftAnalysisLimit) },
                 indicators: {
                     ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
                     rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
@@ -217,7 +291,7 @@
                 });
 
                 pair.midTerm.barDurationSec = calculatedDuration;
-                for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm]) {
+                for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
                     tf.emaFastVal = draftEmaFast;
                     tf.emaMediumVal = draftEmaMedium;
                     tf.emaSlowVal = draftEmaSlow;
@@ -236,7 +310,7 @@
                 }
             }
 
-            for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm]) {
+            for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
                 tf.showEmas = draftShowEmas;
                 tf.showBb = draftShowBb;
                 tf.showVwap = draftShowVwap;
@@ -246,6 +320,8 @@
                 tf.showRsi = draftShowRsi;
                 tf.showMacd = draftShowMacd;
                 tf.showSqueeze = draftShowSqueeze;
+                tf.showBbwp = draftShowBbwp;
+                tf.showFib = draftShowFib;
             }
 
             pair.automationEnabled = draftAutomationEnabled;
@@ -328,6 +404,10 @@
 
             if (config.candles) app.globalCandlesConfig = config.candles;
             if (config.indicators) app.globalIndicatorsConfig = config.indicators;
+            if (config.costs) {
+                draftCostInputPrice = config.costs.price_per_1m_input_tokens ?? 0.27;
+                draftCostOutputPrice = config.costs.price_per_1m_output_tokens ?? 1.10;
+            }
 
             const pairConfigs = config.pairs || {};
             const symbols: string[] = config.symbols || ['Hyperliquid:BTC'];
@@ -395,6 +475,40 @@
                             analysisLimit: specific.long_term.candles.analysis_limit ?? 100,
                         });
                     }
+                    if (specific.macro_term) {
+                        targetState.macroTerm.barDurationSec = specific.macro_term.candles.duration_seconds;
+                        Object.assign(targetState.macroTerm, {
+                            emaFastVal: specific.macro_term.indicators.ema_fast,
+                            emaMediumVal: specific.macro_term.indicators.ema_medium,
+                            emaSlowVal: specific.macro_term.indicators.ema_slow,
+                            emaLongVal: specific.macro_term.indicators.ema_long,
+                            rsiPeriodVal: specific.macro_term.indicators.rsi_period,
+                            macdFastVal: specific.macro_term.indicators.macd_fast,
+                            macdSlowVal: specific.macro_term.indicators.macd_slow,
+                            macdSignalVal: specific.macro_term.indicators.macd_signal,
+                            adxPeriodVal: specific.macro_term.indicators.adx_period,
+                            atrPeriodVal: specific.macro_term.indicators.atr_period,
+                            squeezePeriodVal: specific.macro_term.indicators.squeeze_period,
+                            analysisLimit: specific.macro_term.candles.analysis_limit ?? 100,
+                        });
+                    }
+                    if (specific.supermacro_term) {
+                        targetState.supermacroTerm.barDurationSec = specific.supermacro_term.candles.duration_seconds;
+                        Object.assign(targetState.supermacroTerm, {
+                            emaFastVal: specific.supermacro_term.indicators.ema_fast,
+                            emaMediumVal: specific.supermacro_term.indicators.ema_medium,
+                            emaSlowVal: specific.supermacro_term.indicators.ema_slow,
+                            emaLongVal: specific.supermacro_term.indicators.ema_long,
+                            rsiPeriodVal: specific.supermacro_term.indicators.rsi_period,
+                            macdFastVal: specific.supermacro_term.indicators.macd_fast,
+                            macdSlowVal: specific.supermacro_term.indicators.macd_slow,
+                            macdSignalVal: specific.supermacro_term.indicators.macd_signal,
+                            adxPeriodVal: specific.supermacro_term.indicators.adx_period,
+                            atrPeriodVal: specific.supermacro_term.indicators.atr_period,
+                            squeezePeriodVal: specific.supermacro_term.indicators.squeeze_period,
+                            analysisLimit: specific.supermacro_term.candles.analysis_limit ?? 100,
+                        });
+                    }
                     if (specific.automation) {
                         targetState.automationEnabled = specific.automation.enabled ?? false;
                         const autoSec = specific.automation.interval_seconds ?? 900;
@@ -446,10 +560,12 @@
             const snapshot = JSON.parse(event.data);
             if (snapshot.mid_price) tf.priceText = parseFloat(snapshot.mid_price).toFixed(2);
             if (snapshot.vwap) tf.vwapText = parseFloat(snapshot.vwap).toFixed(2);
+            if (snapshot.vwap_bias != null) tf.vwapBias = String(snapshot.vwap_bias);
             if (snapshot.ema_fast) tf.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
             if (snapshot.ema_medium) tf.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
             if (snapshot.ema_slow) tf.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
             if (snapshot.ema_long) tf.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
+            if (snapshot.ema_stack_state != null) tf.emaStackState = String(snapshot.ema_stack_state);
             if (snapshot.adx_14) tf.adxText = parseFloat(snapshot.adx_14).toFixed(2);
             if (snapshot.adx_plus) tf.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
             if (snapshot.adx_minus) tf.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
@@ -459,15 +575,78 @@
             if (snapshot.macd_signal) tf.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
             if (snapshot.macd_hist) tf.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
             if (snapshot.squeeze_momentum) tf.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
+            if (snapshot.bbwp != null) {
+                tf.bbwpText = parseFloat(String(snapshot.bbwp)).toFixed(1);
+                tf.lastBbwp = parseFloat(String(snapshot.bbwp));
+            }
+            if (snapshot.chart_pattern != null) {
+                tf.activePattern = String(snapshot.chart_pattern);
+            }
+            if (snapshot.chart_pattern_confidence != null) {
+                tf.patternConfidence = parseFloat(String(snapshot.chart_pattern_confidence));
+            }
             tf.isSqueezeOn = snapshot.squeeze_on ?? false;
             tf.sqzStatusText = tf.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
             if (snapshot.volume) tf.volText = parseFloat(snapshot.volume).toFixed(2);
             if (snapshot.average_volume) tf.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
             tf.latestSnapshot = snapshot;
+
+            // Divergence status and coordinates
+            if (snapshot.rsi_divergence_status) {
+                tf.rsiDivergenceStatus = snapshot.rsi_divergence_status as 'none' | 'potential' | 'confirmed';
+            } else {
+                tf.rsiDivergenceStatus = 'none';
+            }
+            if (snapshot.macd_divergence_status) {
+                tf.macdDivergenceStatus = snapshot.macd_divergence_status as 'none' | 'potential' | 'confirmed';
+            } else {
+                tf.macdDivergenceStatus = 'none';
+            }
+            if (snapshot.rsi_divergence_coords != null) {
+                tf.rsiDivergenceCoords = typeof snapshot.rsi_divergence_coords === 'string'
+                    ? snapshot.rsi_divergence_coords
+                    : JSON.stringify(snapshot.rsi_divergence_coords);
+            } else {
+                tf.rsiDivergenceCoords = null;
+            }
+            if (snapshot.macd_divergence_coords != null) {
+                tf.macdDivergenceCoords = typeof snapshot.macd_divergence_coords === 'string'
+                    ? snapshot.macd_divergence_coords
+                    : JSON.stringify(snapshot.macd_divergence_coords);
+            } else {
+                tf.macdDivergenceCoords = null;
+            }
+
+            // Completed status
+            tf.isCompleted = snapshot.is_completed === true;
+
+            // MACD momentum state
+            if (snapshot.macd_histogram_peak != null) tf.macdHistPeak = parseFloat(String(snapshot.macd_histogram_peak));
+            if (snapshot.macd_crossover_detected != null) tf.macdCrossoverDetected = !!snapshot.macd_crossover_detected;
+            if (snapshot.macd_crossover_direction != null) tf.macdCrossoverDirection = String(snapshot.macd_crossover_direction);
+            if (snapshot.macd_trend_state != null) tf.macdContractionTriggered = snapshot.macd_trend_state === 'decelerating';
+
+            // ADX regime
+            if (snapshot.adx_regime != null) tf.adxTrendingRegime = String(snapshot.adx_regime);
+            if (snapshot.adx_di_crossover_detected != null) tf.adxDiCrossoverDetected = !!snapshot.adx_di_crossover_detected;
+            if (snapshot.adx_di_crossover_direction != null) tf.adxDiCrossoverDirection = String(snapshot.adx_di_crossover_direction);
+            if (snapshot.adx_slope != null) tf.adxSlope = parseFloat(String(snapshot.adx_slope));
+            if (snapshot.adx_14 != null) tf.adxExhaustionReached = parseFloat(String(snapshot.adx_14)) > 40;
+
+            // Squeeze momentum
+            if (snapshot.squeeze_duration != null) tf.squeezeDuration = Number(snapshot.squeeze_duration);
+            if (snapshot.squeeze_release_trigger != null) tf.squeezeReleaseTrigger = !!snapshot.squeeze_release_trigger;
+            if (snapshot.squeeze_momentum_direction != null) tf.squeezeMomentumDirection = String(snapshot.squeeze_momentum_direction);
+
+            // ATR
+            if (snapshot.atr_volatility_regime != null) tf.atrVolatilityRegime = String(snapshot.atr_volatility_regime);
+
+            // RVOL
+            if (snapshot.rvol != null) tf.rvol = parseFloat(String(snapshot.rvol));
         } catch (_) {}
     }
 
-    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsShort' | 'wsMid' | 'wsLong', tfSecs: number) {
+    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsShort' | 'wsMid' | 'wsLong' | 'wsMacro' | 'wsSupermacro', tfSecs: number) {
         closeWs(self[wsKey] as WebSocket | null);
 
         const url = buildWsUrl(tfSecs);
@@ -507,6 +686,8 @@
         connectWebsocketForTimeframe(pair.shortTerm, 'wsShort', 15);
         connectWebsocketForTimeframe(pair.midTerm, 'wsMid', 60);
         connectWebsocketForTimeframe(pair.longTerm, 'wsLong', 300);
+        connectWebsocketForTimeframe(pair.macroTerm, 'wsMacro', 900);
+        connectWebsocketForTimeframe(pair.supermacroTerm, 'wsSupermacro', 3600);
     }
 
     onMount(() => {
@@ -518,6 +699,8 @@
         closeWs(wsShort); wsShort = null;
         closeWs(wsMid); wsMid = null;
         closeWs(wsLong); wsLong = null;
+        closeWs(wsMacro); wsMacro = null;
+        closeWs(wsSupermacro); wsSupermacro = null;
     });
 
     $effect(() => {
@@ -556,6 +739,14 @@
             { name: 'long-SQUEEZE', status: 'pending' }, { name: 'long-ADX', status: 'pending' },
             { name: 'long-BOLLINGER_ATR', status: 'pending' }, { name: 'long-VOLUME_EMA', status: 'pending' },
             { name: 'long-VWAP', status: 'pending' },
+            { name: 'macro-RSI', status: 'pending' }, { name: 'macro-MACD', status: 'pending' },
+            { name: 'macro-SQUEEZE', status: 'pending' }, { name: 'macro-ADX', status: 'pending' },
+            { name: 'macro-BOLLINGER_ATR', status: 'pending' }, { name: 'macro-VOLUME_EMA', status: 'pending' },
+            { name: 'macro-VWAP', status: 'pending' },
+            { name: 'supermacro-RSI', status: 'pending' }, { name: 'supermacro-MACD', status: 'pending' },
+            { name: 'supermacro-SQUEEZE', status: 'pending' }, { name: 'supermacro-ADX', status: 'pending' },
+            { name: 'supermacro-BOLLINGER_ATR', status: 'pending' }, { name: 'supermacro-VOLUME_EMA', status: 'pending' },
+            { name: 'supermacro-VWAP', status: 'pending' },
         ];
 
         try {
@@ -599,6 +790,8 @@
                     short_term: buildIndicators(app.shortTerm.latestSnapshot || {}),
                     mid_term: buildIndicators(app.midTerm.latestSnapshot || {}),
                     long_term: buildIndicators(app.longTerm.latestSnapshot || {}),
+                    macro_term: buildIndicators(app.macroTerm.latestSnapshot || {}),
+                    supermacro_term: buildIndicators(app.supermacroTerm.latestSnapshot || {}),
                 },
             };
 
@@ -814,6 +1007,13 @@
                         </button>
                         <button
                             class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'commission'}
+                            onclick={() => { pair.currentView = 'commission'; }}
+                        >
+                            💸 Fee Projection
+                        </button>
+                        <button
+                            class="sub-tab-btn"
                             class:sub-tab-active={pair.currentView === 'exchange'}
                             onclick={() => { pair.currentView = 'exchange'; }}
                         >
@@ -833,9 +1033,16 @@
                         >
                             📋 Trade Ledger
                         </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'costs'}
+                            onclick={() => { pair.currentView = 'costs'; app.fetchCostEstimate(); }}
+                        >
+                            💰 Token Costs
+                        </button>
                     </div>
                     <div class="time-badge">
-                        {pair.symbol}USD — MTF (15s/1m/5m)
+                        {pair.symbol}USD — MTF (15s/1m/5m/15m/1h)
                     </div>
                 </div>
 
@@ -877,6 +1084,15 @@
                                         </div>
                                     {/if}
 
+                                    {#if app.currentPosition !== 'None' && app.commissionProjection}
+                                        <div class="commission-quick-summary" class:cc-quick-viable={app.commissionProjection.trade_viable} class:cc-quick-not-viable={!app.commissionProjection.trade_viable}>
+                                            <span class="cc-quick-label">Commission Check:</span>
+                                            <span class="cc-quick-fees">Fees: ${app.commissionProjection.fee_breakdown.total_fees.toFixed(2)}</span>
+                                            <span class="cc-quick-net">Net: ${app.commissionProjection.max_gain_net_after_fees.toFixed(2)}</span>
+                                            <span class="cc-quick-badge">{app.commissionProjection.trade_viable ? '✓ Viable' : '✗ Not Viable'}</span>
+                                        </div>
+                                    {/if}
+
                                     <button class="analyze-btn" onclick={requestAnalysis} disabled={app.assistantLoading}>
                                         {app.assistantLoading ? 'Analyzing Market...' : 'Request AI Assistant Analysis'}
                                     </button>
@@ -885,11 +1101,11 @@
                                         <div class="loading-indicator">
                                             <span class="dot pulse-blue"></span>
                                             <span class="status-text">
-                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 21 MTF indicator agents...' : 'Phase 2: Synthesizing master report...'}
+                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 35 MTF indicator agents...' : 'Phase 2: Synthesizing master report...'}
                                             </span>
                                         </div>
                                         <div class="agent-progress-list">
-                                            {#each app.agentProgress.slice(0, 21) as agent (agent.name)}
+                                            {#each app.agentProgress.slice(0, 35) as agent (agent.name)}
                                                 <div class="agent-progress-item"
                                                     class:ap-complete={agent.status === 'complete'}
                                                     class:ap-failed={agent.status === 'failed'}
@@ -1013,6 +1229,39 @@
                                                 </span>
                                             </div>
                                         </div>
+                                        <!-- Scale-In Progress Cockpit -->
+                                        <div class="scale-in-cockpit">
+                                            <div class="pp-row"><span>Avg Entry Price:</span><span class="mono">${pair.paperAvgEntryPrice.toFixed(2)}</span></div>
+                                            <div class="pp-row"><span>Portions Filled:</span><span class="mono">{pair.paperFilledPortions} / 3</span></div>
+                                            <div class="scale-progress-bar">
+                                                <div class="scale-progress-fill" style="width: {Math.min(pair.paperFilledPortions / 3 * 100, 100)}%"></div>
+                                            </div>
+                                            <div class="pp-row" style="margin-top: 6px;"><span>Invalidation Level:</span><span class="mono stop-loss-text">${pair.paperInvalidationLevel.toFixed(2)}</span></div>
+                                        </div>
+                                        {#if pair.paperScaleInPortions.length > 0}
+                                            <div class="pp-portions-table">
+                                                <span class="sub-title">Scale-In Entries</span>
+                                                {#each pair.paperScaleInPortions as portion}
+                                                    <div class="pp-row portion-row">
+                                                        <span>Portion {portion.portion_number}:</span>
+                                                        <span>${portion.entry_price.toFixed(2)} ({portion.size.toFixed(4)} units)</span>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        {/if}
+                                        {#if pair.paperTakeProfitTargets.length > 0}
+                                            <div class="pp-targets-table">
+                                                <span class="sub-title">Take-Profit Targets</span>
+                                                {#each pair.paperTakeProfitTargets as tgt}
+                                                    <div class="pp-row target-row">
+                                                        <span>${tgt.target_price.toFixed(2)} ({(tgt.size_fraction * 100).toFixed(0)}%):</span>
+                                                        <span class="target-status" class:target-hit={tgt.is_hit}>
+                                                            {tgt.is_hit ? '✓ FILLED' : '○ PENDING'}
+                                                        </span>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        {/if}
                                         <button class="paper-close-btn" onclick={() => app.closePaperPosition()}
                                                 disabled={pair.paperLoading}>
                                             Close Position (Market)
@@ -1054,9 +1303,29 @@
                                     <div class="ledger-row" style="margin-top: 8px;">
                                         <span>Available Trades:</span><span class="mono">{pair.paperAvailableTrades}</span>
                                     </div>
+                                    </div>
+                                </div>
+
+                                <!-- Token Cost Calculator -->
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">AI Token Cost Calculator (per 1M tokens)</span>
+                                    <div class="input-row" style="margin-top: 4px;">
+                                        <label for="costInput">Input Price $/1M:</label>
+                                        <input id="costInput" type="number" bind:value={draftCostInputPrice} min="0" step="0.01" />
+                                    </div>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="costOutput">Output Price $/1M:</label>
+                                        <input id="costOutput" type="number" bind:value={draftCostOutputPrice} min="0" step="0.01" />
+                                    </div>
+                                    <button class="key-save-btn" style="margin-top: 8px; width: 100%;"
+                                            disabled={costSaveStatus === 'saving'} onclick={saveCostConfig}>
+                                        {costSaveStatus === 'saving' ? 'Saving...' : 'Save Cost Config'}
+                                    </button>
+                                    {#if costSaveStatus === 'success'}
+                                        <div class="status-msg success-msg">Pricing saved.</div>
+                                    {/if}
                                 </div>
                             </div>
-                        </div>
                     </div>
 
                 <!-- 2. Performance Metrics Inner View -->
@@ -1091,6 +1360,8 @@
                                         <button class="selector-btn" class:active={draftShowRsi} onclick={() => draftShowRsi = !draftShowRsi}>RSI</button>
                                         <button class="selector-btn" class:active={draftShowMacd} onclick={() => draftShowMacd = !draftShowMacd}>MACD</button>
                                         <button class="selector-btn" class:active={draftShowSqueeze} onclick={() => draftShowSqueeze = !draftShowSqueeze}>Squeeze</button>
+                                        <button class="selector-btn" class:active={draftShowBbwp} onclick={() => draftShowBbwp = !draftShowBbwp}>BBWP</button>
+                                        <button class="selector-btn" class:active={draftShowFib} onclick={() => draftShowFib = !draftShowFib}>Fibonacci</button>
                                     </div>
                                 </div>
 
@@ -1163,6 +1434,22 @@
                                     <div class="input-row"><label for="adx">ADX Period:</label><input id="adx" type="number" bind:value={draftAdxPeriod} /></div>
                                     <div class="input-row"><label for="atr">ATR Period:</label><input id="atr" type="number" bind:value={draftAtrPeriod} /></div>
                                     <div class="input-row"><label for="sqz">Squeeze Wave:</label><input id="sqz" type="number" bind:value={draftSqueezePeriod} /></div>
+                                    <div class="input-row"><label for="macdHiTh">MACD Extreme High:</label><input id="macdHiTh" type="number" step="0.01" bind:value={draftMacdExtremeHigh} /></div>
+                                    <div class="input-row"><label for="macdLoTh">MACD Extreme Low:</label><input id="macdLoTh" type="number" step="0.01" bind:value={draftMacdExtremeLow} /></div>
+                                    <div class="input-row"><label for="macdContr">MACD Contraction %:</label><input id="macdContr" type="number" step="0.01" min="0.05" max="0.95" bind:value={draftMacdContraction} /></div>
+                                    <div class="input-row"><label for="adxTrend">ADX Trend Threshold:</label><input id="adxTrend" type="number" bind:value={draftAdxTrendThreshold} /></div>
+                                    <div class="input-row"><label for="adxExh">ADX Exhaustion Threshold:</label><input id="adxExh" type="number" bind:value={draftAdxExhaustionThreshold} /></div>
+                                    <div class="input-row"><label for="adxSlope">ADX Slope Lookback:</label><input id="adxSlope" type="number" bind:value={draftAdxSlopeLookback} /></div>
+                                    <div class="input-row"><label for="sqzMin">Squeeze Min Duration:</label><input id="sqzMin" type="number" bind:value={draftSqueezeMinDuration} /></div>
+                                    <div class="input-row"><label for="sqzBb">Squeeze BB Std Dev:</label><input id="sqzBb" type="number" step="0.1" bind:value={draftSqueezeBbStdDev} /></div>
+                                    <div class="input-row"><label for="sqzKc">Squeeze KC ATR Mult:</label><input id="sqzKc" type="number" step="0.1" bind:value={draftSqueezeKcAtrMult} /></div>
+                                    <div class="input-row"><label for="srProx">SR Proximity %:</label><input id="srProx" type="number" step="0.1" bind:value={draftSrProximityThreshold} /></div>
+                                    <div class="input-row"><label for="srFlip">SR Flip Tolerance %:</label><input id="srFlip" type="number" step="0.1" bind:value={draftSrFlipTolerance} /></div>
+                                    <div class="input-row"><label for="atrMult">ATR Stop Multiplier:</label><input id="atrMult" type="number" step="0.1" bind:value={draftAtrMultiplier} /></div>
+                                    <div class="input-row"><label for="atrRR">Target R:R Ratio:</label><input id="atrRR" type="number" step="0.1" bind:value={draftAtrTargetRR} /></div>
+                                    <div class="input-row"><label for="volPeriod">Volume Avg Period:</label><input id="volPeriod" type="number" bind:value={draftVolumeAvgPeriod} /></div>
+                                    <div class="input-row"><label for="rvolInst">RVOL Institutional:</label><input id="rvolInst" type="number" step="0.1" bind:value={draftRvolInstitutional} /></div>
+                                    <div class="input-row"><label for="rvolClx">RVOL Climax:</label><input id="rvolClx" type="number" step="0.1" bind:value={draftRvolClimax} /></div>
                                 </div>
 
                                 <div class="settings-footer-row" style="margin-top: 16px;">
@@ -1217,6 +1504,14 @@
                                         <label for="paperAlloc">Allocation %:</label>
                                         <input id="paperAlloc" type="number" bind:value={pair.paperAllocationPct} min="1" max="100" step="1" />
                                     </div>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="paperMaxRisk">Max Risk %:</label>
+                                        <input id="paperMaxRisk" type="number" bind:value={pair.paperMaxRiskPct} min="0.5" max="10" step="0.1" />
+                                    </div>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="paperLeverage">Leverage:</label>
+                                        <input id="paperLeverage" type="number" bind:value={pair.paperLeverage} min="1" max="20" step="1" />
+                                    </div>
                                     <button class="key-save-btn" style="margin-top: 8px; width: 100%;"
                                             onclick={() => app.savePaperConfig(
                                                 pair.paperInitialUSD,
@@ -1225,6 +1520,21 @@
                                             )}>
                                         Save Paper Config
                                     </button>
+                                </div>
+
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">AI Orchestrator Settings</span>
+                                    <div class="input-row" style="margin-top: 4px;">
+                                        <label for="paperInterval">Eval Interval (min):</label>
+                                        <input id="paperInterval" type="number" bind:value={pair.paperAutoExecuteIntervals} min="1" max="1440" step="1" />
+                                    </div>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="paperLookback">Lookback Trades:</label>
+                                        <input id="paperLookback" type="number" bind:value={pair.paperLookbackTrades} min="1" max="50" step="1" />
+                                    </div>
+                                    <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
+                                        Number of past trades fed to the Master Orchestrator for context.
+                                    </p>
                                 </div>
 
                                 <div class="setting-group-box" style="margin-top: 12px;">
@@ -1274,6 +1584,12 @@
                         <RiskCalculator />
                     </div>
 
+                <!-- 5b. Commission Fee Projection View -->
+                {:else if pair.currentView === 'commission'}
+                    <div class="workspace-inner-content animate-fade">
+                        <CommissionCalculator />
+                    </div>
+
                 <!-- 6. Exchange Settings View -->
                 {:else if pair.currentView === 'exchange'}
                     <div class="workspace-inner-content animate-fade">
@@ -1290,6 +1606,94 @@
                 {:else if pair.currentView === 'ledger'}
                     <div class="workspace-inner-content animate-fade">
                         <TradeListLedger />
+                    </div>
+
+                <!-- 9. Token Cost Dashboard -->
+                {:else if pair.currentView === 'costs'}
+                    <div class="workspace-inner-content animate-fade">
+                        <div class="cost-dashboard">
+                            <div class="cost-header">
+                                <h2 class="cost-title">AI Token Cost Analysis — {pair.symbol}</h2>
+                                <button class="cost-refresh-btn" onclick={() => app.fetchCostEstimate()} disabled={pair.costLoading}>
+                                    {pair.costLoading ? 'Loading...' : 'Refresh'}
+                                </button>
+                            </div>
+
+                            <div class="cost-cards-row">
+                                <div class="cost-card cost-card-daily">
+                                    <span class="cost-card-label">Projected Daily</span>
+                                    <span class="cost-card-value">${pair.costDailyProjected.toFixed(4)}</span>
+                                    <span class="cost-card-sub">{pair.costRunsPerDay.toFixed(1)} runs/day</span>
+                                </div>
+                                <div class="cost-card cost-card-weekly">
+                                    <span class="cost-card-label">Projected Weekly</span>
+                                    <span class="cost-card-value">${pair.costWeeklyProjected.toFixed(4)}</span>
+                                    <span class="cost-card-sub">7 days</span>
+                                </div>
+                                <div class="cost-card cost-card-monthly">
+                                    <span class="cost-card-label">Projected Monthly</span>
+                                    <span class="cost-card-value">${pair.costMonthlyProjected.toFixed(4)}</span>
+                                    <span class="cost-card-sub">30 days</span>
+                                </div>
+                            </div>
+
+                            <div class="cost-details-grid">
+                                <div class="cost-detail-box">
+                                    <h4 class="cost-detail-title">Pricing Configuration</h4>
+                                    <div class="cost-detail-row">
+                                        <span>Input (per 1M tokens)</span>
+                                        <span class="mono">${pair.costPriceInput.toFixed(4)}</span>
+                                    </div>
+                                    <div class="cost-detail-row">
+                                        <span>Output (per 1M tokens)</span>
+                                        <span class="mono">${pair.costPriceOutput.toFixed(4)}</span>
+                                    </div>
+                                    <div class="cost-detail-row">
+                                        <span>Prompt Interval</span>
+                                        <span class="mono">{pair.costIntervalSecs}s ({Math.round(pair.costIntervalSecs / 60)} min)</span>
+                                    </div>
+                                </div>
+                                <div class="cost-detail-box">
+                                    <h4 class="cost-detail-title">Per-Run Token Estimate</h4>
+                                    <div class="cost-detail-row">
+                                        <span>Input Tokens</span>
+                                        <span class="mono">{pair.costTokensPerRunInput.toLocaleString()}</span>
+                                    </div>
+                                    <div class="cost-detail-row">
+                                        <span>Output Tokens</span>
+                                        <span class="mono">{pair.costTokensPerRunOutput.toLocaleString()}</span>
+                                    </div>
+                                    <div class="cost-detail-row">
+                                        <span>Total per Run</span>
+                                        <span class="mono">{(pair.costTokensPerRunInput + pair.costTokensPerRunOutput).toLocaleString()}</span>
+                                    </div>
+                                </div>
+                                <div class="cost-detail-box">
+                                    <h4 class="cost-detail-title">Actual Usage Tracked</h4>
+                                    <div class="cost-detail-row">
+                                        <span>Input Tokens Used</span>
+                                        <span class="mono">{pair.costActualInputTokens.toLocaleString()}</span>
+                                    </div>
+                                    <div class="cost-detail-row">
+                                        <span>Output Tokens Used</span>
+                                        <span class="mono">{pair.costActualOutputTokens.toLocaleString()}</span>
+                                    </div>
+                                    <div class="cost-detail-row" style="border-top: 1px solid #2a2e39; padding-top: 8px; margin-top: 4px;">
+                                        <span style="font-weight: 700; color: #e2e8f0;">Actual Spend</span>
+                                        <span class="mono" style="color: #f59e0b; font-weight: 700;">${pair.costActualTotal.toFixed(6)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="cost-info-box">
+                                <p>
+                                    <strong>How it works:</strong> The calculator uses your AI model's per-1M-token pricing (configurable in Workspace Settings)
+                                    combined with the automation prompt interval for this pair. It estimates ~{pair.costTokensPerRunInput.toLocaleString()} input + ~{pair.costTokensPerRunOutput.toLocaleString()} output tokens
+                                    per analysis run (35 indicator agents × 512 tokens + 1 orchestrator × 1024 tokens).
+                                    Actual usage is tracked from real LLM API responses and shown above.
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 {/if}
 
@@ -1371,9 +1775,16 @@
                                     class:poc-bearish={ind.signal === 'BEARISH'}
                                     class:poc-sideways={ind.signal === 'SIDEWAYS'}
                                     class:poc-unavailable={ind.signal === 'UNAVAILABLE'}
+                                    class:div-potential={ind.divergence_status === 'potential'}
+                                    class:div-confirmed={ind.divergence_status === 'confirmed'}
                                 >
                                     <span class="poc-name">{ind.indicator_name}</span>
                                     <span class="poc-signal">{ind.signal}</span>
+                                    {#if ind.divergence_status === 'potential'}
+                                        <span class="div-badge div-badge-potential">POTENTIAL</span>
+                                    {:else if ind.divergence_status === 'confirmed'}
+                                        <span class="div-badge div-badge-confirmed">{ind.divergence_type === 'bullish' ? '✓ BULLISH' : '✗ BEARISH'}</span>
+                                    {/if}
                                     <p class="poc-reason">{ind.reason}</p>
                                 </div>
                             {/each}
@@ -1958,6 +2369,20 @@
     }
     .entry-price-input input:focus { border-color: #3b82f6; }
 
+    .commission-quick-summary {
+        display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+        border-radius: 6px; margin-bottom: 10px; font-size: 10px; font-family: monospace;
+        border: 1px solid #2a2e39; background: #0f131c;
+    }
+    .cc-quick-viable { border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.04); }
+    .cc-quick-not-viable { border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.04); }
+    .cc-quick-label { color: #64748b; font-weight: 700; text-transform: uppercase; font-size: 8px; }
+    .cc-quick-fees { color: #f59e0b; }
+    .cc-quick-net { color: #cbd5e1; }
+    .cc-quick-badge { font-weight: 800; font-size: 10px; }
+    .cc-quick-viable .cc-quick-badge { color: #10b981; }
+    .cc-quick-not-viable .cc-quick-badge { color: #ef4444; }
+
     .agent-progress-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
     .agent-progress-item {
         display: flex; justify-content: space-between; align-items: center;
@@ -2016,6 +2441,51 @@
     .poc-sideways .poc-signal { color: #f59e0b; }
     .poc-unavailable .poc-signal { color: #64748b; }
     .poc-reason { font-size: 9px; color: #94a3b8; line-height: 1.3; margin: 0; }
+
+    /* Divergence status styles */
+    .phase-one-card.div-potential {
+        border-color: #f59e0b;
+        box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
+        animation: div-pulse 2s ease-in-out infinite;
+    }
+    .phase-one-card.div-confirmed {
+        border-color: #22c55e;
+        box-shadow: 0 0 4px rgba(34, 197, 94, 0.2);
+    }
+    .phase-one-card.div-confirmed.poc-bearish {
+        border-color: #ef4444;
+        box-shadow: 0 0 4px rgba(239, 68, 68, 0.2);
+    }
+    .div-badge {
+        display: inline-block;
+        font-size: 7px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-bottom: 3px;
+    }
+    .div-badge-potential {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .div-badge-confirmed {
+        background: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+    .poc-bearish .div-badge-confirmed {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    @keyframes div-pulse {
+        0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.2); }
+        50% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.45); }
+    }
 
     /* Local Workspace Settings Layout */
     .settings-workspace-tab {
@@ -2329,7 +2799,173 @@
         text-transform: uppercase;
     }
     .paper-reset-btn:hover { background: rgba(239, 68, 68, 0.18); }
+    .scale-in-cockpit {
+        margin-top: 10px;
+        padding: 10px;
+        background: rgba(59, 130, 246, 0.05);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .scale-progress-bar {
+        height: 4px;
+        background: #1a1f2e;
+        border-radius: 2px;
+        overflow: hidden;
+    }
+    .scale-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #64ffda);
+        border-radius: 2px;
+        transition: width 0.3s ease;
+    }
+    .stop-loss-text { color: #ef4444; font-weight: 700; }
+    .pp-portions-table, .pp-targets-table {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .portion-row, .target-row {
+        font-size: 10px;
+        padding: 4px 8px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 3px;
+    }
+    .target-status { font-weight: 600; }
+    .target-hit { color: #10b981; }
     @media (max-width: 768px) {
         .paper-layout { grid-template-columns: 1fr; }
+    }
+
+    /* Token Cost Dashboard */
+    .cost-dashboard {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .cost-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .cost-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin: 0;
+    }
+    .cost-refresh-btn {
+        background: #1e40af;
+        border: 1px solid #3b82f6;
+        color: #f1f5f9;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 8px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-transform: uppercase;
+    }
+    .cost-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .cost-cards-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .cost-card {
+        background: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .cost-card-daily { border-color: rgba(59, 130, 246, 0.3); background: rgba(59, 130, 246, 0.04); }
+    .cost-card-weekly { border-color: rgba(139, 92, 246, 0.3); background: rgba(139, 92, 246, 0.04); }
+    .cost-card-monthly { border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04); }
+    .cost-card-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+    }
+    .cost-card-value {
+        font-size: 28px;
+        font-weight: 800;
+        color: #f1f5f9;
+        font-family: ui-monospace, monospace;
+    }
+    .cost-card-daily .cost-card-value { color: #3b82f6; }
+    .cost-card-weekly .cost-card-value { color: #8b5cf6; }
+    .cost-card-monthly .cost-card-value { color: #10b981; }
+    .cost-card-sub {
+        font-size: 10px;
+        color: #64748b;
+        font-weight: 500;
+    }
+    .cost-details-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    .cost-detail-box {
+        background: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .cost-detail-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #94a3b8;
+        margin: 0 0 2px 0;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 8px;
+    }
+    .cost-detail-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        color: #94a3b8;
+    }
+    .cost-detail-row .mono {
+        font-family: ui-monospace, monospace;
+        color: #cbd5e1;
+        font-weight: 600;
+    }
+    .cost-info-box {
+        background: rgba(59, 130, 246, 0.04);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        border-radius: 8px;
+        padding: 14px 18px;
+    }
+    .cost-info-box p {
+        font-size: 11px;
+        color: #94a3b8;
+        line-height: 1.6;
+        margin: 0;
+    }
+    .cost-info-box strong {
+        color: #cbd5e1;
+    }
+    @media (max-width: 768px) {
+        .cost-cards-row { grid-template-columns: 1fr; }
+        .cost-details-grid { grid-template-columns: 1fr; }
     }
 </style>

@@ -52,7 +52,7 @@
                         return {
                             time: t as Time,
                             value: val,
-                            color: val >= 0 ? (i > 0 ? '#4caf50' : '#26a69a') : '#ef5350'
+                            color: val >= 0 ? '#26a69a' : '#ef5350'
                         };
                     });
                     const dotData = indicatorHistory.times.map((t: number, i: number) => ({
@@ -102,6 +102,16 @@
         }
     });
 
+    function momentumColor(val: number, direction: string): string {
+        switch (direction) {
+            case 'BullishAcceleration': return '#26a69a';   // Light Green
+            case 'BullishDeceleration': return '#00695c';   // Dark Green — warning
+            case 'BearishAcceleration': return '#b71c1c';   // Dark Red
+            case 'BearishDeceleration': return '#ff1744';   // Bright Red — warning
+            default: return val >= 0 ? '#4caf50' : '#ef5350';
+        }
+    }
+
     $effect(() => {
         if (!pair) return;
         const snap = pair.latestSnapshot;
@@ -109,16 +119,26 @@
         const timeSec = snap.timestamp as number;
         if (snap.squeeze_momentum != null) {
             const momVal = parseFloat(String(snap.squeeze_momentum));
+            const direction = snap.squeeze_momentum_direction != null
+                ? String(snap.squeeze_momentum_direction)
+                : 'Flat';
 
-            let momColor = momVal >= 0
-                ? (momVal >= pair.lastSqzMom ? '#4caf50' : '#086014')
-                : (momVal < pair.lastSqzMom ? '#ff1744' : '#800b1d');
+            const momColor = momentumColor(momVal, direction);
 
             squeezeMomSeries.update({ time: timeSec as Time, value: momVal, color: momColor });
             pair.lastSqzMom = momVal;
 
             let dotColor = snap.squeeze_on ? '#ef5350' : '#4caf50';
             squeezeDotSeries.update({ time: timeSec as Time, value: 0.1, color: dotColor });
+
+            // Update state
+            pair.squeezeMomentumDirection = direction;
+        }
+        if (snap.squeeze_duration != null) {
+            pair.squeezeDuration = Number(snap.squeeze_duration);
+        }
+        if (snap.squeeze_release_trigger != null) {
+            pair.squeezeReleaseTrigger = !!snap.squeeze_release_trigger;
         }
     });
 </script>

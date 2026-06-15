@@ -1,6 +1,8 @@
 use engine::db::{TelemetryMsg, run_telemetry_logger};
 use sqlx::SqlitePool;
 use shared::TriggerType;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 async fn setup_test_db() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -54,8 +56,10 @@ async fn test_orchestrator_database_pipeline() {
 
     // Spawn background logger to process channel messages
     let logger_pool = pool.clone();
+    let (llm_client, _) = engine::llm::LlmClient::from_env();
+    let llm = Arc::new(RwLock::new(llm_client));
     tokio::spawn(async move {
-        run_telemetry_logger(logger_pool, rx).await;
+        run_telemetry_logger(logger_pool, rx, llm).await;
     });
 
     let master_id = engine::db::insert_master_placeholder(
@@ -85,6 +89,8 @@ async fn test_orchestrator_database_pipeline() {
         indicator_synthesis_evaluation: "Supported by technical indicators".to_string(),
         recommended_action: "Hold".to_string(),
         recommendation_rationale: "Trend is upward and indicators are strong".to_string(),
+        score_points: None,
+        signals_json: None,
     }).await.expect("Failed to send UpdateMasterRecord");
 
     // Give the logger a moment to process

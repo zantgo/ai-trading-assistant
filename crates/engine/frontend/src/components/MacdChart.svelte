@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, HistogramSeries } from 'lightweight-charts';
-    import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+    import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { getState } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
@@ -14,6 +14,7 @@
     let macdLineSeries: ISeriesApi<'Line'>;
     let macdSigSeries: ISeriesApi<'Line'>;
     let macdHistSeries: ISeriesApi<'Histogram'>;
+    let zeroLine: IPriceLine | null = null;
 
     onMount(() => {
         chart = createChart(container, {
@@ -30,6 +31,15 @@
         macdLineSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 2, priceLineVisible: false });
         macdSigSeries = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 2, priceLineVisible: false });
         macdHistSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
+
+        // Zero-line reference
+        zeroLine = macdHistSeries.createPriceLine({
+            price: 0,
+            color: '#4c525e',
+            lineWidth: 1,
+            lineStyle: 1,
+            axisLabelVisible: false,
+        });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
@@ -54,7 +64,9 @@
                     const histData = indicatorHistory.times.map((t: number, i: number) => ({
                         time: t as Time,
                         value: indicatorHistory.macd_hist[i] ? parseFloat(indicatorHistory.macd_hist[i]) : 0,
-                        color: indicatorHistory.macd_hist[i] ? (parseFloat(indicatorHistory.macd_hist[i]) >= 0 ? '#26a69a' : '#ef5350') : '#131722'
+                        color: indicatorHistory.macd_hist[i]
+                            ? (parseFloat(indicatorHistory.macd_hist[i]) >= 0 ? '#26a69a' : '#ef5350')
+                            : '#131722'
                     }));
 
                     macdLineSeries.setData(lineData);
@@ -104,6 +116,15 @@
         }
     });
 
+    function histogramColor(mHist: number, prevHist: number): string {
+        const positive = mHist >= 0;
+        const expanding = Math.abs(mHist) >= Math.abs(prevHist);
+        if (positive && expanding) return '#26a69a';       // Light Green — building
+        if (positive && !expanding) return '#00695c';       // Dark Green — warning
+        if (!positive && expanding) return '#ef5350';       // Bright Red — building
+        return '#b71c1c';                                    // Dark Red — warning
+    }
+
     $effect(() => {
         if (!pair) return;
         const snap = pair.latestSnapshot;
@@ -117,12 +138,26 @@
             macdLineSeries.update({ time: timeSec as Time, value: mLine });
             macdSigSeries.update({ time: timeSec as Time, value: mSig });
 
-            let histColor = mHist >= 0
-                ? (mHist >= pair.lastMacdHist ? '#26a69a' : '#b2dfdb')
-                : (mHist < pair.lastMacdHist ? '#ef5350' : '#ffcdd2');
+            const color = histogramColor(mHist, pair.lastMacdHist);
 
-            macdHistSeries.update({ time: timeSec as Time, value: mHist, color: histColor });
+            macdHistSeries.update({ time: timeSec as Time, value: mHist, color });
             pair.lastMacdHist = mHist;
+        }
+
+        // Update MACD momentum state from snapshot
+        if (snap.macd_histogram_peak != null) {
+            pair.macdHistPeak = parseFloat(String(snap.macd_histogram_peak));
+        }
+        if (snap.macd_crossover_detected != null) {
+            pair.macdCrossoverDetected = !!snap.macd_crossover_detected;
+        }
+        if (snap.macd_crossover_direction != null) {
+            pair.macdCrossoverDirection = String(snap.macd_crossover_direction);
+        }
+        if (snap.macd_trend_state === 'decelerating') {
+            pair.macdContractionTriggered = true;
+        } else {
+            pair.macdContractionTriggered = false;
         }
     });
 </script>

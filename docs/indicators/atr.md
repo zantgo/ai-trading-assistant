@@ -1,0 +1,113 @@
+# ATR (Average True Range — 14)
+
+## Indicator Foundations
+
+ATR measures market volatility without regard to price direction. It answers the question: "How much does this asset move, on average, per candle?"
+
+### True Range (TR)
+
+Each candle produces a True Range value — the maximum of three distances:
+
+```
+TR = max(
+    High − Low,               // Intra-candle range
+    |High − Previous Close|,   // Overnight gap upward
+    |Low  − Previous Close|    // Overnight gap downward
+)
+```
+
+### Wilder's Smoothing
+
+The first ATR value is the simple average of the first 14 TR values. All subsequent values use Wilder's EMA:
+
+```
+ATR_t = (ATR_{t−1} × 13 + TR_t) / 14
+```
+
+This produces a smoothly adaptive volatility reading that responds to regime changes without excessive whipsaw.
+
+---
+
+## Volatility Regime Classification
+
+The ATR slope classifies the market into three volatility regimes:
+
+| Regime | Slope Direction | ATR vs 5-Period SMA | Interpretation | Strategy Adjustment |
+|--------|----------------|---------------------|----------------|---------------------|
+| **Expanding** | Positive (>+2%) | ATR > SMA × 1.02 | Volatility building — breakout or trend acceleration | Wider stops (2.5-3× ATR), breakout entry favored |
+| **Contracting** | Negative (<−2%) | ATR < SMA × 0.98 | Volatility declining — consolidation or range-bound | Tighter stops (1-1.5× ATR), mean-reversion favored |
+| **Stable** | Flat (±2%) | Within band | Volatility consistent with recent baseline | Standard stops (2× ATR), either strategy valid |
+
+The ±2% band prevents flickering between regimes on minor ATR fluctuations.
+
+---
+
+## Dynamic Risk Execution Protocol
+
+The core power of ATR is its application to risk management. Fixed-price stops fail because they ignore current volatility. ATR-scaled stops adapt to market conditions.
+
+### The Dynamic Stop-Loss Formula (Volatility Stop)
+
+Place the stop outside normal market noise:
+
+**Long Positions:**
+```
+Stop Loss = Entry Price − (ATR × Multiplier)
+```
+
+**Short Positions:**
+```
+Stop Loss = Entry Price + (ATR × Multiplier)
+```
+
+Default multiplier: **2.0**. This means the stop is placed at 2× the average candle range from entry, giving the position room to breathe through normal fluctuations.
+
+### Dynamic Position Sizing (Risk Normalization)
+
+To maintain a constant risk profile across all volatility conditions, position size must contract when ATR is high (wider stop) and expand when ATR is low (tighter stop):
+
+```
+Position Size (Units) = (Account Capital × Max Risk %) / (ATR × Multiplier)
+```
+
+**Example**: $1,000 account, 2% risk = $20 at risk
+- ATR = 5.00, Multiplier = 2.0 → Stop distance = $10.00 → Size = $20 / $10 = **2 units**
+- ATR = 2.50, Multiplier = 2.0 → Stop distance = $5.00 → Size = $20 / $5 = **4 units**
+
+Both scenarios risk exactly $20 if the stop is hit, regardless of volatility.
+
+### Volatility-Scaled Take-Profit Projection
+
+Take-profit targets scale with the risk distance to enforce a consistent risk-to-reward ratio:
+
+```
+Take Profit = Entry Price ± (ATR × Multiplier × Target R:R Ratio)
+```
+
+Default target R:R = **2.5**. With ATR = 5.00 and Multiplier = 2.0:
+- Long TP = Entry + (5.00 × 2.0 × 2.5) = Entry + $25.00
+- Short TP = Entry − (5.00 × 2.0 × 2.5) = Entry − $25.00
+
+The R:R ratio (2.5) means the profit target is 2.5× the risk distance, giving a 1:2.5 risk-to-reward profile.
+
+---
+
+## Chart Annotation Reference
+
+```
+ATR Chart:
+  15 ╤                                   │ 🟢 EXPANDING
+     │        ╱╲                         │
+  12 ┤       ╱  ╲    ╱╲                 │
+     │      ╱    ╲  ╱  ╲                │ ⚪ STABLE
+   9 ┤─────╱──────╲╱────╲───────        │
+     │   ╱                ╲    ╲        │
+   6 ┤──╱──────────────────╲────╲──     │ 🔴 CONTRACTING
+     │╱                             ╲   │
+   3 ┤───────────────────────────────╲──│
+
+Line Colors:
+  🟢 #10b981 Bright Green = Expanding volatility
+  ⚪ #8f929d Gray        = Stable volatility
+  🔴 #ef4444 Dark Red    = Contracting volatility
+```

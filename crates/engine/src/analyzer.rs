@@ -6,12 +6,14 @@ use rust_decimal::Decimal;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
+use crate::config::FibonacciConfig;
 use crate::risk;
 use crate::db;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, FibonacciRange, Bbwp, detect_pattern};
+use crate::sr_engine::SrRoleTracker;
 
 pub struct TimeframePipeline {
     pub history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
@@ -19,6 +21,9 @@ pub struct TimeframePipeline {
     pub latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
     pub timeframe_secs: u64,
     pub timeframe_label: &'static str,
+    pub divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
+    pub sr_tracker: Arc<tokio::sync::Mutex<SrRoleTracker>>,
+    pub fibonacci: FibonacciConfig,
 }
 
 pub struct ActivePair {
@@ -26,6 +31,8 @@ pub struct ActivePair {
     pub short: TimeframePipeline,
     pub mid: TimeframePipeline,
     pub long: TimeframePipeline,
+    pub r#macro: TimeframePipeline,
+    pub supermacro: TimeframePipeline,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
 }
@@ -35,10 +42,12 @@ pub async fn run_event_router(
     short_tx: Sender<NormalizedEvent>,
     mid_tx: Sender<NormalizedEvent>,
     long_tx: Sender<NormalizedEvent>,
+    macro_tx: Sender<NormalizedEvent>,
+    supermacro_tx: Sender<NormalizedEvent>,
     symbol: String,
     cancel: CancellationToken,
 ) {
-    println!("🔄 Event Router: Started for {} (fanning out to 3 timeframes)...", symbol);
+    println!("🔄 Event Router: Started for {} (fanning out to 5 timeframes)...", symbol);
 
     loop {
         let event = tokio::select! {
@@ -60,7 +69,9 @@ pub async fn run_event_router(
 
         let _ = short_tx.send(event.clone()).await;
         let _ = mid_tx.send(event.clone()).await;
-        let _ = long_tx.send(event).await;
+        let _ = long_tx.send(event.clone()).await;
+        let _ = macro_tx.send(event.clone()).await;
+        let _ = supermacro_tx.send(event).await;
     }
 }
 
@@ -69,6 +80,8 @@ pub async fn run_single(
     telemetry_tx: tokio::sync::mpsc::Sender<db::TelemetryMsg>,
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
     tf_config: TimeframeConfig,
+    fib_config: FibonacciConfig,
+    divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
     symbol: String,
@@ -92,9 +105,16 @@ pub async fn run_single(
 
     let mut macd = Macd::new();
     let mut adx_14 = Adx::new(active_indicators.adx_period);
+    adx_14.set_thresholds(
+        rust_decimal::Decimal::from(active_indicators.adx_trend_threshold),
+        rust_decimal::Decimal::from(active_indicators.adx_exhaustion_threshold),
+        active_indicators.adx_slope_lookback,
+    );
     let mut sqz_mom = SqueezeMomentum::new(active_indicators.squeeze_period);
+    sqz_mom.set_min_duration(active_indicators.squeeze_min_duration);
     let mut bollinger = BollingerBands::new();
     let mut atr_standalone = Atr::new(active_indicators.atr_period);
+    let mut bbwp_indicator = Bbwp::new(active_indicators.bbwp_lookback, active_indicators.bbwp_period);
 
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
 
@@ -161,16 +181,51 @@ pub async fn run_single(
                         None
                     };
 
+                    let vwap_bias = match (final_vwap, completed.close) {
+                        (Some(v), cl) if cl > v * Decimal::new(1001, 3) => Some("premium".to_string()),
+                        (Some(v), cl) if cl < v * Decimal::new(999, 3) => Some("discount".to_string()),
+                        (Some(_), _) => Some("equilibrium".to_string()),
+                        (None, _) => None,
+                    };
+
                     let final_ema_fast = ema_fast.update(completed.close);
                     let final_ema_medium = ema_medium.update(completed.close);
                     let final_ema_slow = ema_slow.update(completed.close);
                     let final_ema_long = ema_long.update(completed.close);
+
+                    let ema_stack_state = if final_ema_fast > final_ema_medium
+                        && final_ema_medium > final_ema_slow
+                        && final_ema_slow > final_ema_long
+                        && completed.close > final_ema_fast
+                    {
+                        Some("bullish".to_string())
+                    } else if final_ema_fast < final_ema_medium
+                        && final_ema_medium < final_ema_slow
+                        && final_ema_slow < final_ema_long
+                        && completed.close < final_ema_fast
+                    {
+                        Some("bearish".to_string())
+                    } else {
+                        Some("tangled".to_string())
+                    };
+
                     let final_rsi = rsi_14.update(completed.close);
                     let final_macd = macd.update(completed.close);
                     let final_adx = adx_14.update(completed.high, completed.low, completed.close);
                     let final_sqz = sqz_mom.update(completed.high, completed.low, completed.close);
                     let final_bb = bollinger.update(completed.close);
                     let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
+                    let final_bbwp = bbwp_indicator.update(completed.close);
+
+                    // Divergence detection (live — potential status)
+                    let div_result = {
+                        if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
+                            let mut det = divergence_detector.lock().await;
+                            det.update_full(completed.close, rsi, macd_hist)
+                        } else {
+                            shared::indicators::DivergenceResult::default_div()
+                        }
+                    };
 
                     let log_line = format!(
                         "🕯️  [{}] {} Candle Closed | Start: {} | Close: ${:.4} | Vol: {:.4} | Trades: {}",
@@ -190,11 +245,44 @@ pub async fn run_single(
                         None
                     };
 
+                    let rvol = match (completed.volume, avg_vol) {
+                        (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+                        _ => None,
+                    };
+
+                    // Fibonacci retracement/extension computation
+                    let fib = {
+                        let hist = history.read().await;
+                        let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
+                        let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
+                        FibonacciRange::compute_from_candles(
+                            &candles_high, &candles_low,
+                            fib_config.swing_lookback,
+                            fib_config.swing_scan_range,
+                            &fib_config.retracement_coefficients,
+                            &fib_config.extension_coefficients,
+                        )
+                    };
+
+                    // Chart pattern detection from pivots
+                    let pattern_result = {
+                        let hist = history.read().await;
+                        let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
+                        let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
+                        let pivots = FibonacciRange::detect_pivots(
+                            &candles_high, &candles_low,
+                            fib_config.swing_lookback,
+                            fib_config.swing_scan_range,
+                        );
+                        detect_pattern(&pivots)
+                    };
+
                     let completed_snapshot = MarketSnapshot {
                         exchange: shadow_exchange,
                         timeframe_secs,
                         timestamp: candle_close_sec,
                         symbol: symbol.clone(),
+                        is_completed: Some(true),
                         mid_price: completed.close,
                         bid_price: shadow_bid,
                         ask_price: shadow_ask,
@@ -207,24 +295,73 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
+                        rvol,
                         bb_upper: final_bb.map(|b| b.0),
                         bb_middle: final_bb.map(|b| b.1),
                         bb_lower: final_bb.map(|b| b.2),
-                        atr_14: final_atr,
+                        atr_14: final_atr.as_ref().map(|a| a.atr_value),
+                        atr_slope: final_atr.as_ref().map(|a| a.atr_slope),
+                        atr_volatility_regime: final_atr.as_ref().map(|a| format!("{:?}", a.volatility_regime).to_lowercase()),
+                        atr_stop_loss_level: None,
+                        atr_take_profit_level: None,
                         vwap: final_vwap,
-                        adx_14: final_adx.map(|ad| ad.0),
-                        adx_plus: final_adx.map(|ad| ad.1),
-                        adx_minus: final_adx.map(|ad| ad.2),
+                        vwap_bias,
+                        adx_14: final_adx.as_ref().map(|a| a.adx),
+                        adx_plus: final_adx.as_ref().map(|a| a.plus_di),
+                        adx_minus: final_adx.as_ref().map(|a| a.minus_di),
                         ema_fast: Some(final_ema_fast),
                         ema_medium: Some(final_ema_medium),
                         ema_slow: Some(final_ema_slow),
                         ema_long: Some(final_ema_long),
+                        ema_stack_state,
                         rsi_14: final_rsi,
-                        macd_line: final_macd.map(|m| m.0),
-                        macd_signal: final_macd.map(|m| m.1),
-                        macd_hist: final_macd.map(|m| m.2),
-                        squeeze_on: final_sqz.map(|s| s.0),
-                        squeeze_momentum: final_sqz.map(|s| s.1),
+                        macd_line: Some(final_macd.macd_line),
+                        macd_signal: Some(final_macd.signal_line),
+                        macd_hist: Some(final_macd.histogram),
+                        squeeze_on: final_sqz.as_ref().map(|s| s.squeeze_on),
+                        squeeze_momentum: final_sqz.as_ref().map(|s| s.momentum_value),
+                        squeeze_duration: final_sqz.as_ref().map(|s| s.squeeze_duration),
+                        squeeze_release_trigger: final_sqz.as_ref().map(|s| s.squeeze_release_trigger),
+                        squeeze_momentum_direction: final_sqz.as_ref().map(|s| format!("{:?}", s.momentum_direction)),
+                        bbwp: final_bbwp,
+                        support_levels: None,
+                        resistance_levels: None,
+                        sr_flip_events: None,
+                        fib_golden_pocket_low: fib.golden_pocket_low,
+                        fib_golden_pocket_high: fib.golden_pocket_high,
+                        fib_extension_1618: fib.ext_1618,
+                        fib_extension_2618: fib.ext_2618,
+                        swing_high: fib.swing_high,
+                        swing_low: fib.swing_low,
+                        chart_pattern: if pattern_result.pattern != shared::indicators::ChartPattern::None {
+                            Some(format!("{:?}", pattern_result.pattern))
+                        } else {
+                            None
+                        },
+                        chart_pattern_confidence: if pattern_result.confidence > 0.0 {
+                            Some(rust_decimal::Decimal::from_f64_retain(pattern_result.confidence).unwrap_or(rust_decimal::Decimal::ZERO))
+                        } else {
+                            None
+                        },
+                        rsi_divergence_status: None,
+                        rsi_divergence_coords: None,
+                        macd_divergence_status: None,
+                        macd_divergence_coords: None,
+                        macd_histogram_peak: Some(final_macd.histogram_peak),
+                        macd_trend_state: Some(format!("{:?}", final_macd.trend_state).to_lowercase()),
+                        macd_crossover_detected: Some(final_macd.crossover.is_some()),
+                        macd_crossover_direction: final_macd.crossover.map(|c| match c {
+                            shared::indicators::CrossoverDir::Bullish => "BULLISH",
+                            shared::indicators::CrossoverDir::Bearish => "BEARISH",
+                        }.to_string()),
+                        adx_slope: final_adx.as_ref().map(|a| a.adx_slope),
+                        adx_peak: final_adx.as_ref().map(|a| a.adx_peak),
+                        adx_regime: final_adx.as_ref().map(|a| format!("{:?}", a.trending_regime).to_lowercase()),
+                        adx_di_crossover_detected: final_adx.as_ref().map(|a| a.di_crossover.is_some()),
+                        adx_di_crossover_direction: final_adx.as_ref().and_then(|a| a.di_crossover.map(|c| match c {
+                            shared::indicators::DiCrossoverDir::Bullish => "BULLISH",
+                            shared::indicators::DiCrossoverDir::Bearish => "BEARISH",
+                        }.to_string())),
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
@@ -250,6 +387,7 @@ pub async fn run_single(
                         timeframe_secs,
                         timestamp: trade.timestamp_ms / 1000,
                         symbol: symbol.clone(),
+                        is_completed: Some(false),
                         mid_price: trade.price,
                         bid_price: shadow_bid,
                         ask_price: shadow_ask,
@@ -257,13 +395,40 @@ pub async fn run_single(
                         ask_size: Some(trade.size),
                         funding_rate: None,
                         open: None, high: None, low: None, close: None,
-                        volume: None, average_volume: None,
+                        volume: None, average_volume: None, rvol: None,
                         bb_upper: None, bb_middle: None, bb_lower: None,
-                        atr_14: None, vwap: None,
+                        atr_14: None, atr_slope: None, atr_volatility_regime: None, atr_stop_loss_level: None, atr_take_profit_level: None,
+                        vwap: None, vwap_bias: None,
                         adx_14: None, adx_plus: None, adx_minus: None,
-                        ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None,
+                        ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None, ema_stack_state: None,
                         rsi_14: None, macd_line: None, macd_signal: None, macd_hist: None,
                         squeeze_on: None, squeeze_momentum: None,
+                        squeeze_duration: None, squeeze_release_trigger: None, squeeze_momentum_direction: None,
+                        bbwp: None,
+                        support_levels: None,
+                        resistance_levels: None,
+                        sr_flip_events: None,
+                        fib_golden_pocket_low: None,
+                        fib_golden_pocket_high: None,
+                        fib_extension_1618: None,
+                        fib_extension_2618: None,
+                        swing_high: None,
+                        swing_low: None,
+                        chart_pattern: None,
+                        chart_pattern_confidence: None,
+                        rsi_divergence_status: None,
+                        rsi_divergence_coords: None,
+                        macd_divergence_status: None,
+                        macd_divergence_coords: None,
+                        macd_histogram_peak: None,
+                        macd_trend_state: None,
+                        macd_crossover_detected: None,
+                        macd_crossover_direction: None,
+                        adx_slope: None,
+                        adx_peak: None,
+                        adx_regime: None,
+                        adx_di_crossover_detected: None,
+                        adx_di_crossover_direction: None,
                     };
                     risk::check(&tick);
                 }
@@ -377,6 +542,7 @@ fn broadcast_live_snapshot(
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
         symbol: symbol.to_string(),
+        is_completed: Some(false),
         mid_price: candle.close,
         bid_price,
         ask_price,
@@ -389,25 +555,66 @@ fn broadcast_live_snapshot(
         close: Some(candle.close),
         volume: Some(candle.volume),
         average_volume: avg_vol,
+        rvol: None,
         bb_upper: val_bb.map(|b| b.0),
         bb_middle: val_bb.map(|b| b.1),
         bb_lower: val_bb.map(|b| b.2),
-        atr_14: val_atr,
+        atr_14: val_atr.as_ref().map(|a| a.atr_value),
+        atr_slope: val_atr.as_ref().map(|a| a.atr_slope),
+        atr_volatility_regime: val_atr.as_ref().map(|a| format!("{:?}", a.volatility_regime).to_lowercase()),
+        atr_stop_loss_level: None,
+        atr_take_profit_level: None,
         vwap: val_vwap,
-        adx_14: val_adx.map(|ad| ad.0),
-        adx_plus: val_adx.map(|ad| ad.1),
-        adx_minus: val_adx.map(|ad| ad.2),
+        vwap_bias: None,
+        adx_14: val_adx.as_ref().map(|a| a.adx),
+        adx_plus: val_adx.as_ref().map(|a| a.plus_di),
+        adx_minus: val_adx.as_ref().map(|a| a.minus_di),
         ema_fast: Some(val_ema_fast),
         ema_medium: Some(val_ema_medium),
         ema_slow: Some(val_ema_slow),
         ema_long: Some(val_ema_long),
+        ema_stack_state: None,
         rsi_14: val_rsi,
-        macd_line: val_macd.map(|m| m.0),
-        macd_signal: val_macd.map(|m| m.1),
-        macd_hist: val_macd.map(|m| m.2),
-        squeeze_on: val_sqz.map(|s| s.0),
-        squeeze_momentum: val_sqz.map(|s| s.1),
-    };
+        macd_line: Some(val_macd.macd_line),
+        macd_signal: Some(val_macd.signal_line),
+        macd_hist: Some(val_macd.histogram),
+        squeeze_on: val_sqz.as_ref().map(|s| s.squeeze_on),
+        squeeze_momentum: val_sqz.as_ref().map(|s| s.momentum_value),
+        squeeze_duration: val_sqz.as_ref().map(|s| s.squeeze_duration),
+        squeeze_release_trigger: val_sqz.as_ref().map(|s| s.squeeze_release_trigger),
+        squeeze_momentum_direction: val_sqz.as_ref().map(|s| format!("{:?}", s.momentum_direction)),
+        bbwp: None,
+                        support_levels: None,
+                        resistance_levels: None,
+                        sr_flip_events: None,
+                        fib_golden_pocket_low: None,
+                        fib_golden_pocket_high: None,
+                        fib_extension_1618: None,
+                        fib_extension_2618: None,
+                        swing_high: None,
+                        swing_low: None,
+                        chart_pattern: None,
+                        chart_pattern_confidence: None,
+                        rsi_divergence_status: None,
+                        rsi_divergence_coords: None,
+                        macd_divergence_status: None,
+                        macd_divergence_coords: None,
+        macd_histogram_peak: Some(val_macd.histogram_peak),
+        macd_trend_state: Some(format!("{:?}", val_macd.trend_state).to_lowercase()),
+                        macd_crossover_detected: Some(val_macd.crossover.is_some()),
+                        macd_crossover_direction: val_macd.crossover.map(|c| match c {
+                            shared::indicators::CrossoverDir::Bullish => "BULLISH",
+                            shared::indicators::CrossoverDir::Bearish => "BEARISH",
+                        }.to_string()),
+                        adx_slope: val_adx.as_ref().map(|a| a.adx_slope),
+                        adx_peak: val_adx.as_ref().map(|a| a.adx_peak),
+                        adx_regime: val_adx.as_ref().map(|a| format!("{:?}", a.trending_regime).to_lowercase()),
+                        adx_di_crossover_detected: val_adx.as_ref().map(|a| a.di_crossover.is_some()),
+                        adx_di_crossover_direction: val_adx.as_ref().and_then(|a| a.di_crossover.map(|c| match c {
+                            shared::indicators::DiCrossoverDir::Bullish => "BULLISH",
+                            shared::indicators::DiCrossoverDir::Bearish => "BEARISH",
+                        }.to_string())),
+                    };
 
     let _ = broadcast_tx.send(snapshot);
 }

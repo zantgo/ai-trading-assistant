@@ -1,0 +1,107 @@
+# RSI (Relative Strength Index — 14)
+
+## Fundamental Mechanism
+
+The RSI is calculated using **Wilder's Smoothing** (an exponential moving average variant applied to average gains and losses over 14 periods).
+
+```
+RS  = Average Gain over 14 periods / Average Loss over 14 periods
+RSI = 100 - (100 / (1 + RS))
+```
+
+This forces the output to oscillate between **0** and **100**, producing a bounded momentum oscillator.
+
+Wilder's smoothing formula for each new period:
+
+```
+AvgGain = (PrevAvgGain × 13 + CurrentGain) / 14
+AvgLoss = (PrevAvgLoss × 13 + CurrentLoss) / 14
+```
+
+Where `CurrentGain` = `max(close - prev_close, 0)` and `CurrentLoss` = `max(prev_close - close, 0)`.
+
+---
+
+## Standard Overbought and Oversold Regimes
+
+| Zone | RSI Range | Interpretation |
+|------|-----------|----------------|
+| Overbought | 70 → 100 | Asset may be overextended; potential distribution or reversal to downside |
+| Oversold | 0 → 30 | Asset may be undervalued; potential accumulation or reversal to upside |
+| Neutral | 31 → 69 | No extreme reading; trend-dependent interpretation |
+
+### Strong Trending Regime Adjustment
+
+In a **strong trending market** (ADX > 30), the standard thresholds are tightened:
+
+- **Overbought**: adjust upward to **80** (bullish momentum can sustain high RSI)
+- **Oversold**: adjust downward to **20** (bearish momentum can sustain low RSI)
+
+Using 70/30 in a strong trend will generate premature reversal signals.
+
+---
+
+## Divergence Identification Rules
+
+Divergence occurs when the **price chart** and the **RSI line chart** disagree in their directional movement, signaling potential momentum exhaustion.
+
+### Bullish Divergence (Potential Reversal Up)
+
+**How to spot it**: Compare price **troughs** (minimums) against RSI **troughs** from below the line graph.
+
+1. Identify two consecutive price troughs (swing lows).
+2. The second price trough must be **lower** than the first (price forms a **Lower Low**).
+3. Look at the RSI values at those same trough timestamps.
+4. The second RSI trough must be **higher** than the first (RSI forms a **Higher Low**).
+5. The line connecting the two RSI bottoms slopes **upward** while the price line slopes **downward**.
+
+> This signals that selling momentum is weakening despite price continuing downward. Buyers may be accumulating.
+
+### Bearish Divergence (Potential Reversal Down)
+
+**How to spot it**: Compare price **peaks** (maximums) against RSI **peaks** from above the line graph.
+
+1. Identify two consecutive price peaks (swing highs).
+2. The second price peak must be **higher** than the first (price forms a **Higher High**).
+3. Look at the RSI values at those same peak timestamps.
+4. The second RSI peak must be **lower** than the first (RSI forms a **Lower High**).
+5. The line connecting the two RSI peaks slopes **downward** while the price line slopes **upward**.
+
+> This signals that buying momentum is weakening despite price continuing upward. Sellers may be distributing.
+
+### Hidden Divergence (Continuation)
+
+- **Hidden Bullish**: Price makes a **Higher Low**, RSI makes a **Lower Low** → trend continuation up.
+- **Hidden Bearish**: Price makes a **Lower High**, RSI makes a **Higher High** → trend continuation down.
+
+---
+
+## Confirmation Criteria
+
+A divergence is considered **unconfirmed** (a "Potential" signal) until the following mechanical condition is met:
+
+1. The system identifies the nearest active **Support Level** (S₁ or S₂ for bullish divergence) or **Resistance Level** (R₁ or R₂ for bearish divergence) relative to the detected divergence's second peak/trough.
+2. A **candle close** on the same timeframe must decisively break through the relevant S/R boundary:
+   - **Bullish Divergence → Confirmed**: Close price breaks **below** support, then reverses back **above** support with conviction (or an aggressive close above the most recent swing high).
+   - **Bearish Divergence → Confirmed**: Close price breaks **above** resistance, then reverses back **below** resistance with conviction (or an aggressive close below the most recent swing low).
+3. The break must exceed a tolerance buffer (0.2% of the level price) to be considered "decisive."
+
+Until this structural candle close occurs, the divergence remains **Potential** and should not be traded as a primary signal. It may be used as a secondary confluence factor only.
+
+---
+
+## Example Chart Annotation
+
+```
+Price:  ╱╲
+       ╱  ╲_____   ← Lower Low (second trough)
+      ╱         ╲
+─────╱───────────╲────  Support Level (S₁)
+                    ╲
+                     ╲___ ← Candle close below S₁ → CONFIRMED
+
+RSI:    ╲___         ← Higher Low (second trough)
+            ╲___     ← Divergence line slopes UP
+```
+
+The dashed divergence line on the RSI chart slopes upward, while the dashed line on the price chart slopes downward. When S₁ is broken, both lines become solid and the status upgrades to **Confirmed Bullish Divergence**.

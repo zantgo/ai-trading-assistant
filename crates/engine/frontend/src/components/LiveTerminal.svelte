@@ -8,12 +8,15 @@
     import RsiChart from './RsiChart.svelte';
     import MacdChart from './MacdChart.svelte';
     import SqueezeChart from './SqueezeChart.svelte';
+    import BbwpChart from './BbwpChart.svelte';
 
     const app = getState();
     let { pairKey }: { pairKey: string } = $props();
 
     function label(tf: TimeframeTelemetry): string {
         const sec = tf.barDurationSec;
+        if (sec >= 3600) return 'SUPER MACRO (1h)';
+        if (sec >= 900) return 'MACRO (15m)';
         if (sec >= 300) return 'LONG (5m)';
         if (sec >= 60) return 'MID (1m)';
         return 'SHORT (15s)';
@@ -70,6 +73,11 @@
                         <SqueezeChart pairKey={pairKey} timeframe={15} />
                     {/key}
                 </div>
+                <div class="panel-box pane-bbwp" class:hidden-pane={!pair.shortTerm.showBbwp}>
+                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-bbwp`}
+                        <BbwpChart historyPrices={pair.shortTerm.historyPrices} currentBbwp={pair.shortTerm.lastBbwp} />
+                    {/key}
+                </div>
             </div>
         </div>
 
@@ -113,6 +121,11 @@
                 <div class="panel-box pane-squeeze" class:hidden-pane={!pair.midTerm.showSqueeze}>
                     {#key `${pairKey}-${pair.midTerm.barDurationSec}-${pair.midTerm.squeezePeriodVal}`}
                         <SqueezeChart pairKey={pairKey} timeframe={60} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-bbwp" class:hidden-pane={!pair.midTerm.showBbwp}>
+                    {#key `${pairKey}-${pair.midTerm.barDurationSec}-bbwp`}
+                        <BbwpChart historyPrices={pair.midTerm.historyPrices} currentBbwp={pair.midTerm.lastBbwp} />
                     {/key}
                 </div>
             </div>
@@ -160,6 +173,111 @@
                         <SqueezeChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
+                <div class="panel-box pane-bbwp" class:hidden-pane={!pair.longTerm.showBbwp}>
+                    {#key `${pairKey}-${pair.longTerm.barDurationSec}-bbwp`}
+                        <BbwpChart historyPrices={pair.longTerm.historyPrices} currentBbwp={pair.longTerm.lastBbwp} />
+                    {/key}
+                </div>
+            </div>
+        </div>
+
+        <!-- Macro-Term Column -->
+        <div class="timescale-column">
+            <div class="timescale-header">
+                <span class="timescale-title">{label(pair.macroTerm)}</span>
+                <span class="timescale-price">{pair.macroTerm.priceText}</span>
+            </div>
+            <div class="timescale-charts">
+                <div class="panel-box pane-price" class:hidden-pane={!pair.macroTerm.showEmas && !pair.macroTerm.showBb && !pair.macroTerm.showVwap}>
+                    {#key tfKey(pairKey, pair.macroTerm)}
+                        <PriceChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-vol" class:hidden-pane={!pair.macroTerm.showVolume}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}`}
+                        <VolumeChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-adx" class:hidden-pane={!pair.macroTerm.showAdx}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-${pair.macroTerm.adxPeriodVal}`}
+                        <AdxChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-atr" class:hidden-pane={!pair.macroTerm.showAtr}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-${pair.macroTerm.atrPeriodVal}`}
+                        <AtrChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-rsi" class:hidden-pane={!pair.macroTerm.showRsi}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-${pair.macroTerm.rsiPeriodVal}`}
+                        <RsiChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-macd" class:hidden-pane={!pair.macroTerm.showMacd}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-${pair.macroTerm.macdFastVal}-${pair.macroTerm.macdSlowVal}-${pair.macroTerm.macdSignalVal}`}
+                        <MacdChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-squeeze" class:hidden-pane={!pair.macroTerm.showSqueeze}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-${pair.macroTerm.squeezePeriodVal}`}
+                        <SqueezeChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-bbwp" class:hidden-pane={!pair.macroTerm.showBbwp}>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-bbwp`}
+                        <BbwpChart historyPrices={pair.macroTerm.historyPrices} currentBbwp={pair.macroTerm.lastBbwp} />
+                    {/key}
+                </div>
+            </div>
+        </div>
+
+        <!-- SuperMacro-Term Column -->
+        <div class="timescale-column">
+            <div class="timescale-header">
+                <span class="timescale-title">{label(pair.supermacroTerm)}</span>
+                <span class="timescale-price">{pair.supermacroTerm.priceText}</span>
+            </div>
+            <div class="timescale-charts">
+                <div class="panel-box pane-price" class:hidden-pane={!pair.supermacroTerm.showEmas && !pair.supermacroTerm.showBb && !pair.supermacroTerm.showVwap}>
+                    {#key tfKey(pairKey, pair.supermacroTerm)}
+                        <PriceChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-vol" class:hidden-pane={!pair.supermacroTerm.showVolume}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}`}
+                        <VolumeChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-adx" class:hidden-pane={!pair.supermacroTerm.showAdx}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}-${pair.supermacroTerm.adxPeriodVal}`}
+                        <AdxChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-atr" class:hidden-pane={!pair.supermacroTerm.showAtr}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}-${pair.supermacroTerm.atrPeriodVal}`}
+                        <AtrChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-rsi" class:hidden-pane={!pair.supermacroTerm.showRsi}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}-${pair.supermacroTerm.rsiPeriodVal}`}
+                        <RsiChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-macd" class:hidden-pane={!pair.supermacroTerm.showMacd}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}-${pair.supermacroTerm.macdFastVal}-${pair.supermacroTerm.macdSlowVal}-${pair.supermacroTerm.macdSignalVal}`}
+                        <MacdChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-squeeze" class:hidden-pane={!pair.supermacroTerm.showSqueeze}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}-${pair.supermacroTerm.squeezePeriodVal}`}
+                        <SqueezeChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="panel-box pane-bbwp" class:hidden-pane={!pair.supermacroTerm.showBbwp}>
+                    {#key `${pairKey}-${pair.supermacroTerm.barDurationSec}-bbwp`}
+                        <BbwpChart historyPrices={pair.supermacroTerm.historyPrices} currentBbwp={pair.supermacroTerm.lastBbwp} />
+                    {/key}
+                </div>
             </div>
         </div>
     {/if}
@@ -168,7 +286,7 @@
 <style>
     .terminal-workspace {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(5, 1fr);
         gap: 12px;
         height: 100%;
         width: 100%;
@@ -230,12 +348,18 @@
     .panel-box.pane-rsi { height: 60px; }
     .panel-box.pane-macd { height: 60px; }
     .panel-box.pane-squeeze { height: 60px; }
+    .panel-box.pane-bbwp { height: 60px; }
     .hidden-pane { display: none; }
 
+    @media (max-width: 1600px) {
+        .terminal-workspace {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
     @media (max-width: 1280px) {
         .terminal-workspace {
             grid-template-columns: 1fr;
-            grid-template-rows: repeat(3, 400px);
+            grid-template-rows: repeat(5, 400px);
             overflow-y: auto;
         }
     }

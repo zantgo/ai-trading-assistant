@@ -39,8 +39,17 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 adx_period: 14,
                 atr_period: 14,
                 squeeze_period: 20,
+                bbwp_lookback: 252,
+                bbwp_period: 20,
             },
             hyperliquid: Default::default(),
+            fibonacci: Default::default(),
+            pivots: Default::default(),
+            macro_timeframe: Default::default(),
+            supermacro_timeframe: Default::default(),
+            leverage: Default::default(),
+            scoring: Default::default(),
+            fees: Default::default(),
             pairs: HashMap::new(),
         };
         let indicators = test_config.indicators.clone();

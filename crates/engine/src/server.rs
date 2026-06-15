@@ -15,6 +15,8 @@ use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::models::MarketSnapshot;
+use shared::indicators::DivergenceDetector;
+use crate::sr_engine::SrRoleTracker;
 use shared::TriggerType;
 use crate::adapters;
 use crate::config::{AppConfig, AutomationConfig, TimeframeConfig};
@@ -53,6 +55,10 @@ pub struct MultiTimeframeIndicators {
     pub short_term: IndicatorSnapshot,
     pub mid_term: IndicatorSnapshot,
     pub long_term: IndicatorSnapshot,
+    #[serde(default)]
+    pub macro_term: Option<IndicatorSnapshot>,
+    #[serde(default)]
+    pub supermacro_term: Option<IndicatorSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,7 +119,7 @@ pub struct WsQuery {
     pub timeframe_secs: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[allow(dead_code)]
 pub struct IndicatorSnapshot {
     pub rsi: Option<f64>,
@@ -131,14 +137,34 @@ pub struct IndicatorSnapshot {
     pub bb_lower: Option<f64>,
     pub atr: Option<f64>,
     pub atr_trend: Option<String>,
+    pub atr_volatility_regime: Option<String>,
     pub current_price: Option<f64>,
     pub volume: Option<f64>,
     pub average_volume: Option<f64>,
+    pub rvol: Option<f64>,
     pub ema_fast: Option<f64>,
     pub ema_medium: Option<f64>,
     pub ema_slow: Option<f64>,
     pub ema_long: Option<f64>,
+    pub ema_stack_state: Option<String>,
     pub vwap: Option<f64>,
+    pub vwap_bias: Option<String>,
+    pub rsi_divergence_status: Option<String>,
+    pub macd_divergence_status: Option<String>,
+    pub macd_trend_state: Option<String>,
+    pub macd_crossover_detected: Option<bool>,
+    pub macd_crossover_direction: Option<String>,
+    pub macd_histogram_peak: Option<f64>,
+    pub squeeze_duration: Option<u32>,
+    pub squeeze_release_trigger: Option<bool>,
+    pub squeeze_momentum_direction: Option<String>,
+    pub chart_pattern: Option<String>,
+    pub chart_pattern_confidence: Option<f64>,
+    pub bbwp: Option<f64>,
+    pub adx_slope: Option<f64>,
+    pub adx_regime: Option<String>,
+    pub adx_di_crossover_detected: Option<bool>,
+    pub adx_di_crossover_direction: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -179,6 +205,10 @@ pub struct PairConfigPayload {
     pub short_term: crate::config::TimeframeConfig,
     pub mid_term: crate::config::TimeframeConfig,
     pub long_term: crate::config::TimeframeConfig,
+    #[serde(default)]
+    pub macro_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub supermacro_term: Option<crate::config::TimeframeConfig>,
     #[serde(default)]
     pub automation: AutomationConfig,
 }
@@ -262,6 +292,27 @@ pub struct MasterHistoryResponse {
     pub latest_close: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CostEstimateResponse {
+    pub price_per_1m_input_tokens: f64,
+    pub price_per_1m_output_tokens: f64,
+    pub interval_seconds: u64,
+    pub runs_per_day: f64,
+    pub input_tokens_per_run: u64,
+    pub output_tokens_per_run: u64,
+    pub projected_daily_cost: f64,
+    pub projected_weekly_cost: f64,
+    pub projected_monthly_cost: f64,
+    pub actual_input_tokens_used: u64,
+    pub actual_output_tokens_used: u64,
+    pub actual_total_cost: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CostEstimateQuery {
+    pub pair_key: Option<String>,
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/config", get(serve_config).post(update_config))
@@ -277,6 +328,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/paper/config", post(serve_paper_config))
         .route("/api/paper/reset", post(serve_paper_reset))
         .route("/api/paper/order", post(serve_paper_order))
+        .route("/api/paper/scale-in", post(serve_paper_scale_in))
+        .route("/api/paper/scale-out", post(serve_paper_scale_out))
+        .route("/api/paper/unrealized", get(serve_paper_unrealized))
         .route("/api/paper/performance", get(serve_paper_performance))
         .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
         .route("/api/pairs/:pair_key", delete(serve_remove_pair))
@@ -289,11 +343,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/risk-profiles", get(serve_risk_profiles_list).post(serve_risk_profile_create))
         .route("/api/risk-profiles/:id", delete(serve_risk_profile_delete).post(serve_risk_profile_update))
         .route("/api/risk/calculate", post(serve_risk_calculate))
+        .route("/api/risk/fee-table", get(serve_fee_table))
+        .route("/api/risk/commission-projection", post(serve_commission_projection))
         .route("/api/exchange-keys", get(serve_exchange_keys_list).post(serve_exchange_keys_add))
         .route("/api/exchange-keys/:id", delete(serve_exchange_keys_delete).post(serve_exchange_keys_sync))
         .route("/api/dashboard/stats", get(serve_dashboard_stats))
         .route("/api/trade-ledger", get(serve_trade_ledger))
+        .route("/api/trade-journal", get(serve_trade_journal))
+        .route("/api/trade-journal/:id/notes", post(serve_update_journal_notes))
+        .route("/api/trade-journal/export/csv", get(serve_export_journal_csv))
+        .route("/api/trade-journal/export/json", get(serve_export_journal_json))
         .route("/api/trades/telemetry", post(serve_trade_telemetry_add))
+        .route("/api/cost-estimate", get(serve_cost_estimate))
         .route("/ws", get(ws_handler))
         .route("/favicon.ico", get(|| async { Redirect::to("/favicon.svg") }))
         .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
@@ -478,11 +539,17 @@ async fn serve_analyze(
     let llm = state.llm_client.read().await;
 
     let phase_one_results = if let Some(ref mtf) = payload.timeframes {
+        let empty_snap = IndicatorSnapshot::default();
+        let macro_snap = mtf.macro_term.as_ref().unwrap_or(&empty_snap);
+        let supermacro_snap = mtf.supermacro_term.as_ref().unwrap_or(&empty_snap);
         run_phase_one_agents_mtf(
             &llm,
+            &symbol,
             &mtf.short_term,
             &mtf.mid_term,
             &mtf.long_term,
+            macro_snap,
+            supermacro_snap,
             &prices,
             master_id,
             &state.telemetry_tx,
@@ -491,6 +558,7 @@ async fn serve_analyze(
     } else {
         run_phase_one_agents(
             &llm,
+            &symbol,
             indicators,
             &prices,
             &atr_trend,
@@ -502,6 +570,10 @@ async fn serve_analyze(
 
     let phase_one_json = serde_json::to_string(&phase_one_results).unwrap_or_else(|_| "[]".into());
 
+    let raw_symbol = symbol.split('-').nth(1).unwrap_or(&symbol);
+    let journal_context = crate::db::query_recent_journal_for_context(&state.pool, raw_symbol, 10).await;
+    let journal_opt: Option<&str> = if journal_context.is_empty() { None } else { Some(&journal_context) };
+
     let phase_two = match llm.run_master_orchestrator(
         &payload.position,
         &entry_price,
@@ -510,6 +582,8 @@ async fn serve_analyze(
         &phase_one_json,
         &support_levels.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
         &resistance_levels.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        journal_opt,
+        Some(&symbol),
     ).await {
         Ok(master_result) => {
             let _ = state.telemetry_tx.send(crate::db::TelemetryMsg::UpdateMasterRecord {
@@ -521,6 +595,8 @@ async fn serve_analyze(
                 indicator_synthesis_evaluation: master_result.indicator_synthesis.evaluation.clone(),
                 recommended_action: master_result.position_recommendation.action.clone(),
                 recommendation_rationale: master_result.position_recommendation.rationale.clone(),
+                score_points: None,
+                signals_json: None,
             }).await;
 
             master_result
@@ -545,6 +621,8 @@ async fn serve_analyze(
                 indicator_synthesis_evaluation: heuristic.indicator_synthesis.evaluation.clone(),
                 recommended_action: heuristic.position_recommendation.action.clone(),
                 recommendation_rationale: heuristic.position_recommendation.rationale.clone(),
+                score_points: None,
+                signals_json: None,
             }).await;
 
             heuristic
@@ -698,9 +776,12 @@ pub async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>, ti
 
 pub async fn run_phase_one_agents_mtf(
     client: &LlmClient,
+    symbol: &str,
     short: &IndicatorSnapshot,
     mid: &IndicatorSnapshot,
     long: &IndicatorSnapshot,
+    r#macro: &IndicatorSnapshot,
+    supermacro: &IndicatorSnapshot,
     _prices: &[f64],
     master_id: i64,
     telemetry_tx: &mpsc::Sender<crate::db::TelemetryMsg>,
@@ -715,10 +796,14 @@ pub async fn run_phase_one_agents_mtf(
 
     let indicator_names = ["RSI", "MACD", "SQUEEZE", "ADX", "BOLLINGER_ATR", "VOLUME_EMA", "VWAP"];
     let sections = [&rsi_section, &macd_section, &squeeze_section, &adx_section, &bb_atr_section, &vol_ema_section, &vwap_section];
-    let timeframes: [(&str, &IndicatorSnapshot, u64); 3] = [
+    let macro_tf_secs = 900u64;
+    let supermacro_tf_secs = 3600u64;
+    let timeframes: [(&str, &IndicatorSnapshot, u64); 5] = [
         ("short", short, 15),
         ("mid", mid, 60),
         ("long", long, 300),
+        ("macro", r#macro, macro_tf_secs),
+        ("supermacro", supermacro, supermacro_tf_secs),
     ];
 
     let mut handles = Vec::new();
@@ -732,6 +817,8 @@ pub async fn run_phase_one_agents_mtf(
             let client_base = client.base_url.clone();
             let client_key = client.api_key.clone();
             let client_model = client.model.clone();
+            let tracker = client.get_token_tracker();
+            let pair_key = symbol.to_string();
 
             let handle = tokio::spawn(async move {
                 let temp_client = LlmClient {
@@ -739,11 +826,12 @@ pub async fn run_phase_one_agents_mtf(
                     api_key: client_key,
                     model: client_model,
                     indicators_guide: String::new(),
+                    token_tracker: tracker,
                 };
 
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(10),
-                    temp_client.run_indicator_agent(&name, &section, &context),
+                    temp_client.run_indicator_agent(&name, &section, &context, Some(&pair_key)),
                 )
                 .await
                 {
@@ -751,16 +839,25 @@ pub async fn run_phase_one_agents_mtf(
                         indicator_name: format!("{}-{}", tf_label, result.indicator_name),
                         signal: result.signal,
                         reason: result.reason,
+                        divergence_status: result.divergence_status.clone(),
+                        divergence_type: result.divergence_type.clone(),
+                        is_confirmed: result.is_confirmed.clone(),
                     },
                     Ok(Err(e)) => IndividualIndicatorResult {
                         indicator_name: format!("{}-{}", tf_label, name),
                         signal: "UNAVAILABLE".to_string(),
                         reason: format!("Agent error: {}", e),
+                        divergence_status: None,
+                        divergence_type: None,
+                        is_confirmed: None,
                     },
                     Err(_) => IndividualIndicatorResult {
                         indicator_name: format!("{}-{}", tf_label, name),
                         signal: "UNAVAILABLE".to_string(),
                         reason: "Agent timed out after 10 seconds".to_string(),
+                        divergence_status: None,
+                        divergence_type: None,
+                        is_confirmed: None,
                     },
                 }
             });
@@ -776,6 +873,9 @@ pub async fn run_phase_one_agents_mtf(
             indicator_name: "UNKNOWN".to_string(),
             signal: "UNAVAILABLE".to_string(),
             reason: format!("Task panic: {}", e),
+            divergence_status: None,
+            divergence_type: None,
+            is_confirmed: None,
         }))
         .collect();
 
@@ -799,26 +899,39 @@ pub async fn run_phase_one_agents_mtf(
 fn build_indicator_context(indicator_name: &str, snap: &IndicatorSnapshot) -> String {
     match indicator_name {
         "RSI" => format!(
-            r#"{{ "rsi_value": {}, "current_price": {} }}"#,
+            r#"{{ "rsi_value": {}, "current_price": {}, "rsi_divergence_status": "{}" }}"#,
             snap.rsi.map_or("null".to_string(), |v| format!("{:.2}", v)),
             snap.current_price.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.rsi_divergence_status.as_deref().unwrap_or("none"),
         ),
         "MACD" => format!(
-            r#"{{ "macd_line": {}, "signal_line": {}, "histogram_value": {} }}"#,
+            r#"{{ "macd_line": {}, "signal_line": {}, "histogram_value": {}, "histogram_trend": "{}", "histogram_peak": {}, "crossover_detected": {}, "crossover_direction": "{}", "macd_divergence_status": "{}" }}"#,
             snap.macd_line.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.macd_signal.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.macd_histogram.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.macd_trend_state.as_deref().unwrap_or("unknown"),
+            snap.macd_histogram_peak.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.macd_crossover_detected.unwrap_or(false),
+            snap.macd_crossover_direction.as_deref().unwrap_or("NONE"),
+            snap.macd_divergence_status.as_deref().unwrap_or("none"),
         ),
         "SQUEEZE" => format!(
-            r#"{{ "squeeze_on": {}, "momentum_value": {} }}"#,
+            r#"{{ "squeeze_on": {}, "momentum_value": {}, "squeeze_duration": {}, "squeeze_release_trigger": {}, "momentum_direction": "{}" }}"#,
             snap.squeeze_on.map_or("null".to_string(), |v| v.to_string()),
             snap.squeeze_momentum.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.squeeze_duration.unwrap_or(0),
+            snap.squeeze_release_trigger.unwrap_or(false),
+            snap.squeeze_momentum_direction.as_deref().unwrap_or("Flat"),
         ),
         "ADX" => format!(
-            r#"{{ "adx_line": {}, "di_plus": {}, "di_minus": {} }}"#,
+            r#"{{ "adx_line": {}, "di_plus": {}, "di_minus": {}, "adx_slope": {}, "adx_regime": "{}", "di_crossover_detected": {}, "di_crossover_direction": "{}" }}"#,
             snap.adx.map_or("null".to_string(), |v| format!("{:.2}", v)),
             snap.adx_plus.map_or("null".to_string(), |v| format!("{:.2}", v)),
             snap.adx_minus.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.adx_slope.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.adx_regime.as_deref().unwrap_or("unknown"),
+            snap.adx_di_crossover_detected.unwrap_or(false),
+            snap.adx_di_crossover_direction.as_deref().unwrap_or("NONE"),
         ),
         "BOLLINGER_ATR" => format!(
             r#"{{ "mid_price": {}, "bb_upper": {}, "bb_middle": {}, "bb_lower": {}, "atr_value": {} }}"#,
@@ -829,17 +942,20 @@ fn build_indicator_context(indicator_name: &str, snap: &IndicatorSnapshot) -> St
             snap.atr.map_or("null".to_string(), |v| format!("{:.4}", v)),
         ),
         "VOLUME_EMA" => format!(
-            r#"{{ "close": {}, "ema_fast": {}, "ema_slow": {}, "volume": {}, "average_volume": {} }}"#,
+            r#"{{ "close": {}, "ema_fast": {}, "ema_slow": {}, "volume": {}, "average_volume": {}, "rvol": {}, "ema_stack_state": "{}" }}"#,
             snap.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.ema_fast.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.ema_slow.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.volume.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.average_volume.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.rvol.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.ema_stack_state.as_deref().unwrap_or("tangled"),
         ),
         "VWAP" => format!(
-            r#"{{ "close": {}, "vwap": {} }}"#,
+            r#"{{ "close": {}, "vwap": {}, "vwap_bias": "{}" }}"#,
             snap.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.vwap.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.vwap_bias.as_deref().unwrap_or("equilibrium"),
         ),
         _ => "{}".to_string(),
     }
@@ -847,6 +963,7 @@ fn build_indicator_context(indicator_name: &str, snap: &IndicatorSnapshot) -> St
 
 pub async fn run_phase_one_agents(
     client: &LlmClient,
+    symbol: &str,
     indicators: &IndicatorSnapshot,
     prices: &[f64],
     atr_trend: &str,
@@ -906,7 +1023,7 @@ pub async fn run_phase_one_agents(
     );
 
     let vol_ema_context = format!(
-        r#"{{ "close": {}, "ema_fast": {}, "ema_medium": {}, "ema_slow": {}, "ema_long": {}, "volume": {}, "average_volume": {} }}"#,
+        r#"{{ "close": {}, "ema_fast": {}, "ema_medium": {}, "ema_slow": {}, "ema_long": {}, "volume": {}, "average_volume": {}, "rvol": {}, "ema_stack_state": "{}" }}"#,
         indicators.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators.ema_fast.map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators.ema_medium.map_or("null".to_string(), |v| format!("{:.4}", v)),
@@ -914,12 +1031,15 @@ pub async fn run_phase_one_agents(
         indicators.ema_long.map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators.volume.map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators.average_volume.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        indicators.rvol.map_or("null".to_string(), |v| format!("{:.2}", v)),
+        indicators.ema_stack_state.as_deref().unwrap_or("tangled"),
     );
 
     let vwap_context = format!(
-        r#"{{ "close": {}, "vwap": {} }}"#,
+        r#"{{ "close": {}, "vwap": {}, "vwap_bias": "{}" }}"#,
         indicators.current_price.map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators.vwap.map_or("null".to_string(), |v| format!("{:.4}", v)),
+        indicators.vwap_bias.as_deref().unwrap_or("equilibrium"),
     );
 
     let agents = vec![
@@ -940,6 +1060,8 @@ pub async fn run_phase_one_agents(
         let client_base = client.base_url.clone();
         let client_key = client.api_key.clone();
         let client_model = client.model.clone();
+        let tracker = client.get_token_tracker();
+        let pair_key = symbol.to_string();
 
         let handle = tokio::spawn(async move {
             let temp_client = LlmClient {
@@ -947,11 +1069,12 @@ pub async fn run_phase_one_agents(
                 api_key: client_key,
                 model: client_model,
                 indicators_guide: String::new(),
+                token_tracker: tracker,
             };
 
             match tokio::time::timeout(
                 std::time::Duration::from_secs(10),
-                temp_client.run_indicator_agent(&name, &section, &context),
+                temp_client.run_indicator_agent(&name, &section, &context, Some(&pair_key)),
             )
             .await
             {
@@ -960,11 +1083,17 @@ pub async fn run_phase_one_agents(
                     indicator_name: name,
                     signal: "UNAVAILABLE".to_string(),
                     reason: format!("Agent error: {}", e),
+                    divergence_status: None,
+                    divergence_type: None,
+            is_confirmed: None,
                 },
                 Err(_) => IndividualIndicatorResult {
                     indicator_name: name,
                     signal: "UNAVAILABLE".to_string(),
                     reason: "Agent timed out after 10 seconds".to_string(),
+                    divergence_status: None,
+                    divergence_type: None,
+            is_confirmed: None,
                 },
             }
         });
@@ -979,6 +1108,9 @@ pub async fn run_phase_one_agents(
             indicator_name: "UNKNOWN".to_string(),
             signal: "UNAVAILABLE".to_string(),
             reason: format!("Task panic: {}", e),
+            divergence_status: None,
+            divergence_type: None,
+            is_confirmed: None,
         }))
         .collect();
 
@@ -1131,7 +1263,7 @@ async fn serve_chat(
     Json(payload): Json<ChatHistoryRequest>,
 ) -> impl IntoResponse {
     let llm = state.llm_client.read().await;
-    match llm.chat(payload.history).await {
+    match llm.chat(payload.history, None).await {
         Ok(reply) => Json(ChatReplResponse { reply }).into_response(),
         Err(e) => {
             eprintln!("⚠️  LLM chat failed: {}", e);
@@ -1193,6 +1325,71 @@ async fn serve_assistant_records(
     })
 }
 
+async fn serve_cost_estimate(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CostEstimateQuery>,
+) -> impl IntoResponse {
+    let config = state.config.read().await;
+    let costs = config.costs.clone();
+    let llm = state.llm_client.read().await;
+
+    let pair_key = query.pair_key.unwrap_or_else(|| {
+        let first = config.symbols.first().cloned().unwrap_or_default();
+        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
+        format!("{}-{}", ex, sym.to_uppercase())
+    });
+
+    let interval_seconds = config.pairs.get(&pair_key)
+        .map(|p| p.automation.interval_seconds)
+        .unwrap_or(900);
+
+    const INPUT_TOKENS_PER_INDICATOR: u64 = 1024;
+    const OUTPUT_TOKENS_PER_INDICATOR: u64 = 512;
+    const NUM_INDICATORS: u64 = 35;
+    const INPUT_TOKENS_PHASE2: u64 = 2048;
+    const OUTPUT_TOKENS_PHASE2: u64 = 1024;
+
+    let input_tokens_per_run = INPUT_TOKENS_PER_INDICATOR * NUM_INDICATORS + INPUT_TOKENS_PHASE2;
+    let output_tokens_per_run = OUTPUT_TOKENS_PER_INDICATOR * NUM_INDICATORS + OUTPUT_TOKENS_PHASE2;
+
+    let runs_per_day = if interval_seconds > 0 {
+        86400.0 / interval_seconds as f64
+    } else {
+        0.0
+    };
+
+    let daily_input_tokens = input_tokens_per_run as f64 * runs_per_day;
+    let daily_output_tokens = output_tokens_per_run as f64 * runs_per_day;
+
+    let projected_daily_cost =
+        (daily_input_tokens / 1_000_000.0) * costs.price_per_1m_input_tokens
+        + (daily_output_tokens / 1_000_000.0) * costs.price_per_1m_output_tokens;
+
+    let usage = llm.get_token_usage_for_pair(&pair_key);
+    let actual_input = usage.input_tokens;
+    let actual_output = usage.output_tokens;
+    let actual_total_cost =
+        (actual_input as f64 / 1_000_000.0) * costs.price_per_1m_input_tokens
+        + (actual_output as f64 / 1_000_000.0) * costs.price_per_1m_output_tokens;
+
+    let response = CostEstimateResponse {
+        price_per_1m_input_tokens: costs.price_per_1m_input_tokens,
+        price_per_1m_output_tokens: costs.price_per_1m_output_tokens,
+        interval_seconds,
+        runs_per_day,
+        input_tokens_per_run,
+        output_tokens_per_run,
+        projected_daily_cost,
+        projected_weekly_cost: projected_daily_cost * 7.0,
+        projected_monthly_cost: projected_daily_cost * 30.0,
+        actual_input_tokens_used: actual_input,
+        actual_output_tokens_used: actual_output,
+        actual_total_cost,
+    };
+
+    Json(response)
+}
+
 async fn serve_automated_performance(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -1245,7 +1442,20 @@ pub struct PaperConfigRequest {
     pub initial_usd: f64,
     pub allocation_pct: f64,
     pub auto_execute: bool,
+    #[serde(default = "default_max_risk_pct")]
+    pub max_risk_pct: f64,
+    #[serde(default = "default_leverage")]
+    pub leverage: i32,
+    #[serde(default = "default_auto_execute_intervals")]
+    pub auto_execute_intervals: i32,
+    #[serde(default = "default_lookback_trades")]
+    pub lookback_trades: i32,
 }
+
+fn default_max_risk_pct() -> f64 { 2.0 }
+fn default_leverage() -> i32 { 20 }
+fn default_auto_execute_intervals() -> i32 { 15 }
+fn default_lookback_trades() -> i32 { 10 }
 
 #[derive(Debug, Deserialize)]
 pub struct PaperResetRequest {
@@ -1258,6 +1468,31 @@ pub struct PaperOrderRequest {
     pub direction: String,
     pub action: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct PaperScaleInRequest {
+    pub symbol: String,
+    pub direction: String,
+    pub entry_price: f64,
+    pub portion_number: i32,
+    #[serde(default)]
+    pub final_invalidation_level: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperScaleOutRequest {
+    pub symbol: String,
+    pub exit_price: f64,
+    #[serde(default = "default_size_fraction")]
+    pub size_fraction: f64,
+    #[serde(default)]
+    pub target_id: i64,
+    #[serde(default = "default_trigger_source")]
+    pub trigger_source: String,
+}
+
+fn default_size_fraction() -> f64 { 0.5 }
+fn default_trigger_source() -> String { "AUTOMATED".to_string() }
 
 #[derive(Debug, Deserialize)]
 pub struct PaperPerformanceQuery {
@@ -1301,17 +1536,22 @@ async fn serve_paper_config(
     Json(payload): Json<PaperConfigRequest>,
 ) -> impl IntoResponse {
     let allocation = payload.allocation_pct.clamp(1.0, 100.0);
-    crate::db::paper_set_balance_config(
+    crate::db::paper_set_advanced_config(
         &state.pool,
         &payload.symbol,
         payload.initial_usd,
         allocation,
         payload.auto_execute,
+        payload.max_risk_pct,
+        payload.leverage,
+        payload.auto_execute_intervals,
+        payload.lookback_trades,
     ).await;
 
     println!(
-        "📄 Paper Config: {} initial=${:.2} allocation={:.1}% auto_execute={}",
-        payload.symbol, payload.initial_usd, allocation, payload.auto_execute
+        "📄 Paper Config: {} initial=${:.2} allocation={:.1}% auto_execute={} risk={:.1}% leverage={}x interval={}m lookback={}",
+        payload.symbol, payload.initial_usd, allocation, payload.auto_execute,
+        payload.max_risk_pct, payload.leverage, payload.auto_execute_intervals, payload.lookback_trades
     );
     (axum::http::StatusCode::OK, "Paper trading config saved").into_response()
 }
@@ -1395,6 +1635,164 @@ async fn serve_paper_order(
     } else {
         (axum::http::StatusCode::BAD_REQUEST, "Action must be OPEN or CLOSE").into_response()
     }
+}
+
+async fn serve_paper_scale_in(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperScaleInRequest>,
+) -> impl IntoResponse {
+    let pair_arc = {
+        let pairs = state.pairs.read().await;
+        pairs.get(&payload.symbol).cloned()
+    };
+    let current_price = if let Some(pair) = pair_arc {
+        let snap = pair.mid.latest_snapshot.read().await;
+        snap.as_ref()
+            .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+            .unwrap_or(payload.entry_price)
+    } else {
+        payload.entry_price
+    };
+
+    let price = if payload.entry_price > 0.0 { payload.entry_price } else { current_price };
+
+    if price <= 0.0 {
+        return Json(serde_json::json!({"success": false, "message": "No price data available"})).into_response();
+    }
+
+    let dir = payload.direction.to_uppercase();
+    if dir != "LONG" && dir != "SHORT" {
+        return Json(serde_json::json!({"success": false, "message": "Direction must be LONG or SHORT"})).into_response();
+    }
+
+    let portion = payload.portion_number.max(1).min(3);
+
+    let result = crate::paper_trading::scale_in_portion(
+        &state.pool,
+        &state.telemetry_tx,
+        &payload.symbol,
+        &dir,
+        price,
+        portion,
+        payload.final_invalidation_level,
+    ).await;
+
+    Json(serde_json::json!({
+        "success": result.success,
+        "message": result.message,
+        "new_average_entry_price": result.new_average_entry_price,
+        "total_size": result.total_size,
+        "portion_number": result.portion_number,
+    })).into_response()
+}
+
+async fn serve_paper_scale_out(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperScaleOutRequest>,
+) -> impl IntoResponse {
+    let pair_arc = {
+        let pairs = state.pairs.read().await;
+        pairs.get(&payload.symbol).cloned()
+    };
+    let current_price = if let Some(pair) = pair_arc {
+        let snap = pair.mid.latest_snapshot.read().await;
+        snap.as_ref()
+            .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+            .unwrap_or(payload.exit_price)
+    } else {
+        payload.exit_price
+    };
+
+    let price = if payload.exit_price > 0.0 { payload.exit_price } else { current_price };
+    let fraction = payload.size_fraction.clamp(0.01, 1.0);
+
+    let result = crate::paper_trading::scale_out_portion(
+        &state.pool,
+        &state.telemetry_tx,
+        &payload.symbol,
+        price,
+        fraction,
+        payload.target_id,
+        &payload.trigger_source,
+    ).await;
+
+    Json(serde_json::json!({
+        "success": result.success,
+        "message": result.message,
+        "realized_pnl": result.realized_pnl,
+        "remaining_size": result.remaining_size,
+    }))
+}
+
+async fn serve_paper_unrealized(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PaperStatusQuery>,
+) -> impl IntoResponse {
+    let symbol = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
+        format!("{}-{}", ex, sym.to_uppercase())
+    } else {
+        query.symbol
+    };
+
+    let pair_arc = {
+        let pairs = state.pairs.read().await;
+        pairs.get(&symbol).cloned()
+    };
+    let current_price = if let Some(pair) = pair_arc {
+        let snap = pair.mid.latest_snapshot.read().await;
+        snap.as_ref()
+            .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    let metrics = crate::db::paper_get_account_metrics(&state.pool, &symbol, current_price).await;
+
+    #[derive(serde::Serialize)]
+    struct UnrealizedResponse {
+        symbol: String,
+        direction: String,
+        average_entry_price: f64,
+        current_price: f64,
+        size: f64,
+        unrealized_pnl_usd: f64,
+        unrealized_roi_pct: f64,
+        final_invalidation_level: f64,
+        filled_portions: i32,
+        active_take_profit_targets: Vec<serde_json::Value>,
+    }
+
+    let direction = metrics.active_position.as_ref().map(|p| p.direction.clone()).unwrap_or_default();
+    let avg_entry = metrics.active_position.as_ref().and_then(|p| p.average_entry_price).unwrap_or(0.0);
+    let size = metrics.active_position.as_ref().map(|p| p.size).unwrap_or(0.0);
+    let invalidation = metrics.active_position.as_ref().and_then(|p| p.final_invalidation_level).unwrap_or(0.0);
+    let filled = metrics.active_position.as_ref().and_then(|p| p.current_portions).unwrap_or(0);
+
+    let targets: Vec<serde_json::Value> = metrics.take_profit_targets.iter()
+        .map(|t| serde_json::json!({
+            "id": t.id,
+            "target_price": t.target_price,
+            "size_fraction": t.size_fraction,
+            "is_hit": t.is_hit,
+        }))
+        .collect();
+
+    Json(UnrealizedResponse {
+        symbol,
+        direction,
+        average_entry_price: avg_entry,
+        current_price,
+        size,
+        unrealized_pnl_usd: metrics.unrealized_pnl,
+        unrealized_roi_pct: metrics.unrealized_roi_pct,
+        final_invalidation_level: invalidation,
+        filled_portions: filled,
+        active_take_profit_targets: targets,
+    })
 }
 
 async fn serve_paper_performance(
@@ -1636,19 +2034,38 @@ async fn serve_add_pair(
     let long_cfg = pair_cfg
         .map(|p| p.long_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
+    let macro_cfg = pair_cfg
+        .and_then(|p| p.macro_term.clone())
+        .unwrap_or_else(|| TimeframeConfig::new(
+            config_guard.macro_timeframe.duration_seconds,
+            default_indicators.clone(),
+        ));
+    let supermacro_cfg = pair_cfg
+        .and_then(|p| p.supermacro_term.clone())
+        .unwrap_or_else(|| TimeframeConfig::new(
+            config_guard.supermacro_timeframe.duration_seconds,
+            default_indicators.clone(),
+        ));
+    let fib_config = config_guard.fibonacci.clone();
     drop(config_guard);
 
     let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (supermacro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
 
     let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(short_cfg.candles.analysis_limit)));
     let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
     let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
+    let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(macro_cfg.candles.analysis_limit)));
+    let supermacro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(supermacro_cfg.candles.analysis_limit)));
 
     let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let supermacro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
 
     let pair = Arc::new(ActivePair {
         symbol: raw_symbol.clone(),
@@ -1658,6 +2075,9 @@ async fn serve_add_pair(
             latest_snapshot: short_latest.clone(),
             timeframe_secs: 15,
             timeframe_label: "Short",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: fib_config.clone(),
         },
         mid: analyzer::TimeframePipeline {
             history: mid_history.clone(),
@@ -1665,6 +2085,9 @@ async fn serve_add_pair(
             latest_snapshot: mid_latest.clone(),
             timeframe_secs: 60,
             timeframe_label: "Mid",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: fib_config.clone(),
         },
         long: analyzer::TimeframePipeline {
             history: long_history.clone(),
@@ -1672,6 +2095,29 @@ async fn serve_add_pair(
             latest_snapshot: long_latest.clone(),
             timeframe_secs: 300,
             timeframe_label: "Long",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: fib_config.clone(),
+        },
+        r#macro: analyzer::TimeframePipeline {
+            history: macro_history.clone(),
+            broadcast_tx: macro_broadcast_tx.clone(),
+            latest_snapshot: macro_latest.clone(),
+            timeframe_secs: macro_cfg.candles.duration_seconds,
+            timeframe_label: "Macro",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: fib_config.clone(),
+        },
+        supermacro: analyzer::TimeframePipeline {
+            history: supermacro_history.clone(),
+            broadcast_tx: supermacro_broadcast_tx.clone(),
+            latest_snapshot: supermacro_latest.clone(),
+            timeframe_secs: supermacro_cfg.candles.duration_seconds,
+            timeframe_label: "SuperMacro",
+            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
+            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
+            fibonacci: fib_config.clone(),
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
@@ -1679,12 +2125,14 @@ async fn serve_add_pair(
 
     state.pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
 
-    // Spawn 3 pipeline channels from the router
+    // Spawn 5 pipeline channels from the router
     let (short_chan_tx, short_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (mid_chan_tx, mid_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (long_chan_tx, long_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (supermacro_chan_tx, supermacro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
 
-    // Event router: fan out WS events to all 3 timeframes
+    // Event router: fan out WS events to all 5 timeframes
     let router_symbol = raw_symbol.clone();
     let router_cancel = cancel.clone();
     tokio::spawn(async move {
@@ -1693,27 +2141,38 @@ async fn serve_add_pair(
             short_chan_tx,
             mid_chan_tx,
             long_chan_tx,
+            macro_chan_tx,
+            supermacro_chan_tx,
             router_symbol,
             router_cancel,
         ).await;
     });
 
-    // Spawn 3 independent pipeline tasks
-    for (rx, tf_cfg, hist, snap, label, tf_secs, bcast) in [
-        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone()),
-        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone()),
-        (long_chan_rx, long_cfg, long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone()),
-    ] {
+    // Spawn 5 independent pipeline tasks
+    let supermacro_secs = supermacro_cfg.candles.duration_seconds;
+    let macro_secs = macro_cfg.candles.duration_seconds;
+    let pipeline_specs = [
+        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), pair.short.divergence_detector.clone()),
+        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone()),
+        (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone()),
+        (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone()),
+        (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), pair.supermacro.divergence_detector.clone()),
+    ];
+
+    for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det) in pipeline_specs {
         let a_symbol = raw_symbol.clone();
         let a_pair_key = pair_key.clone();
         let a_telemetry = state.telemetry_tx.clone();
         let a_cancel = cancel.clone();
+        let a_fib = fib_config.clone();
         tokio::spawn(async move {
             analyzer::run_single(
                 rx,
                 a_telemetry,
                 bcast,
                 tf_cfg,
+                a_fib,
+                div_det,
                 hist,
                 snap,
                 a_symbol,
@@ -1740,9 +2199,13 @@ async fn serve_add_pair(
         short_history: short_history.clone(),
         mid_history: mid_history.clone(),
         long_history: long_history.clone(),
+        macro_history: macro_history.clone(),
+        supermacro_history: supermacro_history.clone(),
         short_latest: short_latest.clone(),
         mid_latest: mid_latest.clone(),
         long_latest: long_latest.clone(),
+        macro_latest: macro_latest.clone(),
+        supermacro_latest: supermacro_latest.clone(),
         config: state.config.clone(),
         pool: state.pool.clone(),
         llm_client: state.llm_client.clone(),
@@ -1813,6 +2276,8 @@ async fn serve_update_pair_config(
         short_term: payload.short_term,
         mid_term: payload.mid_term,
         long_term: payload.long_term,
+        macro_term: payload.macro_term,
+        supermacro_term: payload.supermacro_term,
         automation: payload.automation,
     };
 
@@ -1919,13 +2384,55 @@ pub struct EvaluateRequest {
     pub ema_medium: Option<f64>,
     pub ema_slow: Option<f64>,
     pub ema_long: Option<f64>,
+    #[serde(default)]
+    pub ema_stack_state: Option<String>,
     pub vwap: Option<f64>,
+    #[serde(default)]
+    pub vwap_bias: Option<String>,
     pub close: Option<f64>,
     pub volume: Option<f64>,
     pub average_volume: Option<f64>,
+    #[serde(default)]
+    pub rvol: Option<f64>,
     pub current_price: f64,
     #[serde(default)]
     pub historical_prices: Vec<f64>,
+    #[serde(default)]
+    pub rsi_divergence_status: Option<String>,
+    #[serde(default)]
+    pub macd_divergence_status: Option<String>,
+    #[serde(default)]
+    pub macd_trend_state: Option<String>,
+    #[serde(default)]
+    pub macd_crossover_detected: Option<bool>,
+    #[serde(default)]
+    pub macd_crossover_direction: Option<String>,
+    #[serde(default)]
+    pub macd_histogram_peak: Option<f64>,
+    #[serde(default)]
+    pub squeeze_duration: Option<u32>,
+    #[serde(default)]
+    pub squeeze_release_trigger: Option<bool>,
+    #[serde(default)]
+    pub squeeze_momentum_direction: Option<String>,
+    #[serde(default)]
+    pub chart_pattern: Option<String>,
+    #[serde(default)]
+    pub chart_pattern_confidence: Option<f64>,
+    #[serde(default)]
+    pub bbwp: Option<f64>,
+    #[serde(default)]
+    pub atr_volatility_regime: Option<String>,
+    #[serde(default)]
+    pub atr_slope: Option<f64>,
+    #[serde(default)]
+    pub adx_slope: Option<f64>,
+    #[serde(default)]
+    pub adx_regime: Option<String>,
+    #[serde(default)]
+    pub adx_di_crossover_detected: Option<bool>,
+    #[serde(default)]
+    pub adx_di_crossover_direction: Option<String>,
 }
 
 async fn serve_decision_profiles_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -1996,11 +2503,31 @@ async fn serve_decision_evaluate(
         ema_medium: payload.ema_medium,
         ema_slow: payload.ema_slow,
         ema_long: payload.ema_long,
+        ema_stack_state: payload.ema_stack_state,
         vwap: payload.vwap,
+        vwap_bias: payload.vwap_bias,
         close: payload.close,
         volume: payload.volume,
         average_volume: payload.average_volume,
+        rvol: payload.rvol,
         current_price: payload.current_price,
+        rsi_divergence_status: payload.rsi_divergence_status,
+        macd_divergence_status: payload.macd_divergence_status,
+        macd_trend_state: payload.macd_trend_state,
+        macd_crossover_detected: payload.macd_crossover_detected,
+        macd_crossover_direction: payload.macd_crossover_direction,
+        macd_histogram_peak: payload.macd_histogram_peak,
+        squeeze_duration: payload.squeeze_duration,
+        squeeze_release_trigger: payload.squeeze_release_trigger,
+        squeeze_momentum_direction: payload.squeeze_momentum_direction,
+        chart_pattern: payload.chart_pattern,
+        chart_pattern_confidence: payload.chart_pattern_confidence,
+        bbwp: payload.bbwp,
+        atr_volatility_regime: payload.atr_volatility_regime,
+        adx_slope: payload.adx_slope,
+        adx_regime: payload.adx_regime,
+        adx_di_crossover_detected: payload.adx_di_crossover_detected,
+        adx_di_crossover_direction: payload.adx_di_crossover_direction,
     };
     let score = crate::profile_evaluation::evaluate_profile(
         &state.pool, id, &snap, &payload.historical_prices,
@@ -2073,7 +2600,9 @@ fn default_commission() -> f64 { 0.06 }
 pub struct RiskCalculateRequest {
     pub direction: String,
     pub entry_price: f64,
+    #[serde(default)]
     pub stop_loss_price: f64,
+    #[serde(default)]
     pub take_profit_price: f64,
     #[serde(default)]
     pub profile_id: Option<i64>,
@@ -2083,6 +2612,41 @@ pub struct RiskCalculateRequest {
     pub commission_pct: Option<f64>,
     pub funding_rate_8h: Option<f64>,
     pub spread: Option<f64>,
+    #[serde(default)]
+    pub atr_value: Option<f64>,
+    #[serde(default)]
+    pub atr_multiplier: Option<f64>,
+    #[serde(default)]
+    pub atr_target_rr: Option<f64>,
+    #[serde(default)]
+    pub use_dynamic_atr: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommissionProjectionPayload {
+    pub direction: String,
+    pub entry_1: f64,
+    pub entry_2: f64,
+    pub stop_loss_1: f64,
+    pub stop_loss_2: f64,
+    pub take_profit_1: f64,
+    pub take_profit_2: f64,
+    #[serde(default)]
+    pub profile_id: Option<i64>,
+    pub capital: Option<f64>,
+    pub max_risk_pct: Option<f64>,
+    pub leverage: Option<i32>,
+    pub capital_entry_1_pct: Option<f64>,
+    pub order_type: Option<String>,
+    pub commission_pct: Option<f64>,
+    pub funding_rate_8h: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FeeTableQuery {
+    pub leverages: Option<Vec<u32>>,
+    pub capitals: Option<Vec<f64>>,
+    pub order_type: Option<String>,
 }
 
 async fn serve_risk_profiles_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -2165,10 +2729,76 @@ async fn serve_risk_calculate(
         commission_pct,
         funding_rate_8h,
         spread,
+        atr_value: payload.atr_value,
+        atr_multiplier: payload.atr_multiplier,
+        atr_target_rr: payload.atr_target_rr,
+        use_dynamic_atr: payload.use_dynamic_atr,
     };
 
-    match crate::risk_calculator::compute_risk(&input) {
+    let result = if payload.use_dynamic_atr && payload.atr_value.is_some() {
+        crate::risk_calculator::compute_risk_with_atr(&input)
+    } else {
+        crate::risk_calculator::compute_risk(&input)
+    };
+
+    match result {
         Ok(calc) => Json(calc).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+async fn serve_fee_table(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<FeeTableQuery>,
+) -> impl IntoResponse {
+    let config = state.config.read().await;
+    let leverages = params.leverages.unwrap_or_else(|| vec![10, 20, 25, 40, 50]);
+    let capitals = params.capitals.unwrap_or_else(|| vec![10.0, 50.0, 100.0, 500.0]);
+    let order_type = params.order_type.unwrap_or_else(|| "taker".to_string());
+    let table = crate::commission::generate_fee_table(&config.fees, &leverages, &capitals, &order_type);
+    Json(table).into_response()
+}
+
+async fn serve_commission_projection(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CommissionProjectionPayload>,
+) -> impl IntoResponse {
+    let (capital, leverage, max_risk_pct, commission_pct, funding_rate_8h) =
+        if let Some(pid) = payload.profile_id {
+            if let Some(profile) = crate::db::risk_profile_by_id(&state.pool, pid).await {
+                (profile.capital, profile.leverage, profile.max_risk_pct,
+                 Some(profile.commission_pct), Some(profile.funding_rate_8h))
+            } else {
+                (payload.capital.unwrap_or(1000.0), payload.leverage.unwrap_or(20),
+                 payload.max_risk_pct.unwrap_or(2.0), payload.commission_pct,
+                 payload.funding_rate_8h)
+            }
+        } else {
+            (payload.capital.unwrap_or(1000.0), payload.leverage.unwrap_or(20),
+             payload.max_risk_pct.unwrap_or(2.0), payload.commission_pct,
+             payload.funding_rate_8h)
+        };
+
+    let config = state.config.read().await;
+    let input = crate::commission::CommissionProjectionRequest {
+        direction: payload.direction,
+        entry_1: payload.entry_1,
+        entry_2: payload.entry_2,
+        stop_loss_1: payload.stop_loss_1,
+        stop_loss_2: payload.stop_loss_2,
+        take_profit_1: payload.take_profit_1,
+        take_profit_2: payload.take_profit_2,
+        capital,
+        leverage,
+        max_risk_pct,
+        capital_entry_1_pct: payload.capital_entry_1_pct.unwrap_or(50.0),
+        order_type: payload.order_type.unwrap_or_else(|| "taker".to_string()),
+        commission_pct,
+        funding_rate_8h,
+    };
+
+    match crate::commission::compute_commission_projection(&input, &config.fees) {
+        Ok(proj) => Json(proj).into_response(),
         Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
     }
 }
@@ -2245,6 +2875,72 @@ async fn serve_exchange_keys_sync(
 async fn serve_dashboard_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = crate::stats_compiler::compile_dashboard_stats(&state.pool).await;
     Json(stats)
+}
+
+// ─── Trade Journal ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TradeJournalQuery {
+    #[serde(default = "default_journal_limit")]
+    pub limit: u32,
+}
+fn default_journal_limit() -> u32 { 50 }
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateJournalNotesRequest {
+    pub human_notes: String,
+    pub execution_score: f64,
+}
+
+async fn serve_trade_journal(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<TradeJournalQuery>,
+) -> impl IntoResponse {
+    let records = crate::db::query_trade_journal(&state.pool, query.limit).await;
+    Json(records)
+}
+
+async fn serve_update_journal_notes(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateJournalNotesRequest>,
+) -> impl IntoResponse {
+    let score = payload.execution_score.clamp(0.0, 10.0);
+    let ok = crate::db::update_journal_notes(&state.pool, id, &payload.human_notes, score).await;
+    if ok {
+        (axum::http::StatusCode::OK, "Journal notes updated").into_response()
+    } else {
+        (axum::http::StatusCode::NOT_FOUND, "Journal record not found").into_response()
+    }
+}
+
+async fn serve_export_journal_csv(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let records = crate::db::query_trade_journal(&state.pool, 1000).await;
+    let mut csv = String::from("id,trade_id,entry_date,exit_date,asset,direction,entry_reason,roe_percentage,final_analysis,execution_score,human_notes,symbol,realized_pnl,roi_percentage\n");
+    for r in &records {
+        let escaped_analysis = r.final_analysis.replace('"', "\"\"");
+        let escaped_reason = r.entry_reason.replace('"', "\"\"");
+        let escaped_notes = r.human_notes.replace('"', "\"\"");
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},\"{}\",{:.2},\"{}\",{:.1},\"{}\",{},{:.2},{:.2}\n",
+            r.id, r.trade_id, r.entry_date, r.exit_date, r.asset, r.direction,
+            escaped_reason, r.roe_percentage, escaped_analysis, r.execution_score,
+            escaped_notes, r.symbol, r.realized_pnl, r.roi_percentage,
+        ));
+    }
+    (
+        [(header::CONTENT_TYPE, "text/csv; charset=utf-8")],
+        csv,
+    )
+}
+
+async fn serve_export_journal_json(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let records = crate::db::query_trade_journal(&state.pool, 1000).await;
+    Json(records)
 }
 
 // ─── Trade Ledger ─────────────────────────────────────────────────
@@ -2337,6 +3033,12 @@ mod tests {
             rsi: Some(25.0),
             squeeze_on: Some(true),
             squeeze_momentum: Some(-0.05),
+            squeeze_duration: None,
+            squeeze_release_trigger: None,
+            squeeze_momentum_direction: None,
+            chart_pattern: None,
+            chart_pattern_confidence: None,
+            bbwp: None,
             macd_line: None,
             macd_signal: None,
             macd_histogram: Some(-1.2),
@@ -2349,14 +3051,28 @@ mod tests {
             bb_lower: None,
             atr: None,
             atr_trend: None,
+            atr_volatility_regime: None,
             current_price: Some(3125.0),
             volume: None,
             average_volume: None,
+            rvol: None,
             ema_fast: None,
             ema_medium: None,
             ema_slow: None,
             ema_long: None,
+            ema_stack_state: None,
             vwap: None,
+            vwap_bias: None,
+            rsi_divergence_status: None,
+            macd_divergence_status: None,
+            macd_trend_state: None,
+            macd_crossover_detected: None,
+            macd_crossover_direction: None,
+            macd_histogram_peak: None,
+            adx_slope: None,
+            adx_regime: None,
+            adx_di_crossover_detected: None,
+            adx_di_crossover_direction: None,
         };
 
         let (action, _) = compute_heuristic_recommendation("Long", "DOWNWARD", &indicators);

@@ -51,9 +51,34 @@ npm run check        # svelte-check + tsc typecheck
 - Market data: Hyperliquid **Testnet** WebSocket (`wss://api.hyperliquid-testnet.xyz/ws`)
 - Static assets served from `crates/engine/frontend/dist`
 
+- Cost Estimate API: `GET /api/cost-estimate?pair_key=Hyperliquid-BTC` (returns projected + actual token costs)
+- Token tracking is per-pair; each LLM API call accumulates prompt/completion token usage attributed to its pair key
+- Cost config is global (`[costs]` in `config.toml`) but projections are computed per-pair based on each pair's automation interval
+
 ## Configuration
 
-`config.toml` at workspace root controls indicator lookback windows and candle duration. Parsed at startup by `main.rs`. If missing, the engine panics.
+`config.toml` at workspace root controls indicator lookback windows, candle duration, AI token pricing, and automation intervals. Parsed at startup by `main.rs`. If missing, the engine panics.
+
+### Token Cost Tracking
+
+The `[costs]` section configures per-1M-token pricing for your LLM provider:
+
+```toml
+[costs]
+price_per_1m_input_tokens = 0.27   # DeepSeek default
+price_per_1m_output_tokens = 1.10  # DeepSeek default
+```
+
+- Each LLM API call (phase-1 indicator agents, phase-2 orchestrator, chat, journal agent) tracks actual `prompt_tokens` and `completion_tokens` from the API `usage` response.
+- Token usage is accumulated per-pair in a `TokenTracker` (thread-safe `Arc<Mutex<HashMap>>`).
+- The frontend "💰 Token Costs" tab displays projected daily/weekly/monthly costs based on the pair's automation interval plus actual tracked usage.
+- The settings panel includes a cost calculator where you can update the per-1M-token prices.
+
+**Cost formula:**
+- Tokens per analysis run: 35 phase-1 agents × ~1,536 tokens + 1 phase-2 orchestrator × ~3,072 tokens ≈ 57K tokens
+- Runs per day = 86,400 ÷ interval_seconds
+- Daily cost = (input_tokens/1M × input_price) + (output_tokens/1M × output_price)
+- Weekly = daily × 7, Monthly = daily × 30
 
 ## Testing
 

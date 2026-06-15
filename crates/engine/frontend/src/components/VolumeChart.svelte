@@ -74,14 +74,27 @@
         }
     });
 
+    function volumeColor(rvol: number, close: number, open: number): string {
+        if (rvol >= 3.0) return '#e040fb';       // Magenta — Exhaustion Climax
+        if (rvol >= 1.5) return '#26c6da';       // Cyan — Institutional
+        if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)'; // Translucent gray — Consolidation
+        return close >= open ? '#26a69a' : '#ef5350'; // Standard green/red — Normal
+    }
+
     $effect(() => {
         if (!pair) return;
         const snap = pair.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.open != null && snap.close != null) {
-            let volColor = parseFloat(String(snap.close)) >= parseFloat(String(snap.open)) ? '#26a69a' : '#ef5350';
-            volumeSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.volume)), color: volColor });
+            const close = parseFloat(String(snap.close));
+            const open = parseFloat(String(snap.open));
+            const vol = parseFloat(String(snap.volume));
+            const rvol = snap.rvol != null ? parseFloat(String(snap.rvol)) : 1.0;
+            pair.rvol = rvol;
+
+            const color = volumeColor(rvol, close, open);
+            volumeSeries.update({ time: timeSec as Time, value: vol, color });
         }
     });
 </script>

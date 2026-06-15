@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
-    import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+    import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { getState } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
@@ -20,6 +20,16 @@
     let bbMiddleSeries: ISeriesApi<'Line'>;
     let bbLowerSeries: ISeriesApi<'Line'>;
     let vwapSeries: ISeriesApi<'Line'>;
+
+    let supportLines: IPriceLine[] = [];
+    let resistanceLines: IPriceLine[] = [];
+    let divergenceLines: IPriceLine[] = [];
+    let fibGpTopLine: IPriceLine | null = null;
+    let fibGpBottomLine: IPriceLine | null = null;
+    let fibExt1618Line: IPriceLine | null = null;
+    let fibExt2618Line: IPriceLine | null = null;
+    let entryLine: IPriceLine | null = null;
+    let stopLossLine: IPriceLine | null = null;
 
     onMount(() => {
         chart = createChart(container, {
@@ -153,10 +163,234 @@
         if (snap.bb_lower) bbLowerSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_lower)) });
         if (snap.vwap) vwapSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.vwap)) });
     });
+
+    // Support level price lines
+    $effect(() => {
+        supportLines.forEach(l => candleSeries.removePriceLine(l));
+        supportLines = [];
+        const supports = pair ? app.markedSupportLevels : [];
+        for (const level of supports.slice(0, 2)) {
+            const pl = candleSeries.createPriceLine({
+                price: level,
+                color: '#22c55e',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: 'S',
+            });
+            supportLines.push(pl);
+        }
+    });
+
+    // Resistance level price lines
+    $effect(() => {
+        resistanceLines.forEach(l => candleSeries.removePriceLine(l));
+        resistanceLines = [];
+        const resistances = pair ? app.markedResistanceLevels : [];
+        for (const level of resistances.slice(0, 2)) {
+            const pl = candleSeries.createPriceLine({
+                price: level,
+                color: '#ef4444',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: 'R',
+            });
+            resistanceLines.push(pl);
+        }
+    });
+
+    // Entry price line (when position is active)
+    $effect(() => {
+        if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
+        const pos = pair ? app.activePaperPosition as Record<string, unknown> | null : null;
+        if (pos?.entry_price) {
+            const price = parseFloat(String(pos.entry_price));
+            if (price > 0) {
+                entryLine = candleSeries.createPriceLine({
+                    price,
+                    color: '#60a5fa',
+                    lineWidth: 1,
+                    lineStyle: 1,
+                    axisLabelVisible: true,
+                    title: 'Entry',
+                });
+            }
+        }
+    });
+
+    // Stop-loss price line
+    $effect(() => {
+        if (stopLossLine) { candleSeries.removePriceLine(stopLossLine); stopLossLine = null; }
+        const level = pair ? pair.paperInvalidationLevel : 0;
+        if (level > 0) {
+            stopLossLine = candleSeries.createPriceLine({
+                price: level,
+                color: '#f59e0b',
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: 'SL',
+            });
+        }
+    });
+
+    // Divergence extrema price lines
+    $effect(() => {
+        divergenceLines.forEach(l => candleSeries.removePriceLine(l));
+        divergenceLines = [];
+        if (!pair) return;
+
+        const parseCoords = (raw: string | null): { firstPrice: number; secondPrice: number; status: string } | null => {
+            if (!raw) return null;
+            try {
+                const parsed = JSON.parse(raw);
+                return {
+                    firstPrice: parsed.first_extreme?.price ? parseFloat(parsed.first_extreme.price) : 0,
+                    secondPrice: parsed.second_extreme?.price ? parseFloat(parsed.second_extreme.price) : 0,
+                    status: pair.rsiDivergenceStatus || 'none',
+                };
+            } catch (_) {
+                return null;
+            }
+        };
+
+        const rsiCoords = parseCoords(pair.rsiDivergenceCoords);
+        if (rsiCoords && rsiCoords.firstPrice > 0 && rsiCoords.secondPrice > 0) {
+            const isConfirmed = pair.rsiDivergenceStatus === 'confirmed';
+            const lineColor = isConfirmed ? '#22c55e' : '#f59e0b';
+            const lineStyle: 0 | 1 | 2 | 3 | 4 = isConfirmed ? 1 : 2;
+            divergenceLines.push(candleSeries.createPriceLine({
+                price: rsiCoords.firstPrice,
+                color: lineColor,
+                lineWidth: 1,
+                lineStyle,
+                axisLabelVisible: true,
+                title: 'RSI↓1',
+            }));
+            divergenceLines.push(candleSeries.createPriceLine({
+                price: rsiCoords.secondPrice,
+                color: lineColor,
+                lineWidth: 1,
+                lineStyle,
+                axisLabelVisible: true,
+                title: 'RSI↓2',
+            }));
+        }
+    });
+
+    // Fibonacci Golden Pocket + Extension lines
+    $effect(() => {
+        if (fibGpTopLine) { candleSeries.removePriceLine(fibGpTopLine); fibGpTopLine = null; }
+        if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
+        if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
+        if (fibExt2618Line) { candleSeries.removePriceLine(fibExt2618Line); fibExt2618Line = null; }
+        if (!pair || !pair.showFib) return;
+
+        const snap = pair.latestSnapshot;
+        if (!snap) return;
+
+        const gpLow = snap.fib_golden_pocket_low != null ? parseFloat(String(snap.fib_golden_pocket_low)) : null;
+        const gpHigh = snap.fib_golden_pocket_high != null ? parseFloat(String(snap.fib_golden_pocket_high)) : null;
+        const ext1618 = snap.fib_extension_1618 != null ? parseFloat(String(snap.fib_extension_1618)) : null;
+        const ext2618 = snap.fib_extension_2618 != null ? parseFloat(String(snap.fib_extension_2618)) : null;
+
+        if (gpHigh != null && gpHigh > 0) {
+            fibGpTopLine = candleSeries.createPriceLine({
+                price: gpHigh,
+                color: '#f1c40f',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: 'GP 61.8%',
+            });
+        }
+        if (gpLow != null && gpLow > 0) {
+            fibGpBottomLine = candleSeries.createPriceLine({
+                price: gpLow,
+                color: '#f1c40f',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: 'GP 66.0%',
+            });
+        }
+        if (ext1618 != null && ext1618 > 0) {
+            fibExt1618Line = candleSeries.createPriceLine({
+                price: ext1618,
+                color: '#4caf50',
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: '1.618 Ext',
+            });
+        }
+        if (ext2618 != null && ext2618 > 0) {
+            fibExt2618Line = candleSeries.createPriceLine({
+                price: ext2618,
+                color: '#00e676',
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: '2.618 Ext',
+            });
+        }
+    });
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-wrapper">
+    {#if pair}
+        <span class="ema-stack-label"
+            class:bullish={pair.emaStackState === 'bullish'}
+            class:bearish={pair.emaStackState === 'bearish'}
+        >
+            {pair.emaStackState?.toUpperCase() || 'TANGLED'}
+        </span>
+        <span class="vwap-bias-label"
+            class:premium={pair.vwapBias === 'premium'}
+            class:discount={pair.vwapBias === 'discount'}
+        >
+            VWAP: {pair.vwapBias?.toUpperCase() || '--'}
+        </span>
+    {/if}
+    <div class="chart-container" bind:this={container}></div>
+</div>
 
 <style>
+    .chart-wrapper { position: relative; width: 100%; height: 100%; }
     .chart-container { width: 100%; height: 100%; }
+    .ema-stack-label {
+        position: absolute;
+        top: 4px;
+        left: 6px;
+        z-index: 10;
+        font-size: 8px;
+        font-weight: 700;
+        font-family: 'Courier New', monospace;
+        letter-spacing: 0.05em;
+        padding: 1px 5px;
+        border-radius: 3px;
+        background: rgba(15, 17, 26, 0.85);
+        color: #8f929d;
+        border: 1px solid #4c525e;
+    }
+    .ema-stack-label.bullish { color: #26a69a; border-color: rgba(38, 166, 154, 0.4); }
+    .ema-stack-label.bearish { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
+    .vwap-bias-label {
+        position: absolute;
+        top: 4px;
+        left: 64px;
+        z-index: 10;
+        font-size: 8px;
+        font-weight: 700;
+        font-family: 'Courier New', monospace;
+        letter-spacing: 0.05em;
+        padding: 1px 5px;
+        border-radius: 3px;
+        background: rgba(15, 17, 26, 0.85);
+        color: #8f929d;
+        border: 1px solid #4c525e;
+    }
+    .vwap-bias-label.premium { color: #ffb300; border-color: rgba(255, 179, 0, 0.4); }
+    .vwap-bias-label.discount { color: #ff5252; border-color: rgba(255, 82, 82, 0.4); }
 </style>
