@@ -2610,6 +2610,11 @@ pub async fn paper_get_account_metrics(
 // ─── Seed Default Profiles ─────────────────────────────────────────
 
 async fn seed_default_profiles(pool: &SqlitePool) {
+    sqlx::query("UPDATE decision_profiles SET profile_name = 'Default' WHERE profile_name = 'Cryptobruj'")
+        .execute(&*pool)
+        .await
+        .ok();
+
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM decision_profiles")
         .fetch_one(&*pool)
         .await
@@ -2620,7 +2625,7 @@ async fn seed_default_profiles(pool: &SqlitePool) {
 
     sqlx::query(
         "INSERT INTO decision_profiles (profile_name, long_threshold, short_threshold)
-         VALUES ('Cryptobruj', 40, -40)"
+         VALUES ('Default', 40, -40)"
     )
     .execute(&*pool)
     .await
