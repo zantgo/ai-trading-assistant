@@ -69,7 +69,7 @@ An immutable fallback configuration is stored at `config.default.toml` to serve 
 
 ## LLM Setup (DeepSeek)
 
-The engine reads API credentials from a `.env` file at the workspace root. **This file is required** — the engine will refuse to start without a valid key.
+The engine reads API credentials from a `.env` file at the workspace root. The key is recommended but not mandatory — the engine starts regardless and falls back to local heuristic analysis when no valid key is present.
 
 ### Step 1 — Create `.env`
 
@@ -106,15 +106,19 @@ All variables go in the `.env` file, one per line. Do **not** export them in you
 
 ### Startup validation
 
-At startup the engine makes a test call to the DeepSeek API to verify the key. If the key is missing, empty, invalid, or rejected by the API, the engine prints an error and exits immediately:
+At startup the engine attempts a test call to the DeepSeek API to verify the key. If a valid key is found, the `api_key_configured` flag is set and the full multi-agent LLM pipeline becomes available for automated and on-demand analysis.
+
+If the key is missing, empty, invalid, or rejected by the API, the engine prints a warning and continues to boot normally, falling back to local heuristic evaluation for all analysis requests:
 
 ```
-❌ Failed to load .env file: ...
-❌ LLM Setup Error: DEEPSEEK_API_KEY not found in .env file...
-❌ API Key Validation Failed: DeepSeek API rejected the key (HTTP 401)...
+⚠️  No .env file found: ...
+   Create a .env file at the project root with: DEEPSEEK_API_KEY=sk-...
+   The dashboard will run, but AI features require a valid key.
+⚠️  No API key found. AI analysis will fall back to local heuristics. Configure via the UI config panel.
+⚠️  API Key Validation Failed: ... You can configure it manually in the UI.
 ```
 
-The engine will **not** start without a valid key. There is no offline / heuristic-only mode.
+The engine does **not** exit or refuse to start without a key — it operates in heuristic-only mode until a valid key is provided via the dashboard Settings panel or by restarting with a corrected `.env` file.
 
 ---
 
@@ -413,9 +417,9 @@ individually using the command helper:
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | Engine panics at startup | Missing `config.toml` | Ensure `config.toml` exists in the workspace root |
-| "Failed to load .env file" | No `.env` file | Copy `.env.example` to `.env` and fill in your key |
-| "DEEPSEEK_API_KEY not found" | `.env` exists but key is commented or missing | Add `DEEPSEEK_API_KEY=sk-...` to `.env` |
-| "API Key Validation Failed (HTTP 401)" | Invalid or expired API key | Check your key at https://platform.deepseek.com/api_keys |
+| "Failed to load .env file" | No `.env` file found; engine continues with heuristics | Copy `.env.example` to `.env` and add your key, or use the Settings panel |
+| "DEEPSEEK_API_KEY not found" | `.env` exists but key is empty or commented; engine continues with heuristics | Add `DEEPSEEK_API_KEY=sk-...` to `.env` or configure via Settings panel |
+| "API Key Validation Failed (HTTP 401)" | Invalid or expired API key; engine continues with heuristics | Check your key at https://platform.deepseek.com/api_keys |
 | Frontend shows blank page | `dist/` not built | Run `npm run build` inside `crates/frontend` |
 | Charts stuck at initial values | No WebSocket connection | Verify engine is running and port 3000 is not blocked |
 | "Failed to parse LLM JSON output" | Model returned non-JSON | Falls back to heuristics automatically; check logs for raw content |

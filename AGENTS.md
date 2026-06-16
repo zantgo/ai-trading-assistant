@@ -147,3 +147,11 @@ When submitting payload parameters to your LLM, supply a system prompt designed 
 ```
 
 By keeping tasks manual, structured, and strictly advisory, the codebase retains its performance traits without introducing autonomous execution risks.
+
+## Unified Deterministic-AI Hybrid Architecture
+
+To maintain high performance and prevent logic fragmentation, this system strictly uses a **Single-Pipeline Hybrid Model**.
+
+1. **NO FALLBACK SYSTEMS:** Deterministic indicators (RVOL, BBWP, ATR, S/R role-reversals, and the 100-point confluence score) are computed exclusively in Rust as Layer 1 & 2 "Ground Truth" data.
+2. **AI-ALWAYS DECISIONS:** This computed data is passed directly into the system prompts and user payloads of the Layer 3 AI Domain Agents and Layer 4 Master Orchestrator.
+3. **STRATEGIC REASONING:** The LLM's role is to perform cognitive synthesis, risk adjustments, and contextual memory lookups — NOT to perform redundant mathematical calculations. If the LLM is unconfigured, the system reports an error; it must never fallback to an isolated offline decision maker.

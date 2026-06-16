@@ -163,7 +163,7 @@ pub fn spawn_candle_aggregator(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
+    use rust_decimal::prelude::*;
 
     fn make_candle(start_ms: u64, open: f64, close: f64, high: f64, low: f64) -> NormalizedCandle {
         NormalizedCandle {

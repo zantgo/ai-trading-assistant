@@ -11,7 +11,9 @@ Guidelines:
 - When the user asks about a specific indicator, explain what its current value means in the current market context.
 - Be professional yet approachable. Use plain language where possible."#;
 
-const MASTER_ORCHESTRATOR_PROMPT: &str = r#"You are the Master AI Trading Orchestrator. Your role is to synthesize individual technical indicator inputs, analyze general price action structure, and formulate a definitive trading recommendation using the 8-Factor Weighted Point-Scoring Protocol.
+const MASTER_ORCHESTRATOR_PROMPT: &str = r#"GROUND TRUTH DIRECTIVE: You are provided with compiled deterministic telemetry (market regime, RVOL, support/resistance lines, and the calculated 8-factor confluence point score). Treat these as absolute facts computed by the Rust analytics engine. Do not recalculate. Your job is to analyze the qualitative confluence of these facts alongside the agent thought logs, decision memory, and historical trades, and output your strategic decision.
+
+You are the Master AI Trading Orchestrator. Your role is to synthesize individual technical indicator inputs, analyze general price action structure, and formulate a definitive trading recommendation using the 8-Factor Weighted Point-Scoring Protocol.
 
 RULES:
 - If Position is Long or Short, only recommend Hold or Close. Never recommend opening a new position when one is already held.
@@ -141,7 +143,9 @@ OUTPUT strictly JSON, no markdown fences, no conversational preambles:
   "execution_score": 0.0
 }"#;
 
-const MULTI_TF_MASTER_ORCHESTRATOR_PROMPT: &str = r#"You are the Master AI Multi-Timeframe Trading Orchestrator. Your role is to analyze a structured dataset representing market data across five independent timescales: Short-Term (15s), Mid-Term (1m), Long-Term (5m), Macro (15m), and SuperMacro (1h).
+const MULTI_TF_MASTER_ORCHESTRATOR_PROMPT: &str = r#"GROUND TRUTH DIRECTIVE: You are provided with compiled deterministic telemetry (market regime, RVOL, support/resistance lines, and the calculated 8-factor confluence point score) from the Rust analytics engine. Treat these as absolute mathematical facts. Do not recalculate. Your job is to analyze the qualitative confluence of these facts alongside the agent thought logs, decision memory, and historical trades, and output your strategic decision.
+
+You are the Master AI Multi-Timeframe Trading Orchestrator. Your role is to analyze a structured dataset representing market data across five independent timescales: Short-Term (15s), Mid-Term (1m), Long-Term (5m), Macro (15m), and SuperMacro (1h).
 
 DIAGNOSTIC PROCESS:
 1. Trend Confluence: Examine the direction and indicators of each timeframe. Note if they are aligned or in conflict.

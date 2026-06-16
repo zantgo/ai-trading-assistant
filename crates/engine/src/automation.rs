@@ -170,6 +170,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         }
 
         if !ctx.api_key_configured.load(std::sync::atomic::Ordering::Relaxed) {
+            println!("🤖 Automation: No API Key configured for {}. Skipping cycle...", ctx.pair_key);
             continue;
         }
 
@@ -269,6 +270,14 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 return;
             }
 
+            let support_strings: Vec<String> = bg_support_levels.iter().map(|s| s.to_string()).collect();
+            let resistance_strings: Vec<String> = bg_resistance_levels.iter().map(|s| s.to_string()).collect();
+            let telemetry = crate::server::compile_deterministic_telemetry(
+                &bg_indicators_mid,
+                &support_strings,
+                &resistance_strings,
+            );
+
             let multi_agent_results = match crate::server::run_multi_agent_pipeline(
                 bg_llm.clone(),
                 bg_pool.clone(),
@@ -280,6 +289,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 &bg_indicators_supermacro,
                 &bg_prices,
                 master_id,
+                &telemetry,
             ).await {
                 Ok(res) => res,
                 Err(e) => {
@@ -293,9 +303,6 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
             let journal_context = db::query_recent_journal_for_context(&bg_pool, &bg_symbol, 10).await;
             let journal_opt: Option<&str> = if journal_context.is_empty() { None } else { Some(&journal_context) };
-
-            let support_strings: Vec<String> = bg_support_levels.iter().map(|s| s.to_string()).collect();
-            let resistance_strings: Vec<String> = bg_resistance_levels.iter().map(|s| s.to_string()).collect();
 
             let phase_two = match llm.run_multi_timeframe_orchestrator(
                 "None",

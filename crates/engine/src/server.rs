@@ -22,7 +22,7 @@ use shared::TriggerType;
 use crate::adapters;
 use crate::config::{AppConfig, AutomationConfig, TimeframeConfig};
 use crate::analyzer::{self, ActivePair};
-use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult, MultiAgentResults};
+use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MultiAgentResults};
 use crate::automation;
 use crate::profile_evaluation::classify_market_regime;
 use crate::db::{DecisionMemoryBufferRow, CompletedTradesBufferRow};
@@ -559,6 +559,19 @@ async fn serve_analyze(
     )
     .await;
 
+    let have_key = {
+        let llm = state.llm_client.read().await;
+        !llm.api_key.is_empty()
+    };
+    if !have_key {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "AI Assistant API Key is not configured. Heuristic fallback has been deprecated. Please configure your key in settings."
+            })),
+        ).into_response();
+    }
+
     let bg_pool = state.pool.clone();
     let bg_llm = state.llm_client.clone();
     let bg_telemetry = state.telemetry_tx.clone();
@@ -584,6 +597,10 @@ async fn serve_analyze(
         let macro_snap = mtf.and_then(|t| t.macro_term.as_ref()).unwrap_or(&empty_snap);
         let supermacro_snap = mtf.and_then(|t| t.supermacro_term.as_ref()).unwrap_or(&empty_snap);
 
+        let support_strings: Vec<String> = support_levels.iter().map(|s| s.to_string()).collect();
+        let resistance_strings: Vec<String> = resistance_levels.iter().map(|s| s.to_string()).collect();
+        let telemetry = compile_deterministic_telemetry(mid_snap, &support_strings, &resistance_strings);
+
         let multi_agent_results = match run_multi_agent_pipeline(
             bg_llm.clone(),
             bg_pool.clone(),
@@ -595,6 +612,7 @@ async fn serve_analyze(
             supermacro_snap,
             &prices,
             master_id,
+            &telemetry,
         ).await {
             Ok(res) => res,
             Err(e) => {
@@ -609,17 +627,14 @@ async fn serve_analyze(
         let journal_context = crate::db::query_recent_journal_for_context(&bg_pool, &bg_raw_symbol, 10).await;
         let journal_opt: Option<&str> = if journal_context.is_empty() { None } else { Some(&journal_context) };
 
-        let support_strings: Vec<String> = support_levels.iter().map(|s| s.to_string()).collect();
-        let resistance_strings: Vec<String> = resistance_levels.iter().map(|s| s.to_string()).collect();
-
         match llm.run_master_orchestrator(
             &position,
             &bg_entry_price,
             &prices,
             &bg_symbol,
             &phase_one_json,
-            &support_strings,
-            &resistance_strings,
+            &telemetry.support_levels,
+            &telemetry.resistance_levels,
             journal_opt,
             Some(&bg_symbol),
         ).await {
@@ -1292,6 +1307,7 @@ pub async fn run_multi_agent_pipeline(
     _supermacro: &IndicatorSnapshot,
     prices: &[f64],
     master_id: i64,
+    telemetry: &DeterministicTelemetry,
 ) -> Result<MultiAgentResults, String> {
     let client_guard = client.read().await;
     let prices_json = serde_json::to_string(&prices).unwrap_or_default();
@@ -1299,23 +1315,20 @@ pub async fn run_multi_agent_pipeline(
     let pair_key = format!("Hyperliquid-{}", raw_symbol);
 
     let context_trend = format!(
-        r#"{{ "close": {}, "ema_fast": {}, "ema_medium": {}, "ema_slow": {}, "ema_long": {}, "ema_stack_state": "{}" }}"#,
+        r#"{{ "close": {}, "ema_stack_state": "{}", "deterministic_eight_factor_score": {}, "macro_trend_regime": "{}" }}"#,
         mid.current_price.unwrap_or(0.0),
-        mid.ema_fast.unwrap_or(0.0),
-        mid.ema_medium.unwrap_or(0.0),
-        mid.ema_slow.unwrap_or(0.0),
-        mid.ema_long.unwrap_or(0.0),
-        mid.ema_stack_state.as_deref().unwrap_or("tangled")
+        mid.ema_stack_state.as_deref().unwrap_or("tangled"),
+        telemetry.total_confluence_score,
+        telemetry.market_regime
     );
 
     let context_volatility = format!(
-        r#"{{ "bbwp": {}, "atr": {}, "atr_volatility_regime": "{}", "squeeze_on": {}, "squeeze_duration": {}, "squeeze_release_trigger": {} }}"#,
-        mid.bbwp.unwrap_or(50.0),
+        r#"{{ "market_regime": "{}", "bbwp": {}, "atr": {}, "squeeze_on": {}, "rvol": {} }}"#,
+        telemetry.market_regime,
+        telemetry.bbwp_percentile,
         mid.atr.unwrap_or(0.0),
-        mid.atr_volatility_regime.as_deref().unwrap_or("stable"),
-        mid.squeeze_on.unwrap_or(false),
-        mid.squeeze_duration.unwrap_or(0),
-        mid.squeeze_release_trigger.unwrap_or(false)
+        telemetry.squeeze_on,
+        telemetry.rvol
     );
 
     let context_structure = format!(
@@ -1467,125 +1480,38 @@ pub async fn run_multi_agent_pipeline(
     })
 }
 
-pub fn heuristic_master_synthesis(
-    position: &str,
-    prices: &[f64],
-    indicators: &IndicatorSnapshot,
+#[derive(Debug, Clone, Serialize)]
+pub struct DeterministicTelemetry {
+    pub market_regime: String,
+    pub total_confluence_score: i32,
+    pub rvol: f64,
+    pub adx_value: f64,
+    pub adx_regime: String,
+    pub bbwp_percentile: f64,
+    pub squeeze_on: bool,
+    pub vwap_bias: String,
+    pub support_levels: Vec<String>,
+    pub resistance_levels: Vec<String>,
+    pub rsi_divergence_state: String,
+    pub macd_divergence_state: String,
+    pub macd_crossover_state: String,
+    pub squeeze_release_state: String,
+}
+
+pub fn compile_deterministic_telemetry(
+    mid: &IndicatorSnapshot,
     support_levels: &[String],
     resistance_levels: &[String],
-    phase_one: &[IndividualIndicatorResult],
-) -> MasterOrchestratorResult {
-    let (trend_class, trend_reasoning) = classify_trend(prices, indicators);
-    let (action, rationale, abs_score) = compute_heuristic_recommendation(position, &trend_class, indicators, support_levels, resistance_levels);
+) -> DeterministicTelemetry {
+    let adx = mid.adx.unwrap_or(0.0);
+    let bbwp = mid.bbwp.unwrap_or(50.0);
+    let squeeze_on = mid.squeeze_on.unwrap_or(false);
+    let rvol = mid.rvol.unwrap_or(1.0);
+    let atr_regime = mid.atr_volatility_regime.as_deref();
+    let ema_stack = mid.ema_stack_state.as_deref();
+    let squeeze_released = mid.squeeze_release_trigger.unwrap_or(false);
 
-    let bullish_count = phase_one.iter().filter(|r| r.signal == "BULLISH").count();
-    let bearish_count = phase_one.iter().filter(|r| r.signal == "BEARISH").count();
-    let sideways_count = phase_one.iter().filter(|r| r.signal == "SIDEWAYS").count();
-    let summary = format!("{} Bullish, {} Bearish, {} Sideways", bullish_count, bearish_count, sideways_count);
-
-    let evaluation = if bullish_count > bearish_count && bullish_count > sideways_count {
-        "The majority of technical indicators signal bullish momentum, aligning with upward price pressure.".to_string()
-    } else if bearish_count > bullish_count && bearish_count > sideways_count {
-        "The majority of technical indicators signal bearish momentum, pointing to downward pressure.".to_string()
-    } else {
-        "Indicators are mixed with no dominant directional signal, suggesting a consolidating market.".to_string()
-    };
-
-    let s_and_r_analysis = format!(
-        "Support levels ({}) and resistance levels ({}) frame the current price action. Price testing these boundaries will determine the next directional move.",
-        support_levels.join(", "),
-        resistance_levels.join(", "),
-    );
-
-    let allocation_pct = match abs_score {
-        0..=59 => 0.0,
-        60..=75 => 1.0,
-        76..=85 => 2.0,
-        _ => 3.0,
-    };
-
-    MasterOrchestratorResult {
-        general_trend: trend_class,
-        support_and_resistance: crate::llm::SupportResistance {
-            detected_support_levels: support_levels.to_vec(),
-            detected_resistance_levels: resistance_levels.to_vec(),
-            structural_analysis: format!("{} {}", s_and_r_analysis, trend_reasoning),
-        },
-        indicator_synthesis: crate::llm::IndicatorSynthesis {
-            summary_count: summary,
-            evaluation,
-        },
-        position_recommendation: crate::llm::PositionRecommendation {
-            action,
-            rationale,
-        },
-        eight_factor_score: abs_score as i32,
-        allocation_pct,
-    }
-}
-
-fn classify_trend(prices: &[f64], indicators: &IndicatorSnapshot) -> (String, String) {
-    if prices.len() < 10 {
-        return ("SIDEWAYS".into(), "Insufficient price data.".into());
-    }
-
-    let mut higher_highs = 0;
-    let mut higher_lows = 0;
-    let mut lower_highs = 0;
-    let mut lower_lows = 0;
-
-    for window in prices.windows(5) {
-        if window.len() < 5 { continue; }
-        let max_a = window[0..2].iter().cloned().fold(f64::MIN, f64::max);
-        let max_b = window[3..5].iter().cloned().fold(f64::MIN, f64::max);
-        if max_b > max_a { higher_highs += 1; }
-        if max_b < max_a { lower_highs += 1; }
-        let min_a = window[0..2].iter().cloned().fold(f64::MAX, f64::min);
-        let min_b = window[3..5].iter().cloned().fold(f64::MAX, f64::min);
-        if min_b > min_a { higher_lows += 1; }
-        if min_b < min_a { lower_lows += 1; }
-    }
-
-    let ema_bullish = indicators.ema_stack_state.as_deref() == Some("bullish");
-    let ema_bearish = indicators.ema_stack_state.as_deref() == Some("bearish");
-    let above_200 = match (indicators.ema_long, indicators.current_price) {
-        (Some(ema), Some(px)) => px > ema,
-        _ => false,
-    };
-
-    if higher_highs > higher_lows && higher_highs > 0 && ema_bullish && above_200 {
-        ("UPWARD".into(), format!("HH+HL pattern ({} swings), bullish EMA stack, price > 200 EMA", higher_highs))
-    } else if lower_highs > lower_lows && lower_lows > 0 && ema_bearish && !above_200 {
-        ("DOWNWARD".into(), format!("LH+LL pattern ({} swings), bearish EMA stack, price < 200 EMA", lower_lows))
-    } else {
-        let first_half: f64 = prices.iter().take(prices.len()/2).sum::<f64>() / (prices.len()/2) as f64;
-        let last_half: f64 = prices.iter().skip(prices.len()/2).sum::<f64>() / (prices.len()/2) as f64;
-        let change_pct = (last_half - first_half) / first_half * 100.0;
-        if change_pct > 1.0 {
-            ("UPWARD".into(), format!("Moderate {:.2}% upward drift (structure unclear)", change_pct))
-        } else if change_pct < -1.0 {
-            ("DOWNWARD".into(), format!("Moderate {:.2}% downward drift (structure unclear)", change_pct))
-        } else {
-            ("SIDEWAYS".into(), format!("Consolidation: {:.2}% net change", change_pct))
-        }
-    }
-}
-
-fn compute_heuristic_recommendation(
-    position: &str,
-    trend: &str,
-    indicators: &IndicatorSnapshot,
-    _support_levels: &[String],
-    _resistance_levels: &[String],
-) -> (String, String, u32) {
-    let adx = indicators.adx.unwrap_or(0.0);
-    let bbwp = indicators.bbwp.unwrap_or(50.0);
-    let squeeze_on = indicators.squeeze_on.unwrap_or(false);
-    let rvol = indicators.rvol.unwrap_or(1.0);
-    let atr_regime = indicators.atr_volatility_regime.as_deref();
-    let ema_stack = indicators.ema_stack_state.as_deref();
-    let squeeze_released = indicators.squeeze_release_trigger.unwrap_or(false);
-
+    // 1. Regime Classification
     let regime = if bbwp < 10.0 || squeeze_on {
         "COMPRESSION"
     } else if squeeze_released || (bbwp > 90.0 && atr_regime == Some("expanding")) {
@@ -1596,98 +1522,78 @@ fn compute_heuristic_recommendation(
         "RANGE"
     };
 
-    let trend_score: i32 = match trend {
-        "UPWARD" => 30,
-        "DOWNWARD" => -30,
-        _ => 0,
-    };
+    // 2. Resolve Trigger vs Confirmation States
+    let is_completed = mid.current_price.is_some();
 
-    let vol_score: i32 = match regime {
-        "EXPANSION" => 25,
-        "TRENDING" => 20,
-        "COMPRESSION" => 5,
-        _ => 10,
-    };
-
-    let mut mom_score: i32 = 0;
-    let rsi = indicators.rsi.unwrap_or(50.0);
-    if rsi > 60.0 { mom_score += 10; }
-    else if rsi < 40.0 { mom_score -= 10; }
-    if indicators.macd_crossover_detected.unwrap_or(false) {
-        match indicators.macd_crossover_direction.as_deref() {
-            Some("BULLISH") => mom_score += 10,
-            Some("BEARISH") => mom_score -= 10,
-            _ => {}
-        }
+    let macd_crossover_state = if mid.macd_crossover_detected.unwrap_or(false) {
+        if is_completed { "confirmed".to_string() } else { "trigger".to_string() }
     } else {
-        match (indicators.macd_line, indicators.macd_signal) {
-            (Some(line), Some(sig)) if line > sig => mom_score += 10,
-            (Some(line), Some(sig)) if line < sig => mom_score -= 10,
-            _ => {}
-        }
+        "none".to_string()
+    };
+
+    let squeeze_release_state = if squeeze_released {
+        if is_completed { "confirmed".to_string() } else { "trigger".to_string() }
+    } else {
+        "none".to_string()
+    };
+
+    let rsi_div_state = mid.rsi_divergence_status.clone().unwrap_or_else(|| "none".to_string());
+    let macd_div_state = mid.macd_divergence_status.clone().unwrap_or_else(|| "none".to_string());
+
+    // 3. Full 100-Point Scoring Protocol
+    let mut score = 0;
+
+    // A. RSI Alignment (10 pts)
+    if mid.rsi.map_or(false, |r| r < 30.0) { score += 10; }
+    else if mid.rsi.map_or(false, |r| r > 70.0) { score -= 10; }
+
+    // B. RSI Divergence (20 pts)
+    if rsi_div_state == "confirmed" { score += 20; }
+    else if rsi_div_state == "potential" { score += 10; }
+
+    // C. MACD Crossover (10 pts)
+    if macd_crossover_state == "confirmed" {
+        if mid.macd_crossover_direction.as_deref() == Some("BULLISH") { score += 10; }
+        else if mid.macd_crossover_direction.as_deref() == Some("BEARISH") { score -= 10; }
     }
 
-    let mut struct_score: i32 = 0;
-    match indicators.ema_stack_state.as_deref() {
-        Some("bullish") => struct_score += 15,
-        Some("bearish") => struct_score -= 15,
-        _ => {}
-    }
-    match (indicators.ema_long, indicators.current_price) {
-        (Some(e), Some(p)) if p > e => struct_score += 10,
-        (Some(e), Some(p)) if p < e => struct_score -= 10,
-        _ => {}
+    // D. MACD Divergence (10 pts)
+    if macd_div_state == "confirmed" { score += 10; }
+
+    // E. Support/Resistance Alignment (10 pts)
+    let cp = mid.current_price.unwrap_or(0.0);
+    let s_f64: Vec<f64> = support_levels.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
+    let r_f64: Vec<f64> = resistance_levels.iter().filter_map(|r| r.parse::<f64>().ok()).collect();
+    if s_f64.iter().any(|&s| (cp - s).abs() < s * 0.005) { score += 10; }
+    if r_f64.iter().any(|&r| (cp - r).abs() < r * 0.005) { score -= 10; }
+
+    // F. Macro Trend Alignment (20 pts)
+    if let (Some(ema), Some(px)) = (mid.ema_long, mid.current_price) {
+        if px > ema { score += 20; } else { score -= 20; }
     }
 
-    let abs_score = (trend_score.abs() + vol_score.abs() + mom_score.abs() + struct_score.abs()) as u32;
-    let net_bias = trend_score + vol_score + mom_score + struct_score;
-    let score_below_min = abs_score < 60;
+    // G. EMA Stacking (10 pts)
+    if ema_stack == Some("bullish") { score += 10; }
+    else if ema_stack == Some("bearish") { score -= 10; }
 
-    let breakout_signal = indicators.macd_crossover_detected.unwrap_or(false)
-        || indicators.squeeze_release_trigger.unwrap_or(false);
-    let volume_ok = !breakout_signal || rvol >= 1.5;
+    // H. Chart Patterns / Volatility Breakout (10 pts)
+    if squeeze_release_state == "confirmed" { score += 10; }
 
-    if regime == "RANGE" && position == "None" && !breakout_signal {
-        return ("Wait".into(), "Range regime — trend-following entries not permitted. Wait for breakout.".into(), abs_score);
-    }
-    if regime == "COMPRESSION" && position == "None" && !squeeze_released {
-        return ("Wait".into(), "Compression regime — no entries before breakout confirmation.".into(), abs_score);
-    }
-    if score_below_min {
-        return ("Wait".into(), format!("Score {}/100 below minimum threshold (60) — insufficient confluence.", abs_score), abs_score);
-    }
-    if breakout_signal && !volume_ok {
-        return ("Wait".into(), format!("Breakout signal without volume confirmation (RVOL={:.1}, need >= 1.5).", rvol), abs_score);
-    }
-
-    match position {
-        "Long" => {
-            if net_bias > 0 {
-                ("Hold".into(), format!("{} regime, score {}/100 — maintain long position.", regime, abs_score), abs_score)
-            } else if net_bias < -60 {
-                ("Close".into(), format!("{} regime, opposite score {}/100 — consider closing to protect capital.", regime, abs_score), abs_score)
-            } else {
-                ("Hold".into(), format!("{} regime, score {}/100 — hold and monitor.", regime, abs_score), abs_score)
-            }
-        }
-        "Short" => {
-            if net_bias < 0 {
-                ("Hold".into(), format!("{} regime, score {}/100 — maintain short position.", regime, abs_score), abs_score)
-            } else if net_bias > 60 {
-                ("Close".into(), format!("{} regime, opposite score {}/100 — consider closing to limit losses.", regime, abs_score), abs_score)
-            } else {
-                ("Hold".into(), format!("{} regime, score {}/100 — hold and monitor.", regime, abs_score), abs_score)
-            }
-        }
-        _ => {
-            if net_bias > 60 {
-                ("Open Long".into(), format!("{} regime, score {}/100 with bullish confluence — consider long entry.", regime, abs_score), abs_score)
-            } else if net_bias < -60 {
-                ("Open Short".into(), format!("{} regime, score {}/100 with bearish confluence — consider short entry.", regime, abs_score), abs_score)
-            } else {
-                ("Wait".into(), format!("{} regime, score {}/100 — insufficient directional conviction. Wait.", regime, abs_score), abs_score)
-            }
-        }
+    DeterministicTelemetry {
+        market_regime: regime.to_string(),
+        total_confluence_score: score,
+        rvol,
+        adx_value: adx,
+        adx_regime: mid.adx_regime.clone().unwrap_or_else(|| "congestion".to_string()),
+        bbwp_percentile: bbwp,
+        squeeze_on,
+        vwap_bias: mid.vwap_bias.clone().unwrap_or_else(|| "equilibrium".to_string()),
+        support_levels: support_levels.to_vec(),
+        resistance_levels: resistance_levels.to_vec(),
+        rsi_divergence_state: rsi_div_state,
+        macd_divergence_state: macd_div_state,
+        macd_crossover_state,
+        squeeze_release_state,
     }
 }
 
@@ -3464,59 +3370,74 @@ mod tests {
     }
 
     #[test]
-    fn test_heuristic_recommendation_logic() {
-        let mut indicators = IndicatorSnapshot {
+    fn test_compile_deterministic_telemetry() {
+        let indicators = IndicatorSnapshot {
             rsi: Some(25.0),
-            squeeze_on: Some(true),
+            squeeze_on: Some(false),
             squeeze_momentum: Some(-0.05),
-            squeeze_duration: None,
-            squeeze_release_trigger: None,
-            squeeze_momentum_direction: None,
+            squeeze_duration: Some(3),
+            squeeze_release_trigger: Some(false),
+            squeeze_momentum_direction: Some("Flat".to_string()),
             chart_pattern: None,
             chart_pattern_confidence: None,
-            bbwp: None,
-            macd_line: None,
-            macd_signal: None,
-            macd_histogram: Some(-1.2),
+            bbwp: Some(5.0),
+            macd_line: Some(-0.5),
+            macd_signal: Some(-0.3),
+            macd_histogram: Some(-0.2),
             macd_histogram_trend: None,
-            adx: None,
-            adx_plus: None,
-            adx_minus: None,
+            adx: Some(15.0),
+            adx_plus: Some(12.0),
+            adx_minus: Some(18.0),
             bb_upper: None,
             bb_middle: None,
             bb_lower: None,
-            atr: None,
+            atr: Some(1.5),
             atr_trend: None,
-            atr_volatility_regime: None,
+            atr_volatility_regime: Some("contracting".to_string()),
             current_price: Some(3125.0),
             volume: None,
             average_volume: None,
-            rvol: None,
+            rvol: Some(0.8),
             ema_fast: None,
             ema_medium: None,
             ema_slow: None,
-            ema_long: None,
-            ema_stack_state: None,
-            vwap: None,
-            vwap_bias: None,
-            rsi_divergence_status: None,
-            macd_divergence_status: None,
+            ema_long: Some(3200.0),
+            ema_stack_state: Some("bearish".to_string()),
+            vwap: Some(3130.0),
+            vwap_bias: Some("discount".to_string()),
+            rsi_divergence_status: Some("potential".to_string()),
+            macd_divergence_status: Some("none".to_string()),
             macd_trend_state: None,
-            macd_crossover_detected: None,
+            macd_crossover_detected: Some(false),
             macd_crossover_direction: None,
             macd_histogram_peak: None,
             adx_slope: None,
-            adx_regime: None,
+            adx_regime: Some("congestion".to_string()),
             adx_di_crossover_detected: None,
             adx_di_crossover_direction: None,
         };
 
-        let (action, _) = compute_heuristic_recommendation("Long", "DOWNWARD", &indicators);
-        assert_eq!(action, "Close");
+        let support_levels: Vec<String> = vec!["3100.00".to_string(), "3050.00".to_string()];
+        let resistance_levels: Vec<String> = vec!["3150.00".to_string(), "3200.00".to_string()];
 
-        indicators.rsi = Some(65.0);
-        indicators.macd_histogram = Some(1.5);
-        let (action_none, _) = compute_heuristic_recommendation("None", "UPWARD", &indicators);
-        assert_eq!(action_none, "Open Long");
+        let telemetry = compile_deterministic_telemetry(&indicators, &support_levels, &resistance_levels);
+
+        // bbwp < 10.0 → COMPRESSION regime
+        assert_eq!(telemetry.market_regime, "COMPRESSION");
+        // RSI < 30 → +10, RSI div potential → +10, bearish stack → -10, price < 200EMA → -20
+        // total should be negative
+        assert!(telemetry.total_confluence_score < 0);
+        assert_eq!(telemetry.rvol, 0.8);
+        assert_eq!(telemetry.adx_value, 15.0);
+        assert_eq!(telemetry.adx_regime, "congestion");
+        assert!((telemetry.bbwp_percentile - 5.0).abs() < 0.001);
+        assert!(!telemetry.squeeze_on);
+        assert_eq!(telemetry.vwap_bias, "discount");
+        assert_eq!(telemetry.rsi_divergence_state, "potential");
+        assert_eq!(telemetry.macd_divergence_state, "none");
+        assert_eq!(telemetry.macd_crossover_state, "none");
+        assert_eq!(telemetry.squeeze_release_state, "none");
+        assert_eq!(telemetry.support_levels.len(), 2);
+        assert_eq!(telemetry.resistance_levels.len(), 2);
     }
 }

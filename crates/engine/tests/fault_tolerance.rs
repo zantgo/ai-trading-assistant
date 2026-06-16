@@ -68,6 +68,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 60,
                 "Mid",
                 analyzer_cancel,
+                None,
             )
             .await;
         });
