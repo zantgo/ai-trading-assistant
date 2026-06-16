@@ -13,6 +13,9 @@ use engine::sr_engine::SrRoleTracker;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let web_mode = args.iter().any(|a| a == "--web");
+
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     match dotenvy::dotenv() {
@@ -56,6 +59,8 @@ async fn main() {
     let db_pool = db::init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
+    db::check_encryption_warning(&db_pool);
+
     let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(10000);
     let logger_pool = db_pool.clone();
     let logger_llm = llm_client.clone();
@@ -95,18 +100,24 @@ async fn main() {
 
     let app = server::build_router(app_state.clone());
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .expect("❌ Web Server Setup: Failed to bind port 3000");
-
-    println!("🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000");
-
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
-    });
-
     let mut handles = Vec::new();
     handles.push(logger_handle);
+
+    if web_mode {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+            .await
+            .expect("❌ Web Server Setup: Failed to bind port 3000");
+
+        println!("🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000");
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+        });
+        handles.push(server_handle);
+    } else {
+        println!("🖥️  CLI Mode: Running as headless daemon — Web server disabled (use --web to enable).");
+        drop(app);
+    }
 
     for item in &initial_symbols {
         let (exchange, raw_symbol) = item.split_once(':').unwrap_or(("Hyperliquid", item));
@@ -325,8 +336,6 @@ async fn main() {
             },
         ).await;
     }));
-
-    handles.push(server_handle);
 
     let _ = futures_util::future::join_all(handles).await;
 }

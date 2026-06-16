@@ -6,6 +6,135 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::llm::LlmClient;
 
+mod crypto {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+    use rand::Rng;
+    use sha2::{Sha256, Digest};
+
+    pub fn get_master_key() -> Option<[u8; 32]> {
+        let secret = std::env::var("EXCHANGE_SECRET_KEY").ok()?;
+        if secret.is_empty() {
+            return None;
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(secret.as_bytes());
+        let result = hasher.finalize();
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&result);
+        Some(key)
+    }
+
+    pub fn encrypt_field(plain: &str) -> Option<String> {
+        let key = get_master_key()?;
+        let cipher = Aes256Gcm::new_from_slice(&key).ok()?;
+        let mut nonce_bytes = [0u8; 12];
+        rand::thread_rng().fill(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher.encrypt(nonce, plain.as_bytes()).ok()?;
+        let mut combined = Vec::with_capacity(12 + ciphertext.len());
+        combined.extend_from_slice(&nonce_bytes);
+        combined.extend_from_slice(&ciphertext);
+        Some(base64_encode(&combined))
+    }
+
+    pub fn decrypt_field(encoded: &str) -> Option<String> {
+        let key = get_master_key()?;
+        let cipher = Aes256Gcm::new_from_slice(&key).ok()?;
+        let combined = base64_decode(encoded)?;
+        if combined.len() < 12 {
+            return None;
+        }
+        let (nonce_bytes, ciphertext) = combined.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let plain = cipher.decrypt(nonce, ciphertext).ok()?;
+        String::from_utf8(plain).ok()
+    }
+
+    fn base64_encode(data: &[u8]) -> String {
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+        for chunk in data.chunks(3) {
+            let b0 = chunk[0] as u32;
+            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+            let triple = (b0 << 16) | (b1 << 8) | b2;
+            out.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
+            out.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
+            if chunk.len() > 1 {
+                out.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
+            } else {
+                out.push('=');
+            }
+            if chunk.len() > 2 {
+                out.push(CHARS[(triple & 0x3F) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+        out
+    }
+
+    fn base64_decode(s: &str) -> Option<Vec<u8>> {
+        if s.len() % 4 != 0 {
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(s.len() / 4 * 3);
+        for chunk in s.as_bytes().chunks(4) {
+            if chunk.len() != 4 {
+                return None;
+            }
+            let val = |c: u8| -> Option<u8> {
+                match c {
+                    b'A'..=b'Z' => Some(c - b'A'),
+                    b'a'..=b'z' => Some(c - b'a' + 26),
+                    b'0'..=b'9' => Some(c - b'0' + 52),
+                    b'+' => Some(62),
+                    b'/' => Some(63),
+                    b'=' => Some(0),
+                    _ => None,
+                }
+            };
+            let i0 = val(chunk[0])? as u32;
+            let i1 = val(chunk[1])? as u32;
+            let i2 = val(chunk[2])? as u32;
+            let i3 = val(chunk[3])? as u32;
+            let triple = (i0 << 18) | (i1 << 12) | (i2 << 6) | i3;
+            bytes.push(((triple >> 16) & 0xFF) as u8);
+            if chunk[2] != b'=' {
+                bytes.push(((triple >> 8) & 0xFF) as u8);
+            }
+            if chunk[3] != b'=' {
+                bytes.push((triple & 0xFF) as u8);
+            }
+        }
+        Some(bytes)
+    }
+
+    pub fn master_key_available() -> bool {
+        get_master_key().is_some()
+    }
+}
+
+pub fn check_encryption_warning(pool: &SqlitePool) {
+    if crypto::master_key_available() {
+        return;
+    }
+    let pool = pool.clone();
+    tokio::task::spawn(async move {
+        let row: Result<(i64,), _> = sqlx::query_as("SELECT COUNT(*) FROM exchange_keys")
+            .fetch_one(&pool)
+            .await;
+        if let Ok((count,)) = row {
+            if count > 0 {
+                eprintln!("⚠️  SECURITY: EXCHANGE_SECRET_KEY not set but {} exchange key(s) exist in database. Credentials stored without encryption.", count);
+            }
+        }
+    });
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct UserTrade {
     pub id: i64,
@@ -392,6 +521,15 @@ pub async fn init_db() -> SqlitePool {
         .await
         .expect("❌ Database Setup: Failed to initialize SQLite database pool");
 
+    sqlx::query("PRAGMA journal_mode = WAL;")
+        .execute(&pool)
+        .await
+        .ok();
+    sqlx::query("PRAGMA synchronous = NORMAL;")
+        .execute(&pool)
+        .await
+        .ok();
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -766,6 +904,42 @@ pub async fn init_db() -> SqlitePool {
     .await
     .expect("❌ Database Setup: Failed to build support_resistance_levels table");
 
+    // ─── Agent Thought Logs ─────────────────────────────────────────
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS agent_thought_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            master_record_id INTEGER NOT NULL,
+            agent_name TEXT NOT NULL,
+            thought_process TEXT NOT NULL,
+            json_rpc_payload TEXT NOT NULL,
+            confidence_score INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (master_record_id) REFERENCES master_assistant_records(id)
+        );"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build agent_thought_logs table");
+
+    // ─── Decision Memory Buffer ─────────────────────────────────────
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS decision_memory_buffer (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            regime_classification TEXT NOT NULL,
+            orchestrator_decision TEXT NOT NULL,
+            confidence_score INTEGER NOT NULL,
+            eight_factor_score INTEGER NOT NULL,
+            portfolio_risk_pct REAL NOT NULL
+        );"
+    )
+    .execute(&pool)
+    .await
+    .expect("❌ Database Setup: Failed to build decision_memory_buffer table");
+
     // ─── Auto-Migrations: Extend existing tables ────────────────────
 
     sqlx::query(
@@ -879,6 +1053,14 @@ pub async fn init_db() -> SqlitePool {
     .execute(&pool)
     .await
     .ok();
+
+    let _ = sqlx::query("ALTER TABLE master_assistant_records ADD COLUMN market_regime TEXT DEFAULT 'stable';")
+        .execute(&pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE master_assistant_records ADD COLUMN portfolio_allocation_pct REAL DEFAULT 0.0;")
+        .execute(&pool)
+        .await;
 
     // Seed default profiles if tables are empty
     seed_default_profiles(&pool).await;
@@ -1840,19 +2022,27 @@ async fn paper_scale_in_portion_internal(
         return;
     }
 
-    // Update active_positions with new average and total size
+    // Update or insert active_positions with new average and total size
+    let now_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
     if let Err(e) = sqlx::query(
-        "UPDATE active_positions SET
-            entry_price = ?2,
-            size = ?3,
-            average_entry_price = ?4,
-            current_portions = ?5,
-            final_invalidation_level = ?6
-         WHERE symbol = ?1"
+        "INSERT INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, target_profit_ratio)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 2.0)
+         ON CONFLICT(symbol) DO UPDATE SET
+            entry_price = excluded.entry_price,
+            size = excluded.size,
+            average_entry_price = excluded.average_entry_price,
+            current_portions = excluded.current_portions,
+            final_invalidation_level = excluded.final_invalidation_level"
     )
     .bind(symbol)
+    .bind(direction)
     .bind(new_average_entry_price)
     .bind(total_size)
+    .bind(allocated_usd)
+    .bind(now_ts)
     .bind(new_average_entry_price)
     .bind(portion_number)
     .bind(final_invalidation_level)
@@ -2499,16 +2689,21 @@ pub async fn exchange_keys_list(pool: &SqlitePool) -> Vec<ExchangeKey> {
     .unwrap_or_default();
 
     rows.iter()
-        .map(|r| ExchangeKey {
-            id: r.get(0),
-            exchange: r.get(1),
-            account_name: r.get(2),
-            api_key: r.get(3),
-            api_secret: r.get(4),
-            passphrase: r.get(5),
-            referred_uid: r.get(6),
-            is_active: r.get::<i32, _>(7) != 0,
-            last_sync_timestamp: r.get(8),
+        .map(|r| {
+            let raw_key: String = r.get(3);
+            let raw_secret: String = r.get(4);
+            let raw_passphrase: String = r.get(5);
+            ExchangeKey {
+                id: r.get(0),
+                exchange: r.get(1),
+                account_name: r.get(2),
+                api_key: crypto::decrypt_field(&raw_key).unwrap_or(raw_key),
+                api_secret: crypto::decrypt_field(&raw_secret).unwrap_or(raw_secret),
+                passphrase: crypto::decrypt_field(&raw_passphrase).unwrap_or(raw_passphrase),
+                referred_uid: r.get(6),
+                is_active: r.get::<i32, _>(7) != 0,
+                last_sync_timestamp: r.get(8),
+            }
         })
         .collect()
 }
@@ -2524,15 +2719,18 @@ pub async fn exchange_keys_insert(
     is_active: bool,
 ) -> i64 {
     let active_val: i32 = if is_active { 1 } else { 0 };
+    let encrypted_key = crypto::encrypt_field(api_key).unwrap_or_else(|| api_key.to_string());
+    let encrypted_secret = crypto::encrypt_field(api_secret).unwrap_or_else(|| api_secret.to_string());
+    let encrypted_passphrase = crypto::encrypt_field(passphrase).unwrap_or_else(|| passphrase.to_string());
     let result = sqlx::query(
         "INSERT INTO exchange_keys (exchange, account_name, api_key, api_secret, passphrase, referred_uid, is_active)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
     )
     .bind(exchange)
     .bind(account_name)
-    .bind(api_key)
-    .bind(api_secret)
-    .bind(passphrase)
+    .bind(&encrypted_key)
+    .bind(&encrypted_secret)
+    .bind(&encrypted_passphrase)
     .bind(referred_uid)
     .bind(active_val)
     .execute(&*pool)
@@ -3166,6 +3364,125 @@ pub async fn dash_trade_detail(pool: &SqlitePool) -> Vec<(i64, String, String, f
          FROM trade_telemetry_history ORDER BY exit_timestamp ASC"
     )
     .fetch_all(&*pool)
+    .await
+    .unwrap_or_default()
+}
+
+// ─── Agent Thought Log CRUD ─────────────────────────────────────────
+
+pub async fn insert_agent_thought_log(
+    pool: &SqlitePool,
+    master_record_id: i64,
+    agent_name: &str,
+    thought_process: &str,
+    json_rpc_payload: &str,
+    confidence_score: i32,
+) {
+    if let Err(e) = sqlx::query(
+        "INSERT INTO agent_thought_logs (master_record_id, agent_name, thought_process, json_rpc_payload, confidence_score) \
+         VALUES (?1, ?2, ?3, ?4, ?5)"
+    )
+    .bind(master_record_id)
+    .bind(agent_name)
+    .bind(thought_process)
+    .bind(json_rpc_payload)
+    .bind(confidence_score)
+    .execute(pool)
+    .await {
+        eprintln!("⚠️ Database Error: Failed to save agent thought log for {}: {}", agent_name, e);
+    }
+}
+
+// ─── Decision Memory Buffer CRUD ────────────────────────────────────
+
+pub async fn insert_decision_memory_buffer(
+    pool: &SqlitePool,
+    symbol: &str,
+    timestamp: i64,
+    regime: &str,
+    decision: &str,
+    confidence: i32,
+    score: i32,
+    risk: f64,
+) {
+    if let Err(e) = sqlx::query(
+        "INSERT INTO decision_memory_buffer (symbol, timestamp, regime_classification, orchestrator_decision, confidence_score, eight_factor_score, portfolio_risk_pct) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+    )
+    .bind(symbol)
+    .bind(timestamp)
+    .bind(regime)
+    .bind(decision)
+    .bind(confidence)
+    .bind(score)
+    .bind(risk)
+    .execute(pool)
+    .await {
+        eprintln!("⚠️ Database Error: Failed to write decision memory buffer: {}", e);
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct DecisionMemoryBufferRow {
+    pub id: i64,
+    pub symbol: String,
+    pub timestamp: i64,
+    pub regime_classification: String,
+    pub orchestrator_decision: String,
+    pub confidence_score: i32,
+    pub eight_factor_score: i32,
+    pub portfolio_risk_pct: f64,
+}
+
+pub async fn query_decision_memory_buffer(
+    pool: &SqlitePool,
+    symbol: &str,
+    limit: i64,
+) -> Vec<DecisionMemoryBufferRow> {
+    sqlx::query_as(
+        "SELECT id, symbol, timestamp, regime_classification, orchestrator_decision, confidence_score, eight_factor_score, portfolio_risk_pct \
+         FROM decision_memory_buffer WHERE symbol = ?1 ORDER BY id DESC LIMIT ?2"
+    )
+    .bind(symbol)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct CompletedTradesBufferRow {
+    pub id: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub realized_pnl: f64,
+    pub roi_pct: f64,
+    pub execution_score: f64,
+    pub primary_mistake: Option<String>,
+    pub closed_at: i64,
+}
+
+pub async fn query_completed_trades_buffer(
+    pool: &SqlitePool,
+    symbol: &str,
+    limit: i64,
+) -> Vec<CompletedTradesBufferRow> {
+    sqlx::query_as(
+        "SELECT tth.id, tth.symbol, tth.direction, tth.entry_price, tth.exit_price, tth.realized_pnl, \
+                COALESCE(tth.roi_percentage, 0.0) as roi_pct, \
+                COALESCE(tlj.execution_score, 5.0) as execution_score, \
+                tlj.final_analysis as primary_mistake, \
+                tth.exit_timestamp as closed_at \
+         FROM trade_telemetry_history tth \
+         LEFT JOIN trade_learning_journal tlj ON tlj.trade_id = tth.id \
+         WHERE tth.symbol = ?1 \
+         ORDER BY tth.id DESC LIMIT ?2"
+    )
+    .bind(symbol)
+    .bind(limit)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }

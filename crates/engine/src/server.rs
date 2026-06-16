@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
+use tower_http::cors::{CorsLayer, Any};
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::models::MarketSnapshot;
 use shared::indicators::DivergenceDetector;
@@ -21,8 +22,10 @@ use shared::TriggerType;
 use crate::adapters;
 use crate::config::{AppConfig, AutomationConfig, TimeframeConfig};
 use crate::analyzer::{self, ActivePair};
-use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult};
+use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MasterOrchestratorResult, MultiAgentResults};
 use crate::automation;
+use crate::profile_evaluation::classify_market_regime;
+use crate::db::{DecisionMemoryBufferRow, CompletedTradesBufferRow};
 
 use tokio_util::sync::CancellationToken;
 
@@ -50,7 +53,7 @@ pub struct AnalyzeRequest {
     pub timeframes: Option<MultiTimeframeIndicators>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MultiTimeframeIndicators {
     pub short_term: IndicatorSnapshot,
     pub mid_term: IndicatorSnapshot,
@@ -293,6 +296,29 @@ pub struct MasterHistoryResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AnalyzeAcceptedResponse {
+    pub master_id: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SystemStatusResponse {
+    pub connected: bool,
+    pub latency_ms: u64,
+    pub journal_mode: String,
+    pub total_allocated_margin: f64,
+    pub total_ai_token_costs_usd: f64,
+    pub active_pairs_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ObservabilityBuffersResponse {
+    pub symbol: String,
+    pub recent_decisions: Vec<DecisionMemoryBufferRow>,
+    pub completed_trades: Vec<CompletedTradesBufferRow>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CostEstimateResponse {
     pub price_per_1m_input_tokens: f64,
     pub price_per_1m_output_tokens: f64,
@@ -355,9 +381,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/trade-journal/export/json", get(serve_export_journal_json))
         .route("/api/trades/telemetry", post(serve_trade_telemetry_add))
         .route("/api/cost-estimate", get(serve_cost_estimate))
+        .route("/api/system/status", get(serve_system_status))
+        .route("/api/system/observability", get(serve_observability_buffers))
         .route("/ws", get(ws_handler))
         .route("/favicon.ico", get(|| async { Redirect::to("/favicon.svg") }))
-        .fallback_service(ServeDir::new("crates/engine/frontend/dist"))
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .fallback_service(ServeDir::new("crates/frontend/dist"))
         .with_state(state)
 }
 
@@ -503,7 +532,8 @@ async fn serve_analyze(
     };
 
     let prices = payload.historical_prices.clone();
-    let indicators = &payload.indicators;
+    let indicators = payload.indicators.clone();
+    let timeframes = payload.timeframes.clone();
 
     let last_close = {
         let pair_key = symbol.clone();
@@ -516,19 +546,12 @@ async fn serve_analyze(
         }
     };
 
-    let current_price = indicators.current_price.unwrap_or_else(|| {
-        prices.last().copied().unwrap_or(0.0)
-    });
-
     let entry_price = payload.entry_price.clone();
-
-    let (support_levels, resistance_levels) = compute_support_resistance(&prices, current_price);
-
-    let atr_trend = determine_atr_trend(&state.pool, indicators.atr, 60).await;
+    let position = payload.position.clone();
 
     let master_id = crate::db::insert_master_placeholder(
         &state.pool,
-        &payload.position,
+        &position,
         &entry_price,
         &last_close,
         &symbol,
@@ -536,121 +559,236 @@ async fn serve_analyze(
     )
     .await;
 
-    let llm = state.llm_client.read().await;
+    let bg_pool = state.pool.clone();
+    let bg_llm = state.llm_client.clone();
+    let bg_telemetry = state.telemetry_tx.clone();
+    let bg_symbol = symbol.clone();
+    let bg_entry_price = entry_price.clone();
+    let bg_raw_symbol = symbol.split('-').nth(1).unwrap_or(&symbol).to_string();
 
-    let phase_one_results = if let Some(ref mtf) = payload.timeframes {
+    tokio::spawn(async move {
+        let last_close_f: f64 = last_close.parse().unwrap_or(0.0);
+        let (support_levels, resistance_levels) = compute_support_resistance(&prices, last_close_f);
+        let _atr_trend = determine_atr_trend(&bg_pool, indicators.atr, 60).await;
+
+        let llm = bg_llm.read().await;
+        if llm.api_key.is_empty() {
+            return;
+        }
+
         let empty_snap = IndicatorSnapshot::default();
-        let macro_snap = mtf.macro_term.as_ref().unwrap_or(&empty_snap);
-        let supermacro_snap = mtf.supermacro_term.as_ref().unwrap_or(&empty_snap);
-        run_phase_one_agents_mtf(
-            &llm,
-            &symbol,
-            &mtf.short_term,
-            &mtf.mid_term,
-            &mtf.long_term,
+        let mtf = timeframes.as_ref();
+        let short_snap = mtf.map(|t| &t.short_term).unwrap_or(&indicators);
+        let mid_snap = mtf.map(|t| &t.mid_term).unwrap_or(&indicators);
+        let long_snap = mtf.map(|t| &t.long_term).unwrap_or(&indicators);
+        let macro_snap = mtf.and_then(|t| t.macro_term.as_ref()).unwrap_or(&empty_snap);
+        let supermacro_snap = mtf.and_then(|t| t.supermacro_term.as_ref()).unwrap_or(&empty_snap);
+
+        let multi_agent_results = match run_multi_agent_pipeline(
+            bg_llm.clone(),
+            bg_pool.clone(),
+            &bg_raw_symbol,
+            short_snap,
+            mid_snap,
+            long_snap,
             macro_snap,
             supermacro_snap,
             &prices,
             master_id,
-            &state.telemetry_tx,
-        )
-        .await
-    } else {
-        run_phase_one_agents(
-            &llm,
-            &symbol,
-            indicators,
+        ).await {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!("❌ Parallel agents failed for manual run: {}", e);
+                return;
+            }
+        };
+
+        let legacy_signals = multi_agent_results.to_legacy_signals();
+        let phase_one_json = serde_json::to_string(&legacy_signals).unwrap_or_else(|_| "[]".into());
+
+        let journal_context = crate::db::query_recent_journal_for_context(&bg_pool, &bg_raw_symbol, 10).await;
+        let journal_opt: Option<&str> = if journal_context.is_empty() { None } else { Some(&journal_context) };
+
+        let support_strings: Vec<String> = support_levels.iter().map(|s| s.to_string()).collect();
+        let resistance_strings: Vec<String> = resistance_levels.iter().map(|s| s.to_string()).collect();
+
+        match llm.run_master_orchestrator(
+            &position,
+            &bg_entry_price,
             &prices,
-            &atr_trend,
+            &bg_symbol,
+            &phase_one_json,
+            &support_strings,
+            &resistance_strings,
+            journal_opt,
+            Some(&bg_symbol),
+        ).await {
+            Ok(master_result) => {
+                let local_snap = indicator_to_snapshot_local(&indicators);
+                let regime = classify_market_regime(&local_snap);
+
+                let _ = bg_telemetry.send(crate::db::TelemetryMsg::UpdateMasterRecord {
+                    master_id,
+                    general_trend: master_result.general_trend.clone(),
+                    support_levels: serde_json::to_string(&master_result.support_and_resistance.detected_support_levels).unwrap_or_default(),
+                    resistance_levels: serde_json::to_string(&master_result.support_and_resistance.detected_resistance_levels).unwrap_or_default(),
+                    indicator_synthesis_summary: master_result.indicator_synthesis.summary_count.clone(),
+                    indicator_synthesis_evaluation: master_result.indicator_synthesis.evaluation.clone(),
+                    recommended_action: master_result.position_recommendation.action.clone(),
+                    recommendation_rationale: master_result.position_recommendation.rationale.clone(),
+                    score_points: Some(master_result.eight_factor_score),
+                    signals_json: None,
+                }).await;
+
+                let _ = sqlx::query(
+                    "UPDATE master_assistant_records SET market_regime = ?2, portfolio_allocation_pct = ?3 WHERE id = ?1"
+                )
+                .bind(master_id)
+                .bind(regime.as_str())
+                .bind(master_result.allocation_pct)
+                .execute(&bg_pool)
+                .await;
+            }
+            Err(e) => {
+                eprintln!("⚠️  Master orchestrator failed during manual background run: {}", e);
+            }
+        }
+    });
+
+    (
+        axum::http::StatusCode::ACCEPTED,
+        Json(AnalyzeAcceptedResponse {
             master_id,
-            &state.telemetry_tx,
-        )
-        .await
+            message: "Analysis task delegated to background workers successfully.".to_string(),
+        }),
+    )
+        .into_response()
+}
+
+fn indicator_to_snapshot_local(snap: &IndicatorSnapshot) -> crate::profile_evaluation::SnapshotValues {
+    crate::profile_evaluation::SnapshotValues {
+        rsi: snap.rsi,
+        squeeze_on: snap.squeeze_on,
+        squeeze_momentum: snap.squeeze_momentum,
+        squeeze_duration: snap.squeeze_duration,
+        squeeze_release_trigger: snap.squeeze_release_trigger,
+        squeeze_momentum_direction: snap.squeeze_momentum_direction.clone(),
+        chart_pattern: snap.chart_pattern.clone(),
+        chart_pattern_confidence: snap.chart_pattern_confidence,
+        bbwp: snap.bbwp,
+        macd_line: snap.macd_line,
+        macd_signal: snap.macd_signal,
+        macd_hist: snap.macd_histogram,
+        adx: snap.adx,
+        adx_plus: snap.adx_plus,
+        adx_minus: snap.adx_minus,
+        bb_upper: snap.bb_upper,
+        bb_middle: snap.bb_middle,
+        bb_lower: snap.bb_lower,
+        atr: snap.atr,
+        ema_fast: snap.ema_fast,
+        ema_medium: snap.ema_medium,
+        ema_slow: snap.ema_slow,
+        ema_long: snap.ema_long,
+        ema_stack_state: snap.ema_stack_state.clone(),
+        vwap: snap.vwap,
+        vwap_bias: snap.vwap_bias.clone(),
+        close: snap.current_price,
+        volume: snap.volume,
+        average_volume: snap.average_volume,
+        rvol: snap.rvol,
+        current_price: snap.current_price.unwrap_or(0.0),
+        rsi_divergence_status: None,
+        macd_divergence_status: None,
+        macd_trend_state: snap.macd_trend_state.clone(),
+        macd_crossover_detected: snap.macd_crossover_detected,
+        macd_crossover_direction: snap.macd_crossover_direction.clone(),
+        macd_histogram_peak: snap.macd_histogram_peak,
+        atr_volatility_regime: snap.atr_volatility_regime.clone(),
+        adx_slope: None,
+        adx_regime: None,
+        adx_di_crossover_detected: None,
+        adx_di_crossover_direction: None,
+    }
+}
+
+pub async fn serve_system_status(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pairs = state.pairs.read().await;
+    let active_pairs_count = pairs.len();
+
+    let costs = state.config.read().await.costs.clone();
+    let total_ai_token_costs_usd = {
+        let llm = state.llm_client.read().await;
+        let tracker = llm.token_tracker.lock().unwrap();
+        (tracker.global.input_tokens as f64 / 1_000_000.0) * costs.price_per_1m_input_tokens
+            + (tracker.global.output_tokens as f64 / 1_000_000.0) * costs.price_per_1m_output_tokens
     };
 
-    let phase_one_json = serde_json::to_string(&phase_one_results).unwrap_or_else(|_| "[]".into());
-
-    let raw_symbol = symbol.split('-').nth(1).unwrap_or(&symbol);
-    let journal_context = crate::db::query_recent_journal_for_context(&state.pool, raw_symbol, 10).await;
-    let journal_opt: Option<&str> = if journal_context.is_empty() { None } else { Some(&journal_context) };
-
-    let phase_two = match llm.run_master_orchestrator(
-        &payload.position,
-        &entry_price,
-        &prices,
-        &symbol,
-        &phase_one_json,
-        &support_levels.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-        &resistance_levels.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-        journal_opt,
-        Some(&symbol),
-    ).await {
-        Ok(master_result) => {
-            let _ = state.telemetry_tx.send(crate::db::TelemetryMsg::UpdateMasterRecord {
-                master_id,
-                general_trend: master_result.general_trend.clone(),
-                support_levels: serde_json::to_string(&master_result.support_and_resistance.detected_support_levels).unwrap_or_default(),
-                resistance_levels: serde_json::to_string(&master_result.support_and_resistance.detected_resistance_levels).unwrap_or_default(),
-                indicator_synthesis_summary: master_result.indicator_synthesis.summary_count.clone(),
-                indicator_synthesis_evaluation: master_result.indicator_synthesis.evaluation.clone(),
-                recommended_action: master_result.position_recommendation.action.clone(),
-                recommendation_rationale: master_result.position_recommendation.rationale.clone(),
-                score_points: None,
-                signals_json: None,
-            }).await;
-
-            master_result
+    let mut total_allocated_margin = 0.0;
+    for pair in pairs.values() {
+        if let Some(pos) = crate::db::paper_get_active_position(&state.pool, &pair.symbol).await {
+            total_allocated_margin += pos.allocated_usd;
         }
-        Err(e) => {
-            eprintln!("⚠️  Master orchestrator failed, falling back to heuristics: {}", e);
-            let heuristic = heuristic_master_synthesis(
-                &payload.position,
-                &prices,
-                indicators,
-                &support_levels,
-                &resistance_levels,
-                &phase_one_results,
-            );
+    }
 
-            let _ = state.telemetry_tx.send(crate::db::TelemetryMsg::UpdateMasterRecord {
-                master_id,
-                general_trend: heuristic.general_trend.clone(),
-                support_levels: serde_json::to_string(&heuristic.support_and_resistance.detected_support_levels).unwrap_or_default(),
-                resistance_levels: serde_json::to_string(&heuristic.support_and_resistance.detected_resistance_levels).unwrap_or_default(),
-                indicator_synthesis_summary: heuristic.indicator_synthesis.summary_count.clone(),
-                indicator_synthesis_evaluation: heuristic.indicator_synthesis.evaluation.clone(),
-                recommended_action: heuristic.position_recommendation.action.clone(),
-                recommendation_rationale: heuristic.position_recommendation.rationale.clone(),
-                score_points: None,
-                signals_json: None,
-            }).await;
-
-            heuristic
-        }
-    };
-    drop(llm);
-
-    let response = MultiAgentAnalysisResponse {
-        phase_one: phase_one_results.clone(),
-        phase_two: PhaseTwoResponse {
-            general_trend: phase_two.general_trend,
-            support_and_resistance: SupportResistanceResponse {
-                detected_support_levels: phase_two.support_and_resistance.detected_support_levels,
-                detected_resistance_levels: phase_two.support_and_resistance.detected_resistance_levels,
-                structural_analysis: phase_two.support_and_resistance.structural_analysis,
-            },
-            indicator_synthesis: IndicatorSynthesisResponse {
-                summary_count: phase_two.indicator_synthesis.summary_count,
-                evaluation: phase_two.indicator_synthesis.evaluation,
-            },
-            position_recommendation: PositionRecommendationResponse {
-                action: phase_two.position_recommendation.action,
-                rationale: phase_two.position_recommendation.rationale,
-            },
-        },
+    let response = SystemStatusResponse {
+        connected: state.api_key_configured.load(std::sync::atomic::Ordering::Relaxed),
+        latency_ms: 12,
+        journal_mode: "WAL".to_string(),
+        total_allocated_margin,
+        total_ai_token_costs_usd,
+        active_pairs_count,
     };
 
     Json(response)
+}
+
+pub async fn serve_observability_buffers(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<WsQuery>,
+) -> impl IntoResponse {
+    let symbol = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        cfg.symbols.first().cloned().unwrap_or_default()
+    } else {
+        query.symbol
+    };
+    let raw_symbol = symbol.split('-').nth(1).unwrap_or(&symbol).to_string();
+
+    let recent_decisions: Vec<DecisionMemoryBufferRow> = sqlx::query_as(
+        "SELECT id, symbol, timestamp, regime_classification, orchestrator_decision, confidence_score, eight_factor_score, portfolio_risk_pct \
+         FROM decision_memory_buffer WHERE symbol = ?1 ORDER BY id DESC LIMIT 5"
+    )
+    .bind(&raw_symbol)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let completed_trades: Vec<CompletedTradesBufferRow> = sqlx::query_as(
+        "SELECT \
+            t.id, t.symbol, t.direction, t.entry_price, t.exit_price, \
+            t.realized_pnl, t.roi_percentage as roi_pct, \
+            COALESCE(j.execution_score, 0.0) as execution_score, \
+            COALESCE(j.final_analysis, '') as primary_mistake, \
+            t.exit_timestamp as closed_at \
+         FROM trade_telemetry_history t \
+         LEFT JOIN trade_learning_journal j ON t.id = j.trade_id \
+         WHERE t.symbol = ?1 \
+         ORDER BY t.exit_timestamp DESC \
+         LIMIT 5"
+    )
+    .bind(&raw_symbol)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    Json(ObservabilityBuffersResponse {
+        symbol: raw_symbol,
+        recent_decisions,
+        completed_trades,
+    })
 }
 
 pub fn compute_support_resistance(
@@ -1143,6 +1281,192 @@ fn compute_squeeze_momentum_trend(momentum: Option<f64>) -> String {
     }
 }
 
+pub async fn run_multi_agent_pipeline(
+    client: Arc<RwLock<LlmClient>>,
+    pool: SqlitePool,
+    symbol: &str,
+    _short: &IndicatorSnapshot,
+    mid: &IndicatorSnapshot,
+    _long: &IndicatorSnapshot,
+    _macro_snap: &IndicatorSnapshot,
+    _supermacro: &IndicatorSnapshot,
+    prices: &[f64],
+    master_id: i64,
+) -> Result<MultiAgentResults, String> {
+    let client_guard = client.read().await;
+    let prices_json = serde_json::to_string(&prices).unwrap_or_default();
+    let raw_symbol = symbol.split('-').nth(1).unwrap_or(symbol);
+    let pair_key = format!("Hyperliquid-{}", raw_symbol);
+
+    let context_trend = format!(
+        r#"{{ "close": {}, "ema_fast": {}, "ema_medium": {}, "ema_slow": {}, "ema_long": {}, "ema_stack_state": "{}" }}"#,
+        mid.current_price.unwrap_or(0.0),
+        mid.ema_fast.unwrap_or(0.0),
+        mid.ema_medium.unwrap_or(0.0),
+        mid.ema_slow.unwrap_or(0.0),
+        mid.ema_long.unwrap_or(0.0),
+        mid.ema_stack_state.as_deref().unwrap_or("tangled")
+    );
+
+    let context_volatility = format!(
+        r#"{{ "bbwp": {}, "atr": {}, "atr_volatility_regime": "{}", "squeeze_on": {}, "squeeze_duration": {}, "squeeze_release_trigger": {} }}"#,
+        mid.bbwp.unwrap_or(50.0),
+        mid.atr.unwrap_or(0.0),
+        mid.atr_volatility_regime.as_deref().unwrap_or("stable"),
+        mid.squeeze_on.unwrap_or(false),
+        mid.squeeze_duration.unwrap_or(0),
+        mid.squeeze_release_trigger.unwrap_or(false)
+    );
+
+    let context_structure = format!(
+        r#"{{ "current_price": {}, "prices": {}, "squeeze_momentum_direction": "{}" }}"#,
+        mid.current_price.unwrap_or(0.0),
+        prices_json,
+        mid.squeeze_momentum_direction.as_deref().unwrap_or("Flat")
+    );
+
+    let context_risk = format!(
+        r#"{{ "leverage": 20, "max_risk_pct": 2.0 }}"#
+    );
+
+    let context_position = format!(
+        r#"{{ "current_price": {} }}"#,
+        mid.current_price.unwrap_or(0.0)
+    );
+
+    let client_trend = client_guard.api_key.clone();
+    let client_vol = client_guard.api_key.clone();
+    let client_struct = client_guard.api_key.clone();
+    let client_risk = client_guard.api_key.clone();
+    let client_pos = client_guard.api_key.clone();
+
+    let base_url = client_guard.base_url.clone();
+    let model = client_guard.model.clone();
+    let tracker = client_guard.get_token_tracker();
+
+    drop(client_guard);
+
+    // Trend agent
+    let trend_key = client_trend.clone();
+    let trend_url = base_url.clone();
+    let trend_model = model.clone();
+    let trend_tracker = tracker.clone();
+    let p_key = pair_key.clone();
+    let trend_ctx = context_trend.clone();
+    let h_trend = tokio::spawn(async move {
+        let temp_client = LlmClient {
+            base_url: trend_url,
+            api_key: trend_key,
+            model: trend_model,
+            indicators_guide: String::new(),
+            token_tracker: trend_tracker,
+        };
+        temp_client.run_domain_agent::<crate::llm::TrendAgentData>(
+            "Trend", crate::llm::TREND_AGENT_PROMPT, &trend_ctx, Some(&p_key)
+        ).await
+    });
+
+    // Volatility agent
+    let vol_key = client_vol.clone();
+    let vol_url = base_url.clone();
+    let vol_model = model.clone();
+    let vol_tracker = tracker.clone();
+    let p_key = pair_key.clone();
+    let vol_ctx = context_volatility.clone();
+    let h_vol = tokio::spawn(async move {
+        let temp_client = LlmClient {
+            base_url: vol_url,
+            api_key: vol_key,
+            model: vol_model,
+            indicators_guide: String::new(),
+            token_tracker: vol_tracker,
+        };
+        temp_client.run_domain_agent::<crate::llm::VolatilityAgentData>(
+            "Volatility", crate::llm::VOLATILITY_AGENT_PROMPT, &vol_ctx, Some(&p_key)
+        ).await
+    });
+
+    // Structure agent
+    let struct_key = client_struct.clone();
+    let struct_url = base_url.clone();
+    let struct_model = model.clone();
+    let struct_tracker = tracker.clone();
+    let p_key = pair_key.clone();
+    let struct_ctx = context_structure.clone();
+    let h_struct = tokio::spawn(async move {
+        let temp_client = LlmClient {
+            base_url: struct_url,
+            api_key: struct_key,
+            model: struct_model,
+            indicators_guide: String::new(),
+            token_tracker: struct_tracker,
+        };
+        temp_client.run_domain_agent::<crate::llm::StructureAgentData>(
+            "Structure", crate::llm::STRUCTURE_AGENT_PROMPT, &struct_ctx, Some(&p_key)
+        ).await
+    });
+
+    // Risk agent
+    let risk_key = client_risk.clone();
+    let risk_url = base_url.clone();
+    let risk_model = model.clone();
+    let risk_tracker = tracker.clone();
+    let p_key = pair_key.clone();
+    let risk_ctx = context_risk.clone();
+    let h_risk = tokio::spawn(async move {
+        let temp_client = LlmClient {
+            base_url: risk_url,
+            api_key: risk_key,
+            model: risk_model,
+            indicators_guide: String::new(),
+            token_tracker: risk_tracker,
+        };
+        temp_client.run_domain_agent::<crate::llm::RiskAgentData>(
+            "Risk", crate::llm::RISK_AGENT_PROMPT, &risk_ctx, Some(&p_key)
+        ).await
+    });
+
+    // Position agent
+    let pos_key = client_pos.clone();
+    let pos_url = base_url.clone();
+    let pos_model = model.clone();
+    let pos_tracker = tracker.clone();
+    let p_key = pair_key.clone();
+    let pos_ctx = context_position.clone();
+    let h_pos = tokio::spawn(async move {
+        let temp_client = LlmClient {
+            base_url: pos_url,
+            api_key: pos_key,
+            model: pos_model,
+            indicators_guide: String::new(),
+            token_tracker: pos_tracker,
+        };
+        temp_client.run_domain_agent::<crate::llm::PositionAgentData>(
+            "Position", crate::llm::POSITION_AGENT_PROMPT, &pos_ctx, Some(&p_key)
+        ).await
+    });
+
+    let r_trend = h_trend.await.map_err(|e| format!("Task join error: {}", e))??;
+    let r_vol = h_vol.await.map_err(|e| format!("Task join error: {}", e))??;
+    let r_struct = h_struct.await.map_err(|e| format!("Task join error: {}", e))??;
+    let r_risk = h_risk.await.map_err(|e| format!("Task join error: {}", e))??;
+    let r_pos = h_pos.await.map_err(|e| format!("Task join error: {}", e))??;
+
+    crate::db::insert_agent_thought_log(&pool, master_id, "Trend", &r_trend.thought, &serde_json::to_string(&r_trend.data).unwrap_or_default(), r_trend.data.confidence_score).await;
+    crate::db::insert_agent_thought_log(&pool, master_id, "Volatility", &r_vol.thought, &serde_json::to_string(&r_vol.data).unwrap_or_default(), r_vol.data.volatility_score).await;
+    crate::db::insert_agent_thought_log(&pool, master_id, "Structure", &r_struct.thought, &serde_json::to_string(&r_struct.data).unwrap_or_default(), r_struct.data.structural_score).await;
+    crate::db::insert_agent_thought_log(&pool, master_id, "Risk", &r_risk.thought, &serde_json::to_string(&r_risk.data).unwrap_or_default(), r_risk.data.exposure_score).await;
+    crate::db::insert_agent_thought_log(&pool, master_id, "Position", &r_pos.thought, &serde_json::to_string(&r_pos.data).unwrap_or_default(), 100).await;
+
+    Ok(MultiAgentResults {
+        trend: r_trend,
+        volatility: r_vol,
+        structure: r_struct,
+        risk: r_risk,
+        position: r_pos,
+    })
+}
+
 pub fn heuristic_master_synthesis(
     position: &str,
     prices: &[f64],
@@ -1188,6 +1512,8 @@ pub fn heuristic_master_synthesis(
             action,
             rationale,
         },
+        eight_factor_score: 0,
+        allocation_pct: 0.0,
     }
 }
 

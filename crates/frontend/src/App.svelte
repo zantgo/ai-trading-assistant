@@ -12,6 +12,7 @@
     import AnalyticsDashboard from './components/AnalyticsDashboard.svelte';
     import TradeListLedger from './components/TradeListLedger.svelte';
     import CommissionCalculator from './components/CommissionCalculator.svelte';
+    import ObservabilityHub from './components/ObservabilityHub.svelte';
 
     const app = getState();
     let wsShort: WebSocket | null = null;
@@ -1040,6 +1041,13 @@
                         >
                             💰 Token Costs
                         </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'observability'}
+                            onclick={() => { pair.currentView = 'observability'; }}
+                        >
+                            🎯 DECISION HUD
+                        </button>
                     </div>
                     <div class="time-badge">
                         {pair.symbol}USD — MTF (15s/1m/5m/15m/1h)
@@ -1694,6 +1702,10 @@
                                 </p>
                             </div>
                         </div>
+                    </div>
+                {:else if pair.currentView === 'observability'}
+                    <div class="workspace-inner-content animate-fade">
+                        <ObservabilityHub />
                     </div>
                 {/if}
 

@@ -1,0 +1,29 @@
+/// <reference types="vitest/config" />
+import { defineConfig, loadEnv } from 'vite'
+import { svelte } from '@sveltejs/vite-plugin-svelte'
+
+// https://vite.dev/config/
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const backendUrl = env.VITE_BACKEND_URL || 'http://127.0.0.1:3000';
+
+  return {
+    plugins: [svelte()],
+    test: {
+      include: ['src/**/*.test.ts'],
+    },
+    server: {
+      proxy: {
+        '/api': {
+          target: backendUrl,
+          changeOrigin: true,
+        },
+        '/ws': {
+          target: backendUrl.replace('http', 'ws'),
+          changeOrigin: true,
+          ws: true,
+        },
+      },
+    },
+  };
+})

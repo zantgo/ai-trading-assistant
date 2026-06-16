@@ -4,9 +4,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use engine::adapters;
 use engine::analyzer;
-use engine::config::{AppConfig, TimeframeConfig};
+use engine::config::{AppConfig, TimeframeConfig, FibonacciConfig};
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle};
+use shared::indicators::DivergenceDetector;
 
 #[tokio::test]
 async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
@@ -21,27 +22,14 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         ));
         let latest_snap = Arc::new(tokio::sync::RwLock::new(None::<MarketSnapshot>));
         let cancel = CancellationToken::new();
+        let divergence_detector = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20)));
 
         let (telemetry_tx, _telemetry_rx) = mpsc::channel(10);
 
         let test_config = AppConfig {
             symbols: vec!["Hyperliquid:BTC".to_string()],
             candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
-            indicators: engine::config::IndicatorsConfig {
-                ema_fast: 10,
-                ema_medium: 50,
-                ema_slow: 100,
-                ema_long: 200,
-                rsi_period: 14,
-                macd_fast: 12,
-                macd_slow: 26,
-                macd_signal: 9,
-                adx_period: 14,
-                atr_period: 14,
-                squeeze_period: 20,
-                bbwp_lookback: 252,
-                bbwp_period: 20,
-            },
+            indicators: Default::default(),
             hyperliquid: Default::default(),
             fibonacci: Default::default(),
             pivots: Default::default(),
@@ -50,10 +38,12 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             leverage: Default::default(),
             scoring: Default::default(),
             fees: Default::default(),
+            costs: Default::default(),
             pairs: HashMap::new(),
         };
         let indicators = test_config.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);
+        let fib_config = FibonacciConfig::default();
 
         let analyzer_cancel = cancel.clone();
         let analyzer_history = history.clone();
@@ -62,12 +52,15 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let analyzer_telemetry = telemetry_tx.clone();
         let analyzer_symbol = symbol.clone();
         let analyzer_pair_key = pair_key.clone();
+        let analyzer_div_det = divergence_detector.clone();
         let analyzer_handle = tokio::spawn(async move {
             analyzer::run_single(
                 snapshot_rx,
                 analyzer_telemetry,
                 analyzer_broadcast,
                 tf_cfg,
+                fib_config,
+                analyzer_div_det,
                 analyzer_history,
                 analyzer_latest_snap,
                 analyzer_symbol,

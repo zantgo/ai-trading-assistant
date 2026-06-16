@@ -570,3 +570,79 @@ pub fn calculate_opposite_score(
     let score = calculate_eight_factor_score(opposite_bias, snap, support_levels, resistance_levels, macro_trend);
     score.total_score.abs() as u32
 }
+
+// ─── Market Regime Classification ──────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MarketRegime {
+    Trending,
+    Compression,
+    Expansion,
+    Range,
+}
+
+impl MarketRegime {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Trending => "TRENDING",
+            Self::Compression => "COMPRESSION",
+            Self::Expansion => "EXPANSION",
+            Self::Range => "RANGE",
+        }
+    }
+}
+
+pub fn classify_market_regime(snap: &SnapshotValues) -> MarketRegime {
+    let adx = snap.adx.unwrap_or(0.0);
+    let bbwp = snap.bbwp.unwrap_or(50.0);
+    let squeeze_on = snap.squeeze_on.unwrap_or(false);
+
+    if bbwp < 10.0 || squeeze_on {
+        return MarketRegime::Compression;
+    }
+
+    if snap.squeeze_release_trigger.unwrap_or(false)
+        || (bbwp > 90.0 && snap.atr_volatility_regime.as_deref() == Some("expanding"))
+    {
+        return MarketRegime::Expansion;
+    }
+
+    if adx >= 25.0 && snap.ema_stack_state.as_deref() != Some("tangled") {
+        return MarketRegime::Trending;
+    }
+
+    MarketRegime::Range
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MtfTrendAlignment {
+    pub short_aligned: bool,
+    pub mid_aligned: bool,
+    pub macro_aligned: bool,
+    pub structural_trend: String,
+}
+
+pub fn evaluate_mtf_alignment(
+    short: &SnapshotValues,
+    mid: &SnapshotValues,
+    long: &SnapshotValues,
+    macro_snap: &SnapshotValues,
+    super_snap: &SnapshotValues,
+) -> MtfTrendAlignment {
+    let structural_trend = match (super_snap.ema_long, super_snap.close) {
+        (Some(ema), Some(close)) if close > ema => "BULLISH".to_string(),
+        (Some(ema), Some(close)) if close < ema => "BEARISH".to_string(),
+        _ => "NEUTRAL".to_string(),
+    };
+
+    let short_aligned = short.ema_stack_state == mid.ema_stack_state;
+    let mid_aligned = mid.ema_stack_state == long.ema_stack_state;
+    let macro_aligned = long.ema_stack_state == macro_snap.ema_stack_state;
+
+    MtfTrendAlignment {
+        short_aligned,
+        mid_aligned,
+        macro_aligned,
+        structural_trend,
+    }
+}

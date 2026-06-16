@@ -416,7 +416,7 @@ individually using the command helper:
 | "Failed to load .env file" | No `.env` file | Copy `.env.example` to `.env` and fill in your key |
 | "DEEPSEEK_API_KEY not found" | `.env` exists but key is commented or missing | Add `DEEPSEEK_API_KEY=sk-...` to `.env` |
 | "API Key Validation Failed (HTTP 401)" | Invalid or expired API key | Check your key at https://platform.deepseek.com/api_keys |
-| Frontend shows blank page | `dist/` not built | Run `npm run build` inside `crates/engine/frontend` |
+| Frontend shows blank page | `dist/` not built | Run `npm run build` inside `crates/frontend` |
 | Charts stuck at initial values | No WebSocket connection | Verify engine is running and port 3000 is not blocked |
 | "Failed to parse LLM JSON output" | Model returned non-JSON | Falls back to heuristics automatically; check logs for raw content |
 | Port 3000 already in use | Another process bound to 3000 | Kill the existing process or change the port in `main.rs` |

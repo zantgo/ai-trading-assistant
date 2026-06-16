@@ -8,7 +8,7 @@ set -euo pipefail
 
 # Configuration
 LOG_FILE="engine.log"
-FRONTEND_DIR="crates/engine/frontend"
+FRONTEND_DIR="crates/frontend"
 PID_FILE=".engine.pid"
 
 show_help() {

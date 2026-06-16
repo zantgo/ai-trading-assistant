@@ -86,6 +86,39 @@ export interface RiskProfile {
     spread: number;
 }
 
+export interface SystemHeartbeat {
+    connected: boolean;
+    latency_ms: number;
+    journal_mode: string;
+    total_allocated_margin: number;
+    total_ai_token_costs_usd: number;
+    active_pairs_count: number;
+}
+
+export interface DecisionMemoryRow {
+    id: number;
+    symbol: string;
+    timestamp: number;
+    regime_classification: string;
+    orchestrator_decision: string;
+    confidence_score: number;
+    eight_factor_score: number;
+    portfolio_risk_pct: number;
+}
+
+export interface CompletedTradesRow {
+    id: number;
+    symbol: string;
+    direction: string;
+    entry_price: number;
+    exit_price: number;
+    realized_pnl: number;
+    roi_pct: number;
+    execution_score: number;
+    primary_mistake: string;
+    closed_at: number;
+}
+
 export interface RiskCalculation {
     risk_capital: number;
     price_distance: number;
@@ -419,7 +452,7 @@ export interface PairState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
-    currentView: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs';
+    currentView: 'terminal' | 'performance' | 'settings' | 'positions' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability';
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
@@ -730,6 +763,10 @@ let tradeJournalRecords = $state<TradeJournalRecord[]>([]);
 let journalLookbackDepth = $state(10);
 
 let userTrades = $state<UserTrade[]>([]);
+
+let systemHeartbeat = $state<SystemHeartbeat | null>(null);
+let recentDecisions = $state<DecisionMemoryRow[]>([]);
+let completedTrades = $state<CompletedTradesRow[]>([]);
 
 export interface UserTrade {
     id: number;
@@ -1095,6 +1132,10 @@ export function getState() {
         set markedResistanceLevels(v: number[]) { activePair().markedResistanceLevels = v; },
         get srFlipEvents() { return activePair().srFlipEvents; },
         set srFlipEvents(v: string) { activePair().srFlipEvents = v; },
+
+        get systemHeartbeat() { return systemHeartbeat; },
+        get recentDecisions() { return recentDecisions; },
+        get completedTrades() { return completedTrades; },
 
         get costPriceInput() { return activePair().costPriceInput; },
         set costPriceInput(v: number) { activePair().costPriceInput = v; },
@@ -1521,6 +1562,30 @@ export function getState() {
                     }
                 }
             } catch (_) {}
+        },
+
+        async fetchSystemStatus() {
+            try {
+                const res = await fetch('/api/system/status');
+                if (res.ok) {
+                    systemHeartbeat = await res.json();
+                }
+            } catch (e) {
+                console.error("Failed to fetch system heartbeat:", e);
+            }
+        },
+
+        async fetchObservabilityBuffers(symbol: string) {
+            try {
+                const res = await fetch(`/api/system/observability?symbol=${encodeURIComponent(symbol)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    recentDecisions = data.recent_decisions || [];
+                    completedTrades = data.completed_trades || [];
+                }
+            } catch (e) {
+                console.error("Failed to fetch observability buffers:", e);
+            }
         },
 
         exportJournalCSV() {

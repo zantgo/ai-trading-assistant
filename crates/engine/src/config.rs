@@ -30,7 +30,7 @@ fn default_analysis_limit() -> usize {
     100
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct IndicatorsConfig {
     pub ema_fast: usize,
     pub ema_medium: usize,

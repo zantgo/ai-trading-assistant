@@ -351,7 +351,103 @@ pub struct MasterOrchestratorResult {
     pub support_and_resistance: SupportResistance,
     pub indicator_synthesis: IndicatorSynthesis,
     pub position_recommendation: PositionRecommendation,
+    #[serde(default)]
+    pub eight_factor_score: i32,
+    #[serde(default)]
+    pub allocation_pct: f64,
 }
+
+// ─── JSON-RPC 2.0 / MCP Wrappers ───────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonRpcRequest<T> {
+    pub jsonrpc: String,
+    pub id: String,
+    pub method: String,
+    pub params: T,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonRpcResponse<T> {
+    pub jsonrpc: String,
+    pub id: String,
+    pub result: AgentEvaluationResult<T>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AgentEvaluationResult<T> {
+    pub thought: String,
+    pub data: T,
+}
+
+// ─── Sub-Agent Output Schemas ──────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TrendAgentData {
+    pub directional_bias: String,
+    pub confidence_score: i32,
+    pub ema_slope_alignment: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VolatilityAgentData {
+    pub regime_classification: String,
+    pub volatility_score: i32,
+    pub suggest_stop_multiplier: f64,
+    pub is_actionable: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StructureAgentData {
+    pub support_proximity_pct: f64,
+    pub resistance_proximity_pct: f64,
+    pub golden_pocket_status: String,
+    pub structural_score: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RiskAgentData {
+    pub suggested_sizing_pct: f64,
+    pub leverage: i32,
+    pub exposure_score: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PositionAgentData {
+    pub recommended_action: String,
+    pub rationale: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MasterOrchestrationData {
+    pub market_regime: String,
+    pub eight_factor_score: i32,
+    pub decision: String,
+    pub allocation_pct: f64,
+    pub rationale: String,
+}
+
+// ─── Sub-Agent System Prompts ──────────────────────────────────────
+
+pub const TREND_AGENT_PROMPT: &str = r#"You are the Trend Agent. Your task is to evaluate multi-timeframe EMA stacking states, price-to-EMA200 distance, and macro trend biases (15m/1h).
+Calculate trend direction and trend acceleration. Output strictly a JSON-RPC 2.0 compliant object containing "thought" and "data" with fields "directional_bias", "confidence_score", and "ema_slope_alignment".
+Use the following enum values only: directional_bias = BULLISH | BEARISH | NEUTRAL; confidence_score = 0 to 100; ema_slope_alignment = "aligned" | "diverging" | "flat". Output strictly JSON, no markdown fences."#;
+
+pub const VOLATILITY_AGENT_PROMPT: &str = r#"You are the Volatility Agent. Evaluate BBWP percentile, ATR slope, Squeeze Momentum duration, and release trigger status.
+Determine the current volatility regime (Expanding, Contracting, Stable, Compression) and suggest stops. Output strictly a JSON-RPC 2.0 compliant object with "regime_classification", "volatility_score", "suggest_stop_multiplier", and "is_actionable".
+Use the following enum values only: regime_classification = COMPRESSION | EXPANSION | TRENDING | RANGE; volatility_score = 0 to 100. Output strictly JSON, no markdown fences."#;
+
+pub const STRUCTURE_AGENT_PROMPT: &str = r#"You are the Structure Agent. Evaluate pivot highs/lows, support/resistance lines, Fibonacci Golden Pocket bounds, and linear regression channels.
+Track level breaks and manage S/R role-reversals. Output strictly a JSON-RPC 2.0 compliant object with "support_proximity_pct", "resistance_proximity_pct", "golden_pocket_status", and "structural_score".
+Use the following enum values only: golden_pocket_status = "above" | "below" | "inside"; structural_score = 0 to 100. Output strictly JSON, no markdown fences."#;
+
+pub const RISK_AGENT_PROMPT: &str = r#"You are the Risk Agent. Evaluate total portfolio cash, open risk, suggested leverage, and correlation exposure across pairs.
+Normalize position sizing and calculate suggested capital allocation. Output strictly a JSON-RPC 2.0 compliant object with "suggested_sizing_pct", "leverage", and "exposure_score".
+Use the following ranges: suggested_sizing_pct = 0.0 to 100.0; leverage = 1 to 50; exposure_score = 0 to 100. Output strictly JSON, no markdown fences."#;
+
+pub const POSITION_AGENT_PROMPT: &str = r#"You are the Position Management Agent. Evaluate current active position state (entry price, average entry price, unrealized P&L, stop-loss, and take-profit targets).
+Recommend position modifications (Hold, Close, Scale-In, Reduce, Invalidate). Output strictly a JSON-RPC 2.0 compliant object with "recommended_action" and "rationale".
+Use the following enum values only: recommended_action = HOLD | CLOSE | SCALE | REDUCE. Output strictly JSON, no markdown fences."#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PairTokenUsage {
@@ -965,5 +1061,144 @@ RULES:
         self.track_usage(pair_key, &usage);
 
         Ok(content)
+    }
+
+    pub async fn run_domain_agent<T>(
+        &self,
+        agent_name: &str,
+        system_prompt: &str,
+        user_context: &str,
+        pair_key: Option<&str>,
+    ) -> Result<AgentEvaluationResult<T>, String>
+    where
+        T: for<'de> serde::Deserialize<'de> + serde::Serialize + Clone,
+    {
+        let request_body = ChatRequest {
+            model: self.model.clone(),
+            messages: vec![
+                ChatMessage { role: "system".into(), content: system_prompt.to_string() },
+                ChatMessage { role: "user".into(), content: user_context.to_string() },
+            ],
+            temperature: 0.1,
+            response_format: Some(ResponseFormat { format_type: "json_object".into() }),
+            max_tokens: 1024,
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+        let response = client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| format!("LLM API request failed for {}: {}", agent_name, e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
+            return Err(format!("LLM API returned {} for {}: {}", status, agent_name, body));
+        }
+
+        let chat_response: ChatResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse LLM response for {}: {}", agent_name, e))?;
+
+        let usage = chat_response.usage;
+        self.track_usage(pair_key, &usage);
+
+        let content = chat_response
+            .choices
+            .first()
+            .ok_or_else(|| format!("LLM response for {} had no choices", agent_name))?
+            .message
+            .content
+            .clone();
+
+        let parsed_rpc: JsonRpcResponse<T> = serde_json::from_str(&content)
+            .map_err(|e| format!(
+                "Failed to parse JSON-RPC 2.0 output for {}: {}. Raw content: {}",
+                agent_name, e, content
+            ))?;
+
+        Ok(parsed_rpc.result)
+    }
+}
+
+// ─── Multi-Agent Pipeline Results ─────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiAgentResults {
+    pub trend: AgentEvaluationResult<TrendAgentData>,
+    pub volatility: AgentEvaluationResult<VolatilityAgentData>,
+    pub structure: AgentEvaluationResult<StructureAgentData>,
+    pub risk: AgentEvaluationResult<RiskAgentData>,
+    pub position: AgentEvaluationResult<PositionAgentData>,
+}
+
+impl MultiAgentResults {
+    pub fn to_legacy_signals(&self) -> Vec<IndividualIndicatorResult> {
+        let trend_bias = &self.trend.data.directional_bias;
+        let trend_thought = &self.trend.thought;
+        let vol_thought = &self.volatility.thought;
+        let vol_regime = &self.volatility.data.regime_classification;
+
+        let squeeze_signal = match vol_regime.as_str() {
+            "COMPRESSION" => "SIDEWAYS".to_string(),
+            _ => trend_bias.clone(),
+        };
+
+        let adx_signal = match vol_regime.as_str() {
+            "RANGE" => "SIDEWAYS".to_string(),
+            _ => trend_bias.clone(),
+        };
+
+        vec![
+            IndividualIndicatorResult {
+                indicator_name: "short-RSI".to_string(),
+                signal: trend_bias.clone(),
+                reason: trend_thought.clone(),
+                divergence_status: None,
+                divergence_type: None,
+                is_confirmed: None,
+            },
+            IndividualIndicatorResult {
+                indicator_name: "mid-MACD".to_string(),
+                signal: trend_bias.clone(),
+                reason: trend_thought.clone(),
+                divergence_status: None,
+                divergence_type: None,
+                is_confirmed: None,
+            },
+            IndividualIndicatorResult {
+                indicator_name: "long-SQUEEZE".to_string(),
+                signal: squeeze_signal,
+                reason: vol_thought.clone(),
+                divergence_status: None,
+                divergence_type: None,
+                is_confirmed: None,
+            },
+            IndividualIndicatorResult {
+                indicator_name: "macro-ADX".to_string(),
+                signal: adx_signal,
+                reason: vol_thought.clone(),
+                divergence_status: None,
+                divergence_type: None,
+                is_confirmed: None,
+            },
+            IndividualIndicatorResult {
+                indicator_name: "supermacro-VWAP".to_string(),
+                signal: trend_bias.clone(),
+                reason: trend_thought.clone(),
+                divergence_status: None,
+                divergence_type: None,
+                is_confirmed: None,
+            },
+        ]
     }
 }

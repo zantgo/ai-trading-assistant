@@ -5,7 +5,7 @@ The AI Trading Assistant acts as a data pipeline and UI cockpit designed for str
 ## Core Topology
 - `crates/shared`: Domain representations (`MarketSnapshot`) and functional indicator calculations.
 - `crates/engine`: High-performance daemon that maintains live WebSocket connections, aggregates telemetry, caches historical sequences, and hosts the visual dashboard.
-- `crates/engine/frontend`: A lightweight Svelte 5 application providing interactive layout panels, real-time charting, and manual AI analysis triggers.
+- `crates/frontend`: A lightweight Svelte 5 application providing interactive layout panels, real-time charting, and manual AI analysis triggers.
 
 ### Commission Module (`crates/engine/src/commission.rs`)
 Provides fee-aware trade viability analysis:

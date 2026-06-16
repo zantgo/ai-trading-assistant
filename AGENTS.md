@@ -3,12 +3,12 @@
 This project is configured as a Cargo Workspace containing an ingestion daemon and a Svelte 5 trading dashboard. The goal is to act as an **AI Trading Assistant** that helps human operators make structured manual trade decisions.
 
 ## Project overview
-Rust workspace with 2 crates (`shared`, `engine`) and an embedded Svelte 5 frontend.
+Rust workspace with 2 crates (`shared`, `engine`) and a Svelte 5 frontend.
 
 ```
 crates/shared/       — MarketSnapshot model, technical indicators (EMA, RSI, MACD, ADX, BB, Squeeze, ATR)
 crates/engine/       — Binary: Hyperliquid WS ingestion, indicator pipeline, Axum web server, SQLite telemetry
-crates/engine/frontend/ — Svelte 5 + Vite dashboard (served as static assets by the engine binary)
+crates/frontend/ — Svelte 5 + Vite dashboard (served as static assets by the engine binary)
 ```
 
 The README and docs reference `crates/mcp-server` and `crates/frontend` as separate crates — these do NOT exist yet.
@@ -22,7 +22,7 @@ The README and docs reference `crates/mcp-server` and `crates/frontend` as separ
 ### Order matters
 ```bash
 # 1. Build frontend (produces dist/)
-cd crates/engine/frontend
+cd crates/frontend
 npm install          # or: bun install
 npm run build        # or: bun run build
 
@@ -35,7 +35,7 @@ The engine binary reads `config.toml` from CWD at runtime. Run from the workspac
 
 ### Frontend dev mode
 ```bash
-cd crates/engine/frontend
+cd crates/frontend
 npm run dev          # Vite dev server
 npm run check        # svelte-check + tsc typecheck
 ```
@@ -49,7 +49,7 @@ npm run check        # svelte-check + tsc typecheck
 - Analysis API: `POST /api/analyze` (accepts position + market data, returns structured assistant response)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid **Testnet** WebSocket (`wss://api.hyperliquid-testnet.xyz/ws`)
-- Static assets served from `crates/engine/frontend/dist`
+- Static assets served from `crates/frontend/dist`
 
 - Cost Estimate API: `GET /api/cost-estimate?pair_key=Hyperliquid-BTC` (returns projected + actual token costs)
 - Token tracking is per-pair; each LLM API call accumulates prompt/completion token usage attributed to its pair key
@@ -98,7 +98,7 @@ No tests exist yet. There is no CI, no lint configuration, no rustfmt.toml. When
 
 When writing code to realize the AI Assistant workflow, adhere to the following setup instructions:
 
-### 1. Svelte 5 UI Adjustments (`crates/engine/frontend/src/App.svelte`)
+### 1. Svelte 5 UI Adjustments (`crates/frontend/src/App.svelte`)
 - Locate the sidebar component (`<aside class="sidebar-panel">`).
 - Add a new input block for tracking the current position status:
   ```svelte
