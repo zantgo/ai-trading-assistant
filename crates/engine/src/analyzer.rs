@@ -89,6 +89,7 @@ pub async fn run_single(
     timeframe_secs: u64,
     timeframe_label: &'static str,
     cancel: CancellationToken,
+    candle_forward: Option<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles...",
@@ -377,6 +378,10 @@ pub async fn run_single(
                         while hist.len() > cur_candles.analysis_limit {
                             hist.pop_front();
                         }
+                    }
+
+                    if let Some(ref tx) = candle_forward {
+                        let _ = tx.send(completed.clone());
                     }
                 }
 

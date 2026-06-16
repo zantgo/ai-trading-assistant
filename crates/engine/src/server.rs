@@ -1475,8 +1475,8 @@ pub fn heuristic_master_synthesis(
     resistance_levels: &[String],
     phase_one: &[IndividualIndicatorResult],
 ) -> MasterOrchestratorResult {
-    let (trend_class, _) = classify_trend(prices);
-    let (action, rationale) = compute_heuristic_recommendation(position, &trend_class, indicators);
+    let (trend_class, trend_reasoning) = classify_trend(prices, indicators);
+    let (action, rationale, abs_score) = compute_heuristic_recommendation(position, &trend_class, indicators, support_levels, resistance_levels);
 
     let bullish_count = phase_one.iter().filter(|r| r.signal == "BULLISH").count();
     let bearish_count = phase_one.iter().filter(|r| r.signal == "BEARISH").count();
@@ -1497,12 +1497,19 @@ pub fn heuristic_master_synthesis(
         resistance_levels.join(", "),
     );
 
+    let allocation_pct = match abs_score {
+        0..=59 => 0.0,
+        60..=75 => 1.0,
+        76..=85 => 2.0,
+        _ => 3.0,
+    };
+
     MasterOrchestratorResult {
         general_trend: trend_class,
         support_and_resistance: crate::llm::SupportResistance {
             detected_support_levels: support_levels.to_vec(),
             detected_resistance_levels: resistance_levels.to_vec(),
-            structural_analysis: s_and_r_analysis,
+            structural_analysis: format!("{} {}", s_and_r_analysis, trend_reasoning),
         },
         indicator_synthesis: crate::llm::IndicatorSynthesis {
             summary_count: summary,
@@ -1512,26 +1519,55 @@ pub fn heuristic_master_synthesis(
             action,
             rationale,
         },
-        eight_factor_score: 0,
-        allocation_pct: 0.0,
+        eight_factor_score: abs_score as i32,
+        allocation_pct,
     }
 }
 
-fn classify_trend(prices: &[f64]) -> (String, String) {
+fn classify_trend(prices: &[f64], indicators: &IndicatorSnapshot) -> (String, String) {
     if prices.len() < 10 {
         return ("SIDEWAYS".into(), "Insufficient price data.".into());
     }
 
-    let first_quarter: f64 = prices.iter().take(prices.len() / 4).sum::<f64>() / (prices.len() / 4) as f64;
-    let last_quarter: f64 = prices.iter().skip(3 * prices.len() / 4).sum::<f64>() / (prices.len() / 4) as f64;
-    let change_pct = (last_quarter - first_quarter) / first_quarter * 100.0;
+    let mut higher_highs = 0;
+    let mut higher_lows = 0;
+    let mut lower_highs = 0;
+    let mut lower_lows = 0;
 
-    if change_pct > 0.5 {
-        ("UPWARD".into(), format!("Net increase of {:.2}% over the sequence.", change_pct))
-    } else if change_pct < -0.5 {
-        ("DOWNWARD".into(), format!("Net decrease of {:.2}% over the sequence.", change_pct))
+    for window in prices.windows(5) {
+        if window.len() < 5 { continue; }
+        let max_a = window[0..2].iter().cloned().fold(f64::MIN, f64::max);
+        let max_b = window[3..5].iter().cloned().fold(f64::MIN, f64::max);
+        if max_b > max_a { higher_highs += 1; }
+        if max_b < max_a { lower_highs += 1; }
+        let min_a = window[0..2].iter().cloned().fold(f64::MAX, f64::min);
+        let min_b = window[3..5].iter().cloned().fold(f64::MAX, f64::min);
+        if min_b > min_a { higher_lows += 1; }
+        if min_b < min_a { lower_lows += 1; }
+    }
+
+    let ema_bullish = indicators.ema_stack_state.as_deref() == Some("bullish");
+    let ema_bearish = indicators.ema_stack_state.as_deref() == Some("bearish");
+    let above_200 = match (indicators.ema_long, indicators.current_price) {
+        (Some(ema), Some(px)) => px > ema,
+        _ => false,
+    };
+
+    if higher_highs > higher_lows && higher_highs > 0 && ema_bullish && above_200 {
+        ("UPWARD".into(), format!("HH+HL pattern ({} swings), bullish EMA stack, price > 200 EMA", higher_highs))
+    } else if lower_highs > lower_lows && lower_lows > 0 && ema_bearish && !above_200 {
+        ("DOWNWARD".into(), format!("LH+LL pattern ({} swings), bearish EMA stack, price < 200 EMA", lower_lows))
     } else {
-        ("SIDEWAYS".into(), format!("Minimal {:.2}% change, consolidation.", change_pct))
+        let first_half: f64 = prices.iter().take(prices.len()/2).sum::<f64>() / (prices.len()/2) as f64;
+        let last_half: f64 = prices.iter().skip(prices.len()/2).sum::<f64>() / (prices.len()/2) as f64;
+        let change_pct = (last_half - first_half) / first_half * 100.0;
+        if change_pct > 1.0 {
+            ("UPWARD".into(), format!("Moderate {:.2}% upward drift (structure unclear)", change_pct))
+        } else if change_pct < -1.0 {
+            ("DOWNWARD".into(), format!("Moderate {:.2}% downward drift (structure unclear)", change_pct))
+        } else {
+            ("SIDEWAYS".into(), format!("Consolidation: {:.2}% net change", change_pct))
+        }
     }
 }
 
@@ -1539,46 +1575,117 @@ fn compute_heuristic_recommendation(
     position: &str,
     trend: &str,
     indicators: &IndicatorSnapshot,
-) -> (String, String) {
-    let rsi_val = indicators.rsi.unwrap_or(50.0);
-    let macd_hist = indicators.macd_histogram.unwrap_or(0.0);
+    _support_levels: &[String],
+    _resistance_levels: &[String],
+) -> (String, String, u32) {
+    let adx = indicators.adx.unwrap_or(0.0);
+    let bbwp = indicators.bbwp.unwrap_or(50.0);
     let squeeze_on = indicators.squeeze_on.unwrap_or(false);
+    let rvol = indicators.rvol.unwrap_or(1.0);
+    let atr_regime = indicators.atr_volatility_regime.as_deref();
+    let ema_stack = indicators.ema_stack_state.as_deref();
+    let squeeze_released = indicators.squeeze_release_trigger.unwrap_or(false);
 
-    let mut bullish_signals = 0;
-    let mut bearish_signals = 0;
+    let regime = if bbwp < 10.0 || squeeze_on {
+        "COMPRESSION"
+    } else if squeeze_released || (bbwp > 90.0 && atr_regime == Some("expanding")) {
+        "EXPANSION"
+    } else if adx >= 25.0 && ema_stack != Some("tangled") && ema_stack.is_some() {
+        "TRENDING"
+    } else {
+        "RANGE"
+    };
 
-    if rsi_val > 50.0 { bullish_signals += 1; } else { bearish_signals += 1; }
-    if macd_hist > 0.0 { bullish_signals += 1; } else { bearish_signals += 1; }
-    if squeeze_on { bullish_signals += 1; }
+    let trend_score: i32 = match trend {
+        "UPWARD" => 30,
+        "DOWNWARD" => -30,
+        _ => 0,
+    };
 
-    let indicator_bias = if bullish_signals > bearish_signals { "supportive" } else { "conflicting" };
+    let vol_score: i32 = match regime {
+        "EXPANSION" => 25,
+        "TRENDING" => 20,
+        "COMPRESSION" => 5,
+        _ => 10,
+    };
+
+    let mut mom_score: i32 = 0;
+    let rsi = indicators.rsi.unwrap_or(50.0);
+    if rsi > 60.0 { mom_score += 10; }
+    else if rsi < 40.0 { mom_score -= 10; }
+    if indicators.macd_crossover_detected.unwrap_or(false) {
+        match indicators.macd_crossover_direction.as_deref() {
+            Some("BULLISH") => mom_score += 10,
+            Some("BEARISH") => mom_score -= 10,
+            _ => {}
+        }
+    } else {
+        match (indicators.macd_line, indicators.macd_signal) {
+            (Some(line), Some(sig)) if line > sig => mom_score += 10,
+            (Some(line), Some(sig)) if line < sig => mom_score -= 10,
+            _ => {}
+        }
+    }
+
+    let mut struct_score: i32 = 0;
+    match indicators.ema_stack_state.as_deref() {
+        Some("bullish") => struct_score += 15,
+        Some("bearish") => struct_score -= 15,
+        _ => {}
+    }
+    match (indicators.ema_long, indicators.current_price) {
+        (Some(e), Some(p)) if p > e => struct_score += 10,
+        (Some(e), Some(p)) if p < e => struct_score -= 10,
+        _ => {}
+    }
+
+    let abs_score = (trend_score.abs() + vol_score.abs() + mom_score.abs() + struct_score.abs()) as u32;
+    let net_bias = trend_score + vol_score + mom_score + struct_score;
+    let score_below_min = abs_score < 60;
+
+    let breakout_signal = indicators.macd_crossover_detected.unwrap_or(false)
+        || indicators.squeeze_release_trigger.unwrap_or(false);
+    let volume_ok = !breakout_signal || rvol >= 1.5;
+
+    if regime == "RANGE" && position == "None" && !breakout_signal {
+        return ("Wait".into(), "Range regime — trend-following entries not permitted. Wait for breakout.".into(), abs_score);
+    }
+    if regime == "COMPRESSION" && position == "None" && !squeeze_released {
+        return ("Wait".into(), "Compression regime — no entries before breakout confirmation.".into(), abs_score);
+    }
+    if score_below_min {
+        return ("Wait".into(), format!("Score {}/100 below minimum threshold (60) — insufficient confluence.", abs_score), abs_score);
+    }
+    if breakout_signal && !volume_ok {
+        return ("Wait".into(), format!("Breakout signal without volume confirmation (RVOL={:.1}, need >= 1.5).", rvol), abs_score);
+    }
 
     match position {
         "Long" => {
-            if trend == "UPWARD" && indicator_bias == "supportive" {
-                ("Hold".into(), "Upward trend with supportive indicators. Maintain the long position.".into())
-            } else if trend == "DOWNWARD" {
-                ("Close".into(), "Downward trend detected while holding long. Consider closing to protect capital.".into())
+            if net_bias > 0 {
+                ("Hold".into(), format!("{} regime, score {}/100 — maintain long position.", regime, abs_score), abs_score)
+            } else if net_bias < -60 {
+                ("Close".into(), format!("{} regime, opposite score {}/100 — consider closing to protect capital.", regime, abs_score), abs_score)
             } else {
-                ("Hold".into(), "Sideways trend. Hold and monitor for breakout direction.".into())
+                ("Hold".into(), format!("{} regime, score {}/100 — hold and monitor.", regime, abs_score), abs_score)
             }
         }
         "Short" => {
-            if trend == "DOWNWARD" && indicator_bias == "conflicting" {
-                ("Hold".into(), "Downward trend confirms the short position. Maintain it.".into())
-            } else if trend == "UPWARD" {
-                ("Close".into(), "Upward trend detected while holding short. Consider closing to limit losses.".into())
+            if net_bias < 0 {
+                ("Hold".into(), format!("{} regime, score {}/100 — maintain short position.", regime, abs_score), abs_score)
+            } else if net_bias > 60 {
+                ("Close".into(), format!("{} regime, opposite score {}/100 — consider closing to limit losses.", regime, abs_score), abs_score)
             } else {
-                ("Hold".into(), "Sideways trend. Hold and monitor for breakout direction.".into())
+                ("Hold".into(), format!("{} regime, score {}/100 — hold and monitor.", regime, abs_score), abs_score)
             }
         }
         _ => {
-            if trend == "UPWARD" && indicator_bias == "supportive" {
-                ("Open Long".into(), "Strong upward trend with confirming indicators. Consider entering a long position.".into())
-            } else if trend == "DOWNWARD" && indicator_bias == "conflicting" {
-                ("Open Short".into(), "Strong downward trend. Consider entering a short position.".into())
+            if net_bias > 60 {
+                ("Open Long".into(), format!("{} regime, score {}/100 with bullish confluence — consider long entry.", regime, abs_score), abs_score)
+            } else if net_bias < -60 {
+                ("Open Short".into(), format!("{} regime, score {}/100 with bearish confluence — consider short entry.", regime, abs_score), abs_score)
             } else {
-                ("Wait".into(), "Unclear market direction. Wait for a clearer signal before entering.".into())
+                ("Wait".into(), format!("{} regime, score {}/100 — insufficient directional conviction. Wait.", regime, abs_score), abs_score)
             }
         }
     }
@@ -2477,15 +2584,15 @@ async fn serve_add_pair(
     // Spawn 5 independent pipeline tasks
     let supermacro_secs = supermacro_cfg.candles.duration_seconds;
     let macro_secs = macro_cfg.candles.duration_seconds;
-    let pipeline_specs = [
-        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), pair.short.divergence_detector.clone()),
-        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone()),
-        (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone()),
-        (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone()),
-        (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), pair.supermacro.divergence_detector.clone()),
+    let pipeline_specs: [(_, _, _, _, _, _, _, _, Option<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>); 5] = [
+        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), pair.short.divergence_detector.clone(), None),
+        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone(), None),
+        (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone(), None),
+        (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone(), None),
+        (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), pair.supermacro.divergence_detector.clone(), None),
     ];
 
-    for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det) in pipeline_specs {
+    for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det, candle_fwd) in pipeline_specs {
         let a_symbol = raw_symbol.clone();
         let a_pair_key = pair_key.clone();
         let a_telemetry = state.telemetry_tx.clone();
@@ -2506,6 +2613,7 @@ async fn serve_add_pair(
                 tf_secs,
                 label,
                 a_cancel,
+                candle_fwd,
             ).await;
         });
     }
@@ -2538,6 +2646,8 @@ async fn serve_add_pair(
         telemetry_tx: state.telemetry_tx.clone(),
         cancel: cancel.clone(),
         api_key_configured: state.api_key_configured.clone(),
+        portfolio_risk: Arc::new(crate::portfolio_risk::PortfolioRiskState::default()),
+        pair_close_histories: Arc::new(RwLock::new(std::collections::HashMap::new())),
     };
     tokio::spawn(async move {
         automation::run_pair_automation_loop(auto_ctx).await;

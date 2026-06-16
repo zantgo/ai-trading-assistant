@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::{RwLock, mpsc};
@@ -60,6 +60,7 @@ fn indicator_to_snapshot(snap: &crate::server::IndicatorSnapshot) -> SnapshotVal
 use shared::models::MarketSnapshot;
 use shared::normalized::NormalizedCandle;
 use shared::TriggerType;
+use crate::portfolio_risk::PortfolioRiskState;
 
 pub struct AutomationContext {
     pub pair_key: String,
@@ -80,6 +81,8 @@ pub struct AutomationContext {
     pub telemetry_tx: mpsc::Sender<db::TelemetryMsg>,
     pub cancel: CancellationToken,
     pub api_key_configured: Arc<AtomicBool>,
+    pub portfolio_risk: Arc<PortfolioRiskState>,
+    pub pair_close_histories: Arc<RwLock<HashMap<String, Vec<f64>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +191,12 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
         let last_close = prices.last().copied().unwrap_or(0.0);
 
+        {
+            let mut hist_map = ctx.pair_close_histories.write().await;
+            let entry = hist_map.entry(ctx.symbol.clone()).or_default();
+            *entry = prices.clone();
+        }
+
         let llm = ctx.llm_client.read().await;
         if llm.api_key.is_empty() {
             drop(llm);
@@ -251,6 +260,8 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         let bg_indicators_macro = indicators_macro.clone();
         let bg_indicators_supermacro = indicators_supermacro.clone();
         let bg_prices = prices.clone();
+        let bg_portfolio_risk = ctx.portfolio_risk.clone();
+        let bg_pair_close_histories = ctx.pair_close_histories.clone();
 
         tokio::spawn(async move {
             let llm = bg_llm.read().await;
@@ -372,6 +383,21 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 };
                 let use_scoring = auto_cfg.use_scoring_allocation;
                 let max_opposite = auto_cfg.max_opposite_exit_signals as u32;
+
+                // Portfolio risk validation
+                let existing_positions = crate::portfolio_risk::query_all_active_positions(&bg_pool).await;
+                let validation = crate::portfolio_risk::validate_new_position(
+                    &bg_portfolio_risk,
+                    &bg_pool,
+                    &bg_symbol,
+                    phase_two.allocation_pct,
+                    &existing_positions,
+                    &bg_pair_close_histories,
+                ).await;
+                if !validation.allowed && phase_two.allocation_pct > 0.0 && (action == "Open Long" || action == "Open Short") {
+                    println!("🛑 Auto Paper: {} portfolio risk check failed: {}", bg_pair_key, validation.reason);
+                    return;
+                }
 
                 let eight_factor_score = if use_scoring {
                     Some(phase_two.allocation_pct)

@@ -14,3 +14,6 @@ pub mod risk_calculator;
 pub mod stats_compiler;
 pub mod sync_scheduler;
 pub mod sr_engine;
+pub mod candle_aggregator;
+pub mod portfolio_risk;
+pub mod strategy_optimizer;

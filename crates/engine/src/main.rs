@@ -5,7 +5,7 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use engine::{config, db, server, analyzer, llm, adapters, automation, performance_evaluator};
+use engine::{config, db, server, analyzer, llm, adapters, automation, performance_evaluator, candle_aggregator, portfolio_risk, strategy_optimizer};
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::indicators::DivergenceDetector;
@@ -86,6 +86,9 @@ async fn main() {
 
     let pairs: Arc<RwLock<HashMap<String, Arc<analyzer::ActivePair>>>> =
         Arc::new(RwLock::new(HashMap::new()));
+
+    let portfolio_risk = Arc::new(portfolio_risk::PortfolioRiskState::default());
+    let pair_close_histories = Arc::new(RwLock::new(HashMap::<String, Vec<f64>>::new()));
 
     let app_state = Arc::new(server::AppState {
         pairs: pairs.clone(),
@@ -258,15 +261,17 @@ async fn main() {
         // Five concurrent pipeline tasks
         let supermacro_secs = supermacro_cfg.candles.duration_seconds;
         let macro_secs = macro_cfg.candles.duration_seconds;
+        let (candle_fwd_tx, mut candle_fwd_rx) = tokio::sync::mpsc::unbounded_channel::<NormalizedCandle>();
+
         let pipeline_specs = [
-            (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), pair.short.divergence_detector.clone()),
-            (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone()),
-            (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone()),
-            (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone()),
-            (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), pair.supermacro.divergence_detector.clone()),
+            (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), pair.short.divergence_detector.clone(), None::<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>),
+            (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone(), Some(candle_fwd_tx.clone())),
+            (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone(), None),
+            (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone(), None),
+            (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), pair.supermacro.divergence_detector.clone(), None),
         ];
 
-        for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det) in pipeline_specs {
+        for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det, candle_fwd) in pipeline_specs {
             let a_symbol = raw_symbol.to_uppercase();
             let a_pair_key = pair_key.clone();
             let a_telemetry = telemetry_tx.clone();
@@ -287,9 +292,55 @@ async fn main() {
                     tf_secs,
                     label,
                     a_cancel,
+                    candle_fwd,
                 ).await;
             }));
         }
+
+        // Candle aggregator: bridge 1m completed candles into 4h/1d macro candles
+        let (candle_bcast_tx, candle_bcast_rx) = tokio::sync::broadcast::channel::<NormalizedCandle>(1200);
+        handles.push(tokio::spawn(async move {
+            loop {
+                match candle_fwd_rx.recv().await {
+                    Some(candle) => {
+                        let _ = candle_bcast_tx.send(candle);
+                    }
+                    None => break,
+                }
+            }
+        }));
+
+        let (agg_4h_tx, mut agg_4h_rx) = tokio::sync::mpsc::channel::<candle_aggregator::AggregatedCandle>(200);
+        let (agg_1d_tx, mut agg_1d_rx) = tokio::sync::mpsc::channel::<candle_aggregator::AggregatedCandle>(200);
+        let agg_symbol = raw_symbol.to_uppercase();
+        handles.push(candle_aggregator::spawn_candle_aggregator(
+            agg_symbol.clone(),
+            candle_bcast_rx,
+            agg_4h_tx,
+            agg_1d_tx,
+        ));
+
+        let logger_agg_symbol = agg_symbol;
+        let logger_agg_telemetry = telemetry_tx.clone();
+        handles.push(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(c4h) = agg_4h_rx.recv() => {
+                        let _ = logger_agg_telemetry.send(db::TelemetryMsg::ConsoleLog(format!(
+                            "🕯️  [{}] 4h Candle Aggregated | Close: ${:.4} | Sources: {}",
+                            logger_agg_symbol, c4h.candle.close, c4h.source_count
+                        ))).await;
+                    }
+                    Some(c1d) = agg_1d_rx.recv() => {
+                        let _ = logger_agg_telemetry.send(db::TelemetryMsg::ConsoleLog(format!(
+                            "🕯️  [{}] 1d Candle Aggregated | Close: ${:.4} | Sources: {}",
+                            logger_agg_symbol, c1d.candle.close, c1d.source_count
+                        ))).await;
+                    }
+                    else => break,
+                }
+            }
+        }));
 
         // WebSocket adapter
         let ws_symbol = raw_symbol.to_uppercase();
@@ -320,6 +371,8 @@ async fn main() {
             telemetry_tx: telemetry_tx.clone(),
             cancel: cancel.clone(),
             api_key_configured: api_key_configured.clone(),
+            portfolio_risk: portfolio_risk.clone(),
+            pair_close_histories: pair_close_histories.clone(),
         };
         handles.push(tokio::spawn(async move {
             automation::run_pair_automation_loop(auto_ctx).await;
@@ -327,12 +380,24 @@ async fn main() {
     }
 
     let eval_cancel = CancellationToken::new();
+    let eval_pool = db_pool.clone();
+    let eval_cancel1 = eval_cancel.clone();
     handles.push(tokio::spawn(async move {
         performance_evaluator::run_performance_evaluator(
             performance_evaluator::EvaluatorConfig {
-                pool: db_pool.clone(),
-                cancel: eval_cancel,
+                pool: eval_pool,
+                cancel: eval_cancel1,
                 eval_interval_secs: 300,
+            },
+        ).await;
+    }));
+
+    handles.push(tokio::spawn(async move {
+        strategy_optimizer::run_strategy_optimizer(
+            strategy_optimizer::OptimizerConfig {
+                pool: db_pool,
+                cancel: eval_cancel,
+                interval_secs: 3600,
             },
         ).await;
     }));
