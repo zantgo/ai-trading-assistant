@@ -1,4 +1,3 @@
-use rust_decimal::Decimal;
 use shared::normalized::NormalizedCandle;
 use tokio::sync::{broadcast, mpsc};
 
@@ -190,7 +189,7 @@ mod tests {
         assert!(r4h.is_none());
         assert!(r1d.is_none());
 
-        let (r4h, r1d) = agg.process_1m_candle(&c2);
+        let (r4h, _r1d) = agg.process_1m_candle(&c2);
         assert!(r4h.is_none());
 
         let pending = agg.pending_4h.as_ref().unwrap();

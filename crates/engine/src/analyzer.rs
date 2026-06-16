@@ -219,7 +219,7 @@ pub async fn run_single(
                     let final_bbwp = bbwp_indicator.update(completed.close);
 
                     // Divergence detection (live — potential status)
-                    let div_result = {
+                    let _div_result = {
                         if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
                             let mut det = divergence_detector.lock().await;
                             det.update_full(completed.close, rsi, macd_hist)

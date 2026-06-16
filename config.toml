@@ -1,6 +1,7 @@
 symbols = [
     "Hyperliquid:BTC",
     "Hyperliquid:ETH",
+    "Hyperliquid:SOL",
 ]
 
 [candles]
@@ -23,7 +24,7 @@ bbwp_lookback = 252
 bbwp_period = 20
 macd_extreme_high_threshold = 1000.0
 macd_extreme_low_threshold = -1000.0
-macd_histogram_contraction_threshold = 0.30
+macd_histogram_contraction_threshold = 0.3
 adx_trend_threshold = 20
 adx_exhaustion_threshold = 40
 adx_slope_lookback = 3
@@ -38,11 +39,26 @@ volume_average_period = 20
 rvol_threshold_institutional = 1.5
 rvol_threshold_climax = 3.0
 
+[hyperliquid]
+ws_url = "wss://api.hyperliquid.xyz/ws"
+
 [fibonacci]
 swing_lookback = 10
 swing_scan_range = 120
-retracement_coefficients = [0.236, 0.382, 0.500, 0.618, 0.660, 0.786]
-extension_coefficients = [1.272, 1.618, 2.000, 2.618]
+retracement_coefficients = [
+    0.236,
+    0.382,
+    0.5,
+    0.618,
+    0.66,
+    0.786,
+]
+extension_coefficients = [
+    1.272,
+    1.618,
+    2.0,
+    2.618,
+]
 
 [pivots]
 strength_n = 10
@@ -61,24 +77,8 @@ enabled = true
 duration_seconds = 3600
 analysis_limit = 100
 
-[automation]
-interval_minutes = 15
-lookback_trades = 10
-auto_execute = false
-
-[hyperliquid]
-ws_url = "wss://api.hyperliquid.xyz/ws"
-
 [leverage]
 cross_leverage = 20
-
-[costs]
-price_per_1m_input_tokens = 0.27
-price_per_1m_output_tokens = 1.10
-
-[fees]
-maker_fee_pct = 0.02
-taker_fee_pct = 0.06
 
 [scoring]
 rsi_weight = 10
@@ -94,3 +94,11 @@ mid_allocation_pct = 2.0
 max_allocation_pct = 3.0
 base_score_threshold = 40
 mid_score_threshold = 60
+
+[fees]
+maker_fee_pct = 0.02
+taker_fee_pct = 0.06
+
+[costs]
+price_per_1m_input_tokens = 0.27
+price_per_1m_output_tokens = 1.1

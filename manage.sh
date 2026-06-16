@@ -57,7 +57,7 @@ run_foreground() {
         build
     fi
     echo "🚀 Starting AI Trading Assistant in the foreground..."
-    cargo run
+    cargo run -- --web
 }
 
 run_silent() {
@@ -79,7 +79,7 @@ run_silent() {
     echo "📝 Logs will be written to: $LOG_FILE"
     
     # Run cargo in background and record PID
-    nohup cargo run > "$LOG_FILE" 2>&1 &
+    nohup cargo run -- --web > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "✅ Engine running under PID: $!"
 }

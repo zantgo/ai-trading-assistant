@@ -47,7 +47,7 @@
                     >
                         <span>{profile.profile_name}</span>
                         {#if app.riskProfiles.length > 1}
-                            <span class="rc-delete-icon" onclick={(e) => { e.stopPropagation(); app.deleteRiskProfile(profile.id); }}>×</span>
+                            <span class="rc-delete-icon" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); app.deleteRiskProfile(profile.id); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); app.deleteRiskProfile(profile.id); } }}>×</span>
                         {/if}
                     </button>
                 {/each}
@@ -68,24 +68,24 @@
             <div class="rc-card">
                 <h3 class="rc-card-title">ACCOUNT & RISK</h3>
                 <div class="rc-field-row">
-                    <label class="rc-label">ACCOUNT CAPITAL</label>
+                    <label class="rc-label" for="rc-capital">ACCOUNT CAPITAL</label>
                     <div class="rc-input-wrap">
                         <span class="rc-input-prefix">$</span>
-                        <input type="number" class="rc-field-input" value={profile.capital} readonly />
+                        <input id="rc-capital" type="number" class="rc-field-input" value={profile.capital} readonly />
                     </div>
                 </div>
                 <div class="rc-field-row">
-                    <label class="rc-label">MAX RISK %</label>
+                    <label class="rc-label" for="rc-maxrisk">MAX RISK %</label>
                     <div class="rc-input-wrap">
-                        <input type="number" class="rc-field-input" value={profile.max_risk_pct} readonly />
+                        <input id="rc-maxrisk" type="number" class="rc-field-input" value={profile.max_risk_pct} readonly />
                         <span class="rc-input-suffix">%</span>
                     </div>
                 </div>
                 <div class="rc-field-row">
-                    <label class="rc-label">LEVERAGE</label>
+                    <label class="rc-label" for="rc-leverage">LEVERAGE</label>
                     <div class="rc-input-wrap">
                         <span class="rc-input-prefix">x</span>
-                        <input type="number" class="rc-field-input" value={profile.leverage} readonly />
+                        <input id="rc-leverage" type="number" class="rc-field-input" value={profile.leverage} readonly />
                     </div>
                 </div>
             </div>
@@ -94,6 +94,7 @@
             <div class="rc-card">
                 <h3 class="rc-card-title">OPERATION</h3>
                 <div class="rc-field-row">
+                    <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class="rc-label">DIRECTION TYPE</label>
                     <div class="rc-toggle">
                         <button class="rc-toggle-btn" class:rc-toggle-long={app.riskDirection === 'LONG'} class:rc-toggle-active={app.riskDirection === 'LONG'}
@@ -103,17 +104,17 @@
                     </div>
                 </div>
                 <div class="rc-field-row">
-                    <label class="rc-label">ENTRY PRICE</label>
+                    <label class="rc-label" for="rc-entry">ENTRY PRICE</label>
                     <div class="rc-input-wrap">
                         <span class="rc-input-prefix">$</span>
-                        <input type="number" step="any" class="rc-field-input" bind:value={app.riskEntryPrice} placeholder="0" />
+                        <input id="rc-entry" type="number" step="any" class="rc-field-input" bind:value={app.riskEntryPrice} placeholder="0" />
                     </div>
                 </div>
                 <div class="rc-field-row">
-                    <label class="rc-label">STOP LOSS PRICE</label>
+                    <label class="rc-label" for="rc-stoploss">STOP LOSS PRICE</label>
                     <div class="rc-input-wrap">
                         <span class="rc-input-prefix">$</span>
-                        <input type="number" step="any" class="rc-field-input" bind:value={app.riskStopLoss} placeholder="0" />
+                        <input id="rc-stoploss" type="number" step="any" class="rc-field-input" bind:value={app.riskStopLoss} placeholder="0" />
                     </div>
                 </div>
             </div>
@@ -122,17 +123,19 @@
             <div class="rc-card">
                 <h3 class="rc-card-title">OBJECTIVES</h3>
                 <div class="rc-field-row">
-                    <label class="rc-label">TAKE PROFIT PRICE</label>
+                    <label class="rc-label" for="rc-takeprofit">TAKE PROFIT PRICE</label>
                     <div class="rc-input-wrap">
                         <span class="rc-input-prefix">$</span>
-                        <input type="number" step="any" class="rc-field-input" bind:value={app.riskTakeProfit} placeholder="0" />
+                        <input id="rc-takeprofit" type="number" step="any" class="rc-field-input" bind:value={app.riskTakeProfit} placeholder="0" />
                     </div>
                 </div>
                 <div class="rc-field-row">
+                    <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class="rc-label">RISK/REWARD RATIO</label>
                     <span class="rc-static-val">1 : {app.riskCalculation?.risk_reward_ratio != null ? app.riskCalculation!.risk_reward_ratio!.toFixed(2) : '--'}</span>
                 </div>
                 <div class="rc-field-row">
+                    <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class="rc-label">ESTIMATED PROFIT</label>
                     <span class="rc-profit-val">{formatUsd(app.riskCalculation?.estimated_profit)}</span>
                 </div>
@@ -142,24 +145,24 @@
             <div class="rc-card">
                 <h3 class="rc-card-title">COSTS</h3>
                 <div class="rc-field-row">
-                    <label class="rc-label">COMMISSION %</label>
+                    <label class="rc-label" for="rc-commission">COMMISSION %</label>
                     <div class="rc-input-wrap">
-                        <input type="number" step="any" class="rc-field-input" value={profile.commission_pct} readonly />
+                        <input id="rc-commission" type="number" step="any" class="rc-field-input" value={profile.commission_pct} readonly />
                         <span class="rc-input-suffix">%</span>
                     </div>
                 </div>
                 <div class="rc-field-row">
-                    <label class="rc-label">FUNDING RATE (8H)</label>
+                    <label class="rc-label" for="rc-funding">FUNDING RATE (8H)</label>
                     <div class="rc-input-wrap">
-                        <input type="number" step="any" class="rc-field-input" value={profile.funding_rate_8h} readonly />
+                        <input id="rc-funding" type="number" step="any" class="rc-field-input" value={profile.funding_rate_8h} readonly />
                         <span class="rc-input-suffix">%</span>
                     </div>
                 </div>
                 <div class="rc-field-row">
-                    <label class="rc-label">SPREAD</label>
+                    <label class="rc-label" for="rc-spread">SPREAD</label>
                     <div class="rc-input-wrap">
                         <span class="rc-input-prefix">$</span>
-                        <input type="number" step="any" class="rc-field-input" value={profile.spread} readonly />
+                        <input id="rc-spread" type="number" step="any" class="rc-field-input" value={profile.spread} readonly />
                     </div>
                 </div>
             </div>

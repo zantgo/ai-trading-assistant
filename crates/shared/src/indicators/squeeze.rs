@@ -266,7 +266,7 @@ mod tests {
     fn test_squeeze_duration_counts() {
         let mut sqz = SqueezeMomentum::new(20);
         sqz.set_min_duration(5);
-        let mut price = dec!(100.00);
+        let price = dec!(100.00);
         // Warm up with very tight oscillating prices to trigger squeeze
         for _ in 0..38 {
             sqz.update(price + dec!(0.01), price - dec!(0.01), price);
@@ -332,7 +332,7 @@ mod tests {
     fn test_min_duration_config() {
         let mut sqz = SqueezeMomentum::new(20);
         sqz.set_min_duration(8);
-        let mut price = dec!(100.00);
+        let price = dec!(100.00);
         for _ in 0..38 {
             sqz.update(price, price, price);
         }

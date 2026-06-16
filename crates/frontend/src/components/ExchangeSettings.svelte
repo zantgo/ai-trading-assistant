@@ -42,36 +42,36 @@
             {#if showForm}
                 <div class="es-form">
                     <div class="es-field-row">
-                        <label class="es-label">Exchange</label>
-                        <select class="es-select" bind:value={form.exchange}>
+                        <label class="es-label" for="es-exchange">Exchange</label>
+                        <select id="es-exchange" class="es-select" bind:value={form.exchange}>
                             {#each EXCHANGES as ex}
                                 <option value={ex}>{ex}</option>
                             {/each}
                         </select>
                     </div>
                     <div class="es-field-row">
-                        <label class="es-label">Account Name</label>
-                        <input type="text" class="es-input" bind:value={form.account_name} placeholder="My Account" />
+                        <label class="es-label" for="es-account">Account Name</label>
+                        <input id="es-account" type="text" class="es-input" bind:value={form.account_name} placeholder="My Account" />
                     </div>
                     <div class="es-field-row">
-                        <label class="es-label">API Key</label>
-                        <input type="password" class="es-input" bind:value={form.api_key} placeholder="sk-..." />
+                        <label class="es-label" for="es-apikey">API Key</label>
+                        <input id="es-apikey" type="password" class="es-input" bind:value={form.api_key} placeholder="sk-..." />
                     </div>
                     <div class="es-field-row">
-                        <label class="es-label">API Secret</label>
-                        <input type="password" class="es-input" bind:value={form.api_secret} placeholder="••••••••" />
+                        <label class="es-label" for="es-apisecret">API Secret</label>
+                        <input id="es-apisecret" type="password" class="es-input" bind:value={form.api_secret} placeholder="••••••••" />
                     </div>
                     <div class="es-field-row">
-                        <label class="es-label">Passphrase</label>
-                        <input type="password" class="es-input" bind:value={form.passphrase} placeholder="Required for Bitget" />
+                        <label class="es-label" for="es-passphrase">Passphrase</label>
+                        <input id="es-passphrase" type="password" class="es-input" bind:value={form.passphrase} placeholder="Required for Bitget" />
                     </div>
                     <div class="es-field-row">
-                        <label class="es-label">Referred UID</label>
-                        <input type="text" class="es-input" bind:value={form.referred_uid} placeholder="Optional" />
+                        <label class="es-label" for="es-referred">Referred UID</label>
+                        <input id="es-referred" type="text" class="es-input" bind:value={form.referred_uid} placeholder="Optional" />
                     </div>
                     <div class="es-field-row">
-                        <label class="es-label">Active Account</label>
-                        <input type="checkbox" bind:checked={form.is_active} class="es-checkbox" />
+                        <label class="es-label" for="es-active">Active Account</label>
+                        <input id="es-active" type="checkbox" bind:checked={form.is_active} class="es-checkbox" />
                     </div>
                     <button class="es-submit-btn" onclick={handleAdd}
                         disabled={!form.account_name.trim() || !form.api_key.trim() || !form.api_secret.trim()}>

@@ -134,7 +134,7 @@
                     >
                         <span>{profile.profile_name}</span>
                         {#if app.decisionProfiles.length > 1}
-                            <span class="dt-delete-icon" onclick={(e) => { e.stopPropagation(); app.deleteDecisionProfile(profile.id); }}>×</span>
+                            <span class="dt-delete-icon" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); app.deleteDecisionProfile(profile.id); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); app.deleteDecisionProfile(profile.id); } }}>×</span>
                         {/if}
                     </button>
                 {/each}

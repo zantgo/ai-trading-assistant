@@ -21,7 +21,7 @@
     let wsMacro: WebSocket | null = null;
     let wsSupermacro: WebSocket | null = null;
     let configReady = false;
-    let chatContainer: HTMLDivElement | null = null;
+    let chatContainer = $state<HTMLDivElement | null>(null);
 
     // Config draft states for localized workspace settings editing
     let activeSettingsPairKey = $state('');
@@ -1722,9 +1722,10 @@
         {@const snap = app.latestSnapshot || {}}
         {@const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : null}
 
-        <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
-        <div class="modal-backdrop" onclick={closeAssistantModal} role="dialog">
-            <div class="modal-window" onclick={(e) => e.stopPropagation()}>
+        <!-- svelte-ignore a11y_interactive_supports_focus -->
+        <div class="modal-backdrop" onclick={closeAssistantModal} onkeydown={(e) => e.key === 'Escape' && closeAssistantModal()} role="dialog" tabindex="0">
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <div class="modal-window" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="document">
                 <div class="modal-header">
                     <h2 class="modal-title">AI Copilot Intelligence Hub — {app.activeSymbol}</h2>
                     <button class="modal-close-btn" onclick={closeAssistantModal}>&#10005;</button>
@@ -1915,12 +1916,6 @@
         width: 100%;
         box-sizing: border-box;
     }
-    .dashboard-stack {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
     .sidebar-panel {
         width: 320px;
         display: flex;
@@ -2001,40 +1996,7 @@
         .sidebar-panel { width: 100%; }
     }
 
-    .panel-box {
-        position: relative;
-        background-color: #131722;
-        border: 1px solid #2a2e39;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        overflow: hidden;
-        resize: vertical;
-        min-height: 80px;
-        max-height: 800px;
-    }
     .hidden-pane { display: none !important; }
-    .pane-price { height: 320px; }
-    .pane-vol { height: 110px; }
-    .pane-adx { height: 110px; }
-    .pane-atr { height: 110px; }
-    .pane-rsi { height: 110px; }
-    .pane-macd { height: 130px; }
-    .pane-squeeze { height: 140px; }
-
-    .absolute-label {
-        position: absolute;
-        top: 8px;
-        left: 56px;
-        z-index: 10;
-        background-color: rgba(19, 23, 34, 0.9);
-        border: 1px solid #2a2e39;
-        border-radius: 4px;
-        padding: 4px 8px;
-        display: flex;
-        gap: 16px;
-    }
-    .label-text-xs { font-size: 10px; }
-    .price-header { font-weight: 700; color: #e2e8f0; }
 
     .position-selector {
         display: flex;
@@ -2204,17 +2166,6 @@
     .delta-positive { color: #10b981; }
     .delta-negative { color: #ef4444; }
 
-    .text-emerald-500 { color: #10b981; }
-    .text-red-500 { color: #ef5350; }
-    .text-teal-400 { color: #26a69a; }
-    .text-yellow-400 { color: #f1c40f; }
-    .text-purple-400 { color: #a78bfa; }
-    .text-blue-400 { color: #60a5fa; }
-    .text-amber-500 { color: #f59e0b; }
-    .text-rose-500 { color: #f43f5e; }
-    .text-slate-300 { color: #cbd5e1; }
-    .text-orange-400 { color: #f1c40f; }
-
     .clickable-result {
         cursor: pointer;
         border-radius: 6px;
@@ -2308,15 +2259,6 @@
         padding-bottom: 6px;
         border-bottom: 1px solid #1e293b;
     }
-
-    .assistant-summary { margin-top: 16px; }
-    .summary-message {
-        background: rgba(59, 130, 246, 0.05);
-        border: 1px solid rgba(59, 130, 246, 0.15);
-        border-radius: 8px;
-        padding: 12px;
-    }
-    .summary-text { font-size: 11px; color: #cbd5e1; line-height: 1.6; margin: 0; white-space: pre-wrap; }
 
     .modal-right { width: 50%; display: flex; flex-direction: column; padding: 20px; overflow: hidden; }
     .modal-right .section-heading {

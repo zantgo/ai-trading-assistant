@@ -1,6 +1,5 @@
 use rust_decimal::Decimal;
 use std::collections::VecDeque;
-use rust_decimal::prelude::FromPrimitive;
 use super::ema::Ema;
 use serde::{Deserialize, Serialize};
 

@@ -81,7 +81,7 @@
                 {:else}
                     <span class="pair-name">{@html pairLabel(pairKey)}</span>
                     <span class="pair-status-dot" class:connected={app.pairsMap[pairKey].isConnected}></span>
-                    <button class="pair-remove-btn" onclick={(e) => { e.stopPropagation(); removePair(pairKey); }} title="Remove pair">×</button>
+                    <span class="pair-remove-btn" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removePair(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removePair(pairKey); } }} title="Remove pair">×</span>
                 {/if}
             </button>
         {/each}
@@ -91,7 +91,8 @@
         <div class="sidebar-add-section">
             {#if showAddInput}
                 <div class="add-pair-input-group">
-                    <input
+                        <!-- svelte-ignore a11y_autofocus -->
+                        <input
                         type="text"
                         placeholder="e.g. Hyperliquid:ETH"
                         bind:value={newPairInput}
@@ -175,8 +176,6 @@
         justify-content: center;
         padding: 12px 8px;
     }
-    .status-live { color: #10b981; font-size: 10px; }
-    .status-offline { color: #ef4444; font-size: 10px; }
     .sidebar-pairs-list {
         flex: 1;
         overflow-y: auto;
@@ -219,8 +218,6 @@
         flex: 1;
         font-size: 12px;
     }
-    .pair-label-exchange { color: #64748b; font-size: 10px; }
-    .pair-label-symbol { color: #cbd5e1; font-weight: 600; }
     .pair-status-dot {
         width: 6px;
         height: 6px;

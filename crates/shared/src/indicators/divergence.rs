@@ -374,48 +374,6 @@ impl DivergenceDetector {
         (first, last)
     }
 
-    fn extrema_min(
-        &self,
-        prices: &[Decimal],
-        values: &[Decimal],
-        half: usize,
-    ) -> (Option<Decimal>, Option<Decimal>, Option<Decimal>, Option<Decimal>) {
-        let price_first = prices[..half].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        let price_last = prices[half..].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        let val_first = values[..half].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        let val_last = values[half..].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        (price_first, price_last, val_first, val_last)
-    }
-
-    fn extrema_max(
-        &self,
-        prices: &[Decimal],
-        values: &[Decimal],
-        half: usize,
-    ) -> (Option<Decimal>, Option<Decimal>, Option<Decimal>, Option<Decimal>) {
-        let price_first = prices[..half].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        let price_last = prices[half..].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        let val_first = values[..half].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        let val_last = values[half..].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        }).copied();
-        (price_first, price_last, val_first, val_last)
-    }
-
     fn detect(&self) -> Divergence {
         let half = self.lookback / 2;
 

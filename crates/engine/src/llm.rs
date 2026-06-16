@@ -361,23 +361,6 @@ pub struct MasterOrchestratorResult {
     pub allocation_pct: f64,
 }
 
-// ─── JSON-RPC 2.0 / MCP Wrappers ───────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JsonRpcRequest<T> {
-    pub jsonrpc: String,
-    pub id: String,
-    pub method: String,
-    pub params: T,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct JsonRpcResponse<T> {
-    pub jsonrpc: String,
-    pub id: String,
-    pub result: AgentEvaluationResult<T>,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgentEvaluationResult<T> {
     pub thought: String,
@@ -434,23 +417,23 @@ pub struct MasterOrchestrationData {
 // ─── Sub-Agent System Prompts ──────────────────────────────────────
 
 pub const TREND_AGENT_PROMPT: &str = r#"You are the Trend Agent. Your task is to evaluate multi-timeframe EMA stacking states, price-to-EMA200 distance, and macro trend biases (15m/1h).
-Calculate trend direction and trend acceleration. Output strictly a JSON-RPC 2.0 compliant object containing "thought" and "data" with fields "directional_bias", "confidence_score", and "ema_slope_alignment".
+Calculate trend direction and trend acceleration. Output strictly a JSON object containing "thought" and "data" with fields "directional_bias", "confidence_score", and "ema_slope_alignment".
 Use the following enum values only: directional_bias = BULLISH | BEARISH | NEUTRAL; confidence_score = 0 to 100; ema_slope_alignment = "aligned" | "diverging" | "flat". Output strictly JSON, no markdown fences."#;
 
 pub const VOLATILITY_AGENT_PROMPT: &str = r#"You are the Volatility Agent. Evaluate BBWP percentile, ATR slope, Squeeze Momentum duration, and release trigger status.
-Determine the current volatility regime (Expanding, Contracting, Stable, Compression) and suggest stops. Output strictly a JSON-RPC 2.0 compliant object with "regime_classification", "volatility_score", "suggest_stop_multiplier", and "is_actionable".
+Determine the current volatility regime (Expanding, Contracting, Stable, Compression) and suggest stops. Output strictly a JSON object with "thought" and "data" containing "regime_classification", "volatility_score", "suggest_stop_multiplier", and "is_actionable".
 Use the following enum values only: regime_classification = COMPRESSION | EXPANSION | TRENDING | RANGE; volatility_score = 0 to 100. Output strictly JSON, no markdown fences."#;
 
 pub const STRUCTURE_AGENT_PROMPT: &str = r#"You are the Structure Agent. Evaluate pivot highs/lows, support/resistance lines, Fibonacci Golden Pocket bounds, and linear regression channels.
-Track level breaks and manage S/R role-reversals. Output strictly a JSON-RPC 2.0 compliant object with "support_proximity_pct", "resistance_proximity_pct", "golden_pocket_status", and "structural_score".
+Track level breaks and manage S/R role-reversals. Output strictly a JSON object with "thought" and "data" containing "support_proximity_pct", "resistance_proximity_pct", "golden_pocket_status", and "structural_score".
 Use the following enum values only: golden_pocket_status = "above" | "below" | "inside"; structural_score = 0 to 100. Output strictly JSON, no markdown fences."#;
 
 pub const RISK_AGENT_PROMPT: &str = r#"You are the Risk Agent. Evaluate total portfolio cash, open risk, suggested leverage, and correlation exposure across pairs.
-Normalize position sizing and calculate suggested capital allocation. Output strictly a JSON-RPC 2.0 compliant object with "suggested_sizing_pct", "leverage", and "exposure_score".
+Normalize position sizing and calculate suggested capital allocation. Output strictly a JSON object with "thought" and "data" containing "suggested_sizing_pct", "leverage", and "exposure_score".
 Use the following ranges: suggested_sizing_pct = 0.0 to 100.0; leverage = 1 to 50; exposure_score = 0 to 100. Output strictly JSON, no markdown fences."#;
 
 pub const POSITION_AGENT_PROMPT: &str = r#"You are the Position Management Agent. Evaluate current active position state (entry price, average entry price, unrealized P&L, stop-loss, and take-profit targets).
-Recommend position modifications (Hold, Close, Scale-In, Reduce, Invalidate). Output strictly a JSON-RPC 2.0 compliant object with "recommended_action" and "rationale".
+Recommend position modifications (Hold, Close, Scale-In, Reduce, Invalidate). Output strictly a JSON object with "thought" and "data" containing "recommended_action" and "rationale".
 Use the following enum values only: recommended_action = HOLD | CLOSE | SCALE | REDUCE. Output strictly JSON, no markdown fences."#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1124,13 +1107,13 @@ RULES:
             .content
             .clone();
 
-        let parsed_rpc: JsonRpcResponse<T> = serde_json::from_str(&content)
+        let parsed_result: AgentEvaluationResult<T> = serde_json::from_str(&content)
             .map_err(|e| format!(
-                "Failed to parse JSON-RPC 2.0 output for {}: {}. Raw content: {}",
+                "Failed to parse JSON output for {}: {}. Raw content: {}",
                 agent_name, e, content
             ))?;
 
-        Ok(parsed_rpc.result)
+        Ok(parsed_result)
     }
 }
 

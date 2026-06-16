@@ -336,7 +336,7 @@ pub fn calculate_eight_factor_score(
     snap: &SnapshotValues,
     support_levels: &[f64],
     resistance_levels: &[f64],
-    macro_trend: &str,
+    _macro_trend: &str,
 ) -> EightFactorScore {
     let is_bullish = bias == "BULLISH";
 

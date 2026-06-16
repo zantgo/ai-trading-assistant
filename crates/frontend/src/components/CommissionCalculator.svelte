@@ -108,6 +108,7 @@
             <div class="cc-card">
                 <h3 class="cc-card-title">TRADE SETUP</h3>
                 <div class="cc-field-row">
+                    <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class="cc-label">DIRECTION</label>
                     <div class="cc-toggle">
                         <button class="cc-toggle-btn" class:cc-toggle-long={app.commissionDirection === 'LONG'} class:cc-toggle-active={app.commissionDirection === 'LONG'}
@@ -117,6 +118,7 @@
                     </div>
                 </div>
                 <div class="cc-field-row">
+                    <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class="cc-label">ORDER TYPE</label>
                     <div class="cc-toggle">
                         <button class="cc-toggle-btn" class:cc-toggle-active={app.commissionOrderType === 'maker'}
@@ -126,9 +128,9 @@
                     </div>
                 </div>
                 <div class="cc-field-row">
-                    <label class="cc-label">CAPITAL SPLIT (Entry 1)</label>
+                    <label class="cc-label" for="cc-split">CAPITAL SPLIT (Entry 1)</label>
                     <div class="cc-split-wrap">
-                        <input type="range" min="10" max="90" step="5" bind:value={app.commissionCapitalSplit} class="cc-split-slider" />
+                        <input id="cc-split" type="range" min="10" max="90" step="5" bind:value={app.commissionCapitalSplit} class="cc-split-slider" />
                         <span class="cc-split-val">{app.commissionCapitalSplit}%</span>
                     </div>
                 </div>
@@ -138,24 +140,24 @@
                 <div class="cc-card">
                     <h3 class="cc-card-title" style="color: #60a5fa;">ENTRY 1</h3>
                     <div class="cc-field-row">
-                        <label class="cc-label">ENTRY PRICE</label>
+                        <label class="cc-label" for="cc-entry1">ENTRY PRICE</label>
                         <div class="cc-input-wrap">
                             <span class="cc-input-prefix">$</span>
-                            <input type="number" step="any" class="cc-field-input" bind:value={app.commissionEntry1} placeholder="0" />
+                            <input id="cc-entry1" type="number" step="any" class="cc-field-input" bind:value={app.commissionEntry1} placeholder="0" />
                         </div>
                     </div>
                     <div class="cc-field-row">
-                        <label class="cc-label">STOP LOSS</label>
+                        <label class="cc-label" for="cc-sl1">STOP LOSS</label>
                         <div class="cc-input-wrap">
                             <span class="cc-input-prefix">$</span>
-                            <input type="number" step="any" class="cc-field-input" bind:value={app.commissionSL1} placeholder="0" />
+                            <input id="cc-sl1" type="number" step="any" class="cc-field-input" bind:value={app.commissionSL1} placeholder="0" />
                         </div>
                     </div>
                     <div class="cc-field-row">
-                        <label class="cc-label">TAKE PROFIT</label>
+                        <label class="cc-label" for="cc-tp1">TAKE PROFIT</label>
                         <div class="cc-input-wrap">
                             <span class="cc-input-prefix">$</span>
-                            <input type="number" step="any" class="cc-field-input" bind:value={app.commissionTP1} placeholder="0" />
+                            <input id="cc-tp1" type="number" step="any" class="cc-field-input" bind:value={app.commissionTP1} placeholder="0" />
                         </div>
                     </div>
                 </div>
@@ -163,24 +165,24 @@
                 <div class="cc-card">
                     <h3 class="cc-card-title" style="color: #a78bfa;">ENTRY 2</h3>
                     <div class="cc-field-row">
-                        <label class="cc-label">ENTRY PRICE</label>
+                        <label class="cc-label" for="cc-entry2">ENTRY PRICE</label>
                         <div class="cc-input-wrap">
                             <span class="cc-input-prefix">$</span>
-                            <input type="number" step="any" class="cc-field-input" bind:value={app.commissionEntry2} placeholder="0" />
+                            <input id="cc-entry2" type="number" step="any" class="cc-field-input" bind:value={app.commissionEntry2} placeholder="0" />
                         </div>
                     </div>
                     <div class="cc-field-row">
-                        <label class="cc-label">STOP LOSS</label>
+                        <label class="cc-label" for="cc-sl2">STOP LOSS</label>
                         <div class="cc-input-wrap">
                             <span class="cc-input-prefix">$</span>
-                            <input type="number" step="any" class="cc-field-input" bind:value={app.commissionSL2} placeholder="0" />
+                            <input id="cc-sl2" type="number" step="any" class="cc-field-input" bind:value={app.commissionSL2} placeholder="0" />
                         </div>
                     </div>
                     <div class="cc-field-row">
-                        <label class="cc-label">TAKE PROFIT</label>
+                        <label class="cc-label" for="cc-tp2">TAKE PROFIT</label>
                         <div class="cc-input-wrap">
                             <span class="cc-input-prefix">$</span>
-                            <input type="number" step="any" class="cc-field-input" bind:value={app.commissionTP2} placeholder="0" />
+                            <input id="cc-tp2" type="number" step="any" class="cc-field-input" bind:value={app.commissionTP2} placeholder="0" />
                         </div>
                     </div>
                 </div>
@@ -444,7 +446,6 @@
     .cc-result-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
     .cc-result-item { display: flex; flex-direction: column; gap: 2px; }
     .cc-result-full { grid-column: span 2; }
-    .cc-result-grid-3 .cc-result-full { grid-column: span 3; }
     .cc-result-label { font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase; }
     .cc-result-value { font-size: 13px; color: #e2e8f0; font-weight: 700; font-family: monospace; }
     .cc-result-sl { color: #ef4444; }

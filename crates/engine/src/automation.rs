@@ -653,28 +653,7 @@ fn evaluate_confluence_mtf(short_signal: &str, mid_signal: &str, long_signal: &s
     }
 }
 
-fn evaluate_confluence(short_signal: &str, mid_signal: &str, long_signal: &str) -> (&'static str, usize) {
-    let bullish = ["BULLISH", "UPWARD"];
-    let bearish = ["BEARISH", "DOWNWARD"];
 
-    let short_bull = bullish.iter().any(|&s| short_signal.to_uppercase().contains(s));
-    let short_bear = bearish.iter().any(|&s| short_signal.to_uppercase().contains(s));
-    let mid_bull = bullish.iter().any(|&s| mid_signal.to_uppercase().contains(s));
-    let mid_bear = bearish.iter().any(|&s| mid_signal.to_uppercase().contains(s));
-    let long_bull = bullish.iter().any(|&s| long_signal.to_uppercase().contains(s));
-    let long_bear = bearish.iter().any(|&s| long_signal.to_uppercase().contains(s));
-
-    let bull_count = [short_bull, mid_bull, long_bull].iter().filter(|&&x| x).count();
-    let bear_count = [short_bear, mid_bear, long_bear].iter().filter(|&&x| x).count();
-
-    if bull_count >= 2 {
-        ("BULLISH", bull_count)
-    } else if bear_count >= 2 {
-        ("BEARISH", bear_count)
-    } else {
-        ("SIDEWAYS", 0)
-    }
-}
 
 fn build_indicator_snapshot(snapshot: &Option<shared::models::MarketSnapshot>) -> crate::server::IndicatorSnapshot {
     match snapshot {
