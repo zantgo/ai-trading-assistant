@@ -15,7 +15,7 @@
     let newProfileName = $state('');
     async function createProfile() {
         if (!newProfileName.trim()) return;
-        await app.createRiskProfile(newProfileName.trim(), 1000, 2, 20, 0.06, 0, 0);
+        await app.createRiskProfile(newProfileName.trim(), 1000, 2, 20);
         newProfileName = '';
     }
 

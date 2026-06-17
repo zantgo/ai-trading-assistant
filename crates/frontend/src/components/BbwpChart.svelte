@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, type IChartApi, type ISeriesApi, type HistogramData, ColorType, CrosshairMode } from 'lightweight-charts';
-    import { registerChart, unregisterChart } from '../chartRegistry.svelte.ts';
+    import { createChart, type IChartApi, type ISeriesApi, type HistogramData, ColorType, CrosshairMode, HistogramSeries, LineSeries } from 'lightweight-charts';
+    import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     let { historyPrices = [], currentBbwp = 0, containerClass = '' }: {
         historyPrices: number[];
@@ -40,12 +40,12 @@
             },
         });
 
-        bbwpSeries = chart.addHistogramSeries({
+        bbwpSeries = chart.addSeries(HistogramSeries, {
             color: '#00d4aa',
             base: 0,
         });
 
-        compLine = chart.addLineSeries({
+        compLine = chart.addSeries(LineSeries, {
             color: '#4488ff',
             lineWidth: 1,
             lineStyle: 2,
@@ -53,7 +53,7 @@
             lastValueVisible: false,
         });
 
-        exhaustLine = chart.addLineSeries({
+        exhaustLine = chart.addSeries(LineSeries, {
             color: '#ff4444',
             lineWidth: 1,
             lineStyle: 2,
@@ -61,17 +61,23 @@
             lastValueVisible: false,
         });
 
-        compLine.setData([
-            { time: (Date.now() / 1000) - 3600 as any, value: 10 },
-            { time: (Date.now() / 1000) as any, value: 10 },
-        ]);
-        exhaustLine.setData([
-            { time: (Date.now() / 1000) - 3600 as any, value: 90 },
-            { time: (Date.now() / 1000) as any, value: 90 },
-        ]);
+        if (compLine) {
+            compLine.setData([
+                { time: (Date.now() / 1000) - 3600 as any, value: 10 },
+                { time: (Date.now() / 1000) as any, value: 10 },
+            ]);
+        }
+        if (exhaustLine) {
+            exhaustLine.setData([
+                { time: (Date.now() / 1000) - 3600 as any, value: 90 },
+                { time: (Date.now() / 1000) as any, value: 90 },
+            ]);
+        }
 
-        chart.timeScale().fitContent();
-        registerChart(chart);
+        if (chart) {
+            chart.timeScale().fitContent();
+            registerChart(chart);
+        }
     });
 
     onDestroy(() => {

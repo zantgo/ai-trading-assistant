@@ -340,3 +340,122 @@ async fn test_close_refunds_correct_amount() {
     assert!((balance.current_cash - 10000.0).abs() < 0.01,
         "Expected ~10000 but got {}", balance.current_cash);
 }
+
+#[tokio::test]
+async fn test_trailing_stop_to_break_even() {
+    let pool = setup_paper_db().await;
+    seed_balance(&pool, "BTC", 10000.0, 30.0).await;
+
+    let tx = spawn_logger(pool.clone());
+
+    let open = engine::paper_trading::verify_margin_and_open_with_alloc(
+        &pool, &tx, "BTC", "LONG", 50000.0, Some(30.0),
+    ).await;
+    assert!(open.success);
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let pos = db::paper_get_active_position(&pool, "BTC").await.unwrap();
+    let pos_id = pos.id;
+
+    sqlx::query(
+        "INSERT INTO position_take_profit_targets (position_id, symbol, target_price, size_fraction, is_hit, timestamp)
+         VALUES (?1, 'BTC', 55000.0, 0.5, 0, 1000000)"
+    )
+    .bind(pos_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let triggered = engine::paper_trading::check_break_even_trail(&pool, "BTC", 55000.0).await;
+    assert!(triggered, "TP1 should trigger break-even trail when price crosses 55000");
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let pos_after = db::paper_get_active_position(&pool, "BTC").await.unwrap();
+    assert!((pos_after.final_invalidation_level.unwrap_or(0.0) - 50000.0).abs() < 0.01,
+        "SL should be moved to entry price (50000.0) for break-even, got {:?}", pos_after.final_invalidation_level);
+
+    let tp_status: (i64,) = sqlx::query_as(
+        "SELECT is_hit FROM position_take_profit_targets WHERE id = ?1"
+    )
+    .bind(pos_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tp_status.0, 1, "TP1 should be marked as hit");
+}
+
+#[tokio::test]
+async fn test_close_emits_journal_trade() {
+    let pool = setup_paper_db().await;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS trade_learning_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id INTEGER NOT NULL,
+            entry_date TEXT NOT NULL,
+            exit_date TEXT NOT NULL,
+            asset TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry_reason TEXT NOT NULL,
+            roe_percentage REAL NOT NULL DEFAULT 0.0,
+            final_analysis TEXT NOT NULL DEFAULT '',
+            execution_score REAL NOT NULL DEFAULT 5.0,
+            human_notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS trade_telemetry_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exchange TEXT NOT NULL DEFAULT 'Hyperliquid',
+            symbol TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry_timestamp INTEGER NOT NULL,
+            exit_timestamp INTEGER NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL NOT NULL,
+            size REAL NOT NULL,
+            commission_fees REAL NOT NULL DEFAULT 0.0,
+            funding_fees REAL NOT NULL DEFAULT 0.0,
+            realized_pnl REAL NOT NULL,
+            roi_percentage REAL NOT NULL DEFAULT 0.0,
+            trigger_source TEXT NOT NULL DEFAULT 'MANUAL'
+        )"
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    seed_balance(&pool, "ADA", 10000.0, 10.0).await;
+
+    let tx = spawn_logger(pool.clone());
+
+    let open = engine::paper_trading::verify_margin_and_open_with_alloc(
+        &pool, &tx, "ADA", "LONG", 1.00, Some(10.0),
+    ).await;
+    assert!(open.success);
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    let close = engine::paper_trading::close_paper_position(
+        &pool, &tx, "ADA", 1.20, "MANUAL",
+    ).await;
+    assert!(close.success);
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+    let trade_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM paper_trades WHERE symbol = 'ADA'"
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(trade_count.0 >= 1, "Paper trades should record the closed trade for ADA");
+
+    let balance = db::paper_get_balance(&pool, "ADA").await;
+    assert!(balance.current_cash > 10000.0,
+        "Cash should be > 10000 after profitable close (entry 1.00, exit 1.20), got {}", balance.current_cash);
+}

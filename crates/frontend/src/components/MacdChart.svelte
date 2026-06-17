@@ -8,6 +8,7 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.pairsMap[pairKey]);
+    const tf = $derived(timeframe === 15 ? pair?.shortTerm : timeframe === 300 ? pair?.longTerm : pair?.midTerm);
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -78,7 +79,7 @@
                     const source = hasCandles ? data.candles : data.prices;
 
                     const now = Math.floor(Date.now() / 1000);
-                    const step = pair.barDurationSec || 60;
+                    const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
                     const placeholderLine = source.map((item: any, idx: number) => ({
@@ -127,7 +128,7 @@
 
     $effect(() => {
         if (!pair) return;
-        const snap = pair.latestSnapshot;
+        const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.macd_line != null) {
@@ -138,26 +139,26 @@
             macdLineSeries.update({ time: timeSec as Time, value: mLine });
             macdSigSeries.update({ time: timeSec as Time, value: mSig });
 
-            const color = histogramColor(mHist, pair.lastMacdHist);
+            const color = histogramColor(mHist, tf.lastMacdHist);
 
             macdHistSeries.update({ time: timeSec as Time, value: mHist, color });
-            pair.lastMacdHist = mHist;
+            tf.lastMacdHist = mHist;
         }
 
         // Update MACD momentum state from snapshot
         if (snap.macd_histogram_peak != null) {
-            pair.macdHistPeak = parseFloat(String(snap.macd_histogram_peak));
+            tf.macdHistPeak = parseFloat(String(snap.macd_histogram_peak));
         }
         if (snap.macd_crossover_detected != null) {
-            pair.macdCrossoverDetected = !!snap.macd_crossover_detected;
+            tf.macdCrossoverDetected = !!snap.macd_crossover_detected;
         }
         if (snap.macd_crossover_direction != null) {
-            pair.macdCrossoverDirection = String(snap.macd_crossover_direction);
+            tf.macdCrossoverDirection = String(snap.macd_crossover_direction);
         }
         if (snap.macd_trend_state === 'decelerating') {
-            pair.macdContractionTriggered = true;
+            tf.macdContractionTriggered = true;
         } else {
-            pair.macdContractionTriggered = false;
+            tf.macdContractionTriggered = false;
         }
     });
 </script>

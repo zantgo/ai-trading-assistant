@@ -8,6 +8,7 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.pairsMap[pairKey]);
+    const tf = $derived(timeframe === 15 ? pair?.shortTerm : timeframe === 300 ? pair?.longTerm : pair?.midTerm);
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -53,7 +54,7 @@
                     const source = hasCandles ? data.candles : data.prices;
 
                     const now = Math.floor(Date.now() / 1000);
-                    const step = pair.barDurationSec || 60;
+                    const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
                     const placeholder = source.map((item: any, idx: number) => ({
@@ -102,7 +103,7 @@
 
     $effect(() => {
         if (!pair) return;
-        const snap = pair.latestSnapshot;
+        const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.atr_14 != null) {
@@ -115,7 +116,7 @@
                 ? String(snap.atr_volatility_regime)
                 : 'stable';
             atrRegime = regime;
-            pair.atrVolatilityRegime = regime;
+            tf.atrVolatilityRegime = regime;
 
             const color = regimeColor(regime);
             atrSeries.applyOptions({ color });

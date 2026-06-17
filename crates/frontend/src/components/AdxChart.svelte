@@ -8,6 +8,7 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.pairsMap[pairKey]);
+    const tf = $derived(timeframe === 15 ? pair?.shortTerm : timeframe === 300 ? pair?.longTerm : pair?.midTerm);
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -87,7 +88,7 @@
                     const source = hasCandles ? data.candles : data.prices;
 
                     const now = Math.floor(Date.now() / 1000);
-                    const step = pair.barDurationSec || 60;
+                    const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
                     const placeholder = source.map((item: any, idx: number) => ({
@@ -129,7 +130,7 @@
 
     $effect(() => {
         if (!pair) return;
-        const snap = pair.latestSnapshot;
+        const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.adx_14 != null) {
@@ -146,15 +147,15 @@
             adxSeries.applyOptions({ color });
 
             // Update state
-            pair.adxSlope = slope;
-            pair.adxTrendingRegime = regime;
-            pair.adxExhaustionReached = adxVal > 40;
+            tf.adxSlope = slope;
+            tf.adxTrendingRegime = regime;
+            tf.adxExhaustionReached = adxVal > 40;
         }
         if (snap.adx_di_crossover_detected != null) {
-            pair.adxDiCrossoverDetected = !!snap.adx_di_crossover_detected;
+            tf.adxDiCrossoverDetected = !!snap.adx_di_crossover_detected;
         }
         if (snap.adx_di_crossover_direction != null) {
-            pair.adxDiCrossoverDirection = String(snap.adx_di_crossover_direction);
+            tf.adxDiCrossoverDirection = String(snap.adx_di_crossover_direction);
         }
     });
 </script>

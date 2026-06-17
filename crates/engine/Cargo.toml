@@ -62,3 +62,6 @@ rustyline = "15"
 
 [dev-dependencies]
 rust_decimal_macros = "1"
+tower = { version = "0.4", features = ["util"] }
+hyper = { version = "1", features = ["server"] }
+http-body-util = "0.1"

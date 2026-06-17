@@ -92,4 +92,44 @@ mod tests {
         let wide = bb2.update(dec!(100.00)).unwrap();
         assert!(wide.0 > narrow.0, "Volatile prices should widen upper band");
     }
+
+    #[test]
+    fn test_bandwidth_calculation() {
+        let mut bb = BollingerBands::new();
+        // Feed alternating prices to create a non-zero standard deviation
+        for i in 0..20 {
+            if i % 2 == 0 {
+                bb.update(dec!(100.00));
+            } else {
+                bb.update(dec!(110.00));
+            }
+        }
+        let (upper, middle, lower) = bb.update(dec!(105.00)).unwrap();
+        let bandwidth = (upper - lower) / middle;
+        assert!(bandwidth > dec!(0.00), "Bandwidth should be positive with varying prices");
+        assert!(upper > middle, "Upper band must be above middle");
+        assert!(middle > lower, "Middle band must be above lower band");
+    }
+
+    #[test]
+    fn test_percent_b_stays_in_bounds() {
+        let mut bb = BollingerBands::new();
+        // Feed prices with variance to get non-zero bandwidth
+        for i in 0..20 {
+            if i % 2 == 0 {
+                bb.update(dec!(95.00));
+            } else {
+                bb.update(dec!(105.00));
+            }
+        }
+        let close = dec!(100.00);
+        let (upper, _middle, lower) = bb.update(close).unwrap();
+        assert!(upper > lower, "Bands must have non-zero width");
+        let pct_b = (close - lower) / (upper - lower);
+        assert!(pct_b >= dec!(0.00) && pct_b <= dec!(1.00),
+            "%B should stay in [0,1], got {}", pct_b);
+        // At the middle of the price range, %B should be near 0.5
+        assert!((pct_b - dec!(0.5)).abs() < dec!(0.4),
+            "%B should be near 0.5 at mid-range, got {}", pct_b);
+    }
 }

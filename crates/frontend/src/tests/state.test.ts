@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getState } from '../state.svelte';
 
-describe('AI Trading Assistant Global State Tests', () => {
+describe('TEST-UI: Global State Runes', () => {
     let app: ReturnType<typeof getState>;
 
     beforeEach(() => {

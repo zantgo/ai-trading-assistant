@@ -335,4 +335,21 @@ mod tests {
         let result = detect_pattern(&pivots);
         assert!(matches!(result.pattern, ChartPattern::FallingWedge | ChartPattern::RisingWedge | ChartPattern::BullishTriangle | ChartPattern::BearishTriangle | ChartPattern::None));
     }
+
+    #[test]
+    fn test_flat_prices_produce_no_pattern() {
+        let pivots = vec![
+            make_low(5, 100.0),
+            make_high(10, 100.0),
+            make_low(15, 100.0),
+            make_high(20, 100.0),
+            make_low(25, 100.0),
+            make_high(30, 100.0),
+        ];
+        let result = detect_pattern(&pivots);
+        assert_eq!(result.pattern, ChartPattern::None);
+        assert_eq!(result.confidence, 0.0);
+        assert!(!result.is_bullish);
+        assert!(!result.is_bearish);
+    }
 }

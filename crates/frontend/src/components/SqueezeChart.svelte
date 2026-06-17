@@ -8,6 +8,7 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.pairsMap[pairKey]);
+    const tf = $derived(timeframe === 15 ? pair?.shortTerm : timeframe === 300 ? pair?.longTerm : pair?.midTerm);
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -31,7 +32,6 @@
             base: 0,
             priceLineVisible: false,
             priceScaleId: 'squeeze-overlay',
-            scaleMargins: { top: 0.85, bottom: 0.05 },
         });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
@@ -69,7 +69,7 @@
                     const source = hasCandles ? data.candles : data.prices;
 
                     const now = Math.floor(Date.now() / 1000);
-                    const step = pair.barDurationSec || 60;
+                    const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
                     const placeholder = source.map((item: any, idx: number) => ({
@@ -114,7 +114,7 @@
 
     $effect(() => {
         if (!pair) return;
-        const snap = pair.latestSnapshot;
+        const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.squeeze_momentum != null) {
@@ -126,19 +126,19 @@
             const momColor = momentumColor(momVal, direction);
 
             squeezeMomSeries.update({ time: timeSec as Time, value: momVal, color: momColor });
-            pair.lastSqzMom = momVal;
+            tf.lastSqzMom = momVal;
 
             let dotColor = snap.squeeze_on ? '#ef5350' : '#4caf50';
             squeezeDotSeries.update({ time: timeSec as Time, value: 0.1, color: dotColor });
 
             // Update state
-            pair.squeezeMomentumDirection = direction;
+            tf.squeezeMomentumDirection = direction;
         }
         if (snap.squeeze_duration != null) {
-            pair.squeezeDuration = Number(snap.squeeze_duration);
+            tf.squeezeDuration = Number(snap.squeeze_duration);
         }
         if (snap.squeeze_release_trigger != null) {
-            pair.squeezeReleaseTrigger = !!snap.squeeze_release_trigger;
+            tf.squeezeReleaseTrigger = !!snap.squeeze_release_trigger;
         }
     });
 </script>

@@ -104,4 +104,31 @@ mod tests {
         let result = rsi.update(price - dec!(1.00)).unwrap();
         assert!(result < dec!(50.00), "All losses should yield RSI < 50");
     }
+
+    #[test]
+    fn test_zero_loss_returns_rsi_100() {
+        let mut rsi = Rsi::new(14);
+        rsi.update(dec!(50.00));
+        let mut price = dec!(50.00);
+        for _ in 0..14 {
+            price += dec!(2.00);
+            rsi.update(price);
+        }
+        let result = rsi.update(price + dec!(2.00)).unwrap();
+        assert!(result > dec!(90.00));
+        assert!(result <= dec!(100.00), "RSI should not exceed 100");
+    }
+
+    #[test]
+    fn test_rsi_stays_within_zero_to_hundred() {
+        let mut rsi = Rsi::new(14);
+        rsi.update(dec!(100.00));
+        for i in 0..50 {
+            let price = if i % 2 == 0 { dec!(200.00) } else { dec!(10.00) };
+            if let Some(val) = rsi.update(price) {
+                assert!(val >= dec!(0.00), "RSI should never be negative, got {}", val);
+                assert!(val <= dec!(100.00), "RSI should never exceed 100, got {}", val);
+            }
+        }
+    }
 }

@@ -158,7 +158,7 @@ pub async fn query_all_active_positions(pool: &SqlitePool) -> Vec<db::ActivePape
         .collect()
 }
 
-fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
+pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     let n = x.len().min(y.len());
     if n < 10 {
         return None;

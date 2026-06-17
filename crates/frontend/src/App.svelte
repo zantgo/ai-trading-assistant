@@ -285,19 +285,19 @@
 
                 const next = app.pairsMap[newPairKey];
                 if (next) {
-                    next.barDurationSec = calculatedDuration;
-                    next.emaFastVal = draftEmaFast;
-                    next.emaMediumVal = draftEmaMedium;
-                    next.emaSlowVal = draftEmaSlow;
-                    next.emaLongVal = draftEmaLong;
-                    next.rsiPeriodVal = draftRsiPeriod;
-                    next.macdFastVal = draftMacdFast;
-                    next.macdSlowVal = draftMacdSlow;
-                    next.macdSignalVal = draftMacdSignal;
-                    next.adxPeriodVal = draftAdxPeriod;
-                    next.atrPeriodVal = draftAtrPeriod;
-                    next.squeezePeriodVal = draftSqueezePeriod;
-                    next.analysisLimit = draftAnalysisLimit;
+                    next.midTerm.barDurationSec = calculatedDuration;
+                    next.midTerm.emaFastVal = draftEmaFast;
+                    next.midTerm.emaMediumVal = draftEmaMedium;
+                    next.midTerm.emaSlowVal = draftEmaSlow;
+                    next.midTerm.emaLongVal = draftEmaLong;
+                    next.midTerm.rsiPeriodVal = draftRsiPeriod;
+                    next.midTerm.macdFastVal = draftMacdFast;
+                    next.midTerm.macdSlowVal = draftMacdSlow;
+                    next.midTerm.macdSignalVal = draftMacdSignal;
+                    next.midTerm.adxPeriodVal = draftAdxPeriod;
+                    next.midTerm.atrPeriodVal = draftAtrPeriod;
+                    next.midTerm.squeezePeriodVal = draftSqueezePeriod;
+                    next.midTerm.analysisLimit = draftAnalysisLimit;
                     next.automationEnabled = draftAutomationEnabled;
                     next.automationIntervalValue = draftAutomationIntervalValue;
                     next.automationIntervalUnit = draftAutomationIntervalUnit;
@@ -551,6 +551,17 @@
                         targetState.nextEvaluationIn = targetState.automationEnabled ? formatIntervalRemaining(autoSec) : '--';
         }
     }
+            }
+        if (symbols.length > 0) {
+            const parts = symbols[0].split(':');
+            app.activeTab = `${parts[0] || 'Hyperliquid'}-${parts[1] || 'BTC'}`;
+        }
+        configReady = true;
+        connectWebsocket();
+    } catch (e) {
+        console.error('Failed to fetch config from server:', e);
+        configReady = true;
+    }
 
     async function saveIntervalsConfig() {
         intervalsSaveStatus = 'saving';
@@ -581,18 +592,6 @@
             }
         } catch (_) {
             intervalsSaveStatus = 'error';
-        }
-    }
-            }
-            if (symbols.length > 0) {
-                const parts = symbols[0].split(':');
-                app.activeTab = `${parts[0] || 'Hyperliquid'}-${parts[1] || 'BTC'}`;
-            }
-            configReady = true;
-            connectWebsocket();
-        } catch (e) {
-            console.error('Failed to fetch config from server:', e);
-            configReady = true;
         }
     }
 
@@ -717,7 +716,7 @@
     }
 
     function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsShort' | 'wsMid' | 'wsLong' | 'wsMacro' | 'wsSupermacro', tfSecs: number) {
-        closeWs(self[wsKey] as WebSocket | null);
+        closeWs((self as any)[wsKey] as WebSocket | null);
 
         const url = buildWsUrl(tfSecs);
         if (!url) return;

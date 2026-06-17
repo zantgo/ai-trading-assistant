@@ -8,6 +8,7 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.pairsMap[pairKey]);
+    const tf = $derived(timeframe === 15 ? pair?.shortTerm : timeframe === 300 ? pair?.longTerm : pair?.midTerm);
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -69,7 +70,7 @@
                 const data = await res.json();
                 if (data.prices && data.prices.length > 0) {
                     const now = Math.floor(Date.now() / 1000);
-                    const step = pair.barDurationSec || 60;
+                    const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
                     const hasCandles = data.candles && data.candles.length > 0;
@@ -120,27 +121,27 @@
 
     $effect(() => {
         if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
-        ema10Series.applyOptions({ visible: pair.showEmas });
-        ema50Series.applyOptions({ visible: pair.showEmas });
-        ema100Series.applyOptions({ visible: pair.showEmas });
-        ema200Series.applyOptions({ visible: pair.showEmas });
+        ema10Series.applyOptions({ visible: tf.showEmas });
+        ema50Series.applyOptions({ visible: tf.showEmas });
+        ema100Series.applyOptions({ visible: tf.showEmas });
+        ema200Series.applyOptions({ visible: tf.showEmas });
     });
 
     $effect(() => {
         if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries || !pair) return;
-        bbUpperSeries.applyOptions({ visible: pair.showBb });
-        bbMiddleSeries.applyOptions({ visible: pair.showBb });
-        bbLowerSeries.applyOptions({ visible: pair.showBb });
+        bbUpperSeries.applyOptions({ visible: tf.showBb });
+        bbMiddleSeries.applyOptions({ visible: tf.showBb });
+        bbLowerSeries.applyOptions({ visible: tf.showBb });
     });
 
     $effect(() => {
         if (!vwapSeries || !pair) return;
-        vwapSeries.applyOptions({ visible: pair.showVwap });
+        vwapSeries.applyOptions({ visible: tf.showVwap });
     });
 
     $effect(() => {
         if (!pair) return;
-        const snap = pair.latestSnapshot;
+        const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
 
@@ -248,16 +249,16 @@
                 return {
                     firstPrice: parsed.first_extreme?.price ? parseFloat(parsed.first_extreme.price) : 0,
                     secondPrice: parsed.second_extreme?.price ? parseFloat(parsed.second_extreme.price) : 0,
-                    status: pair.rsiDivergenceStatus || 'none',
+                    status: tf.rsiDivergenceStatus || 'none',
                 };
             } catch (_) {
                 return null;
             }
         };
 
-        const rsiCoords = parseCoords(pair.rsiDivergenceCoords);
+        const rsiCoords = parseCoords(tf.rsiDivergenceCoords);
         if (rsiCoords && rsiCoords.firstPrice > 0 && rsiCoords.secondPrice > 0) {
-            const isConfirmed = pair.rsiDivergenceStatus === 'confirmed';
+            const isConfirmed = tf.rsiDivergenceStatus === 'confirmed';
             const lineColor = isConfirmed ? '#22c55e' : '#f59e0b';
             const lineStyle: 0 | 1 | 2 | 3 | 4 = isConfirmed ? 1 : 2;
             divergenceLines.push(candleSeries.createPriceLine({
@@ -285,9 +286,9 @@
         if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
         if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
         if (fibExt2618Line) { candleSeries.removePriceLine(fibExt2618Line); fibExt2618Line = null; }
-        if (!pair || !pair.showFib) return;
+        if (!pair || !tf.showFib) return;
 
-        const snap = pair.latestSnapshot;
+        const snap = tf.latestSnapshot;
         if (!snap) return;
 
         const gpLow = snap.fib_golden_pocket_low != null ? parseFloat(String(snap.fib_golden_pocket_low)) : null;
@@ -341,16 +342,16 @@
 <div class="chart-wrapper">
     {#if pair}
         <span class="ema-stack-label"
-            class:bullish={pair.emaStackState === 'bullish'}
-            class:bearish={pair.emaStackState === 'bearish'}
+            class:bullish={tf.emaStackState === 'bullish'}
+            class:bearish={tf.emaStackState === 'bearish'}
         >
-            {pair.emaStackState?.toUpperCase() || 'TANGLED'}
+            {tf.emaStackState?.toUpperCase() || 'TANGLED'}
         </span>
         <span class="vwap-bias-label"
-            class:premium={pair.vwapBias === 'premium'}
-            class:discount={pair.vwapBias === 'discount'}
+            class:premium={tf.vwapBias === 'premium'}
+            class:discount={tf.vwapBias === 'discount'}
         >
-            VWAP: {pair.vwapBias?.toUpperCase() || '--'}
+            VWAP: {tf.vwapBias?.toUpperCase() || '--'}
         </span>
     {/if}
     <div class="chart-container" bind:this={container}></div>

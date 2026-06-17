@@ -5,7 +5,7 @@
     const app = getState();
 
     $effect(() => {
-        app.fetchExchangeAccounts();
+        app.fetchExchangeKeys();
     });
 
     const EXCHANGES = ['Bitget', 'Hyperliquid'];
@@ -14,12 +14,12 @@
 
     async function handleAdd() {
         if (!form.account_name.trim() || !form.api_key.trim() || !form.api_secret.trim()) return;
-        await app.addExchangeAccount();
+        await app.addExchangeKey();
         showForm = false;
     }
 
     async function handleDelete(id: number) {
-        await app.deleteExchangeAccount(id);
+        await app.deleteExchangeKey(id);
     }
 
     function formatTs(ts: number | null): string {

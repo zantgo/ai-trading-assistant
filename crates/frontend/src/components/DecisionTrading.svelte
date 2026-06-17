@@ -86,8 +86,7 @@
     }
 
     async function handleEvaluate() {
-        const snap = app.latestSnapshot || {};
-        await app.evaluateDecision(app.activeDecisionProfileId, snap, app.historyPrices);
+        await app.evaluateDecision(app.activeDecisionProfileId);
         computeEightFactorScore();
     }
 
@@ -110,7 +109,7 @@
     async function handleThresholdChange(profile: DecisionProfile, field: 'long' | 'short', delta: number) {
         const longT = field === 'long' ? profile.long_threshold + delta : profile.long_threshold;
         const shortT = field === 'short' ? profile.short_threshold + delta : profile.short_threshold;
-        await app.updateDecisionProfile(profile.id, profile.profile_name, longT, shortT);
+        await app.updateDecisionProfileThresholds(profile.id, longT, shortT);
     }
 
     let newProfileName = $state('');
@@ -303,7 +302,6 @@
     }
     .dt-save-btn:disabled { opacity: 0.5; }
 
-    .dt-result-card { }
     .dt-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .dt-score-badge {
         font-size: 16px; font-weight: 800; color: #f1f5f9; background: #1e293b;
