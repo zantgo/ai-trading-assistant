@@ -257,7 +257,7 @@ fn compute_slope(pivots: &[&PivotPoint]) -> Decimal {
     }
     let first = pivots.last().unwrap();
     let last = pivots.first().unwrap();
-    let bars = (last.index - first.index).max(1) as i64;
+    let bars = (last.index.saturating_sub(first.index)).max(1) as i64;
     (last.price - first.price) / Decimal::from(bars)
 }
 
@@ -268,8 +268,8 @@ fn interpolate_line(pivots: &[&PivotPoint], index: usize) -> Option<Decimal> {
     }
     let first = pivots.last().unwrap();
     let last = pivots.first().unwrap();
-    let total_bars = (last.index - first.index).max(1) as i64;
-    let offset = (index as i64 - first.index as i64).max(0);
+    let total_bars = (last.index.saturating_sub(first.index)).max(1) as i64;
+    let offset = (index.saturating_sub(first.index)) as i64;
     let ratio = Decimal::from(offset) / Decimal::from(total_bars);
     Some(first.price + (last.price - first.price) * ratio)
 }
