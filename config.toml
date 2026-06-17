@@ -102,3 +102,23 @@ taker_fee_pct = 0.06
 [costs]
 price_per_1m_input_tokens = 0.27
 price_per_1m_output_tokens = 1.1
+
+[workspace]
+max_instances = 100
+default_pair = "BTC/USDT"
+
+[safety]
+consecutive_loss_caution = 3
+consecutive_loss_dropout = 5
+dropout_duration_hours = 8
+capital_drawdown_pct = 30.0
+
+[intervals]
+slow_seconds = 3600
+normal_seconds = 900
+fast_seconds = 300
+
+[api_failover]
+max_retries_per_call = 5
+retry_delay_seconds = 30
+max_consecutive_failures = 10

@@ -39,6 +39,10 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             scoring: Default::default(),
             fees: Default::default(),
             costs: Default::default(),
+            workspace: Default::default(),
+            safety: Default::default(),
+            intervals: Default::default(),
+            api_failover: Default::default(),
             pairs: HashMap::new(),
         };
         let indicators = test_config.indicators.clone();

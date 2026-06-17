@@ -57,5 +57,8 @@ aes-gcm = "0.10"
 rand = "0.8"
 sha2 = "0.10"
 
+# Terminal input with history and line editing
+rustyline = "15"
+
 [dev-dependencies]
 rust_decimal_macros = "1"

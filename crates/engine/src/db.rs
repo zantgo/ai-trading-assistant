@@ -1065,6 +1065,9 @@ pub async fn init_db() -> SqlitePool {
     // Seed default profiles if tables are empty
     seed_default_profiles(&pool).await;
 
+    // ─── Historical Recommendations ────────────────────────────────
+    crate::historical_analyst::add_historical_recommendations_table(&pool);
+
     pool
 }
 

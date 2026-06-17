@@ -13,6 +13,11 @@
     import TradeListLedger from './components/TradeListLedger.svelte';
     import CommissionCalculator from './components/CommissionCalculator.svelte';
     import ObservabilityHub from './components/ObservabilityHub.svelte';
+    import InstanceList from './components/InstanceList.svelte';
+    import GeneralDashboard from './components/GeneralDashboard.svelte';
+    import GeneralSettings from './components/GeneralSettings.svelte';
+    import WelcomeGate from './WelcomeGate.svelte';
+    import QuitDialog from './QuitDialog.svelte';
 
     const app = getState();
     let wsShort: WebSocket | null = null;
@@ -22,6 +27,9 @@
     let wsSupermacro: WebSocket | null = null;
     let configReady = false;
     let chatContainer = $state<HTMLDivElement | null>(null);
+    let showQuitDialog = $state(false);
+    let showProfileMenu = $state(false);
+    let currentGlobalView = $state<'pairs' | 'instances' | 'dashboard' | 'settings'>('pairs');
 
     // Config draft states for localized workspace settings editing
     let activeSettingsPairKey = $state('');
@@ -81,6 +89,13 @@
     let draftAutomationIntervalValue = $state(15);
     let draftAutomationIntervalUnit = $state<'seconds' | 'minutes' | 'hours'>('minutes');
 
+    let draftSlowInterval = $state(3600);
+    let draftNormalInterval = $state(900);
+    let draftFastInterval = $state(300);
+
+    let draftTpLevels = $state(1);
+    let draftSlLevels = $state(1);
+
     let draftApiKey = $state('');
     let apiKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
     let apiKeyError = $state('');
@@ -91,6 +106,7 @@
     let draftCostInputPrice = $state(0.27);
     let draftCostOutputPrice = $state(1.10);
     let costSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+    let intervalsSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
 
     async function saveCostConfig() {
         costSaveStatus = 'saving';
@@ -160,6 +176,12 @@
         if (autoSec % 3600 === 0) { draftAutomationIntervalValue = autoSec / 3600; draftAutomationIntervalUnit = 'hours'; }
         else if (autoSec % 60 === 0) { draftAutomationIntervalValue = autoSec / 60; draftAutomationIntervalUnit = 'minutes'; }
         else { draftAutomationIntervalValue = autoSec; draftAutomationIntervalUnit = 'seconds'; }
+
+        draftSlowInterval = pair.slowIntervalSecs || 3600;
+        draftNormalInterval = pair.normalIntervalSecs || 900;
+        draftFastInterval = pair.fastIntervalSecs || 300;
+        draftTpLevels = pair.tpLevels || 1;
+        draftSlLevels = pair.slLevels || 1;
     }
 
     let calculatedDuration = $derived.by(() => {
@@ -279,6 +301,11 @@
                     next.automationEnabled = draftAutomationEnabled;
                     next.automationIntervalValue = draftAutomationIntervalValue;
                     next.automationIntervalUnit = draftAutomationIntervalUnit;
+                    next.slowIntervalSecs = draftSlowInterval;
+                    next.normalIntervalSecs = draftNormalInterval;
+                    next.fastIntervalSecs = draftFastInterval;
+                    next.tpLevels = draftTpLevels;
+                    next.slLevels = draftSlLevels;
                     next.nextEvaluationIn = draftAutomationEnabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
                 }
 
@@ -328,6 +355,11 @@
             pair.automationEnabled = draftAutomationEnabled;
             pair.automationIntervalValue = draftAutomationIntervalValue;
             pair.automationIntervalUnit = draftAutomationIntervalUnit;
+            pair.slowIntervalSecs = draftSlowInterval;
+            pair.normalIntervalSecs = draftNormalInterval;
+            pair.fastIntervalSecs = draftFastInterval;
+            pair.tpLevels = draftTpLevels;
+            pair.slLevels = draftSlLevels;
             pair.nextEvaluationIn = draftAutomationEnabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
 
             pair.currentView = 'terminal';
@@ -517,8 +549,40 @@
                         else if (autoSec % 60 === 0) { targetState.automationIntervalValue = autoSec / 60; targetState.automationIntervalUnit = 'minutes'; }
                         else { targetState.automationIntervalValue = autoSec; targetState.automationIntervalUnit = 'seconds'; }
                         targetState.nextEvaluationIn = targetState.automationEnabled ? formatIntervalRemaining(autoSec) : '--';
-                    }
+        }
+    }
+
+    async function saveIntervalsConfig() {
+        intervalsSaveStatus = 'saving';
+        try {
+            const res = await fetch('/api/config');
+            const config = await res.json();
+            config.intervals = {
+                slow_seconds: Number(draftSlowInterval),
+                normal_seconds: Number(draftNormalInterval),
+                fast_seconds: Number(draftFastInterval),
+            };
+            const saveRes = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config),
+            });
+            if (saveRes.ok) {
+                intervalsSaveStatus = 'success';
+                const pair = app.pairsMap[activeSettingsPairKey];
+                if (pair) {
+                    pair.slowIntervalSecs = draftSlowInterval;
+                    pair.normalIntervalSecs = draftNormalInterval;
+                    pair.fastIntervalSecs = draftFastInterval;
                 }
+                setTimeout(() => { intervalsSaveStatus = 'idle'; }, 2000);
+            } else {
+                intervalsSaveStatus = 'error';
+            }
+        } catch (_) {
+            intervalsSaveStatus = 'error';
+        }
+    }
             }
             if (symbols.length > 0) {
                 const parts = symbols[0].split(':');
@@ -558,7 +622,12 @@
 
     function onWsMessage(tf: TimeframeTelemetry, wsRef: { current: WebSocket | null }, event: MessageEvent) {
         try {
-            const snapshot = JSON.parse(event.data);
+            const raw = JSON.parse(event.data);
+            // Unwrap JSON-RPC 2.0 notification; fall back to raw snapshot for backward compat
+            const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
+                ? (raw.params?.snapshot || raw)
+                : raw;
+            if (!snapshot || typeof snapshot !== 'object') return;
             if (snapshot.mid_price) tf.priceText = parseFloat(snapshot.mid_price).toFixed(2);
             if (snapshot.vwap) tf.vwapText = parseFloat(snapshot.vwap).toFixed(2);
             if (snapshot.vwap_bias != null) tf.vwapBias = String(snapshot.vwap_bias);
@@ -692,6 +761,7 @@
     }
 
     onMount(() => {
+        app.fetchSessionStatus();
         fetchConfig();
         fetchAssistantHistory();
     });
@@ -946,7 +1016,112 @@
     }
 </script>
 
+{#if !app.sessionChecked}
+    <div class="session-loading">
+        <div class="loading-spinner"></div>
+        <p>Connecting to AI Trading Assistant...</p>
+    </div>
+{:else if !app.sessionActive}
+    <WelcomeGate />
+{:else}
 <div class="terminal-body">
+    <!-- Global Top Navbar -->
+    <nav class="global-navbar">
+        <div class="navbar-brand">
+            <span class="navbar-logo">AI Trading Assistant</span>
+        </div>
+        <div class="navbar-center">
+            <span class="navbar-session-badge">{app.sessionMode?.toUpperCase()} — {app.sessionCurrency} on {app.sessionExchange}</span>
+        </div>
+        <div class="navbar-actions">
+            <button class="navbar-icon-btn" class:active={currentGlobalView === 'dashboard'} title="General Dashboard" onclick={() => { currentGlobalView = 'dashboard'; }}>
+                <span class="nav-icon">📊</span>
+            </button>
+            <button class="navbar-icon-btn" class:active={currentGlobalView === 'instances'} title="Instances" onclick={() => { currentGlobalView = 'instances'; }}>
+                <span class="nav-icon">📋</span>
+            </button>
+            <button class="navbar-icon-btn" class:active={currentGlobalView === 'settings'} title="Settings" onclick={() => { currentGlobalView = 'settings'; }}>
+                <span class="nav-icon">⚙️</span>
+            </button>
+            <button class="navbar-icon-btn" class:active={currentGlobalView === 'pairs'} title="Trading Pairs" onclick={() => { currentGlobalView = 'pairs'; }}>
+                <span class="nav-icon">💹</span>
+            </button>
+            <div class="profile-menu-wrapper">
+                <button class="navbar-icon-btn profile-btn" onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
+                    <span class="nav-icon">👤</span>
+                </button>
+                {#if showProfileMenu}
+                    <div class="profile-dropdown" role="menu">
+                        <div class="profile-dropdown-header">
+                            <span class="profile-capital">{app.sessionCurrency} {app.sessionCapital?.toLocaleString() || '0'}</span>
+                            <span class="profile-mode">{app.sessionMode} Trading</span>
+                        </div>
+                        <div class="profile-dropdown-divider"></div>
+                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; currentGlobalView = 'dashboard'; }}>
+                            📊 General Dashboard
+                        </button>
+                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; currentGlobalView = 'instances'; }}>
+                            📋 All Instances
+                        </button>
+                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; currentGlobalView = 'settings'; }}>
+                            ⚙️ Settings
+                        </button>
+                        <div class="profile-dropdown-divider"></div>
+                        <button class="profile-dropdown-item danger" onclick={() => { showProfileMenu = false; showQuitDialog = true; }}>
+                            🚪 Quit
+                        </button>
+                    </div>
+                                    {/if}
+                                </div>
+
+                                <!-- AI Adaptive Intervals -->
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">AI Assistant Intervals</span>
+                                    <span class="form-hint" style="margin-top: 2px;">AI Director selects one dynamically based on market state</span>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="slowInterval" style="width: 60px;">Slow:</label>
+                                        <div class="tf-split-group">
+                                            <input id="slowInterval" type="number" bind:value={draftSlowInterval} min="1" class="tf-number-input" />
+                                            <span class="tf-unit-fixed">sec</span>
+                                        </div>
+                                    </div>
+                                    <div class="input-row" style="margin-top: 4px;">
+                                        <label for="normalInterval" style="width: 60px;">Normal:</label>
+                                        <div class="tf-split-group">
+                                            <input id="normalInterval" type="number" bind:value={draftNormalInterval} min="1" class="tf-number-input" />
+                                            <span class="tf-unit-fixed">sec</span>
+                                        </div>
+                                    </div>
+                                    <div class="input-row" style="margin-top: 4px;">
+                                        <label for="fastInterval" style="width: 60px;">Fast:</label>
+                                        <div class="tf-split-group">
+                                            <input id="fastInterval" type="number" bind:value={draftFastInterval} min="1" class="tf-number-input" />
+                                            <span class="tf-unit-fixed">sec</span>
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
+                                        <button class="action-btn" onclick={saveIntervalsConfig} disabled={intervalsSaveStatus === 'saving'}>
+                                            {intervalsSaveStatus === 'saving' ? 'Saving...' : intervalsSaveStatus === 'success' ? '✓ Saved' : 'Save Intervals'}
+                                        </button>
+                                        {#if intervalsSaveStatus === 'error'}
+                                            <span style="color: #ff6666; font-size: 12px;">Save failed</span>
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+    </nav>
+    <!-- Click-outside handler for profile menu -->
+    {#if showProfileMenu}
+        <div class="profile-backdrop" onclick={() => showProfileMenu = false}></div>
+    {/if}
+
+    {#if currentGlobalView === 'dashboard'}
+        <GeneralDashboard />
+    {:else if currentGlobalView === 'instances'}
+        <InstanceList />
+    {:else if currentGlobalView === 'settings'}
+        <GeneralSettings />
+    {:else}
     {#if !app.apiKeyConfigured}
         <div class="api-key-banner">
             ⚠️ DeepSeek AI API Key is not configured. Falling back to local heuristic mode.
@@ -1311,8 +1486,29 @@
                                     <div class="ledger-row" style="margin-top: 8px;">
                                         <span>Available Trades:</span><span class="mono">{pair.paperAvailableTrades}</span>
                                     </div>
+                                </div>
+
+                                <!-- TP / SL Configuration -->
+                                <div class="setting-group-box" style="margin-top: 12px;">
+                                    <span class="selectors-label">Position Levels</span>
+                                    <div class="input-row" style="margin-top: 8px;">
+                                        <label for="tpLevels" style="width: 80px;">TP Levels:</label>
+                                        <select id="tpLevels" bind:value={draftTpLevels} class="tf-unit-select">
+                                            <option value={1}>1 Level</option>
+                                            <option value={2}>2 Levels</option>
+                                            <option value={3}>3 Levels</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-row" style="margin-top: 4px;">
+                                        <label for="slLevels" style="width: 80px;">SL Levels:</label>
+                                        <select id="slLevels" bind:value={draftSlLevels} class="tf-unit-select">
+                                            <option value={1}>1 Level</option>
+                                            <option value={2}>2 Levels</option>
+                                            <option value={3}>3 Levels</option>
+                                        </select>
                                     </div>
                                 </div>
+                            </div>
 
                                 <!-- Token Cost Calculator -->
                                 <div class="setting-group-box" style="margin-top: 12px;">
@@ -1830,7 +2026,13 @@
             </div>
         </div>
     {/if}
+{/if}
 </div>
+
+{#if showQuitDialog}
+    <QuitDialog onclose={() => showQuitDialog = false} />
+{/if}
+{/if}
 
 <style>
     .terminal-body {
@@ -2921,5 +3123,29 @@
     @media (max-width: 768px) {
         .cost-cards-row { grid-template-columns: 1fr; }
         .cost-details-grid { grid-template-columns: 1fr; }
+    }
+    .session-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+        gap: 1rem;
+    }
+    .session-loading p {
+        color: #aaaacc;
+        font-size: 0.9rem;
+    }
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(91, 127, 255, 0.2);
+        border-top-color: #5b7fff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
     }
 </style>

@@ -20,6 +20,16 @@
         const pairKey = `${exchange}-${symbol}`;
 
         app.initPair(symbol, exchange);
+
+        // Also create via instance API
+        fetch('/api/instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base: symbol, quote: 'USDT' }),
+        }).then(() => {
+            app.activeTab = pairKey;
+        }).catch(console.error);
+
         fetch('/api/pairs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

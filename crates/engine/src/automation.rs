@@ -5,11 +5,12 @@ use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{AppConfig, AutomationConfig};
+use crate::config::{AppConfig, AutomationConfig, IntervalsConfig};
 use crate::db;
 use crate::llm::LlmClient;
 use crate::paper_trading;
 use crate::profile_evaluation::{SnapshotValues, classify_market_regime};
+use crate::safety::SafetyManager;
 
 fn indicator_to_snapshot(snap: &crate::server::IndicatorSnapshot) -> SnapshotValues {
     SnapshotValues {
@@ -83,6 +84,9 @@ pub struct AutomationContext {
     pub api_key_configured: Arc<AtomicBool>,
     pub portfolio_risk: Arc<PortfolioRiskState>,
     pub pair_close_histories: Arc<RwLock<HashMap<String, Vec<f64>>>>,
+    pub safety: Arc<SafetyManager>,
+    pub intervals: IntervalsConfig,
+    pub next_interval_override: Arc<RwLock<Option<u64>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,9 +173,42 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
+        // ─── Safety Check ────────────────────────────────────────────
+        if let Err(reason) = ctx.safety.check_allow_trade().await {
+            println!("🛑 Automation: {} safety block: {}", ctx.pair_key, reason);
+            continue;
+        }
+        if let Err(reason) = ctx.safety.check_capital_drawdown().await {
+            eprintln!("🛑 Automation: {} drawdown stop triggered: {}", ctx.pair_key, reason);
+            // Immediately close any open positions to protect remaining capital
+            if let Some(_) = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await {
+                let price = ctx.mid_latest.read().await.as_ref()
+                    .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+                    .unwrap_or(0.0);
+                if price > 0.0 {
+                    let _ = paper_trading::close_paper_position(
+                        &ctx.pool, &ctx.telemetry_tx,
+                        &ctx.symbol, price, "DRAWDOWN_STOP",
+                    ).await;
+                    eprintln!("🛑 Automation: {} closed all positions at ${:.2} due to drawdown stop", ctx.pair_key, price);
+                }
+            }
+            continue;
+        }
+
         if !ctx.api_key_configured.load(std::sync::atomic::Ordering::Relaxed) {
             println!("🤖 Automation: No API Key configured for {}. Skipping cycle...", ctx.pair_key);
             continue;
+        }
+
+        // ─── Dynamic Interval Override ───────────────────────────────
+        if let Some(new_secs) = *ctx.next_interval_override.read().await {
+            if new_secs != state.interval_seconds {
+                println!("🔄 Automation: {} interval changed {}s → {}s (AI selection)", ctx.pair_key, state.interval_seconds, new_secs);
+                state.interval_seconds = new_secs;
+                state.last_run = None;
+            }
+            *ctx.next_interval_override.write().await = None;
         }
 
         let remaining = state.next_remaining_secs();
@@ -263,6 +300,8 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         let bg_prices = prices.clone();
         let bg_portfolio_risk = ctx.portfolio_risk.clone();
         let bg_pair_close_histories = ctx.pair_close_histories.clone();
+        let bg_next_interval_override = ctx.next_interval_override.clone();
+        let bg_intervals = ctx.intervals.clone();
 
         tokio::spawn(async move {
             let llm = bg_llm.read().await;
@@ -337,11 +376,22 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             drop(llm);
 
             println!(
-                "🤖 Automation: {} analysis complete. Action: {} | Trend: {}",
+                "🤖 Automation: {} analysis complete. Action: {} | Trend: {} | Interval: {}",
                 bg_pair_key,
                 phase_two.position_recommendation.action,
                 phase_two.general_trend,
+                phase_two.position_recommendation.next_interval.as_deref().unwrap_or("normal"),
             );
+
+            // ─── Dynamic Interval Selection ─────────────────────────
+            if let Some(ref next) = phase_two.position_recommendation.next_interval {
+                let new_secs = match next.as_str() {
+                    "slow" => bg_intervals.slow_seconds,
+                    "fast" => bg_intervals.fast_seconds,
+                    _ => bg_intervals.normal_seconds,
+                };
+                *bg_next_interval_override.write().await = Some(new_secs);
+            }
 
             let local_snap = indicator_to_snapshot(&bg_indicators_mid);
             let regime = classify_market_regime(&local_snap);

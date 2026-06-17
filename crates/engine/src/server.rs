@@ -19,6 +19,7 @@ use shared::models::MarketSnapshot;
 use shared::indicators::DivergenceDetector;
 use crate::sr_engine::SrRoleTracker;
 use shared::TriggerType;
+use shared::jsonrpc::JsonRpcNotification;
 use crate::adapters;
 use crate::config::{AppConfig, AutomationConfig, TimeframeConfig};
 use crate::analyzer::{self, ActivePair};
@@ -27,10 +28,14 @@ use crate::automation;
 use crate::profile_evaluation::classify_market_regime;
 use crate::db::{DecisionMemoryBufferRow, CompletedTradesBufferRow};
 
+use crate::workspace::Workspace;
+use crate::instance_registry;
+
 use tokio_util::sync::CancellationToken;
 
 pub struct AppState {
     pub pairs: Arc<RwLock<HashMap<String, Arc<ActivePair>>>>,
+    pub workspace: Arc<Workspace>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
     pub llm_client: Arc<RwLock<LlmClient>>,
@@ -341,6 +346,9 @@ pub struct CostEstimateQuery {
 
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route("/api/session/status", get(serve_session_status))
+        .route("/api/session/init", post(serve_session_init))
+        .route("/api/session/quit", post(serve_session_quit))
         .route("/api/config", get(serve_config).post(update_config))
         .route("/api/config/key", post(serve_set_key))
         .route("/api/rules", get(serve_get_rules).post(serve_set_rules))
@@ -361,6 +369,42 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
         .route("/api/pairs/:pair_key", delete(serve_remove_pair))
         .route("/api/pairs/:pair_key/config", post(serve_update_pair_config))
+        .route("/api/instances", get(serve_list_instances).post(serve_add_instance))
+        .route("/api/instances/:instance_id", delete(serve_delete_instance))
+        .route("/api/instances/:instance_id/pause", post(serve_pause_instance))
+        .route("/api/instances/:instance_id/stop", post(serve_stop_instance))
+        .route("/api/instances/:instance_id/safety/reset", post(serve_reset_safety))
+        .route("/api/instances/:instance_id/manual/open", post(serve_instance_manual_open))
+        .route("/api/instances/:instance_id/manual/close", post(serve_instance_manual_close))
+        .route("/api/instances/:instance_id/intervals", post(serve_instance_intervals))
+        .route("/api/instances/:instance_id/api-key", post(serve_set_instance_api_key))
+        .route("/api/instances/:instance_id/api-key", delete(serve_delete_instance_api_key))
+        .route("/api/instances/:instance_id/usage", get(|State(state): State<Arc<AppState>>, Path(id): Path<String>| async move {
+            let instances = state.workspace.instances.read().await;
+            let instance = instances.values().find(|i| i.id == id).cloned();
+            drop(instances);
+            match instance {
+                Some(inst) => {
+                    let (input_tokens, output_tokens) = {
+                        let usage = inst.token_tracker.lock().unwrap();
+                        (usage.global.input_tokens, usage.global.output_tokens)
+                    };
+                    let active_source = inst.api_failover.active_source.read().await.clone();
+                    Json(InstanceUsageResponse {
+                        instance_id: id,
+                        input_tokens,
+                        output_tokens,
+                        failover_active: active_source != crate::api_failover::KeySource::None,
+                        failover_source: format!("{:?}", active_source),
+                        consecutive_failures: inst.api_failover.consecutive_failures.load(std::sync::atomic::Ordering::Relaxed),
+                    }).into_response()
+                }
+                None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+            }
+        }))
+        .route("/api/settings/backup-api-key", post(serve_set_backup_api_key))
+        .route("/api/historical-recommendations", get(serve_historical_recommendations))
+        .route("/api/instances/:instance_id/chat", post(serve_instance_chat))
         .route("/api/decision-profiles", get(serve_decision_profiles_list).post(serve_decision_profile_create))
         .route("/api/decision-profiles/:id", delete(serve_decision_profile_delete).post(serve_decision_profile_update))
         .route("/api/decision-profiles/:id/evaluate", post(serve_decision_evaluate))
@@ -975,6 +1019,7 @@ pub async fn run_phase_one_agents_mtf(
 
             let handle = tokio::spawn(async move {
                 let temp_client = LlmClient {
+                failover_state: None,
                     base_url: client_base,
                     api_key: client_key,
                     model: client_model,
@@ -992,6 +1037,7 @@ pub async fn run_phase_one_agents_mtf(
                         indicator_name: format!("{}-{}", tf_label, result.indicator_name),
                         signal: result.signal,
                         reason: result.reason,
+                        confidence_score: result.confidence_score,
                         divergence_status: result.divergence_status.clone(),
                         divergence_type: result.divergence_type.clone(),
                         is_confirmed: result.is_confirmed.clone(),
@@ -1000,6 +1046,7 @@ pub async fn run_phase_one_agents_mtf(
                         indicator_name: format!("{}-{}", tf_label, name),
                         signal: "UNAVAILABLE".to_string(),
                         reason: format!("Agent error: {}", e),
+                        confidence_score: 0,
                         divergence_status: None,
                         divergence_type: None,
                         is_confirmed: None,
@@ -1008,6 +1055,7 @@ pub async fn run_phase_one_agents_mtf(
                         indicator_name: format!("{}-{}", tf_label, name),
                         signal: "UNAVAILABLE".to_string(),
                         reason: "Agent timed out after 10 seconds".to_string(),
+                        confidence_score: 0,
                         divergence_status: None,
                         divergence_type: None,
                         is_confirmed: None,
@@ -1026,6 +1074,7 @@ pub async fn run_phase_one_agents_mtf(
             indicator_name: "UNKNOWN".to_string(),
             signal: "UNAVAILABLE".to_string(),
             reason: format!("Task panic: {}", e),
+            confidence_score: 0,
             divergence_status: None,
             divergence_type: None,
             is_confirmed: None,
@@ -1218,6 +1267,7 @@ pub async fn run_phase_one_agents(
 
         let handle = tokio::spawn(async move {
             let temp_client = LlmClient {
+                failover_state: None,
                 base_url: client_base,
                 api_key: client_key,
                 model: client_model,
@@ -1236,17 +1286,19 @@ pub async fn run_phase_one_agents(
                     indicator_name: name,
                     signal: "UNAVAILABLE".to_string(),
                     reason: format!("Agent error: {}", e),
+                    confidence_score: 0,
                     divergence_status: None,
                     divergence_type: None,
-            is_confirmed: None,
+                    is_confirmed: None,
                 },
                 Err(_) => IndividualIndicatorResult {
                     indicator_name: name,
                     signal: "UNAVAILABLE".to_string(),
                     reason: "Agent timed out after 10 seconds".to_string(),
+                    confidence_score: 0,
                     divergence_status: None,
                     divergence_type: None,
-            is_confirmed: None,
+                    is_confirmed: None,
                 },
             }
         });
@@ -1261,6 +1313,7 @@ pub async fn run_phase_one_agents(
             indicator_name: "UNKNOWN".to_string(),
             signal: "UNAVAILABLE".to_string(),
             reason: format!("Task panic: {}", e),
+            confidence_score: 0,
             divergence_status: None,
             divergence_type: None,
             is_confirmed: None,
@@ -1368,6 +1421,7 @@ pub async fn run_multi_agent_pipeline(
     let trend_ctx = context_trend.clone();
     let h_trend = tokio::spawn(async move {
         let temp_client = LlmClient {
+                failover_state: None,
             base_url: trend_url,
             api_key: trend_key,
             model: trend_model,
@@ -1388,6 +1442,7 @@ pub async fn run_multi_agent_pipeline(
     let vol_ctx = context_volatility.clone();
     let h_vol = tokio::spawn(async move {
         let temp_client = LlmClient {
+                failover_state: None,
             base_url: vol_url,
             api_key: vol_key,
             model: vol_model,
@@ -1408,6 +1463,7 @@ pub async fn run_multi_agent_pipeline(
     let struct_ctx = context_structure.clone();
     let h_struct = tokio::spawn(async move {
         let temp_client = LlmClient {
+                failover_state: None,
             base_url: struct_url,
             api_key: struct_key,
             model: struct_model,
@@ -1428,6 +1484,7 @@ pub async fn run_multi_agent_pipeline(
     let risk_ctx = context_risk.clone();
     let h_risk = tokio::spawn(async move {
         let temp_client = LlmClient {
+                failover_state: None,
             base_url: risk_url,
             api_key: risk_key,
             model: risk_model,
@@ -1448,6 +1505,7 @@ pub async fn run_multi_agent_pipeline(
     let pos_ctx = context_position.clone();
     let h_pos = tokio::spawn(async move {
         let temp_client = LlmClient {
+                failover_state: None,
             base_url: pos_url,
             api_key: pos_key,
             model: pos_model,
@@ -2227,9 +2285,21 @@ async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key:
     loop {
         match rx_stream.recv().await {
             Ok(snapshot) => {
-                if let Ok(json_str) = serde_json::to_string(&snapshot) {
-                    if socket.send(AxumMessage::Text(json_str.into())).await.is_err() {
-                        break;
+                let symbol = snapshot.symbol.clone();
+                let tf = snapshot.timeframe_secs;
+                if let Ok(payload) = serde_json::to_value(&snapshot) {
+                    let notif = JsonRpcNotification::new(
+                        "broadcast.market_snapshot",
+                        serde_json::json!({
+                            "symbol": symbol,
+                            "timeframe_secs": tf,
+                            "snapshot": payload,
+                        }),
+                    );
+                    if let Ok(json_str) = serde_json::to_string(&notif) {
+                        if socket.send(AxumMessage::Text(json_str.into())).await.is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -2554,6 +2624,12 @@ async fn serve_add_pair(
         api_key_configured: state.api_key_configured.clone(),
         portfolio_risk: Arc::new(crate::portfolio_risk::PortfolioRiskState::default()),
         pair_close_histories: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        safety: Arc::new(crate::safety::SafetyManager::new(3, 5, 8, 30.0)),
+        intervals: {
+            let cfg = state.config.read().await;
+            cfg.intervals.clone()
+        },
+        next_interval_override: Arc::new(RwLock::new(None)),
     };
     tokio::spawn(async move {
         automation::run_pair_automation_loop(auto_ctx).await;
@@ -3341,6 +3417,496 @@ async fn serve_trade_telemetry_add(
         (axum::http::StatusCode::CREATED, format!("Trade logged with id {}", id)).into_response()
     } else {
         (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Failed to log trade").into_response()
+    }
+}
+
+// ─── Session Management ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct SessionInitRequest {
+    pub mode: String,
+    pub currency: String,
+    pub exchange: String,
+    #[serde(default)]
+    pub capital: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionStatusResponse {
+    pub active: bool,
+    pub mode: Option<String>,
+    pub currency: Option<String>,
+    pub exchange: Option<String>,
+    pub capital: Option<f64>,
+    pub instance_count: usize,
+    pub max_instances: usize,
+}
+
+async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let active = state.workspace.session.active.load(std::sync::atomic::Ordering::Relaxed);
+    let mode = state.workspace.session.trading_mode.read().await.clone();
+    let currency = state.workspace.session.base_currency.read().await.clone();
+    let exchange = state.workspace.session.exchange.read().await.clone();
+    let capital = *state.workspace.session.initial_capital.read().await;
+    let instance_count = state.workspace.instance_count().await;
+    let max_instances = state.workspace.max_instances().await;
+
+    Json(SessionStatusResponse {
+        active,
+        mode: mode.map(|m| m.as_str().to_string()),
+        currency: currency.map(|c| c.as_str().to_string()),
+        exchange: exchange.map(|e| e.as_str().to_string()),
+        capital,
+        instance_count,
+        max_instances,
+    })
+}
+
+async fn serve_session_init(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SessionInitRequest>,
+) -> impl IntoResponse {
+    let mode = match payload.mode.to_lowercase().as_str() {
+        "paper" => crate::workspace::TradingMode::Paper,
+        "live" => crate::workspace::TradingMode::Live,
+        _ => return (axum::http::StatusCode::BAD_REQUEST, "Invalid mode. Use 'paper' or 'live'.").into_response(),
+    };
+
+    let currency = match payload.currency.to_uppercase().as_str() {
+        "USDT" => crate::workspace::Currency::USDT,
+        "USDC" => crate::workspace::Currency::USDC,
+        _ => return (axum::http::StatusCode::BAD_REQUEST, "Invalid currency. Use 'USDT' or 'USDC'.").into_response(),
+    };
+
+    let exchange = match payload.exchange.to_lowercase().as_str() {
+        "hyperliquid" => crate::workspace::ExchangeChoice::Hyperliquid,
+        _ => return (axum::http::StatusCode::BAD_REQUEST, "Invalid exchange. Only 'Hyperliquid' is supported.").into_response(),
+    };
+
+    match state.workspace.init_session(mode, currency, exchange, payload.capital).await {
+        Ok(()) => {
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "message": "Session initialized successfully.",
+            }))).into_response()
+        }
+        Err(e) => {
+            (axum::http::StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "success": false,
+                "error": e,
+            }))).into_response()
+        }
+    }
+}
+
+async fn serve_session_quit(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.workspace.quit_session().await {
+        Ok(()) => {
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "message": "Session terminated. All instances stopped."
+            }))).into_response()
+        }
+        Err(e) => {
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "success": false,
+                "error": e,
+            }))).into_response()
+        }
+    }
+}
+
+// ─── Instance Management ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct AddInstanceRequest {
+    pub base: String,
+    pub quote: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InstanceListResponse {
+    pub instances: Vec<instance_registry::InstanceSummary>,
+    pub total_count: usize,
+    pub max_count: usize,
+}
+
+async fn serve_list_instances(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let summaries = instance_registry::list_instances(&state.workspace).await;
+    let max_count = state.workspace.max_instances().await;
+    Json(InstanceListResponse {
+        total_count: summaries.len(),
+        max_count,
+        instances: summaries,
+    })
+}
+
+async fn serve_add_instance(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AddInstanceRequest>,
+) -> impl IntoResponse {
+    let base = payload.base.trim().to_uppercase();
+    let quote = payload.quote.trim().to_uppercase();
+
+    if base.is_empty() || quote.is_empty() {
+        return (axum::http::StatusCode::BAD_REQUEST, "Base and quote currency required").into_response();
+    }
+    if base.len() > 10 || quote.len() > 10 {
+        return (axum::http::StatusCode::BAD_REQUEST, "Symbol too long").into_response();
+    }
+
+    match instance_registry::add_instance(
+        &state.workspace,
+        (base, quote),
+        state.llm_client.clone(),
+    ).await {
+        Ok(instance) => {
+            (
+                axum::http::StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "id": instance.id,
+                    "pair": instance.pair_display(),
+                    "message": format!("Instance {} created", instance.pair_display()),
+                })),
+            ).into_response()
+        }
+        Err(e) => {
+            (axum::http::StatusCode::BAD_REQUEST, e).into_response()
+        }
+    }
+}
+
+async fn serve_delete_instance(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    match instance_registry::delete_instance(&state.workspace, &instance_id).await {
+        Ok(()) => (axum::http::StatusCode::OK, format!("Instance {} deleted", instance_id)).into_response(),
+        Err(e) => (axum::http::StatusCode::NOT_FOUND, e).into_response(),
+    }
+}
+
+async fn serve_pause_instance(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    match instance_registry::pause_instance(&state.workspace, &instance_id).await {
+        Ok(()) => (axum::http::StatusCode::OK, format!("Instance {} paused", instance_id)).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+async fn serve_stop_instance(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    match instance_registry::stop_instance(&state.workspace, &instance_id).await {
+        Ok(()) => (axum::http::StatusCode::OK, format!("Instance {} stopped", instance_id)).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+async fn serve_reset_safety(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            inst.safety.reset_consecutive_losses().await;
+            (axum::http::StatusCode::OK, format!("Safety counter reset for instance {}", instance_id)).into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InstanceManualRequest {
+    pub direction: Option<String>,
+    pub price: Option<f64>,
+}
+
+async fn serve_instance_manual_open(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<InstanceManualRequest>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            // Manual entry always resets the safety counter
+            inst.safety.reset_consecutive_losses().await;
+
+            let dir = payload.direction.unwrap_or_else(|| "LONG".into());
+            println!(
+                "✋ Manual Open: {} {} direction={} price={:?}",
+                instance_id, inst.pair_display(), dir, payload.price
+            );
+
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "message": format!("Manual open recorded for {} (safety counter reset)", inst.pair_display()),
+                "instance_id": instance_id,
+            }))).into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+async fn serve_instance_manual_close(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<InstanceManualRequest>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            // Record the trade as a manual outcome
+            let price = payload.price.unwrap_or(0.0);
+            println!(
+                "✋ Manual Close: {} {} price={}",
+                instance_id, inst.pair_display(), price
+            );
+
+            // Manual close resets counter as well (human intervention)
+            inst.safety.reset_consecutive_losses().await;
+
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "message": format!("Manual close recorded for {} (safety counter reset)", inst.pair_display()),
+                "instance_id": instance_id,
+            }))).into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+// ─── Instance API Key Management ──────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct InstanceApiKeyRequest {
+    pub api_key: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InstanceUsageResponse {
+    pub instance_id: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub failover_active: bool,
+    pub failover_source: String,
+    pub consecutive_failures: u32,
+}
+
+async fn serve_set_instance_api_key(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<InstanceApiKeyRequest>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            let key = payload.api_key.trim().to_string();
+            if key.is_empty() {
+                return (axum::http::StatusCode::BAD_REQUEST, "API key cannot be empty").into_response();
+            }
+            let _base_url = payload.base_url.unwrap_or_else(|| "https://api.deepseek.com/v1".into());
+            let _model = payload.model.unwrap_or_else(|| "deepseek-chat".into());
+
+            // Set the primary key in failover state
+            inst.api_failover.set_primary_key(key.clone()).await;
+            *inst.api_key.write().await = Some(key.clone());
+            inst.api_key_valid.store(true, std::sync::atomic::Ordering::Relaxed);
+
+            println!("🔑 Instance API key set for: {} ({})", inst.pair_display(), instance_id);
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "instance_id": instance_id,
+            }))).into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+async fn serve_delete_instance_api_key(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            *inst.api_key.write().await = None;
+            inst.api_key_valid.store(false, std::sync::atomic::Ordering::Relaxed);
+            println!("🗑️  Instance API key removed for: {} ({})", inst.pair_display(), instance_id);
+            (axum::http::StatusCode::OK, "Instance API key removed").into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+// ─── Instance Intervals ───────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct InstanceIntervalsRequest {
+    pub slow_seconds: u64,
+    pub normal_seconds: u64,
+    pub fast_seconds: u64,
+}
+
+async fn serve_instance_intervals(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<InstanceIntervalsRequest>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            let mut intervals = inst.intervals.write().await;
+            intervals.slow_seconds = payload.slow_seconds;
+            intervals.normal_seconds = payload.normal_seconds;
+            intervals.fast_seconds = payload.fast_seconds;
+
+            println!("⏱️  Instance intervals updated for {} ({}) slow={}s normal={}s fast={}s",
+                inst.pair_display(), instance_id,
+                payload.slow_seconds, payload.normal_seconds, payload.fast_seconds);
+
+            (axum::http::StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "instance_id": instance_id,
+                "intervals": {
+                    "slow_seconds": payload.slow_seconds,
+                    "normal_seconds": payload.normal_seconds,
+                    "fast_seconds": payload.fast_seconds,
+                },
+            }))).into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+// ─── Global Backup API Key ─────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct BackupApiKeyRequest {
+    pub api_key: String,
+}
+
+async fn serve_set_backup_api_key(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<BackupApiKeyRequest>,
+) -> impl IntoResponse {
+    let key = payload.api_key.trim().to_string();
+    {
+        let mut config = state.config.write().await;
+        config.workspace.backup_api_key = if key.is_empty() { None } else { Some(key) };
+        if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+            let _ = std::fs::write("config.toml", toml_str);
+        }
+    }
+    println!("🔑 Global backup API key updated");
+    (axum::http::StatusCode::OK, "Backup API key saved").into_response()
+}
+
+// ─── Historical Recommendations ────────────────────────────────────
+
+async fn serve_historical_recommendations(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let rows = sqlx::query_as::<_, (i64, String, String, String, i64, f64, f64, f64, f64, f64, f64, String, String, String)>(
+        "SELECT id, symbol, pair_key, generated_at, trades_analyzed, win_rate, avg_risk_reward, \
+         avg_hold_time_minutes, profit_factor, suggested_rr, suggested_sizing_pct, \
+         regime_analysis, key_improvements, risk_recommendation \
+         FROM historical_recommendations ORDER BY generated_at DESC LIMIT 20"
+    )
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let recommendations: Vec<serde_json::Value> = rows.into_iter().map(|r| {
+        serde_json::json!({
+            "id": r.0,
+            "symbol": r.1,
+            "pair_key": r.2,
+            "generated_at": r.3,
+            "trades_analyzed": r.4,
+            "win_rate": r.5,
+            "avg_risk_reward": r.6,
+            "avg_hold_time_minutes": r.7,
+            "profit_factor": r.8,
+            "suggested_rr": r.9,
+            "suggested_sizing_pct": r.10,
+            "regime_analysis": r.11,
+            "key_improvements": r.12,
+            "risk_recommendation": r.13,
+        })
+    }).collect();
+
+    Json(serde_json::json!({
+        "recommendations": recommendations,
+    }))
+}
+
+// ─── Instance AI Chat ─────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct InstanceChatRequest {
+    pub message: String,
+    #[serde(default)]
+    pub history: Vec<crate::llm::ChatMessage>,
+}
+
+async fn serve_instance_chat(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<InstanceChatRequest>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            let mut messages = payload.history.clone();
+            messages.push(crate::llm::ChatMessage {
+                role: "user".into(),
+                content: payload.message,
+            });
+
+            let llm = state.llm_client.read().await;
+            match llm.chat(messages, Some(&inst.pair_key())).await {
+                Ok(reply) => {
+                    Json(serde_json::json!({
+                        "reply": reply,
+                        "instance_id": instance_id,
+                    })).into_response()
+                }
+                Err(e) => {
+                    (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                     Json(serde_json::json!({"error": e}))).into_response()
+                }
+            }
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
 }
 

@@ -21,6 +21,9 @@ RULES:
 - Evaluate the provided price sequence to understand the trend structure. Use the provided support and resistance levels to frame your analysis.
 - The Macro (15m) trend is the ULTIMATE FILTER: Long entries require BULLISH macro trend, Short entries require BEARISH macro trend.
 - Consider the Phase 1 indicator signals as expert sub-agent opinions. Weight them by their alignment with each other and with price action.
+- Each sub-agent provides a mandatory confidence_score (0-100). Mathematically weight each agent's signal by its confidence score when computing your final decision. Agents with scores < 40 should be treated as low-confidence and given reduced weight. Agents with scores > 70 indicate high conviction and should carry proportionally more influence.
+- When emerging from a losing streak (safety state is "Cautious"), raise your effective score threshold by 20% — require stronger confluence before recommending entries.
+- The eight_factor_score in your output should reflect this confidence-weighted synthesis, not just raw signal counts.
 - Apply the 8-Factor Weighted Scoring: RSI(10pt), RSI Divergence(20pt), MACD(10pt), MACD Divergence(10pt), S/R(10pt), Macro Trend(20pt), 200EMA(10pt), Chart Patterns(10pt). Total possible: 90 points.
 
 DIVERGENCE CONFIRMATION RULES (CRITICAL):
@@ -110,6 +113,7 @@ CHART PATTERN RULES:
 
 - When RECENT TRADE EXECUTION HISTORY is provided below, review past mistakes and adjust your recommendation to avoid repeating identical errors (e.g., if a prior trade failed due to entering before candle close, explicitly recommend waiting for candle confirmation).
 - When trade history is NOT provided, base your decision solely on current market data.
+- Select next_interval based on market context: use "fast" (short polling) when an open position exists requiring closer monitoring; use "slow" (long polling) during sideways/congestion markets with no position; use "normal" for all other conditions.
 - Output strictly JSON, no markdown fences, no conversational preambles.
 
 OUTPUT SCHEMA:
@@ -124,7 +128,8 @@ OUTPUT SCHEMA:
   },
   "position_recommendation": {
     "action": "Hold" | "Close" | "Wait" | "Open Long" | "Open Short",
-    "rationale": "Provide a highly clear, professional, conversational operational reasoning guiding the user on their next step given their position entry price, current price action, support/resistance constraints, macro trend filter, and Fibonacci/extension levels. Explicitly state whether any divergence referenced is Potential or Confirmed. If trade history was provided, reference specific past mistakes you are avoiding. 2-4 sentences."
+    "rationale": "Provide a highly clear, professional, conversational operational reasoning guiding the user on their next step given their position entry price, current price action, support/resistance constraints, macro trend filter, and Fibonacci/extension levels. Explicitly state whether any divergence referenced is Potential or Confirmed. If trade history was provided, reference specific past mistakes you are avoiding. 2-4 sentences.",
+    "next_interval": "slow" | "normal" | "fast"
   }
 }"#;
 
@@ -266,45 +271,45 @@ pub struct ChatMessage {
     pub content: String,
 }
 
-#[derive(Debug, Serialize)]
-struct ResponseFormat {
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ResponseFormat {
     #[serde(rename = "type")]
-    format_type: String,
+    pub(crate) format_type: String,
 }
 
-#[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: f64,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ChatRequest {
+    pub(crate) model: String,
+    pub(crate) messages: Vec<ChatMessage>,
+    pub(crate) temperature: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    response_format: Option<ResponseFormat>,
-    max_tokens: u32,
+    pub(crate) response_format: Option<ResponseFormat>,
+    pub(crate) max_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
+pub(crate) struct ChatResponse {
+    pub(crate) choices: Vec<Choice>,
     #[serde(default)]
-    usage: Option<Usage>,
+    pub(crate) usage: Option<Usage>,
 }
 
 #[derive(Debug, Deserialize)]
-struct Usage {
-    prompt_tokens: u64,
-    completion_tokens: u64,
+pub(crate) struct Usage {
+    pub(crate) prompt_tokens: u64,
+    pub(crate) completion_tokens: u64,
     #[allow(dead_code)]
     total_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]
-struct Choice {
-    message: ChoiceMessage,
+pub(crate) struct Choice {
+    pub(crate) message: ChoiceMessage,
 }
 
 #[derive(Debug, Deserialize)]
-struct ChoiceMessage {
-    content: String,
+pub(crate) struct ChoiceMessage {
+    pub(crate) content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,6 +317,8 @@ pub struct IndividualIndicatorResult {
     pub indicator_name: String,
     pub signal: String,
     pub reason: String,
+    #[serde(default)]
+    pub confidence_score: u8,
     #[serde(default)]
     pub divergence_status: Option<String>,
     #[serde(default)]
@@ -346,6 +353,8 @@ pub struct IndicatorSynthesis {
 pub struct PositionRecommendation {
     pub action: String,
     pub rationale: String,
+    #[serde(default)]
+    pub next_interval: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -481,9 +490,21 @@ pub struct LlmClient {
     pub(crate) model: String,
     pub(crate) indicators_guide: String,
     pub(crate) token_tracker: Arc<Mutex<TokenTracker>>,
+    pub(crate) failover_state: Option<Arc<crate::api_failover::ApiFailoverState>>,
 }
 
 impl LlmClient {
+    pub fn empty() -> Self {
+        LlmClient {
+            base_url: String::new(),
+            api_key: String::new(),
+            model: String::new(),
+            indicators_guide: String::new(),
+            token_tracker: Arc::new(Mutex::new(TokenTracker::default())),
+            failover_state: None,
+        }
+    }
+
     pub fn from_env() -> (Self, bool) {
         let api_key = std::env::var("DEEPSEEK_API_KEY")
             .map(|k| k.trim().to_string())
@@ -505,6 +526,7 @@ impl LlmClient {
             model,
             indicators_guide,
             token_tracker: Arc::new(Mutex::new(TokenTracker::default())),
+            failover_state: None,
         }, key_present)
     }
 
@@ -537,6 +559,7 @@ impl LlmClient {
             model,
             indicators_guide,
             token_tracker: Arc::new(Mutex::new(TokenTracker::default())),
+            failover_state: None,
         })
     }
 
@@ -562,6 +585,24 @@ impl LlmClient {
         self.token_tracker.lock()
             .map(|t| t.get_per_pair(pair_key))
             .unwrap_or(PairTokenUsage { input_tokens: 0, output_tokens: 0 })
+    }
+
+    pub fn set_failover_state(&mut self, state: Arc<crate::api_failover::ApiFailoverState>) {
+        self.failover_state = Some(state);
+    }
+
+    pub fn get_failover_state(&self) -> Option<Arc<crate::api_failover::ApiFailoverState>> {
+        self.failover_state.clone()
+    }
+
+    /// Get the API key to use, preferring the failover state's active key if available.
+    pub async fn active_api_key(&self) -> String {
+        if let Some(ref fs) = self.failover_state {
+            if let Some(key) = fs.active_key().await {
+                return key;
+            }
+        }
+        self.api_key.clone()
     }
 
     pub async fn validate_key(&self) -> Result<(), String> {
@@ -604,6 +645,80 @@ impl LlmClient {
         }
     }
 
+    /// Make a chat completion HTTP call with failover-aware key selection.
+    /// Uses the failover state if configured, falls back to self.api_key.
+    pub(crate) async fn call_chat_completion(
+        &self,
+        request_body: &ChatRequest,
+        call_name: &str,
+    ) -> Result<ChatResponse, String> {
+        let base_url = self.base_url.clone();
+
+        // Resolve the API key: prefer failover state
+        let api_key = self.active_api_key().await;
+        if api_key.is_empty() {
+            return Err(format!("[{}] No API key configured", call_name));
+        }
+
+        // If we have a failover state, use its retry/failover logic
+        if let Some(ref fs) = self.failover_state {
+            fs.execute_with_failover(call_name, move |key| {
+                let url = format!("{}/chat/completions", base_url);
+                let body = request_body.clone();
+                async move {
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(12))
+                        .build()
+                        .map_err(|e| format!("HTTP client build error: {}", e))?;
+
+                    let response = client
+                        .post(&url)
+                        .header("Authorization", format!("Bearer {}", key))
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|e| format!("API request failed: {}", e))?;
+
+                    if !response.status().is_success() {
+                        let status = response.status();
+                        let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
+                        return Err(format!("API returned HTTP {}: {}", status, body));
+                    }
+
+                    response.json::<ChatResponse>()
+                        .await
+                        .map_err(|e| format!("Failed to parse API response: {}", e))
+                }
+            }).await
+        } else {
+            // No failover state: direct call with self.api_key
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(12))
+                .build()
+                .map_err(|e| format!("HTTP client build error: {}", e))?;
+
+            let response = client
+                .post(format!("{}/chat/completions", self.base_url))
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(request_body)
+                .send()
+                .await
+                .map_err(|e| format!("API request failed: {}", e))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
+                return Err(format!("API returned HTTP {}: {}", status, body));
+            }
+
+            response.json::<ChatResponse>()
+                .await
+                .map_err(|e| format!("Failed to parse API response: {}", e))
+        }
+    }
+
     pub async fn run_indicator_agent(
         &self,
         indicator_name: &str,
@@ -624,11 +739,13 @@ Analyze the provided current market data. You must output a clean JSON structure
 {{
   "indicator_name": "{}",
   "signal": "BULLISH" | "BEARISH" | "SIDEWAYS",
+  "confidence_score": <0-100 integer>,
   "reason": "Provide a brief 1-2 sentence explanation of your decision using the rules and the provided numerical parameters."
 }}
 
 RULES:
 - Respond with JSON ONLY. Do not write markdown fences, preamble, or commentary.
+- confidence_score is MANDATORY and must be an integer 0-100 reflecting how certain you are.
 - Be completely deterministic. Use the numerical parameters and apply them strictly against the criteria in the reference docs."#,
             indicator_name, indicator_section, indicator_name
         );
@@ -644,33 +761,8 @@ RULES:
             max_tokens: 512,
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(12))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let response = client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("LLM API request failed for {}: {}", indicator_name, e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
-            return Err(format!("LLM API returned {} for {}: {}", status, indicator_name, body));
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response for {}: {}", indicator_name, e))?;
-
+        let chat_response = self.call_chat_completion(&request_body, indicator_name).await?;
         let usage = chat_response.usage;
-
         let content = chat_response
             .choices
             .first()
@@ -746,30 +838,7 @@ RULES:
             max_tokens: 1024,
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let response = client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("Master orchestrator request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
-            return Err(format!("Master orchestrator API returned {}: {}", status, body));
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse master orchestrator response: {}", e))?;
+        let chat_response = self.call_chat_completion(&request_body, "orchestrator").await?;
 
         let usage = chat_response.usage;
 
@@ -846,30 +915,7 @@ RULES:
             max_tokens: 1024,
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let response = client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("Multi-TF orchestrator request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
-            return Err(format!("Multi-TF orchestrator API returned {}: {}", status, body));
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse multi-TF orchestrator response: {}", e))?;
+        let chat_response = self.call_chat_completion(&request_body, "multi-tf-orchestrator").await?;
 
         let usage = chat_response.usage;
 
@@ -882,7 +928,7 @@ RULES:
             .clone();
 
         let mut result: MasterOrchestratorResult = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse multi-TF orchestrator JSON: {}. Raw content: {}", e, content))?;
+            .map_err(|e| format!("Failed to parse multi-TF orchestrator JSON: {}. Raw: {}", e, content))?;
 
         result.support_and_resistance = SupportResistance {
             detected_support_levels: support_levels.to_vec(),
@@ -911,30 +957,7 @@ RULES:
             max_tokens: 512,
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let response = client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("Journal agent request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
-            return Err(format!("Journal agent API returned {}: {}", status, body));
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse journal agent response: {}", e))?;
+        let chat_response = self.call_chat_completion(&request_body, "journal-agent").await?;
 
         let usage = chat_response.usage;
 
@@ -1010,30 +1033,7 @@ RULES:
             max_tokens: 1024,
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(45))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let response = client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("LLM API request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
-            return Err(format!("LLM API returned {}: {}", status, body));
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
+        let chat_response = self.call_chat_completion(&request_body, "chat").await?;
 
         let usage = chat_response.usage;
 
@@ -1071,30 +1071,7 @@ RULES:
             max_tokens: 1024,
         };
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let response = client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(|e| format!("LLM API request failed for {}: {}", agent_name, e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
-            return Err(format!("LLM API returned {} for {}: {}", status, agent_name, body));
-        }
-
-        let chat_response: ChatResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response for {}: {}", agent_name, e))?;
+        let chat_response = self.call_chat_completion(&request_body, agent_name).await?;
 
         let usage = chat_response.usage;
         self.track_usage(pair_key, &usage);
@@ -1150,6 +1127,7 @@ impl MultiAgentResults {
                 indicator_name: "short-RSI".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
+                confidence_score: 0,
                 divergence_status: None,
                 divergence_type: None,
                 is_confirmed: None,
@@ -1158,6 +1136,7 @@ impl MultiAgentResults {
                 indicator_name: "mid-MACD".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
+                confidence_score: 0,
                 divergence_status: None,
                 divergence_type: None,
                 is_confirmed: None,
@@ -1166,6 +1145,7 @@ impl MultiAgentResults {
                 indicator_name: "long-SQUEEZE".to_string(),
                 signal: squeeze_signal,
                 reason: vol_thought.clone(),
+                confidence_score: 0,
                 divergence_status: None,
                 divergence_type: None,
                 is_confirmed: None,
@@ -1174,6 +1154,7 @@ impl MultiAgentResults {
                 indicator_name: "macro-ADX".to_string(),
                 signal: adx_signal,
                 reason: vol_thought.clone(),
+                confidence_score: 0,
                 divergence_status: None,
                 divergence_type: None,
                 is_confirmed: None,
@@ -1182,6 +1163,7 @@ impl MultiAgentResults {
                 indicator_name: "supermacro-VWAP".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
+                confidence_score: 0,
                 divergence_status: None,
                 divergence_type: None,
                 is_confirmed: None,

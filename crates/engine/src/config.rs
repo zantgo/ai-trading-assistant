@@ -367,6 +367,105 @@ impl Default for CostsConfig {
 fn default_price_per_1m_input_tokens() -> f64 { 0.27 }
 fn default_price_per_1m_output_tokens() -> f64 { 1.10 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    #[serde(default = "default_max_instances")]
+    pub max_instances: usize,
+    #[serde(default = "default_default_pair")]
+    pub default_pair: String,
+    #[serde(default)]
+    pub backup_api_key: Option<String>,
+}
+
+fn default_max_instances() -> usize { 100 }
+fn default_default_pair() -> String { "BTC/USDT".to_string() }
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            max_instances: default_max_instances(),
+            default_pair: default_default_pair(),
+            backup_api_key: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SafetyConfig {
+    #[serde(default = "default_consecutive_loss_caution")]
+    pub consecutive_loss_caution: u32,
+    #[serde(default = "default_consecutive_loss_dropout")]
+    pub consecutive_loss_dropout: u32,
+    #[serde(default = "default_dropout_duration_hours")]
+    pub dropout_duration_hours: u64,
+    #[serde(default = "default_capital_drawdown_pct")]
+    pub capital_drawdown_pct: f64,
+}
+
+fn default_consecutive_loss_caution() -> u32 { 3 }
+fn default_consecutive_loss_dropout() -> u32 { 5 }
+fn default_dropout_duration_hours() -> u64 { 8 }
+fn default_capital_drawdown_pct() -> f64 { 30.0 }
+
+impl Default for SafetyConfig {
+    fn default() -> Self {
+        Self {
+            consecutive_loss_caution: default_consecutive_loss_caution(),
+            consecutive_loss_dropout: default_consecutive_loss_dropout(),
+            dropout_duration_hours: default_dropout_duration_hours(),
+            capital_drawdown_pct: default_capital_drawdown_pct(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IntervalsConfig {
+    #[serde(default = "default_slow_seconds")]
+    pub slow_seconds: u64,
+    #[serde(default = "default_normal_seconds")]
+    pub normal_seconds: u64,
+    #[serde(default = "default_fast_seconds")]
+    pub fast_seconds: u64,
+}
+
+fn default_slow_seconds() -> u64 { 3600 }
+fn default_normal_seconds() -> u64 { 900 }
+fn default_fast_seconds() -> u64 { 300 }
+
+impl Default for IntervalsConfig {
+    fn default() -> Self {
+        Self {
+            slow_seconds: default_slow_seconds(),
+            normal_seconds: default_normal_seconds(),
+            fast_seconds: default_fast_seconds(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApiFailoverConfig {
+    #[serde(default = "default_max_retries_per_call")]
+    pub max_retries_per_call: u32,
+    #[serde(default = "default_retry_delay_seconds")]
+    pub retry_delay_seconds: u64,
+    #[serde(default = "default_max_consecutive_failures")]
+    pub max_consecutive_failures: u32,
+}
+
+fn default_max_retries_per_call() -> u32 { 5 }
+fn default_retry_delay_seconds() -> u64 { 30 }
+fn default_max_consecutive_failures() -> u32 { 10 }
+
+impl Default for ApiFailoverConfig {
+    fn default() -> Self {
+        Self {
+            max_retries_per_call: default_max_retries_per_call(),
+            retry_delay_seconds: default_retry_delay_seconds(),
+            max_consecutive_failures: default_max_consecutive_failures(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub symbols: Vec<String>,
@@ -390,6 +489,14 @@ pub struct AppConfig {
     pub fees: FeesConfig,
     #[serde(default)]
     pub costs: CostsConfig,
+    #[serde(default)]
+    pub workspace: WorkspaceConfig,
+    #[serde(default)]
+    pub safety: SafetyConfig,
+    #[serde(default)]
+    pub intervals: IntervalsConfig,
+    #[serde(default)]
+    pub api_failover: ApiFailoverConfig,
     #[serde(default, skip_serializing)]
     pub pairs: HashMap<String, PairSpecificConfig>,
 }

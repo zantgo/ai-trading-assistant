@@ -7,5 +7,7 @@
 pub mod models;
 pub mod indicators;
 pub mod normalized;
+pub mod jsonrpc;
+pub mod jsonrpc_methods;
 
 pub use normalized::TriggerType;

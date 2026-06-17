@@ -32,6 +32,7 @@ pub struct CoreStats {
     pub avg_gain: f64,
     pub expectancy: f64,
     pub avg_risk_reward_ratio: f64,
+    pub profit_factor: f64,
     pub largest_loss: f64,
     pub largest_gain: f64,
     pub total_trades: usize,
@@ -180,7 +181,7 @@ fn empty_dashboard() -> DashboardStats {
     DashboardStats {
         core_stats: CoreStats {
             total_pnl: 0.0, win_rate: 0.0, avg_loss: 0.0, avg_gain: 0.0,
-            expectancy: 0.0, avg_risk_reward_ratio: 0.0,
+            expectancy: 0.0, avg_risk_reward_ratio: 0.0, profit_factor: 0.0,
             largest_loss: 0.0, largest_gain: 0.0,
             total_trades: 0, wins: 0, losses: 0,
         },
@@ -236,8 +237,13 @@ fn compute_core_stats(trades: &[TradeRow]) -> CoreStats {
         if loss_roi > 0.0 { win_roi / loss_roi } else { 0.0 }
     } else { 0.0 };
 
+    let gross_profit: f64 = wins.iter().map(|t| t.6).sum();
+    let gross_loss: f64 = losses.iter().map(|t| t.6.abs()).sum();
+    let profit_factor = if gross_loss > 0.0 { gross_profit / gross_loss } else if gross_profit > 0.0 { f64::INFINITY } else { 0.0 };
+
     CoreStats {
         total_pnl, win_rate, avg_loss, avg_gain, expectancy, avg_risk_reward_ratio: avg_rr,
+        profit_factor,
         largest_loss, largest_gain,
         total_trades: total, wins: wins.len(), losses: losses.len(),
     }

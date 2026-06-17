@@ -95,6 +95,17 @@ export interface SystemHeartbeat {
     active_pairs_count: number;
 }
 
+export interface InstanceSummary {
+    id: string;
+    pair: string;
+    status: string;
+    symbol: string;
+    initial_capital: number;
+    current_equity: number;
+    consecutive_losses: number;
+    caution_level: string;
+}
+
 export interface DecisionMemoryRow {
     id: number;
     symbol: string;
@@ -212,6 +223,7 @@ export interface CoreStats {
     avg_gain: number;
     expectancy: number;
     avg_risk_reward_ratio: number;
+    profit_factor: number;
     largest_loss: number;
     largest_gain: number;
     total_trades: number;
@@ -456,6 +468,11 @@ export interface PairState {
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
+    slowIntervalSecs: number;
+    normalIntervalSecs: number;
+    fastIntervalSecs: number;
+    tpLevels: number;
+    slLevels: number;
     nextEvaluationIn: string;
     paperCashBalance: number;
     paperInitialUSD: number;
@@ -634,6 +651,11 @@ function createPairState(symbol: string, exchange: string): PairState {
         automationEnabled: false,
         automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
+        slowIntervalSecs: 3600,
+        normalIntervalSecs: 900,
+        fastIntervalSecs: 300,
+        tpLevels: 1,
+        slLevels: 1,
         nextEvaluationIn: '--',
         paperCashBalance: 10000,
         paperInitialUSD: 10000,
@@ -678,6 +700,92 @@ function createPairState(symbol: string, exchange: string): PairState {
         costActualTotal: 0,
         costLoading: false,
     };
+}
+
+// ─── Session State ────────────────────────────────────────────────
+
+let sessionActive = $state(false);
+let sessionMode = $state<string>('paper');
+let sessionCurrency = $state<string>('USDT');
+let sessionExchange = $state<string>('Hyperliquid');
+let sessionCapital = $state(0);
+let sessionInstanceCount = $state(0);
+let sessionMaxInstances = $state(100);
+let sessionLoading = $state(false);
+let sessionChecked = $state(false);
+let sessionError = $state<string | null>(null);
+
+async function fetchSessionStatus() {
+    try {
+        const res = await fetch('/api/session/status');
+        if (res.ok) {
+            const data = await res.json();
+            sessionActive = data.active;
+            sessionMode = data.mode || 'paper';
+            sessionCurrency = data.currency || 'USDT';
+            sessionExchange = data.exchange || 'Hyperliquid';
+            sessionCapital = data.capital || 0;
+            sessionInstanceCount = data.instance_count || 0;
+            sessionMaxInstances = data.max_instances || 100;
+        }
+    } catch (_) {
+        // Backend may not be ready yet
+    } finally {
+        sessionChecked = true;
+    }
+}
+
+async function initSession(mode: string, currency: string, exchange: string, capital: number): Promise<{ success: boolean; error?: string }> {
+    sessionLoading = true;
+    sessionError = null;
+    try {
+        const res = await fetch('/api/session/init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode, currency, exchange, capital }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            sessionActive = true;
+            sessionMode = mode;
+            sessionCurrency = currency;
+            sessionExchange = exchange;
+            sessionCapital = capital;
+            sessionLoading = false;
+            return { success: true };
+        } else {
+            sessionError = data.error || 'Session initialization failed';
+            sessionLoading = false;
+            return { success: false, error: sessionError || undefined };
+        }
+    } catch (e: any) {
+        sessionError = e.message || 'Network error';
+        sessionLoading = false;
+        return { success: false, error: sessionError || undefined };
+    }
+}
+
+async function quitSession(): Promise<boolean> {
+    sessionLoading = true;
+    try {
+        const res = await fetch('/api/session/quit', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            sessionActive = false;
+            sessionMode = 'paper';
+            sessionCurrency = 'USDT';
+            sessionExchange = 'Hyperliquid';
+            sessionCapital = 0;
+            sessionInstanceCount = 0;
+            sessionLoading = false;
+            return true;
+        }
+        sessionLoading = false;
+        return false;
+    } catch (_) {
+        sessionLoading = false;
+        return false;
+    }
 }
 
 let pairsMap = $state<Record<string, PairState>>({});
@@ -936,6 +1044,26 @@ export function getState() {
         get apiKeyConfigured() { return apiKeyConfigured; },
         set apiKeyConfigured(v: boolean) { apiKeyConfigured = v; },
         get rulesContent() { return rulesContent; },
+
+        // Session state
+        get sessionActive() { return sessionActive; },
+        set sessionActive(v: boolean) { sessionActive = v; },
+        get sessionChecked() { return sessionChecked; },
+        get sessionMode() { return sessionMode; },
+        get sessionCurrency() { return sessionCurrency; },
+        get sessionExchange() { return sessionExchange; },
+        get sessionCapital() { return sessionCapital; },
+        set sessionCapital(v: number) { sessionCapital = v; },
+        get sessionInstanceCount() { return sessionInstanceCount; },
+        get sessionMaxInstances() { return sessionMaxInstances; },
+        get sessionLoading() { return sessionLoading; },
+        get sessionError() { return sessionError; },
+        set sessionError(v: string | null) { sessionError = v; },
+        initSession(mode: string, currency: string, exchange: string, capital: number) {
+            return initSession(mode, currency, exchange, capital);
+        },
+        quitSession() { return quitSession(); },
+        fetchSessionStatus() { return fetchSessionStatus(); },
         set rulesContent(v: string) { rulesContent = v; },
 
         // Multi-timeframe telemetry access
@@ -1088,6 +1216,16 @@ export function getState() {
         set automationIntervalValue(v: number) { activePair().automationIntervalValue = v; },
         get automationIntervalUnit() { return activePair().automationIntervalUnit; },
         set automationIntervalUnit(v: 'seconds' | 'minutes' | 'hours') { activePair().automationIntervalUnit = v; },
+        get slowIntervalSecs() { return activePair().slowIntervalSecs; },
+        set slowIntervalSecs(v: number) { activePair().slowIntervalSecs = v; },
+        get normalIntervalSecs() { return activePair().normalIntervalSecs; },
+        set normalIntervalSecs(v: number) { activePair().normalIntervalSecs = v; },
+        get fastIntervalSecs() { return activePair().fastIntervalSecs; },
+        set fastIntervalSecs(v: number) { activePair().fastIntervalSecs = v; },
+        get tpLevels() { return activePair().tpLevels; },
+        set tpLevels(v: number) { activePair().tpLevels = v; },
+        get slLevels() { return activePair().slLevels; },
+        set slLevels(v: number) { activePair().slLevels = v; },
         get nextEvaluationIn() { return activePair().nextEvaluationIn; },
         set nextEvaluationIn(v: string) { activePair().nextEvaluationIn = v; },
 

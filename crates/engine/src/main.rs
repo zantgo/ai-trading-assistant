@@ -5,7 +5,7 @@ use tokio::sync::mpsc::channel;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use engine::{config, db, server, analyzer, llm, adapters, automation, performance_evaluator, candle_aggregator, portfolio_risk, strategy_optimizer};
+use engine::{config, db, server, analyzer, llm, adapters, automation, performance_evaluator, candle_aggregator, portfolio_risk, strategy_optimizer, workspace, safety, cli};
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
 use shared::indicators::DivergenceDetector;
@@ -14,7 +14,8 @@ use engine::sr_engine::SrRoleTracker;
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let web_mode = args.iter().any(|a| a == "--web");
+    let web_mode = args.iter().any(|a| a == "--web" || a == "--gui");
+    let cli_mode = args.iter().any(|a| a == "--cli");
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -90,8 +91,18 @@ async fn main() {
     let portfolio_risk = Arc::new(portfolio_risk::PortfolioRiskState::default());
     let pair_close_histories = Arc::new(RwLock::new(HashMap::<String, Vec<f64>>::new()));
 
+    let workspace = Arc::new(workspace::Workspace::new(
+        app_config.clone(),
+        db_pool.clone(),
+        symbol_mapper.clone(),
+        telemetry_tx.clone(),
+        api_key_configured.clone(),
+        hl_ws_url.clone(),
+    ));
+
     let app_state = Arc::new(server::AppState {
         pairs: pairs.clone(),
+        workspace: workspace.clone(),
         config: app_config.clone(),
         pool: db_pool.clone(),
         llm_client: llm_client.clone(),
@@ -105,6 +116,29 @@ async fn main() {
 
     let mut handles = Vec::new();
     handles.push(logger_handle);
+
+    if cli_mode {
+        println!("🖥️  CLI Mode: Starting interactive console session...");
+        println!("   Type 'help' for available commands, 'quit' to exit.");
+
+        // Start legacy pipeline tasks in background if symbols exist
+        if !initial_symbols.is_empty() {
+            // (Legacy pair initialization runs below, same as headless mode)
+        }
+
+        // Drop the web app — CLI handles all interaction
+        drop(app);
+
+        let cli_console = cli::CliConsole::new(
+            workspace.clone(),
+            db_pool.clone(),
+            llm_client.clone(),
+        );
+        cli_console.run().await;
+
+        println!("👋 CLI session ended. Shutting down...");
+        return;
+    }
 
     if web_mode {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -373,6 +407,12 @@ async fn main() {
             api_key_configured: api_key_configured.clone(),
             portfolio_risk: portfolio_risk.clone(),
             pair_close_histories: pair_close_histories.clone(),
+            safety: Arc::new(safety::SafetyManager::new(3, 5, 8, 30.0)),
+            intervals: {
+                let cfg = app_config.read().await;
+                cfg.intervals.clone()
+            },
+            next_interval_override: Arc::new(RwLock::new(None)),
         };
         handles.push(tokio::spawn(async move {
             automation::run_pair_automation_loop(auto_ctx).await;
