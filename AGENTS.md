@@ -33,6 +33,16 @@ cargo run
 
 The engine binary reads `config.toml` from CWD at runtime. Run from the workspace root.
 
+### Launch modes
+
+| Command | Mode | Description |
+|---|---|---|
+| `./manage.sh run` | Web (GUI) | Foreground with live logs, dashboard at `http://127.0.0.1:3000` |
+| `./manage.sh run-silent` | Web (GUI) | Background daemon, logs to `engine.log` |
+| `./manage.sh cli` | CLI | Interactive terminal console with instance management, watch, and chat |
+| `./manage.sh stop` | — | Stop background engine instance |
+| `./manage.sh status` | — | Check process uptime |
+
 ### Frontend dev mode
 ```bash
 cd crates/frontend
@@ -80,11 +90,38 @@ price_per_1m_output_tokens = 1.10  # DeepSeek default
 - Daily cost = (input_tokens/1M × input_price) + (output_tokens/1M × output_price)
 - Weekly = daily × 7, Monthly = daily × 30
 
-## Testing
+## Testing (248 tests across 3 boundaries)
 
-No tests exist yet. There is no CI, no lint configuration, no rustfmt.toml. When adding tests:
-- Run a single crate's tests: `cargo test -p shared` or `cargo test -p engine`
-- Run all tests: `cargo test` from workspace root
+| Suite | Command | Boundary | Tests | Runtime |
+|-------|---------|----------|-------|---------|
+| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization | 154 | <3s |
+| TEST-ENGINE | `./manage.sh test-engine` | DB, paper trading, server, failover | 69 | <5s |
+| TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots | 24 | <10s |
+| All | `./manage.sh test` | Core → Engine → UI sequentially | 248 | <18s |
+
+### Specialized test selectors
+
+| Command | Targets |
+|---------|---------|
+| `./manage.sh test-property` | Generative property tests (38 tests across 10 indicator modules) |
+| `./manage.sh test-correlation` | Pearson correlation, sliding window, drawdown (15 tests) |
+| `./manage.sh test-e2e` | End-to-end analytical loop + history endpoint (2 tests) |
+| `./manage.sh test-engine-full` | All engine tests including load/stress (70 tests) |
+| `./manage.sh test-load` | Multi-pair load test only (1 test, requires --ignored flag) |
+
+### Developer guidelines
+
+- **Modifying indicators, Fibonacci, models** → `./manage.sh test-core` (fast, <3s)
+- **Modifying DB schemas, paper trading, server APIs** → `./manage.sh test-engine` (<5s)
+- **Modifying Svelte 5 runes, components, charts** → `./manage.sh test-ui` (<10s)
+- **Pre-commit / PR validation** → `./manage.sh test` (full sequential run)
+
+### CI integration
+
+See `.github/workflows/ci.yml` — 3-stage sequential pipeline:
+1. Stage 1: Core verification (`test-core`)
+2. Stage 2: Frontend verification (`test-ui`)
+3. Stage 3: Engine integration (`test-engine`)
 
 ## Architecture notes
 

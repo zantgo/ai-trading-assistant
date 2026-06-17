@@ -16,17 +16,24 @@ show_help() {
     echo "Usage: ./manage.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  build         Compile frontend assets and verify cargo workspace compiles"
-    echo "  run           Run the engine in the foreground with live logs"
-    echo "  run-silent    Run the engine in the background, redirecting logs to $LOG_FILE"
-    echo "  stop          Stop any background engine instance currently running"
-    echo "  status        Check if the engine is running (and print process info)"
-    echo "  test          Run all workspace tests (both Rust and Svelte/Vitest)"
-    echo "  test-rust     Run Rust unit and integration tests only"
-    echo "  test-ui       Run Svelte 5 frontend unit tests only"
-    echo "  clean         Delete build targets, node_modules, and temporary locks"
-    echo "  destroy       Stop the engine, run clean, and permanently delete telemetry.db"
-    echo "  help          Show this helper documentation"
+    echo "  build              Compile frontend assets and verify cargo workspace compiles"
+    echo "  run                Run the engine in the foreground with live logs"
+    echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
+    echo "  cli                Launch the interactive CLI trading console"
+    echo "  stop               Stop any background engine instance currently running"
+    echo "  status             Check if the engine is running (and print process info)"
+    echo "  test               Run all 5 test suites (core → correlation → e2e → engine-full → ui)"
+    echo "  test-core          Pure indicator math + serialization (shared crate, 154 tests)"
+    echo "  test-engine        DB, paper trading, server, failover (engine crate, 69 tests)"
+    echo "  test-engine-full   Engine suite including load/stress test (70 tests)"
+    echo "  test-ui            Svelte 5 visual state & component tests (24 tests)"
+    echo "  test-property      Generative property tests across 12 indicators (38 tests)"
+    echo "  test-correlation   Pearson correlation + drawdown validation (15 tests)"
+    echo "  test-e2e           End-to-end analytical loop + history endpoint (2 tests)"
+    echo "  test-load          Multi-pair load/stress test only (1 test, manual run)"
+    echo "  clean              Delete build targets, node_modules, and temporary locks"
+    echo "  destroy            Stop the engine, run clean, and permanently delete telemetry.db"
+    echo "  help               Show this helper documentation"
     echo ""
 }
 
@@ -84,6 +91,12 @@ run_silent() {
     echo "✅ Engine running under PID: $!"
 }
 
+cli_mode() {
+    check_env
+    echo "🖥️  Starting AI Trading Assistant — CLI Console..."
+    cargo run -- --cli
+}
+
 stop_instance() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
@@ -128,17 +141,77 @@ check_status() {
 }
 
 run_tests() {
-    test_rust
-    test_ui
+    local failures=0
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 1/5: TEST-CORE — Pure math, indicators, serialization"
+    echo "═══════════════════════════════════════════════════════════"
+    test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 2/5: TEST-CORRELATION — Pearson + drawdown validation"
+    echo "═══════════════════════════════════════════════════════════"
+    test_correlation || { ((failures++)); echo "❌ TEST-CORRELATION failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 3/5: TEST-E2E — End-to-end analytical loop + history"
+    echo "═══════════════════════════════════════════════════════════"
+    test_e2e || { ((failures++)); echo "❌ TEST-E2E failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 4/5: TEST-ENGINE-FULL — DB + paper trade + server + load"
+    echo "═══════════════════════════════════════════════════════════"
+    test_engine_full || { ((failures++)); echo "❌ TEST-ENGINE-FULL failed"; }
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  STAGE 5/5: TEST-UI — Svelte 5 components, state, snapshots"
+    echo "═══════════════════════════════════════════════════════════"
+    test_ui || { ((failures++)); echo "❌ TEST-UI failed"; }
+    echo ""
+    if [ $failures -eq 0 ]; then
+        echo "✅ All 5 test suites passed"
+    else
+        echo "❌ $failures test suite(s) failed"
+        return 1
+    fi
 }
 
-test_rust() {
-    echo "🦀 Running Rust Workspace Tests..."
-    cargo test
+test_core() {
+    echo "🦀 TEST-CORE: Running shared crate tests (indicators + serialization)..."
+    cargo test -p shared
+}
+
+test_engine() {
+    echo "🦀 TEST-ENGINE: Running engine integration tests (DB + paper trading + server)..."
+    cargo test -p engine
+}
+
+test_engine_full() {
+    echo "🦀 TEST-ENGINE-FULL: Running engine tests including load/stress..."
+    cargo test -p engine -- --include-ignored
+}
+
+test_property() {
+    echo "🦀 TEST-PROPERTY: Running generative property tests across all indicators..."
+    cargo test -p shared --test property_ema_sma --test property_rsi --test property_macd --test property_adx --test property_bollinger_atr --test property_squeeze --test property_bbwp --test property_fibonacci --test property_divergence --test property_patterns
+}
+
+test_correlation() {
+    echo "🦀 TEST-CORRELATION: Running Pearson correlation + drawdown validation..."
+    cargo test -p engine --test portfolio_risk_tests
+}
+
+test_e2e() {
+    echo "🦀 TEST-E2E: Running end-to-end analytical loop + history endpoint..."
+    cargo test -p engine --test system_e2e_analysis
+}
+
+test_load() {
+    echo "🦀 TEST-LOAD: Running multi-pair load/stress test..."
+    cargo test -p engine --test load_max_pairs -- --ignored
 }
 
 test_ui() {
-    echo "🧪 Running Frontend Vitest Tests..."
+    echo "🧪 TEST-UI: Running Svelte 5 frontend Vitest tests..."
     cd "$FRONTEND_DIR"
     npm run test
     cd - > /dev/null
@@ -195,6 +268,9 @@ case "$1" in
     run-silent)
         run_silent
         ;;
+    cli)
+        cli_mode
+        ;;
     stop)
         stop_instance
         ;;
@@ -204,8 +280,26 @@ case "$1" in
     test)
         run_tests
         ;;
-    test-rust)
-        test_rust
+    test-core)
+        test_core
+        ;;
+    test-engine)
+        test_engine
+        ;;
+    test-engine-full)
+        test_engine_full
+        ;;
+    test-property)
+        test_property
+        ;;
+    test-correlation)
+        test_correlation
+        ;;
+    test-e2e)
+        test_e2e
+        ;;
+    test-load)
+        test_load
         ;;
     test-ui)
         test_ui

@@ -124,35 +124,92 @@ The engine does **not** exit or refuse to start without a key — it operates in
 
 ## Running the Engine
 
-You can run the engine using two different log profiles depending on whether you
-are actively debugging or letting it run in the background:
+The engine supports two execution modes: a full-featured web dashboard (GUI)
+and an interactive terminal console (CLI).
 
-### Profile A: Live Diagnostic Logging (Foreground)
+### Web Dashboard (GUI Mode)
 
-If you are developing or want to see live market data updates and API analysis
-traces printed directly to your console:
+The web dashboard is the primary interface. It serves a Svelte 5 frontend with
+real-time charts, AI analysis, paper trading, and risk management tools.
 
 ```bash
+# Foreground with live log output
 ./manage.sh run
+
+# Background with logs written to engine.log
+./manage.sh run-silent
 ```
 
-### Profile B: Silent execution (Background)
+Once running, open **http://127.0.0.1:3000** in your browser.
 
-If you want to keep the assistant active without keeping your terminal window
-open:
+| Manage command | Underlying flag | Description |
+|---|---|---|
+| `./manage.sh run` | `cargo run -- --web` | Foreground, live logs |
+| `./manage.sh run-silent` | `cargo run -- --web` (nohup) | Background daemon |
+| `./manage.sh stop` | `kill` background PID | Graceful termination |
+| `./manage.sh status` | Process check | Uptime + log size |
+
+### CLI Console (Interactive Mode)
+
+The CLI console provides a terminal-based interface for managing instances,
+viewing telemetry, and chatting with the AI Director — no browser required.
 
 ```bash
-# Starts the process silently and saves logs to engine.log
-./manage.sh run-silent
-
-# Check process uptime and file sizes
-./manage.sh status
-
-# Gracefully terminate execution
-./manage.sh stop
+./manage.sh cli
 ```
 
-Open **http://127.0.0.1:3000** in your browser once the engine is running.
+This launches the engine with `cargo run -- --cli`. Inside the console,
+type `help` to see available commands and `quit` to exit.
+
+**CLI Command Reference:**
+
+| Command | Description |
+|---|---|
+| `add <BASE> <QUOTE>` | Create a new trading instance (e.g., `add BTC USDT`) |
+| `pause <ID>` | Pause an instance, keeping open positions |
+| `stop <ID>` | Stop an instance, closing all positions |
+| `delete <ID>` | Permanently delete an instance |
+| `list` / `ls` | List all active instances |
+| `show <ID>` | Detailed instance view (telemetry + indicators) |
+| `show <ID> charts` | Indicator summary for the instance |
+| `show <ID> dashboard` | Performance metrics for the instance |
+| `show <ID> trades` | Completed trade history for the instance |
+| `watch <ID> [tf_secs]` | Real-time price stream (Ctrl+C to stop) |
+| `dashboard` / `dash` | General system dashboard overview |
+| `status` / `stat` | System heartbeat (pairs, tokens, DB health) |
+| `config` | View global configuration |
+| `safety <ID>` | Show safety/consecutive-loss status |
+| `safety reset <ID>` | Reset the consecutive loss counter |
+| `manual open <ID> <LONG\|SHORT>` | Open a manual paper position |
+| `manual close <ID>` | Close a manual paper position |
+| `chat <ID> <message>` | Send a message to the AI Director |
+| `help` / `?` | Show the CLI command list |
+| `quit` / `exit` / `q` | Graceful shutdown (closes all positions) |
+
+### Full manage.sh Command Reference
+
+The `manage.sh` script provides all operational commands for the workspace:
+
+| Command | Description |
+|---|---|
+| `./manage.sh build` | Compile frontend + verify Rust workspace |
+| `./manage.sh run` | Start engine in web mode (foreground) |
+| `./manage.sh run-silent` | Start engine in web mode (background) |
+| `./manage.sh cli` | Start engine in CLI interactive mode |
+| `./manage.sh stop` | Stop background engine instance |
+| `./manage.sh status` | Check if engine is running |
+| `./manage.sh test` | Run all 5 test suites sequentially |
+| `./manage.sh test-core` | Indicators + serialization (154 tests) |
+| `./manage.sh test-engine` | DB + paper trading + server (69 tests) |
+| `./manage.sh test-engine-full` | Engine suite including load test (70 tests) |
+| `./manage.sh test-ui` | Svelte 5 components (24 tests) |
+| `./manage.sh test-property` | Generative property tests (38 tests) |
+| `./manage.sh test-correlation` | Pearson + drawdown (15 tests) |
+| `./manage.sh test-e2e` | E2E analytical loop (2 tests) |
+| `./manage.sh test-load` | Multi-pair load test (1 test) |
+| `./manage.sh clean` | Delete build targets and temp files |
+| `./manage.sh destroy` | Full reset (stop + clean + wipe DB) |
+| `./manage.sh help` | Show this help reference |
 
 Expected startup output:
 
@@ -165,14 +222,17 @@ Expected startup output:
 🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000
 ```
 
-### Total System Reset (Purging Database and Builds)
+### Total System Reset
 
-If you need to completely reset the application, clear your historical assistant records, wipe the telemetry database, and clean all workspace folders:
+To completely reset the application — clearing historical records, wiping the
+telemetry database, and cleaning all workspace folders:
 
 ```bash
-# Safely terminates engine, purges db, and overwrites config.toml from config.default.toml
 ./manage.sh destroy
 ```
+
+This terminates the engine, purges `telemetry.db` and its WAL files, and
+restores `config.toml` from `config.default.toml`.
 
 ---
 
@@ -396,18 +456,35 @@ The `POST /api/analyze` request body:
 
 ## Testing
 
-Both Rust and Frontend test suites can be executed simultaneously or
-individually using the command helper:
+Test suites are organized by architectural boundary using the command helper:
 
 ```bash
-# Run both Svelte 5 and Rust testing engines
+# Run all test suites sequentially (core → engine → ui)
 ./manage.sh test
 
-# Run Rust unit and database integration tests only
-./manage.sh test-rust
+# Fast math indicators & serialization (154 tests, <3s)
+./manage.sh test-core
 
-# Run Svelte 5 state machine unit tests only
+# Database, paper trading, server integration (69 tests, <5s)
+./manage.sh test-engine
+
+# Full engine suite including load/stress test (70 tests)
+./manage.sh test-engine-full
+
+# Svelte 5 component & state tests (24 tests)
 ./manage.sh test-ui
+
+# Generative property tests across all 12 indicators (38 tests)
+./manage.sh test-property
+
+# Pearson correlation + drawdown validation (15 tests)
+./manage.sh test-correlation
+
+# End-to-end analytical loop (2 tests)
+./manage.sh test-e2e
+
+# Multi-pair load/stress test (1 test)
+./manage.sh test-load
 ```
 
 ---

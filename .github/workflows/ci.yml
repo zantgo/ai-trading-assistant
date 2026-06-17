@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-core:
+    name: Stage 1 — TEST-CORE (Indicators & Serialization)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run core tests
+        run: cargo test -p shared
+
+  test-ui:
+    name: Stage 2 — TEST-UI (Svelte 5 Components)
+    needs: test-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: crates/frontend
+        run: npm ci
+      - name: Run UI tests
+        working-directory: crates/frontend
+        run: npm run test
+
+  test-engine:
+    name: Stage 3 — TEST-ENGINE (DB, Paper Trading, Server)
+    needs: test-ui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run engine integration tests
+        run: cargo test -p engine
