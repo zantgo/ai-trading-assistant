@@ -1,26 +1,5 @@
 {
   "Hyperliquid-BTC": {
-    "short_term": {
-      "candles": {
-        "duration_seconds": 15,
-        "analysis_limit": 100
-      },
-      "indicators": {
-        "ema_fast": 10,
-        "ema_medium": 50,
-        "ema_slow": 100,
-        "ema_long": 200,
-        "rsi_period": 14,
-        "macd_fast": 12,
-        "macd_slow": 26,
-        "macd_signal": 9,
-        "adx_period": 14,
-        "atr_period": 14,
-        "squeeze_period": 20,
-        "bbwp_lookback": 252,
-        "bbwp_period": 20
-      }
-    },
     "mid_term": {
       "candles": {
         "duration_seconds": 60,

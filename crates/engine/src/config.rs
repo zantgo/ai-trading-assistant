@@ -336,7 +336,6 @@ impl TimeframeConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairSpecificConfig {
-    pub short_term: TimeframeConfig,
     pub mid_term: TimeframeConfig,
     pub long_term: TimeframeConfig,
     #[serde(default)]

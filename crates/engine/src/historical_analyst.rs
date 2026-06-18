@@ -301,38 +301,35 @@ OUTPUT strictly JSON, no markdown fences, no conversational preambles:
 
 // ─── DB Schema Helper ─────────────────────────────────────────────
 
-pub fn add_historical_recommendations_table(pool: &SqlitePool) {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS historical_recommendations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol TEXT NOT NULL,
-                pair_key TEXT NOT NULL,
-                generated_at TEXT NOT NULL,
-                trades_analyzed INTEGER NOT NULL,
-                win_rate REAL NOT NULL,
-                avg_risk_reward REAL NOT NULL,
-                avg_hold_time_minutes REAL NOT NULL,
-                profit_factor REAL NOT NULL,
-                suggested_rr REAL NOT NULL,
-                suggested_sizing_pct REAL NOT NULL,
-                regime_analysis TEXT NOT NULL DEFAULT '',
-                key_improvements TEXT NOT NULL DEFAULT '',
-                risk_recommendation TEXT NOT NULL DEFAULT ''
-            )"
-        )
-        .execute(pool)
-        .await
-        .expect("Failed to create historical_recommendations table");
+pub async fn add_historical_recommendations_table(pool: &SqlitePool) {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS historical_recommendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            pair_key TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            trades_analyzed INTEGER NOT NULL,
+            win_rate REAL NOT NULL,
+            avg_risk_reward REAL NOT NULL,
+            avg_hold_time_minutes REAL NOT NULL,
+            profit_factor REAL NOT NULL,
+            suggested_rr REAL NOT NULL,
+            suggested_sizing_pct REAL NOT NULL,
+            regime_analysis TEXT NOT NULL DEFAULT '',
+            key_improvements TEXT NOT NULL DEFAULT '',
+            risk_recommendation TEXT NOT NULL DEFAULT ''
+        )"
+    )
+    .execute(pool)
+    .await
+    .expect("Failed to create historical_recommendations table");
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_histrec_symbol ON historical_recommendations (symbol, generated_at DESC)"
-        )
-        .execute(pool)
-        .await
-        .ok();
-    });
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_histrec_symbol ON historical_recommendations (symbol, generated_at DESC)"
+    )
+    .execute(pool)
+    .await
+    .ok();
 }
 
 #[cfg(test)]

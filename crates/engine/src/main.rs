@@ -60,7 +60,7 @@ async fn main() {
     let db_pool = db::init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
-    db::check_encryption_warning(&db_pool);
+    db::check_encryption_warning(&db_pool).await;
 
     let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(10000);
     let logger_pool = db_pool.clone();
@@ -166,9 +166,6 @@ async fn main() {
         let pair_cfg = config_guard.pairs.get(&pair_key);
         let default_indicators = config_guard.indicators.clone();
 
-        let short_cfg = pair_cfg
-            .map(|p| p.short_term.clone())
-            .unwrap_or_else(|| config::TimeframeConfig::new(15, default_indicators.clone()));
         let mid_cfg = pair_cfg
             .map(|p| p.mid_term.clone())
             .unwrap_or_else(|| config::TimeframeConfig::new(60, default_indicators.clone()));
@@ -193,19 +190,16 @@ async fn main() {
         let (snapshot_tx, snapshot_rx) = channel::<NormalizedEvent>(500);
         let cancel = CancellationToken::new();
 
-        let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
         let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
         let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
         let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
         let (supermacro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
 
-        let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(short_cfg.candles.analysis_limit)));
         let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
         let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
         let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(macro_cfg.candles.analysis_limit)));
         let supermacro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(supermacro_cfg.candles.analysis_limit)));
 
-        let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
         let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
         let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
         let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
@@ -213,16 +207,6 @@ async fn main() {
 
         let pair = Arc::new(analyzer::ActivePair {
             symbol: raw_symbol.to_uppercase(),
-            short: analyzer::TimeframePipeline {
-                history: short_history.clone(),
-                broadcast_tx: short_broadcast_tx.clone(),
-                latest_snapshot: short_latest.clone(),
-                timeframe_secs: 15,
-                timeframe_label: "Short",
-                divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-                sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-                fibonacci: fib_config.clone(),
-            },
             mid: analyzer::TimeframePipeline {
                 history: mid_history.clone(),
                 broadcast_tx: mid_broadcast_tx.clone(),
@@ -269,8 +253,7 @@ async fn main() {
 
         pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
 
-        // Five pipeline channels from the event router
-        let (short_chan_tx, short_chan_rx) = channel::<NormalizedEvent>(200);
+        // Four pipeline channels from the event router
         let (mid_chan_tx, mid_chan_rx) = channel::<NormalizedEvent>(200);
         let (long_chan_tx, long_chan_rx) = channel::<NormalizedEvent>(200);
         let (macro_chan_tx, macro_chan_rx) = channel::<NormalizedEvent>(200);
@@ -282,7 +265,6 @@ async fn main() {
         handles.push(tokio::spawn(async move {
             analyzer::run_event_router(
                 snapshot_rx,
-                short_chan_tx,
                 mid_chan_tx,
                 long_chan_tx,
                 macro_chan_tx,
@@ -292,13 +274,12 @@ async fn main() {
             ).await;
         }));
 
-        // Five concurrent pipeline tasks
+        // Four concurrent pipeline tasks
         let supermacro_secs = supermacro_cfg.candles.duration_seconds;
         let macro_secs = macro_cfg.candles.duration_seconds;
         let (candle_fwd_tx, mut candle_fwd_rx) = tokio::sync::mpsc::unbounded_channel::<NormalizedCandle>();
 
         let pipeline_specs = [
-            (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), pair.short.divergence_detector.clone(), None::<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>),
             (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone(), Some(candle_fwd_tx.clone())),
             (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone(), None),
             (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone(), None),
@@ -389,12 +370,10 @@ async fn main() {
         let auto_ctx = automation::AutomationContext {
             pair_key: pair_key.clone(),
             symbol: raw_symbol.to_uppercase(),
-            short_history: short_history.clone(),
             mid_history: mid_history.clone(),
             long_history: long_history.clone(),
             macro_history: macro_history.clone(),
             supermacro_history: supermacro_history.clone(),
-            short_latest: short_latest.clone(),
             mid_latest: mid_latest.clone(),
             long_latest: long_latest.clone(),
             macro_latest: macro_latest.clone(),

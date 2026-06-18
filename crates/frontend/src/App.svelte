@@ -20,7 +20,6 @@
     import QuitDialog from './QuitDialog.svelte';
 
     const app = getState();
-    let wsShort: WebSocket | null = null;
     let wsMid: WebSocket | null = null;
     let wsLong: WebSocket | null = null;
     let wsMacro: WebSocket | null = null;
@@ -215,14 +214,6 @@
         }
 
         const body = {
-            short_term: {
-                candles: { duration_seconds: 15, analysis_limit: Number(draftAnalysisLimit) },
-                indicators: {
-                    ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
-                    rsi_period: Number(draftRsiPeriod), macd_fast: Number(draftMacdFast), macd_slow: Number(draftMacdSlow), macd_signal: Number(draftMacdSignal),
-                    adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
-                },
-            },
             mid_term: {
                 candles: { duration_seconds: Number(calculatedDuration), analysis_limit: Number(draftAnalysisLimit) },
                 indicators: {
@@ -319,7 +310,7 @@
                 });
 
                 pair.midTerm.barDurationSec = calculatedDuration;
-                for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
+                for (const tf of [pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
                     tf.emaFastVal = draftEmaFast;
                     tf.emaMediumVal = draftEmaMedium;
                     tf.emaSlowVal = draftEmaSlow;
@@ -338,7 +329,7 @@
                 }
             }
 
-            for (const tf of [pair.shortTerm, pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
+            for (const tf of [pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
                 tf.showEmas = draftShowEmas;
                 tf.showBb = draftShowBb;
                 tf.showVwap = draftShowVwap;
@@ -457,23 +448,6 @@
                 const targetState = app.pairsMap[pairKey];
 
                 if (specific && targetState) {
-                    if (specific.short_term) {
-                        targetState.shortTerm.barDurationSec = specific.short_term.candles.duration_seconds;
-                        Object.assign(targetState.shortTerm, {
-                            emaFastVal: specific.short_term.indicators.ema_fast,
-                            emaMediumVal: specific.short_term.indicators.ema_medium,
-                            emaSlowVal: specific.short_term.indicators.ema_slow,
-                            emaLongVal: specific.short_term.indicators.ema_long,
-                            rsiPeriodVal: specific.short_term.indicators.rsi_period,
-                            macdFastVal: specific.short_term.indicators.macd_fast,
-                            macdSlowVal: specific.short_term.indicators.macd_slow,
-                            macdSignalVal: specific.short_term.indicators.macd_signal,
-                            adxPeriodVal: specific.short_term.indicators.adx_period,
-                            atrPeriodVal: specific.short_term.indicators.atr_period,
-                            squeezePeriodVal: specific.short_term.indicators.squeeze_period,
-                            analysisLimit: specific.short_term.candles.analysis_limit ?? 100,
-                        });
-                    }
                     if (specific.mid_term) {
                         targetState.midTerm.barDurationSec = specific.mid_term.candles.duration_seconds;
                         Object.assign(targetState.midTerm, {
@@ -562,6 +536,7 @@
         console.error('Failed to fetch config from server:', e);
         configReady = true;
     }
+}
 
     async function saveIntervalsConfig() {
         intervalsSaveStatus = 'saving';
@@ -715,7 +690,7 @@
         } catch (_) {}
     }
 
-    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsShort' | 'wsMid' | 'wsLong' | 'wsMacro' | 'wsSupermacro', tfSecs: number) {
+    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsMid' | 'wsLong' | 'wsMacro' | 'wsSupermacro', tfSecs: number) {
         closeWs((self as any)[wsKey] as WebSocket | null);
 
         const url = buildWsUrl(tfSecs);
@@ -741,7 +716,6 @@
     }
 
     function connectWebsocket() {
-        closeWs(wsShort); wsShort = null;
         closeWs(wsMid); wsMid = null;
         closeWs(wsLong); wsLong = null;
 
@@ -752,7 +726,6 @@
         const pair = app.pairsMap[symbol];
         if (!pair) return;
 
-        connectWebsocketForTimeframe(pair.shortTerm, 'wsShort', 15);
         connectWebsocketForTimeframe(pair.midTerm, 'wsMid', 60);
         connectWebsocketForTimeframe(pair.longTerm, 'wsLong', 300);
         connectWebsocketForTimeframe(pair.macroTerm, 'wsMacro', 900);
@@ -766,7 +739,6 @@
     });
 
     onDestroy(() => {
-        closeWs(wsShort); wsShort = null;
         closeWs(wsMid); wsMid = null;
         closeWs(wsLong); wsLong = null;
         closeWs(wsMacro); wsMacro = null;
@@ -857,7 +829,6 @@
                 historical_prices: prices,
                 indicators: buildIndicators(snap),
                 timeframes: {
-                    short_term: buildIndicators(app.shortTerm.latestSnapshot || {}),
                     mid_term: buildIndicators(app.midTerm.latestSnapshot || {}),
                     long_term: buildIndicators(app.longTerm.latestSnapshot || {}),
                     macro_term: buildIndicators(app.macroTerm.latestSnapshot || {}),
@@ -1224,7 +1195,7 @@
                         </button>
                     </div>
                     <div class="time-badge">
-                        {pair.symbol}USD — MTF (15s/1m/5m/15m/1h)
+                        {pair.symbol}USD — MTF (1m/5m/15m/1h)
                     </div>
                 </div>
 

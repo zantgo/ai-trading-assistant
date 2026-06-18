@@ -68,9 +68,6 @@ pub async fn add_instance(
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    let short_cfg = pair_cfg
-        .map(|p| p.short_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(15, default_indicators.clone()));
     let mid_cfg = pair_cfg
         .map(|p| p.mid_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
@@ -94,19 +91,16 @@ pub async fn add_instance(
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let cancel = CancellationToken::new();
 
-    let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
     let (supermacro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
 
-    let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(short_cfg.candles.analysis_limit)));
     let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
     let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
     let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(macro_cfg.candles.analysis_limit)));
     let supermacro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(supermacro_cfg.candles.analysis_limit)));
 
-    let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
     let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
@@ -114,16 +108,6 @@ pub async fn add_instance(
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: base.clone(),
-        short: analyzer::TimeframePipeline {
-            history: short_history.clone(),
-            broadcast_tx: short_broadcast_tx.clone(),
-            latest_snapshot: short_latest.clone(),
-            timeframe_secs: 15,
-            timeframe_label: "Short",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: fib_config.clone(),
-        },
         mid: analyzer::TimeframePipeline {
             history: mid_history.clone(),
             broadcast_tx: mid_broadcast_tx.clone(),
@@ -168,8 +152,7 @@ pub async fn add_instance(
         cancel: cancel.clone(),
     });
 
-    // Spawn event router (fan out to 5 timeframes)
-    let (short_chan_tx, short_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    // Spawn event router (fan out to 4 timeframes)
     let (mid_chan_tx, mid_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (long_chan_tx, long_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -180,7 +163,6 @@ pub async fn add_instance(
     tokio::spawn(async move {
         analyzer::run_event_router(
             snapshot_rx,
-            short_chan_tx,
             mid_chan_tx,
             long_chan_tx,
             macro_chan_tx,
@@ -190,7 +172,7 @@ pub async fn add_instance(
         ).await;
     });
 
-    // Spawn 5 pipeline tasks
+    // Spawn 4 pipeline tasks
     let supermacro_secs = supermacro_cfg.candles.duration_seconds;
     let macro_secs = macro_cfg.candles.duration_seconds;
     let (candle_fwd_tx, mut candle_fwd_rx) = tokio::sync::mpsc::unbounded_channel::<NormalizedCandle>();
@@ -206,7 +188,6 @@ pub async fn add_instance(
         Arc<tokio::sync::Mutex<DivergenceDetector>>,
         Option<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>,
     )> = vec![
-        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Short", 15u64, short_broadcast_tx.clone(), active_pair.short.divergence_detector.clone(), None),
         (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), active_pair.mid.divergence_detector.clone(), Some(candle_fwd_tx.clone())),
         (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), active_pair.long.divergence_detector.clone(), None),
         (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), active_pair.r#macro.divergence_detector.clone(), None),
@@ -298,12 +279,10 @@ pub async fn add_instance(
         workspace.config.clone(),
         intervals_config,
         safety_config,
-        short_history.clone(),
         mid_history.clone(),
         long_history.clone(),
         macro_history.clone(),
         supermacro_history.clone(),
-        short_latest.clone(),
         mid_latest.clone(),
         long_latest.clone(),
         macro_latest.clone(),
@@ -314,12 +293,10 @@ pub async fn add_instance(
     let auto_ctx = automation::AutomationContext {
         pair_key: pair_key.clone(),
         symbol: base.clone(),
-        short_history: short_history.clone(),
         mid_history: mid_history.clone(),
         long_history: long_history.clone(),
         macro_history: macro_history.clone(),
         supermacro_history: supermacro_history.clone(),
-        short_latest: short_latest.clone(),
         mid_latest: mid_latest.clone(),
         long_latest: long_latest.clone(),
         macro_latest: macro_latest.clone(),

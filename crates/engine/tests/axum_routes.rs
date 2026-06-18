@@ -197,7 +197,6 @@ async fn test_websocket_stream_with_active_pair() {
     ));
 
     // Create broadcast channels for the pair
-    let (short_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (mid_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (long_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let (macro_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
@@ -208,16 +207,6 @@ async fn test_websocket_stream_with_active_pair() {
 
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
-        short: TimeframePipeline {
-            history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-            broadcast_tx: short_bcast,
-            latest_snapshot: Arc::new(RwLock::new(None)),
-            timeframe_secs: 15,
-            timeframe_label: "Short",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
-            fibonacci: FibonacciConfig::default(),
-        },
         mid: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),

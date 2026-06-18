@@ -97,14 +97,12 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
 
     let (snapshot_tx, _) = mpsc::channel(100);
     let cancel = tokio_util::sync::CancellationToken::new();
-    let b1 = mid_bcast.clone();
     let b2 = mid_bcast.clone();
     let b3 = mid_bcast.clone();
     let b4 = mid_bcast.clone();
 
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
-        short: build_pipeline_empty(b1),
         mid: build_pipeline(history, mid_bcast),
         long: build_pipeline_empty(b2),
         r#macro: build_pipeline_empty(b3),

@@ -18,8 +18,7 @@
         if (sec >= 3600) return 'SUPER MACRO (1h)';
         if (sec >= 900) return 'MACRO (15m)';
         if (sec >= 300) return 'LONG (5m)';
-        if (sec >= 60) return 'MID (1m)';
-        return 'SHORT (15s)';
+        return 'MID (1m)';
     }
 
     function tfKey(pairKey: string, tf: TimeframeTelemetry): string {
@@ -30,56 +29,6 @@
 <div class="terminal-workspace">
     {#if app.pairsMap[pairKey]}
         {@const pair = app.pairsMap[pairKey]}
-
-        <!-- Short-Term Column -->
-        <div class="timescale-column">
-            <div class="timescale-header">
-                <span class="timescale-title">{label(pair.shortTerm)}</span>
-                <span class="timescale-price">{pair.shortTerm.priceText}</span>
-            </div>
-            <div class="timescale-charts">
-                <div class="panel-box pane-price" class:hidden-pane={!pair.shortTerm.showEmas && !pair.shortTerm.showBb && !pair.shortTerm.showVwap}>
-                    {#key tfKey(pairKey, pair.shortTerm)}
-                        <PriceChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-vol" class:hidden-pane={!pair.shortTerm.showVolume}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}`}
-                        <VolumeChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-adx" class:hidden-pane={!pair.shortTerm.showAdx}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-${pair.shortTerm.adxPeriodVal}`}
-                        <AdxChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-atr" class:hidden-pane={!pair.shortTerm.showAtr}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-${pair.shortTerm.atrPeriodVal}`}
-                        <AtrChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-rsi" class:hidden-pane={!pair.shortTerm.showRsi}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-${pair.shortTerm.rsiPeriodVal}`}
-                        <RsiChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-macd" class:hidden-pane={!pair.shortTerm.showMacd}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-${pair.shortTerm.macdFastVal}-${pair.shortTerm.macdSlowVal}-${pair.shortTerm.macdSignalVal}`}
-                        <MacdChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-squeeze" class:hidden-pane={!pair.shortTerm.showSqueeze}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-${pair.shortTerm.squeezePeriodVal}`}
-                        <SqueezeChart pairKey={pairKey} timeframe={15} />
-                    {/key}
-                </div>
-                <div class="panel-box pane-bbwp" class:hidden-pane={!pair.shortTerm.showBbwp}>
-                    {#key `${pairKey}-${pair.shortTerm.barDurationSec}-bbwp`}
-                        <BbwpChart historyPrices={pair.shortTerm.historyPrices} currentBbwp={pair.shortTerm.lastBbwp} />
-                    {/key}
-                </div>
-            </div>
-        </div>
 
         <!-- Mid-Term Column -->
         <div class="timescale-column">
@@ -286,7 +235,7 @@
 <style>
     .terminal-workspace {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         gap: 12px;
         height: 100%;
         width: 100%;
@@ -359,7 +308,7 @@
     @media (max-width: 1280px) {
         .terminal-workspace {
             grid-template-columns: 1fr;
-            grid-template-rows: repeat(5, 400px);
+            grid-template-rows: repeat(4, 400px);
             overflow-y: auto;
         }
     }

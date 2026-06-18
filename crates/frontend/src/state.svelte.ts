@@ -443,7 +443,6 @@ export interface PairState {
     symbol: string;
     exchange: string;
     isConnected: boolean;
-    shortTerm: TimeframeTelemetry;
     midTerm: TimeframeTelemetry;
     longTerm: TimeframeTelemetry;
     macroTerm: TimeframeTelemetry;
@@ -626,7 +625,6 @@ function createPairState(symbol: string, exchange: string): PairState {
         symbol,
         exchange,
         isConnected: false,
-        shortTerm: createTimeframeTelemetry(symbol, exchange, 15),
         midTerm: createTimeframeTelemetry(symbol, exchange, 60),
         longTerm: createTimeframeTelemetry(symbol, exchange, 300),
         macroTerm: createTimeframeTelemetry(symbol, exchange, 900),
@@ -903,20 +901,6 @@ export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
         pairsMap[key] = createPairState(symbol, exchange);
     } else {
         const pair = pairsMap[key];
-        pair.shortTerm.barDurationSec = 15;
-        pair.shortTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
-        pair.shortTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
-        pair.shortTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
-        pair.shortTerm.emaLongVal = globalIndicatorsConfig.ema_long;
-        pair.shortTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
-        pair.shortTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
-        pair.shortTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
-        pair.shortTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
-        pair.shortTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
-        pair.shortTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
-        pair.shortTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
-        pair.shortTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
-
         pair.midTerm.barDurationSec = 60;
         pair.midTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
         pair.midTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
@@ -1067,7 +1051,6 @@ export function getState() {
         set rulesContent(v: string) { rulesContent = v; },
 
         // Multi-timeframe telemetry access
-        get shortTerm() { return activePair().shortTerm; },
         get midTerm() { return activePair().midTerm; },
         get longTerm() { return activePair().longTerm; },
         get macroTerm() { return activePair().macroTerm; },

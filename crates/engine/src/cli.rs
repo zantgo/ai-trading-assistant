@@ -575,9 +575,7 @@ impl CliConsole {
         };
 
         let mut rx = {
-            if tf_secs == 15 {
-                inst.active_pair.short.broadcast_tx.subscribe()
-            } else if tf_secs == 300 {
+            if tf_secs == 300 {
                 inst.active_pair.long.broadcast_tx.subscribe()
             } else if tf_secs == 900 {
                 inst.active_pair.r#macro.broadcast_tx.subscribe()

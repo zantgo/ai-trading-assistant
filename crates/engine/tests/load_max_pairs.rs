@@ -22,7 +22,6 @@ async fn test_load_max_pairs_stability() {
         let (telemetry_tx, _telemetry_rx) = mpsc::channel::<engine::db::TelemetryMsg>(100);
 
         let mut event_txs = Vec::new();
-        let mut short_histories = Vec::new();
         let mut mid_histories = Vec::new();
 
         let indicators = engine::config::IndicatorsConfig {
@@ -36,13 +35,10 @@ async fn test_load_max_pairs_stability() {
             let symbol = format!("SYM{:02}", pair_idx);
 
             let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(200);
-            let (short_tx, short_rx) = mpsc::channel::<NormalizedEvent>(100);
             let (mid_tx, mid_rx) = mpsc::channel::<NormalizedEvent>(100);
 
-            let (short_broadcast, _) = broadcast::channel::<MarketSnapshot>(50);
             let (mid_broadcast, _) = broadcast::channel::<MarketSnapshot>(50);
 
-            let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(cap)));
             let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(cap)));
 
             let fib_config = FibonacciConfig {
@@ -51,29 +47,16 @@ async fn test_load_max_pairs_stability() {
                 extension_coefficients: vec![1.618, 2.618],
             };
 
-            let short_tf = TimeframeConfig { candles: engine::config::CandlesConfig { duration_seconds: 15, analysis_limit: 100 }, indicators: indicators.clone() };
             let mid_tf = TimeframeConfig { candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 }, indicators: indicators.clone() };
 
-            // Event router
+            // Event router fanning out to 4 timeframes
             let r_cancel = cancel.clone();
             let r_sym = symbol.clone();
             let m1 = mid_tx.clone();
             let m2 = mid_tx.clone();
             let m3 = mid_tx.clone();
             tokio::spawn(async move {
-                analyzer::run_event_router(event_rx, short_tx, mid_tx, m1, m2, m3, r_sym, r_cancel).await;
-            });
-
-            // Short analyzer
-            let s_cancel = cancel.clone();
-            let s_sym = symbol.clone();
-            let s_pk = format!("Hyperliquid-{}", symbol);
-            let s_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
-            let s_t = telemetry_tx.clone();
-            let sh = short_history.clone();
-            let sfib = fib_config.clone();
-            tokio::spawn(async move {
-                analyzer::run_single(short_rx, s_t, short_broadcast, short_tf, sfib, s_div, sh, Arc::new(RwLock::new(None)), s_sym, s_pk, 15, "Short", s_cancel, None).await;
+                analyzer::run_event_router(event_rx, mid_tx, m1, m2, m3, r_sym, r_cancel).await;
             });
 
             // Mid analyzer
@@ -89,7 +72,6 @@ async fn test_load_max_pairs_stability() {
             });
 
             event_txs.push(event_tx);
-            short_histories.push(short_history);
             mid_histories.push(mid_history);
         }
 
@@ -119,11 +101,9 @@ async fn test_load_max_pairs_stability() {
 
         let mut total_candles = 0usize;
         for i in 0..num_pairs {
-            let sc = short_histories[i].read().await.len();
             let mc = mid_histories[i].read().await.len();
-            assert!(sc <= cap, "Short history for pair {} over cap: {} > {}", i, sc, cap);
             assert!(mc <= cap, "Mid history for pair {} over cap: {} > {}", i, mc, cap);
-            total_candles += sc + mc;
+            total_candles += mc;
         }
 
         eprintln!("Load test: {} pairs, {} total candles", num_pairs, total_candles);

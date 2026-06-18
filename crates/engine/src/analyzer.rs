@@ -7,7 +7,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
 use crate::config::FibonacciConfig;
-use crate::risk;
 use crate::db;
 
 use shared::models::MarketSnapshot;
@@ -28,7 +27,6 @@ pub struct TimeframePipeline {
 
 pub struct ActivePair {
     pub symbol: String,
-    pub short: TimeframePipeline,
     pub mid: TimeframePipeline,
     pub long: TimeframePipeline,
     pub r#macro: TimeframePipeline,
@@ -39,7 +37,6 @@ pub struct ActivePair {
 
 pub async fn run_event_router(
     mut rx: Receiver<NormalizedEvent>,
-    short_tx: Sender<NormalizedEvent>,
     mid_tx: Sender<NormalizedEvent>,
     long_tx: Sender<NormalizedEvent>,
     macro_tx: Sender<NormalizedEvent>,
@@ -47,7 +44,7 @@ pub async fn run_event_router(
     symbol: String,
     cancel: CancellationToken,
 ) {
-    println!("🔄 Event Router: Started for {} (fanning out to 5 timeframes)...", symbol);
+    println!("🔄 Event Router: Started for {} (fanning out to 4 timeframes)...", symbol);
 
     loop {
         let event = tokio::select! {
@@ -67,7 +64,6 @@ pub async fn run_event_router(
             }
         };
 
-        let _ = short_tx.send(event.clone()).await;
         let _ = mid_tx.send(event.clone()).await;
         let _ = long_tx.send(event.clone()).await;
         let _ = macro_tx.send(event.clone()).await;
@@ -383,59 +379,6 @@ pub async fn run_single(
                     if let Some(ref tx) = candle_forward {
                         let _ = tx.send(completed.clone());
                     }
-                }
-
-                // FAST PATH: Risk check on trade price
-                {
-                    let tick = MarketSnapshot {
-                        exchange: shadow_exchange,
-                        timeframe_secs,
-                        timestamp: trade.timestamp_ms / 1000,
-                        symbol: symbol.clone(),
-                        is_completed: Some(false),
-                        mid_price: trade.price,
-                        bid_price: shadow_bid,
-                        ask_price: shadow_ask,
-                        bid_size: Some(trade.size),
-                        ask_size: Some(trade.size),
-                        funding_rate: None,
-                        open: None, high: None, low: None, close: None,
-                        volume: None, average_volume: None, rvol: None,
-                        bb_upper: None, bb_middle: None, bb_lower: None,
-                        atr_14: None, atr_slope: None, atr_volatility_regime: None, atr_stop_loss_level: None, atr_take_profit_level: None,
-                        vwap: None, vwap_bias: None,
-                        adx_14: None, adx_plus: None, adx_minus: None,
-                        ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None, ema_stack_state: None,
-                        rsi_14: None, macd_line: None, macd_signal: None, macd_hist: None,
-                        squeeze_on: None, squeeze_momentum: None,
-                        squeeze_duration: None, squeeze_release_trigger: None, squeeze_momentum_direction: None,
-                        bbwp: None,
-                        support_levels: None,
-                        resistance_levels: None,
-                        sr_flip_events: None,
-                        fib_golden_pocket_low: None,
-                        fib_golden_pocket_high: None,
-                        fib_extension_1618: None,
-                        fib_extension_2618: None,
-                        swing_high: None,
-                        swing_low: None,
-                        chart_pattern: None,
-                        chart_pattern_confidence: None,
-                        rsi_divergence_status: None,
-                        rsi_divergence_coords: None,
-                        macd_divergence_status: None,
-                        macd_divergence_coords: None,
-                        macd_histogram_peak: None,
-                        macd_trend_state: None,
-                        macd_crossover_detected: None,
-                        macd_crossover_direction: None,
-                        adx_slope: None,
-                        adx_peak: None,
-                        adx_regime: None,
-                        adx_di_crossover_detected: None,
-                        adx_di_crossover_direction: None,
-                    };
-                    risk::check(&tick);
                 }
 
                 // BROADCAST: Flickering snapshot from live candle

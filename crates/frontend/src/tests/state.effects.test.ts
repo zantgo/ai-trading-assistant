@@ -17,8 +17,7 @@ describe('TEST-UI: State Reactive Effects', () => {
         expect(pair.symbol).toBe('BTC');
         expect(pair.exchange).toBe('Hyperliquid');
 
-        // All five timeframes should exist with default values
-        expect(pair.shortTerm).toBeDefined();
+        // All four timeframes should exist with default values
         expect(pair.midTerm).toBeDefined();
         expect(pair.longTerm).toBeDefined();
         expect(pair.macroTerm).toBeDefined();

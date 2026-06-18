@@ -118,21 +118,18 @@ mod crypto {
     }
 }
 
-pub fn check_encryption_warning(pool: &SqlitePool) {
+pub async fn check_encryption_warning(pool: &SqlitePool) {
     if crypto::master_key_available() {
         return;
     }
-    let pool = pool.clone();
-    tokio::task::spawn(async move {
-        let row: Result<(i64,), _> = sqlx::query_as("SELECT COUNT(*) FROM exchange_keys")
-            .fetch_one(&pool)
-            .await;
-        if let Ok((count,)) = row {
-            if count > 0 {
-                eprintln!("⚠️  SECURITY: EXCHANGE_SECRET_KEY not set but {} exchange key(s) exist in database. Credentials stored without encryption.", count);
-            }
+    let row: Result<(i64,), _> = sqlx::query_as("SELECT COUNT(*) FROM exchange_keys")
+        .fetch_one(pool)
+        .await;
+    if let Ok((count,)) = row {
+        if count > 0 {
+            eprintln!("⚠️  SECURITY: EXCHANGE_SECRET_KEY not set but {} exchange key(s) exist in database. Credentials stored without encryption.", count);
         }
-    });
+    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -1066,7 +1063,7 @@ pub async fn init_db() -> SqlitePool {
     seed_default_profiles(&pool).await;
 
     // ─── Historical Recommendations ────────────────────────────────
-    crate::historical_analyst::add_historical_recommendations_table(&pool);
+    crate::historical_analyst::add_historical_recommendations_table(&pool).await;
 
     pool
 }

@@ -66,12 +66,10 @@ use crate::portfolio_risk::PortfolioRiskState;
 pub struct AutomationContext {
     pub pair_key: String,
     pub symbol: String,
-    pub short_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub mid_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub long_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub macro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub supermacro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub mid_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub long_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub macro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
