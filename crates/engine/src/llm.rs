@@ -19,7 +19,7 @@ RULES:
 - If Position is Long or Short, only recommend Hold or Close. Never recommend opening a new position when one is already held.
 - If Position is None, only recommend Wait, Open Long, or Open Short.
 - Evaluate the provided price sequence to understand the trend structure. Use the provided support and resistance levels to frame your analysis.
-- The Macro (15m) trend is the ULTIMATE FILTER: Long entries require BULLISH macro trend, Short entries require BEARISH macro trend.
+- The Medium (15m) trend is the ULTIMATE FILTER: Long entries require BULLISH macro trend, Short entries require BEARISH macro trend.
 - Consider the Phase 1 indicator signals as expert sub-agent opinions. Weight them by their alignment with each other and with price action.
 - Each sub-agent provides a mandatory confidence_score (0-100). Mathematically weight each agent's signal by its confidence score when computing your final decision. Agents with scores < 40 should be treated as low-confidence and given reduced weight. Agents with scores > 70 indicate high conviction and should carry proportionally more influence.
 - When emerging from a losing streak (safety state is "Cautious"), raise your effective score threshold by 20% — require stronger confluence before recommending entries.
@@ -150,17 +150,16 @@ OUTPUT strictly JSON, no markdown fences, no conversational preambles:
 
 const MULTI_TF_MASTER_ORCHESTRATOR_PROMPT: &str = r#"GROUND TRUTH DIRECTIVE: You are provided with compiled deterministic telemetry (market regime, RVOL, support/resistance lines, and the calculated 8-factor confluence point score) from the Rust analytics engine. Treat these as absolute mathematical facts. Do not recalculate. Your job is to analyze the qualitative confluence of these facts alongside the agent thought logs, decision memory, and historical trades, and output your strategic decision.
 
-You are the Master AI Multi-Timeframe Trading Orchestrator. Your role is to analyze a structured dataset representing market data across five independent timescales: Short-Term (15s), Mid-Term (1m), Long-Term (5m), Macro (15m), and SuperMacro (1h).
+You are the Master AI Multi-Timeframe Trading Orchestrator. Your role is to analyze a structured dataset representing market data across four independent timescales: Micro (1m), Small (5m), Medium (15m), and Large (1h).
 
 DIAGNOSTIC PROCESS:
 1. Trend Confluence: Examine the direction and indicators of each timeframe. Note if they are aligned or in conflict.
-   - SuperMacro (1h): Defines the maximum structural trend limit and major macro value areas.
-   - Macro (15m): The primary directional trend filter used to determine Bullish or Bearish trading bias.
-   - Long-Term (5m): The execution timeframe for order placement, indicator calculations, and point-scoring.
-   - Mid-Term (1m): Identifies intermediate swing context and local momentum crossovers.
-   - Short-Term (15s): Highlights short-term momentum and precision entry/exit execution timings.
-2. Signal Consolidation: Synthesize all five levels to determine overall market bias.
-3. Decision Matching: Apply standard risk mitigation parameters. The Macro (15m) trend defines the trading bias — NEVER recommend a position opposing the Macro trend.
+   - Large (1h): Defines the maximum structural trend limit and major macro value areas.
+   - Medium (15m): The primary directional trend filter used to determine Bullish or Bearish trading bias.
+   - Small (5m): The execution timeframe for order placement, indicator calculations, and point-scoring.
+   - Micro (1m): Identifies intermediate swing context and local momentum crossovers.
+2. Signal Consolidation: Synthesize all four levels to determine overall market bias.
+3. Decision Matching: Apply standard risk mitigation parameters. The Medium (15m) trend defines the trading bias — NEVER recommend a position opposing the Medium trend.
 4. Weighted 8-Factor Scoring: Evaluate using the weighted scoring protocol (RSI=10, RSI Div=20, MACD=10, MACD Div=10, S/R=10, Trend=20, 200EMA=10, Patterns=10, total max=90 points).
 
 DIVERGENCE CONFIRMATION RULES (CRITICAL):
@@ -240,11 +239,11 @@ CHART PATTERN RULES:
 RULES:
 - If Position is Long or Short, only recommend Hold or Close.
 - If Position is None, only recommend Wait, Open Long, or Open Short.
-- Phase 1 results are labeled by timeframe prefix (short-, mid-, long-, macro-, supermacro-) before the indicator name.
-- Macro (15m) and SuperMacro (1h) signals carry the most weight for structural direction.
-- Short-term signals identify local entry/exit timing only.
+- Phase 1 results are labeled by timeframe prefix (micro-, small-, medium-, large-) before the indicator name.
+- Medium (15m) and Large (1h) signals carry the most weight for structural direction.
+- Micro signals identify local entry/exit timing context.
 - When timeframes conflict, default to the majority view with a preference for the longer timeframe.
-- The Macro (15m) trend is the ULTIMATE FILTER: a Long entry requires Macro trend = BULLISH; a Short entry requires Macro trend = BEARISH.
+- The Medium (15m) trend is the ULTIMATE FILTER: a Long entry requires Medium trend = BULLISH; a Short entry requires Medium trend = BEARISH.
 - When RECENT TRADE EXECUTION HISTORY is provided below, review past mistakes and adjust your recommendation to avoid repeating identical errors (e.g., if a prior trade failed due to entering before candle close, explicitly recommend waiting for candle confirmation).
 - When trade history is NOT provided, base your decision solely on current market data.
 - Output strictly JSON, no markdown fences.
@@ -253,11 +252,11 @@ OUTPUT SCHEMA:
 {
   "general_trend": "UPWARD" | "DOWNWARD" | "SIDEWAYS",
   "support_and_resistance": {
-    "structural_analysis": "Brief description of how price levels constrain action across all five timeframes. If divergences are active, explicitly note whether S/R boundaries have been broken for confirmation. 1-2 sentences."
+    "structural_analysis": "Brief description of how price levels constrain action across all four timeframes. If divergences are active, explicitly note whether S/R boundaries have been broken for confirmation. 1-2 sentences."
   },
   "indicator_synthesis": {
-    "summary_count": "e.g., 'Short: 3/7 Bullish, Mid: 4/7 Bearish, Long: 5/7 Bullish, Macro: 2/7 Bearish, SuperMacro: 3/7 Bearish'",
-    "evaluation": "How indicators from all five timeframes converge or diverge. Mention which timeframe dominates the consensus. Reference the 8-factor weighted point score. If divergences are present, classify them as Potential or Confirmed. 2-3 sentences."
+    "summary_count": "e.g., 'Micro: 3/7 Bullish, Small: 4/7 Bearish, Medium: 5/7 Bullish, Large: 2/7 Bearish'",
+    "evaluation": "How indicators from all four timeframes converge or diverge. Mention which timeframe dominates the consensus. Reference the 8-factor weighted point score. If divergences are present, classify them as Potential or Confirmed. 2-3 sentences."
   },
   "position_recommendation": {
     "action": "Hold" | "Close" | "Wait" | "Open Long" | "Open Short",
@@ -425,7 +424,7 @@ pub struct MasterOrchestrationData {
 
 // ─── Sub-Agent System Prompts ──────────────────────────────────────
 
-pub const TREND_AGENT_PROMPT: &str = r#"You are the Trend Agent. Your task is to evaluate multi-timeframe EMA stacking states, price-to-EMA200 distance, and macro trend biases (15m/1h).
+pub const TREND_AGENT_PROMPT: &str = r#"You are the Trend Agent. Your task is to evaluate multi-timeframe EMA stacking states, price-to-EMA200 distance, and medium and large trend biases (15m/1h).
 Calculate trend direction and trend acceleration. Output strictly a JSON object containing "thought" and "data" with fields "directional_bias", "confidence_score", and "ema_slope_alignment".
 Use the following enum values only: directional_bias = BULLISH | BEARISH | NEUTRAL; confidence_score = 0 to 100; ema_slope_alignment = "aligned" | "diverging" | "flat". Output strictly JSON, no markdown fences."#;
 
@@ -897,7 +896,7 @@ RULES:
              USER'S ENTRY PRICE: {}\n\
              COMPUTED SUPPORT LEVELS: {}\n\
              COMPUTED RESISTANCE LEVELS: {}\n\
-             PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (short/mid/long prefix):\n{}{}",
+             PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (micro/small/medium/large prefix):\n{}{}",
             symbol, position, entry_info,
             supports_str, resistances_str,
             phase_one_results_json,
@@ -1124,7 +1123,7 @@ impl MultiAgentResults {
 
         vec![
             IndividualIndicatorResult {
-                indicator_name: "short-RSI".to_string(),
+                indicator_name: "micro-RSI".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
                 confidence_score: 0,
@@ -1133,7 +1132,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "mid-MACD".to_string(),
+                indicator_name: "micro-MACD".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
                 confidence_score: 0,
@@ -1142,7 +1141,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "long-SQUEEZE".to_string(),
+                indicator_name: "small-SQUEEZE".to_string(),
                 signal: squeeze_signal,
                 reason: vol_thought.clone(),
                 confidence_score: 0,
@@ -1151,7 +1150,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "macro-ADX".to_string(),
+                indicator_name: "medium-ADX".to_string(),
                 signal: adx_signal,
                 reason: vol_thought.clone(),
                 confidence_score: 0,
@@ -1160,7 +1159,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "supermacro-VWAP".to_string(),
+                indicator_name: "large-VWAP".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
                 confidence_score: 0,

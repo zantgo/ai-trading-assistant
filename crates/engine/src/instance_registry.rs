@@ -62,28 +62,28 @@ pub async fn add_instance(
 
     // Build pipeline configs
     let config_guard = workspace.config.read().await;
-    let pair_cfg = config_guard.pairs.get(&pair_key);
+    let pair_cfg = config_guard.instances.get(&pair_key);
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    let mid_cfg = pair_cfg
-        .map(|p| p.mid_term.clone())
+    let micro_cfg = pair_cfg
+        .map(|p| p.micro_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let long_cfg = pair_cfg
-        .map(|p| p.long_term.clone())
+    let short_cfg = pair_cfg
+        .map(|p| p.short_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
-    let macro_cfg = pair_cfg
-        .and_then(|p| p.macro_term.clone())
+    let medium_cfg = pair_cfg
+        .and_then(|p| p.medium_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(
-            config_guard.macro_timeframe.duration_seconds,
+            config_guard.medium_timeframe.duration_seconds,
             default_indicators.clone(),
         ));
-    let supermacro_cfg = pair_cfg
-        .and_then(|p| p.supermacro_term.clone())
+    let large_cfg = pair_cfg
+        .and_then(|p| p.large_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(
-            config_guard.supermacro_timeframe.duration_seconds,
+            config_guard.large_timeframe.duration_seconds,
             default_indicators.clone(),
         ));
     drop(config_guard);
@@ -91,59 +91,59 @@ pub async fn add_instance(
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let cancel = CancellationToken::new();
 
-    let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (supermacro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (micro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (medium_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (large_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
 
-    let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
-    let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
-    let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(macro_cfg.candles.analysis_limit)));
-    let supermacro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(supermacro_cfg.candles.analysis_limit)));
+    let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(micro_cfg.candles.analysis_limit)));
+    let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(short_cfg.candles.analysis_limit)));
+    let medium_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(medium_cfg.candles.analysis_limit)));
+    let large_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(large_cfg.candles.analysis_limit)));
 
-    let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let supermacro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let micro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let medium_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let large_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
 
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: base.clone(),
-        mid: analyzer::TimeframePipeline {
-            history: mid_history.clone(),
-            broadcast_tx: mid_broadcast_tx.clone(),
-            latest_snapshot: mid_latest.clone(),
+        micro: analyzer::TimeframePipeline {
+            history: micro_history.clone(),
+            broadcast_tx: micro_broadcast_tx.clone(),
+            latest_snapshot: micro_latest.clone(),
             timeframe_secs: 60,
-            timeframe_label: "Mid",
+            timeframe_label: "Micro",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: fib_config.clone(),
         },
-        long: analyzer::TimeframePipeline {
-            history: long_history.clone(),
-            broadcast_tx: long_broadcast_tx.clone(),
-            latest_snapshot: long_latest.clone(),
+        short: analyzer::TimeframePipeline {
+            history: short_history.clone(),
+            broadcast_tx: short_broadcast_tx.clone(),
+            latest_snapshot: short_latest.clone(),
             timeframe_secs: 300,
-            timeframe_label: "Long",
+            timeframe_label: "Small",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: fib_config.clone(),
         },
-        r#macro: analyzer::TimeframePipeline {
-            history: macro_history.clone(),
-            broadcast_tx: macro_broadcast_tx.clone(),
-            latest_snapshot: macro_latest.clone(),
-            timeframe_secs: macro_cfg.candles.duration_seconds,
-            timeframe_label: "Macro",
+        medium: analyzer::TimeframePipeline {
+            history: medium_history.clone(),
+            broadcast_tx: medium_broadcast_tx.clone(),
+            latest_snapshot: medium_latest.clone(),
+            timeframe_secs: medium_cfg.candles.duration_seconds,
+            timeframe_label: "Medium",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: fib_config.clone(),
         },
-        supermacro: analyzer::TimeframePipeline {
-            history: supermacro_history.clone(),
-            broadcast_tx: supermacro_broadcast_tx.clone(),
-            latest_snapshot: supermacro_latest.clone(),
-            timeframe_secs: supermacro_cfg.candles.duration_seconds,
-            timeframe_label: "SuperMacro",
+        large: analyzer::TimeframePipeline {
+            history: large_history.clone(),
+            broadcast_tx: large_broadcast_tx.clone(),
+            latest_snapshot: large_latest.clone(),
+            timeframe_secs: large_cfg.candles.duration_seconds,
+            timeframe_label: "Large",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: fib_config.clone(),
@@ -153,28 +153,28 @@ pub async fn add_instance(
     });
 
     // Spawn event router (fan out to 4 timeframes)
-    let (mid_chan_tx, mid_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (long_chan_tx, long_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (supermacro_chan_tx, supermacro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (short_chan_tx, short_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (medium_chan_tx, medium_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (large_chan_tx, large_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
 
     let router_symbol = base.clone();
     let router_cancel = cancel.clone();
     tokio::spawn(async move {
         analyzer::run_event_router(
             snapshot_rx,
-            mid_chan_tx,
-            long_chan_tx,
-            macro_chan_tx,
-            supermacro_chan_tx,
+            micro_chan_tx,
+            short_chan_tx,
+            medium_chan_tx,
+            large_chan_tx,
             router_symbol,
             router_cancel,
         ).await;
     });
 
     // Spawn 4 pipeline tasks
-    let supermacro_secs = supermacro_cfg.candles.duration_seconds;
-    let macro_secs = macro_cfg.candles.duration_seconds;
+    let large_secs = large_cfg.candles.duration_seconds;
+    let medium_secs = medium_cfg.candles.duration_seconds;
     let (candle_fwd_tx, mut candle_fwd_rx) = tokio::sync::mpsc::unbounded_channel::<NormalizedCandle>();
 
     let pipeline_specs: Vec<(
@@ -188,10 +188,10 @@ pub async fn add_instance(
         Arc<tokio::sync::Mutex<DivergenceDetector>>,
         Option<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>,
     )> = vec![
-        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), active_pair.mid.divergence_detector.clone(), Some(candle_fwd_tx.clone())),
-        (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), active_pair.long.divergence_detector.clone(), None),
-        (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), active_pair.r#macro.divergence_detector.clone(), None),
-        (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), active_pair.supermacro.divergence_detector.clone(), None),
+        (micro_chan_rx, micro_cfg.clone(), micro_history.clone(), micro_latest.clone(), "Micro", 60u64, micro_broadcast_tx.clone(), active_pair.micro.divergence_detector.clone(), Some(candle_fwd_tx.clone())),
+        (short_chan_rx, short_cfg.clone(), short_history.clone(), short_latest.clone(), "Small", 300u64, short_broadcast_tx.clone(), active_pair.short.divergence_detector.clone(), None),
+        (medium_chan_rx, medium_cfg, medium_history.clone(), medium_latest.clone(), "Medium", medium_secs, medium_broadcast_tx.clone(), active_pair.medium.divergence_detector.clone(), None),
+        (large_chan_rx, large_cfg, large_history.clone(), large_latest.clone(), "Large", large_secs, large_broadcast_tx.clone(), active_pair.large.divergence_detector.clone(), None),
     ];
 
     for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det, candle_fwd) in pipeline_specs {
@@ -279,28 +279,28 @@ pub async fn add_instance(
         workspace.config.clone(),
         intervals_config,
         safety_config,
-        mid_history.clone(),
-        long_history.clone(),
-        macro_history.clone(),
-        supermacro_history.clone(),
-        mid_latest.clone(),
-        long_latest.clone(),
-        macro_latest.clone(),
-        supermacro_latest.clone(),
+        micro_history.clone(),
+        short_history.clone(),
+        medium_history.clone(),
+        large_history.clone(),
+        micro_latest.clone(),
+        short_latest.clone(),
+        medium_latest.clone(),
+        large_latest.clone(),
     ));
 
     // Build the automation context and store it on the instance
     let auto_ctx = automation::AutomationContext {
         pair_key: pair_key.clone(),
         symbol: base.clone(),
-        mid_history: mid_history.clone(),
-        long_history: long_history.clone(),
-        macro_history: macro_history.clone(),
-        supermacro_history: supermacro_history.clone(),
-        mid_latest: mid_latest.clone(),
-        long_latest: long_latest.clone(),
-        macro_latest: macro_latest.clone(),
-        supermacro_latest: supermacro_latest.clone(),
+        micro_history: micro_history.clone(),
+        short_history: short_history.clone(),
+        medium_history: medium_history.clone(),
+        large_history: large_history.clone(),
+        micro_latest: micro_latest.clone(),
+        short_latest: short_latest.clone(),
+        medium_latest: medium_latest.clone(),
+        large_latest: large_latest.clone(),
         config: workspace.config.clone(),
         pool: workspace.pool.clone(),
         llm_client,
@@ -318,9 +318,8 @@ pub async fn add_instance(
     // Persist symbol to config
     {
         let mut config = workspace.config.write().await;
-        let symbol_entry = format!("Hyperliquid:{}", base);
-        if !config.symbols.contains(&symbol_entry) {
-            config.symbols.push(symbol_entry);
+        if !config.symbols.contains(&base) {
+            config.symbols.push(base.clone());
             if let Ok(toml_str) = toml::to_string_pretty(&*config) {
                 let _ = std::fs::write("config.toml", toml_str);
             }
@@ -407,15 +406,15 @@ pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> R
     // Remove symbol from config
     {
         let mut config = workspace.config.write().await;
-        let symbol_entry = format!("Hyperliquid:{}", instance.pair.0);
-        if let Some(pos) = config.symbols.iter().position(|s| s == &symbol_entry) {
+        let base_symbol = &instance.pair.0;
+        if let Some(pos) = config.symbols.iter().position(|s| s == base_symbol) {
             config.symbols.remove(pos);
             if let Ok(toml_str) = toml::to_string_pretty(&*config) {
                 let _ = std::fs::write("config.toml", toml_str);
             }
         }
-        config.pairs.remove(&pair_key);
-        crate::config::save_pairs(&config.pairs);
+        config.instances.remove(&pair_key);
+        crate::config::save_instances(&config.instances);
     }
 
     println!("🗑️  Instance deleted: {} ({})", instance.pair_display(), instance_id);

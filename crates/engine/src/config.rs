@@ -165,7 +165,7 @@ fn default_sr_flip_tolerance() -> f64 { 0.3 }
 fn default_pattern_slope_tolerance() -> f64 { 0.2 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MacroTimeframeConfig {
+pub struct MediumTimeframeConfig {
     #[serde(default = "default_enabled_true")]
     pub enabled: bool,
     pub duration_seconds: u64,
@@ -175,7 +175,7 @@ pub struct MacroTimeframeConfig {
 
 fn default_enabled_true() -> bool { true }
 
-impl Default for MacroTimeframeConfig {
+impl Default for MediumTimeframeConfig {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -221,14 +221,14 @@ pub struct ScoringConfig {
     pub pattern_weight: i32,
     #[serde(default = "default_base_allocation_pct")]
     pub base_allocation_pct: f64,
-    #[serde(default = "default_mid_allocation_pct")]
-    pub mid_allocation_pct: f64,
+    #[serde(default = "default_micro_allocation_pct")]
+    pub micro_allocation_pct: f64,
     #[serde(default = "default_max_allocation_pct")]
     pub max_allocation_pct: f64,
     #[serde(default = "default_base_score_threshold")]
     pub base_score_threshold: u32,
-    #[serde(default = "default_mid_score_threshold")]
-    pub mid_score_threshold: u32,
+    #[serde(default = "default_micro_score_threshold")]
+    pub micro_score_threshold: u32,
 }
 
 impl Default for ScoringConfig {
@@ -243,10 +243,10 @@ impl Default for ScoringConfig {
             ema200_weight: default_ema200_weight(),
             pattern_weight: default_pattern_weight(),
             base_allocation_pct: default_base_allocation_pct(),
-            mid_allocation_pct: default_mid_allocation_pct(),
+            micro_allocation_pct: default_micro_allocation_pct(),
             max_allocation_pct: default_max_allocation_pct(),
             base_score_threshold: default_base_score_threshold(),
-            mid_score_threshold: default_mid_score_threshold(),
+            micro_score_threshold: default_micro_score_threshold(),
         }
     }
 }
@@ -260,10 +260,10 @@ fn default_trend_weight() -> i32 { 20 }
 fn default_ema200_weight() -> i32 { 10 }
 fn default_pattern_weight() -> i32 { 10 }
 fn default_base_allocation_pct() -> f64 { 1.0 }
-fn default_mid_allocation_pct() -> f64 { 2.0 }
+fn default_micro_allocation_pct() -> f64 { 2.0 }
 fn default_max_allocation_pct() -> f64 { 3.0 }
 fn default_base_score_threshold() -> u32 { 40 }
-fn default_mid_score_threshold() -> u32 { 60 }
+fn default_micro_score_threshold() -> u32 { 60 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeesConfig {
@@ -335,13 +335,13 @@ impl TimeframeConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairSpecificConfig {
-    pub mid_term: TimeframeConfig,
-    pub long_term: TimeframeConfig,
+pub struct InstanceSpecificConfig {
+    pub micro_term: TimeframeConfig,
+    pub short_term: TimeframeConfig,
     #[serde(default)]
-    pub macro_term: Option<TimeframeConfig>,
+    pub medium_term: Option<TimeframeConfig>,
     #[serde(default)]
-    pub supermacro_term: Option<TimeframeConfig>,
+    pub large_term: Option<TimeframeConfig>,
     #[serde(default)]
     pub automation: AutomationConfig,
 }
@@ -477,9 +477,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub pivots: PivotsConfig,
     #[serde(default)]
-    pub macro_timeframe: MacroTimeframeConfig,
+    pub medium_timeframe: MediumTimeframeConfig,
     #[serde(default)]
-    pub supermacro_timeframe: MacroTimeframeConfig,
+    pub large_timeframe: MediumTimeframeConfig,
     #[serde(default)]
     pub leverage: LeverageConfig,
     #[serde(default)]
@@ -497,7 +497,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub api_failover: ApiFailoverConfig,
     #[serde(default, skip_serializing)]
-    pub pairs: HashMap<String, PairSpecificConfig>,
+    pub instances: HashMap<String, InstanceSpecificConfig>,
 }
 
 pub fn load_config() -> AppConfig {
@@ -508,22 +508,45 @@ pub fn load_config() -> AppConfig {
         .expect("❌ Configuration Error: Failed to parse fields inside config.toml")
 }
 
-pub fn load_pairs() -> HashMap<String, PairSpecificConfig> {
-    match std::fs::read_to_string("pairs.json") {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => HashMap::new(),
+pub fn load_instances() -> HashMap<String, InstanceSpecificConfig> {
+    // Try instances.json first
+    if let Ok(raw) = std::fs::read_to_string("instances.json") {
+        return serde_json::from_str(&raw).unwrap_or_default();
     }
+
+    // Fallback: try old pairs.json and migrate key format
+    if let Ok(raw) = std::fs::read_to_string("pairs.json") {
+        let old: HashMap<String, InstanceSpecificConfig> = serde_json::from_str(&raw).unwrap_or_default();
+        let mut migrated = HashMap::new();
+        for (key, value) in old {
+            // Convert "Hyperliquid-BTC" -> "BTC-USDT"
+            let new_key = if let Some((_exchange, base)) = key.split_once('-') {
+                format!("{}-USDT", base)
+            } else {
+                key
+            };
+            migrated.insert(new_key, value);
+        }
+        // Persist the migrated map
+        if let Ok(json_str) = serde_json::to_string_pretty(&migrated) {
+            let _ = std::fs::write("instances.json", json_str);
+        }
+        println!("📦 Migrated pairs.json -> instances.json with new key format");
+        return migrated;
+    }
+
+    HashMap::new()
 }
 
-pub fn save_pairs(pairs: &HashMap<String, PairSpecificConfig>) {
-    match serde_json::to_string_pretty(pairs) {
+pub fn save_instances(instances: &HashMap<String, InstanceSpecificConfig>) {
+    match serde_json::to_string_pretty(instances) {
         Ok(json_str) => {
-            if let Err(e) = std::fs::write("pairs.json", json_str) {
-                eprintln!("❌ Config Error: Failed to write pairs.json: {}", e);
+            if let Err(e) = std::fs::write("instances.json", json_str) {
+                eprintln!("❌ Config Error: Failed to write instances.json: {}", e);
             }
         }
         Err(e) => {
-            eprintln!("❌ JSON Serialization Error for pairs: {}", e);
+            eprintln!("❌ JSON Serialization Error for instances: {}", e);
         }
     }
 }
@@ -539,7 +562,7 @@ mod tests {
         assert_eq!(cfg.rsi_divergence_weight, 20);
         assert_eq!(cfg.trend_weight, 20);
         assert_eq!(cfg.base_allocation_pct, 1.0);
-        assert_eq!(cfg.mid_allocation_pct, 2.0);
+        assert_eq!(cfg.micro_allocation_pct, 2.0);
         assert_eq!(cfg.max_allocation_pct, 3.0);
     }
 

@@ -439,14 +439,14 @@ export interface TimeframeTelemetry {
     analysisLimit: number;
 }
 
-export interface PairState {
+export interface InstanceState {
     symbol: string;
     exchange: string;
     isConnected: boolean;
-    midTerm: TimeframeTelemetry;
-    longTerm: TimeframeTelemetry;
-    macroTerm: TimeframeTelemetry;
-    supermacroTerm: TimeframeTelemetry;
+    microTerm: TimeframeTelemetry;
+    smallTerm: TimeframeTelemetry;
+    mediumTerm: TimeframeTelemetry;
+    largeTerm: TimeframeTelemetry;
     assistantHistory: AssistantHistoryRecord[];
     chatHistory: ChatMessage[];
     currentPosition: 'None' | 'Long' | 'Short';
@@ -533,10 +533,10 @@ export interface TakeProfitTarget {
     is_hit: boolean;
 }
 
-function createTimeframeTelemetry(symbol: string, exchange: string, barDurationSec: number): TimeframeTelemetry {
+function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
     return {
         symbol,
-        exchange,
+        exchange: 'Hyperliquid',
         barDurationSec,
         priceText: '--',
         vwapText: '--',
@@ -620,15 +620,15 @@ function createTimeframeTelemetry(symbol: string, exchange: string, barDurationS
     };
 }
 
-function createPairState(symbol: string, exchange: string): PairState {
+function createInstanceState(symbol: string): InstanceState {
     return {
         symbol,
-        exchange,
+        exchange: 'Hyperliquid',
         isConnected: false,
-        midTerm: createTimeframeTelemetry(symbol, exchange, 60),
-        longTerm: createTimeframeTelemetry(symbol, exchange, 300),
-        macroTerm: createTimeframeTelemetry(symbol, exchange, 900),
-        supermacroTerm: createTimeframeTelemetry(symbol, exchange, 3600),
+        microTerm: createTimeframeTelemetry(symbol, 60),
+        smallTerm: createTimeframeTelemetry(symbol, 300),
+        mediumTerm: createTimeframeTelemetry(symbol, 900),
+        largeTerm: createTimeframeTelemetry(symbol, 3600),
         assistantHistory: [],
         chatHistory: [],
         currentPosition: 'None',
@@ -786,8 +786,8 @@ async function quitSession(): Promise<boolean> {
     }
 }
 
-let pairsMap = $state<Record<string, PairState>>({});
-let activeTab = $state<string>('Hyperliquid-BTC');
+let instancesMap = $state<Record<string, InstanceState>>({});
+let activeTab = $state<string>('BTC-USDT');
 
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
@@ -884,92 +884,92 @@ export interface UserTrade {
     reward_multiplier: number;
 }
 
-function activePair(): PairState {
-    if (!pairsMap[activeTab]) {
+function activeInstance(): InstanceState {
+    if (!instancesMap[activeTab]) {
         const parts = activeTab.split('-');
-        pairsMap[activeTab] = createPairState(parts[1] || 'BTC', parts[0] || 'Hyperliquid');
+        instancesMap[activeTab] = createInstanceState(parts[0] || 'BTC');
     }
-    return pairsMap[activeTab];
+    return instancesMap[activeTab];
 }
 
-// Helper: get the mid-term state (default for backward-compatible accessors)
-function mid(): TimeframeTelemetry { return activePair().midTerm; }
+// Helper: get the micro-term state (default for backward-compatible accessors)
+function micro(): TimeframeTelemetry { return activeInstance().microTerm; }
 
-export function initPair(symbol: string, exchange: string = 'Hyperliquid') {
-    const key = `${exchange}-${symbol}`;
-    if (!pairsMap[key]) {
-        pairsMap[key] = createPairState(symbol, exchange);
+export function initInstance(symbol: string, exchange?: string) {
+    const key = `${symbol}-USDT`;
+    if (!instancesMap[key]) {
+        instancesMap[key] = createInstanceState(symbol);
     } else {
-        const pair = pairsMap[key];
-        pair.midTerm.barDurationSec = 60;
-        pair.midTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
-        pair.midTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
-        pair.midTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
-        pair.midTerm.emaLongVal = globalIndicatorsConfig.ema_long;
-        pair.midTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
-        pair.midTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
-        pair.midTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
-        pair.midTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
-        pair.midTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
-        pair.midTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
-        pair.midTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
-        pair.midTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+        const pair = instancesMap[key];
+        pair.microTerm.barDurationSec = 60;
+        pair.microTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.microTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.microTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.microTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.microTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.microTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.microTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.microTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.microTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.microTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.microTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.microTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
 
-        pair.longTerm.barDurationSec = 300;
-        pair.longTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
-        pair.longTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
-        pair.longTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
-        pair.longTerm.emaLongVal = globalIndicatorsConfig.ema_long;
-        pair.longTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
-        pair.longTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
-        pair.longTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
-        pair.longTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
-        pair.longTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
-        pair.longTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
-        pair.longTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
-        pair.longTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+        pair.smallTerm.barDurationSec = 300;
+        pair.smallTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.smallTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.smallTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.smallTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.smallTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.smallTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.smallTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.smallTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.smallTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.smallTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.smallTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.smallTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
 
-        pair.macroTerm.barDurationSec = 900;
-        pair.macroTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
-        pair.macroTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
-        pair.macroTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
-        pair.macroTerm.emaLongVal = globalIndicatorsConfig.ema_long;
-        pair.macroTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
-        pair.macroTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
-        pair.macroTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
-        pair.macroTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
-        pair.macroTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
-        pair.macroTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
-        pair.macroTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
-        pair.macroTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+        pair.mediumTerm.barDurationSec = 900;
+        pair.mediumTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.mediumTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.mediumTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.mediumTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.mediumTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.mediumTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.mediumTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.mediumTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.mediumTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.mediumTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.mediumTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.mediumTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
 
-        pair.supermacroTerm.barDurationSec = 3600;
-        pair.supermacroTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
-        pair.supermacroTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
-        pair.supermacroTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
-        pair.supermacroTerm.emaLongVal = globalIndicatorsConfig.ema_long;
-        pair.supermacroTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
-        pair.supermacroTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
-        pair.supermacroTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
-        pair.supermacroTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
-        pair.supermacroTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
-        pair.supermacroTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
-        pair.supermacroTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
-        pair.supermacroTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
+        pair.largeTerm.barDurationSec = 3600;
+        pair.largeTerm.emaFastVal = globalIndicatorsConfig.ema_fast;
+        pair.largeTerm.emaMediumVal = globalIndicatorsConfig.ema_medium;
+        pair.largeTerm.emaSlowVal = globalIndicatorsConfig.ema_slow;
+        pair.largeTerm.emaLongVal = globalIndicatorsConfig.ema_long;
+        pair.largeTerm.rsiPeriodVal = globalIndicatorsConfig.rsi_period;
+        pair.largeTerm.macdFastVal = globalIndicatorsConfig.macd_fast;
+        pair.largeTerm.macdSlowVal = globalIndicatorsConfig.macd_slow;
+        pair.largeTerm.macdSignalVal = globalIndicatorsConfig.macd_signal;
+        pair.largeTerm.adxPeriodVal = globalIndicatorsConfig.adx_period;
+        pair.largeTerm.atrPeriodVal = globalIndicatorsConfig.atr_period;
+        pair.largeTerm.squeezePeriodVal = globalIndicatorsConfig.squeeze_period;
+        pair.largeTerm.analysisLimit = globalCandlesConfig.analysis_limit ?? 100;
     }
 }
 
-export function removePair(key: string) {
-    delete pairsMap[key];
+export function removeInstance(key: string) {
+    delete instancesMap[key];
 }
 
 export function switchTab(key: string) {
     activeTab = key;
 }
 
-function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
+function autoLogTrade(pair: InstanceState, oldPosition: 'Long' | 'Short') {
     const entryPrice = parseFloat(pair.entryPriceVal);
-    const exitPrice = parseFloat(pair.midTerm.priceText);
+    const exitPrice = parseFloat(pair.microTerm.priceText);
 
     if (isNaN(entryPrice) || isNaN(exitPrice) || entryPrice <= 0 || exitPrice <= 0) {
         console.warn("⚠️ Trade Logger Bypassed: Entry Price or Current Market Price is invalid.");
@@ -1019,9 +1019,9 @@ function autoLogTrade(pair: PairState, oldPosition: 'Long' | 'Short') {
 
 export function getState() {
     const app = {
-        initPair(symbol: string, exchange: string = 'Hyperliquid') { initPair(symbol, exchange); },
-        removePair(key: string) { removePair(key); },
-        get pairsMap() { return pairsMap; },
+        initInstance(symbol: string, exchange?: string) { initInstance(symbol, exchange); },
+        removeInstance(key: string) { removeInstance(key); },
+        get instancesMap() { return instancesMap; },
         get activeTab() { return activeTab; },
         set activeTab(v: string) { activeTab = v; },
 
@@ -1051,90 +1051,90 @@ export function getState() {
         set rulesContent(v: string) { rulesContent = v; },
 
         // Multi-timeframe telemetry access
-        get midTerm() { return activePair().midTerm; },
-        get longTerm() { return activePair().longTerm; },
-        get macroTerm() { return activePair().macroTerm; },
-        get supermacroTerm() { return activePair().supermacroTerm; },
+        get microTerm() { return activeInstance().microTerm; },
+        get smallTerm() { return activeInstance().smallTerm; },
+        get mediumTerm() { return activeInstance().mediumTerm; },
+        get largeTerm() { return activeInstance().largeTerm; },
 
-        // Backward-compatible accessors (proxied to mid-term by default)
-        get activeSymbol() { return activePair().symbol; },
-        get activeExchange() { return activePair().exchange; },
-        get isConnected() { return activePair().isConnected; },
-        set isConnected(v: boolean) { activePair().isConnected = v; },
+        // Backward-compatible accessors (proxied to micro-term by default)
+        get activeSymbol() { return activeInstance().symbol; },
+        get activeExchange() { return activeInstance().exchange; },
+        get isConnected() { return activeInstance().isConnected; },
+        set isConnected(v: boolean) { activeInstance().isConnected = v; },
 
-        get priceText() { return mid().priceText; },
-        set priceText(v: string) { mid().priceText = v; },
-        get vwapText() { return mid().vwapText; },
-        set vwapText(v: string) { mid().vwapText = v; },
-        get avgVolText() { return mid().avgVolText; },
-        set avgVolText(v: string) { mid().avgVolText = v; },
-        get emaFastText() { return mid().emaFastText; },
-        set emaFastText(v: string) { mid().emaFastText = v; },
-        get emaMediumText() { return mid().emaMediumText; },
-        set emaMediumText(v: string) { mid().emaMediumText = v; },
-        get emaSlowText() { return mid().emaSlowText; },
-        set emaSlowText(v: string) { mid().emaSlowText = v; },
-        get emaLongText() { return mid().emaLongText; },
-        set emaLongText(v: string) { mid().emaLongText = v; },
-        get adxText() { return mid().adxText; },
-        set adxText(v: string) { mid().adxText = v; },
-        get adxPlusText() { return mid().adxPlusText; },
-        set adxPlusText(v: string) { mid().adxPlusText = v; },
-        get adxMinusText() { return mid().adxMinusText; },
-        set adxMinusText(v: string) { mid().adxMinusText = v; },
-        get atrText() { return mid().atrText; },
-        set atrText(v: string) { mid().atrText = v; },
-        get rsiText() { return mid().rsiText; },
-        set rsiText(v: string) { mid().rsiText = v; },
-        get macdLineText() { return mid().macdLineText; },
-        set macdLineText(v: string) { mid().macdLineText = v; },
-        get macdSigText() { return mid().macdSigText; },
-        set macdSigText(v: string) { mid().macdSigText = v; },
-        get macdHistText() { return mid().macdHistText; },
-        set macdHistText(v: string) { mid().macdHistText = v; },
-        get sqzValText() { return mid().sqzValText; },
-        set sqzValText(v: string) { mid().sqzValText = v; },
-        get sqzStatusText() { return mid().sqzStatusText; },
-        set sqzStatusText(v: string) { mid().sqzStatusText = v; },
-        get isSqueezeOn() { return mid().isSqueezeOn; },
-        set isSqueezeOn(v: boolean) { mid().isSqueezeOn = v; },
-        get volText() { return mid().volText; },
-        set volText(v: string) { mid().volText = v; },
-        get lastMacdHist() { return mid().lastMacdHist; },
-        set lastMacdHist(v: number) { mid().lastMacdHist = v; },
-        get lastSqzMom() { return mid().lastSqzMom; },
-        set lastSqzMom(v: number) { mid().lastSqzMom = v; },
-        get latestSnapshot() { return mid().latestSnapshot; },
-        set latestSnapshot(v: Record<string, unknown> | null) { mid().latestSnapshot = v; },
-        get historyPrices() { return mid().historyPrices; },
-        set historyPrices(v: number[]) { mid().historyPrices = v; },
+        get priceText() { return micro().priceText; },
+        set priceText(v: string) { micro().priceText = v; },
+        get vwapText() { return micro().vwapText; },
+        set vwapText(v: string) { micro().vwapText = v; },
+        get avgVolText() { return micro().avgVolText; },
+        set avgVolText(v: string) { micro().avgVolText = v; },
+        get emaFastText() { return micro().emaFastText; },
+        set emaFastText(v: string) { micro().emaFastText = v; },
+        get emaMediumText() { return micro().emaMediumText; },
+        set emaMediumText(v: string) { micro().emaMediumText = v; },
+        get emaSlowText() { return micro().emaSlowText; },
+        set emaSlowText(v: string) { micro().emaSlowText = v; },
+        get emaLongText() { return micro().emaLongText; },
+        set emaLongText(v: string) { micro().emaLongText = v; },
+        get adxText() { return micro().adxText; },
+        set adxText(v: string) { micro().adxText = v; },
+        get adxPlusText() { return micro().adxPlusText; },
+        set adxPlusText(v: string) { micro().adxPlusText = v; },
+        get adxMinusText() { return micro().adxMinusText; },
+        set adxMinusText(v: string) { micro().adxMinusText = v; },
+        get atrText() { return micro().atrText; },
+        set atrText(v: string) { micro().atrText = v; },
+        get rsiText() { return micro().rsiText; },
+        set rsiText(v: string) { micro().rsiText = v; },
+        get macdLineText() { return micro().macdLineText; },
+        set macdLineText(v: string) { micro().macdLineText = v; },
+        get macdSigText() { return micro().macdSigText; },
+        set macdSigText(v: string) { micro().macdSigText = v; },
+        get macdHistText() { return micro().macdHistText; },
+        set macdHistText(v: string) { micro().macdHistText = v; },
+        get sqzValText() { return micro().sqzValText; },
+        set sqzValText(v: string) { micro().sqzValText = v; },
+        get sqzStatusText() { return micro().sqzStatusText; },
+        set sqzStatusText(v: string) { micro().sqzStatusText = v; },
+        get isSqueezeOn() { return micro().isSqueezeOn; },
+        set isSqueezeOn(v: boolean) { micro().isSqueezeOn = v; },
+        get volText() { return micro().volText; },
+        set volText(v: string) { micro().volText = v; },
+        get lastMacdHist() { return micro().lastMacdHist; },
+        set lastMacdHist(v: number) { micro().lastMacdHist = v; },
+        get lastSqzMom() { return micro().lastSqzMom; },
+        set lastSqzMom(v: number) { micro().lastSqzMom = v; },
+        get latestSnapshot() { return micro().latestSnapshot; },
+        set latestSnapshot(v: Record<string, unknown> | null) { micro().latestSnapshot = v; },
+        get historyPrices() { return micro().historyPrices; },
+        set historyPrices(v: number[]) { micro().historyPrices = v; },
 
         // Show/hide toggles
-        get showEmas() { return mid().showEmas; }, set showEmas(v: boolean) { mid().showEmas = v; },
-        get showBb() { return mid().showBb; }, set showBb(v: boolean) { mid().showBb = v; },
-        get showVwap() { return mid().showVwap; }, set showVwap(v: boolean) { mid().showVwap = v; },
-        get showVolume() { return mid().showVolume; }, set showVolume(v: boolean) { mid().showVolume = v; },
-        get showAdx() { return mid().showAdx; }, set showAdx(v: boolean) { mid().showAdx = v; },
-        get showAtr() { return mid().showAtr; }, set showAtr(v: boolean) { mid().showAtr = v; },
-        get showRsi() { return mid().showRsi; }, set showRsi(v: boolean) { mid().showRsi = v; },
-        get showMacd() { return mid().showMacd; }, set showMacd(v: boolean) { mid().showMacd = v; },
-        get showSqueeze() { return mid().showSqueeze; }, set showSqueeze(v: boolean) { mid().showSqueeze = v; },
+        get showEmas() { return micro().showEmas; }, set showEmas(v: boolean) { micro().showEmas = v; },
+        get showBb() { return micro().showBb; }, set showBb(v: boolean) { micro().showBb = v; },
+        get showVwap() { return micro().showVwap; }, set showVwap(v: boolean) { micro().showVwap = v; },
+        get showVolume() { return micro().showVolume; }, set showVolume(v: boolean) { micro().showVolume = v; },
+        get showAdx() { return micro().showAdx; }, set showAdx(v: boolean) { micro().showAdx = v; },
+        get showAtr() { return micro().showAtr; }, set showAtr(v: boolean) { micro().showAtr = v; },
+        get showRsi() { return micro().showRsi; }, set showRsi(v: boolean) { micro().showRsi = v; },
+        get showMacd() { return micro().showMacd; }, set showMacd(v: boolean) { micro().showMacd = v; },
+        get showSqueeze() { return micro().showSqueeze; }, set showSqueeze(v: boolean) { micro().showSqueeze = v; },
 
         // Config values
-        get barDurationSec() { return mid().barDurationSec; }, set barDurationSec(v: number) { mid().barDurationSec = v; },
-        get emaFastVal() { return mid().emaFastVal; }, set emaFastVal(v: number) { mid().emaFastVal = v; },
-        get emaMediumVal() { return mid().emaMediumVal; }, set emaMediumVal(v: number) { mid().emaMediumVal = v; },
-        get emaSlowVal() { return mid().emaSlowVal; }, set emaSlowVal(v: number) { mid().emaSlowVal = v; },
-        get emaLongVal() { return mid().emaLongVal; }, set emaLongVal(v: number) { mid().emaLongVal = v; },
-        get rsiPeriodVal() { return mid().rsiPeriodVal; }, set rsiPeriodVal(v: number) { mid().rsiPeriodVal = v; },
-        get macdFastVal() { return mid().macdFastVal; }, set macdFastVal(v: number) { mid().macdFastVal = v; },
-        get macdSlowVal() { return mid().macdSlowVal; }, set macdSlowVal(v: number) { mid().macdSlowVal = v; },
-        get macdSignalVal() { return mid().macdSignalVal; }, set macdSignalVal(v: number) { mid().macdSignalVal = v; },
-        get adxPeriodVal() { return mid().adxPeriodVal; }, set adxPeriodVal(v: number) { mid().adxPeriodVal = v; },
-        get atrPeriodVal() { return mid().atrPeriodVal; }, set atrPeriodVal(v: number) { mid().atrPeriodVal = v; },
-        get squeezePeriodVal() { return mid().squeezePeriodVal; }, set squeezePeriodVal(v: number) { mid().squeezePeriodVal = v; },
-        get analysisLimit() { return mid().analysisLimit; }, set analysisLimit(v: number) { mid().analysisLimit = v; },
-        get candleTimeframeLabel() { const sec = mid().barDurationSec; if (sec % 3600 === 0) return `${sec / 3600}h`; if (sec % 60 === 0) return `${sec / 60}m`; return `${sec}s`; },
+        get barDurationSec() { return micro().barDurationSec; }, set barDurationSec(v: number) { micro().barDurationSec = v; },
+        get emaFastVal() { return micro().emaFastVal; }, set emaFastVal(v: number) { micro().emaFastVal = v; },
+        get emaMediumVal() { return micro().emaMediumVal; }, set emaMediumVal(v: number) { micro().emaMediumVal = v; },
+        get emaSlowVal() { return micro().emaSlowVal; }, set emaSlowVal(v: number) { micro().emaSlowVal = v; },
+        get emaLongVal() { return micro().emaLongVal; }, set emaLongVal(v: number) { micro().emaLongVal = v; },
+        get rsiPeriodVal() { return micro().rsiPeriodVal; }, set rsiPeriodVal(v: number) { micro().rsiPeriodVal = v; },
+        get macdFastVal() { return micro().macdFastVal; }, set macdFastVal(v: number) { micro().macdFastVal = v; },
+        get macdSlowVal() { return micro().macdSlowVal; }, set macdSlowVal(v: number) { micro().macdSlowVal = v; },
+        get macdSignalVal() { return micro().macdSignalVal; }, set macdSignalVal(v: number) { micro().macdSignalVal = v; },
+        get adxPeriodVal() { return micro().adxPeriodVal; }, set adxPeriodVal(v: number) { micro().adxPeriodVal = v; },
+        get atrPeriodVal() { return micro().atrPeriodVal; }, set atrPeriodVal(v: number) { micro().atrPeriodVal = v; },
+        get squeezePeriodVal() { return micro().squeezePeriodVal; }, set squeezePeriodVal(v: number) { micro().squeezePeriodVal = v; },
+        get analysisLimit() { return micro().analysisLimit; }, set analysisLimit(v: number) { micro().analysisLimit = v; },
+        get candleTimeframeLabel() { const sec = micro().barDurationSec; if (sec % 3600 === 0) return `${sec / 3600}h`; if (sec % 60 === 0) return `${sec / 60}m`; return `${sec}s`; },
 
         // Labels
         get emaFastLabel() { return emaFastLabel; }, set emaFastLabel(v: string) { emaFastLabel = v; },
@@ -1147,13 +1147,13 @@ export function getState() {
         get macdLabel() { return macdLabel; }, set macdLabel(v: string) { macdLabel = v; },
 
         // Assistant & analysis
-        get assistantHistory() { return activePair().assistantHistory; },
-        set assistantHistory(v: AssistantHistoryRecord[]) { activePair().assistantHistory = v; },
-        get chatHistory() { return activePair().chatHistory; },
-        set chatHistory(v: ChatMessage[]) { activePair().chatHistory = v; },
-        get currentPosition() { return activePair().currentPosition; },
+        get assistantHistory() { return activeInstance().assistantHistory; },
+        set assistantHistory(v: AssistantHistoryRecord[]) { activeInstance().assistantHistory = v; },
+        get chatHistory() { return activeInstance().chatHistory; },
+        set chatHistory(v: ChatMessage[]) { activeInstance().chatHistory = v; },
+        get currentPosition() { return activeInstance().currentPosition; },
         set currentPosition(v: 'None' | 'Long' | 'Short') {
-            const pair = activePair();
+            const pair = activeInstance();
             const oldVal = pair.currentPosition;
             if (oldVal !== 'None' && v === 'None') {
                 autoLogTrade(pair, oldVal);
@@ -1162,131 +1162,131 @@ export function getState() {
             }
             pair.currentPosition = v;
         },
-        get entryPriceVal() { return activePair().entryPriceVal; },
-        set entryPriceVal(v: string) { activePair().entryPriceVal = v; },
-        get stopLossVal() { return activePair().stopLossVal; },
-        set stopLossVal(v: string) { activePair().stopLossVal = v; },
-        get assistantLoading() { return activePair().assistantLoading; },
-        set assistantLoading(v: boolean) { activePair().assistantLoading = v; },
-        get assistantError() { return activePair().assistantError; },
-        set assistantError(v: string | null) { activePair().assistantError = v; },
-        get assistantResponse() { return activePair().assistantResponse; },
-        set assistantResponse(v: AssistantAnalysis | null) { activePair().assistantResponse = v; },
-        get multiAgentResponse() { return activePair().multiAgentResponse; },
-        set multiAgentResponse(v: MultiAgentAnalysis | null) { activePair().multiAgentResponse = v; },
-        get analysisPhase() { return activePair().analysisPhase; },
-        set analysisPhase(v: 'idle' | 'phase1' | 'phase2' | 'complete') { activePair().analysisPhase = v; },
-        get individualResults() { return activePair().individualResults; },
-        set individualResults(v: IndividualIndicatorResult[]) { activePair().individualResults = v; },
-        get agentProgress() { return activePair().agentProgress; },
-        set agentProgress(v: AgentProgress[]) { activePair().agentProgress = v; },
-        get historyLatestClose() { return activePair().historyLatestClose; },
-        set historyLatestClose(v: string) { activePair().historyLatestClose = v; },
-        get isAssistantModalOpen() { return activePair().isAssistantModalOpen; },
-        set isAssistantModalOpen(v: boolean) { activePair().isAssistantModalOpen = v; },
-        get chatInputText() { return activePair().chatInputText; },
-        set chatInputText(v: string) { activePair().chatInputText = v; },
-        get isChatLoading() { return activePair().isChatLoading; },
-        set isChatLoading(v: boolean) { activePair().isChatLoading = v; },
-        get currentView() { return activePair().currentView; },
-        set currentView(v) { activePair().currentView = v; },
+        get entryPriceVal() { return activeInstance().entryPriceVal; },
+        set entryPriceVal(v: string) { activeInstance().entryPriceVal = v; },
+        get stopLossVal() { return activeInstance().stopLossVal; },
+        set stopLossVal(v: string) { activeInstance().stopLossVal = v; },
+        get assistantLoading() { return activeInstance().assistantLoading; },
+        set assistantLoading(v: boolean) { activeInstance().assistantLoading = v; },
+        get assistantError() { return activeInstance().assistantError; },
+        set assistantError(v: string | null) { activeInstance().assistantError = v; },
+        get assistantResponse() { return activeInstance().assistantResponse; },
+        set assistantResponse(v: AssistantAnalysis | null) { activeInstance().assistantResponse = v; },
+        get multiAgentResponse() { return activeInstance().multiAgentResponse; },
+        set multiAgentResponse(v: MultiAgentAnalysis | null) { activeInstance().multiAgentResponse = v; },
+        get analysisPhase() { return activeInstance().analysisPhase; },
+        set analysisPhase(v: 'idle' | 'phase1' | 'phase2' | 'complete') { activeInstance().analysisPhase = v; },
+        get individualResults() { return activeInstance().individualResults; },
+        set individualResults(v: IndividualIndicatorResult[]) { activeInstance().individualResults = v; },
+        get agentProgress() { return activeInstance().agentProgress; },
+        set agentProgress(v: AgentProgress[]) { activeInstance().agentProgress = v; },
+        get historyLatestClose() { return activeInstance().historyLatestClose; },
+        set historyLatestClose(v: string) { activeInstance().historyLatestClose = v; },
+        get isAssistantModalOpen() { return activeInstance().isAssistantModalOpen; },
+        set isAssistantModalOpen(v: boolean) { activeInstance().isAssistantModalOpen = v; },
+        get chatInputText() { return activeInstance().chatInputText; },
+        set chatInputText(v: string) { activeInstance().chatInputText = v; },
+        get isChatLoading() { return activeInstance().isChatLoading; },
+        set isChatLoading(v: boolean) { activeInstance().isChatLoading = v; },
+        get currentView() { return activeInstance().currentView; },
+        set currentView(v) { activeInstance().currentView = v; },
         get userTrades() { return userTrades; },
         set userTrades(v: UserTrade[]) { userTrades = v; },
 
-        get automationEnabled() { return activePair().automationEnabled; },
-        set automationEnabled(v: boolean) { activePair().automationEnabled = v; },
-        get automationIntervalValue() { return activePair().automationIntervalValue; },
-        set automationIntervalValue(v: number) { activePair().automationIntervalValue = v; },
-        get automationIntervalUnit() { return activePair().automationIntervalUnit; },
-        set automationIntervalUnit(v: 'seconds' | 'minutes' | 'hours') { activePair().automationIntervalUnit = v; },
-        get slowIntervalSecs() { return activePair().slowIntervalSecs; },
-        set slowIntervalSecs(v: number) { activePair().slowIntervalSecs = v; },
-        get normalIntervalSecs() { return activePair().normalIntervalSecs; },
-        set normalIntervalSecs(v: number) { activePair().normalIntervalSecs = v; },
-        get fastIntervalSecs() { return activePair().fastIntervalSecs; },
-        set fastIntervalSecs(v: number) { activePair().fastIntervalSecs = v; },
-        get tpLevels() { return activePair().tpLevels; },
-        set tpLevels(v: number) { activePair().tpLevels = v; },
-        get slLevels() { return activePair().slLevels; },
-        set slLevels(v: number) { activePair().slLevels = v; },
-        get nextEvaluationIn() { return activePair().nextEvaluationIn; },
-        set nextEvaluationIn(v: string) { activePair().nextEvaluationIn = v; },
+        get automationEnabled() { return activeInstance().automationEnabled; },
+        set automationEnabled(v: boolean) { activeInstance().automationEnabled = v; },
+        get automationIntervalValue() { return activeInstance().automationIntervalValue; },
+        set automationIntervalValue(v: number) { activeInstance().automationIntervalValue = v; },
+        get automationIntervalUnit() { return activeInstance().automationIntervalUnit; },
+        set automationIntervalUnit(v: 'seconds' | 'minutes' | 'hours') { activeInstance().automationIntervalUnit = v; },
+        get slowIntervalSecs() { return activeInstance().slowIntervalSecs; },
+        set slowIntervalSecs(v: number) { activeInstance().slowIntervalSecs = v; },
+        get normalIntervalSecs() { return activeInstance().normalIntervalSecs; },
+        set normalIntervalSecs(v: number) { activeInstance().normalIntervalSecs = v; },
+        get fastIntervalSecs() { return activeInstance().fastIntervalSecs; },
+        set fastIntervalSecs(v: number) { activeInstance().fastIntervalSecs = v; },
+        get tpLevels() { return activeInstance().tpLevels; },
+        set tpLevels(v: number) { activeInstance().tpLevels = v; },
+        get slLevels() { return activeInstance().slLevels; },
+        set slLevels(v: number) { activeInstance().slLevels = v; },
+        get nextEvaluationIn() { return activeInstance().nextEvaluationIn; },
+        set nextEvaluationIn(v: string) { activeInstance().nextEvaluationIn = v; },
 
-        get paperCashBalance() { return activePair().paperCashBalance; },
-        set paperCashBalance(v: number) { activePair().paperCashBalance = v; },
-        get paperInitialUSD() { return activePair().paperInitialUSD; },
-        set paperInitialUSD(v: number) { activePair().paperInitialUSD = v; },
-        get paperAllocationPct() { return activePair().paperAllocationPct; },
-        set paperAllocationPct(v: number) { activePair().paperAllocationPct = v; },
-        get paperAutoExecute() { return activePair().paperAutoExecute; },
-        set paperAutoExecute(v: boolean) { activePair().paperAutoExecute = v; },
-        get activePaperPosition() { return activePair().activePaperPosition; },
-        set activePaperPosition(v: Record<string, unknown> | null) { activePair().activePaperPosition = v; },
-        get paperUnrealizedPnl() { return activePair().paperUnrealizedPnl; },
-        set paperUnrealizedPnl(v: number) { activePair().paperUnrealizedPnl = v; },
-        get paperUnrealizedRoi() { return activePair().paperUnrealizedRoi; },
-        set paperUnrealizedRoi(v: number) { activePair().paperUnrealizedRoi = v; },
-        get paperTotalAccountValue() { return activePair().paperTotalAccountValue; },
-        set paperTotalAccountValue(v: number) { activePair().paperTotalAccountValue = v; },
-        get paperMarginUsed() { return activePair().paperMarginUsed; },
-        set paperMarginUsed(v: number) { activePair().paperMarginUsed = v; },
-        get paperMaxTrades() { return activePair().paperMaxTrades; },
-        set paperMaxTrades(v: number) { activePair().paperMaxTrades = v; },
-        get paperActiveTrades() { return activePair().paperActiveTrades; },
-        set paperActiveTrades(v: number) { activePair().paperActiveTrades = v; },
-        get paperAvailableTrades() { return activePair().paperAvailableTrades; },
-        set paperAvailableTrades(v: number) { activePair().paperAvailableTrades = v; },
-        get paperHistory() { return activePair().paperHistory; },
-        set paperHistory(v: Record<string, unknown>[]) { activePair().paperHistory = v; },
-        get paperLoading() { return activePair().paperLoading; },
-        set paperLoading(v: boolean) { activePair().paperLoading = v; },
+        get paperCashBalance() { return activeInstance().paperCashBalance; },
+        set paperCashBalance(v: number) { activeInstance().paperCashBalance = v; },
+        get paperInitialUSD() { return activeInstance().paperInitialUSD; },
+        set paperInitialUSD(v: number) { activeInstance().paperInitialUSD = v; },
+        get paperAllocationPct() { return activeInstance().paperAllocationPct; },
+        set paperAllocationPct(v: number) { activeInstance().paperAllocationPct = v; },
+        get paperAutoExecute() { return activeInstance().paperAutoExecute; },
+        set paperAutoExecute(v: boolean) { activeInstance().paperAutoExecute = v; },
+        get activePaperPosition() { return activeInstance().activePaperPosition; },
+        set activePaperPosition(v: Record<string, unknown> | null) { activeInstance().activePaperPosition = v; },
+        get paperUnrealizedPnl() { return activeInstance().paperUnrealizedPnl; },
+        set paperUnrealizedPnl(v: number) { activeInstance().paperUnrealizedPnl = v; },
+        get paperUnrealizedRoi() { return activeInstance().paperUnrealizedRoi; },
+        set paperUnrealizedRoi(v: number) { activeInstance().paperUnrealizedRoi = v; },
+        get paperTotalAccountValue() { return activeInstance().paperTotalAccountValue; },
+        set paperTotalAccountValue(v: number) { activeInstance().paperTotalAccountValue = v; },
+        get paperMarginUsed() { return activeInstance().paperMarginUsed; },
+        set paperMarginUsed(v: number) { activeInstance().paperMarginUsed = v; },
+        get paperMaxTrades() { return activeInstance().paperMaxTrades; },
+        set paperMaxTrades(v: number) { activeInstance().paperMaxTrades = v; },
+        get paperActiveTrades() { return activeInstance().paperActiveTrades; },
+        set paperActiveTrades(v: number) { activeInstance().paperActiveTrades = v; },
+        get paperAvailableTrades() { return activeInstance().paperAvailableTrades; },
+        set paperAvailableTrades(v: number) { activeInstance().paperAvailableTrades = v; },
+        get paperHistory() { return activeInstance().paperHistory; },
+        set paperHistory(v: Record<string, unknown>[]) { activeInstance().paperHistory = v; },
+        get paperLoading() { return activeInstance().paperLoading; },
+        set paperLoading(v: boolean) { activeInstance().paperLoading = v; },
 
-        get totalPointsScore() { return activePair().totalPointsScore; },
-        set totalPointsScore(v: number) { activePair().totalPointsScore = v; },
-        get allocatedCapitalPct() { return activePair().allocatedCapitalPct; },
-        set allocatedCapitalPct(v: number) { activePair().allocatedCapitalPct = v; },
-        get activeOppositeSignalsCount() { return activePair().activeOppositeSignalsCount; },
-        set activeOppositeSignalsCount(v: number) { activePair().activeOppositeSignalsCount = v; },
-        get markedSupportLevels() { return activePair().markedSupportLevels; },
-        set markedSupportLevels(v: number[]) { activePair().markedSupportLevels = v; },
-        get markedResistanceLevels() { return activePair().markedResistanceLevels; },
-        set markedResistanceLevels(v: number[]) { activePair().markedResistanceLevels = v; },
-        get srFlipEvents() { return activePair().srFlipEvents; },
-        set srFlipEvents(v: string) { activePair().srFlipEvents = v; },
+        get totalPointsScore() { return activeInstance().totalPointsScore; },
+        set totalPointsScore(v: number) { activeInstance().totalPointsScore = v; },
+        get allocatedCapitalPct() { return activeInstance().allocatedCapitalPct; },
+        set allocatedCapitalPct(v: number) { activeInstance().allocatedCapitalPct = v; },
+        get activeOppositeSignalsCount() { return activeInstance().activeOppositeSignalsCount; },
+        set activeOppositeSignalsCount(v: number) { activeInstance().activeOppositeSignalsCount = v; },
+        get markedSupportLevels() { return activeInstance().markedSupportLevels; },
+        set markedSupportLevels(v: number[]) { activeInstance().markedSupportLevels = v; },
+        get markedResistanceLevels() { return activeInstance().markedResistanceLevels; },
+        set markedResistanceLevels(v: number[]) { activeInstance().markedResistanceLevels = v; },
+        get srFlipEvents() { return activeInstance().srFlipEvents; },
+        set srFlipEvents(v: string) { activeInstance().srFlipEvents = v; },
 
         get systemHeartbeat() { return systemHeartbeat; },
         get recentDecisions() { return recentDecisions; },
         get completedTrades() { return completedTrades; },
 
-        get costPriceInput() { return activePair().costPriceInput; },
-        set costPriceInput(v: number) { activePair().costPriceInput = v; },
-        get costPriceOutput() { return activePair().costPriceOutput; },
-        set costPriceOutput(v: number) { activePair().costPriceOutput = v; },
-        get costIntervalSecs() { return activePair().costIntervalSecs; },
-        set costIntervalSecs(v: number) { activePair().costIntervalSecs = v; },
-        get costRunsPerDay() { return activePair().costRunsPerDay; },
-        set costRunsPerDay(v: number) { activePair().costRunsPerDay = v; },
-        get costTokensPerRunInput() { return activePair().costTokensPerRunInput; },
-        set costTokensPerRunInput(v: number) { activePair().costTokensPerRunInput = v; },
-        get costTokensPerRunOutput() { return activePair().costTokensPerRunOutput; },
-        set costTokensPerRunOutput(v: number) { activePair().costTokensPerRunOutput = v; },
-        get costDailyProjected() { return activePair().costDailyProjected; },
-        set costDailyProjected(v: number) { activePair().costDailyProjected = v; },
-        get costWeeklyProjected() { return activePair().costWeeklyProjected; },
-        set costWeeklyProjected(v: number) { activePair().costWeeklyProjected = v; },
-        get costMonthlyProjected() { return activePair().costMonthlyProjected; },
-        set costMonthlyProjected(v: number) { activePair().costMonthlyProjected = v; },
-        get costActualInputTokens() { return activePair().costActualInputTokens; },
-        set costActualInputTokens(v: number) { activePair().costActualInputTokens = v; },
-        get costActualOutputTokens() { return activePair().costActualOutputTokens; },
-        set costActualOutputTokens(v: number) { activePair().costActualOutputTokens = v; },
-        get costActualTotal() { return activePair().costActualTotal; },
-        set costActualTotal(v: number) { activePair().costActualTotal = v; },
-        get costLoading() { return activePair().costLoading; },
-        set costLoading(v: boolean) { activePair().costLoading = v; },
+        get costPriceInput() { return activeInstance().costPriceInput; },
+        set costPriceInput(v: number) { activeInstance().costPriceInput = v; },
+        get costPriceOutput() { return activeInstance().costPriceOutput; },
+        set costPriceOutput(v: number) { activeInstance().costPriceOutput = v; },
+        get costIntervalSecs() { return activeInstance().costIntervalSecs; },
+        set costIntervalSecs(v: number) { activeInstance().costIntervalSecs = v; },
+        get costRunsPerDay() { return activeInstance().costRunsPerDay; },
+        set costRunsPerDay(v: number) { activeInstance().costRunsPerDay = v; },
+        get costTokensPerRunInput() { return activeInstance().costTokensPerRunInput; },
+        set costTokensPerRunInput(v: number) { activeInstance().costTokensPerRunInput = v; },
+        get costTokensPerRunOutput() { return activeInstance().costTokensPerRunOutput; },
+        set costTokensPerRunOutput(v: number) { activeInstance().costTokensPerRunOutput = v; },
+        get costDailyProjected() { return activeInstance().costDailyProjected; },
+        set costDailyProjected(v: number) { activeInstance().costDailyProjected = v; },
+        get costWeeklyProjected() { return activeInstance().costWeeklyProjected; },
+        set costWeeklyProjected(v: number) { activeInstance().costWeeklyProjected = v; },
+        get costMonthlyProjected() { return activeInstance().costMonthlyProjected; },
+        set costMonthlyProjected(v: number) { activeInstance().costMonthlyProjected = v; },
+        get costActualInputTokens() { return activeInstance().costActualInputTokens; },
+        set costActualInputTokens(v: number) { activeInstance().costActualInputTokens = v; },
+        get costActualOutputTokens() { return activeInstance().costActualOutputTokens; },
+        set costActualOutputTokens(v: number) { activeInstance().costActualOutputTokens = v; },
+        get costActualTotal() { return activeInstance().costActualTotal; },
+        set costActualTotal(v: number) { activeInstance().costActualTotal = v; },
+        get costLoading() { return activeInstance().costLoading; },
+        set costLoading(v: boolean) { activeInstance().costLoading = v; },
 
         async fetchCostEstimate() {
-            const pair = activePair();
+            const pair = activeInstance();
             pair.costLoading = true;
             try {
                 const res = await fetch(`/api/cost-estimate?pair_key=${encodeURIComponent(activeTab)}`);
@@ -1309,7 +1309,7 @@ export function getState() {
         },
 
         async fetchPaperStatus() {
-            const pair = activePair();
+            const pair = activeInstance();
             try {
                 const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(activeTab)}`);
                 if (!res.ok) return;
@@ -1339,7 +1339,7 @@ export function getState() {
         },
 
         async openPaperPosition(direction: 'LONG' | 'SHORT') {
-            const pair = activePair();
+            const pair = activeInstance();
             pair.paperLoading = true;
             try {
                 const res = await fetch('/api/paper/order', {
@@ -1352,7 +1352,7 @@ export function getState() {
         },
 
         async closePaperPosition() {
-            const pair = activePair();
+            const pair = activeInstance();
             pair.paperLoading = true;
             try {
                 const res = await fetch('/api/paper/order', {
@@ -1373,7 +1373,7 @@ export function getState() {
 
         async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) {
             try {
-                const pair = activePair();
+                const pair = activeInstance();
                 await fetch('/api/paper/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1393,7 +1393,7 @@ export function getState() {
         },
 
         async fetchPaperHistory(symbol?: string) {
-            const pair = activePair();
+            const pair = activeInstance();
             try {
                 const url = symbol ? `/api/paper/performance?symbol=${encodeURIComponent(symbol)}` : '/api/paper/performance';
                 const res = await fetch(url);
@@ -1474,13 +1474,13 @@ export function getState() {
         async evaluateDecision(profileId: number) {
             decisionLoading = true;
             try {
-                const pair = activePair();
+                const pair = activeInstance();
                 const res = await fetch(`/api/decision-profiles/${profileId}/evaluate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         symbol: activeTab,
-                        latest_snapshot: pair.midTerm.latestSnapshot,
+                        latest_snapshot: pair.microTerm.latestSnapshot,
                     }),
                 });
                 if (res.ok) { calculatedDecisionScore = await res.json(); }

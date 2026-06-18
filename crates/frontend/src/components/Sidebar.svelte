@@ -6,7 +6,7 @@
     let newPairInput = $state('');
     let showAddInput = $state(false);
 
-    function selectPair(pairKey: string) {
+    function selectInstance(pairKey: string) {
         app.activeTab = pairKey;
     }
 
@@ -14,14 +14,12 @@
         const raw = newPairInput.trim().toUpperCase();
         if (raw.length < 2 || raw.length > 10) return;
 
-        const parts = raw.split(':');
-        const exchange = parts.length > 1 ? parts[0] : 'Hyperliquid';
-        const symbol = parts.length > 1 ? parts[1] : raw;
-        const pairKey = `${exchange}-${symbol}`;
+        const symbol = raw;
+        const pairKey = `${symbol}-USDT`;
 
-        app.initPair(symbol, exchange);
+        app.initInstance(symbol);
 
-        // Also create via instance API
+        // Create via instance API
         fetch('/api/instances', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -30,22 +28,13 @@
             app.activeTab = pairKey;
         }).catch(console.error);
 
-        fetch('/api/pairs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbol, exchange }),
-        }).then(() => {
-            app.activeTab = pairKey;
-        }).catch(console.error);
-
         newPairInput = '';
         showAddInput = false;
     }
 
-    function removePair(pairKey: string) {
-        fetch(`/api/pairs/${encodeURIComponent(pairKey)}`, { method: 'DELETE' }).catch(console.error);
-        app.removePair(pairKey);
-        const remaining = Object.keys(app.pairsMap);
+    function removeInstance(pairKey: string) {
+        app.removeInstance(pairKey);
+        const remaining = Object.keys(app.instancesMap);
         if (remaining.length > 0 && pairKey === app.activeTab) {
             app.activeTab = remaining[0];
         }
@@ -69,7 +58,7 @@
 
     {#if !collapsed}
         <div class="sidebar-header">
-            <span class="sidebar-logo">TRADING</span>
+            <span class="sidebar-logo">ACTIVE INSTANCES</span>
             <span class="sidebar-status">{@html app.isConnected ? '<span class="status-live">● LIVE</span>' : '<span class="status-offline">● OFFLINE</span>'}</span>
         </div>
     {:else}
@@ -79,19 +68,19 @@
     {/if}
 
     <div class="sidebar-pairs-list">
-        {#each Object.keys(app.pairsMap) as pairKey}
+        {#each Object.keys(app.instancesMap) as pairKey}
             <button
                 class="pair-item"
                 class:active={pairKey === app.activeTab}
-                onclick={() => selectPair(pairKey)}
+                onclick={() => selectInstance(pairKey)}
                 title={pairKey}
             >
                 {#if collapsed}
                     <span class="pair-short">{shortName(pairKey)}</span>
                 {:else}
                     <span class="pair-name">{@html pairLabel(pairKey)}</span>
-                    <span class="pair-status-dot" class:connected={app.pairsMap[pairKey].isConnected}></span>
-                    <span class="pair-remove-btn" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removePair(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removePair(pairKey); } }} title="Remove pair">×</span>
+                    <span class="pair-status-dot" class:connected={app.instancesMap[pairKey].isConnected}></span>
+                    <span class="pair-remove-btn" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removeInstance(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeInstance(pairKey); } }} title="Remove instance">×</span>
                 {/if}
             </button>
         {/each}
@@ -104,7 +93,7 @@
                         <!-- svelte-ignore a11y_autofocus -->
                         <input
                         type="text"
-                        placeholder="e.g. Hyperliquid:ETH"
+                        placeholder="e.g. ETH"
                         bind:value={newPairInput}
                         onkeydown={(e) => { if (e.key === 'Enter') confirmAdd(); }}
                         class="add-pair-input"
@@ -115,7 +104,7 @@
                 </div>
             {:else}
                 <button class="add-pair-btn" onclick={() => showAddInput = true}>
-                    + Add Pair
+                    + Add Instance
                 </button>
             {/if}
         </div>

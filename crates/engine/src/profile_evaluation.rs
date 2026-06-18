@@ -616,33 +616,29 @@ pub fn classify_market_regime(snap: &SnapshotValues) -> MarketRegime {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MtfTrendAlignment {
-    pub short_aligned: bool,
-    pub mid_aligned: bool,
-    pub macro_aligned: bool,
+    pub micro_aligned: bool,
+    pub medium_aligned: bool,
     pub structural_trend: String,
 }
 
 pub fn evaluate_mtf_alignment(
-    short: &SnapshotValues,
-    mid: &SnapshotValues,
-    long: &SnapshotValues,
-    macro_snap: &SnapshotValues,
-    super_snap: &SnapshotValues,
+    micro: &SnapshotValues,
+    small: &SnapshotValues,
+    medium_snap: &SnapshotValues,
+    large_snap: &SnapshotValues,
 ) -> MtfTrendAlignment {
-    let structural_trend = match (super_snap.ema_long, super_snap.close) {
+    let structural_trend = match (large_snap.ema_long, large_snap.close) {
         (Some(ema), Some(close)) if close > ema => "BULLISH".to_string(),
         (Some(ema), Some(close)) if close < ema => "BEARISH".to_string(),
         _ => "NEUTRAL".to_string(),
     };
 
-    let short_aligned = short.ema_stack_state == mid.ema_stack_state;
-    let mid_aligned = mid.ema_stack_state == long.ema_stack_state;
-    let macro_aligned = long.ema_stack_state == macro_snap.ema_stack_state;
+    let micro_aligned = micro.ema_stack_state == small.ema_stack_state;
+    let medium_aligned = small.ema_stack_state == medium_snap.ema_stack_state;
 
     MtfTrendAlignment {
-        short_aligned,
-        mid_aligned,
-        macro_aligned,
+        micro_aligned,
+        medium_aligned,
         structural_trend,
     }
 }

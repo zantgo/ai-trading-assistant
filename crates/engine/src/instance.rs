@@ -67,15 +67,15 @@ pub struct Instance {
     pub config: Arc<RwLock<AppConfig>>,
 
     // Timeframe history and snapshots (shared from ActivePair pipelines)
-    pub mid_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub long_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub macro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub supermacro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub micro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub short_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub medium_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub large_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
 
-    pub mid_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-    pub long_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-    pub macro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-    pub supermacro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub micro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub medium_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub large_latest: Arc<RwLock<Option<MarketSnapshot>>>,
 }
 
 impl Instance {
@@ -87,14 +87,14 @@ impl Instance {
         config: Arc<RwLock<AppConfig>>,
         inter_config: IntervalsConfig,
         safe_config: SafetyConfig,
-        mid_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-        long_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-        macro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-        supermacro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-        mid_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-        long_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-        macro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-        supermacro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+        micro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+        short_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+        medium_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+        large_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+        micro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+        short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+        medium_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+        large_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     ) -> Self {
         let safety = Arc::new(SafetyManager::new(
             safe_config.consecutive_loss_caution,
@@ -123,14 +123,14 @@ impl Instance {
             safety_config: RwLock::new(safe_config),
             pool,
             config,
-            mid_history,
-            long_history,
-            macro_history,
-            supermacro_history,
-            mid_latest,
-            long_latest,
-            macro_latest,
-            supermacro_latest,
+            micro_history,
+            short_history,
+            medium_history,
+            large_history,
+            micro_latest,
+            short_latest,
+            medium_latest,
+            large_latest,
         }
     }
 

@@ -68,7 +68,7 @@ async fn test_load_max_pairs_stability() {
             let mh = mid_history.clone();
             let mfib = fib_config.clone();
             tokio::spawn(async move {
-                analyzer::run_single(mid_rx, m_t, mid_broadcast, mid_tf, mfib, m_div, mh, Arc::new(RwLock::new(None)), m_sym, m_pk, 60, "Mid", m_cancel, None).await;
+                analyzer::run_single(mid_rx, m_t, mid_broadcast, mid_tf, mfib, m_div, mh, Arc::new(RwLock::new(None)), m_sym, m_pk, 60, "Micro", m_cancel, None).await;
             });
 
             event_txs.push(event_tx);

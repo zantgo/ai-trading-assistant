@@ -1,8 +1,8 @@
 symbols = [
-    "Hyperliquid:BTC",
-    "Hyperliquid:ETH",
-    "Hyperliquid:SOL",
-    "Hyperliquid:XRP",
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP",
 ]
 
 [candles]
@@ -68,12 +68,12 @@ sr_proximity_threshold_pct = 0.5
 sr_flip_tolerance_pct = 0.3
 pattern_slope_tolerance = 0.2
 
-[macro_timeframe]
+[medium_timeframe]
 enabled = true
 duration_seconds = 900
 analysis_limit = 100
 
-[supermacro_timeframe]
+[large_timeframe]
 enabled = true
 duration_seconds = 3600
 analysis_limit = 100
@@ -91,10 +91,10 @@ trend_weight = 20
 ema200_weight = 10
 pattern_weight = 10
 base_allocation_pct = 1.0
-mid_allocation_pct = 2.0
+micro_allocation_pct = 2.0
 max_allocation_pct = 3.0
 base_score_threshold = 40
-mid_score_threshold = 60
+micro_score_threshold = 60
 
 [fees]
 maker_fee_pct = 0.02

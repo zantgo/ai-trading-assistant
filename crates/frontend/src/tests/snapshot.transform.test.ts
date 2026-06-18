@@ -7,12 +7,12 @@ describe('TEST-UI: Snapshot Data Transform', () => {
 
     beforeEach(() => {
         app = getState();
-        app.initPair('BTC');
+        app.initInstance('BTC');
         app.apiKeyConfigured = true;
     });
 
-    it('should map raw MarketSnapshot JSON to PairState fields', () => {
-        const pair = app.pairsMap['Hyperliquid-BTC'];
+    it('should map raw MarketSnapshot JSON to InstanceState fields', () => {
+        const pair = app.instancesMap['BTC-USDT'];
 
         // Simulate a complete MarketSnapshot from the Rust backend
         const rawSnapshot: Record<string, unknown> = {
@@ -70,9 +70,9 @@ describe('TEST-UI: Snapshot Data Transform', () => {
             rvol: 1.25,
         };
 
-        pair.midTerm.latestSnapshot = rawSnapshot;
+        pair.microTerm.latestSnapshot = rawSnapshot;
 
-        const snap = pair.midTerm.latestSnapshot!;
+        const snap = pair.microTerm.latestSnapshot!;
         expect(snap.mid_price).toBe('65000.00');
         expect(snap.exchange).toBe('Hyperliquid');
         expect(snap.symbol).toBe('BTC');
@@ -94,7 +94,7 @@ describe('TEST-UI: Snapshot Data Transform', () => {
     });
 
     it('should handle null optional fields with sentinel defaults', () => {
-        const pair = app.pairsMap['Hyperliquid-BTC'];
+        const pair = app.instancesMap['BTC-USDT'];
 
         // Snapshot with minimal fields and null Option values
         const sparseSnapshot: Record<string, unknown> = {
@@ -109,10 +109,10 @@ describe('TEST-UI: Snapshot Data Transform', () => {
             // All optional fields omitted or null
         };
 
-        pair.midTerm.latestSnapshot = sparseSnapshot;
+        pair.microTerm.latestSnapshot = sparseSnapshot;
 
         // Core fields should be present
-        const snap = pair.midTerm.latestSnapshot!;
+        const snap = pair.microTerm.latestSnapshot!;
         expect(snap.mid_price).toBe('30000.00');
         expect(snap.is_completed).toBe(false);
 
@@ -124,10 +124,10 @@ describe('TEST-UI: Snapshot Data Transform', () => {
     });
 
     it('should distinguish completed candle from live shadow tick', () => {
-        const pair = app.pairsMap['Hyperliquid-BTC'];
+        const pair = app.instancesMap['BTC-USDT'];
 
         // Completed candle
-        pair.midTerm.latestSnapshot = {
+        pair.microTerm.latestSnapshot = {
             exchange: 'Hyperliquid',
             symbol: 'BTC',
             is_completed: true,
@@ -135,10 +135,10 @@ describe('TEST-UI: Snapshot Data Transform', () => {
             rsi_14: 65.0,
             squeeze_on: false,
         };
-        expect(pair.midTerm.latestSnapshot!.is_completed).toBe(true);
+        expect(pair.microTerm.latestSnapshot!.is_completed).toBe(true);
 
         // Live/shadow tick (incomplete candle)
-        pair.midTerm.latestSnapshot = {
+        pair.microTerm.latestSnapshot = {
             exchange: 'Hyperliquid',
             symbol: 'BTC',
             is_completed: false,
@@ -146,13 +146,13 @@ describe('TEST-UI: Snapshot Data Transform', () => {
             rsi_14: 66.0,
             squeeze_on: true,
         };
-        expect(pair.midTerm.latestSnapshot!.is_completed).toBe(false);
+        expect(pair.microTerm.latestSnapshot!.is_completed).toBe(false);
         // Both states are recorded but is_completed flag distinguishes them
-        expect(pair.midTerm.latestSnapshot!.mid_price).toBe('50100.00');
+        expect(pair.microTerm.latestSnapshot!.mid_price).toBe('50100.00');
     });
 
     it('should handle multi-pair snapshot routing by exchange key', () => {
-        app.initPair('ETH');
+        app.initInstance('ETH');
 
         const btcData = {
             exchange: 'Hyperliquid',
@@ -170,14 +170,14 @@ describe('TEST-UI: Snapshot Data Transform', () => {
             is_completed: true,
         };
 
-        app.pairsMap['Hyperliquid-BTC'].midTerm.latestSnapshot = btcData;
-        app.pairsMap['Hyperliquid-ETH'].midTerm.latestSnapshot = ethData;
+        app.instancesMap['BTC-USDT'].microTerm.latestSnapshot = btcData;
+        app.instancesMap['ETH-USDT'].microTerm.latestSnapshot = ethData;
 
         // Each pair independently stores its own snapshot
-        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.latestSnapshot!.symbol).toBe('BTC');
-        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.latestSnapshot!.mid_price).toBe('65000.00');
+        expect(app.instancesMap['BTC-USDT'].microTerm.latestSnapshot!.symbol).toBe('BTC');
+        expect(app.instancesMap['BTC-USDT'].microTerm.latestSnapshot!.mid_price).toBe('65000.00');
 
-        expect(app.pairsMap['Hyperliquid-ETH'].midTerm.latestSnapshot!.symbol).toBe('ETH');
-        expect(app.pairsMap['Hyperliquid-ETH'].midTerm.latestSnapshot!.mid_price).toBe('3200.00');
+        expect(app.instancesMap['ETH-USDT'].microTerm.latestSnapshot!.symbol).toBe('ETH');
+        expect(app.instancesMap['ETH-USDT'].microTerm.latestSnapshot!.mid_price).toBe('3200.00');
     });
 });

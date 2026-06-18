@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { getState } from './state.svelte';
-    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis, PairState, TimeframeTelemetry } from './state.svelte';
+    import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis, InstanceState, TimeframeTelemetry } from './state.svelte';
 
     import Sidebar from './components/Sidebar.svelte';
     import LiveTerminal from './components/LiveTerminal.svelte';
@@ -20,15 +20,15 @@
     import QuitDialog from './QuitDialog.svelte';
 
     const app = getState();
-    let wsMid: WebSocket | null = null;
-    let wsLong: WebSocket | null = null;
-    let wsMacro: WebSocket | null = null;
-    let wsSupermacro: WebSocket | null = null;
+    let wsMicro: WebSocket | null = null;
+    let wsSmall: WebSocket | null = null;
+    let wsMedium: WebSocket | null = null;
+    let wsLarge: WebSocket | null = null;
     let configReady = false;
     let chatContainer = $state<HTMLDivElement | null>(null);
     let showQuitDialog = $state(false);
     let showProfileMenu = $state(false);
-    let currentGlobalView = $state<'pairs' | 'instances' | 'dashboard' | 'settings'>('pairs');
+    let currentGlobalView = $state<'instances' | 'dashboard' | 'settings'>('dashboard');
 
     // Config draft states for localized workspace settings editing
     let activeSettingsPairKey = $state('');
@@ -133,41 +133,41 @@
     }
 
     // Load active settings states when settings tab opens on any pair
-    function syncSettingsDraft(pairKey: string, pair: PairState) {
+    function syncSettingsDraft(pairKey: string, pair: InstanceState) {
         activeSettingsPairKey = pairKey;
         draftSymbol = pair.symbol;
         draftExchange = pair.exchange;
 
-        const sec = pair.midTerm.barDurationSec;
+        const sec = pair.microTerm.barDurationSec;
         if (sec % 3600 === 0) { draftDurationValue = sec / 3600; draftDurationUnit = 'hours'; }
         else if (sec % 60 === 0) { draftDurationValue = sec / 60; draftDurationUnit = 'minutes'; }
         else { draftDurationValue = sec; draftDurationUnit = 'seconds'; }
 
-        draftEmaFast = pair.midTerm.emaFastVal;
-        draftEmaMedium = pair.midTerm.emaMediumVal;
-        draftEmaSlow = pair.midTerm.emaSlowVal;
-        draftEmaLong = pair.midTerm.emaLongVal;
-        draftRsiPeriod = pair.midTerm.rsiPeriodVal;
-        draftMacdFast = pair.midTerm.macdFastVal;
-        draftMacdSlow = pair.midTerm.macdSlowVal;
-        draftMacdSignal = pair.midTerm.macdSignalVal;
-        draftAdxPeriod = pair.midTerm.adxPeriodVal;
-        draftAtrPeriod = pair.midTerm.atrPeriodVal;
-        draftSqueezePeriod = pair.midTerm.squeezePeriodVal;
+        draftEmaFast = pair.microTerm.emaFastVal;
+        draftEmaMedium = pair.microTerm.emaMediumVal;
+        draftEmaSlow = pair.microTerm.emaSlowVal;
+        draftEmaLong = pair.microTerm.emaLongVal;
+        draftRsiPeriod = pair.microTerm.rsiPeriodVal;
+        draftMacdFast = pair.microTerm.macdFastVal;
+        draftMacdSlow = pair.microTerm.macdSlowVal;
+        draftMacdSignal = pair.microTerm.macdSignalVal;
+        draftAdxPeriod = pair.microTerm.adxPeriodVal;
+        draftAtrPeriod = pair.microTerm.atrPeriodVal;
+        draftSqueezePeriod = pair.microTerm.squeezePeriodVal;
 
-        draftAnalysisLimit = pair.midTerm.analysisLimit;
+        draftAnalysisLimit = pair.microTerm.analysisLimit;
 
-        draftShowEmas = pair.midTerm.showEmas;
-        draftShowBb = pair.midTerm.showBb;
-        draftShowVwap = pair.midTerm.showVwap;
-        draftShowVolume = pair.midTerm.showVolume;
-        draftShowAdx = pair.midTerm.showAdx;
-        draftShowAtr = pair.midTerm.showAtr;
-        draftShowRsi = pair.midTerm.showRsi;
-        draftShowMacd = pair.midTerm.showMacd;
-        draftShowSqueeze = pair.midTerm.showSqueeze;
-        draftShowBbwp = pair.midTerm.showBbwp;
-        draftShowFib = pair.midTerm.showFib;
+        draftShowEmas = pair.microTerm.showEmas;
+        draftShowBb = pair.microTerm.showBb;
+        draftShowVwap = pair.microTerm.showVwap;
+        draftShowVolume = pair.microTerm.showVolume;
+        draftShowAdx = pair.microTerm.showAdx;
+        draftShowAtr = pair.microTerm.showAtr;
+        draftShowRsi = pair.microTerm.showRsi;
+        draftShowMacd = pair.microTerm.showMacd;
+        draftShowSqueeze = pair.microTerm.showSqueeze;
+        draftShowBbwp = pair.microTerm.showBbwp;
+        draftShowFib = pair.microTerm.showFib;
 
         draftAutomationEnabled = pair.automationEnabled;
         const autoSec = pair.automationIntervalUnit === 'hours' ? pair.automationIntervalValue * 3600
@@ -206,7 +206,7 @@
         return `${s}s`;
     }
 
-    async function applySettings(pairKey: string, pair: PairState) {
+    async function applySettings(pairKey: string, pair: InstanceState) {
         const cleanedSymbol = draftSymbol.trim().toUpperCase();
         if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
             alert("Invalid Ticker. Must be 2-10 characters (alphanumeric).");
@@ -214,7 +214,7 @@
         }
 
         const body = {
-            mid_term: {
+            micro_term: {
                 candles: { duration_seconds: Number(calculatedDuration), analysis_limit: Number(draftAnalysisLimit) },
                 indicators: {
                     ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
@@ -222,7 +222,7 @@
                     adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
                 },
             },
-            long_term: {
+            short_term: {
                 candles: { duration_seconds: 300, analysis_limit: Number(draftAnalysisLimit) },
                 indicators: {
                     ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
@@ -230,7 +230,7 @@
                     adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
                 },
             },
-            macro_term: {
+            medium_term: {
                 candles: { duration_seconds: 900, analysis_limit: Number(draftAnalysisLimit) },
                 indicators: {
                     ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
@@ -238,7 +238,7 @@
                     adx_period: Number(draftAdxPeriod), atr_period: Number(draftAtrPeriod), squeeze_period: Number(draftSqueezePeriod),
                 },
             },
-            supermacro_term: {
+            large_term: {
                 candles: { duration_seconds: 3600, analysis_limit: Number(draftAnalysisLimit) },
                 indicators: {
                     ema_fast: Number(draftEmaFast), ema_medium: Number(draftEmaMedium), ema_slow: Number(draftEmaSlow), ema_long: Number(draftEmaLong),
@@ -258,37 +258,36 @@
             if (isIdentityChanged) {
                 const newPairKey = `${draftExchange}-${cleanedSymbol}`;
 
-                await fetch(`/api/pairs`, {
+                await fetch(`/api/instances`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ symbol: cleanedSymbol, exchange: draftExchange }),
+                    body: JSON.stringify({ base: cleanedSymbol, quote: 'USDT' }),
                 });
 
-                await fetch(`/api/pairs/${encodeURIComponent(newPairKey)}/config`, {
+                await fetch(`/api/instances/${encodeURIComponent(newPairKey)}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
 
-                await fetch(`/api/pairs/${encodeURIComponent(pairKey)}`, { method: 'DELETE' });
+                // TODO: Phase 4 — delete old instance via /api/instances
+                app.initInstance(cleanedSymbol, draftExchange);
 
-                app.initPair(cleanedSymbol, draftExchange);
-
-                const next = app.pairsMap[newPairKey];
+                const next = app.instancesMap[newPairKey];
                 if (next) {
-                    next.midTerm.barDurationSec = calculatedDuration;
-                    next.midTerm.emaFastVal = draftEmaFast;
-                    next.midTerm.emaMediumVal = draftEmaMedium;
-                    next.midTerm.emaSlowVal = draftEmaSlow;
-                    next.midTerm.emaLongVal = draftEmaLong;
-                    next.midTerm.rsiPeriodVal = draftRsiPeriod;
-                    next.midTerm.macdFastVal = draftMacdFast;
-                    next.midTerm.macdSlowVal = draftMacdSlow;
-                    next.midTerm.macdSignalVal = draftMacdSignal;
-                    next.midTerm.adxPeriodVal = draftAdxPeriod;
-                    next.midTerm.atrPeriodVal = draftAtrPeriod;
-                    next.midTerm.squeezePeriodVal = draftSqueezePeriod;
-                    next.midTerm.analysisLimit = draftAnalysisLimit;
+                    next.microTerm.barDurationSec = calculatedDuration;
+                    next.microTerm.emaFastVal = draftEmaFast;
+                    next.microTerm.emaMediumVal = draftEmaMedium;
+                    next.microTerm.emaSlowVal = draftEmaSlow;
+                    next.microTerm.emaLongVal = draftEmaLong;
+                    next.microTerm.rsiPeriodVal = draftRsiPeriod;
+                    next.microTerm.macdFastVal = draftMacdFast;
+                    next.microTerm.macdSlowVal = draftMacdSlow;
+                    next.microTerm.macdSignalVal = draftMacdSignal;
+                    next.microTerm.adxPeriodVal = draftAdxPeriod;
+                    next.microTerm.atrPeriodVal = draftAtrPeriod;
+                    next.microTerm.squeezePeriodVal = draftSqueezePeriod;
+                    next.microTerm.analysisLimit = draftAnalysisLimit;
                     next.automationEnabled = draftAutomationEnabled;
                     next.automationIntervalValue = draftAutomationIntervalValue;
                     next.automationIntervalUnit = draftAutomationIntervalUnit;
@@ -300,17 +299,17 @@
                     next.nextEvaluationIn = draftAutomationEnabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
                 }
 
-                app.removePair(pairKey);
+                app.removeInstance(pairKey);
                 app.activeTab = newPairKey;
             } else {
-                await fetch(`/api/pairs/${encodeURIComponent(pairKey)}/config`, {
+                await fetch(`/api/instances/${encodeURIComponent(pairKey)}/config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
 
-                pair.midTerm.barDurationSec = calculatedDuration;
-                for (const tf of [pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
+                pair.microTerm.barDurationSec = calculatedDuration;
+                for (const tf of [pair.microTerm, pair.smallTerm, pair.mediumTerm, pair.largeTerm]) {
                     tf.emaFastVal = draftEmaFast;
                     tf.emaMediumVal = draftEmaMedium;
                     tf.emaSlowVal = draftEmaSlow;
@@ -329,7 +328,7 @@
                 }
             }
 
-            for (const tf of [pair.midTerm, pair.longTerm, pair.macroTerm, pair.supermacroTerm]) {
+            for (const tf of [pair.microTerm, pair.smallTerm, pair.mediumTerm, pair.largeTerm]) {
                 tf.showEmas = draftShowEmas;
                 tf.showBb = draftShowBb;
                 tf.showVwap = draftShowVwap;
@@ -433,87 +432,87 @@
                 draftCostOutputPrice = config.costs.price_per_1m_output_tokens ?? 1.10;
             }
 
-            const pairConfigs = config.pairs || {};
-            const symbols: string[] = config.symbols || ['Hyperliquid:BTC'];
+            const pairConfigs = config.instances || {};
+            const symbols: string[] = config.symbols || ['BTC'];
 
             for (const item of symbols) {
                 const parts = item.split(':');
                 const exchange = parts[0] || 'Hyperliquid';
                 const symbol = parts[1] || 'BTC';
 
-                app.initPair(symbol, exchange);
+                app.initInstance(symbol, exchange);
 
                 const pairKey = `${exchange}-${symbol}`;
                 const specific = pairConfigs[pairKey];
-                const targetState = app.pairsMap[pairKey];
+                const targetState = app.instancesMap[pairKey];
 
                 if (specific && targetState) {
-                    if (specific.mid_term) {
-                        targetState.midTerm.barDurationSec = specific.mid_term.candles.duration_seconds;
-                        Object.assign(targetState.midTerm, {
-                            emaFastVal: specific.mid_term.indicators.ema_fast,
-                            emaMediumVal: specific.mid_term.indicators.ema_medium,
-                            emaSlowVal: specific.mid_term.indicators.ema_slow,
-                            emaLongVal: specific.mid_term.indicators.ema_long,
-                            rsiPeriodVal: specific.mid_term.indicators.rsi_period,
-                            macdFastVal: specific.mid_term.indicators.macd_fast,
-                            macdSlowVal: specific.mid_term.indicators.macd_slow,
-                            macdSignalVal: specific.mid_term.indicators.macd_signal,
-                            adxPeriodVal: specific.mid_term.indicators.adx_period,
-                            atrPeriodVal: specific.mid_term.indicators.atr_period,
-                            squeezePeriodVal: specific.mid_term.indicators.squeeze_period,
-                            analysisLimit: specific.mid_term.candles.analysis_limit ?? 100,
+                    if (specific.micro_term) {
+                        targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
+                        Object.assign(targetState.microTerm, {
+                            emaFastVal: specific.micro_term.indicators.ema_fast,
+                            emaMediumVal: specific.micro_term.indicators.ema_medium,
+                            emaSlowVal: specific.micro_term.indicators.ema_slow,
+                            emaLongVal: specific.micro_term.indicators.ema_long,
+                            rsiPeriodVal: specific.micro_term.indicators.rsi_period,
+                            macdFastVal: specific.micro_term.indicators.macd_fast,
+                            macdSlowVal: specific.micro_term.indicators.macd_slow,
+                            macdSignalVal: specific.micro_term.indicators.macd_signal,
+                            adxPeriodVal: specific.micro_term.indicators.adx_period,
+                            atrPeriodVal: specific.micro_term.indicators.atr_period,
+                            squeezePeriodVal: specific.micro_term.indicators.squeeze_period,
+                            analysisLimit: specific.micro_term.candles.analysis_limit ?? 100,
                         });
                     }
-                    if (specific.long_term) {
-                        targetState.longTerm.barDurationSec = specific.long_term.candles.duration_seconds;
-                        Object.assign(targetState.longTerm, {
-                            emaFastVal: specific.long_term.indicators.ema_fast,
-                            emaMediumVal: specific.long_term.indicators.ema_medium,
-                            emaSlowVal: specific.long_term.indicators.ema_slow,
-                            emaLongVal: specific.long_term.indicators.ema_long,
-                            rsiPeriodVal: specific.long_term.indicators.rsi_period,
-                            macdFastVal: specific.long_term.indicators.macd_fast,
-                            macdSlowVal: specific.long_term.indicators.macd_slow,
-                            macdSignalVal: specific.long_term.indicators.macd_signal,
-                            adxPeriodVal: specific.long_term.indicators.adx_period,
-                            atrPeriodVal: specific.long_term.indicators.atr_period,
-                            squeezePeriodVal: specific.long_term.indicators.squeeze_period,
-                            analysisLimit: specific.long_term.candles.analysis_limit ?? 100,
+                    if (specific.short_term) {
+                        targetState.smallTerm.barDurationSec = specific.short_term.candles.duration_seconds;
+                        Object.assign(targetState.smallTerm, {
+                            emaFastVal: specific.short_term.indicators.ema_fast,
+                            emaMediumVal: specific.short_term.indicators.ema_medium,
+                            emaSlowVal: specific.short_term.indicators.ema_slow,
+                            emaLongVal: specific.short_term.indicators.ema_long,
+                            rsiPeriodVal: specific.short_term.indicators.rsi_period,
+                            macdFastVal: specific.short_term.indicators.macd_fast,
+                            macdSlowVal: specific.short_term.indicators.macd_slow,
+                            macdSignalVal: specific.short_term.indicators.macd_signal,
+                            adxPeriodVal: specific.short_term.indicators.adx_period,
+                            atrPeriodVal: specific.short_term.indicators.atr_period,
+                            squeezePeriodVal: specific.short_term.indicators.squeeze_period,
+                            analysisLimit: specific.short_term.candles.analysis_limit ?? 100,
                         });
                     }
-                    if (specific.macro_term) {
-                        targetState.macroTerm.barDurationSec = specific.macro_term.candles.duration_seconds;
-                        Object.assign(targetState.macroTerm, {
-                            emaFastVal: specific.macro_term.indicators.ema_fast,
-                            emaMediumVal: specific.macro_term.indicators.ema_medium,
-                            emaSlowVal: specific.macro_term.indicators.ema_slow,
-                            emaLongVal: specific.macro_term.indicators.ema_long,
-                            rsiPeriodVal: specific.macro_term.indicators.rsi_period,
-                            macdFastVal: specific.macro_term.indicators.macd_fast,
-                            macdSlowVal: specific.macro_term.indicators.macd_slow,
-                            macdSignalVal: specific.macro_term.indicators.macd_signal,
-                            adxPeriodVal: specific.macro_term.indicators.adx_period,
-                            atrPeriodVal: specific.macro_term.indicators.atr_period,
-                            squeezePeriodVal: specific.macro_term.indicators.squeeze_period,
-                            analysisLimit: specific.macro_term.candles.analysis_limit ?? 100,
+                    if (specific.medium_term) {
+                        targetState.mediumTerm.barDurationSec = specific.medium_term.candles.duration_seconds;
+                        Object.assign(targetState.mediumTerm, {
+                            emaFastVal: specific.medium_term.indicators.ema_fast,
+                            emaMediumVal: specific.medium_term.indicators.ema_medium,
+                            emaSlowVal: specific.medium_term.indicators.ema_slow,
+                            emaLongVal: specific.medium_term.indicators.ema_long,
+                            rsiPeriodVal: specific.medium_term.indicators.rsi_period,
+                            macdFastVal: specific.medium_term.indicators.macd_fast,
+                            macdSlowVal: specific.medium_term.indicators.macd_slow,
+                            macdSignalVal: specific.medium_term.indicators.macd_signal,
+                            adxPeriodVal: specific.medium_term.indicators.adx_period,
+                            atrPeriodVal: specific.medium_term.indicators.atr_period,
+                            squeezePeriodVal: specific.medium_term.indicators.squeeze_period,
+                            analysisLimit: specific.medium_term.candles.analysis_limit ?? 100,
                         });
                     }
-                    if (specific.supermacro_term) {
-                        targetState.supermacroTerm.barDurationSec = specific.supermacro_term.candles.duration_seconds;
-                        Object.assign(targetState.supermacroTerm, {
-                            emaFastVal: specific.supermacro_term.indicators.ema_fast,
-                            emaMediumVal: specific.supermacro_term.indicators.ema_medium,
-                            emaSlowVal: specific.supermacro_term.indicators.ema_slow,
-                            emaLongVal: specific.supermacro_term.indicators.ema_long,
-                            rsiPeriodVal: specific.supermacro_term.indicators.rsi_period,
-                            macdFastVal: specific.supermacro_term.indicators.macd_fast,
-                            macdSlowVal: specific.supermacro_term.indicators.macd_slow,
-                            macdSignalVal: specific.supermacro_term.indicators.macd_signal,
-                            adxPeriodVal: specific.supermacro_term.indicators.adx_period,
-                            atrPeriodVal: specific.supermacro_term.indicators.atr_period,
-                            squeezePeriodVal: specific.supermacro_term.indicators.squeeze_period,
-                            analysisLimit: specific.supermacro_term.candles.analysis_limit ?? 100,
+                    if (specific.large_term) {
+                        targetState.largeTerm.barDurationSec = specific.large_term.candles.duration_seconds;
+                        Object.assign(targetState.largeTerm, {
+                            emaFastVal: specific.large_term.indicators.ema_fast,
+                            emaMediumVal: specific.large_term.indicators.ema_medium,
+                            emaSlowVal: specific.large_term.indicators.ema_slow,
+                            emaLongVal: specific.large_term.indicators.ema_long,
+                            rsiPeriodVal: specific.large_term.indicators.rsi_period,
+                            macdFastVal: specific.large_term.indicators.macd_fast,
+                            macdSlowVal: specific.large_term.indicators.macd_slow,
+                            macdSignalVal: specific.large_term.indicators.macd_signal,
+                            adxPeriodVal: specific.large_term.indicators.adx_period,
+                            atrPeriodVal: specific.large_term.indicators.atr_period,
+                            squeezePeriodVal: specific.large_term.indicators.squeeze_period,
+                            analysisLimit: specific.large_term.candles.analysis_limit ?? 100,
                         });
                     }
                     if (specific.automation) {
@@ -555,7 +554,7 @@
             });
             if (saveRes.ok) {
                 intervalsSaveStatus = 'success';
-                const pair = app.pairsMap[activeSettingsPairKey];
+                const pair = app.instancesMap[activeSettingsPairKey];
                 if (pair) {
                     pair.slowIntervalSecs = draftSlowInterval;
                     pair.normalIntervalSecs = draftNormalInterval;
@@ -690,7 +689,7 @@
         } catch (_) {}
     }
 
-    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsMid' | 'wsLong' | 'wsMacro' | 'wsSupermacro', tfSecs: number) {
+    function connectWebsocketForTimeframe(tf: TimeframeTelemetry, wsKey: 'wsMicro' | 'wsSmall' | 'wsMedium' | 'wsLarge', tfSecs: number) {
         closeWs((self as any)[wsKey] as WebSocket | null);
 
         const url = buildWsUrl(tfSecs);
@@ -716,20 +715,20 @@
     }
 
     function connectWebsocket() {
-        closeWs(wsMid); wsMid = null;
-        closeWs(wsLong); wsLong = null;
+        closeWs(wsMicro); wsMicro = null;
+        closeWs(wsSmall); wsSmall = null;
 
         const symbol = app.activeTab;
         if (!symbol) return;
         currentWsSymbol = symbol;
 
-        const pair = app.pairsMap[symbol];
+        const pair = app.instancesMap[symbol];
         if (!pair) return;
 
-        connectWebsocketForTimeframe(pair.midTerm, 'wsMid', 60);
-        connectWebsocketForTimeframe(pair.longTerm, 'wsLong', 300);
-        connectWebsocketForTimeframe(pair.macroTerm, 'wsMacro', 900);
-        connectWebsocketForTimeframe(pair.supermacroTerm, 'wsSupermacro', 3600);
+        connectWebsocketForTimeframe(pair.microTerm, 'wsMicro', 60);
+        connectWebsocketForTimeframe(pair.smallTerm, 'wsSmall', 300);
+        connectWebsocketForTimeframe(pair.mediumTerm, 'wsMedium', 900);
+        connectWebsocketForTimeframe(pair.largeTerm, 'wsLarge', 3600);
     }
 
     onMount(() => {
@@ -739,10 +738,10 @@
     });
 
     onDestroy(() => {
-        closeWs(wsMid); wsMid = null;
-        closeWs(wsLong); wsLong = null;
-        closeWs(wsMacro); wsMacro = null;
-        closeWs(wsSupermacro); wsSupermacro = null;
+        closeWs(wsMicro); wsMicro = null;
+        closeWs(wsSmall); wsSmall = null;
+        closeWs(wsMedium); wsMedium = null;
+        closeWs(wsLarge); wsLarge = null;
     });
 
     $effect(() => {
@@ -755,7 +754,7 @@
     // Auto-sync setting draft state when moving to setting tab views
     $effect(() => {
         const key = app.activeTab;
-        const pair = app.pairsMap[key];
+        const pair = app.instancesMap[key];
         if (pair && pair.currentView === 'settings' && activeSettingsPairKey !== key) {
             syncSettingsDraft(key, pair);
         }
@@ -769,26 +768,22 @@
         app.individualResults = [];
         app.analysisPhase = 'phase1';
         app.agentProgress = [
-            { name: 'short-RSI', status: 'pending' }, { name: 'short-MACD', status: 'pending' },
-            { name: 'short-SQUEEZE', status: 'pending' }, { name: 'short-ADX', status: 'pending' },
-            { name: 'short-BOLLINGER_ATR', status: 'pending' }, { name: 'short-VOLUME_EMA', status: 'pending' },
-            { name: 'short-VWAP', status: 'pending' },
-            { name: 'mid-RSI', status: 'pending' }, { name: 'mid-MACD', status: 'pending' },
-            { name: 'mid-SQUEEZE', status: 'pending' }, { name: 'mid-ADX', status: 'pending' },
-            { name: 'mid-BOLLINGER_ATR', status: 'pending' }, { name: 'mid-VOLUME_EMA', status: 'pending' },
-            { name: 'mid-VWAP', status: 'pending' },
-            { name: 'long-RSI', status: 'pending' }, { name: 'long-MACD', status: 'pending' },
-            { name: 'long-SQUEEZE', status: 'pending' }, { name: 'long-ADX', status: 'pending' },
-            { name: 'long-BOLLINGER_ATR', status: 'pending' }, { name: 'long-VOLUME_EMA', status: 'pending' },
-            { name: 'long-VWAP', status: 'pending' },
-            { name: 'macro-RSI', status: 'pending' }, { name: 'macro-MACD', status: 'pending' },
-            { name: 'macro-SQUEEZE', status: 'pending' }, { name: 'macro-ADX', status: 'pending' },
-            { name: 'macro-BOLLINGER_ATR', status: 'pending' }, { name: 'macro-VOLUME_EMA', status: 'pending' },
-            { name: 'macro-VWAP', status: 'pending' },
-            { name: 'supermacro-RSI', status: 'pending' }, { name: 'supermacro-MACD', status: 'pending' },
-            { name: 'supermacro-SQUEEZE', status: 'pending' }, { name: 'supermacro-ADX', status: 'pending' },
-            { name: 'supermacro-BOLLINGER_ATR', status: 'pending' }, { name: 'supermacro-VOLUME_EMA', status: 'pending' },
-            { name: 'supermacro-VWAP', status: 'pending' },
+            { name: 'micro-RSI', status: 'pending' }, { name: 'micro-MACD', status: 'pending' },
+            { name: 'micro-SQUEEZE', status: 'pending' }, { name: 'micro-ADX', status: 'pending' },
+            { name: 'micro-BOLLINGER_ATR', status: 'pending' }, { name: 'micro-VOLUME_EMA', status: 'pending' },
+            { name: 'micro-VWAP', status: 'pending' },
+            { name: 'small-RSI', status: 'pending' }, { name: 'small-MACD', status: 'pending' },
+            { name: 'small-SQUEEZE', status: 'pending' }, { name: 'small-ADX', status: 'pending' },
+            { name: 'small-BOLLINGER_ATR', status: 'pending' }, { name: 'small-VOLUME_EMA', status: 'pending' },
+            { name: 'small-VWAP', status: 'pending' },
+            { name: 'medium-RSI', status: 'pending' }, { name: 'medium-MACD', status: 'pending' },
+            { name: 'medium-SQUEEZE', status: 'pending' }, { name: 'medium-ADX', status: 'pending' },
+            { name: 'medium-BOLLINGER_ATR', status: 'pending' }, { name: 'medium-VOLUME_EMA', status: 'pending' },
+            { name: 'medium-VWAP', status: 'pending' },
+            { name: 'large-RSI', status: 'pending' }, { name: 'large-MACD', status: 'pending' },
+            { name: 'large-SQUEEZE', status: 'pending' }, { name: 'large-ADX', status: 'pending' },
+            { name: 'large-BOLLINGER_ATR', status: 'pending' }, { name: 'large-VOLUME_EMA', status: 'pending' },
+            { name: 'large-VWAP', status: 'pending' },
         ];
 
         try {
@@ -796,7 +791,7 @@
             const historyData = await historyRes.json();
             const prices: number[] = (historyData.prices || []).map(Number);
 
-            const snap = app.midTerm.latestSnapshot || {};
+            const snap = app.microTerm.latestSnapshot || {};
             const buildIndicators = (snap: Record<string, unknown>) => ({
                 rsi: snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null,
                 squeeze_on: snap.squeeze_on ?? null,
@@ -829,10 +824,10 @@
                 historical_prices: prices,
                 indicators: buildIndicators(snap),
                 timeframes: {
-                    mid_term: buildIndicators(app.midTerm.latestSnapshot || {}),
-                    long_term: buildIndicators(app.longTerm.latestSnapshot || {}),
-                    macro_term: buildIndicators(app.macroTerm.latestSnapshot || {}),
-                    supermacro_term: buildIndicators(app.supermacroTerm.latestSnapshot || {}),
+                    micro_term: buildIndicators(app.microTerm.latestSnapshot || {}),
+                    short_term: buildIndicators(app.smallTerm.latestSnapshot || {}),
+                    medium_term: buildIndicators(app.mediumTerm.latestSnapshot || {}),
+                    large_term: buildIndicators(app.largeTerm.latestSnapshot || {}),
                 },
             };
 
@@ -999,26 +994,23 @@
     <nav class="global-navbar">
         <div class="navbar-brand">
             <span class="navbar-logo">AI Trading Assistant</span>
-        </div>
-        <div class="navbar-center">
             <span class="navbar-session-badge">{app.sessionMode?.toUpperCase()} — {app.sessionCurrency} on {app.sessionExchange}</span>
         </div>
+        <div class="navbar-tabs">
+            <button class="navbar-tab" class:active={currentGlobalView === 'dashboard'} onclick={() => { currentGlobalView = 'dashboard'; }}>
+                <span>📊</span> Dashboard
+            </button>
+            <button class="navbar-tab" class:active={currentGlobalView === 'instances'} onclick={() => { currentGlobalView = 'instances'; }}>
+                <span>📋</span> Instances
+            </button>
+            <button class="navbar-tab" class:active={currentGlobalView === 'settings'} onclick={() => { currentGlobalView = 'settings'; }}>
+                <span>⚙️</span> Settings
+            </button>
+        </div>
         <div class="navbar-actions">
-            <button class="navbar-icon-btn" class:active={currentGlobalView === 'dashboard'} title="General Dashboard" onclick={() => { currentGlobalView = 'dashboard'; }}>
-                <span class="nav-icon">📊</span>
-            </button>
-            <button class="navbar-icon-btn" class:active={currentGlobalView === 'instances'} title="Instances" onclick={() => { currentGlobalView = 'instances'; }}>
-                <span class="nav-icon">📋</span>
-            </button>
-            <button class="navbar-icon-btn" class:active={currentGlobalView === 'settings'} title="Settings" onclick={() => { currentGlobalView = 'settings'; }}>
-                <span class="nav-icon">⚙️</span>
-            </button>
-            <button class="navbar-icon-btn" class:active={currentGlobalView === 'pairs'} title="Trading Pairs" onclick={() => { currentGlobalView = 'pairs'; }}>
-                <span class="nav-icon">💹</span>
-            </button>
             <div class="profile-menu-wrapper">
-                <button class="navbar-icon-btn profile-btn" onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
-                    <span class="nav-icon">👤</span>
+                <button class="navbar-profile-btn" onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
+                    <span>👤</span>
                 </button>
                 {#if showProfileMenu}
                     <div class="profile-dropdown" role="menu">
@@ -1041,44 +1033,9 @@
                             🚪 Quit
                         </button>
                     </div>
-                                    {/if}
-                                </div>
-
-                                <!-- AI Adaptive Intervals -->
-                                <div class="setting-group-box" style="margin-top: 12px;">
-                                    <span class="selectors-label">AI Assistant Intervals</span>
-                                    <span class="form-hint" style="margin-top: 2px;">AI Director selects one dynamically based on market state</span>
-                                    <div class="input-row" style="margin-top: 8px;">
-                                        <label for="slowInterval" style="width: 60px;">Slow:</label>
-                                        <div class="tf-split-group">
-                                            <input id="slowInterval" type="number" bind:value={draftSlowInterval} min="1" class="tf-number-input" />
-                                            <span class="tf-unit-fixed">sec</span>
-                                        </div>
-                                    </div>
-                                    <div class="input-row" style="margin-top: 4px;">
-                                        <label for="normalInterval" style="width: 60px;">Normal:</label>
-                                        <div class="tf-split-group">
-                                            <input id="normalInterval" type="number" bind:value={draftNormalInterval} min="1" class="tf-number-input" />
-                                            <span class="tf-unit-fixed">sec</span>
-                                        </div>
-                                    </div>
-                                    <div class="input-row" style="margin-top: 4px;">
-                                        <label for="fastInterval" style="width: 60px;">Fast:</label>
-                                        <div class="tf-split-group">
-                                            <input id="fastInterval" type="number" bind:value={draftFastInterval} min="1" class="tf-number-input" />
-                                            <span class="tf-unit-fixed">sec</span>
-                                        </div>
-                                    </div>
-                                    <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
-                                        <button class="action-btn" onclick={saveIntervalsConfig} disabled={intervalsSaveStatus === 'saving'}>
-                                            {intervalsSaveStatus === 'saving' ? 'Saving...' : intervalsSaveStatus === 'success' ? '✓ Saved' : 'Save Intervals'}
-                                        </button>
-                                        {#if intervalsSaveStatus === 'error'}
-                                            <span style="color: #ff6666; font-size: 12px;">Save failed</span>
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
+                {/if}
+            </div>
+        </div>
     </nav>
     <!-- Click-outside handler for profile menu -->
     {#if showProfileMenu}
@@ -1102,8 +1059,8 @@
         <Sidebar />
 
         <div class="workspace-viewport">
-        {#each Object.keys(app.pairsMap) as tabKey (tabKey)}
-            {@const pair = app.pairsMap[tabKey]}
+        {#each Object.keys(app.instancesMap) as tabKey (tabKey)}
+            {@const pair = app.instancesMap[tabKey]}
             <div class="workspace-window" class:hidden-pane={tabKey !== app.activeTab}>
 
                 <!-- Secondary navigation bar within each pair's self-contained layout -->
@@ -1254,11 +1211,11 @@
                                         <div class="loading-indicator">
                                             <span class="dot pulse-blue"></span>
                                             <span class="status-text">
-                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 35 MTF indicator agents...' : 'Phase 2: Synthesizing master report...'}
+                                                {app.analysisPhase === 'phase1' ? 'Phase 1: Running 28 MTF indicator agents...' : 'Phase 2: Synthesizing master report...'}
                                             </span>
                                         </div>
                                         <div class="agent-progress-list">
-                                            {#each app.agentProgress.slice(0, 35) as agent (agent.name)}
+                                            {#each app.agentProgress.slice(0, 28) as agent (agent.name)}
                                                 <div class="agent-progress-item"
                                                     class:ap-complete={agent.status === 'complete'}
                                                     class:ap-failed={agent.status === 'failed'}
@@ -1863,7 +1820,7 @@
                                 <p>
                                     <strong>How it works:</strong> The calculator uses your AI model's per-1M-token pricing (configurable in Workspace Settings)
                                     combined with the automation prompt interval for this pair. It estimates ~{pair.costTokensPerRunInput.toLocaleString()} input + ~{pair.costTokensPerRunOutput.toLocaleString()} output tokens
-                                    per analysis run (35 indicator agents × 512 tokens + 1 orchestrator × 1024 tokens).
+                                    per analysis run (28 indicator agents × 512 tokens + 1 orchestrator × 1024 tokens).
                                     Actual usage is tracked from real LLM API responses and shown above.
                                 </p>
                             </div>
@@ -2013,6 +1970,164 @@
         display: flex;
         flex-direction: column;
     }
+
+    /* ── Global Top Navbar ── */
+    .global-navbar {
+        display: flex;
+        align-items: center;
+        height: 52px;
+        padding: 0 16px;
+        background-color: #0f111a;
+        border-bottom: 1px solid #1e293b;
+        gap: 24px;
+        flex-shrink: 0;
+    }
+    .navbar-brand {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+    .navbar-logo {
+        font-size: 15px;
+        font-weight: 700;
+        color: #f1f5f9;
+        white-space: nowrap;
+    }
+    .navbar-session-badge {
+        font-size: 10px;
+        color: #64748b;
+        white-space: nowrap;
+    }
+
+    /* Segmented tab group */
+    .navbar-tabs {
+        display: flex;
+        border: 1px solid #2a2e39;
+        border-radius: 6px;
+        overflow: hidden;
+        flex-shrink: 0;
+        margin: 0 auto;
+    }
+    .navbar-tab {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px 14px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+        white-space: nowrap;
+    }
+    .navbar-tab:not(:last-child) {
+        border-right: 1px solid #2a2e39;
+    }
+    .navbar-tab:hover:not(.active) {
+        background: rgba(255, 255, 255, 0.03);
+        color: #cbd5e1;
+    }
+    .navbar-tab.active {
+        background: #1a2030;
+        color: #f8fafc;
+    }
+
+    /* Right section: profile */
+    .navbar-actions {
+        display: flex;
+        align-items: center;
+        margin-left: auto;
+    }
+    .profile-menu-wrapper {
+        position: relative;
+    }
+    .navbar-profile-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        font-size: 15px;
+        background: transparent;
+        border: 1px solid #2a2e39;
+        border-radius: 6px;
+        color: #94a3b8;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .navbar-profile-btn:hover {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: #3e4455;
+    }
+
+    /* Profile dropdown */
+    .profile-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 8px;
+        background: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        min-width: 220px;
+        z-index: 100;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+    }
+    .profile-dropdown-header {
+        padding: 12px 14px 8px;
+    }
+    .profile-capital {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        color: #f1f5f9;
+        font-family: ui-monospace, monospace;
+    }
+    .profile-mode {
+        display: block;
+        font-size: 10px;
+        color: #64748b;
+        text-transform: capitalize;
+        margin-top: 2px;
+    }
+    .profile-dropdown-divider {
+        height: 1px;
+        background: #1e293b;
+        margin: 0;
+    }
+    .profile-dropdown-item {
+        display: block;
+        width: 100%;
+        padding: 10px 14px;
+        font-size: 11px;
+        color: #cbd5e1;
+        background: transparent;
+        border: none;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .profile-dropdown-item:hover {
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .profile-dropdown-item.danger {
+        color: #ef4444;
+    }
+    .profile-dropdown-item.danger:hover {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* Click-outside backdrop */
+    .profile-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+    }
+
     .app-layout {
         display: flex;
         flex: 1;

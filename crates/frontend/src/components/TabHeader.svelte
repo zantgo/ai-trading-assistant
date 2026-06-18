@@ -13,17 +13,15 @@
         const raw = newPairInput.trim().toUpperCase();
         if (raw.length < 2 || raw.length > 10) return;
 
-        // Support "Exchange:Symbol" format (e.g. "Bybit:SOL"), default to Hyperliquid
-        const parts = raw.split(':');
-        const exchange = parts.length > 1 ? parts[0] : 'Hyperliquid';
-        const symbol = parts.length > 1 ? parts[1] : raw;
-        const pairKey = `${exchange}-${symbol}`;
+        // Create instance
+        const symbol = raw;
+        const pairKey = `${symbol}-USDT`;
 
-        app.initPair(symbol, exchange);
-        fetch(`/api/pairs`, {
+        app.initInstance(symbol);
+        fetch(`/api/instances`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ symbol: symbol, exchange: exchange }),
+            body: JSON.stringify({ base: symbol, quote: 'USDT' }),
         }).then(() => {
             app.activeTab = pairKey;
         }).catch(console.error);
@@ -32,12 +30,10 @@
         showAddInput = false;
     }
 
-    function removePair(pairKey: string) {
-        fetch(`/api/pairs/${encodeURIComponent(pairKey)}`, {
-            method: 'DELETE',
-        }).catch(console.error);
-        app.removePair(pairKey);
-        const remaining = Object.keys(app.pairsMap);
+    function removeInstance(pairKey: string) {
+        // TODO: Phase 4 — delete via /api/instances with instance ID lookup
+        app.removeInstance(pairKey);
+        const remaining = Object.keys(app.instancesMap);
         if (remaining.length > 0) {
             if (pairKey === app.activeTab) {
                 app.activeTab = remaining[0];
@@ -49,7 +45,7 @@
 <div class="tab-bar">
     <div class="tab-left-section">
         <div class="tabs-container">
-            {#each Object.keys(app.pairsMap) as symbol (symbol)}
+            {#each Object.keys(app.instancesMap) as symbol (symbol)}
                 <button
                     class="tab-btn"
                     class:tab-active={symbol === app.activeTab}
@@ -57,7 +53,7 @@
                 >
                     <span class="tab-label">[{symbol}]</span>
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <span class="tab-close" role="button" tabindex="0" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') removePair(symbol); }} onclick={(e: MouseEvent) => { e.stopPropagation(); removePair(symbol); }}>&times;</span>
+                    <span class="tab-close" role="button" tabindex="0" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') removeInstance(symbol); }} onclick={(e: MouseEvent) => { e.stopPropagation(); removeInstance(symbol); }}>&times;</span>
                 </button>
             {/each}
 
@@ -75,7 +71,7 @@
                     <button class="add-cancel-btn" onclick={() => { showAddInput = false; newPairInput = ''; }}>&times;</button>
                 </div>
             {:else}
-                <button class="tab-btn add-tab-btn" onclick={() => showAddInput = true}>[ + Add Pair ]</button>
+                <button class="tab-btn add-tab-btn" onclick={() => showAddInput = true}>[ + Add Instance ]</button>
             {/if}
         </div>
     </div>

@@ -7,7 +7,7 @@ describe('TEST-UI: Component State Validation', () => {
 
     beforeEach(() => {
         app = getState();
-        app.initPair('TEST');
+        app.initInstance('TEST');
         app.apiKeyConfigured = true;
     });
 

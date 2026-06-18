@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::collections::{HashMap, VecDeque};
 use axum::{
     extract::{Path, State, WebSocketUpgrade, Query},
     extract::ws::{WebSocket, Message as AxumMessage},
@@ -14,27 +13,19 @@ use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use tower_http::cors::{CorsLayer, Any};
-use shared::normalized::{NormalizedEvent, NormalizedCandle, SymbolMapper};
-use shared::models::MarketSnapshot;
-use shared::indicators::DivergenceDetector;
-use crate::sr_engine::SrRoleTracker;
+use shared::normalized::SymbolMapper;
 use shared::TriggerType;
 use shared::jsonrpc::JsonRpcNotification;
-use crate::adapters;
-use crate::config::{AppConfig, AutomationConfig, TimeframeConfig};
-use crate::analyzer::{self, ActivePair};
+use crate::config::AppConfig;
+use crate::analyzer;
 use crate::llm::{LlmClient, ChatMessage, IndividualIndicatorResult, MultiAgentResults};
-use crate::automation;
 use crate::profile_evaluation::classify_market_regime;
 use crate::db::{DecisionMemoryBufferRow, CompletedTradesBufferRow};
 
 use crate::workspace::Workspace;
 use crate::instance_registry;
 
-use tokio_util::sync::CancellationToken;
-
 pub struct AppState {
-    pub pairs: Arc<RwLock<HashMap<String, Arc<ActivePair>>>>,
     pub workspace: Arc<Workspace>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
@@ -43,6 +34,23 @@ pub struct AppState {
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
     pub ws_url: String,
+}
+
+async fn get_active_pair(workspace: &Workspace, pair_key: &str) -> Option<Arc<analyzer::ActivePair>> {
+    workspace.instances.read().await
+        .get(pair_key)
+        .map(|inst| inst.active_pair.clone())
+}
+
+/// Extract base symbol from a pair_key (e.g., "BTC-USDT" -> "BTC")
+fn extract_base_symbol(pair_key: &str) -> String {
+    pair_key.split('-').next().unwrap_or(pair_key).to_string()
+}
+
+/// Build pair_key from config symbol (e.g., config "Hyperliquid:BTC" or "BTC" -> "BTC-USDT")
+fn default_pair_key(symbol_entry: &str) -> String {
+    let raw = symbol_entry.split_once(':').map(|(_, s)| s).unwrap_or(symbol_entry);
+    format!("{}-USDT", raw)
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,12 +68,12 @@ pub struct AnalyzeRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MultiTimeframeIndicators {
-    pub mid_term: IndicatorSnapshot,
-    pub long_term: IndicatorSnapshot,
+    pub micro_term: IndicatorSnapshot,
+    pub short_term: IndicatorSnapshot,
     #[serde(default)]
-    pub macro_term: Option<IndicatorSnapshot>,
+    pub medium_term: Option<IndicatorSnapshot>,
     #[serde(default)]
-    pub supermacro_term: Option<IndicatorSnapshot>,
+    pub large_term: Option<IndicatorSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,25 +91,13 @@ pub struct RulesResponse {
     pub content: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AddPairRequest {
-    pub symbol: String,
-    #[serde(default)]
-    pub exchange: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PairsListResponse {
-    pub symbols: Vec<String>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct ConfigResponse {
     pub api_key_configured: bool,
     pub symbols: Vec<String>,
     pub candles: crate::config::CandlesConfig,
     pub indicators: crate::config::IndicatorsConfig,
-    pub pairs: std::collections::HashMap<String, crate::config::PairSpecificConfig>,
+    pub instances: std::collections::HashMap<String, crate::config::InstanceSpecificConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -205,18 +201,6 @@ pub struct PhaseTwoResponse {
 pub struct MultiAgentAnalysisResponse {
     pub phase_one: Vec<IndividualIndicatorResult>,
     pub phase_two: PhaseTwoResponse,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PairConfigPayload {
-    pub mid_term: crate::config::TimeframeConfig,
-    pub long_term: crate::config::TimeframeConfig,
-    #[serde(default)]
-    pub macro_term: Option<crate::config::TimeframeConfig>,
-    #[serde(default)]
-    pub supermacro_term: Option<crate::config::TimeframeConfig>,
-    #[serde(default)]
-    pub automation: AutomationConfig,
 }
 
 #[derive(Debug, Serialize)]
@@ -364,11 +348,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/paper/scale-out", post(serve_paper_scale_out))
         .route("/api/paper/unrealized", get(serve_paper_unrealized))
         .route("/api/paper/performance", get(serve_paper_performance))
-        .route("/api/pairs", get(serve_list_pairs).post(serve_add_pair))
-        .route("/api/pairs/:pair_key", delete(serve_remove_pair))
-        .route("/api/pairs/:pair_key/config", post(serve_update_pair_config))
         .route("/api/instances", get(serve_list_instances).post(serve_add_instance))
-        .route("/api/instances/:instance_id", delete(serve_delete_instance))
+        .route("/api/instances/:instance_id", get(serve_get_instance_detail).delete(serve_delete_instance))
+        .route("/api/instances/:instance_id/config", post(serve_update_instance_config))
         .route("/api/instances/:instance_id/pause", post(serve_pause_instance))
         .route("/api/instances/:instance_id/stop", post(serve_stop_instance))
         .route("/api/instances/:instance_id/safety/reset", post(serve_reset_safety))
@@ -440,7 +422,7 @@ async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         symbols: current_config.symbols.clone(),
         candles: current_config.candles.clone(),
         indicators: current_config.indicators.clone(),
-        pairs: current_config.pairs.clone(),
+        instances: current_config.instances.clone(),
     };
     let json = axum::Json(response_body);
     let mut response = json.into_response();
@@ -479,29 +461,27 @@ async fn serve_history(
     let pair_key = if query.symbol.is_empty() {
         let cfg = state.config.read().await;
         let first = cfg.symbols.first().cloned().unwrap_or_default();
-        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
-        format!("{}-{}", ex, sym.to_uppercase())
+        default_pair_key(&first)
     } else {
         query.symbol
     };
 
     let tf_secs = query.timeframe_secs.unwrap_or(60);
-    let raw_symbol = pair_key.split('-').nth(1).unwrap_or(&pair_key).to_string();
+    let raw_symbol = extract_base_symbol(&pair_key);
 
     let config_guard = state.config.read().await;
-    let pair_cfg = config_guard.pairs.get(&pair_key);
+    let pair_cfg = config_guard.instances.get(&pair_key);
     let current_limit = match tf_secs {
-        300 => pair_cfg.map(|p| p.long_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
-        _ => pair_cfg.map(|p| p.mid_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
+        300 => pair_cfg.map(|p| p.short_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
+        _ => pair_cfg.map(|p| p.micro_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
     };
 
-    let pairs = state.pairs.read().await;
-    let (prices, candles) = match pairs.get(&pair_key) {
+    let (prices, candles) = match get_active_pair(&state.workspace, &pair_key).await {
         Some(pair) => {
             let hist = if tf_secs == 300 {
-                pair.long.history.read().await
+                pair.short.history.read().await
             } else {
-                pair.mid.history.read().await
+                pair.micro.history.read().await
             };
             let candles: Vec<HistoryCandle> = hist.iter().map(|c| HistoryCandle {
                 time: c.start_time_ms,
@@ -564,8 +544,7 @@ async fn serve_analyze(
     let symbol = if payload.symbol.is_empty() {
         let cfg = state.config.read().await;
         let first = cfg.symbols.first().cloned().unwrap_or_default();
-        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
-        format!("{}-{}", ex, sym.to_uppercase())
+        default_pair_key(&first)
     } else {
         payload.symbol.clone()
     };
@@ -576,12 +555,12 @@ async fn serve_analyze(
 
     let last_close = {
         let pair_key = symbol.clone();
-        let pairs = state.pairs.read().await;
-        if let Some(pair) = pairs.get(&pair_key) {
-            let hist = pair.mid.history.read().await;
-            hist.back().map(|c| c.close.to_string()).unwrap_or_else(|| "0".to_string())
-        } else {
-            "0".to_string()
+        match get_active_pair(&state.workspace, &pair_key).await {
+            Some(pair) => {
+                let hist = pair.micro.history.read().await;
+                hist.back().map(|c| c.close.to_string()).unwrap_or_else(|| "0".to_string())
+            }
+            None => "0".to_string(),
         }
     };
 
@@ -611,7 +590,7 @@ async fn serve_analyze(
         ).into_response();
     }
 
-    let raw_symbol = symbol.split('-').nth(1).unwrap_or(&symbol).to_string();
+    let raw_symbol = extract_base_symbol(&symbol);
 
     let last_close_f: f64 = last_close.parse().unwrap_or(0.0);
     let (support_levels, resistance_levels) = compute_support_resistance(&prices, last_close_f);
@@ -619,24 +598,23 @@ async fn serve_analyze(
 
     let empty_snap = IndicatorSnapshot::default();
     let mtf = timeframes.as_ref();
-    let mid_snap = mtf.map(|t| &t.mid_term).unwrap_or(&indicators);
-    let long_snap = mtf.map(|t| &t.long_term).unwrap_or(&indicators);
-    let macro_snap = mtf.and_then(|t| t.macro_term.as_ref()).unwrap_or(&empty_snap);
-    let supermacro_snap = mtf.and_then(|t| t.supermacro_term.as_ref()).unwrap_or(&empty_snap);
+    let micro_snap = mtf.map(|t| &t.micro_term).unwrap_or(&indicators);
+    let small_snap = mtf.map(|t| &t.short_term).unwrap_or(&indicators);
+    let medium_snap = mtf.and_then(|t| t.medium_term.as_ref()).unwrap_or(&empty_snap);
+    let large_snap = mtf.and_then(|t| t.large_term.as_ref()).unwrap_or(&empty_snap);
 
     let support_strings: Vec<String> = support_levels.iter().map(|s| s.to_string()).collect();
     let resistance_strings: Vec<String> = resistance_levels.iter().map(|s| s.to_string()).collect();
-    let telemetry = compile_deterministic_telemetry(mid_snap, &support_strings, &resistance_strings);
+    let telemetry = compile_deterministic_telemetry(micro_snap, &support_strings, &resistance_strings);
 
     let multi_agent_results = match run_multi_agent_pipeline(
         state.llm_client.clone(),
         state.pool.clone(),
         &raw_symbol,
-        mid_snap,
-        mid_snap,
-        long_snap,
-        macro_snap,
-        supermacro_snap,
+        micro_snap,
+        small_snap,
+        medium_snap,
+        large_snap,
         &prices,
         master_id,
         &telemetry,
@@ -796,8 +774,7 @@ fn indicator_to_snapshot_local(snap: &IndicatorSnapshot) -> crate::profile_evalu
 pub async fn serve_system_status(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let pairs = state.pairs.read().await;
-    let active_pairs_count = pairs.len();
+    let active_pairs_count = state.workspace.instance_count().await;
 
     let costs = state.config.read().await.costs.clone();
     let total_ai_token_costs_usd = {
@@ -808,8 +785,9 @@ pub async fn serve_system_status(
     };
 
     let mut total_allocated_margin = 0.0;
-    for pair in pairs.values() {
-        if let Some(pos) = crate::db::paper_get_active_position(&state.pool, &pair.symbol).await {
+    let instances = state.workspace.instances.read().await;
+    for instance in instances.values() {
+        if let Some(pos) = crate::db::paper_get_active_position(&state.pool, &instance.symbol()).await {
             total_allocated_margin += pos.allocated_usd;
         }
     }
@@ -836,7 +814,7 @@ pub async fn serve_observability_buffers(
     } else {
         query.symbol
     };
-    let raw_symbol = symbol.split('-').nth(1).unwrap_or(&symbol).to_string();
+    let raw_symbol = symbol.split_once(':').map(|(_, s)| s).unwrap_or(&symbol).to_string();
 
     let recent_decisions: Vec<DecisionMemoryBufferRow> = sqlx::query_as(
         "SELECT id, symbol, timestamp, regime_classification, orchestrator_decision, confidence_score, eight_factor_score, portfolio_risk_pct \
@@ -996,11 +974,10 @@ pub async fn determine_atr_trend(pool: &SqlitePool, current_atr: Option<f64>, ti
 pub async fn run_phase_one_agents_mtf(
     client: &LlmClient,
     symbol: &str,
-    short: &IndicatorSnapshot,
-    mid: &IndicatorSnapshot,
-    long: &IndicatorSnapshot,
-    r#macro: &IndicatorSnapshot,
-    supermacro: &IndicatorSnapshot,
+    micro: &IndicatorSnapshot,
+    small: &IndicatorSnapshot,
+    medium: &IndicatorSnapshot,
+    large: &IndicatorSnapshot,
     _prices: &[f64],
     master_id: i64,
     telemetry_tx: &mpsc::Sender<crate::db::TelemetryMsg>,
@@ -1015,14 +992,13 @@ pub async fn run_phase_one_agents_mtf(
 
     let indicator_names = ["RSI", "MACD", "SQUEEZE", "ADX", "BOLLINGER_ATR", "VOLUME_EMA", "VWAP"];
     let sections = [&rsi_section, &macd_section, &squeeze_section, &adx_section, &bb_atr_section, &vol_ema_section, &vwap_section];
-    let macro_tf_secs = 900u64;
-    let supermacro_tf_secs = 3600u64;
-    let timeframes: [(&str, &IndicatorSnapshot, u64); 5] = [
-        ("short", short, 15),
-        ("mid", mid, 60),
-        ("long", long, 300),
-        ("macro", r#macro, macro_tf_secs),
-        ("supermacro", supermacro, supermacro_tf_secs),
+    let medium_tf_secs = 900u64;
+    let large_tf_secs = 3600u64;
+    let timeframes: [(&str, &IndicatorSnapshot, u64); 4] = [
+        ("micro", micro, 60),
+        ("small", small, 300),
+        ("medium", medium, medium_tf_secs),
+        ("large", large, large_tf_secs),
     ];
 
     let mut handles = Vec::new();
@@ -1375,24 +1351,22 @@ pub async fn run_multi_agent_pipeline(
     client: Arc<RwLock<LlmClient>>,
     pool: SqlitePool,
     symbol: &str,
-    _mid_short: &IndicatorSnapshot,
-    mid: &IndicatorSnapshot,
-    _long: &IndicatorSnapshot,
-    _macro_snap: &IndicatorSnapshot,
-    _supermacro: &IndicatorSnapshot,
+    micro: &IndicatorSnapshot,
+    _small: &IndicatorSnapshot,
+    _medium: &IndicatorSnapshot,
+    _large: &IndicatorSnapshot,
     prices: &[f64],
     master_id: i64,
     telemetry: &DeterministicTelemetry,
 ) -> Result<MultiAgentResults, String> {
     let client_guard = client.read().await;
     let prices_json = serde_json::to_string(&prices).unwrap_or_default();
-    let raw_symbol = symbol.split('-').nth(1).unwrap_or(symbol);
-    let pair_key = format!("Hyperliquid-{}", raw_symbol);
+    let pair_key = symbol.to_string();
 
     let context_trend = format!(
-        r#"{{ "close": {}, "ema_stack_state": "{}", "deterministic_eight_factor_score": {}, "macro_trend_regime": "{}" }}"#,
-        mid.current_price.unwrap_or(0.0),
-        mid.ema_stack_state.as_deref().unwrap_or("tangled"),
+        r#"{{ "close": {}, "ema_stack_state": "{}", "deterministic_eight_factor_score": {}, "medium_trend_regime": "{}" }}"#,
+        micro.current_price.unwrap_or(0.0),
+        micro.ema_stack_state.as_deref().unwrap_or("tangled"),
         telemetry.total_confluence_score,
         telemetry.market_regime
     );
@@ -1401,16 +1375,16 @@ pub async fn run_multi_agent_pipeline(
         r#"{{ "market_regime": "{}", "bbwp": {}, "atr": {}, "squeeze_on": {}, "rvol": {} }}"#,
         telemetry.market_regime,
         telemetry.bbwp_percentile,
-        mid.atr.unwrap_or(0.0),
+        micro.atr.unwrap_or(0.0),
         telemetry.squeeze_on,
         telemetry.rvol
     );
 
     let context_structure = format!(
         r#"{{ "current_price": {}, "prices": {}, "squeeze_momentum_direction": "{}" }}"#,
-        mid.current_price.unwrap_or(0.0),
+        micro.current_price.unwrap_or(0.0),
         prices_json,
-        mid.squeeze_momentum_direction.as_deref().unwrap_or("Flat")
+        micro.squeeze_momentum_direction.as_deref().unwrap_or("Flat")
     );
 
     let context_risk = format!(
@@ -1419,7 +1393,7 @@ pub async fn run_multi_agent_pipeline(
 
     let context_position = format!(
         r#"{{ "current_price": {} }}"#,
-        mid.current_price.unwrap_or(0.0)
+        micro.current_price.unwrap_or(0.0)
     );
 
     let client_trend = client_guard.api_key.clone();
@@ -1705,14 +1679,13 @@ async fn serve_assistant_records(
     };
     let default_symbol = state.config.read().await.symbols.first().cloned().unwrap_or_default();
     let latest_close = {
-        let (ex, sym) = default_symbol.split_once(':').unwrap_or(("Hyperliquid", &default_symbol));
-        let pair_key = format!("{}-{}", ex, sym.to_uppercase());
-        let pairs = state.pairs.read().await;
-        if let Some(pair) = pairs.get(&pair_key) {
-            let hist = pair.mid.history.read().await;
-            hist.back().map(|c| c.close.to_string()).unwrap_or_else(|| "0".to_string())
-        } else {
-            "0".to_string()
+        let pair_key = default_pair_key(&default_symbol);
+        match get_active_pair(&state.workspace, &pair_key).await {
+            Some(pair) => {
+                let hist = pair.micro.history.read().await;
+                hist.back().map(|c| c.close.to_string()).unwrap_or_else(|| "0".to_string())
+            }
+            None => "0".to_string(),
         }
     };
 
@@ -1754,11 +1727,10 @@ async fn serve_cost_estimate(
 
     let pair_key = query.pair_key.unwrap_or_else(|| {
         let first = config.symbols.first().cloned().unwrap_or_default();
-        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
-        format!("{}-{}", ex, sym.to_uppercase())
+        default_pair_key(&first)
     });
 
-    let interval_seconds = config.pairs.get(&pair_key)
+    let interval_seconds = config.instances.get(&pair_key)
         .map(|p| p.automation.interval_seconds)
         .unwrap_or(900);
 
@@ -1926,18 +1898,14 @@ async fn serve_paper_status(
     let symbol = if query.symbol.is_empty() {
         let cfg = state.config.read().await;
         let first = cfg.symbols.first().cloned().unwrap_or_default();
-        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
-        format!("{}-{}", ex, sym.to_uppercase())
+        default_pair_key(&first)
     } else {
         query.symbol
     };
 
-    let pair_arc = {
-        let pairs = state.pairs.read().await;
-        pairs.get(&symbol).cloned()
-    };
+    let pair_arc = get_active_pair(&state.workspace, &symbol).await;
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.mid.latest_snapshot.read().await;
+        let snap = pair.micro.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
@@ -2001,12 +1969,9 @@ async fn serve_paper_order(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<PaperOrderRequest>,
 ) -> impl IntoResponse {
-    let pair_arc = {
-        let pairs = state.pairs.read().await;
-        pairs.get(&payload.symbol).cloned()
-    };
+    let pair_arc = get_active_pair(&state.workspace, &payload.symbol).await;
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.mid.latest_snapshot.read().await;
+        let snap = pair.micro.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
@@ -2060,12 +2025,9 @@ async fn serve_paper_scale_in(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<PaperScaleInRequest>,
 ) -> impl IntoResponse {
-    let pair_arc = {
-        let pairs = state.pairs.read().await;
-        pairs.get(&payload.symbol).cloned()
-    };
+    let pair_arc = get_active_pair(&state.workspace, &payload.symbol).await;
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.mid.latest_snapshot.read().await;
+        let snap = pair.micro.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(payload.entry_price)
@@ -2109,12 +2071,9 @@ async fn serve_paper_scale_out(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<PaperScaleOutRequest>,
 ) -> impl IntoResponse {
-    let pair_arc = {
-        let pairs = state.pairs.read().await;
-        pairs.get(&payload.symbol).cloned()
-    };
+    let pair_arc = get_active_pair(&state.workspace, &payload.symbol).await;
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.mid.latest_snapshot.read().await;
+        let snap = pair.micro.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(payload.exit_price)
@@ -2150,18 +2109,14 @@ async fn serve_paper_unrealized(
     let symbol = if query.symbol.is_empty() {
         let cfg = state.config.read().await;
         let first = cfg.symbols.first().cloned().unwrap_or_default();
-        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
-        format!("{}-{}", ex, sym.to_uppercase())
+        default_pair_key(&first)
     } else {
         query.symbol
     };
 
-    let pair_arc = {
-        let pairs = state.pairs.read().await;
-        pairs.get(&symbol).cloned()
-    };
+    let pair_arc = get_active_pair(&state.workspace, &symbol).await;
     let current_price = if let Some(pair) = pair_arc {
-        let snap = pair.mid.latest_snapshot.read().await;
+        let snap = pair.micro.latest_snapshot.read().await;
         snap.as_ref()
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
             .unwrap_or(0.0)
@@ -2277,8 +2232,7 @@ async fn ws_handler(
     let pair_key = if query.symbol.is_empty() {
         let cfg = state.config.read().await;
         let first = cfg.symbols.first().cloned().unwrap_or_default();
-        let (ex, sym) = first.split_once(':').unwrap_or(("Hyperliquid", &first));
-        format!("{}-{}", ex, sym.to_uppercase())
+        default_pair_key(&first)
     } else {
         query.symbol
     };
@@ -2288,15 +2242,16 @@ async fn ws_handler(
 
 async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key: String, tf_secs: u64) {
     let rx = {
-        let pairs = state.pairs.read().await;
-        match pairs.get(&pair_key) {
-            Some(pair) => {
+        let instances = state.workspace.instances.read().await;
+        match instances.get(&pair_key) {
+            Some(instance) => {
+                let pair = &instance.active_pair;
                 if tf_secs == 300 {
-                    pair.long.broadcast_tx.subscribe()
+                    pair.short.broadcast_tx.subscribe()
                 } else if tf_secs == 900 {
-                    pair.r#macro.broadcast_tx.subscribe()
+                    pair.medium.broadcast_tx.subscribe()
                 } else {
-                    pair.mid.broadcast_tx.subscribe()
+                    pair.micro.broadcast_tx.subscribe()
                 }
             }
             None => return,
@@ -2401,314 +2356,6 @@ async fn serve_set_rules(
 
     println!("✅ Indicators guide updated successfully.");
     (axum::http::StatusCode::OK, "Rules updated successfully.").into_response()
-}
-
-async fn serve_add_pair(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<AddPairRequest>,
-) -> impl IntoResponse {
-    let raw_symbol = payload.symbol.trim().to_uppercase().to_string();
-    if raw_symbol.is_empty() || raw_symbol.len() > 10 {
-        return (axum::http::StatusCode::BAD_REQUEST, "Invalid symbol").into_response();
-    }
-
-    let exchange = payload.exchange.as_deref().unwrap_or("Hyperliquid");
-    let pair_key = format!("{}-{}", exchange, raw_symbol);
-    let normalized = format!("{}-USD", raw_symbol);
-
-    // Resolve correct Exchange enum from payload string
-    use shared::normalized::Exchange;
-    let exchange_enum = match exchange {
-        "Hyperliquid" => Exchange::Hyperliquid,
-        _ => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                "Unsupported exchange. Only Hyperliquid is currently supported."
-            ).into_response();
-        }
-    };
-
-    {
-        let pairs = state.pairs.read().await;
-        if pairs.contains_key(&pair_key) {
-            return (axum::http::StatusCode::CONFLICT, "Pair already active").into_response();
-        }
-
-        // Register the normalized symbol mapping dynamically
-        state.symbol_mapper.register(exchange_enum, &raw_symbol, &normalized).await;
-    }
-
-    // Persist Symbol addition: append new symbol to config.toml so it survives engine restarts
-    {
-        let mut config = state.config.write().await;
-        let symbol_entry = format!("{}:{}", exchange, raw_symbol);
-        if !config.symbols.contains(&symbol_entry) {
-            config.symbols.push(symbol_entry);
-            if let Ok(toml_str) = toml::to_string_pretty(&*config) {
-                let _ = std::fs::write("config.toml", toml_str);
-            }
-        }
-    }
-
-    let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
-    let config_guard = state.config.read().await;
-    let pair_cfg = config_guard.pairs.get(&pair_key);
-    let default_indicators = config_guard.indicators.clone();
-    let cancel = CancellationToken::new();
-
-    let mid_cfg = pair_cfg
-        .map(|p| p.mid_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let long_cfg = pair_cfg
-        .map(|p| p.long_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
-    let macro_cfg = pair_cfg
-        .and_then(|p| p.macro_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(
-            config_guard.macro_timeframe.duration_seconds,
-            default_indicators.clone(),
-        ));
-    let supermacro_cfg = pair_cfg
-        .and_then(|p| p.supermacro_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(
-            config_guard.supermacro_timeframe.duration_seconds,
-            default_indicators.clone(),
-        ));
-    let fib_config = config_guard.fibonacci.clone();
-    drop(config_guard);
-
-    let (mid_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (long_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (supermacro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-
-    let mid_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(mid_cfg.candles.analysis_limit)));
-    let long_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(long_cfg.candles.analysis_limit)));
-    let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(macro_cfg.candles.analysis_limit)));
-    let supermacro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(supermacro_cfg.candles.analysis_limit)));
-
-    let mid_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let long_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let supermacro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-
-    let pair = Arc::new(ActivePair {
-        symbol: raw_symbol.clone(),
-        mid: analyzer::TimeframePipeline {
-            history: mid_history.clone(),
-            broadcast_tx: mid_broadcast_tx.clone(),
-            latest_snapshot: mid_latest.clone(),
-            timeframe_secs: 60,
-            timeframe_label: "Mid",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: fib_config.clone(),
-        },
-        long: analyzer::TimeframePipeline {
-            history: long_history.clone(),
-            broadcast_tx: long_broadcast_tx.clone(),
-            latest_snapshot: long_latest.clone(),
-            timeframe_secs: 300,
-            timeframe_label: "Long",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: fib_config.clone(),
-        },
-        r#macro: analyzer::TimeframePipeline {
-            history: macro_history.clone(),
-            broadcast_tx: macro_broadcast_tx.clone(),
-            latest_snapshot: macro_latest.clone(),
-            timeframe_secs: macro_cfg.candles.duration_seconds,
-            timeframe_label: "Macro",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: fib_config.clone(),
-        },
-        supermacro: analyzer::TimeframePipeline {
-            history: supermacro_history.clone(),
-            broadcast_tx: supermacro_broadcast_tx.clone(),
-            latest_snapshot: supermacro_latest.clone(),
-            timeframe_secs: supermacro_cfg.candles.duration_seconds,
-            timeframe_label: "SuperMacro",
-            divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
-            sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
-            fibonacci: fib_config.clone(),
-        },
-        snapshot_tx: snapshot_tx.clone(),
-        cancel: cancel.clone(),
-    });
-
-    state.pairs.write().await.insert(pair_key.clone(), Arc::clone(&pair));
-
-    // Spawn 4 pipeline channels from the router
-    let (mid_chan_tx, mid_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (long_chan_tx, long_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (supermacro_chan_tx, supermacro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-
-    // Event router: fan out WS events to all 4 timeframes
-    let router_symbol = raw_symbol.clone();
-    let router_cancel = cancel.clone();
-    tokio::spawn(async move {
-        analyzer::run_event_router(
-            snapshot_rx,
-            mid_chan_tx,
-            long_chan_tx,
-            macro_chan_tx,
-            supermacro_chan_tx,
-            router_symbol,
-            router_cancel,
-        ).await;
-    });
-
-    // Spawn 4 independent pipeline tasks
-    let supermacro_secs = supermacro_cfg.candles.duration_seconds;
-    let macro_secs = macro_cfg.candles.duration_seconds;
-    let pipeline_specs: [(_, _, _, _, _, _, _, _, Option<tokio::sync::mpsc::UnboundedSender<NormalizedCandle>>); 4] = [
-        (mid_chan_rx, mid_cfg.clone(), mid_history.clone(), mid_latest.clone(), "Mid", 60u64, mid_broadcast_tx.clone(), pair.mid.divergence_detector.clone(), None),
-        (long_chan_rx, long_cfg.clone(), long_history.clone(), long_latest.clone(), "Long", 300u64, long_broadcast_tx.clone(), pair.long.divergence_detector.clone(), None),
-        (macro_chan_rx, macro_cfg, macro_history.clone(), macro_latest.clone(), "Macro", macro_secs, macro_broadcast_tx.clone(), pair.r#macro.divergence_detector.clone(), None),
-        (supermacro_chan_rx, supermacro_cfg, supermacro_history.clone(), supermacro_latest.clone(), "SuperMacro", supermacro_secs, supermacro_broadcast_tx.clone(), pair.supermacro.divergence_detector.clone(), None),
-    ];
-
-    for (rx, tf_cfg, hist, snap, label, tf_secs, bcast, div_det, candle_fwd) in pipeline_specs {
-        let a_symbol = raw_symbol.clone();
-        let a_pair_key = pair_key.clone();
-        let a_telemetry = state.telemetry_tx.clone();
-        let a_cancel = cancel.clone();
-        let a_fib = fib_config.clone();
-        tokio::spawn(async move {
-            analyzer::run_single(
-                rx,
-                a_telemetry,
-                bcast,
-                tf_cfg,
-                a_fib,
-                div_det,
-                hist,
-                snap,
-                a_symbol,
-                a_pair_key,
-                tf_secs,
-                label,
-                a_cancel,
-                candle_fwd,
-            ).await;
-        });
-    }
-
-    // WebSocket adapter
-    let ws_symbol = raw_symbol.clone();
-    let ws_tx = snapshot_tx.clone();
-    let ws_cancel = cancel.clone();
-    let ws_url = state.ws_url.clone();
-    tokio::spawn(async move {
-        adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
-    });
-
-    let auto_ctx = automation::AutomationContext {
-        pair_key: pair_key.clone(),
-        symbol: raw_symbol.clone(),
-        mid_history: mid_history.clone(),
-        long_history: long_history.clone(),
-        macro_history: macro_history.clone(),
-        supermacro_history: supermacro_history.clone(),
-        mid_latest: mid_latest.clone(),
-        long_latest: long_latest.clone(),
-        macro_latest: macro_latest.clone(),
-        supermacro_latest: supermacro_latest.clone(),
-        config: state.config.clone(),
-        pool: state.pool.clone(),
-        llm_client: state.llm_client.clone(),
-        telemetry_tx: state.telemetry_tx.clone(),
-        cancel: cancel.clone(),
-        api_key_configured: state.api_key_configured.clone(),
-        portfolio_risk: Arc::new(crate::portfolio_risk::PortfolioRiskState::default()),
-        pair_close_histories: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        safety: Arc::new(crate::safety::SafetyManager::new(3, 5, 8, 30.0)),
-        intervals: {
-            let cfg = state.config.read().await;
-            cfg.intervals.clone()
-        },
-        next_interval_override: Arc::new(RwLock::new(None)),
-    };
-    tokio::spawn(async move {
-        automation::run_pair_automation_loop(auto_ctx).await;
-    });
-
-    println!("✅ Pair added: {}", pair_key);
-    (axum::http::StatusCode::CREATED, format!("Pair {} added", pair_key)).into_response()
-}
-
-async fn serve_remove_pair(
-    State(state): State<Arc<AppState>>,
-    Path(pair_key): Path<String>,
-) -> impl IntoResponse {
-    let pair = {
-        let mut pairs = state.pairs.write().await;
-        pairs.remove(&pair_key)
-    };
-
-    match pair {
-        Some(pair) => {
-            // Terminate backend analyzer loop task cleanly
-            pair.cancel.cancel();
-
-            // Persist Symbol removal and clean pairs.json
-            {
-                let mut config = state.config.write().await;
-
-                // 1. Remove from config's active symbols array
-                let parts: Vec<&str> = pair_key.split('-').collect();
-                if parts.len() == 2 {
-                    let symbol_entry = format!("{}:{}", parts[0], parts[1]);
-                    if let Some(pos) = config.symbols.iter().position(|s| s == &symbol_entry) {
-                        config.symbols.remove(pos);
-                        if let Ok(toml_str) = toml::to_string_pretty(&*config) {
-                            let _ = std::fs::write("config.toml", toml_str);
-                        }
-                    }
-                }
-
-                // 2. Remove pair-specific config block and save pairs.json
-                config.pairs.remove(&pair_key);
-                crate::config::save_pairs(&config.pairs);
-            }
-
-            println!("✅ Pair removed: {}", pair_key);
-            (axum::http::StatusCode::OK, format!("Pair {} removed", pair_key)).into_response()
-        }
-        None => {
-            (axum::http::StatusCode::NOT_FOUND, "Pair not found").into_response()
-        }
-    }
-}
-
-async fn serve_update_pair_config(
-    State(state): State<Arc<AppState>>,
-    Path(pair_key): Path<String>,
-    Json(payload): Json<PairConfigPayload>,
-) -> impl IntoResponse {
-    let mut config = state.config.write().await;
-
-    let specific_config = crate::config::PairSpecificConfig {
-        mid_term: payload.mid_term,
-        long_term: payload.long_term,
-        macro_term: payload.macro_term,
-        supermacro_term: payload.supermacro_term,
-        automation: payload.automation,
-    };
-
-    config.pairs.insert(pair_key.clone(), specific_config);
-    crate::config::save_pairs(&config.pairs);
-    println!("✅ Pair config saved: {}", pair_key);
-    (axum::http::StatusCode::OK, "Pair configuration saved successfully").into_response()
-}
-
-async fn serve_list_pairs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let pairs = state.pairs.read().await;
-    let symbols: Vec<String> = pairs.keys().cloned().collect();
-    Json(PairsListResponse { symbols })
 }
 
 async fn serve_add_trade(
@@ -3531,8 +3178,16 @@ pub struct InstanceListResponse {
     pub max_count: usize,
 }
 
-async fn serve_list_instances(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let summaries = instance_registry::list_instances(&state.workspace).await;
+async fn serve_list_instances(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<InstanceDetailQuery>,
+) -> impl IntoResponse {
+    let all_summaries = instance_registry::list_instances(&state.workspace).await;
+    let summaries: Vec<_> = if let Some(ref pk) = query.pair_key {
+        all_summaries.into_iter().filter(|s| s.pair == *pk).collect()
+    } else {
+        all_summaries
+    };
     let max_count = state.workspace.max_instances().await;
     Json(InstanceListResponse {
         total_count: summaries.len(),
@@ -3583,6 +3238,88 @@ async fn serve_delete_instance(
     match instance_registry::delete_instance(&state.workspace, &instance_id).await {
         Ok(()) => (axum::http::StatusCode::OK, format!("Instance {} deleted", instance_id)).into_response(),
         Err(e) => (axum::http::StatusCode::NOT_FOUND, e).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InstanceDetailQuery {
+    pub pair_key: Option<String>,
+}
+
+async fn serve_get_instance_detail(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance = instances.values().find(|i| i.id == instance_id).cloned();
+    drop(instances);
+
+    match instance {
+        Some(inst) => {
+            let status = inst.status.read().await.as_str().to_string();
+            let paper = crate::db::paper_get_account_metrics(&state.pool, &inst.symbol(), 0.0).await;
+            Json(serde_json::json!({
+                "id": inst.id,
+                "pair": inst.pair_display(),
+                "symbol": inst.symbol(),
+                "status": status,
+                "initial_capital": *inst.initial_capital.read().await,
+                "current_equity": *inst.current_equity.read().await,
+                "paper_balance": paper.current_cash,
+                "paper_equity": paper.total_account_value,
+                "paper_unrealized_pnl": paper.unrealized_pnl,
+                "tp_levels": *inst.tp_levels.read().await,
+                "sl_levels": *inst.sl_levels.read().await,
+                "consecutive_losses": inst.safety.consecutive_losses.load(std::sync::atomic::Ordering::Relaxed),
+                "caution_level": inst.safety.caution_level.read().await.as_str().to_string(),
+            }))
+            .into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InstanceConfigPayload {
+    pub micro_term: crate::config::TimeframeConfig,
+    pub short_term: crate::config::TimeframeConfig,
+    #[serde(default)]
+    pub medium_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub large_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub automation: crate::config::AutomationConfig,
+}
+
+async fn serve_update_instance_config(
+    State(state): State<Arc<AppState>>,
+    Path(instance_id): Path<String>,
+    Json(payload): Json<InstanceConfigPayload>,
+) -> impl IntoResponse {
+    let pair_key = {
+        let instances = state.workspace.instances.read().await;
+        // Try by instance ID first, then by pair_key directly
+        instances.iter()
+            .find(|(k, i)| i.id == instance_id || **k == instance_id)
+            .map(|(k, _)| k.clone())
+    };
+
+    match pair_key {
+        Some(pk) => {
+            let mut config = state.config.write().await;
+            let specific_config = crate::config::InstanceSpecificConfig {
+                micro_term: payload.micro_term,
+                short_term: payload.short_term,
+                medium_term: payload.medium_term,
+                large_term: payload.large_term,
+                automation: payload.automation,
+            };
+            config.instances.insert(pk.clone(), specific_config);
+            crate::config::save_instances(&config.instances);
+            println!("✅ Instance config saved: {}", pk);
+            (axum::http::StatusCode::OK, "Instance configuration saved successfully").into_response()
+        }
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
 }
 

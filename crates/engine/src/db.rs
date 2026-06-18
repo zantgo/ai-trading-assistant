@@ -968,14 +968,7 @@ pub async fn init_db() -> SqlitePool {
     .ok();
 
     sqlx::query(
-        "ALTER TABLE master_assistant_records ADD COLUMN short_term_signal TEXT"
-    )
-    .execute(&pool)
-    .await
-    .ok();
-
-    sqlx::query(
-        "ALTER TABLE master_assistant_records ADD COLUMN mid_term_signal TEXT"
+        "ALTER TABLE master_assistant_records ADD COLUMN micro_term_signal TEXT"
     )
     .execute(&pool)
     .await

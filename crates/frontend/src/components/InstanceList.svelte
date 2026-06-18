@@ -53,6 +53,7 @@
             });
             const data = await res.json();
             if (res.ok) {
+                app.initInstance(base);
                 newBase = '';
                 await fetchInstances();
             } else {

@@ -66,14 +66,14 @@ use crate::portfolio_risk::PortfolioRiskState;
 pub struct AutomationContext {
     pub pair_key: String,
     pub symbol: String,
-    pub mid_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub long_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub macro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub supermacro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    pub mid_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-    pub long_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-    pub macro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
-    pub supermacro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub micro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub short_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub medium_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub large_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    pub micro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub medium_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    pub large_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
     pub llm_client: Arc<RwLock<LlmClient>>,
@@ -124,7 +124,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
     let mut state = {
         let cfg = ctx.config.read().await;
-        let pair_cfg = cfg.pairs.get(&ctx.pair_key).map(|p| &p.automation);
+        let pair_cfg = cfg.instances.get(&ctx.pair_key).map(|p| &p.automation);
         match pair_cfg {
             Some(auto_cfg) => AutomationState::from_config(auto_cfg),
             None => AutomationState::from_config(&AutomationConfig::default()),
@@ -143,7 +143,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
         let fresh_config = ctx.config.read().await.clone();
         let auto_cfg = fresh_config
-            .pairs
+            .instances
             .get(&ctx.pair_key)
             .map(|p| &p.automation)
             .cloned()
@@ -180,7 +180,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             eprintln!("🛑 Automation: {} drawdown stop triggered: {}", ctx.pair_key, reason);
             // Immediately close any open positions to protect remaining capital
             if let Some(_) = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await {
-                let price = ctx.mid_latest.read().await.as_ref()
+                let price = ctx.micro_latest.read().await.as_ref()
                     .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
                     .unwrap_or(0.0);
                 if price > 0.0 {
@@ -214,7 +214,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
-        let history_guard = ctx.mid_history.read().await;
+        let history_guard = ctx.micro_history.read().await;
         let candle_count = history_guard.len();
         if candle_count < 10 {
             drop(history_guard);
@@ -239,23 +239,21 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
-        // Gather snapshots from all 5 timeframes
+        // Gather snapshots from all 4 timeframes
         let config_guard = ctx.config.read().await;
-        let macro_tf_secs = config_guard.macro_timeframe.duration_seconds;
-        let supermacro_tf_secs = config_guard.supermacro_timeframe.duration_seconds;
+        let medium_tf_secs = config_guard.medium_timeframe.duration_seconds;
+        let large_tf_secs = config_guard.large_timeframe.duration_seconds;
         drop(config_guard);
 
-        let snapshot_short = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 15).await;
-        let snapshot_mid = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
-        let snapshot_long = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 300).await;
-        let snapshot_macro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, macro_tf_secs).await;
-        let snapshot_supermacro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, supermacro_tf_secs).await;
+        let snapshot_micro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
+        let snapshot_small = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 300).await;
+        let snapshot_medium = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, medium_tf_secs).await;
+        let snapshot_large = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, large_tf_secs).await;
 
-        let indicators_short = build_indicator_snapshot(&snapshot_short);
-        let indicators_mid = build_indicator_snapshot(&snapshot_mid);
-        let indicators_long = build_indicator_snapshot(&snapshot_long);
-        let indicators_macro = build_indicator_snapshot(&snapshot_macro);
-        let indicators_supermacro = build_indicator_snapshot(&snapshot_supermacro);
+        let indicators_micro = build_indicator_snapshot(&snapshot_micro);
+        let indicators_small = build_indicator_snapshot(&snapshot_small);
+        let indicators_medium = build_indicator_snapshot(&snapshot_medium);
+        let indicators_large = build_indicator_snapshot(&snapshot_large);
 
         let (support_levels, resistance_levels) =
             crate::server::compute_support_resistance(&prices, last_close);
@@ -287,14 +285,13 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         let bg_config = ctx.config.clone();
         let bg_symbol = ctx.symbol.clone();
         let bg_pair_key = ctx.pair_key.clone();
-        let bg_mid_history = ctx.mid_history.clone();
+        let bg_micro_history = ctx.micro_history.clone();
         let bg_support_levels = support_levels.clone();
         let bg_resistance_levels = resistance_levels.clone();
-        let bg_indicators_short = indicators_short.clone();
-        let bg_indicators_mid = indicators_mid.clone();
-        let bg_indicators_long = indicators_long.clone();
-        let bg_indicators_macro = indicators_macro.clone();
-        let bg_indicators_supermacro = indicators_supermacro.clone();
+        let bg_indicators_micro = indicators_micro.clone();
+        let bg_indicators_small = indicators_small.clone();
+        let bg_indicators_medium = indicators_medium.clone();
+        let bg_indicators_large = indicators_large.clone();
         let bg_prices = prices.clone();
         let bg_portfolio_risk = ctx.portfolio_risk.clone();
         let bg_pair_close_histories = ctx.pair_close_histories.clone();
@@ -310,7 +307,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             let support_strings: Vec<String> = bg_support_levels.iter().map(|s| s.to_string()).collect();
             let resistance_strings: Vec<String> = bg_resistance_levels.iter().map(|s| s.to_string()).collect();
             let telemetry = crate::server::compile_deterministic_telemetry(
-                &bg_indicators_mid,
+                &bg_indicators_micro,
                 &support_strings,
                 &resistance_strings,
             );
@@ -319,11 +316,10 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 bg_llm.clone(),
                 bg_pool.clone(),
                 &bg_symbol,
-                &bg_indicators_short,
-                &bg_indicators_mid,
-                &bg_indicators_long,
-                &bg_indicators_macro,
-                &bg_indicators_supermacro,
+                &bg_indicators_micro,
+                &bg_indicators_small,
+                &bg_indicators_medium,
+                &bg_indicators_large,
                 &bg_prices,
                 master_id,
                 &telemetry,
@@ -391,7 +387,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                 *bg_next_interval_override.write().await = Some(new_secs);
             }
 
-            let local_snap = indicator_to_snapshot(&bg_indicators_mid);
+            let local_snap = indicator_to_snapshot(&bg_indicators_micro);
             let regime = classify_market_regime(&local_snap);
 
             let _ = sqlx::query(
@@ -432,7 +428,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
                 let auto_cfg = {
                     let cfg = bg_config.read().await;
-                    cfg.pairs.get(&bg_pair_key)
+                    cfg.instances.get(&bg_pair_key)
                         .map(|p| p.automation.clone())
                         .unwrap_or_default()
                 };
@@ -464,7 +460,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                     let pos = db::paper_get_active_position(&bg_pool, &bg_symbol).await;
                     if let Some(ref p) = pos {
                         let macro_trend = phase_two.general_trend.as_str();
-                        let snap_values = indicator_to_snapshot(&bg_indicators_mid);
+                        let snap_values = indicator_to_snapshot(&bg_indicators_micro);
                         let (should_exit, opposite_count) = paper_trading::evaluate_opposite_exit(
                             &p.direction,
                             &snap_values,
@@ -490,7 +486,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                     paper_trading::check_break_even_trail(&bg_pool, &bg_symbol, current_price).await;
                 }
 
-                let mid_hist = bg_mid_history.read().await;
+                let mid_hist = bg_micro_history.read().await;
                 let mid_candles: Vec<NormalizedCandle> = mid_hist.iter().cloned().collect();
                 drop(mid_hist);
                 if let Some(inval_price) = check_decisive_close_invalidation(
@@ -505,64 +501,59 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
                     return;
                 }
 
-                let macro_trend_direction = determine_macro_trend_direction(&bg_indicators_macro);
+                let medium_trend_direction = determine_medium_trend_direction(&bg_indicators_medium);
 
-                let short_trend = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("short-"))
+                let micro_trend = &legacy_signals.iter()
+                    .filter(|r| r.indicator_name.starts_with("micro-"))
                     .map(|r| r.signal.as_str())
                     .collect::<Vec<_>>();
-                let mid_trend = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("mid-"))
+                let small_trend = &legacy_signals.iter()
+                    .filter(|r| r.indicator_name.starts_with("small-"))
                     .map(|r| r.signal.as_str())
                     .collect::<Vec<_>>();
-                let long_trend = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("long-"))
+                let medium_trend_signals = &legacy_signals.iter()
+                    .filter(|r| r.indicator_name.starts_with("medium-"))
                     .map(|r| r.signal.as_str())
                     .collect::<Vec<_>>();
-                let macro_trend_signals = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("macro-"))
-                    .map(|r| r.signal.as_str())
-                    .collect::<Vec<_>>();
-                let supermacro_trend_signals = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("supermacro-"))
+                let large_trend_signals = &legacy_signals.iter()
+                    .filter(|r| r.indicator_name.starts_with("large-"))
                     .map(|r| r.signal.as_str())
                     .collect::<Vec<_>>();
 
-                let short_consensus = if short_trend.iter().filter(|&&s| s == "BULLISH").count() >= short_trend.len() / 2 { "BULLISH" } else if short_trend.iter().filter(|&&s| s == "BEARISH").count() >= short_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let mid_consensus = if mid_trend.iter().filter(|&&s| s == "BULLISH").count() >= mid_trend.len() / 2 { "BULLISH" } else if mid_trend.iter().filter(|&&s| s == "BEARISH").count() >= mid_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let long_consensus = if long_trend.iter().filter(|&&s| s == "BULLISH").count() >= long_trend.len() / 2 { "BULLISH" } else if long_trend.iter().filter(|&&s| s == "BEARISH").count() >= long_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let macro_consensus = if macro_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= macro_trend_signals.len() / 2 { "BULLISH" } else if macro_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= macro_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let supermacro_consensus = if supermacro_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= supermacro_trend_signals.len() / 2 { "BULLISH" } else if supermacro_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= supermacro_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+                let micro_consensus = if micro_trend.iter().filter(|&&s| s == "BULLISH").count() >= micro_trend.len() / 2 { "BULLISH" } else if micro_trend.iter().filter(|&&s| s == "BEARISH").count() >= micro_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+                let small_consensus = if small_trend.iter().filter(|&&s| s == "BULLISH").count() >= small_trend.len() / 2 { "BULLISH" } else if small_trend.iter().filter(|&&s| s == "BEARISH").count() >= small_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+                let medium_consensus = if medium_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= medium_trend_signals.len() / 2 { "BULLISH" } else if medium_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= medium_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+                let large_consensus = if large_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= large_trend_signals.len() / 2 { "BULLISH" } else if large_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= large_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
 
-                let (confluence, count) = evaluate_confluence_mtf(short_consensus, mid_consensus, long_consensus, macro_consensus, supermacro_consensus);
+                let (confluence, count) = evaluate_confluence_mtf(micro_consensus, small_consensus, medium_consensus, large_consensus);
 
                 match action {
                     "Open Long" => {
-                        if macro_trend_direction != "BULLISH" {
-                            println!("📄 Auto Paper: {} skipping Open Long — macro trend is {} (15m chart)", bg_pair_key, macro_trend_direction);
+                        if medium_trend_direction != "BULLISH" {
+                            println!("📄 Auto Paper: {} skipping Open Long — medium trend is {} (15m chart)", bg_pair_key, medium_trend_direction);
                         } else if confluence == "BULLISH" {
                             let res = paper_trading::verify_margin_and_open_with_alloc(
                                 &bg_pool, &bg_telemetry,
                                 &bg_symbol, "LONG", current_price,
                                 eight_factor_score,
                             ).await;
-                            println!("📄 Auto Paper: {} {} (confluence {}/5, macro {})", bg_pair_key, res.message, count, macro_trend_direction);
+                            println!("📄 Auto Paper: {} {} (confluence {}/4, medium {})", bg_pair_key, res.message, count, medium_trend_direction);
                         } else {
-                            println!("📄 Auto Paper: {} skipping Open Long — no confluence ({}/5 aligned)", bg_pair_key, count);
+                            println!("📄 Auto Paper: {} skipping Open Long — no confluence ({}/4 aligned)", bg_pair_key, count);
                         }
                     }
                     "Open Short" => {
-                        if macro_trend_direction != "BEARISH" {
-                            println!("📄 Auto Paper: {} skipping Open Short — macro trend is {} (15m chart)", bg_pair_key, macro_trend_direction);
+                        if medium_trend_direction != "BEARISH" {
+                            println!("📄 Auto Paper: {} skipping Open Short — medium trend is {} (15m chart)", bg_pair_key, medium_trend_direction);
                         } else if confluence == "BEARISH" {
                             let res = paper_trading::verify_margin_and_open_with_alloc(
                                 &bg_pool, &bg_telemetry,
                                 &bg_symbol, "SHORT", current_price,
                                 eight_factor_score,
                             ).await;
-                            println!("📄 Auto Paper: {} {} (confluence {}/5, macro {})", bg_pair_key, res.message, count, macro_trend_direction);
+                            println!("📄 Auto Paper: {} {} (confluence {}/4, medium {})", bg_pair_key, res.message, count, medium_trend_direction);
                         } else {
-                            println!("📄 Auto Paper: {} skipping Open Short — no confluence ({}/5 aligned)", bg_pair_key, count);
+                            println!("📄 Auto Paper: {} skipping Open Short — no confluence ({}/4 aligned)", bg_pair_key, count);
                         }
                     }
                     "Close" => {
@@ -619,9 +610,9 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
     println!("🛑 Automation Task: {} scheduler terminated.", ctx.pair_key);
 }
 
-/// Determine the macro trend direction from the 15-minute chart (Section 3.2).
-/// Returns "BULLISH" if price > 200 EMA on macro timeframe, "BEARISH" otherwise.
-fn determine_macro_trend_direction(indicators: &crate::server::IndicatorSnapshot) -> &'static str {
+/// Determine the medium trend direction from the 15-minute chart (Section 3.2).
+/// Returns "BULLISH" if price > 200 EMA on medium timeframe, "BEARISH" otherwise.
+fn determine_medium_trend_direction(indicators: &crate::server::IndicatorSnapshot) -> &'static str {
     match (indicators.ema_long, indicators.current_price) {
         (Some(ema), Some(price)) if price > ema => "BULLISH",
         (Some(_ema), Some(_price)) => "BEARISH",
@@ -639,13 +630,13 @@ fn determine_macro_trend_direction(indicators: &crate::server::IndicatorSnapshot
 async fn check_decisive_close_invalidation(
     pool: &SqlitePool,
     symbol: &str,
-    mid_history: &[NormalizedCandle],
+    micro_history: &[NormalizedCandle],
 ) -> Option<f64> {
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = position.as_ref()?;
 
     let invalidation = pos.final_invalidation_level?;
-    let last_candle = mid_history.last()?;
+    let last_candle = micro_history.last()?;
 
     let tolerance_pct = 0.002;
     let buffer = last_candle.close.to_string().parse::<f64>().unwrap_or(0.0) * tolerance_pct;
@@ -673,25 +664,23 @@ async fn check_decisive_close_invalidation(
     }
 }
 
-fn evaluate_confluence_mtf(short_signal: &str, mid_signal: &str, long_signal: &str, macro_signal: &str, supermacro_signal: &str) -> (&'static str, usize) {
+fn evaluate_confluence_mtf(micro_signal: &str, small_signal: &str, medium_signal: &str, large_signal: &str) -> (&'static str, usize) {
     let bullish = ["BULLISH", "UPWARD"];
     let bearish = ["BEARISH", "DOWNWARD"];
 
-    let short_bull = bullish.iter().any(|&s| short_signal.to_uppercase().contains(s));
-    let short_bear = bearish.iter().any(|&s| short_signal.to_uppercase().contains(s));
-    let mid_bull = bullish.iter().any(|&s| mid_signal.to_uppercase().contains(s));
-    let mid_bear = bearish.iter().any(|&s| mid_signal.to_uppercase().contains(s));
-    let long_bull = bullish.iter().any(|&s| long_signal.to_uppercase().contains(s));
-    let long_bear = bearish.iter().any(|&s| long_signal.to_uppercase().contains(s));
-    let macro_bull = bullish.iter().any(|&s| macro_signal.to_uppercase().contains(s));
-    let macro_bear = bearish.iter().any(|&s| macro_signal.to_uppercase().contains(s));
-    let supermacro_bull = bullish.iter().any(|&s| supermacro_signal.to_uppercase().contains(s));
-    let supermacro_bear = bearish.iter().any(|&s| supermacro_signal.to_uppercase().contains(s));
+    let micro_bull = bullish.iter().any(|&s| micro_signal.to_uppercase().contains(s));
+    let micro_bear = bearish.iter().any(|&s| micro_signal.to_uppercase().contains(s));
+    let small_bull = bullish.iter().any(|&s| small_signal.to_uppercase().contains(s));
+    let small_bear = bearish.iter().any(|&s| small_signal.to_uppercase().contains(s));
+    let medium_bull = bullish.iter().any(|&s| medium_signal.to_uppercase().contains(s));
+    let medium_bear = bearish.iter().any(|&s| medium_signal.to_uppercase().contains(s));
+    let large_bull = bullish.iter().any(|&s| large_signal.to_uppercase().contains(s));
+    let large_bear = bearish.iter().any(|&s| large_signal.to_uppercase().contains(s));
 
-    let bull_count = [short_bull, mid_bull, long_bull, macro_bull, supermacro_bull].iter().filter(|&&x| x).count();
-    let bear_count = [short_bear, mid_bear, long_bear, macro_bear, supermacro_bear].iter().filter(|&&x| x).count();
+    let bull_count = [micro_bull, small_bull, medium_bull, large_bull].iter().filter(|&&x| x).count();
+    let bear_count = [micro_bear, small_bear, medium_bear, large_bear].iter().filter(|&&x| x).count();
 
-    // Require at least 3 of 5 timeframes aligned
+    // Require at least 3 of 4 timeframes aligned
     if bull_count >= 3 {
         ("BULLISH", bull_count)
     } else if bear_count >= 3 {

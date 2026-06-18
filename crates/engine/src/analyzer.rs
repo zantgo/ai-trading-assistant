@@ -27,20 +27,20 @@ pub struct TimeframePipeline {
 
 pub struct ActivePair {
     pub symbol: String,
-    pub mid: TimeframePipeline,
-    pub long: TimeframePipeline,
-    pub r#macro: TimeframePipeline,
-    pub supermacro: TimeframePipeline,
+    pub micro: TimeframePipeline,
+    pub short: TimeframePipeline,
+    pub medium: TimeframePipeline,
+    pub large: TimeframePipeline,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
 }
 
 pub async fn run_event_router(
     mut rx: Receiver<NormalizedEvent>,
-    mid_tx: Sender<NormalizedEvent>,
-    long_tx: Sender<NormalizedEvent>,
-    macro_tx: Sender<NormalizedEvent>,
-    supermacro_tx: Sender<NormalizedEvent>,
+    micro_tx: Sender<NormalizedEvent>,
+    short_tx: Sender<NormalizedEvent>,
+    medium_tx: Sender<NormalizedEvent>,
+    large_tx: Sender<NormalizedEvent>,
     symbol: String,
     cancel: CancellationToken,
 ) {
@@ -64,10 +64,10 @@ pub async fn run_event_router(
             }
         };
 
-        let _ = mid_tx.send(event.clone()).await;
-        let _ = long_tx.send(event.clone()).await;
-        let _ = macro_tx.send(event.clone()).await;
-        let _ = supermacro_tx.send(event).await;
+        let _ = micro_tx.send(event.clone()).await;
+        let _ = short_tx.send(event.clone()).await;
+        let _ = medium_tx.send(event.clone()).await;
+        let _ = large_tx.send(event).await;
     }
 }
 

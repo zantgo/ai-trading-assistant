@@ -7,26 +7,26 @@ describe('TEST-UI: State Reactive Effects', () => {
 
     beforeEach(() => {
         app = getState();
-        app.initPair('BTC');
+        app.initInstance('BTC');
         app.apiKeyConfigured = true;
     });
 
-    it('should register all five timeframes on pair init', () => {
-        const pair = app.pairsMap['Hyperliquid-BTC'];
+    it('should register all four timeframes on pair init', () => {
+        const pair = app.instancesMap['BTC-USDT'];
         expect(pair).toBeDefined();
         expect(pair.symbol).toBe('BTC');
         expect(pair.exchange).toBe('Hyperliquid');
 
         // All four timeframes should exist with default values
-        expect(pair.midTerm).toBeDefined();
-        expect(pair.longTerm).toBeDefined();
-        expect(pair.macroTerm).toBeDefined();
-        expect(pair.supermacroTerm).toBeDefined();
+        expect(pair.microTerm).toBeDefined();
+        expect(pair.smallTerm).toBeDefined();
+        expect(pair.mediumTerm).toBeDefined();
+        expect(pair.largeTerm).toBeDefined();
 
-        // Mid-term defaults
-        expect(pair.midTerm.priceText).toBe('--');
-        expect(pair.midTerm.rsiText).toBe('--');
-        expect(pair.midTerm.macdLineText).toBe('--');
+        // Micro-term defaults
+        expect(pair.microTerm.priceText).toBe('--');
+        expect(pair.microTerm.rsiText).toBe('--');
+        expect(pair.microTerm.macdLineText).toBe('--');
         expect(pair.isConnected).toBe(false);
     });
 
@@ -60,10 +60,10 @@ describe('TEST-UI: State Reactive Effects', () => {
     });
 
     it('should update chart telemetry via snapshot assignment', () => {
-        const pair = app.pairsMap['Hyperliquid-BTC'];
+        const pair = app.instancesMap['BTC-USDT'];
 
         // Simulate receiving a market snapshot
-        pair.midTerm.latestSnapshot = {
+        pair.microTerm.latestSnapshot = {
             mid_price: '65000.00',
             exchange: 'Hyperliquid',
             symbol: 'BTC',
@@ -82,8 +82,8 @@ describe('TEST-UI: State Reactive Effects', () => {
             is_completed: true,
         };
 
-        expect(pair.midTerm.latestSnapshot).not.toBeNull();
-        const snap = pair.midTerm.latestSnapshot!;
+        expect(pair.microTerm.latestSnapshot).not.toBeNull();
+        const snap = pair.microTerm.latestSnapshot!;
         expect(snap.mid_price).toBe('65000.00');
         expect(snap.symbol).toBe('BTC');
         expect(snap.is_completed).toBe(true);
@@ -104,21 +104,21 @@ describe('TEST-UI: State Reactive Effects', () => {
     });
 
     it('should snapshot per-timeframe state independently', () => {
-        app.initPair('ETH');
+        app.initInstance('ETH');
 
-        // Set values on BTC mid-term
-        app.pairsMap['Hyperliquid-BTC'].midTerm.priceText = '65000.00';
-        app.pairsMap['Hyperliquid-BTC'].midTerm.rsiText = '62.5';
+        // Set values on BTC micro-term
+        app.instancesMap['BTC-USDT'].microTerm.priceText = '65000.00';
+        app.instancesMap['BTC-USDT'].microTerm.rsiText = '62.5';
 
-        // Set values on ETH long-term
-        app.pairsMap['Hyperliquid-ETH'].longTerm.priceText = '3200.00';
-        app.pairsMap['Hyperliquid-ETH'].longTerm.rsiText = '45.0';
+        // Set values on ETH small-term
+        app.instancesMap['ETH-USDT'].smallTerm.priceText = '3200.00';
+        app.instancesMap['ETH-USDT'].smallTerm.rsiText = '45.0';
 
-        // BTC mid-term unchanged
-        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.priceText).toBe('65000.00');
-        // ETH long-term holds its value
-        expect(app.pairsMap['Hyperliquid-ETH'].longTerm.priceText).toBe('3200.00');
-        // ETH mid-term still default
-        expect(app.pairsMap['Hyperliquid-ETH'].midTerm.priceText).toBe('--');
+        // BTC micro-term unchanged
+        expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('65000.00');
+        // ETH small-term holds its value
+        expect(app.instancesMap['ETH-USDT'].smallTerm.priceText).toBe('3200.00');
+        // ETH micro-term still default
+        expect(app.instancesMap['ETH-USDT'].microTerm.priceText).toBe('--');
     });
 });

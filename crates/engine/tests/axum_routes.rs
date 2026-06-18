@@ -29,8 +29,8 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         hyperliquid: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
-        macro_timeframe: Default::default(),
-        supermacro_timeframe: Default::default(),
+        medium_timeframe: Default::default(),
+        large_timeframe: Default::default(),
         leverage: Default::default(),
         scoring: Default::default(),
         fees: Default::default(),
@@ -39,7 +39,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         safety: Default::default(),
         intervals: Default::default(),
         api_failover: Default::default(),
-        pairs: HashMap::new(),
+        instances: HashMap::new(),
     }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
@@ -66,7 +66,6 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
     ));
 
     let state = Arc::new(AppState {
-        pairs: Arc::new(RwLock::new(HashMap::new())),
         workspace,
         config,
         pool: pool.clone(),
@@ -160,8 +159,8 @@ async fn test_websocket_stream_with_active_pair() {
         hyperliquid: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
-        macro_timeframe: Default::default(),
-        supermacro_timeframe: Default::default(),
+        medium_timeframe: Default::default(),
+        large_timeframe: Default::default(),
         leverage: Default::default(),
         scoring: Default::default(),
         fees: Default::default(),
@@ -170,7 +169,7 @@ async fn test_websocket_stream_with_active_pair() {
         safety: Default::default(),
         intervals: Default::default(),
         api_failover: Default::default(),
-        pairs: HashMap::new(),
+        instances: HashMap::new(),
     }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
@@ -207,42 +206,42 @@ async fn test_websocket_stream_with_active_pair() {
 
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
-        mid: TimeframePipeline {
+        micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
             latest_snapshot: Arc::new(RwLock::new(None)),
             timeframe_secs: 60,
-            timeframe_label: "Mid",
+            timeframe_label: "Micro",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
         },
-        long: TimeframePipeline {
+        short: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: long_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
             timeframe_secs: 300,
-            timeframe_label: "Long",
+            timeframe_label: "Small",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
         },
-        r#macro: TimeframePipeline {
+        medium: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: macro_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
             timeframe_secs: 900,
-            timeframe_label: "Macro",
+            timeframe_label: "Medium",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
         },
-        supermacro: TimeframePipeline {
+        large: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: supermacro_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
             timeframe_secs: 3600,
-            timeframe_label: "SuperMacro",
+            timeframe_label: "Large",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
@@ -251,11 +250,26 @@ async fn test_websocket_stream_with_active_pair() {
         cancel,
     });
 
-    let mut pairs_map = HashMap::new();
-    pairs_map.insert("Hyperliquid-BTC".to_string(), pair);
+    let instance = Arc::new(engine::instance::Instance::new(
+        "inst_test".to_string(),
+        ("BTC".to_string(), "USDT".to_string()),
+        pair.clone(),
+        pool.clone(),
+        config.clone(),
+        Default::default(),
+        Default::default(),
+        pair.micro.history.clone(),
+        pair.short.history.clone(),
+        pair.medium.history.clone(),
+        pair.large.history.clone(),
+        pair.micro.latest_snapshot.clone(),
+        pair.short.latest_snapshot.clone(),
+        pair.medium.latest_snapshot.clone(),
+        pair.large.latest_snapshot.clone(),
+    ));
+    workspace.instances.write().await.insert("BTC-USDT".to_string(), instance);
 
     let state = Arc::new(AppState {
-        pairs: Arc::new(RwLock::new(pairs_map)),
         workspace,
         config,
         pool: pool.clone(),
@@ -278,7 +292,7 @@ async fn test_websocket_stream_with_active_pair() {
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     // Connect WebSocket with valid parameters
-    let ws_url = format!("ws://{}/ws?symbol=Hyperliquid-BTC&timeframe=Mid", addr);
+    let ws_url = format!("ws://{}/ws?symbol=BTC-USDT&timeframe=Mid", addr);
     let (ws_stream, response) = tokio_tungstenite::connect_async(&ws_url)
         .await
         .expect("WebSocket connection should succeed");

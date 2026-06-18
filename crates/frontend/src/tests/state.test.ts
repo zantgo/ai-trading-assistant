@@ -47,23 +47,23 @@ describe('TEST-UI: Global State Runes', () => {
         expect(app.chatHistory[0].role).toBe('assistant');
     });
 
-    it('should initialize pairsMap with exchange-symbol key', () => {
-        app.initPair('BTC');
-        expect(app.pairsMap['Hyperliquid-BTC']).toBeDefined();
-        expect(app.pairsMap['Hyperliquid-BTC'].symbol).toBe('BTC');
-        expect(app.pairsMap['Hyperliquid-BTC'].exchange).toBe('Hyperliquid');
-        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.priceText).toBe('--');
+    it('should initialize instancesMap with exchange-symbol key', () => {
+        app.initInstance('BTC');
+        expect(app.instancesMap['BTC-USDT']).toBeDefined();
+        expect(app.instancesMap['BTC-USDT'].symbol).toBe('BTC');
+        expect(app.instancesMap['BTC-USDT'].exchange).toBe('Hyperliquid');
+        expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('--');
     });
 
     it('should route snapshot data by exchange key to correct pair', () => {
-        app.initPair('BTC');
-        app.initPair('ETH');
+        app.initInstance('BTC');
+        app.initInstance('ETH');
 
-        app.pairsMap['Hyperliquid-BTC'].midTerm.priceText = '50000.00';
-        app.pairsMap['Hyperliquid-BTC'].midTerm.latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
+        app.instancesMap['BTC-USDT'].microTerm.priceText = '50000.00';
+        app.instancesMap['BTC-USDT'].microTerm.latestSnapshot = { mid_price: '50000.00', exchange: 'Hyperliquid', symbol: 'BTC' };
 
-        expect(app.pairsMap['Hyperliquid-BTC'].midTerm.priceText).toBe('50000.00');
-        expect(app.pairsMap['Hyperliquid-ETH'].midTerm.priceText).toBe('--');
+        expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('50000.00');
+        expect(app.instancesMap['ETH-USDT'].microTerm.priceText).toBe('--');
     });
 
     it('should toggle apiKeyConfigured flag', () => {

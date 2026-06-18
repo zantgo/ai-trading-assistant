@@ -3,7 +3,7 @@
     const app = getState();
 
     const pairKey = $derived(app.activeTab);
-    const pair = $derived(app.pairsMap[pairKey]);
+    const pair = $derived(app.instancesMap[pairKey]);
 
     let interval: ReturnType<typeof setInterval> | undefined;
 
@@ -71,15 +71,15 @@
 
         <!-- Middle Row: Market Regime Classification -->
         <div class="regime-banner"
-             class:regime-trending={pair.midTerm.atrVolatilityRegime === 'expanding'}
-             class:regime-compression={pair.midTerm.atrVolatilityRegime === 'contracting'}
-             class:regime-stable={pair.midTerm.atrVolatilityRegime === 'stable'}>
+             class:regime-trending={pair.microTerm.atrVolatilityRegime === 'expanding'}
+             class:regime-compression={pair.microTerm.atrVolatilityRegime === 'contracting'}
+             class:regime-stable={pair.microTerm.atrVolatilityRegime === 'stable'}>
             <div class="regime-title">
-                ACTIVE VOLATILITY REGIME: {pair.midTerm.atrVolatilityRegime?.toUpperCase() || 'STABLE'}
+                ACTIVE VOLATILITY REGIME: {pair.microTerm.atrVolatilityRegime?.toUpperCase() || 'STABLE'}
             </div>
             <div class="regime-metrics font-mono">
-                <span>BBWP Percentile: {pair.midTerm.bbwpText || '--'}%</span>
-                <span>Relative Volume (RVOL): {pair.midTerm.rvol ? pair.midTerm.rvol.toFixed(2) : '--'}</span>
+                <span>BBWP Percentile: {pair.microTerm.bbwpText || '--'}%</span>
+                <span>Relative Volume (RVOL): {pair.microTerm.rvol ? pair.microTerm.rvol.toFixed(2) : '--'}</span>
             </div>
         </div>
 
@@ -88,26 +88,26 @@
             <h3 class="card-title">Parallel Agent Matrix</h3>
             <div class="agent-grid">
                 <!-- Trend Agent -->
-                <div class="agent-node" class:complete={pair.midTerm.emaStackState !== 'tangled'}>
+                <div class="agent-node" class:complete={pair.microTerm.emaStackState !== 'tangled'}>
                     <div class="agent-node-header">
                         <span class="agent-node-name">TREND AGENT</span>
-                        <span class="agent-node-status">{pair.midTerm.emaStackState?.toUpperCase() || 'OFF'}</span>
+                        <span class="agent-node-status">{pair.microTerm.emaStackState?.toUpperCase() || 'OFF'}</span>
                     </div>
                     <p class="agent-node-thought">
-                        Evaluating trend fanning order. Stacking order is: {pair.midTerm.emaStackState?.toUpperCase() || 'Tangled'}.
-                        Price relative to long EMA: {pair.midTerm.priceText}.
+                        Evaluating trend fanning order. Stacking order is: {pair.microTerm.emaStackState?.toUpperCase() || 'Tangled'}.
+                        Price relative to long EMA: {pair.microTerm.priceText}.
                     </p>
                 </div>
 
                 <!-- Volatility Agent -->
-                <div class="agent-node" class:complete={pair.midTerm.bbwpText !== '--'}>
+                <div class="agent-node" class:complete={pair.microTerm.bbwpText !== '--'}>
                     <div class="agent-node-header">
                         <span class="agent-node-name">VOLATILITY AGENT</span>
-                        <span class="agent-node-status">{pair.midTerm.atrVolatilityRegime?.toUpperCase() || 'STABLE'}</span>
+                        <span class="agent-node-status">{pair.microTerm.atrVolatilityRegime?.toUpperCase() || 'STABLE'}</span>
                     </div>
                     <p class="agent-node-thought">
                         Monitoring Bollinger Band compression limits and ATR average true range lines.
-                        BBWP Percentile currently evaluating at {pair.midTerm.bbwpText || '--'}%.
+                        BBWP Percentile currently evaluating at {pair.microTerm.bbwpText || '--'}%.
                     </p>
                 </div>
 

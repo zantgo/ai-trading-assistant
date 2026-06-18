@@ -303,7 +303,7 @@ impl CliConsole {
     }
 
     async fn show_charts(&self, inst: &crate::instance::Instance) {
-        let snap = inst.mid_latest.read().await;
+        let snap = inst.micro_latest.read().await;
         match snap.as_ref() {
             Some(s) => {
                 println!("{}═══ Chart Data: {} ═══{}", BOLD, inst.pair_display(), RESET);
@@ -576,13 +576,13 @@ impl CliConsole {
 
         let mut rx = {
             if tf_secs == 300 {
-                inst.active_pair.long.broadcast_tx.subscribe()
+                inst.active_pair.short.broadcast_tx.subscribe()
             } else if tf_secs == 900 {
-                inst.active_pair.r#macro.broadcast_tx.subscribe()
+                inst.active_pair.medium.broadcast_tx.subscribe()
             } else if tf_secs == 3600 {
-                inst.active_pair.supermacro.broadcast_tx.subscribe()
+                inst.active_pair.large.broadcast_tx.subscribe()
             } else {
-                inst.active_pair.mid.broadcast_tx.subscribe()
+                inst.active_pair.micro.broadcast_tx.subscribe()
             }
         };
 

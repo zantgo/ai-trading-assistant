@@ -3,6 +3,7 @@ use engine::db;
 use engine::llm::LlmClient;
 use engine::server::{self, AppState};
 use engine::workspace::Workspace;
+use engine::instance::Instance;
 use shared::models::MarketSnapshot;
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
@@ -51,12 +52,12 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
         indicators: Default::default(), hyperliquid: Default::default(),
         fibonacci: Default::default(), pivots: Default::default(),
-        macro_timeframe: Default::default(), supermacro_timeframe: Default::default(),
+        medium_timeframe: Default::default(), large_timeframe: Default::default(),
         leverage: Default::default(), scoring: Default::default(),
         fees: Default::default(), costs: Default::default(),
         workspace: Default::default(), safety: Default::default(),
         intervals: Default::default(), api_failover: Default::default(),
-        pairs: HashMap::new(),
+        instances: HashMap::new(),
     }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
@@ -103,19 +104,34 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
 
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
-        mid: build_pipeline(history, mid_bcast),
-        long: build_pipeline_empty(b2),
-        r#macro: build_pipeline_empty(b3),
-        supermacro: build_pipeline_empty(b4),
+        micro: build_pipeline(history, mid_bcast),
+        short: build_pipeline_empty(b2),
+        medium: build_pipeline_empty(b3),
+        large: build_pipeline_empty(b4),
         snapshot_tx,
         cancel,
     });
 
-    let mut pairs_map = HashMap::new();
-    pairs_map.insert("Hyperliquid-BTC".to_string(), pair);
+    let instance = Arc::new(Instance::new(
+        "inst_test".to_string(),
+        ("BTC".to_string(), "USDT".to_string()),
+        pair.clone(),
+        pool.clone(),
+        config.clone(),
+        Default::default(),
+        Default::default(),
+        pair.micro.history.clone(),
+        pair.short.history.clone(),
+        pair.medium.history.clone(),
+        pair.large.history.clone(),
+        pair.micro.latest_snapshot.clone(),
+        pair.short.latest_snapshot.clone(),
+        pair.medium.latest_snapshot.clone(),
+        pair.large.latest_snapshot.clone(),
+    ));
+    workspace.instances.write().await.insert("BTC-USDT".to_string(), instance);
 
     let state = Arc::new(AppState {
-        pairs: Arc::new(RwLock::new(pairs_map)),
         workspace, config, pool: pool.clone(),
         llm_client: Arc::new(RwLock::new(LlmClient::from_env().0)),
         api_key_configured, symbol_mapper, telemetry_tx,
@@ -130,7 +146,7 @@ fn build_pipeline(history: std::collections::VecDeque<shared::normalized::Normal
         history: Arc::new(RwLock::new(history)),
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
-        timeframe_secs: 60, timeframe_label: "Mid",
+        timeframe_secs: 60, timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
@@ -142,7 +158,7 @@ fn build_pipeline_empty(bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePi
         history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
-        timeframe_secs: 60, timeframe_label: "Mid",
+        timeframe_secs: 60, timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
@@ -170,7 +186,7 @@ async fn test_e2e_analysis_master_record_created_and_error_when_no_key() {
                 "ema_slow": 50000.0, "ema_long": 49500.0,
                 "ema_stack_state": "Bullish", "vwap": 50950.0, "vwap_bias": "Premium"
             },
-            "symbol": "Hyperliquid-BTC"
+            "symbol": "BTC-USDT"
         });
 
         let router = server::build_router(state.clone());
@@ -199,7 +215,7 @@ async fn test_e2e_analysis_master_record_created_and_error_when_no_key() {
         .unwrap();
         assert!(row.0 > 0, "Master record ID should be > 0");
         assert_eq!(row.1, "Long");
-        assert_eq!(row.2, "Hyperliquid-BTC");
+        assert_eq!(row.2, "BTC-USDT");
     })
     .await
     .expect("E2E analysis test timed out");
@@ -213,7 +229,7 @@ async fn test_e2e_history_endpoint_with_populated_data() {
         let router = server::build_router(state.clone());
         let request = hyper::Request::builder()
             .method("GET")
-            .uri("/api/history?symbol=Hyperliquid-BTC&timeframe_secs=60")
+            .uri("/api/history?symbol=BTC-USDT&timeframe_secs=60")
             .body(axum::body::Body::empty())
             .unwrap();
 

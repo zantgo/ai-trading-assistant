@@ -13,7 +13,7 @@ use shared::indicators::DivergenceDetector;
 async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
     tokio::time::timeout(tokio::time::Duration::from_secs(10), async {
         let symbol = "BTC".to_string();
-        let pair_key = "Hyperliquid-BTC".to_string();
+        let pair_key = "BTC-USDT".to_string();
 
         let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(100);
         let (broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(100);
@@ -33,8 +33,8 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             hyperliquid: Default::default(),
             fibonacci: Default::default(),
             pivots: Default::default(),
-            macro_timeframe: Default::default(),
-            supermacro_timeframe: Default::default(),
+            medium_timeframe: Default::default(),
+            large_timeframe: Default::default(),
             leverage: Default::default(),
             scoring: Default::default(),
             fees: Default::default(),
@@ -43,7 +43,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             safety: Default::default(),
             intervals: Default::default(),
             api_failover: Default::default(),
-            pairs: HashMap::new(),
+            instances: HashMap::new(),
         };
         let indicators = test_config.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);
@@ -70,7 +70,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_symbol,
                 analyzer_pair_key,
                 60,
-                "Mid",
+                "Micro",
                 analyzer_cancel,
                 None,
             )
