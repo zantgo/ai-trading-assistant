@@ -33,7 +33,8 @@
         showAddInput = false;
     }
 
-    function removeInstance(pairKey: string) {
+    async function removeInstance(pairKey: string) {
+        await fetch(`/api/instances/by-pair/${encodeURIComponent(pairKey)}`, { method: 'DELETE' }).catch(console.error);
         app.removeInstance(pairKey);
         const remaining = Object.keys(app.instancesMap);
         if (remaining.length > 0 && pairKey === app.activeTab) {

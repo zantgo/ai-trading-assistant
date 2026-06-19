@@ -3,7 +3,6 @@
     import { getState } from './state.svelte';
     import type { AssistantAnalysis, ChatMessage, MultiAgentAnalysis, InstanceState, TimeframeTelemetry } from './state.svelte';
 
-    import Sidebar from './components/Sidebar.svelte';
     import LiveTerminal from './components/LiveTerminal.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
@@ -1053,8 +1052,6 @@
     {/if}
 
     <div class="app-layout">
-        <Sidebar />
-
         <div class="workspace-viewport">
         {#each Object.keys(app.instancesMap) as tabKey (tabKey)}
             {@const pair = app.instancesMap[tabKey]}
@@ -1069,6 +1066,13 @@
                             onclick={() => pair.currentView = 'terminal'}
                         >
                             📈 Live Terminal
+                        </button>
+                        <button
+                            class="sub-tab-btn"
+                            class:sub-tab-active={pair.currentView === 'assistant'}
+                            onclick={() => pair.currentView = 'assistant'}
+                        >
+                            🤖 AI Assistant
                         </button>
                         <button
                             class="sub-tab-btn"
@@ -1157,7 +1161,11 @@
                 {#if pair.currentView === 'terminal'}
                     <div class="main-layout animate-fade">
                         <LiveTerminal pairKey={tabKey} />
+                    </div>
 
+                <!-- 1.5 AI Assistant View -->
+                {:else if pair.currentView === 'assistant'}
+                    <div class="workspace-inner-content animate-fade">
                         <aside class="sidebar-panel font-sans">
                             <div class="sidebar-section signals-box">
                                 <h3 class="section-title">AI ASSISTANT</h3>
@@ -1306,7 +1314,7 @@
                         </aside>
                     </div>
 
-                <!-- 1.5 Positions Inner View -->
+                <!-- 1.6 Positions Inner View -->
                 {:else if pair.currentView === 'positions'}
                     <div class="workspace-inner-content animate-fade">
                         <div class="paper-layout">

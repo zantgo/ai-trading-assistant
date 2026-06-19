@@ -74,7 +74,7 @@
         app.currentGlobalView = 'workspace';
     }
 
-    async function handleAction(instanceId: string, action: 'pause' | 'stop' | 'delete') {
+    async function handleAction(instanceId: string, action: 'pause' | 'stop' | 'delete', pair?: string) {
         const verb = action === 'delete' ? 'DELETE' : 'POST';
         let url = '';
         if (action === 'delete') {
@@ -86,6 +86,9 @@
         actionLoading = { ...actionLoading, [instanceId]: action };
         try {
             await fetch(url, { method: verb });
+            if (action === 'delete' && pair) {
+                app.removeInstance(pair);
+            }
             await fetchInstances();
         } finally {
             const next = { ...actionLoading };
@@ -187,7 +190,7 @@
                         {/if}
                         <button
                             class="action-btn-sm delete-btn"
-                            onclick={() => handleAction(inst.id, 'delete')}
+                            onclick={() => handleAction(inst.id, 'delete', inst.pair)}
                             disabled={actionLoading[inst.id] !== undefined}
                             title="Delete"
                         >🗑</button>

@@ -38,41 +38,49 @@
             </div>
             <div class="timescale-charts">
                 <div class="panel-box pane-price" class:hidden-pane={!pair.microTerm.showEmas && !pair.microTerm.showBb && !pair.microTerm.showVwap}>
+                    <div class="panel-label">PRICE</div>
                     {#key tfKey(pairKey, pair.microTerm)}
                         <PriceChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-vol" class:hidden-pane={!pair.microTerm.showVolume}>
+                    <div class="panel-label">VOLUME</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}`}
                         <VolumeChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-adx" class:hidden-pane={!pair.microTerm.showAdx}>
+                    <div class="panel-label">ADX</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-${pair.microTerm.adxPeriodVal}`}
                         <AdxChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-atr" class:hidden-pane={!pair.microTerm.showAtr}>
+                    <div class="panel-label">ATR</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-${pair.microTerm.atrPeriodVal}`}
                         <AtrChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-rsi" class:hidden-pane={!pair.microTerm.showRsi}>
+                    <div class="panel-label">RSI</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-${pair.microTerm.rsiPeriodVal}`}
                         <RsiChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-macd" class:hidden-pane={!pair.microTerm.showMacd}>
+                    <div class="panel-label">MACD</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-${pair.microTerm.macdFastVal}-${pair.microTerm.macdSlowVal}-${pair.microTerm.macdSignalVal}`}
                         <MacdChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-squeeze" class:hidden-pane={!pair.microTerm.showSqueeze}>
+                    <div class="panel-label">SQUEEZE</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-${pair.microTerm.squeezePeriodVal}`}
                         <SqueezeChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.microTerm.showBbwp}>
+                    <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-bbwp`}
                         <BbwpChart historyPrices={pair.microTerm.historyPrices} currentBbwp={pair.microTerm.lastBbwp} />
                     {/key}
@@ -88,41 +96,49 @@
             </div>
             <div class="timescale-charts">
                 <div class="panel-box pane-price" class:hidden-pane={!pair.smallTerm.showEmas && !pair.smallTerm.showBb && !pair.smallTerm.showVwap}>
+                    <div class="panel-label">PRICE</div>
                     {#key tfKey(pairKey, pair.smallTerm)}
                         <PriceChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-vol" class:hidden-pane={!pair.smallTerm.showVolume}>
+                    <div class="panel-label">VOLUME</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}`}
                         <VolumeChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-adx" class:hidden-pane={!pair.smallTerm.showAdx}>
+                    <div class="panel-label">ADX</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-${pair.smallTerm.adxPeriodVal}`}
                         <AdxChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-atr" class:hidden-pane={!pair.smallTerm.showAtr}>
+                    <div class="panel-label">ATR</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-${pair.smallTerm.atrPeriodVal}`}
                         <AtrChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-rsi" class:hidden-pane={!pair.smallTerm.showRsi}>
+                    <div class="panel-label">RSI</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-${pair.smallTerm.rsiPeriodVal}`}
                         <RsiChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-macd" class:hidden-pane={!pair.smallTerm.showMacd}>
+                    <div class="panel-label">MACD</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-${pair.smallTerm.macdFastVal}-${pair.smallTerm.macdSlowVal}-${pair.smallTerm.macdSignalVal}`}
                         <MacdChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-squeeze" class:hidden-pane={!pair.smallTerm.showSqueeze}>
+                    <div class="panel-label">SQUEEZE</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-${pair.smallTerm.squeezePeriodVal}`}
                         <SqueezeChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.smallTerm.showBbwp}>
+                    <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-bbwp`}
                         <BbwpChart historyPrices={pair.smallTerm.historyPrices} currentBbwp={pair.smallTerm.lastBbwp} />
                     {/key}
@@ -138,41 +154,49 @@
             </div>
             <div class="timescale-charts">
                 <div class="panel-box pane-price" class:hidden-pane={!pair.mediumTerm.showEmas && !pair.mediumTerm.showBb && !pair.mediumTerm.showVwap}>
+                    <div class="panel-label">PRICE</div>
                     {#key tfKey(pairKey, pair.mediumTerm)}
                         <PriceChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-vol" class:hidden-pane={!pair.mediumTerm.showVolume}>
+                    <div class="panel-label">VOLUME</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}`}
                         <VolumeChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-adx" class:hidden-pane={!pair.mediumTerm.showAdx}>
+                    <div class="panel-label">ADX</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-${pair.mediumTerm.adxPeriodVal}`}
                         <AdxChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-atr" class:hidden-pane={!pair.mediumTerm.showAtr}>
+                    <div class="panel-label">ATR</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-${pair.mediumTerm.atrPeriodVal}`}
                         <AtrChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-rsi" class:hidden-pane={!pair.mediumTerm.showRsi}>
+                    <div class="panel-label">RSI</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-${pair.mediumTerm.rsiPeriodVal}`}
                         <RsiChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-macd" class:hidden-pane={!pair.mediumTerm.showMacd}>
+                    <div class="panel-label">MACD</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-${pair.mediumTerm.macdFastVal}-${pair.mediumTerm.macdSlowVal}-${pair.mediumTerm.macdSignalVal}`}
                         <MacdChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-squeeze" class:hidden-pane={!pair.mediumTerm.showSqueeze}>
+                    <div class="panel-label">SQUEEZE</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-${pair.mediumTerm.squeezePeriodVal}`}
                         <SqueezeChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.mediumTerm.showBbwp}>
+                    <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-bbwp`}
                         <BbwpChart historyPrices={pair.mediumTerm.historyPrices} currentBbwp={pair.mediumTerm.lastBbwp} />
                     {/key}
@@ -188,41 +212,49 @@
             </div>
             <div class="timescale-charts">
                 <div class="panel-box pane-price" class:hidden-pane={!pair.largeTerm.showEmas && !pair.largeTerm.showBb && !pair.largeTerm.showVwap}>
+                    <div class="panel-label">PRICE</div>
                     {#key tfKey(pairKey, pair.largeTerm)}
                         <PriceChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-vol" class:hidden-pane={!pair.largeTerm.showVolume}>
+                    <div class="panel-label">VOLUME</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}`}
                         <VolumeChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-adx" class:hidden-pane={!pair.largeTerm.showAdx}>
+                    <div class="panel-label">ADX</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-${pair.largeTerm.adxPeriodVal}`}
                         <AdxChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-atr" class:hidden-pane={!pair.largeTerm.showAtr}>
+                    <div class="panel-label">ATR</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-${pair.largeTerm.atrPeriodVal}`}
                         <AtrChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-rsi" class:hidden-pane={!pair.largeTerm.showRsi}>
+                    <div class="panel-label">RSI</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-${pair.largeTerm.rsiPeriodVal}`}
                         <RsiChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-macd" class:hidden-pane={!pair.largeTerm.showMacd}>
+                    <div class="panel-label">MACD</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-${pair.largeTerm.macdFastVal}-${pair.largeTerm.macdSlowVal}-${pair.largeTerm.macdSignalVal}`}
                         <MacdChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-squeeze" class:hidden-pane={!pair.largeTerm.showSqueeze}>
+                    <div class="panel-label">SQUEEZE</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-${pair.largeTerm.squeezePeriodVal}`}
                         <SqueezeChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.largeTerm.showBbwp}>
+                    <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-bbwp`}
                         <BbwpChart historyPrices={pair.largeTerm.historyPrices} currentBbwp={pair.largeTerm.lastBbwp} />
                     {/key}
@@ -235,13 +267,14 @@
 <style>
     .terminal-workspace {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: repeat(2, 1fr);
         gap: 12px;
         height: 100%;
         width: 100%;
         padding: 12px;
         box-sizing: border-box;
-        overflow-y: auto;
+        overflow: hidden;
     }
     .timescale-column {
         background-color: #131722;
@@ -283,6 +316,19 @@
         gap: 4px;
         padding: 4px;
     }
+    .panel-label {
+        position: absolute;
+        top: 3px;
+        left: 6px;
+        z-index: 5;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        color: #4a5568;
+        text-transform: uppercase;
+        font-family: 'Courier New', monospace;
+        pointer-events: none;
+    }
     .panel-box {
         position: relative;
         background: #0f111a;
@@ -302,7 +348,8 @@
 
     @media (max-width: 1600px) {
         .terminal-workspace {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
         }
     }
     @media (max-width: 1280px) {

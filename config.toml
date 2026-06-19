@@ -1,6 +1,7 @@
 symbols = [
     "BTC",
     "ETH",
+    "SOL",
 ]
 
 [candles]

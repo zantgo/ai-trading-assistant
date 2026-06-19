@@ -350,6 +350,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/paper/performance", get(serve_paper_performance))
         .route("/api/instances", get(serve_list_instances).post(serve_add_instance))
         .route("/api/instances/:instance_id", get(serve_get_instance_detail).delete(serve_delete_instance))
+        .route("/api/instances/by-pair/:pair_key", delete(serve_delete_instance_by_pair))
         .route("/api/instances/:instance_id/config", post(serve_update_instance_config))
         .route("/api/instances/:instance_id/pause", post(serve_pause_instance))
         .route("/api/instances/:instance_id/stop", post(serve_stop_instance))
@@ -3238,6 +3239,25 @@ async fn serve_delete_instance(
     match instance_registry::delete_instance(&state.workspace, &instance_id).await {
         Ok(()) => (axum::http::StatusCode::OK, format!("Instance {} deleted", instance_id)).into_response(),
         Err(e) => (axum::http::StatusCode::NOT_FOUND, e).into_response(),
+    }
+}
+
+async fn serve_delete_instance_by_pair(
+    State(state): State<Arc<AppState>>,
+    Path(pair_key): Path<String>,
+) -> impl IntoResponse {
+    let instances = state.workspace.instances.read().await;
+    let instance_id = instances.iter()
+        .find(|(k, _)| **k == pair_key)
+        .map(|(_, i)| i.id.clone());
+    drop(instances);
+
+    match instance_id {
+        Some(id) => match instance_registry::delete_instance(&state.workspace, &id).await {
+            Ok(()) => (axum::http::StatusCode::OK, format!("Instance {} deleted", pair_key)).into_response(),
+            Err(e) => (axum::http::StatusCode::NOT_FOUND, e).into_response(),
+        },
+        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
 }
 
