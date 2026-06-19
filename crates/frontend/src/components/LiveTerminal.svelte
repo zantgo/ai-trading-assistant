@@ -1,6 +1,7 @@
 <script lang="ts">
     import { getState } from '../state.svelte';
     import type { TimeframeTelemetry, InstanceState } from '../state.svelte';
+    import TelemetryTable from './TelemetryTable.svelte';
     import PriceChart from './PriceChart.svelte';
     import VolumeChart from './VolumeChart.svelte';
     import AdxChart from './AdxChart.svelte';
@@ -29,6 +30,8 @@
 <div class="terminal-workspace">
     {#if app.instancesMap[pairKey]}
         {@const pair = app.instancesMap[pairKey]}
+
+        <div class="mtf-grid">
 
         <!-- Micro-Term Column -->
         <div class="timescale-column">
@@ -261,20 +264,28 @@
                 </div>
             </div>
         </div>
+        </div>
+        <TelemetryTable {pairKey} />
     {/if}
 </div>
 
 <style>
     .terminal-workspace {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+    }
+    .mtf-grid {
+        flex: 1;
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         grid-template-rows: repeat(2, 1fr);
-        gap: 12px;
-        height: 100%;
-        width: 100%;
-        padding: 12px;
-        box-sizing: border-box;
+        gap: 8px;
+        padding: 8px;
         overflow: hidden;
+        min-height: 0;
     }
     .timescale-column {
         background-color: #131722;
@@ -347,13 +358,13 @@
     .hidden-pane { display: none; }
 
     @media (max-width: 1600px) {
-        .terminal-workspace {
+        .mtf-grid {
             grid-template-columns: repeat(2, 1fr);
             grid-template-rows: repeat(2, 1fr);
         }
     }
     @media (max-width: 1280px) {
-        .terminal-workspace {
+        .mtf-grid {
             grid-template-columns: 1fr;
             grid-template-rows: repeat(4, 400px);
             overflow-y: auto;
