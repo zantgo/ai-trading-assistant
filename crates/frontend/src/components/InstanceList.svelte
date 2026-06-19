@@ -66,6 +66,14 @@
         }
     }
 
+    function navigateToInstance(pair: string, symbol: string) {
+        if (!app.instancesMap[pair]) {
+            app.initInstance(symbol);
+        }
+        app.activeTab = pair;
+        app.currentGlobalView = 'workspace';
+    }
+
     async function handleAction(instanceId: string, action: 'pause' | 'stop' | 'delete') {
         const verb = action === 'delete' ? 'DELETE' : 'POST';
         let url = '';
@@ -158,6 +166,11 @@
                         {inst.consecutive_losses}
                     </span>
                     <span class="col-actions">
+                        <button
+                            class="action-btn-sm view-btn"
+                            onclick={() => navigateToInstance(inst.pair, inst.symbol)}
+                            title="View cockpit"
+                        >📈</button>
                         {#if inst.status !== 'stopped'}
                             <button
                                 class="action-btn-sm pause-btn"
@@ -295,4 +308,6 @@
     .pause-btn:hover:not(:disabled) { border-color: #f59e0b; color: #f59e0b; }
     .stop-btn:hover:not(:disabled) { border-color: #ef4444; color: #ef4444; }
     .delete-btn:hover:not(:disabled) { border-color: #ef4444; color: #ef4444; }
+    .view-btn { border-color: #22c55e; color: #22c55e; }
+    .view-btn:hover:not(:disabled) { border-color: #22c55e; color: #22c55e; background: #1a2e1a; }
 </style>

@@ -427,7 +427,7 @@ pub async fn list_instances(workspace: &Arc<Workspace>) -> Vec<InstanceSummary> 
     for (_, inst) in instances.iter() {
         summaries.push(InstanceSummary {
             id: inst.id.clone(),
-            pair: inst.pair_display(),
+            pair: inst.pair_key(),
             status: inst.status.read().await.as_str().to_string(),
             symbol: inst.symbol(),
             initial_capital: *inst.initial_capital.read().await,

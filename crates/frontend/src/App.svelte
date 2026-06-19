@@ -28,7 +28,6 @@
     let chatContainer = $state<HTMLDivElement | null>(null);
     let showQuitDialog = $state(false);
     let showProfileMenu = $state(false);
-    let currentGlobalView = $state<'instances' | 'dashboard' | 'settings'>('dashboard');
 
     // Config draft states for localized workspace settings editing
     let activeSettingsPairKey = $state('');
@@ -436,13 +435,11 @@
             const symbols: string[] = config.symbols || ['BTC'];
 
             for (const item of symbols) {
-                const parts = item.split(':');
-                const exchange = parts[0] || 'Hyperliquid';
-                const symbol = parts[1] || 'BTC';
+                const baseSymbol = item.includes(':') ? item.split(':')[1] : item;
 
-                app.initInstance(symbol, exchange);
+                app.initInstance(baseSymbol);
 
-                const pairKey = `${exchange}-${symbol}`;
+                const pairKey = `${baseSymbol}-USDT`;
                 const specific = pairConfigs[pairKey];
                 const targetState = app.instancesMap[pairKey];
 
@@ -997,13 +994,13 @@
             <span class="navbar-session-badge">{app.sessionMode?.toUpperCase()} — {app.sessionCurrency} on {app.sessionExchange}</span>
         </div>
         <div class="navbar-tabs">
-            <button class="navbar-tab" class:active={currentGlobalView === 'dashboard'} onclick={() => { currentGlobalView = 'dashboard'; }}>
+            <button class="navbar-tab" class:active={app.currentGlobalView === 'dashboard'} onclick={() => { app.currentGlobalView = 'dashboard'; }}>
                 <span>📊</span> Dashboard
             </button>
-            <button class="navbar-tab" class:active={currentGlobalView === 'instances'} onclick={() => { currentGlobalView = 'instances'; }}>
+            <button class="navbar-tab" class:active={app.currentGlobalView === 'instances'} onclick={() => { app.currentGlobalView = 'instances'; }}>
                 <span>📋</span> Instances
             </button>
-            <button class="navbar-tab" class:active={currentGlobalView === 'settings'} onclick={() => { currentGlobalView = 'settings'; }}>
+            <button class="navbar-tab" class:active={app.currentGlobalView === 'settings'} onclick={() => { app.currentGlobalView = 'settings'; }}>
                 <span>⚙️</span> Settings
             </button>
         </div>
@@ -1019,13 +1016,13 @@
                             <span class="profile-mode">{app.sessionMode} Trading</span>
                         </div>
                         <div class="profile-dropdown-divider"></div>
-                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; currentGlobalView = 'dashboard'; }}>
+                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; app.currentGlobalView = 'dashboard'; }}>
                             📊 General Dashboard
                         </button>
-                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; currentGlobalView = 'instances'; }}>
+                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; app.currentGlobalView = 'instances'; }}>
                             📋 All Instances
                         </button>
-                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; currentGlobalView = 'settings'; }}>
+                        <button class="profile-dropdown-item" onclick={() => { showProfileMenu = false; app.currentGlobalView = 'settings'; }}>
                             ⚙️ Settings
                         </button>
                         <div class="profile-dropdown-divider"></div>
@@ -1042,11 +1039,11 @@
         <div class="profile-backdrop" onclick={() => showProfileMenu = false}></div>
     {/if}
 
-    {#if currentGlobalView === 'dashboard'}
+    {#if app.currentGlobalView === 'dashboard'}
         <GeneralDashboard />
-    {:else if currentGlobalView === 'instances'}
+    {:else if app.currentGlobalView === 'instances'}
         <InstanceList />
-    {:else if currentGlobalView === 'settings'}
+    {:else if app.currentGlobalView === 'settings'}
         <GeneralSettings />
     {:else}
     {#if !app.apiKeyConfigured}

@@ -788,6 +788,7 @@ async function quitSession(): Promise<boolean> {
 
 let instancesMap = $state<Record<string, InstanceState>>({});
 let activeTab = $state<string>('BTC-USDT');
+let currentGlobalView = $state<string>('workspace');
 
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');
@@ -1024,6 +1025,8 @@ export function getState() {
         get instancesMap() { return instancesMap; },
         get activeTab() { return activeTab; },
         set activeTab(v: string) { activeTab = v; },
+        get currentGlobalView() { return currentGlobalView; },
+        set currentGlobalView(v: string) { currentGlobalView = v; },
 
         get apiKeyConfigured() { return apiKeyConfigured; },
         set apiKeyConfigured(v: boolean) { apiKeyConfigured = v; },

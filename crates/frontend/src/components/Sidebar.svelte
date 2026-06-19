@@ -8,6 +8,7 @@
 
     function selectInstance(pairKey: string) {
         app.activeTab = pairKey;
+        app.currentGlobalView = 'workspace';
     }
 
     function confirmAdd() {
