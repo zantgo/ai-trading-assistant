@@ -516,6 +516,12 @@ export interface InstanceState {
     costActualOutputTokens: number;
     costActualTotal: number;
     costLoading: boolean;
+    // Chart overlay toggles (global for all timeframes)
+    priceLineMode: boolean;
+    showEmaFast: boolean;
+    showEmaMedium: boolean;
+    showEmaSlow: boolean;
+    showEmaLong: boolean;
 }
 
 export interface ScaleInPortion {
@@ -697,6 +703,12 @@ function createInstanceState(symbol: string): InstanceState {
         costActualOutputTokens: 0,
         costActualTotal: 0,
         costLoading: false,
+        // Chart overlay toggles (global for all timeframes)
+        priceLineMode: false,
+        showEmaFast: true,
+        showEmaMedium: true,
+        showEmaSlow: true,
+        showEmaLong: true,
     };
 }
 

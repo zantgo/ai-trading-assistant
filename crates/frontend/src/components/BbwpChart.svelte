@@ -3,9 +3,9 @@
     import { createChart, type IChartApi, type ISeriesApi, type HistogramData, ColorType, CrosshairMode, HistogramSeries, LineSeries } from 'lightweight-charts';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    let { historyPrices = [], currentBbwp = 0, containerClass = '' }: {
-        historyPrices: number[];
-        currentBbwp: number;
+    let { pairKey, timeframe = 60, containerClass = '' }: {
+        pairKey: string;
+        timeframe?: number;
         containerClass?: string;
     } = $props();
 
@@ -74,10 +74,26 @@
             ]);
         }
 
-        if (chart) {
-            chart.timeScale().fitContent();
-            registerChart(chart);
-        }
+        if (chart) registerChart(chart);
+
+        (async () => {
+            try {
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
+                const data = await res.json();
+                const ih = data.indicator_history;
+                if (ih && ih.bbwp && ih.bbwp.length > 0 && bbwpSeries) {
+                    const bbwpData: HistogramData[] = ih.times.map((t: number, i: number) => ({
+                        time: t as any,
+                        value: parseFloat(ih.bbwp[i]) || 0,
+                        color: (parseFloat(ih.bbwp[i]) || 50) < 10 ? '#4488ff' : (parseFloat(ih.bbwp[i]) || 50) > 90 ? '#ff4444' : '#00d4aa',
+                    }));
+                    bbwpSeries.setData(bbwpData);
+                    chart?.timeScale().fitContent();
+                }
+            } catch (err) {
+                console.error("Error bootstrapping BBWP chart history:", err);
+            }
+        })();
     });
 
     onDestroy(() => {
@@ -86,28 +102,9 @@
             chart.remove();
         }
     });
-
-    $effect(() => {
-        if (!bbwpSeries || historyPrices.length === 0) return;
-        const timeNow = Date.now() / 1000;
-        const interval = 60;
-        const data: HistogramData[] = historyPrices.map((val, i) => ({
-            time: (timeNow - (historyPrices.length - i) * interval) as any,
-            value: val,
-            color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa',
-        }));
-        bbwpSeries.setData(data);
-    });
-
-    $effect(() => {
-        if (chart && currentBbwp > 0) {
-            // Center view around current time
-        }
-    });
 </script>
 
 <div class="bbwp-chart-container {containerClass}">
-    <span class="sub-title">BBWP (Volatility Percentile)</span>
     <div bind:this={chartContainer} class="bbwp-chart"></div>
 </div>
 

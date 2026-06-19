@@ -8,7 +8,12 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(timeframe === 300 ? pair?.smallTerm : pair?.microTerm);
+    const tf = $derived(
+        timeframe === 300 ? pair?.smallTerm :
+        timeframe === 900 ? pair?.mediumTerm :
+        timeframe === 3600 ? pair?.largeTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -125,36 +130,10 @@
 </script>
 
 <div class="atr-pane">
-    <div class="atr-readout">
-        <span class="atr-val">ATR: {atrVal.toFixed(2)}</span>
-        <span class="atr-regime" class:expand={atrRegime === 'expanding'} class:contract={atrRegime === 'contracting'} class:stable={atrRegime === 'stable'}>
-            {regimeLabel(atrRegime)}
-        </span>
-    </div>
     <div class="chart-container" bind:this={container}></div>
 </div>
 
 <style>
     .atr-pane { display: flex; flex-direction: column; height: 100%; }
-    .atr-readout {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 2px 8px;
-        flex-shrink: 0;
-        font-family: 'Courier New', monospace;
-    }
-    .atr-val { font-size: 9px; font-weight: 700; color: #cbd5e1; }
-    .atr-regime {
-        font-size: 8px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        padding: 1px 5px;
-        border-radius: 3px;
-    }
-    .atr-regime.expand { background: rgba(16, 185, 129, 0.15); color: #10b981; }
-    .atr-regime.contract { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-    .atr-regime.stable { background: rgba(143, 146, 157, 0.1); color: #8f929d; }
     .chart-container { flex: 1; width: 100%; min-height: 0; }
 </style>

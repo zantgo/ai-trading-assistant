@@ -2,6 +2,7 @@
     import { getState } from '../state.svelte';
     import type { TimeframeTelemetry, InstanceState } from '../state.svelte';
     import TelemetryTable from './TelemetryTable.svelte';
+    import ChartToggles from './ChartToggles.svelte';
     import PriceChart from './PriceChart.svelte';
     import VolumeChart from './VolumeChart.svelte';
     import AdxChart from './AdxChart.svelte';
@@ -31,8 +32,8 @@
     {#if app.instancesMap[pairKey]}
         {@const pair = app.instancesMap[pairKey]}
 
+        <ChartToggles {pairKey} />
         <div class="mtf-grid">
-
         <!-- Micro-Term Column -->
         <div class="timescale-column">
             <div class="timescale-header">
@@ -85,7 +86,7 @@
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.microTerm.showBbwp}>
                     <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.microTerm.barDurationSec}-bbwp`}
-                        <BbwpChart historyPrices={pair.microTerm.historyPrices} currentBbwp={pair.microTerm.lastBbwp} />
+                        <BbwpChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
             </div>
@@ -143,7 +144,7 @@
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.smallTerm.showBbwp}>
                     <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-bbwp`}
-                        <BbwpChart historyPrices={pair.smallTerm.historyPrices} currentBbwp={pair.smallTerm.lastBbwp} />
+                        <BbwpChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
             </div>
@@ -201,7 +202,7 @@
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.mediumTerm.showBbwp}>
                     <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-bbwp`}
-                        <BbwpChart historyPrices={pair.mediumTerm.historyPrices} currentBbwp={pair.mediumTerm.lastBbwp} />
+                        <BbwpChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
             </div>
@@ -259,7 +260,7 @@
                 <div class="panel-box pane-bbwp" class:hidden-pane={!pair.largeTerm.showBbwp}>
                     <div class="panel-label">BBWP</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-bbwp`}
-                        <BbwpChart historyPrices={pair.largeTerm.historyPrices} currentBbwp={pair.largeTerm.lastBbwp} />
+                        <BbwpChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
             </div>

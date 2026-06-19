@@ -8,7 +8,12 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(timeframe === 300 ? pair?.smallTerm : pair?.microTerm);
+    const tf = $derived(
+        timeframe === 300 ? pair?.smallTerm :
+        timeframe === 900 ? pair?.mediumTerm :
+        timeframe === 3600 ? pair?.largeTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -21,6 +26,7 @@
     let bbMiddleSeries: ISeriesApi<'Line'>;
     let bbLowerSeries: ISeriesApi<'Line'>;
     let vwapSeries: ISeriesApi<'Line'>;
+    let priceLineSeries: ISeriesApi<'Line'>;
 
     let supportLines: IPriceLine[] = [];
     let resistanceLines: IPriceLine[] = [];
@@ -57,6 +63,7 @@
         bbMiddleSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         bbLowerSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         vwapSeries = chart.addSeries(LineSeries, { color: '#ffb300', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
@@ -97,6 +104,9 @@
                     });
 
                     candleSeries.setData(historicalCandles);
+                    priceLineSeries.setData(
+                        historicalCandles.map((c: any) => ({ time: c.time, value: c.close }))
+                    );
                     chart.timeScale().fitContent();
                 }
             } catch (err) {
@@ -121,10 +131,16 @@
 
     $effect(() => {
         if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
-        ema10Series.applyOptions({ visible: tf.showEmas });
-        ema50Series.applyOptions({ visible: tf.showEmas });
-        ema100Series.applyOptions({ visible: tf.showEmas });
-        ema200Series.applyOptions({ visible: tf.showEmas });
+        ema10Series.applyOptions({ visible: tf.showEmas && pair.showEmaFast });
+        ema50Series.applyOptions({ visible: tf.showEmas && pair.showEmaMedium });
+        ema100Series.applyOptions({ visible: tf.showEmas && pair.showEmaSlow });
+        ema200Series.applyOptions({ visible: tf.showEmas && pair.showEmaLong });
+    });
+
+    $effect(() => {
+        if (!candleSeries || !priceLineSeries || !pair) return;
+        candleSeries.applyOptions({ visible: !pair.priceLineMode });
+        priceLineSeries.applyOptions({ visible: pair.priceLineMode });
     });
 
     $effect(() => {
@@ -152,6 +168,10 @@
                 high: parseFloat(String(snap.high)),
                 low: parseFloat(String(snap.low)),
                 close: parseFloat(String(snap.close))
+            });
+            priceLineSeries.update({
+                time: timeSec as Time,
+                value: parseFloat(String(snap.close))
             });
         }
 

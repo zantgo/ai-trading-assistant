@@ -479,10 +479,11 @@ async fn serve_history(
 
     let (prices, candles) = match get_active_pair(&state.workspace, &pair_key).await {
         Some(pair) => {
-            let hist = if tf_secs == 300 {
-                pair.short.history.read().await
-            } else {
-                pair.micro.history.read().await
+            let hist = match tf_secs {
+                300 => pair.short.history.read().await,
+                900 => pair.medium.history.read().await,
+                3600 => pair.large.history.read().await,
+                _ => pair.micro.history.read().await,
             };
             let candles: Vec<HistoryCandle> = hist.iter().map(|c| HistoryCandle {
                 time: c.start_time_ms,

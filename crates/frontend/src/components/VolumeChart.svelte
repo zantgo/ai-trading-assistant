@@ -8,7 +8,12 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(timeframe === 300 ? pair?.smallTerm : pair?.microTerm);
+    const tf = $derived(
+        timeframe === 300 ? pair?.smallTerm :
+        timeframe === 900 ? pair?.mediumTerm :
+        timeframe === 3600 ? pair?.largeTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
     let chart: IChartApi;
@@ -48,7 +53,7 @@
 
                     const placeholder = source.map((item: any, idx: number) => ({
                         time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: 0,
+                        value: hasCandles ? (parseFloat(item.volume) || 0) : 0,
                         color: '#131722'
                     }));
 

@@ -8,7 +8,12 @@
     const app = getState();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(timeframe === 300 ? pair?.smallTerm : pair?.microTerm);
+    const tf = $derived(
+        timeframe === 300 ? pair?.smallTerm :
+        timeframe === 900 ? pair?.mediumTerm :
+        timeframe === 3600 ? pair?.largeTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
     let chart: IChartApi;
