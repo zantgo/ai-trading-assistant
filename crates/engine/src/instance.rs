@@ -76,6 +76,12 @@ pub struct Instance {
     pub short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub medium_latest: Arc<RwLock<Option<MarketSnapshot>>>,
     pub large_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+
+    // In-memory snapshot history (indicator timeseries aligned with candles)
+    pub micro_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    pub short_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    pub medium_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    pub large_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
 }
 
 impl Instance {
@@ -95,6 +101,10 @@ impl Instance {
         short_latest: Arc<RwLock<Option<MarketSnapshot>>>,
         medium_latest: Arc<RwLock<Option<MarketSnapshot>>>,
         large_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+        micro_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
+        short_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
+        medium_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
+        large_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
     ) -> Self {
         let safety = Arc::new(SafetyManager::new(
             safe_config.consecutive_loss_caution,
@@ -131,6 +141,10 @@ impl Instance {
             short_latest,
             medium_latest,
             large_latest,
+            micro_snapshot_history,
+            short_snapshot_history,
+            medium_snapshot_history,
+            large_snapshot_history,
         }
     }
 

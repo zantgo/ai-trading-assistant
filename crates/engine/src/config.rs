@@ -15,6 +15,20 @@ impl Default for HyperliquidConfig {
     }
 }
 
+impl HyperliquidConfig {
+    /// Derive the REST info endpoint URL from the configured WebSocket URL.
+    ///
+    /// Replaces the protocol scheme (`wss://` → `https://`, `ws://` → `http://`)
+    /// and swaps the path `/ws` → `/info`, e.g.:
+    /// `wss://api.hyperliquid.xyz/ws` → `https://api.hyperliquid.xyz/info`
+    pub fn rest_url(&self) -> String {
+        self.ws_url
+            .replace("wss://", "https://")
+            .replace("ws://", "http://")
+            .replace("/ws", "/info")
+    }
+}
+
 fn default_hyperliquid_ws_url() -> String {
     "wss://api.hyperliquid.xyz/ws".to_string()
 }
@@ -27,7 +41,7 @@ pub struct CandlesConfig {
 }
 
 fn default_analysis_limit() -> usize {
-    100
+    500
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -180,7 +194,7 @@ impl Default for MediumTimeframeConfig {
         Self {
             enabled: true,
             duration_seconds: 900,
-            analysis_limit: 100,
+            analysis_limit: default_analysis_limit(),
         }
     }
 }
@@ -327,7 +341,7 @@ impl TimeframeConfig {
         Self {
             candles: CandlesConfig {
                 duration_seconds,
-                analysis_limit: 100,
+                analysis_limit: default_analysis_limit(),
             },
             indicators,
         }

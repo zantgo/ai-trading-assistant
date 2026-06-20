@@ -92,7 +92,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
             cancel: CancellationToken| {
             let t = telemetry_tx.clone();
             tokio::spawn(async move {
-                analyzer::run_single(rx, t, broadcast, tf_cfg, fib, div_det, history, latest, symbol, pk, secs, label, cancel, None).await;
+                analyzer::run_single(rx, t, broadcast, tf_cfg, fib, div_det, history, latest, Arc::new(RwLock::new(VecDeque::new())), symbol, pk, secs, label, cancel, None, None).await;
             })
         };
 

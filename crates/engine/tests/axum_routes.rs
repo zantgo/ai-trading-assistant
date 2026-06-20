@@ -204,12 +204,14 @@ async fn test_websocket_stream_with_active_pair() {
     let (snapshot_tx, _snapshot_rx) = mpsc::channel::<shared::normalized::NormalizedEvent>(100);
     let cancel = tokio_util::sync::CancellationToken::new();
 
+    let snap_hist = Arc::new(RwLock::new(std::collections::VecDeque::<MarketSnapshot>::new()));
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
         micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
             latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
             timeframe_secs: 60,
             timeframe_label: "Micro",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
@@ -220,6 +222,7 @@ async fn test_websocket_stream_with_active_pair() {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: long_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
             timeframe_secs: 300,
             timeframe_label: "Small",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
@@ -230,6 +233,7 @@ async fn test_websocket_stream_with_active_pair() {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: macro_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
             timeframe_secs: 900,
             timeframe_label: "Medium",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
@@ -240,6 +244,7 @@ async fn test_websocket_stream_with_active_pair() {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: supermacro_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
+            snapshot_history: snap_hist.clone(),
             timeframe_secs: 3600,
             timeframe_label: "Large",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
@@ -266,6 +271,10 @@ async fn test_websocket_stream_with_active_pair() {
         pair.short.latest_snapshot.clone(),
         pair.medium.latest_snapshot.clone(),
         pair.large.latest_snapshot.clone(),
+        snap_hist.clone(),
+        snap_hist.clone(),
+        snap_hist.clone(),
+        snap_hist.clone(),
     ));
     workspace.instances.write().await.insert("BTC-USDT".to_string(), instance);
 

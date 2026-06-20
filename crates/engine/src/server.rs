@@ -230,6 +230,11 @@ pub struct IndicatorHistoryArrays {
     pub ema_medium: Vec<Option<String>>,
     pub ema_slow: Vec<Option<String>>,
     pub ema_long: Vec<Option<String>>,
+    pub bbwp: Vec<Option<String>>,
+    pub vwap: Vec<Option<String>>,
+    pub bb_upper: Vec<Option<String>>,
+    pub bb_middle: Vec<Option<String>>,
+    pub bb_lower: Vec<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -468,73 +473,101 @@ async fn serve_history(
     };
 
     let tf_secs = query.timeframe_secs.unwrap_or(60);
-    let raw_symbol = extract_base_symbol(&pair_key);
 
-    let config_guard = state.config.read().await;
-    let pair_cfg = config_guard.instances.get(&pair_key);
-    let current_limit = match tf_secs {
-        300 => pair_cfg.map(|p| p.short_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
-        _ => pair_cfg.map(|p| p.micro_term.candles.analysis_limit).unwrap_or(config_guard.candles.analysis_limit),
-    };
-
-    let (prices, candles) = match get_active_pair(&state.workspace, &pair_key).await {
+    let (prices, candles, indicator_history) = match get_active_pair(&state.workspace, &pair_key).await {
         Some(pair) => {
-            let hist = match tf_secs {
-                300 => pair.short.history.read().await,
-                900 => pair.medium.history.read().await,
-                3600 => pair.large.history.read().await,
-                _ => pair.micro.history.read().await,
+            let snap_hist = match tf_secs {
+                300 => pair.short.snapshot_history.read().await,
+                900 => pair.medium.snapshot_history.read().await,
+                3600 => pair.large.snapshot_history.read().await,
+                _ => pair.micro.snapshot_history.read().await,
             };
-            let candles: Vec<HistoryCandle> = hist.iter().map(|c| HistoryCandle {
-                time: c.start_time_ms,
-                open: c.open.to_string(),
-                high: c.high.to_string(),
-                low: c.low.to_string(),
-                close: c.close.to_string(),
-                volume: c.volume.to_string(),
-            }).collect();
-            let price_list: Vec<String> = candles.iter().map(|c| c.close.clone()).collect();
-            (price_list, candles)
-        }
-        None => (vec![], vec![]),
-    };
 
-    let indicator_rows = crate::db::query_indicator_snapshots(&state.pool, &raw_symbol, tf_secs, current_limit as u32).await;
-    let mut indicator_history = IndicatorHistoryArrays {
-        times: Vec::with_capacity(indicator_rows.len()),
-        rsi_14: Vec::with_capacity(indicator_rows.len()),
-        squeeze_on: Vec::with_capacity(indicator_rows.len()),
-        squeeze_momentum: Vec::with_capacity(indicator_rows.len()),
-        macd_line: Vec::with_capacity(indicator_rows.len()),
-        macd_signal: Vec::with_capacity(indicator_rows.len()),
-        macd_hist: Vec::with_capacity(indicator_rows.len()),
-        adx_14: Vec::with_capacity(indicator_rows.len()),
-        adx_plus: Vec::with_capacity(indicator_rows.len()),
-        adx_minus: Vec::with_capacity(indicator_rows.len()),
-        atr_14: Vec::with_capacity(indicator_rows.len()),
-        ema_fast: Vec::with_capacity(indicator_rows.len()),
-        ema_medium: Vec::with_capacity(indicator_rows.len()),
-        ema_slow: Vec::with_capacity(indicator_rows.len()),
-        ema_long: Vec::with_capacity(indicator_rows.len()),
+            let count = snap_hist.len();
+            let mut indicator_history = IndicatorHistoryArrays {
+                times: Vec::with_capacity(count),
+                rsi_14: Vec::with_capacity(count),
+                squeeze_on: Vec::with_capacity(count),
+                squeeze_momentum: Vec::with_capacity(count),
+                macd_line: Vec::with_capacity(count),
+                macd_signal: Vec::with_capacity(count),
+                macd_hist: Vec::with_capacity(count),
+                adx_14: Vec::with_capacity(count),
+                adx_plus: Vec::with_capacity(count),
+                adx_minus: Vec::with_capacity(count),
+                atr_14: Vec::with_capacity(count),
+                ema_fast: Vec::with_capacity(count),
+                ema_medium: Vec::with_capacity(count),
+                ema_slow: Vec::with_capacity(count),
+                ema_long: Vec::with_capacity(count),
+                bbwp: Vec::with_capacity(count),
+                vwap: Vec::with_capacity(count),
+                bb_upper: Vec::with_capacity(count),
+                bb_middle: Vec::with_capacity(count),
+                bb_lower: Vec::with_capacity(count),
+            };
+
+            let mut candle_list: Vec<HistoryCandle> = Vec::with_capacity(count);
+            let mut price_list: Vec<String> = Vec::with_capacity(count);
+
+            for snap in snap_hist.iter() {
+                indicator_history.times.push(snap.timestamp);
+                indicator_history.rsi_14.push(snap.rsi_14.map(|v| v.to_string()));
+                indicator_history.squeeze_on.push(snap.squeeze_on);
+                indicator_history.squeeze_momentum.push(snap.squeeze_momentum.map(|v| v.to_string()));
+                indicator_history.macd_line.push(snap.macd_line.map(|v| v.to_string()));
+                indicator_history.macd_signal.push(snap.macd_signal.map(|v| v.to_string()));
+                indicator_history.macd_hist.push(snap.macd_hist.map(|v| v.to_string()));
+                indicator_history.adx_14.push(snap.adx_14.map(|v| v.to_string()));
+                indicator_history.adx_plus.push(snap.adx_plus.map(|v| v.to_string()));
+                indicator_history.adx_minus.push(snap.adx_minus.map(|v| v.to_string()));
+                indicator_history.atr_14.push(snap.atr_14.map(|v| v.to_string()));
+                indicator_history.ema_fast.push(snap.ema_fast.map(|v| v.to_string()));
+                indicator_history.ema_medium.push(snap.ema_medium.map(|v| v.to_string()));
+                indicator_history.ema_slow.push(snap.ema_slow.map(|v| v.to_string()));
+                indicator_history.ema_long.push(snap.ema_long.map(|v| v.to_string()));
+                indicator_history.bbwp.push(snap.bbwp.map(|v| v.to_string()));
+                indicator_history.vwap.push(snap.vwap.map(|v| v.to_string()));
+                indicator_history.bb_upper.push(snap.bb_upper.map(|v| v.to_string()));
+                indicator_history.bb_middle.push(snap.bb_middle.map(|v| v.to_string()));
+                indicator_history.bb_lower.push(snap.bb_lower.map(|v| v.to_string()));
+
+                candle_list.push(HistoryCandle {
+                    time: snap.timestamp * 1000, // convert seconds → ms for frontend
+                    open: snap.open.map(|v| v.to_string()).unwrap_or_else(|| snap.close.unwrap_or_default().to_string()),
+                    high: snap.high.map(|v| v.to_string()).unwrap_or_else(|| snap.close.unwrap_or_default().to_string()),
+                    low: snap.low.map(|v| v.to_string()).unwrap_or_else(|| snap.close.unwrap_or_default().to_string()),
+                    close: snap.close.map(|v| v.to_string()).unwrap_or_default(),
+                    volume: snap.volume.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string()),
+                });
+                price_list.push(snap.close.map(|v| v.to_string()).unwrap_or_else(|| "0".to_string()));
+            }
+
+            (price_list, candle_list, indicator_history)
+        }
+        None => (vec![], vec![], IndicatorHistoryArrays {
+            times: vec![],
+            rsi_14: vec![],
+            squeeze_on: vec![],
+            squeeze_momentum: vec![],
+            macd_line: vec![],
+            macd_signal: vec![],
+            macd_hist: vec![],
+            adx_14: vec![],
+            adx_plus: vec![],
+            adx_minus: vec![],
+            atr_14: vec![],
+            ema_fast: vec![],
+            ema_medium: vec![],
+            ema_slow: vec![],
+            ema_long: vec![],
+            bbwp: vec![],
+            vwap: vec![],
+            bb_upper: vec![],
+            bb_middle: vec![],
+            bb_lower: vec![],
+        }),
     };
-    for row in indicator_rows {
-        indicator_history.times.push(row.timestamp as u64);
-        indicator_history.rsi_14.push(row.rsi_14);
-        indicator_history.squeeze_on.push(row.squeeze_on);
-        indicator_history.squeeze_momentum.push(row.squeeze_momentum);
-        indicator_history.macd_line.push(row.macd_line);
-        indicator_history.macd_signal.push(row.macd_signal);
-        indicator_history.macd_hist.push(row.macd_hist);
-        indicator_history.adx_14.push(row.adx_14);
-        indicator_history.adx_plus.push(row.adx_plus);
-        indicator_history.adx_minus.push(row.adx_minus);
-        indicator_history.atr_14.push(row.atr_14);
-        indicator_history.ema_fast.push(row.ema_fast);
-        indicator_history.ema_medium.push(row.ema_medium);
-        indicator_history.ema_slow.push(row.ema_slow);
-        indicator_history.ema_long.push(row.ema_long);
-    }
-    drop(config_guard);
 
     Json(HistoryResponse { prices, candles, indicator_history })
 }

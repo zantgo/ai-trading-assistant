@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::collections::{HashMap, VecDeque};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use engine::adapters;
 use engine::analyzer;
@@ -67,11 +67,13 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_div_det,
                 analyzer_history,
                 analyzer_latest_snap,
+                Arc::new(RwLock::new(VecDeque::new())),
                 analyzer_symbol,
                 analyzer_pair_key,
                 60,
                 "Micro",
                 analyzer_cancel,
+                None,
                 None,
             )
             .await;

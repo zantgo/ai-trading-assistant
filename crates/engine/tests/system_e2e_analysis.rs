@@ -81,18 +81,65 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
 
     let (mid_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
     let mut history = std::collections::VecDeque::new();
+    let mut snap_history = std::collections::VecDeque::<MarketSnapshot>::new();
     for i in 0..100i64 {
         let price = 50000.0 + i as f64 * 10.0;
+        let open = dec!(50000.00) + rust_decimal::Decimal::from(i) * dec!(10.00);
+        let high = dec!(50100.00) + rust_decimal::Decimal::from(i) * dec!(10.00);
+        let low = dec!(49900.00) + rust_decimal::Decimal::from(i) * dec!(10.00);
+        let close = rust_decimal::Decimal::from_f64_retain(price).unwrap_or(dec!(50000.00));
         history.push_back(shared::normalized::NormalizedCandle {
             symbol: "BTC".to_string(),
             start_time_ms: (1000000 + i * 60000) as u64,
             duration_ms: 60000,
-            open: dec!(50000.00) + rust_decimal::Decimal::from(i) * dec!(10.00),
-            high: dec!(50100.00) + rust_decimal::Decimal::from(i) * dec!(10.00),
-            low: dec!(49900.00) + rust_decimal::Decimal::from(i) * dec!(10.00),
-            close: rust_decimal::Decimal::from_f64_retain(price).unwrap_or(dec!(50000.00)),
+            open,
+            high,
+            low,
+            close,
             volume: dec!(10.0),
             trades_count: 5,
+        });
+        snap_history.push_back(MarketSnapshot {
+            exchange: Some(shared::normalized::Exchange::Hyperliquid),
+            timeframe_secs: 60,
+            timestamp: (1000 + i * 60) as u64,
+            symbol: "BTC".to_string(),
+            is_completed: Some(true),
+            mid_price: close,
+            bid_price: dec!(0),
+            ask_price: dec!(0),
+            bid_size: Some(dec!(10.0)),
+            ask_size: Some(dec!(10.0)),
+            funding_rate: None,
+            open: Some(open),
+            high: Some(high),
+            low: Some(low),
+            close: Some(close),
+            volume: Some(dec!(10.0)),
+            average_volume: None,
+            rvol: None,
+            bb_upper: None, bb_middle: None, bb_lower: None,
+            atr_14: None, atr_slope: None, atr_volatility_regime: None,
+            atr_stop_loss_level: None, atr_take_profit_level: None,
+            vwap: None, vwap_bias: None,
+            adx_14: None, adx_plus: None, adx_minus: None,
+            ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None,
+            ema_stack_state: None, rsi_14: None,
+            macd_line: None, macd_signal: None, macd_hist: None,
+            squeeze_on: None, squeeze_momentum: None,
+            squeeze_duration: None, squeeze_release_trigger: None,
+            squeeze_momentum_direction: None, bbwp: None,
+            support_levels: None, resistance_levels: None, sr_flip_events: None,
+            fib_golden_pocket_low: None, fib_golden_pocket_high: None,
+            fib_extension_1618: None, fib_extension_2618: None,
+            swing_high: None, swing_low: None,
+            chart_pattern: None, chart_pattern_confidence: None,
+            rsi_divergence_status: None, rsi_divergence_coords: None,
+            macd_divergence_status: None, macd_divergence_coords: None,
+            macd_histogram_peak: None, macd_trend_state: None,
+            macd_crossover_detected: None, macd_crossover_direction: None,
+            adx_slope: None, adx_peak: None, adx_regime: None,
+            adx_di_crossover_detected: None, adx_di_crossover_direction: None,
         });
     }
 
@@ -104,7 +151,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
 
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
-        micro: build_pipeline(history, mid_bcast),
+        micro: build_pipeline(history, snap_history, mid_bcast),
         short: build_pipeline_empty(b2),
         medium: build_pipeline_empty(b3),
         large: build_pipeline_empty(b4),
@@ -112,6 +159,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         cancel,
     });
 
+    let snap_hist = Arc::new(RwLock::new(std::collections::VecDeque::<MarketSnapshot>::new()));
     let instance = Arc::new(Instance::new(
         "inst_test".to_string(),
         ("BTC".to_string(), "USDT".to_string()),
@@ -128,6 +176,10 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         pair.short.latest_snapshot.clone(),
         pair.medium.latest_snapshot.clone(),
         pair.large.latest_snapshot.clone(),
+        snap_hist.clone(),
+        snap_hist.clone(),
+        snap_hist.clone(),
+        snap_hist.clone(),
     ));
     workspace.instances.write().await.insert("BTC-USDT".to_string(), instance);
 
@@ -141,11 +193,12 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
     (state, pool)
 }
 
-fn build_pipeline(history: std::collections::VecDeque<shared::normalized::NormalizedCandle>, bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePipeline {
+fn build_pipeline(history: std::collections::VecDeque<shared::normalized::NormalizedCandle>, snap_history: std::collections::VecDeque<MarketSnapshot>, bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePipeline {
     TimeframePipeline {
         history: Arc::new(RwLock::new(history)),
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
+        snapshot_history: Arc::new(RwLock::new(snap_history)),
         timeframe_secs: 60, timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
@@ -158,6 +211,7 @@ fn build_pipeline_empty(bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePi
         history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
+        snapshot_history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
         timeframe_secs: 60, timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),

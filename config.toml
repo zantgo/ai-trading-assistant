@@ -5,7 +5,7 @@ symbols = [
 
 [candles]
 duration_seconds = 60
-analysis_limit = 100
+analysis_limit = 500
 
 [indicators]
 ema_fast = 10
@@ -69,12 +69,12 @@ pattern_slope_tolerance = 0.2
 [medium_timeframe]
 enabled = true
 duration_seconds = 900
-analysis_limit = 100
+analysis_limit = 500
 
 [large_timeframe]
 enabled = true
 duration_seconds = 3600
-analysis_limit = 100
+analysis_limit = 500
 
 [leverage]
 cross_leverage = 20
