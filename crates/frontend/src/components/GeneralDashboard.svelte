@@ -1,23 +1,73 @@
 <script lang="ts">
+    import { onMount, onDestroy } from 'svelte';
     import { getState } from '../state.svelte';
-    import type { DashboardStats } from '../state.svelte';
+    import type { DashboardStats, SystemHeartbeat, InstanceSummary } from '../state.svelte';
+    import { createChart, LineSeries } from 'lightweight-charts';
+    import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 
     const app = getState();
     let stats = $state<DashboardStats | null>(null);
     let recommendations = $state<any[]>([]);
+    let heartbeat = $state<SystemHeartbeat | null>(null);
+    let instances = $state<InstanceSummary[]>([]);
     let loading = $state(true);
+
+    interface PaperPosition {
+        symbol: string;
+        direction: string;
+        entryPrice: number;
+        size: number;
+        unrealizedPnl: number;
+        unrealizedRoi: number;
+    }
+    let paperPositions = $state<PaperPosition[]>([]);
+
+    let equityContainer = $state<HTMLDivElement | null>(null);
+    let equityChart: IChartApi | null = null;
+    let equitySeries: ISeriesApi<'Line'> | null = null;
 
     async function fetchAll() {
         loading = true;
         try {
-            const [statsRes, recsRes] = await Promise.all([
+            const [statsRes, recsRes, statusRes, instancesRes] = await Promise.all([
                 fetch('/api/dashboard/stats'),
                 fetch('/api/historical-recommendations'),
+                fetch('/api/system/status'),
+                fetch('/api/instances'),
             ]);
             if (statsRes.ok) stats = await statsRes.json();
             if (recsRes.ok) {
                 const data = await recsRes.json();
                 recommendations = data.recommendations || [];
+            }
+            if (statusRes.ok) heartbeat = await statusRes.json();
+            if (instancesRes.ok) {
+                const data = await instancesRes.json();
+                instances = data.instances || [];
+
+                // Fetch paper positions for each instance in parallel
+                const positions: PaperPosition[] = [];
+                const paperResults = await Promise.allSettled(
+                    instances.map((inst: InstanceSummary) =>
+                        fetch(`/api/paper/status?symbol=${encodeURIComponent(inst.symbol)}-USDT`)
+                            .then(r => r.ok ? r.json() : null)
+                    )
+                );
+                for (let i = 0; i < instances.length; i++) {
+                    const result = paperResults[i];
+                    if (result.status === 'fulfilled' && result.value?.active_position) {
+                        const pos = result.value.active_position;
+                        positions.push({
+                            symbol: instances[i].symbol,
+                            direction: pos.direction || '',
+                            entryPrice: pos.entry_price ?? 0,
+                            size: pos.size ?? 0,
+                            unrealizedPnl: result.value.unrealized_pnl ?? 0,
+                            unrealizedRoi: result.value.unrealized_roi_pct ?? 0,
+                        });
+                    }
+                }
+                paperPositions = positions;
             }
         } catch (_) {
         } finally {
@@ -25,7 +75,46 @@
         }
     }
 
+    function buildEquityChart() {
+        if (!equityContainer || !stats?.equity_curve || stats.equity_curve.length === 0) return;
+        if (equityChart) { equityChart.remove(); equityChart = null; }
+
+        const data = stats.equity_curve.map(([ts, val]) => ({
+            time: ts as Time,
+            value: val,
+        }));
+
+        equityChart = createChart(equityContainer, {
+            autoSize: true,
+            layout: { background: { color: '#14142a' }, textColor: '#8f929d', fontSize: 10 },
+            grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
+            rightPriceScale: { borderColor: '#2a2a4a' },
+            timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: false },
+            handleScale: false,
+            handleScroll: false,
+        });
+        equityChart.timeScale().fitContent();
+
+        equitySeries = equityChart.addSeries(LineSeries, {
+            color: '#5b7fff',
+            lineWidth: 2,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        equitySeries.setData(data);
+    }
+
     $effect(() => { fetchAll(); });
+
+    $effect(() => {
+        if (!loading && stats?.equity_curve) {
+            requestAnimationFrame(() => buildEquityChart());
+        }
+    });
+
+    onDestroy(() => {
+        if (equityChart) { equityChart.remove(); equityChart = null; }
+    });
 </script>
 
 <div class="dashboard-view">
@@ -65,6 +154,116 @@
                 <span class="stat-value">{(stats?.core_stats?.avg_risk_reward_ratio ?? 0).toFixed(2)}</span>
             </div>
         </div>
+
+        <!-- Portfolio Overview -->
+        {#if heartbeat || instances.length > 0}
+            <div class="section-header">
+                <h3>Portfolio Overview</h3>
+            </div>
+            <div class="portfolio-grid">
+                <div class="stat-card portfolio-card">
+                    <span class="stat-label">Session Capital</span>
+                    <span class="stat-value">{app.sessionCurrency} {app.sessionCapital.toLocaleString()}</span>
+                </div>
+                <div class="stat-card portfolio-card">
+                    <span class="stat-label">Active Pairs</span>
+                    <span class="stat-value">{heartbeat?.active_pairs_count ?? instances.length}</span>
+                </div>
+                <div class="stat-card portfolio-card">
+                    <span class="stat-label">Allocated Margin</span>
+                    <span class="stat-value">${(heartbeat?.total_allocated_margin ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+            </div>
+
+            <!-- Active Instances -->
+            {#if instances.length > 0}
+                <div class="instances-table-wrapper">
+                    <table class="instances-table">
+                        <thead>
+                            <tr>
+                                <th>Pair</th>
+                                <th>Status</th>
+                                <th>Initial Capital</th>
+                                <th>Equity</th>
+                                <th>Consec. Losses</th>
+                                <th>Caution</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each instances as inst}
+                                <tr>
+                                    <td class="col-pair">{inst.symbol}</td>
+                                    <td>
+                                        <span class="status-badge" class:status-running={inst.status === 'running'} class:status-paused={inst.status === 'paused'} class:status-stopped={inst.status === 'stopped'}>
+                                            {inst.status}
+                                        </span>
+                                    </td>
+                                    <td class="col-mono">${inst.initial_capital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td class="col-mono" class:positive={inst.current_equity >= 0} class:negative={inst.current_equity < 0}>${inst.current_equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td class="col-mono">{inst.consecutive_losses}</td>
+                                    <td>
+                                        <span class="caution-badge" class:caution-normal={inst.caution_level === 'normal'} class:caution-cautious={inst.caution_level === 'cautious'} class:caution-warn={(inst.caution_level === 'suspended' || inst.caution_level === 'drawdown_stop')}>
+                                            {inst.caution_level}
+                                        </span>
+                                    </td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+
+            <!-- Open Positions -->
+            {#if paperPositions.length > 0}
+                <div class="section-header" style="margin-top: 1.5rem;">
+                    <h3>Open Positions</h3>
+                </div>
+                <div class="instances-table-wrapper">
+                    <table class="instances-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Direction</th>
+                                <th>Entry Price</th>
+                                <th>Size</th>
+                                <th>Unrealized P&L</th>
+                                <th>ROI</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each paperPositions as pos}
+                                <tr>
+                                    <td class="col-pair">{pos.symbol}</td>
+                                    <td>
+                                        <span class="status-badge" class:status-running={pos.direction === 'LONG'} class:status-stopped={pos.direction === 'SHORT'}>
+                                            {pos.direction}
+                                        </span>
+                                    </td>
+                                    <td class="col-mono">${pos.entryPrice.toFixed(2)}</td>
+                                    <td class="col-mono">{pos.size.toFixed(4)}</td>
+                                    <td class="col-mono" class:positive={pos.unrealizedPnl >= 0} class:negative={pos.unrealizedPnl < 0}>
+                                        {pos.unrealizedPnl >= 0 ? '+' : ''}${pos.unrealizedPnl.toFixed(2)}
+                                    </td>
+                                    <td class="col-mono" class:positive={pos.unrealizedRoi >= 0} class:negative={pos.unrealizedRoi < 0}>
+                                        {pos.unrealizedRoi >= 0 ? '+' : ''}{pos.unrealizedRoi.toFixed(2)}%
+                                    </td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            {/if}
+
+            <!-- Equity Curve -->
+            {#if stats?.equity_curve && stats.equity_curve.length > 0}
+                <div class="section-header" style="margin-top: 1.5rem;">
+                    <h3>Equity Curve</h3>
+                </div>
+                <div class="equity-chart-wrapper">
+                    <div class="equity-chart-container" bind:this={equityContainer}></div>
+                </div>
+            {/if}
+        {/if}
 
         <!-- Detailed Stats -->
         {#if stats?.core_stats}
@@ -213,6 +412,112 @@
     }
     .positive { color: #22c55e !important; }
     .negative { color: #ef4444 !important; }
+    .portfolio-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+    .portfolio-card {
+        border-color: #2e2e5e;
+    }
+    .instances-table-wrapper {
+        overflow-x: auto;
+        margin-bottom: 1.5rem;
+        border: 1px solid #2a2a4a;
+        border-radius: 8px;
+        background: #14142a;
+    }
+    .instances-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.75rem;
+    }
+    .instances-table thead {
+        background: #0e0e24;
+    }
+    .instances-table th {
+        text-align: left;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.65rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid #2a2a4a;
+    }
+    .instances-table td {
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid #1e1e3a;
+    }
+    .instances-table tbody tr:hover {
+        background: rgba(91, 127, 255, 0.04);
+    }
+    .col-pair {
+        font-weight: 700;
+        color: #5b7fff;
+    }
+    .col-mono {
+        font-family: ui-monospace, monospace;
+        font-size: 0.7rem;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: #1e1e3a;
+        color: #64748b;
+    }
+    .status-running {
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+    }
+    .status-paused {
+        background: rgba(251, 191, 36, 0.12);
+        color: #f59e0b;
+    }
+    .status-stopped {
+        background: rgba(239, 68, 68, 0.12);
+        color: #ef4444;
+    }
+    .caution-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        background: #1e1e3a;
+        color: #64748b;
+    }
+    .caution-normal {
+        background: rgba(34, 197, 94, 0.12);
+        color: #22c55e;
+    }
+    .caution-cautious {
+        background: rgba(251, 191, 36, 0.12);
+        color: #f59e0b;
+    }
+    .caution-warn {
+        background: rgba(239, 68, 68, 0.12);
+        color: #ef4444;
+    }
+    .equity-chart-wrapper {
+        border: 1px solid #2a2a4a;
+        border-radius: 8px;
+        background: #14142a;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+    }
+    .equity-chart-container {
+        width: 100%;
+        height: 260px;
+    }
     .detail-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
