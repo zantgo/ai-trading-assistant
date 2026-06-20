@@ -34,11 +34,6 @@
         if (!pair) return;
         const key = `showEma${label}` as keyof typeof pair;
         (pair as any)[key] = !(pair as any)[key];
-        const visible = (pair as any)[key];
-        if (label === 'Fast') syncAll(tf => { tf.showEmas = visible; });
-        if (label === 'Medium') syncAll(tf => { tf.showEmas = visible; });
-        if (label === 'Slow') syncAll(tf => { tf.showEmas = visible; });
-        if (label === 'Long') syncAll(tf => { tf.showEmas = visible; });
     }
 </script>
 

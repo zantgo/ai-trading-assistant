@@ -1152,9 +1152,10 @@
                             🎯 DECISION HUD
                         </button>
                     </div>
-                    <div class="time-badge">
-                        {pair.symbol}USD — MTF (1m/5m/15m/1h)
-                    </div>
+                </div>
+
+                <div class="instance-pair-banner">
+                    <span class="pair-banner-title">{pair.symbol} / USDT</span>
                 </div>
 
                 <!-- 1. Live Terminal Inner View -->
@@ -2165,6 +2166,21 @@
         align-items: center;
         justify-content: space-between;
     }
+    .instance-pair-banner {
+        display: flex;
+        align-items: center;
+        padding: 8px 16px;
+        background-color: #0a0d14;
+        border-bottom: 1px solid #1e293b;
+        flex-shrink: 0;
+    }
+    .pair-banner-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #f8fafc;
+        font-family: 'Courier New', monospace;
+        letter-spacing: 0.05em;
+    }
     .sub-tabs-container {
         display: flex;
         gap: 6px;
@@ -2188,16 +2204,6 @@
         background: #1a2030;
         border-color: #2a3040;
         color: #f8fafc;
-    }
-    .time-badge {
-        font-size: 10px;
-        font-weight: 600;
-        color: #64748b;
-        background: #1a2030;
-        border: 1px solid #2a3040;
-        border-radius: 4px;
-        padding: 3px 10px;
-        font-family: 'Courier New', monospace;
     }
     .main-layout {
         display: flex;

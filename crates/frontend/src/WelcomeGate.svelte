@@ -29,6 +29,15 @@
             handleEnter();
         }
     }
+
+    function sanitizeCapital(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const val = input.value;
+        if (val.startsWith('-') || parseFloat(val) < 0) {
+            input.value = val.replace(/[^0-9.]/g, '');
+        }
+        capital = input.value;
+    }
 </script>
 
 <div class="welcome-gate">
@@ -95,7 +104,8 @@
                         placeholder="e.g. 10000"
                         bind:value={capital}
                         onkeydown={handleKeydown}
-                        min="1"
+                        oninput={sanitizeCapital}
+                        min="0"
                         step="any"
                     />
                     <span class="form-hint">Enter your starting paper trading balance</span>

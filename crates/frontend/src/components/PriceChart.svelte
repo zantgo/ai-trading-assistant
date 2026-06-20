@@ -55,14 +55,14 @@
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         });
 
-        ema10Series = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
-        ema50Series = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
-        ema100Series = chart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
-        ema200Series = chart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 1.0, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema10Series = chart.addSeries(LineSeries, { color: '#fdd835', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema50Series = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema100Series = chart.addSeries(LineSeries, { color: '#ef5350', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        ema200Series = chart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         bbUpperSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         bbMiddleSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         bbLowerSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
-        vwapSeries = chart.addSeries(LineSeries, { color: '#ffb300', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        vwapSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
@@ -131,10 +131,10 @@
 
     $effect(() => {
         if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
-        ema10Series.applyOptions({ visible: tf.showEmas && pair.showEmaFast });
-        ema50Series.applyOptions({ visible: tf.showEmas && pair.showEmaMedium });
-        ema100Series.applyOptions({ visible: tf.showEmas && pair.showEmaSlow });
-        ema200Series.applyOptions({ visible: tf.showEmas && pair.showEmaLong });
+        ema10Series.applyOptions({ visible: pair.showEmaFast });
+        ema50Series.applyOptions({ visible: pair.showEmaMedium });
+        ema100Series.applyOptions({ visible: pair.showEmaSlow });
+        ema200Series.applyOptions({ visible: pair.showEmaLong });
     });
 
     $effect(() => {

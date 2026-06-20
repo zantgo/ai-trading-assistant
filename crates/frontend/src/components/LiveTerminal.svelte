@@ -14,6 +14,10 @@
 
     const app = getState();
     let { pairKey }: { pairKey: string } = $props();
+    let showMicro = $state(true);
+    let showSmall = $state(true);
+    let showMedium = $state(true);
+    let showLarge = $state(true);
 
     function label(tf: TimeframeTelemetry): string {
         const sec = tf.barDurationSec;
@@ -35,7 +39,7 @@
         <ChartToggles {pairKey} />
         <div class="mtf-grid">
         <!-- Micro-Term Column -->
-        <div class="timescale-column">
+        <div class="timescale-column" class:hidden-pane={!showMicro}>
             <div class="timescale-header">
                 <span class="timescale-title">{label(pair.microTerm)}</span>
                 <span class="timescale-price">{pair.microTerm.priceText}</span>
@@ -93,7 +97,7 @@
         </div>
 
         <!-- Small-Term Column -->
-        <div class="timescale-column">
+        <div class="timescale-column" class:hidden-pane={!showSmall}>
             <div class="timescale-header">
                 <span class="timescale-title">{label(pair.smallTerm)}</span>
                 <span class="timescale-price">{pair.smallTerm.priceText}</span>
@@ -151,7 +155,7 @@
         </div>
 
         <!-- Medium-Term Column -->
-        <div class="timescale-column">
+        <div class="timescale-column" class:hidden-pane={!showMedium}>
             <div class="timescale-header">
                 <span class="timescale-title">{label(pair.mediumTerm)}</span>
                 <span class="timescale-price">{pair.mediumTerm.priceText}</span>
@@ -209,7 +213,7 @@
         </div>
 
         <!-- Large-Term Column -->
-        <div class="timescale-column">
+        <div class="timescale-column" class:hidden-pane={!showLarge}>
             <div class="timescale-header">
                 <span class="timescale-title">{label(pair.largeTerm)}</span>
                 <span class="timescale-price">{pair.largeTerm.priceText}</span>

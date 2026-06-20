@@ -731,6 +731,9 @@ async function fetchSessionStatus() {
         if (res.ok) {
             const data = await res.json();
             sessionActive = data.active;
+            if (sessionActive) {
+                currentGlobalView = 'dashboard';
+            }
             sessionMode = data.mode || 'paper';
             sessionCurrency = data.currency || 'USDT';
             sessionExchange = data.exchange || 'Hyperliquid';
@@ -761,6 +764,7 @@ async function initSession(mode: string, currency: string, exchange: string, cap
             sessionCurrency = currency;
             sessionExchange = exchange;
             sessionCapital = capital;
+            currentGlobalView = 'dashboard';
             sessionLoading = false;
             return { success: true };
         } else {
@@ -800,7 +804,7 @@ async function quitSession(): Promise<boolean> {
 
 let instancesMap = $state<Record<string, InstanceState>>({});
 let activeTab = $state<string>('BTC-USDT');
-let currentGlobalView = $state<string>('workspace');
+let currentGlobalView = $state<string>('dashboard');
 
 let apiKeyConfigured = $state(true);
 let rulesContent = $state('');

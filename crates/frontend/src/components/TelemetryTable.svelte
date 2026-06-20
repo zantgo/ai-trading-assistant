@@ -5,6 +5,7 @@
     const app = getState();
     let { pairKey }: { pairKey: string } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
+    let copied = $state(false);
 
     function priceColor(price: string): string {
         return price.startsWith('-') ? 'color: #ef4444' : 'color: #22c55e';
@@ -57,6 +58,43 @@
         return 'color: #cbd5e1';
     }
 
+    async function copyJson() {
+        if (!pair) return;
+        const dump: Record<string, unknown> = {
+            pair: `${pair.symbol}/USDT`,
+            timestamp: new Date().toISOString(),
+            telemetry: {}
+        };
+
+        for (const tfKey of timeframes) {
+            const tf = (pair as any)[tfKey] as TimeframeTelemetry;
+            if (!tf) continue;
+            (dump.telemetry as any)[tfLabels[tfKey]] = {
+                price: tf.priceText ?? '--',
+                ema_state: tf.emaStackState ?? '--',
+                vwap_bias: tf.vwapBias ?? '--',
+                rsi: parseFloat(tf.rsiText ?? '0') || 0,
+                macd_line: tf.macdLineText ?? '--',
+                adx: parseFloat(tf.adxText ?? '0') || 0,
+                adx_regime: tf.adxTrendingRegime ?? '--',
+                squeeze: tf.isSqueezeOn ? `ON ${tf.squeezeDuration}` : 'OFF',
+                squeeze_momentum: tf.squeezeMomentumDirection ?? '--',
+                bbwp: parseFloat(tf.bbwpText ?? '0') || 0,
+                rvol: tf.rvol ?? 0,
+                volume: tf.avgVolText ?? '--',
+                atr: tf.atrText ?? '--',
+            };
+        }
+
+        try {
+            await navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
+            copied = true;
+            setTimeout(() => { copied = false; }, 1500);
+        } catch {
+            // clipboard may not be available
+        }
+    }
+
     const rows = [
         { label: 'PRICE',  key: (tf: TimeframeTelemetry) => tf?.priceText ?? '--',           style: (tf: TimeframeTelemetry) => priceColor(tf?.priceText ?? '') },
         { label: 'EMA',    key: (tf: TimeframeTelemetry) => tf?.emaStackState ?? '--',       style: (tf: TimeframeTelemetry) => emaColor(tf?.emaStackState ?? '') },
@@ -89,6 +127,9 @@
     <div class="tt-header">
         <span class="tt-title">TELEMETRY MONITOR</span>
         <span class="tt-symbol">{pairObj.symbol}/USDT</span>
+        <button class="tt-copy-btn" onclick={copyJson}>
+            {copied ? 'COPIED' : 'JSON'}
+        </button>
     </div>
     <div class="tt-scroll">
         <table>
@@ -153,6 +194,25 @@
         font-size: 9px;
         color: #64748b;
         font-family: 'Courier New', monospace;
+        flex: 1;
+    }
+    .tt-copy-btn {
+        padding: 2px 8px;
+        border: 1px solid #1e293b;
+        border-radius: 3px;
+        background: transparent;
+        color: #4a5568;
+        font-size: 8px;
+        font-weight: 700;
+        font-family: 'Courier New', monospace;
+        cursor: pointer;
+        letter-spacing: 0.05em;
+        transition: all 0.15s;
+    }
+    .tt-copy-btn:hover {
+        border-color: #64ffda;
+        color: #64ffda;
+        background: rgba(100, 255, 218, 0.08);
     }
     .tt-scroll {
         flex: 1;
