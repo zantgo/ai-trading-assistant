@@ -59,9 +59,9 @@
         ema50Series = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ema100Series = chart.addSeries(LineSeries, { color: '#ef5350', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ema200Series = chart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
-        bbUpperSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
-        bbMiddleSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
-        bbLowerSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbUpperSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbMiddleSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+        bbLowerSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         vwapSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
@@ -108,6 +108,21 @@
                         historicalCandles.map((c: any) => ({ time: c.time, value: c.close }))
                     );
                     chart.timeScale().fitContent();
+
+                    const ind = data.indicator_history;
+                    if (ind) {
+                        const mapIndicator = (arr: (string | null)[] | undefined) =>
+                            arr?.map((val, i) => val != null ? { time: historicalCandles[i].time, value: parseFloat(val) } : null)
+                               .filter(Boolean) ?? [];
+                        ema10Series.setData(mapIndicator(ind.ema_fast));
+                        ema50Series.setData(mapIndicator(ind.ema_medium));
+                        ema100Series.setData(mapIndicator(ind.ema_slow));
+                        ema200Series.setData(mapIndicator(ind.ema_long));
+                        bbUpperSeries.setData(mapIndicator(ind.bb_upper));
+                        bbMiddleSeries.setData(mapIndicator(ind.bb_middle));
+                        bbLowerSeries.setData(mapIndicator(ind.bb_lower));
+                        vwapSeries.setData(mapIndicator(ind.vwap));
+                    }
                 }
             } catch (err) {
                 console.error("Error bootstrapping price chart history:", err);
@@ -115,7 +130,7 @@
         })();
 
         const ro = new ResizeObserver(() => {
-            if (container && chart) chart.resize(container.clientWidth, container.clientHeight);
+            const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
 

@@ -108,7 +108,7 @@
         })();
 
         const ro = new ResizeObserver(() => {
-            if (container && chart) chart.resize(container.clientWidth, container.clientHeight);
+            const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
 

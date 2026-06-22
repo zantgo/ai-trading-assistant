@@ -51,11 +51,18 @@
                     const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const placeholder = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: hasCandles ? (parseFloat(item.volume) || 0) : 0,
-                        color: '#131722'
-                    }));
+                    const rvolHistory = data.indicator_history?.rvol ?? [];
+                    const placeholder = source.map((item: any, idx: number) => {
+                        const time = hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time;
+                        if (hasCandles) {
+                            const close = parseFloat(item.close) || 0;
+                            const open = parseFloat(item.open) || 0;
+                            const rvolRaw = rvolHistory[idx];
+                            const rvolVal = rvolRaw != null ? parseFloat(rvolRaw) : 1.0;
+                            return { time, value: parseFloat(item.volume) || 0, color: volumeColor(rvolVal, close, open) };
+                        }
+                        return { time, value: 0, color: '#131722' };
+                    });
 
                     volumeSeries.setData(placeholder);
                     chart.timeScale().fitContent();
@@ -66,7 +73,7 @@
         })();
 
         const ro = new ResizeObserver(() => {
-            if (container && chart) chart.resize(container.clientWidth, container.clientHeight);
+            const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
 

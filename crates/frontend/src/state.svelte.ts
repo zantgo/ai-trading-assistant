@@ -241,7 +241,22 @@ export interface DailyActivity {
 export interface DailyPnl { date: string; pnl: number; }
 export interface HourlyWinRate { hour: number; win_rate: number; volume: number; }
 export interface WeekdayWinRate { weekday: string; win_rate: number; volume: number; }
-export interface DirectionBreakdown { longs: number; shorts: number; long_expectancy: number; short_expectancy: number; }
+export interface DirectionBreakdown {
+    longs: number;
+    shorts: number;
+    long_expectancy: number;
+    short_expectancy: number;
+    long_wins: number;
+    long_losses: number;
+    long_win_rate: number;
+    long_avg_gain: number;
+    long_avg_loss: number;
+    short_wins: number;
+    short_losses: number;
+    short_win_rate: number;
+    short_avg_gain: number;
+    short_avg_loss: number;
+}
 export interface StyleSegment { count: number; avg_duration_minutes: number; win_rate: number; }
 export interface TraderStyleBreakdown { scalper: StyleSegment; day_trader: StyleSegment; swing_trader: StyleSegment; }
 export interface StreakMetrics { avg_streak_length: number; max_consecutive_value: number; max_streak_length: number; }
@@ -254,6 +269,7 @@ export interface MonthlySummary { month: string; net_pnl: number; win_rate: numb
 export interface DashboardStats {
     core_stats: CoreStats;
     equity_curve: [number, number][];
+    compounded_curve: [number, number][];
     daily_activity: DailyActivity[];
     daily_pnl: DailyPnl[];
     win_rate_by_hour: HourlyWinRate[];
@@ -1667,7 +1683,7 @@ export function getState() {
 
         async fetchDashboardStats() {
             try {
-                const res = await fetch('/api/dashboard/stats');
+                const res = await fetch(`/api/dashboard/stats?initial_capital=${sessionCapital}`);
                 if (res.ok) { dashboardStats = await res.json(); }
             } catch (_) {}
         },

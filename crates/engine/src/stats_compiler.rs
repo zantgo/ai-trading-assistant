@@ -5,6 +5,7 @@ use serde::Serialize;
 pub struct DashboardStats {
     pub core_stats: CoreStats,
     pub equity_curve: Vec<(i64, f64)>,
+    pub compounded_curve: Vec<(i64, f64)>,
     pub daily_activity: Vec<DailyActivity>,
     pub daily_pnl: Vec<DailyPnl>,
     pub win_rate_by_hour: Vec<HourlyWinRate>,
@@ -74,6 +75,16 @@ pub struct DirectionBreakdown {
     pub shorts: usize,
     pub long_expectancy: f64,
     pub short_expectancy: f64,
+    pub long_wins: usize,
+    pub long_losses: usize,
+    pub long_win_rate: f64,
+    pub long_avg_gain: f64,
+    pub long_avg_loss: f64,
+    pub short_wins: usize,
+    pub short_losses: usize,
+    pub short_win_rate: f64,
+    pub short_avg_gain: f64,
+    pub short_avg_loss: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -131,7 +142,7 @@ pub struct MonthlySummary {
     pub trade_count: usize,
 }
 
-pub async fn compile_dashboard_stats(pool: &SqlitePool) -> DashboardStats {
+pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) -> DashboardStats {
     let trades: Vec<(i64, String, String, f64, f64, f64, f64, f64, f64, String)> =
         crate::db::dash_trade_detail(pool).await;
 
@@ -151,12 +162,14 @@ pub async fn compile_dashboard_stats(pool: &SqlitePool) -> DashboardStats {
     let pnl_calendar = compute_pnl_calendar(&trades);
     let pair_volume = compute_pair_volume(&trades);
     let (top_pairs_profitability, bottom_pairs_profitability) = compute_pair_profitability(&trades);
+    let compounded_curve = compute_compounded_curve(&trades, initial_capital);
     let (daily_commissions, cumulative_commissions, fee_pnl_ratio) = compute_commission_stats(&trades);
     let monthly_summary = compute_monthly_summary(&trades);
 
     DashboardStats {
         core_stats,
         equity_curve,
+        compounded_curve,
         daily_activity,
         daily_pnl,
         win_rate_by_hour,
@@ -186,11 +199,18 @@ fn empty_dashboard() -> DashboardStats {
             total_trades: 0, wins: 0, losses: 0,
         },
         equity_curve: vec![],
+        compounded_curve: vec![],
         daily_activity: vec![],
         daily_pnl: vec![],
         win_rate_by_hour: vec![],
         win_rate_by_weekday: vec![],
-        direction_breakdown: DirectionBreakdown { longs: 0, shorts: 0, long_expectancy: 0.0, short_expectancy: 0.0 },
+        direction_breakdown: DirectionBreakdown {
+            longs: 0, shorts: 0, long_expectancy: 0.0, short_expectancy: 0.0,
+            long_wins: 0, long_losses: 0, long_win_rate: 0.0,
+            long_avg_gain: 0.0, long_avg_loss: 0.0,
+            short_wins: 0, short_losses: 0, short_win_rate: 0.0,
+            short_avg_gain: 0.0, short_avg_loss: 0.0,
+        },
         trader_style: TraderStyleBreakdown {
             scalper: StyleSegment { count: 0, avg_duration_minutes: 0.0, win_rate: 0.0 },
             day_trader: StyleSegment { count: 0, avg_duration_minutes: 0.0, win_rate: 0.0 },
@@ -321,11 +341,53 @@ fn compute_win_rate_by_weekday(trades: &[TradeRow]) -> Vec<WeekdayWinRate> {
 }
 
 fn compute_direction_breakdown(trades: &[TradeRow]) -> DirectionBreakdown {
-    let longs: Vec<_> = trades.iter().filter(|t| t.2.to_uppercase() == "LONG").collect();
-    let shorts: Vec<_> = trades.iter().filter(|t| t.2.to_uppercase() == "SHORT").collect();
+    let longs: Vec<&TradeRow> = trades.iter().filter(|t| t.2.to_uppercase() == "LONG").collect();
+    let shorts: Vec<&TradeRow> = trades.iter().filter(|t| t.2.to_uppercase() == "SHORT").collect();
+
     let long_exp = if !longs.is_empty() { longs.iter().map(|t| t.6).sum::<f64>() / longs.len() as f64 } else { 0.0 };
     let short_exp = if !shorts.is_empty() { shorts.iter().map(|t| t.6).sum::<f64>() / shorts.len() as f64 } else { 0.0 };
-    DirectionBreakdown { longs: longs.len(), shorts: shorts.len(), long_expectancy: long_exp, short_expectancy: short_exp }
+
+    let long_wins_list: Vec<&&TradeRow> = longs.iter().filter(|t| t.6 > 0.0).collect();
+    let long_losses_list: Vec<&&TradeRow> = longs.iter().filter(|t| t.6 < 0.0).collect();
+    let long_wins = long_wins_list.len();
+    let long_losses = long_losses_list.len();
+    let long_win_rate = if !longs.is_empty() { (long_wins as f64 / longs.len() as f64) * 100.0 } else { 0.0 };
+    let long_avg_gain = if !long_wins_list.is_empty() { long_wins_list.iter().map(|t| t.8).sum::<f64>() / long_wins as f64 } else { 0.0 };
+    let long_avg_loss = if !long_losses_list.is_empty() { long_losses_list.iter().map(|t| t.8.abs()).sum::<f64>() / long_losses as f64 } else { 0.0 };
+
+    let short_wins_list: Vec<&&TradeRow> = shorts.iter().filter(|t| t.6 > 0.0).collect();
+    let short_losses_list: Vec<&&TradeRow> = shorts.iter().filter(|t| t.6 < 0.0).collect();
+    let short_wins = short_wins_list.len();
+    let short_losses = short_losses_list.len();
+    let short_win_rate = if !shorts.is_empty() { (short_wins as f64 / shorts.len() as f64) * 100.0 } else { 0.0 };
+    let short_avg_gain = if !short_wins_list.is_empty() { short_wins_list.iter().map(|t| t.8).sum::<f64>() / short_wins as f64 } else { 0.0 };
+    let short_avg_loss = if !short_losses_list.is_empty() { short_losses_list.iter().map(|t| t.8.abs()).sum::<f64>() / short_losses as f64 } else { 0.0 };
+
+    DirectionBreakdown {
+        longs: longs.len(),
+        shorts: shorts.len(),
+        long_expectancy: long_exp,
+        short_expectancy: short_exp,
+        long_wins,
+        long_losses,
+        long_win_rate,
+        long_avg_gain,
+        long_avg_loss,
+        short_wins,
+        short_losses,
+        short_win_rate,
+        short_avg_gain,
+        short_avg_loss,
+    }
+}
+
+fn compute_compounded_curve(trades: &[TradeRow], initial_capital: f64) -> Vec<(i64, f64)> {
+    let mut balance = initial_capital;
+    trades.iter().map(|t| {
+        let roi_multiplier = 1.0 + (t.8 / 100.0);
+        balance *= roi_multiplier;
+        (t.0, balance)
+    }).collect()
 }
 
 fn compute_trader_style(trades: &[TradeRow]) -> TraderStyleBreakdown {

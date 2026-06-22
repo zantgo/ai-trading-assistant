@@ -235,6 +235,7 @@ pub struct IndicatorHistoryArrays {
     pub bb_upper: Vec<Option<String>>,
     pub bb_middle: Vec<Option<String>>,
     pub bb_lower: Vec<Option<String>>,
+    pub rvol: Vec<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -505,6 +506,7 @@ async fn serve_history(
                 bb_upper: Vec::with_capacity(count),
                 bb_middle: Vec::with_capacity(count),
                 bb_lower: Vec::with_capacity(count),
+                rvol: Vec::with_capacity(count),
             };
 
             let mut candle_list: Vec<HistoryCandle> = Vec::with_capacity(count);
@@ -531,6 +533,7 @@ async fn serve_history(
                 indicator_history.bb_upper.push(snap.bb_upper.map(|v| v.to_string()));
                 indicator_history.bb_middle.push(snap.bb_middle.map(|v| v.to_string()));
                 indicator_history.bb_lower.push(snap.bb_lower.map(|v| v.to_string()));
+                indicator_history.rvol.push(snap.rvol.map(|v| v.to_string()));
 
                 candle_list.push(HistoryCandle {
                     time: snap.timestamp * 1000, // convert seconds → ms for frontend
@@ -566,6 +569,7 @@ async fn serve_history(
             bb_upper: vec![],
             bb_middle: vec![],
             bb_lower: vec![],
+            rvol: vec![],
         }),
     };
 
@@ -2285,6 +2289,8 @@ async fn handle_ws_socket(mut socket: WebSocket, state: Arc<AppState>, pair_key:
                     pair.short.broadcast_tx.subscribe()
                 } else if tf_secs == 900 {
                     pair.medium.broadcast_tx.subscribe()
+                } else if tf_secs == 3600 {
+                    pair.large.broadcast_tx.subscribe()
                 } else {
                     pair.micro.broadcast_tx.subscribe()
                 }
@@ -2972,8 +2978,13 @@ async fn serve_exchange_keys_sync(
 
 // ─── Dashboard Stats ──────────────────────────────────────────────
 
-async fn serve_dashboard_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let stats = crate::stats_compiler::compile_dashboard_stats(&state.pool).await;
+#[derive(Debug, serde::Deserialize)]
+pub struct StatsQuery {
+    pub initial_capital: Option<f64>,
+}
+
+async fn serve_dashboard_stats(State(state): State<Arc<AppState>>, Query(query): Query<StatsQuery>) -> impl IntoResponse {
+    let stats = crate::stats_compiler::compile_dashboard_stats(&state.pool, query.initial_capital.unwrap_or(10000.0)).await;
     Json(stats)
 }
 

@@ -126,10 +126,10 @@
         color: #64ffda;
         background: rgba(100, 255, 218, 0.08);
     }
-    .toggle-pill.ema-fast.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }
+    .toggle-pill.ema-fast.active { border-color: #fdd835; color: #fdd835; background: rgba(253, 216, 53, 0.1); }
     .toggle-pill.ema-medium.active { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.1); }
     .toggle-pill.ema-slow.active { border-color: #e91e63; color: #e91e63; background: rgba(233, 30, 99, 0.1); }
     .toggle-pill.ema-long.active { border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.1); }
-    .toggle-pill.vwap-pill.active { border-color: #ffb300; color: #ffb300; background: rgba(255, 179, 0, 0.1); }
+    .toggle-pill.vwap-pill.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }
     .toggle-pill.bb-pill.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0, 229, 255, 0.1); }
 </style>

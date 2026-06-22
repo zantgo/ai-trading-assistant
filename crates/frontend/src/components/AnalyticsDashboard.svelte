@@ -114,6 +114,26 @@
                 </div>
             </div>
 
+            <!-- Compounded Balance Curve -->
+            {#if stats.compounded_curve.length > 0}
+                {@const compValues = stats.compounded_curve.map(c => c[1])}
+                {@const compMin = Math.min(...compValues)}
+                {@const compMax = Math.max(...compValues)}
+                {@const compRange = Math.max(compMax - compMin, 0.01)}
+                <div class="adb-section-title">COMPOUNDED BALANCE</div>
+                <div class="adb-chart-box">
+                    <div class="adb-mini-chart">
+                        {#each stats.compounded_curve.slice(-50) as [ts, val], i}
+                            <div class="adb-bar-line" style="left: {(i / Math.max(stats.compounded_curve.length - 1, 1)) * 100}%;
+                                bottom: {((val - compMin) / compRange) * 100}%;
+                                height: 2px;
+                                background: {val >= 10000 ? '#10b981' : '#ef4444'};">
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
+
             <!-- Daily Activity -->
             <div class="adb-section-title">ACTIVITY</div>
             <div class="adb-chart-box">
@@ -194,6 +214,44 @@
                     <span class="adb-exp-label">Short Expectancy</span>
                     <span class="adb-exp-val">{formatUsd(stats.direction_breakdown.short_expectancy)}</span>
                 </div>
+            </div>
+
+            <!-- Directional Performance Table -->
+            <div class="adb-section-title">DIRECTIONAL PERFORMANCE (LONG vs SHORT)</div>
+            <div class="adb-table-wrap">
+                <table class="adb-table">
+                    <thead>
+                        <tr>
+                            <th>Direction</th>
+                            <th>Wins (Profit)</th>
+                            <th>Losses (Loss)</th>
+                            <th>Total Trades</th>
+                            <th>Win Rate %</th>
+                            <th>Avg Gain %</th>
+                            <th>Avg Loss %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="adb-dir-long">LONG</td>
+                            <td>{stats.direction_breakdown.long_wins}</td>
+                            <td>{stats.direction_breakdown.long_losses}</td>
+                            <td>{stats.direction_breakdown.longs}</td>
+                            <td>{stats.direction_breakdown.long_win_rate.toFixed(2)}%</td>
+                            <td class="adb-pos">{stats.direction_breakdown.long_avg_gain.toFixed(2)}%</td>
+                            <td class="adb-neg">-{stats.direction_breakdown.long_avg_loss.toFixed(2)}%</td>
+                        </tr>
+                        <tr>
+                            <td class="adb-dir-short">SHORT</td>
+                            <td>{stats.direction_breakdown.short_wins}</td>
+                            <td>{stats.direction_breakdown.short_losses}</td>
+                            <td>{stats.direction_breakdown.shorts}</td>
+                            <td>{stats.direction_breakdown.short_win_rate.toFixed(2)}%</td>
+                            <td class="adb-pos">{stats.direction_breakdown.short_avg_gain.toFixed(2)}%</td>
+                            <td class="adb-neg">-{stats.direction_breakdown.short_avg_loss.toFixed(2)}%</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
             <!-- Trader Style -->
@@ -454,6 +512,14 @@
         font-size: 9px; font-weight: 600; cursor: default;
     }
     .adb-cal-num { color: #cbd5e1; }
+
+    .adb-table-wrap { overflow-x: auto; margin-bottom: 12px; }
+    .adb-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: monospace; }
+    .adb-table th { text-align: left; padding: 6px 10px; border-bottom: 1px solid #2a2e39; color: #64748b; font-weight: 600; font-size: 9px; text-transform: uppercase; }
+    .adb-table td { padding: 5px 10px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+    .adb-table tr:hover td { background: rgba(59,130,246,0.04); }
+    .adb-dir-long { color: #10b981; font-weight: 700; }
+    .adb-dir-short { color: #ef4444; font-weight: 700; }
 
     @media (max-width: 768px) {
         .adb-stats-grid { grid-template-columns: repeat(2, 1fr); }

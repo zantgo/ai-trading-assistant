@@ -26,11 +26,15 @@
     let equityChart: IChartApi | null = null;
     let equitySeries: ISeriesApi<'Line'> | null = null;
 
+    let compoundedContainer = $state<HTMLDivElement | null>(null);
+    let compoundedChart: IChartApi | null = null;
+    let compoundedSeries: ISeriesApi<'Line'> | null = null;
+
     async function fetchAll() {
         loading = true;
         try {
             const [statsRes, recsRes, statusRes, instancesRes] = await Promise.all([
-                fetch('/api/dashboard/stats'),
+                fetch(`/api/dashboard/stats?initial_capital=${app.sessionCapital}`),
                 fetch('/api/historical-recommendations'),
                 fetch('/api/system/status'),
                 fetch('/api/instances'),
@@ -104,16 +108,49 @@
         equitySeries.setData(data);
     }
 
+    function buildCompoundedChart() {
+        if (!compoundedContainer || !stats?.compounded_curve || stats.compounded_curve.length < 2) return;
+        if (compoundedChart) { compoundedChart.remove(); compoundedChart = null; }
+
+        const data = stats.compounded_curve.map(([ts, val]) => ({
+            time: ts as Time,
+            value: val,
+        }));
+
+        compoundedChart = createChart(compoundedContainer, {
+            autoSize: true,
+            layout: { background: { color: '#14142a' }, textColor: '#8f929d', fontSize: 10 },
+            grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
+            rightPriceScale: { borderColor: '#2a2a4a' },
+            timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: false },
+            handleScale: false,
+            handleScroll: false,
+        });
+        compoundedChart.timeScale().fitContent();
+
+        compoundedSeries = compoundedChart.addSeries(LineSeries, {
+            color: '#f59e0b',
+            lineWidth: 2,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+        });
+        compoundedSeries.setData(data);
+    }
+
     $effect(() => { fetchAll(); });
 
     $effect(() => {
         if (!loading && stats?.equity_curve) {
             requestAnimationFrame(() => buildEquityChart());
         }
+        if (!loading && stats?.compounded_curve && stats.compounded_curve.length >= 2) {
+            requestAnimationFrame(() => buildCompoundedChart());
+        }
     });
 
     onDestroy(() => {
         if (equityChart) { equityChart.remove(); equityChart = null; }
+        if (compoundedChart) { compoundedChart.remove(); compoundedChart = null; }
     });
 </script>
 
@@ -263,6 +300,16 @@
                     <div class="equity-chart-container" bind:this={equityContainer}></div>
                 </div>
             {/if}
+
+            <!-- Compounded Balance Curve -->
+            {#if stats?.compounded_curve && stats.compounded_curve.length >= 2}
+                <div class="section-header" style="margin-top: 1.5rem;">
+                    <h3>Compounded Balance Curve</h3>
+                </div>
+                <div class="equity-chart-wrapper">
+                    <div class="equity-chart-container" bind:this={compoundedContainer}></div>
+                </div>
+            {/if}
         {/if}
 
         <!-- Detailed Stats -->
@@ -314,6 +361,38 @@
                         <div class="detail-row">
                             <span>Short Expectancy</span>
                             <span>${stats.direction_breakdown.short_expectancy.toFixed(2)}</span>
+                        </div>
+                        <div class="dir-sub-table">
+                            <table class="dir-table">
+                                <thead>
+                                    <tr>
+                                        <th>Dir</th>
+                                        <th>Wins</th>
+                                        <th>Losses</th>
+                                        <th>WR%</th>
+                                        <th>AvgG%</th>
+                                        <th>AvgL%</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="positive">LONG</td>
+                                        <td class="positive">{stats.direction_breakdown.long_wins}</td>
+                                        <td class="negative">{stats.direction_breakdown.long_losses}</td>
+                                        <td>{stats.direction_breakdown.long_win_rate.toFixed(1)}%</td>
+                                        <td class="positive">{stats.direction_breakdown.long_avg_gain.toFixed(2)}%</td>
+                                        <td class="negative">-{stats.direction_breakdown.long_avg_loss.toFixed(2)}%</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="negative">SHORT</td>
+                                        <td class="positive">{stats.direction_breakdown.short_wins}</td>
+                                        <td class="negative">{stats.direction_breakdown.short_losses}</td>
+                                        <td>{stats.direction_breakdown.short_win_rate.toFixed(1)}%</td>
+                                        <td class="positive">{stats.direction_breakdown.short_avg_gain.toFixed(2)}%</td>
+                                        <td class="negative">-{stats.direction_breakdown.short_avg_loss.toFixed(2)}%</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     {/if}
                 </div>
@@ -545,6 +624,10 @@
         border-bottom: 1px solid #1e1e3a;
     }
     .detail-row:last-child { border-bottom: none; }
+    .dir-sub-table { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #2a2a4a; }
+    .dir-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; font-family: ui-monospace, monospace; }
+    .dir-table th { text-align: left; padding: 3px 4px; border-bottom: 1px solid #2a2a4a; color: #64748b; font-weight: 600; font-size: 0.6rem; text-transform: uppercase; }
+    .dir-table td { padding: 3px 4px; border-bottom: 1px solid #1e1e3a; color: #cbd5e1; }
     .section-header {
         margin-bottom: 0.75rem;
     }
