@@ -522,8 +522,8 @@
     }
             }
         if (symbols.length > 0) {
-            const parts = symbols[0].split(':');
-            app.activeTab = `${parts[0] || 'Hyperliquid'}-${parts[1] || 'BTC'}`;
+            const firstSymbol = symbols[0].includes(':') ? symbols[0].split(':')[1] : symbols[0];
+            app.activeTab = `${firstSymbol}-USDT`;
         }
         configReady = true;
         connectWebsocket();

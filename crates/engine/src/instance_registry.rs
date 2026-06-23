@@ -172,8 +172,21 @@ pub async fn add_instance(
             println!("📡 Historical Bootstrap [{}]: Fetched {}/{}/{}/{} candles (1m/5m/15m/1h)",
                 base, mc.len(), sc.len(), mc2.len(), lc.len());
 
+            if mc.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 1m REST returned 0 candles — micro chart will populate from live data only.", base);
+            }
+            if sc.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 5m REST returned 0 candles.", base);
+            }
+            if mc2.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 15m REST returned 0 candles.", base);
+            }
+            if lc.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 1h REST returned 0 candles.", base);
+            }
+
             let w_micro = analyzer::warm_indicators_for_timeframe(
-                mc, &micro_cfg, &drop_fib, &base, micro_secs,
+                mc.clone(), &micro_cfg, &drop_fib, &base, micro_secs,
             );
             let w_short = analyzer::warm_indicators_for_timeframe(
                 sc, &short_cfg, &drop_fib, &base, short_secs,
@@ -185,7 +198,7 @@ pub async fn add_instance(
                 lc, &large_cfg, &drop_fib, &base, large_secs,
             );
 
-            (Some(w_micro), Some(w_short), Some(w_medium), Some(w_large), Some(mc2))
+            (Some(w_micro), Some(w_short), Some(w_medium), Some(w_large), Some(mc))
         }
         Err(e) => {
             eprintln!("⚠️  Historical Bootstrap [{}]: REST fetch failed — {}. Falling back to live-only data.", base, e);
