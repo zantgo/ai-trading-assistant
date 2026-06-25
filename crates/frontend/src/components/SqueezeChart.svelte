@@ -28,7 +28,18 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: true, timeVisible: true, secondsVisible: true },
+            timeScale: {
+                borderColor: '#2a2e39',
+                visible: true,
+                timeVisible: true,
+                secondsVisible: true,
+                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                    const date = new Date(time * 1000);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
+            },
             handleScale: true,
             handleScroll: true,
         });
@@ -41,7 +52,13 @@
         });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
-        chart.priceScale('squeeze-overlay').applyOptions({ visible: false });
+        chart.priceScale('squeeze-overlay').applyOptions({ 
+            visible: false,
+            scaleMargins: {
+                top: 0.46,
+                bottom: 0.46
+            }
+        });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart);
@@ -53,18 +70,38 @@
                 const data = await res.json();
                 const indicatorHistory = data.indicator_history;
                 if (indicatorHistory && indicatorHistory.squeeze_momentum && indicatorHistory.squeeze_momentum.length > 0) {
-                    const momData = indicatorHistory.times.map((t: number, i: number) => {
-                        const val = indicatorHistory.squeeze_momentum[i] ? parseFloat(indicatorHistory.squeeze_momentum[i]) : 0;
+                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => {
+                        const val = indicatorHistory.squeeze_momentum[i] != null ? parseFloat(indicatorHistory.squeeze_momentum[i]) : 0;
                         return {
                             time: t as Time,
+                            mom: indicatorHistory.squeeze_momentum[i],
+                            on: indicatorHistory.squeeze_on[i]
+                        };
+                    });
+
+                    const seenTimes = new Set<number>();
+                    const cleanedCombined: { time: Time; mom: string | null; on: boolean }[] = [];
+                    for (const item of rawCombined) {
+                        const tNum = item.time as number;
+                        if (item && tNum && !seenTimes.has(tNum)) {
+                            seenTimes.add(tNum);
+                            cleanedCombined.push(item);
+                        }
+                    }
+                    cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
+
+                    const momData = cleanedCombined.map(x => {
+                        const val = x.mom != null ? parseFloat(x.mom) : 0;
+                        return {
+                            time: x.time,
                             value: val,
                             color: val >= 0 ? '#26a69a' : '#ef5350'
                         };
                     });
-                    const dotData = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
+                    const dotData = cleanedCombined.map(x => ({
+                        time: x.time,
                         value: 0.1,
-                        color: indicatorHistory.squeeze_on[i] ? '#ef5350' : '#4caf50'
+                        color: x.on ? '#ef5350' : '#4caf50'
                     }));
 
                     squeezeMomSeries.setData(momData);
@@ -78,11 +115,17 @@
                     const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const placeholder = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: 0,
-                        color: '#131722'
-                    }));
+                    const seenTimes = new Set<number>();
+                    const placeholder: { time: Time; value: number; color: string }[] = [];
+                    for (let idx = 0; idx < source.length; idx++) {
+                        const item = source[idx];
+                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
+                        if (!seenTimes.has(tVal)) {
+                            seenTimes.add(tVal);
+                            placeholder.push({ time: tVal as Time, value: 0, color: '#131722' });
+                        }
+                    }
+                    placeholder.sort((a, b) => (a.time as number) - (b.time as number));
 
                     squeezeMomSeries.setData(placeholder);
                     squeezeDotSeries.setData(placeholder);

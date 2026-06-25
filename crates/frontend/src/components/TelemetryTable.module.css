@@ -1,6 +1,5 @@
 .telemetry-table {
     width: 100%;
-    height: 170px;
     flex-shrink: 0;
     background: #0f111a;
     border-top: 1px solid #1e293b;
@@ -10,14 +9,14 @@
 }
 .tt-header {
     flex-shrink: 0;
-    padding: 6px 10px;
+    padding: 8px 12px;
     border-bottom: 1px solid #1e293b;
     display: flex;
     align-items: center;
     gap: 12px;
 }
 .tt-title {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     color: #64ffda;
     font-family: 'Courier New', monospace;
@@ -25,22 +24,23 @@
     text-transform: uppercase;
 }
 .tt-symbol {
-    font-size: 9px;
+    font-size: 10px;
     color: #64748b;
     font-family: 'Courier New', monospace;
     flex: 1;
 }
 .tt-copy-btn {
-    padding: 2px 8px;
+    padding: 3px 10px;
     border: 1px solid #1e293b;
-    border-radius: 3px;
+    border-radius: 4px;
     background: transparent;
-    color: #4a5568;
-    font-size: 8px;
+    color: #8f929d;
+    font-size: 9px;
     font-weight: 700;
     font-family: 'Courier New', monospace;
     cursor: pointer;
     letter-spacing: 0.05em;
+    text-transform: uppercase;
     transition: all 0.15s;
 }
 .tt-copy-btn:hover {
@@ -48,60 +48,163 @@
     color: #64ffda;
     background: rgba(100, 255, 218, 0.08);
 }
-.tt-scroll {
+
+/* Timeframes Cards Grid */
+.tt-grid {
     flex: 1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding: 12px;
     overflow-y: auto;
     overflow-x: hidden;
 }
-table {
+@media (max-width: 1200px) {
+    .tt-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 768px) {
+    .tt-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.tf-table-card {
+    background-color: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tf-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #1e293b;
+    padding-bottom: 6px;
+}
+.tf-card-label {
+    font-size: 10px;
+    font-weight: 800;
+    color: #cbd5e1;
+    font-family: 'Courier New', monospace;
+}
+.tf-card-market-state {
+    font-size: 9px;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+}
+.tf-card-table {
     width: 100%;
     border-collapse: collapse;
     font-family: 'Courier New', monospace;
     font-size: 10px;
 }
-thead {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}
-.tt-tf-header {
-    background: #0a0d14;
-    color: #64748b;
-    padding: 4px 8px;
-    text-align: center;
-    font-weight: 700;
-    font-size: 9px;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid #1e293b;
-}
-.tt-row-label {
-    color: #4a5568;
-    padding: 3px 8px;
+.tf-card-table th {
     text-align: left;
+    color: #64748b;
     font-size: 8px;
+    padding: 2px 4px;
+    border-bottom: 1px solid #1e293b;
+    text-transform: uppercase;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    white-space: nowrap;
-    background: #0a0d14;
-    border-right: 1px solid #1a1d26;
 }
-.tt-cell {
-    padding: 3px 8px;
-    text-align: center;
-    font-size: 9px;
-    font-weight: 600;
-    border-bottom: 1px solid #14142a;
-    white-space: nowrap;
+.tf-card-table td {
+    padding: 3px 4px;
+    border-bottom: 1px solid #1c202d;
+    vertical-align: middle;
 }
-tbody tr:hover .tt-cell {
-    background: #1a1d26;
+.tf-card-table tr:last-child td {
+    border-bottom: none;
 }
-tbody tr:hover .tt-row-label {
-    background: #14142a;
+.col-label {
     color: #cbd5e1;
+    font-weight: 700;
+    width: 35%;
 }
-.rsi-overbought { background: rgba(239, 68, 68, 0.15); }
-.rsi-oversold { background: rgba(34, 197, 94, 0.15); }
-.adx-extreme { background: rgba(239, 68, 68, 0.2); }
-.adx-strong { background: rgba(249, 115, 22, 0.2); }
-.adx-emerging { background: rgba(34, 197, 94, 0.1); }
+.col-value {
+    color: #8f929d;
+    width: 25%;
+}
+.col-state {
+    width: 40%;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.expand-btn {
+    background: transparent;
+    border: 1px solid #1e293b;
+    color: #8f929d;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: monospace;
+    transition: all 0.15s;
+}
+
+.expand-btn:hover {
+    border-color: #64ffda;
+    color: #64ffda;
+    background: rgba(100, 255, 218, 0.08);
+}
+
+.expanded-table-card {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 99999 !important;
+    background-color: #131722 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    padding: 32px !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    overflow-y: auto !important; /* Enable scrolling for expanded tables */
+}
+
+.expanded-table-card .tf-card-header {
+    border-bottom: 2px solid #1e293b;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+}
+
+.expanded-table-card .tf-card-label {
+    font-size: 18px !important;
+}
+
+.expanded-table-card .tf-card-market-state {
+    font-size: 16px !important;
+}
+
+.expanded-table-card .tf-card-table {
+    font-size: 14px !important;
+    line-height: 2 !important;
+}
+
+.expanded-table-card .tf-card-table th {
+    font-size: 11px !important;
+    padding-bottom: 12px !important;
+    border-bottom: 2px solid #1e293b !important;
+}
+
+.expanded-table-card .tf-card-table td {
+    padding: 8px 12px !important;
+    border-bottom: 1px solid #1e293b !important;
+}

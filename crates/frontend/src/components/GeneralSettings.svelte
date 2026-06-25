@@ -136,22 +136,22 @@
             <div class={styles.settingsCard}>
                 <h3>🛡️ Safety Dropdowns</h3>
                 <div class={styles.inputRow}>
-                    <label>Consecutive Loss Caution:</label>
-                    <input type="number" bind:value={draftLossCaution} min="1" max="100" />
+                    <label for="loss-caution">Consecutive Loss Caution:</label>
+                    <input id="loss-caution" type="number" bind:value={draftLossCaution} min="1" max="100" />
                     <span class={styles.hint}>≥ this → AI becomes cautious</span>
                 </div>
                 <div class={styles.inputRow}>
-                    <label>Consecutive Loss Dropout:</label>
-                    <input type="number" bind:value={draftLossDropout} min="1" max="100" />
+                    <label for="loss-dropout">Consecutive Loss Dropout:</label>
+                    <input id="loss-dropout" type="number" bind:value={draftLossDropout} min="1" max="100" />
                     <span class={styles.hint}>≥ this → instance suspended</span>
                 </div>
                 <div class={styles.inputRow}>
-                    <label>Dropout Duration (hours):</label>
-                    <input type="number" bind:value={draftDropoutHours} min="1" max="168" />
+                    <label for="dropout-hours">Dropout Duration (hours):</label>
+                    <input id="dropout-hours" type="number" bind:value={draftDropoutHours} min="1" max="168" />
                 </div>
                 <div class={styles.inputRow}>
-                    <label>Capital Drawdown Limit (%):</label>
-                    <input type="number" bind:value={draftDrawdownPct} min="1" max="100" step="0.5" />
+                    <label for="drawdown-pct">Capital Drawdown Limit (%):</label>
+                    <input id="drawdown-pct" type="number" bind:value={draftDrawdownPct} min="1" max="100" step="0.5" />
                     <span class={styles.hint}>% loss from initial capital → stop</span>
                 </div>
                 <button class={styles.saveBtn} onclick={saveSafety}>Save Safety Settings</button>
@@ -161,16 +161,16 @@
             <div class={styles.settingsCard}>
                 <h3>🔄 API Failover</h3>
                 <div class={styles.inputRow}>
-                    <label>Max Retries Per Call:</label>
-                    <input type="number" bind:value={draftFailoverRetries} min="1" max="20" />
+                    <label for="failover-retries">Max Retries Per Call:</label>
+                    <input id="failover-retries" type="number" bind:value={draftFailoverRetries} min="1" max="20" />
                 </div>
                 <div class={styles.inputRow}>
-                    <label>Retry Delay (seconds):</label>
-                    <input type="number" bind:value={draftFailoverDelay} min="1" max="300" />
+                    <label for="failover-delay">Retry Delay (seconds):</label>
+                    <input id="failover-delay" type="number" bind:value={draftFailoverDelay} min="1" max="300" />
                 </div>
                 <div class={styles.inputRow}>
-                    <label>Max Consecutive Failures:</label>
-                    <input type="number" bind:value={draftFailoverMax} min="1" max="50" />
+                    <label for="failover-max">Max Consecutive Failures:</label>
+                    <input id="failover-max" type="number" bind:value={draftFailoverMax} min="1" max="50" />
                     <span class={styles.hint}>halt instance after this many</span>
                 </div>
             </div>
@@ -179,8 +179,8 @@
             <div class={styles.settingsCard}>
                 <h3>🔑 Backup API Key</h3>
                 <div class={styles.inputRow}>
-                    <label>Global Backup Key:</label>
-                    <input type="password" bind:value={draftBackupKey} placeholder="sk-..." />
+                    <label for="backup-key">Global Backup Key:</label>
+                    <input id="backup-key" type="password" bind:value={draftBackupKey} placeholder="sk-..." />
                 </div>
                 <button class={styles.saveBtn} onclick={saveBackupKey} disabled={backupKeyStatus === 'saving'}>
                     {backupKeyStatus === 'saving' ? 'Saving...' : backupKeyStatus === 'success' ? '✓ Saved' : 'Save Backup Key'}
@@ -191,9 +191,9 @@
             <div class="{styles.settingsCard} {styles.fullWidth}">
                 <h3>📝 System Prompts</h3>
                 <div class={styles.inputRow}>
-                    <label>Orchestrator / Rules Guide:</label>
+                    <label for="orchestrator-prompt">Orchestrator / Rules Guide:</label>
                 </div>
-                <textarea bind:value={draftOrchestratorPrompt} rows="12" class={styles.promptEditor}></textarea>
+                <textarea id="orchestrator-prompt" bind:value={draftOrchestratorPrompt} rows="12" class={styles.promptEditor}></textarea>
                 <button class={styles.saveBtn} onclick={savePrompts} disabled={promptsStatus === 'saving'}>
                     {promptsStatus === 'saving' ? 'Saving...' : promptsStatus === 'success' ? '✓ Saved' : 'Save Prompts'}
                 </button>

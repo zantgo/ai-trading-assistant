@@ -84,18 +84,18 @@
 
                     const hasCandles = data.candles && data.candles.length > 0;
 
-                    const historicalCandles = data.prices.map((priceStr: string, idx: number) => {
+                    const rawCandles = data.prices.map((priceStr: string, idx: number) => {
                         if (hasCandles && data.candles[idx]) {
                             const c = data.candles[idx];
                             return {
                                 time: (c.time / 1000) as Time,
-                                open: parseFloat(c.open),
-                                high: parseFloat(c.high),
-                                low: parseFloat(c.low),
-                                close: parseFloat(c.close)
+                                open: parseFloat(c.open) || 0,
+                                high: parseFloat(c.high) || 0,
+                                low: parseFloat(c.low) || 0,
+                                close: parseFloat(c.close) || 0
                             };
                         }
-                        const val = parseFloat(priceStr);
+                        const val = parseFloat(priceStr) || 0;
                         return {
                             time: (baseTime + (idx * step)) as Time,
                             open: val,
@@ -105,6 +105,17 @@
                         };
                     });
 
+                    // Deduplicate and sort timestamps to prevent lightweight-charts rendering crashes
+                    const seenTimes = new Set<number>();
+                    const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
+                    for (const candle of rawCandles) {
+                        if (candle && candle.time && !seenTimes.has(candle.time)) {
+                            seenTimes.add(candle.time);
+                            historicalCandles.push(candle);
+                        }
+                    }
+                    historicalCandles.sort((a, b) => (a.time as number) - (b.time as number));
+
                     candleSeries.setData(historicalCandles);
                     priceLineSeries.setData(
                         historicalCandles.map((c: any) => ({ time: c.time, value: c.close }))
@@ -113,9 +124,20 @@
 
                     const ind = data.indicator_history;
                     if (ind) {
-                        const mapIndicator = (arr: (string | null)[] | undefined) =>
-                            arr?.map((val, i) => val != null ? { time: historicalCandles[i].time, value: parseFloat(val) } : null)
-                               .filter(Boolean) ?? [];
+                        const mapIndicator = (arr: (string | null)[] | undefined) => {
+                            if (!arr) return [];
+                            return arr
+                                .map((val, i) => {
+                                    if (val != null && historicalCandles[i]) {
+                                        return {
+                                            time: historicalCandles[i].time,
+                                            value: parseFloat(val)
+                                        };
+                                    }
+                                    return null;
+                                })
+                                .filter((item): item is { time: Time; value: number } => item !== null);
+                        };
                         ema10Series.setData(mapIndicator(ind.ema_fast));
                         ema50Series.setData(mapIndicator(ind.ema_medium));
                         ema100Series.setData(mapIndicator(ind.ema_slow));
@@ -160,14 +182,14 @@
     });
 
     $effect(() => {
-        if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries || !pair) return;
+        if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries || !pair || !tf) return;
         bbUpperSeries.applyOptions({ visible: tf.showBb });
         bbMiddleSeries.applyOptions({ visible: tf.showBb });
         bbLowerSeries.applyOptions({ visible: tf.showBb });
     });
 
     $effect(() => {
-        if (!vwapSeries || !pair) return;
+        if (!vwapSeries || !pair || !tf) return;
         vwapSeries.applyOptions({ visible: tf.showVwap });
     });
 
@@ -191,14 +213,14 @@
             });
         }
 
-        if (snap.ema_fast) ema10Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_fast)) });
-        if (snap.ema_medium) ema50Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_medium)) });
-        if (snap.ema_slow) ema100Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_slow)) });
-        if (snap.ema_long) ema200Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_long)) });
-        if (snap.bb_upper) bbUpperSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_upper)) });
-        if (snap.bb_middle) bbMiddleSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_middle)) });
-        if (snap.bb_lower) bbLowerSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_lower)) });
-        if (snap.vwap) vwapSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.vwap)) });
+        if (snap.ema_fast !== undefined && snap.ema_fast !== null) ema10Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_fast)) });
+        if (snap.ema_medium !== undefined && snap.ema_medium !== null) ema50Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_medium)) });
+        if (snap.ema_slow !== undefined && snap.ema_slow !== null) ema100Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_slow)) });
+        if (snap.ema_long !== undefined && snap.ema_long !== null) ema200Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_long)) });
+        if (snap.bb_upper !== undefined && snap.bb_upper !== null) bbUpperSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_upper)) });
+        if (snap.bb_middle !== undefined && snap.bb_middle !== null) bbMiddleSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_middle)) });
+        if (snap.bb_lower !== undefined && snap.bb_lower !== null) bbLowerSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_lower)) });
+        if (snap.vwap !== undefined && snap.vwap !== null) vwapSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.vwap)) });
     });
 
     // Support level price lines

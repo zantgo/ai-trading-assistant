@@ -29,7 +29,18 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true },
+            timeScale: {
+                borderColor: '#2a2e39',
+                visible: false,
+                timeVisible: true,
+                secondsVisible: true,
+                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                    const date = new Date(time * 1000);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
+            },
             handleScale: true,
             handleScroll: true,
         });
@@ -48,12 +59,26 @@
                 const data = await res.json();
                 const indicatorHistory = data.indicator_history;
                 if (indicatorHistory && indicatorHistory.atr_14 && indicatorHistory.atr_14.length > 0) {
-                    const atrData = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        value: indicatorHistory.atr_14[i] ? parseFloat(indicatorHistory.atr_14[i]) : 0
-                    }));
+                    const rawAtrData = indicatorHistory.times.map((t: number, i: number) => {
+                        const val = indicatorHistory.atr_14[i];
+                        return {
+                            time: t as Time,
+                            value: val != null ? parseFloat(val) : 0
+                        };
+                    });
 
-                    atrSeries.setData(atrData);
+                    const seenTimes = new Set<number>();
+                    const cleanedAtrData: { time: Time; value: number }[] = [];
+                    for (const item of rawAtrData) {
+                        const tNum = item.time as number;
+                        if (item && tNum && !seenTimes.has(tNum)) {
+                            seenTimes.add(tNum);
+                            cleanedAtrData.push(item);
+                        }
+                    }
+                    cleanedAtrData.sort((a, b) => (a.time as number) - (b.time as number));
+
+                    atrSeries.setData(cleanedAtrData);
                     chart.timeScale().fitContent();
                 } else if (data.prices && data.prices.length > 0) {
                     const hasCandles = data.candles && data.candles.length > 0;
@@ -63,10 +88,17 @@
                     const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const placeholder = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: 0
-                    }));
+                    const seenTimes = new Set<number>();
+                    const placeholder: { time: Time; value: number }[] = [];
+                    for (let idx = 0; idx < source.length; idx++) {
+                        const item = source[idx];
+                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
+                        if (!seenTimes.has(tVal)) {
+                            seenTimes.add(tVal);
+                            placeholder.push({ time: tVal as Time, value: 0 });
+                        }
+                    }
+                    placeholder.sort((a, b) => (a.time as number) - (b.time as number));
 
                     atrSeries.setData(placeholder);
                     chart.timeScale().fitContent();

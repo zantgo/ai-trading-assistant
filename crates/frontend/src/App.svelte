@@ -131,7 +131,7 @@
     </nav>
     <!-- Click-outside handler for profile menu -->
     {#if showProfileMenu}
-        <div class={styles.profileBackdrop} onclick={() => showProfileMenu = false}></div>
+        <div class={styles.profileBackdrop} role="presentation" onclick={() => showProfileMenu = false} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') showProfileMenu = false; }}></div>
     {/if}
 
     {#if app.currentGlobalView === 'dashboard'}

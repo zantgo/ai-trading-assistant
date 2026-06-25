@@ -31,7 +31,18 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true },
+            timeScale: {
+                borderColor: '#2a2e39',
+                visible: false,
+                timeVisible: true,
+                secondsVisible: true,
+                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                    const date = new Date(time * 1000);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
+            },
             handleScale: true,
             handleScroll: true,
         });
@@ -72,17 +83,35 @@
                 const data = await res.json();
                 const indicatorHistory = data.indicator_history;
                 if (indicatorHistory && indicatorHistory.adx_14 && indicatorHistory.adx_14.length > 0) {
-                    const adxData = indicatorHistory.times.map((t: number, i: number) => ({
+                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
                         time: t as Time,
-                        value: indicatorHistory.adx_14[i] ? parseFloat(indicatorHistory.adx_14[i]) : 0
+                        adx: indicatorHistory.adx_14[i],
+                        plus: indicatorHistory.adx_plus[i],
+                        minus: indicatorHistory.adx_minus[i]
                     }));
-                    const plusData = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        value: indicatorHistory.adx_plus[i] ? parseFloat(indicatorHistory.adx_plus[i]) : 0
+
+                    const seenTimes = new Set<number>();
+                    const cleanedCombined: { time: Time; adx: string | null; plus: string | null; minus: string | null }[] = [];
+                    for (const item of rawCombined) {
+                        const tNum = item.time as number;
+                        if (item && tNum && !seenTimes.has(tNum)) {
+                            seenTimes.add(tNum);
+                            cleanedCombined.push(item);
+                        }
+                    }
+                    cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
+
+                    const adxData = cleanedCombined.map(x => ({
+                        time: x.time,
+                        value: x.adx != null ? parseFloat(x.adx) : 0
                     }));
-                    const minusData = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        value: indicatorHistory.adx_minus[i] ? parseFloat(indicatorHistory.adx_minus[i]) : 0
+                    const plusData = cleanedCombined.map(x => ({
+                        time: x.time,
+                        value: x.plus != null ? parseFloat(x.plus) : 0
+                    }));
+                    const minusData = cleanedCombined.map(x => ({
+                        time: x.time,
+                        value: x.minus != null ? parseFloat(x.minus) : 0
                     }));
 
                     adxSeries.setData(adxData);
@@ -97,10 +126,17 @@
                     const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const placeholder = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: 0
-                    }));
+                    const seenTimes = new Set<number>();
+                    const placeholder: { time: Time; value: number }[] = [];
+                    for (let idx = 0; idx < source.length; idx++) {
+                        const item = source[idx];
+                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
+                        if (!seenTimes.has(tVal)) {
+                            seenTimes.add(tVal);
+                            placeholder.push({ time: tVal as Time, value: 0 });
+                        }
+                    }
+                    placeholder.sort((a, b) => (a.time as number) - (b.time as number));
 
                     adxSeries.setData(placeholder);
                     adxPlusSeries.setData(placeholder);
@@ -144,8 +180,8 @@
             const regime = snap.adx_regime != null ? String(snap.adx_regime) as 'congestion' | 'emerging' | 'strong' | 'extreme' : 'congestion';
 
             adxSeries.update({ time: timeSec as Time, value: adxVal });
-            if (snap.adx_plus) adxPlusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_plus)) });
-            if (snap.adx_minus) adxMinusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_minus)) });
+            if (snap.adx_plus !== undefined && snap.adx_plus !== null) adxPlusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_plus)) });
+            if (snap.adx_minus !== undefined && snap.adx_minus !== null) adxMinusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_minus)) });
 
             // Dynamic ADX line coloring
             const color = adxLineColor(adxVal, slope, regime);

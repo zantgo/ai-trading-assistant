@@ -30,7 +30,18 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true },
+            timeScale: {
+                borderColor: '#2a2e39',
+                visible: false,
+                timeVisible: true,
+                secondsVisible: true,
+                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                    const date = new Date(time * 1000);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
+            },
             handleScale: true,
             handleScroll: true,
         });
@@ -60,19 +71,37 @@
                 const data = await res.json();
                 const indicatorHistory = data.indicator_history;
                 if (indicatorHistory && indicatorHistory.macd_line && indicatorHistory.macd_line.length > 0) {
-                    const lineData = indicatorHistory.times.map((t: number, i: number) => ({
+                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
                         time: t as Time,
-                        value: indicatorHistory.macd_line[i] ? parseFloat(indicatorHistory.macd_line[i]) : 0
+                        line: indicatorHistory.macd_line[i],
+                        sig: indicatorHistory.macd_signal[i],
+                        hist: indicatorHistory.macd_hist[i]
                     }));
-                    const sigData = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        value: indicatorHistory.macd_signal[i] ? parseFloat(indicatorHistory.macd_signal[i]) : 0
+
+                    const seenTimes = new Set<number>();
+                    const cleanedCombined: { time: Time; line: string | null; sig: string | null; hist: string | null }[] = [];
+                    for (const item of rawCombined) {
+                        const tNum = item.time as number;
+                        if (item && tNum && !seenTimes.has(tNum)) {
+                            seenTimes.add(tNum);
+                            cleanedCombined.push(item);
+                        }
+                    }
+                    cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
+
+                    const lineData = cleanedCombined.map(x => ({
+                        time: x.time,
+                        value: x.line != null ? parseFloat(x.line) : 0
                     }));
-                    const histData = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        value: indicatorHistory.macd_hist[i] ? parseFloat(indicatorHistory.macd_hist[i]) : 0,
-                        color: indicatorHistory.macd_hist[i]
-                            ? (parseFloat(indicatorHistory.macd_hist[i]) >= 0 ? '#26a69a' : '#ef5350')
+                    const sigData = cleanedCombined.map(x => ({
+                        time: x.time,
+                        value: x.sig != null ? parseFloat(x.sig) : 0
+                    }));
+                    const histData = cleanedCombined.map(x => ({
+                        time: x.time,
+                        value: x.hist != null ? parseFloat(x.hist) : 0,
+                        color: x.hist != null
+                            ? (parseFloat(x.hist) >= 0 ? '#26a69a' : '#ef5350')
                             : '#131722'
                     }));
 
@@ -88,15 +117,20 @@
                     const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const placeholderLine = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: 0
-                    }));
-                    const placeholderHist = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time,
-                        value: 0,
-                        color: '#131722'
-                    }));
+                    const seenTimes = new Set<number>();
+                    const placeholderLine: { time: Time; value: number }[] = [];
+                    const placeholderHist: { time: Time; value: number; color: string }[] = [];
+                    for (let idx = 0; idx < source.length; idx++) {
+                        const item = source[idx];
+                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
+                        if (!seenTimes.has(tVal)) {
+                            seenTimes.add(tVal);
+                            placeholderLine.push({ time: tVal as Time, value: 0 });
+                            placeholderHist.push({ time: tVal as Time, value: 0, color: '#131722' });
+                        }
+                    }
+                    placeholderLine.sort((a, b) => (a.time as number) - (b.time as number));
+                    placeholderHist.sort((a, b) => (a.time as number) - (b.time as number));
 
                     macdLineSeries.setData(placeholderLine);
                     macdSigSeries.setData(placeholderLine);

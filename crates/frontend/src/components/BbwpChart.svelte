@@ -37,6 +37,12 @@
                 borderColor: 'rgba(255,255,255,0.1)',
                 timeVisible: false,
                 secondsVisible: false,
+                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                    const date = new Date(time * 1000);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
             },
         });
 
@@ -82,12 +88,27 @@
                 const data = await res.json();
                 const ih = data.indicator_history;
                 if (ih && ih.bbwp && ih.bbwp.length > 0 && bbwpSeries) {
-                    const bbwpData: HistogramData[] = ih.times.map((t: number, i: number) => ({
-                        time: t as any,
-                        value: parseFloat(ih.bbwp[i]) || 0,
-                        color: (parseFloat(ih.bbwp[i]) || 50) < 10 ? '#4488ff' : (parseFloat(ih.bbwp[i]) || 50) > 90 ? '#ff4444' : '#00d4aa',
-                    }));
-                    bbwpSeries.setData(bbwpData);
+                    const rawBbwpData = ih.times.map((t: number, i: number) => {
+                        const val = parseFloat(ih.bbwp[i]) || 0;
+                        return {
+                            time: t as any,
+                            value: val,
+                            color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa',
+                        };
+                    });
+
+                    const seenTimes = new Set<number>();
+                    const cleanedBbwpData: { time: any; value: number; color: string }[] = [];
+                    for (const item of rawBbwpData) {
+                        const tNum = item.time as number;
+                        if (item && tNum && !seenTimes.has(tNum)) {
+                            seenTimes.add(tNum);
+                            cleanedBbwpData.push(item);
+                        }
+                    }
+                    cleanedBbwpData.sort((a, b) => (a.time as number) - (b.time as number));
+
+                    bbwpSeries.setData(cleanedBbwpData);
                     chart?.timeScale().fitContent();
                 }
             } catch (err) {

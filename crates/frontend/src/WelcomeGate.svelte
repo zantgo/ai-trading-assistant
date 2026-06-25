@@ -51,7 +51,7 @@
         <div class={styles.welcomeForm}>
             <!-- Trading Mode -->
             <div class={styles.formGroup}>
-                <label class={styles.formLabel}>Trading Mode</label>
+                <span class={styles.formLabel}>Trading Mode</span>
                 <div class={styles.radioGroup}>
                     <label class="{styles.radioOption} {mode === 'paper' ? styles.active : ''}">
                         <input type="radio" name="mode" value="paper" bind:group={mode} />
@@ -68,7 +68,7 @@
 
             <!-- Base Currency -->
             <div class={styles.formGroup}>
-                <label class={styles.formLabel}>Base Currency</label>
+                <span class={styles.formLabel}>Base Currency</span>
                 <div class={styles.radioGroup}>
                     <label class="{styles.radioOption} {currency === 'USDT' ? styles.active : ''}">
                         <input type="radio" name="currency" value="USDT" bind:group={currency} />
@@ -85,8 +85,8 @@
 
             <!-- Exchange -->
             <div class={styles.formGroup}>
-                <label class={styles.formLabel}>Exchange</label>
-                <select class={styles.formSelect} bind:value={exchange} disabled>
+                <label class={styles.formLabel} for="exchange-select">Exchange</label>
+                <select id="exchange-select" class={styles.formSelect} bind:value={exchange} disabled>
                     <option value="Hyperliquid">Hyperliquid</option>
                 </select>
                 <span class={styles.formHint}>More exchanges coming soon</span>

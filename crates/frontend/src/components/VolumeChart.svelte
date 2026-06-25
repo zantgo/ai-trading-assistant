@@ -26,7 +26,18 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true },
+            timeScale: {
+                borderColor: '#2a2e39',
+                visible: false,
+                timeVisible: true,
+                secondsVisible: true,
+                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                    const date = new Date(time * 1000);
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    return `${hours}:${minutes}`;
+                }
+            },
             handleScale: true,
             handleScroll: true,
         });
@@ -52,17 +63,32 @@
                     const baseTime = now - (data.prices.length * step);
 
                     const rvolHistory = data.indicator_history?.rvol ?? [];
-                    const placeholder = source.map((item: any, idx: number) => {
-                        const time = hasCandles ? (item.time / 1000) as Time : (baseTime + (idx * step)) as Time;
-                        if (hasCandles) {
-                            const close = parseFloat(item.close) || 0;
-                            const open = parseFloat(item.open) || 0;
-                            const rvolRaw = rvolHistory[idx];
-                            const rvolVal = rvolRaw != null ? parseFloat(rvolRaw) : 1.0;
-                            return { time, value: parseFloat(item.volume) || 0, color: volumeColor(rvolVal, close, open) };
+
+                    const rawCombined = source.map((item: any, idx: number) => ({
+                        time: hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step)),
+                        close: hasCandles ? (parseFloat(item.close) || 0) : 0,
+                        open: hasCandles ? (parseFloat(item.open) || 0) : 0,
+                        volume: hasCandles ? (parseFloat(item.volume) || 0) : 0,
+                        rvolRaw: rvolHistory[idx] ?? null
+                    }));
+
+                    const seenTimes = new Set<number>();
+                    const cleanedCombined: { time: number; close: number; open: number; volume: number; rvolRaw: string | null }[] = [];
+                    for (const item of rawCombined) {
+                        if (item && item.time && !seenTimes.has(item.time)) {
+                            seenTimes.add(item.time);
+                            cleanedCombined.push(item);
                         }
-                        return { time, value: 0, color: '#131722' };
-                    });
+                    }
+                    cleanedCombined.sort((a, b) => a.time - b.time);
+
+                    const placeholder = cleanedCombined.map(item => ({
+                        time: item.time as Time,
+                        value: item.volume,
+                        color: hasCandles
+                            ? volumeColor(item.rvolRaw != null ? parseFloat(item.rvolRaw) : 1.0, item.close, item.open)
+                            : '#131722'
+                    }));
 
                     volumeSeries.setData(placeholder);
                     chart.timeScale().fitContent();

@@ -48,23 +48,23 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
             ? (raw.params?.snapshot || raw)
             : raw;
         if (!snapshot || typeof snapshot !== 'object') return;
-        if (snapshot.mid_price) tf.priceText = parseFloat(snapshot.mid_price).toFixed(2);
-        if (snapshot.vwap) tf.vwapText = parseFloat(snapshot.vwap).toFixed(2);
+        if (snapshot.mid_price !== undefined && snapshot.mid_price !== null) tf.priceText = parseFloat(snapshot.mid_price).toFixed(2);
+        if (snapshot.vwap !== undefined && snapshot.vwap !== null) tf.vwapText = parseFloat(snapshot.vwap).toFixed(2);
         if (snapshot.vwap_bias != null) tf.vwapBias = String(snapshot.vwap_bias) as TimeframeTelemetry['vwapBias'];
-        if (snapshot.ema_fast) tf.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
-        if (snapshot.ema_medium) tf.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
-        if (snapshot.ema_slow) tf.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
-        if (snapshot.ema_long) tf.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
+        if (snapshot.ema_fast !== undefined && snapshot.ema_fast !== null) tf.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
+        if (snapshot.ema_medium !== undefined && snapshot.ema_medium !== null) tf.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
+        if (snapshot.ema_slow !== undefined && snapshot.ema_slow !== null) tf.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
+        if (snapshot.ema_long !== undefined && snapshot.ema_long !== null) tf.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
         if (snapshot.ema_stack_state != null) tf.emaStackState = String(snapshot.ema_stack_state) as TimeframeTelemetry['emaStackState'];
-        if (snapshot.adx_14) tf.adxText = parseFloat(snapshot.adx_14).toFixed(2);
-        if (snapshot.adx_plus) tf.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
-        if (snapshot.adx_minus) tf.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
-        if (snapshot.atr_14) tf.atrText = parseFloat(snapshot.atr_14).toFixed(2);
-        if (snapshot.rsi_14) tf.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
-        if (snapshot.macd_line) tf.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
-        if (snapshot.macd_signal) tf.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
-        if (snapshot.macd_hist) tf.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
-        if (snapshot.squeeze_momentum) tf.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
+        if (snapshot.adx_14 !== undefined && snapshot.adx_14 !== null) tf.adxText = parseFloat(snapshot.adx_14).toFixed(2);
+        if (snapshot.adx_plus !== undefined && snapshot.adx_plus !== null) tf.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
+        if (snapshot.adx_minus !== undefined && snapshot.adx_minus !== null) tf.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
+        if (snapshot.atr_14 !== undefined && snapshot.atr_14 !== null) tf.atrText = parseFloat(snapshot.atr_14).toFixed(2);
+        if (snapshot.rsi_14 !== undefined && snapshot.rsi_14 !== null) tf.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
+        if (snapshot.macd_line !== undefined && snapshot.macd_line !== null) tf.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
+        if (snapshot.macd_signal !== undefined && snapshot.macd_signal !== null) tf.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
+        if (snapshot.macd_hist !== undefined && snapshot.macd_hist !== null) tf.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
+        if (snapshot.squeeze_momentum !== undefined && snapshot.squeeze_momentum !== null) tf.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
         if (snapshot.bbwp != null) {
             tf.bbwpText = parseFloat(String(snapshot.bbwp)).toFixed(1);
             tf.lastBbwp = parseFloat(String(snapshot.bbwp));
@@ -73,8 +73,8 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
         if (snapshot.chart_pattern_confidence != null) tf.patternConfidence = parseFloat(String(snapshot.chart_pattern_confidence));
         tf.isSqueezeOn = snapshot.squeeze_on ?? false;
         tf.sqzStatusText = tf.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
-        if (snapshot.volume) tf.volText = parseFloat(snapshot.volume).toFixed(2);
-        if (snapshot.average_volume) tf.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
+        if (snapshot.volume !== undefined && snapshot.volume !== null) tf.volText = parseFloat(snapshot.volume).toFixed(2);
+        if (snapshot.average_volume !== undefined && snapshot.average_volume !== null) tf.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
         tf.latestSnapshot = snapshot;
 
         tf.rsiDivergenceStatus = snapshot.rsi_divergence_status ? (snapshot.rsi_divergence_status as 'none' | 'potential' | 'confirmed') : 'none';

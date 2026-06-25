@@ -20,6 +20,8 @@
     let showMedium = $state(true);
     let showLarge = $state(true);
 
+    let expandedTf = $state<string | null>(null);
+
     function label(tf: TimeframeTelemetry): string {
         const sec = tf.barDurationSec;
         if (sec >= 3600) return 'LARGE (1h)';
@@ -31,6 +33,10 @@
     function tfKey(pairKey: string, tf: TimeframeTelemetry): string {
         return `${pairKey}-${tf.barDurationSec}-${tf.emaFastVal}-${tf.emaMediumVal}-${tf.emaSlowVal}-${tf.emaLongVal}`;
     }
+
+    function toggleExpand(key: string) {
+        expandedTf = expandedTf === key ? null : key;
+    }
 </script>
 
 <div class={styles.terminalWorkspace}>
@@ -40,10 +46,15 @@
         <ChartToggles {pairKey} />
         <div class={styles.mtfGrid}>
         <!-- Micro-Term Column -->
-        <div class="{styles.timescaleColumn} {!showMicro ? styles.hiddenPane : ''}">
+        <div class="{styles.timescaleColumn} {!showMicro ? styles.hiddenPane : ''} {expandedTf === 'micro' ? styles.expandedTfColumn : ''}">
             <div class={styles.timescaleHeader}>
                 <span class={styles.timescaleTitle}>{label(pair.microTerm)}</span>
-                <span class={styles.timescalePrice}>{pair.microTerm.priceText}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.microTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('micro')} title={expandedTf === 'micro' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'micro' ? '✕' : '⛶'}
+                    </button>
+                </div>
             </div>
             <div class={styles.timescaleCharts}>
                 <div class="{styles.panelBox} {styles.panePrice} {(!pair.microTerm.showEmas && !pair.microTerm.showBb && !pair.microTerm.showVwap) ? styles.hiddenPane : ''}">
@@ -98,10 +109,15 @@
         </div>
 
         <!-- Small-Term Column -->
-        <div class="{styles.timescaleColumn} {!showSmall ? styles.hiddenPane : ''}">
+        <div class="{styles.timescaleColumn} {!showSmall ? styles.hiddenPane : ''} {expandedTf === 'small' ? styles.expandedTfColumn : ''}">
             <div class={styles.timescaleHeader}>
                 <span class={styles.timescaleTitle}>{label(pair.smallTerm)}</span>
-                <span class={styles.timescalePrice}>{pair.smallTerm.priceText}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.smallTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('small')} title={expandedTf === 'small' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'small' ? '✕' : '⛶'}
+                    </button>
+                </div>
             </div>
             <div class={styles.timescaleCharts}>
                 <div class="{styles.panelBox} {styles.panePrice} {(!pair.smallTerm.showEmas && !pair.smallTerm.showBb && !pair.smallTerm.showVwap) ? styles.hiddenPane : ''}">
@@ -156,10 +172,15 @@
         </div>
 
         <!-- Medium-Term Column -->
-        <div class="{styles.timescaleColumn} {!showMedium ? styles.hiddenPane : ''}">
+        <div class="{styles.timescaleColumn} {!showMedium ? styles.hiddenPane : ''} {expandedTf === 'medium' ? styles.expandedTfColumn : ''}">
             <div class={styles.timescaleHeader}>
                 <span class={styles.timescaleTitle}>{label(pair.mediumTerm)}</span>
-                <span class={styles.timescalePrice}>{pair.mediumTerm.priceText}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.mediumTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('medium')} title={expandedTf === 'medium' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'medium' ? '✕' : '⛶'}
+                    </button>
+                </div>
             </div>
             <div class={styles.timescaleCharts}>
                 <div class="{styles.panelBox} {styles.panePrice} {(!pair.mediumTerm.showEmas && !pair.mediumTerm.showBb && !pair.mediumTerm.showVwap) ? styles.hiddenPane : ''}">
@@ -214,10 +235,15 @@
         </div>
 
         <!-- Large-Term Column -->
-        <div class="{styles.timescaleColumn} {!showLarge ? styles.hiddenPane : ''}">
+        <div class="{styles.timescaleColumn} {!showLarge ? styles.hiddenPane : ''} {expandedTf === 'large' ? styles.expandedTfColumn : ''}">
             <div class={styles.timescaleHeader}>
                 <span class={styles.timescaleTitle}>{label(pair.largeTerm)}</span>
-                <span class={styles.timescalePrice}>{pair.largeTerm.priceText}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.largeTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('large')} title={expandedTf === 'large' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'large' ? '✕' : '⛶'}
+                    </button>
+                </div>
             </div>
             <div class={styles.timescaleCharts}>
                 <div class="{styles.panelBox} {styles.panePrice} {(!pair.largeTerm.showEmas && !pair.largeTerm.showBb && !pair.largeTerm.showVwap) ? styles.hiddenPane : ''}">

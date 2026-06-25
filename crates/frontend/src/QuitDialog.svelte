@@ -18,8 +18,8 @@
     }
 </script>
 
-<div class={styles.quitOverlay} onclick={onclose} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); }}>
-    <div class={styles.quitDialog} onclick={(e: Event) => e.stopPropagation()}>
+<div class={styles.quitOverlay} role="presentation" onclick={onclose} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); }}>
+    <div class={styles.quitDialog} role="dialog" aria-modal="true" tabindex="-1" onclick={(e: Event) => e.stopPropagation()} onkeydown={() => {}}>
         <div class={styles.quitIcon}>⚠️</div>
         <h2 class={styles.quitTitle}>Quit Application</h2>
         <p class={styles.quitMessage}>
