@@ -1,7 +1,8 @@
-use rust_decimal::Decimal;
-use std::collections::VecDeque;
 use super::ema::Ema;
+use super::traits::{BarInput, Indicator};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 /// Volatility regime classification based on ATR slope vs its SMA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +26,7 @@ pub struct AtrOutput {
 /// and tracks previous ATR for slope calculation.
 #[derive(Debug, Clone)]
 pub struct Atr {
+    period: usize,
     prev_close: Option<Decimal>,
     tr_ema: Ema,
     atr_history: VecDeque<Decimal>,
@@ -35,6 +37,7 @@ pub struct Atr {
 impl Atr {
     pub fn new(period: usize) -> Self {
         Self {
+            period,
             prev_close: None,
             tr_ema: Ema::new(period),
             atr_history: VecDeque::with_capacity(5),
@@ -94,6 +97,18 @@ impl Atr {
     }
 }
 
+impl Indicator for Atr {
+    type Output = Option<AtrOutput>;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.high, bar.low, bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = Atr::new(self.period);
+    }
+}
+
 /// Classify volatility regime: Expanding (>2% above SMA), Contracting (>2% below),
 /// or Stable (within ±2% of SMA).
 fn classify_regime(history: &VecDeque<Decimal>) -> VolatilityRegime {
@@ -135,7 +150,9 @@ mod tests {
     #[test]
     fn test_first_call_uses_simple_high_low() {
         let mut atr = Atr::new(14);
-        let out = atr.update(dec!(110.00), dec!(100.00), dec!(105.00)).unwrap();
+        let out = atr
+            .update(dec!(110.00), dec!(100.00), dec!(105.00))
+            .unwrap();
         assert_eq!(out.atr_value, dec!(10.00));
     }
 
@@ -143,7 +160,9 @@ mod tests {
     fn test_subsequent_calls_use_true_range() {
         let mut atr = Atr::new(14);
         atr.update(dec!(110.00), dec!(100.00), dec!(105.00));
-        let out = atr.update(dec!(108.00), dec!(102.00), dec!(104.00)).unwrap();
+        let out = atr
+            .update(dec!(108.00), dec!(102.00), dec!(104.00))
+            .unwrap();
         assert!(out.atr_value > dec!(0.00));
     }
 
@@ -153,8 +172,14 @@ mod tests {
         for _ in 0..6 {
             atr.update(dec!(101.00), dec!(99.00), dec!(100.00));
         }
-        let normal = atr.update(dec!(101.00), dec!(99.00), dec!(100.00)).unwrap().atr_value;
-        let spike = atr.update(dec!(120.00), dec!(80.00), dec!(100.00)).unwrap().atr_value;
+        let normal = atr
+            .update(dec!(101.00), dec!(99.00), dec!(100.00))
+            .unwrap()
+            .atr_value;
+        let spike = atr
+            .update(dec!(120.00), dec!(80.00), dec!(100.00))
+            .unwrap()
+            .atr_value;
         assert!(spike > normal, "ATR should increase on volatility spike");
     }
 
@@ -165,7 +190,10 @@ mod tests {
         atr.update(dec!(101.00), dec!(99.00), dec!(100.00));
         // Wide bar should create positive slope
         let out = atr.update(dec!(120.00), dec!(80.00), dec!(100.00)).unwrap();
-        assert!(out.atr_slope > Decimal::ZERO, "Slope should be positive after volatility spike");
+        assert!(
+            out.atr_slope > Decimal::ZERO,
+            "Slope should be positive after volatility spike"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
-use sqlx::SqlitePool;
-use shared::models::MarketSnapshot;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal_macros::dec;
+use shared::models::MarketSnapshot;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::Barrier;
 
@@ -30,7 +30,7 @@ async fn setup_concurrent_db() -> SqlitePool {
             is_completed INTEGER NOT NULL,
             bid_price REAL NOT NULL,
             ask_price REAL NOT NULL
-        )"
+        )",
     )
     .execute(&pool)
     .await
@@ -139,7 +139,13 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                 .execute(&*pool)
                 .await;
 
-                assert!(result.is_ok(), "Thread {} insert {} failed: {:?}", thread_idx, i, result.err());
+                assert!(
+                    result.is_ok(),
+                    "Thread {} insert {} failed: {:?}",
+                    thread_idx,
+                    i,
+                    result.err()
+                );
             }
         });
         handles.push(handle);
@@ -187,10 +193,11 @@ async fn test_read_during_write_completes() {
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     let read_handle = tokio::spawn(async move {
-        let row: (String,) = sqlx::query_as("SELECT symbol FROM market_snapshots WHERE symbol = 'PRE'")
-            .fetch_one(&*pool_read)
-            .await
-            .unwrap();
+        let row: (String,) =
+            sqlx::query_as("SELECT symbol FROM market_snapshots WHERE symbol = 'PRE'")
+                .fetch_one(&*pool_read)
+                .await
+                .unwrap();
         assert_eq!(row.0, "PRE");
     });
 

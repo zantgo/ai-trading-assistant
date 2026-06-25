@@ -1,6 +1,6 @@
-use tokio::sync::mpsc::{channel, Sender};
 use rust_decimal_macros::dec;
 use shared::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide};
+use tokio::sync::mpsc::{channel, Sender};
 
 pub struct ReplayEngine {
     symbol: String,
@@ -70,7 +70,10 @@ async fn test_replay_simulation_pipeline() {
             }
         }
 
-        assert_eq!(count, 2, "All replayed trades must be processed by the engine stream.");
+        assert_eq!(
+            count, 2,
+            "All replayed trades must be processed by the engine stream."
+        );
     })
     .await
     .expect("Replay simulation test timed out after 5 seconds");

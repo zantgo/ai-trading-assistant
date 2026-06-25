@@ -1,5 +1,6 @@
-use rust_decimal::Decimal;
 use super::ema::Ema;
+use super::traits::{BarInput, Indicator};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// Direction of a MACD crossover event
@@ -75,7 +76,11 @@ impl Macd {
         if crossover.is_some() {
             self.histogram_peak = Decimal::ZERO;
         }
-        let abs_hist = if histogram < Decimal::ZERO { -histogram } else { histogram };
+        let abs_hist = if histogram < Decimal::ZERO {
+            -histogram
+        } else {
+            histogram
+        };
         if abs_hist > self.histogram_peak {
             self.histogram_peak = abs_hist;
         }
@@ -115,7 +120,11 @@ impl Macd {
             return false;
         }
         if let Some(current) = self.prev_histogram {
-            let abs_current = if current < Decimal::ZERO { -current } else { current };
+            let abs_current = if current < Decimal::ZERO {
+                -current
+            } else {
+                current
+            };
             let contraction = Decimal::ONE - threshold; // e.g. 0.70 for 30% threshold
             let trigger_level = self.histogram_peak * contraction;
             abs_current < trigger_level
@@ -137,6 +146,18 @@ impl Macd {
     /// Get the current signal line value (from previous state).
     pub fn get_signal_line(&self) -> Option<Decimal> {
         self.prev_signal_line
+    }
+}
+
+impl Indicator for Macd {
+    type Output = MacdOutput;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = Macd::new();
     }
 }
 
@@ -252,7 +273,9 @@ mod tests {
             out_flat.histogram
         };
         // The histogram should be smaller than the peak (or at least not significantly larger)
-        assert!(current_abs <= out.histogram_peak || out_flat.trend_state == TrendState::Decelerating);
+        assert!(
+            current_abs <= out.histogram_peak || out_flat.trend_state == TrendState::Decelerating
+        );
     }
 
     #[test]

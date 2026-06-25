@@ -1,8 +1,20 @@
 use sqlx::SqlitePool;
 use tokio::sync::mpsc;
+use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
 
 use crate::db;
-use crate::profile_evaluation::{self, SnapshotValues, calculate_opposite_score};
+use crate::profile_evaluation::{self, calculate_opposite_score, SnapshotValues};
+
+#[inline]
+fn dec(v: f64) -> Decimal {
+    Decimal::from_f64(v).unwrap_or(Decimal::ZERO)
+}
+
+#[inline]
+fn f64_from_dec(d: Decimal) -> f64 {
+    d.to_f64().unwrap_or(0.0)
+}
 
 pub struct PaperTradeResult {
     pub success: bool,
@@ -27,6 +39,104 @@ pub struct PaperScaleOutResult {
     pub remaining_size: f64,
 }
 
+#[derive(Debug)]
+enum RiskError {
+    InsufficientCapital { required: Decimal, available: Decimal },
+    PositionTooLarge { max: Decimal, requested: Decimal },
+    InvalidStopLoss { reason: String },
+}
+
+impl std::fmt::Display for RiskError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InsufficientCapital { required, available } => {
+                write!(
+                    f,
+                    "Insufficient capital: required ${:.2}, available ${:.2}",
+                    required, available
+                )
+            }
+            Self::PositionTooLarge { max, requested } => {
+                write!(
+                    f,
+                    "Position too large: max {:.4} units, requested {:.4}",
+                    max, requested
+                )
+            }
+            Self::InvalidStopLoss { reason } => {
+                write!(f, "Invalid stop loss: {}", reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for RiskError {}
+
+struct PositionRiskValidator {
+    capital: Decimal,
+    max_risk_pct: Decimal,
+    leverage: i32,
+}
+
+impl PositionRiskValidator {
+    fn new(capital: f64, max_risk_pct: f64, leverage: i32) -> Self {
+        Self {
+            capital: dec(capital),
+            max_risk_pct: dec(max_risk_pct),
+            leverage,
+        }
+    }
+
+    fn validate_trade_cost(&self, cost: Decimal) -> Result<Decimal, RiskError> {
+        if cost <= Decimal::ZERO {
+            return Err(RiskError::InsufficientCapital {
+                required: cost,
+                available: self.capital,
+            });
+        }
+        if cost > self.capital {
+            return Err(RiskError::InsufficientCapital {
+                required: cost,
+                available: self.capital,
+            });
+        }
+        Ok(cost)
+    }
+
+    fn validate_position_size(
+        &self,
+        entry_price: Decimal,
+        size: Decimal,
+        stop_loss: Option<Decimal>,
+    ) -> Result<Decimal, RiskError> {
+        if entry_price <= Decimal::ZERO {
+            return Err(RiskError::InvalidStopLoss {
+                reason: "Entry price must be positive".to_string(),
+            });
+        }
+
+        let trade_cost = entry_price * size;
+        self.validate_trade_cost(trade_cost)?;
+
+        if let Some(sl) = stop_loss {
+            if sl <= Decimal::ZERO {
+                return Err(RiskError::InvalidStopLoss {
+                    reason: "Stop loss must be positive".to_string(),
+                });
+            }
+        }
+
+        Ok(size)
+    }
+
+    fn max_position_size(&self, entry_price: Decimal) -> Decimal {
+        if entry_price <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        self.capital / entry_price
+    }
+}
+
 pub async fn verify_margin_and_open(
     pool: &SqlitePool,
     telemetry_tx: &mpsc::Sender<db::TelemetryMsg>,
@@ -34,7 +144,8 @@ pub async fn verify_margin_and_open(
     direction: &str,
     current_price: f64,
 ) -> PaperTradeResult {
-    verify_margin_and_open_with_alloc(pool, telemetry_tx, symbol, direction, current_price, None).await
+    verify_margin_and_open_with_alloc(pool, telemetry_tx, symbol, direction, current_price, None)
+        .await
 }
 
 /// Open a position with an optional allocation percentage override.
@@ -53,32 +164,48 @@ pub async fn verify_margin_and_open_with_alloc(
     if position.is_some() {
         return PaperTradeResult {
             success: false,
-            message: format!("{} already has an active {} position", symbol, position.unwrap().direction),
+            message: format!(
+                "{} already has an active {} position",
+                symbol,
+                position.unwrap().direction
+            ),
             entry_price: None,
             size: None,
             allocated_usd: None,
         };
     }
 
-    if current_price <= 0.0 {
+    let price_dec = dec(current_price);
+    if price_dec <= Decimal::ZERO {
         return PaperTradeResult {
             success: false,
-            message: format!("Invalid current price for {}: ${:.4}", symbol, current_price),
+            message: format!(
+                "Invalid current price for {}: ${:.4}",
+                symbol, current_price
+            ),
             entry_price: None,
             size: None,
             allocated_usd: None,
         };
     }
+
+    let validator = PositionRiskValidator::new(
+        balance.current_cash,
+        balance.max_risk_pct,
+        balance.leverage,
+    );
 
     let alloc_pct = allocation_pct_override.unwrap_or(balance.allocation_pct);
-    let trade_cost = balance.current_cash * (alloc_pct / 100.0);
+    let alloc_pct_dec = dec(alloc_pct);
+    let capital_dec = dec(balance.current_cash);
+    let trade_cost = capital_dec * alloc_pct_dec / dec(100.0);
 
-    if trade_cost <= 0.0 {
+    if let Err(e) = validator.validate_trade_cost(trade_cost) {
         return PaperTradeResult {
             success: false,
             message: format!(
-                "Insufficient margin for {}. Cash: ${:.2}, Allocation: {:.1}% → Trade Cost: ${:.2}",
-                symbol, balance.current_cash, balance.allocation_pct, trade_cost
+                "Insufficient margin for {}. Cash: ${:.2}, Allocation: {:.1}% → Trade Cost: ${:.2} — {}",
+                symbol, balance.current_cash, balance.allocation_pct, f64_from_dec(trade_cost), e
             ),
             entry_price: None,
             size: None,
@@ -86,28 +213,16 @@ pub async fn verify_margin_and_open_with_alloc(
         };
     }
 
-    if trade_cost > balance.current_cash {
-        return PaperTradeResult {
-            success: false,
-            message: format!(
-                "Trade cost ${:.2} exceeds available cash ${:.2} for {}",
-                trade_cost, balance.current_cash, symbol
-            ),
-            entry_price: None,
-            size: None,
-            allocated_usd: None,
-        };
-    }
+    let position_size = trade_cost / price_dec;
+    let position_size_f64 = f64_from_dec(position_size);
+    let trade_cost_f64 = f64_from_dec(trade_cost);
 
-    let position_size = trade_cost / current_price;
-
-    if let Err(e) = sqlx::query(
-        "UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1"
-    )
-    .bind(symbol)
-    .bind(trade_cost)
-    .execute(&*pool)
-    .await
+    if let Err(e) =
+        sqlx::query("UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1")
+            .bind(symbol)
+            .bind(trade_cost_f64)
+            .execute(&*pool)
+            .await
     {
         return PaperTradeResult {
             success: false,
@@ -118,24 +233,31 @@ pub async fn verify_margin_and_open_with_alloc(
         };
     }
 
-    let _ = telemetry_tx.send(db::TelemetryMsg::PaperOpenPosition {
-        symbol: symbol.to_string(),
-        direction: direction.to_string(),
-        entry_price: current_price,
-        size: position_size,
-        allocated_usd: trade_cost,
-    }).await;
+    let _ = telemetry_tx
+        .send(db::TelemetryMsg::PaperOpenPosition {
+            symbol: symbol.to_string(),
+            direction: direction.to_string(),
+            entry_price: current_price,
+            size: position_size_f64,
+            allocated_usd: trade_cost_f64,
+        })
+        .await;
 
     PaperTradeResult {
         success: true,
         message: format!(
             "OPEN {} {} | Entry: ${:.2} | Size: {:.4} units | Allocated: ${:.2} ({:.0}% of ${:.2})",
-            symbol, direction, current_price, position_size, trade_cost,
-            alloc_pct, balance.current_cash + trade_cost
+            symbol,
+            direction,
+            current_price,
+            position_size_f64,
+            trade_cost_f64,
+            alloc_pct,
+            balance.current_cash + trade_cost_f64
         ),
         entry_price: Some(current_price),
-        size: Some(position_size),
-        allocated_usd: Some(trade_cost),
+        size: Some(position_size_f64),
+        allocated_usd: Some(trade_cost_f64),
     }
 }
 
@@ -156,32 +278,48 @@ pub async fn close_paper_position(
                 .as_millis() as i64;
 
             let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
-            let realized_pnl = if pos.direction == "LONG" {
-                (exit_price - entry) * pos.size
+            let entry_dec = dec(entry);
+            let exit_dec = dec(exit_price);
+            let size_dec = dec(pos.size);
+            let alloc_dec = dec(pos.allocated_usd);
+
+            let realized_pnl_dec = if pos.direction == "LONG" {
+                (exit_dec - entry_dec) * size_dec
             } else {
-                (entry - exit_price) * pos.size
+                (entry_dec - exit_dec) * size_dec
+            };
+            let realized_pnl = f64_from_dec(realized_pnl_dec);
+
+            let roi_pct = if alloc_dec > Decimal::ZERO {
+                f64_from_dec((realized_pnl_dec / alloc_dec) * dec(100.0))
+            } else {
+                0.0
             };
 
-            let _ = telemetry_tx.send(db::TelemetryMsg::PaperClosePosition {
-                symbol: symbol.to_string(),
-                exit_price,
-                exit_timestamp: now,
-                trigger: trigger.to_string(),
-            }).await;
+            let _ = telemetry_tx
+                .send(db::TelemetryMsg::PaperClosePosition {
+                    symbol: symbol.to_string(),
+                    exit_price,
+                    exit_timestamp: now,
+                    trigger: trigger.to_string(),
+                })
+                .await;
 
-            let _ = telemetry_tx.send(db::TelemetryMsg::JournalTrade {
-                symbol: symbol.to_string(),
-                direction: pos.direction.clone(),
-                entry_price: entry,
-                exit_price,
-                entry_timestamp: pos.entry_timestamp,
-                exit_timestamp: now,
-                size: pos.size,
-                realized_pnl,
-                roi_pct: if pos.allocated_usd > 0.0 { (realized_pnl / pos.allocated_usd) * 100.0 } else { 0.0 },
-                allocated_usd: pos.allocated_usd,
-                trigger: trigger.to_string(),
-            }).await;
+            let _ = telemetry_tx
+                .send(db::TelemetryMsg::JournalTrade {
+                    symbol: symbol.to_string(),
+                    direction: pos.direction.clone(),
+                    entry_price: entry,
+                    exit_price,
+                    entry_timestamp: pos.entry_timestamp,
+                    exit_timestamp: now,
+                    size: pos.size,
+                    realized_pnl,
+                    roi_pct,
+                    allocated_usd: pos.allocated_usd,
+                    trigger: trigger.to_string(),
+                })
+                .await;
 
             PaperTradeResult {
                 success: true,
@@ -218,22 +356,35 @@ pub async fn scale_in_portion(
     let balance = db::paper_get_balance(pool, symbol).await;
     let existing = db::paper_get_active_position(pool, symbol).await;
 
-    // Portion cost: 1/3 of the total allocation
-    let total_allocation = balance.initial_usd * (balance.allocation_pct / 100.0);
-    let portion_cost = total_allocation / 3.0;
+    let validator = PositionRiskValidator::new(
+        balance.current_cash,
+        balance.max_risk_pct,
+        balance.leverage,
+    );
 
-    if portion_cost <= 0.0 || portion_cost > balance.current_cash {
+    let init_dec = dec(balance.initial_usd);
+    let alloc_pct_dec = dec(balance.allocation_pct);
+    let total_allocation = init_dec * alloc_pct_dec / dec(100.0);
+    let portion_cost = total_allocation / dec(3.0);
+
+    if let Err(e) = validator.validate_trade_cost(portion_cost) {
         return PaperScaleInResult {
             success: false,
             message: format!(
-                "Insufficient capital for portion {}. Need ${:.2}, have ${:.2}",
-                portion_number, portion_cost, balance.current_cash
+                "Insufficient capital for portion {}. Need ${:.2}, have ${:.2} — {}",
+                portion_number,
+                f64_from_dec(portion_cost),
+                balance.current_cash,
+                e
             ),
             new_average_entry_price: 0.0,
             total_size: 0.0,
             portion_number,
         };
     }
+
+    let portion_cost_f64 = f64_from_dec(portion_cost);
+    let price_dec = dec(entry_price);
 
     match existing {
         Some(pos) if pos.current_portions.unwrap_or(0) >= 3 => PaperScaleInResult {
@@ -245,38 +396,49 @@ pub async fn scale_in_portion(
         },
         Some(pos) if pos.direction != direction => PaperScaleInResult {
             success: false,
-            message: format!("Cannot {} scale into existing {} position", direction, pos.direction),
+            message: format!(
+                "Cannot {} scale into existing {} position",
+                direction, pos.direction
+            ),
             new_average_entry_price: pos.average_entry_price.unwrap_or(pos.entry_price),
             total_size: pos.size,
             portion_number,
         },
         Some(pos) => {
             // Scale into existing position
-            let new_size = portion_cost / entry_price;
-            let old_avg = pos.average_entry_price.unwrap_or(pos.entry_price);
-            let old_size = pos.size;
-            let new_avg = ((old_avg * old_size) + (entry_price * new_size)) / (old_size + new_size);
-            let total_size = old_size + new_size;
+            let new_size = portion_cost / price_dec;
+            let old_avg_dec = dec(pos.average_entry_price.unwrap_or(pos.entry_price));
+            let old_size_dec = dec(pos.size);
+            let new_avg_dec = ((old_avg_dec * old_size_dec) + (price_dec * new_size))
+                / (old_size_dec + new_size);
+            let total_size_dec = old_size_dec + new_size;
+            let total_size = f64_from_dec(total_size_dec);
+            let new_avg = f64_from_dec(new_avg_dec);
+            let new_size_f64 = f64_from_dec(new_size);
 
             // Deduct cash
-            sqlx::query("UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1")
-                .bind(symbol)
-                .bind(portion_cost)
-                .execute(&*pool)
-                .await
-                .ok();
+            sqlx::query(
+                "UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1",
+            )
+            .bind(symbol)
+            .bind(portion_cost_f64)
+            .execute(&*pool)
+            .await
+            .ok();
 
-            let _ = telemetry_tx.send(db::TelemetryMsg::PaperScaleInPortion {
-                symbol: symbol.to_string(),
-                direction: direction.to_string(),
-                entry_price,
-                size: new_size,
-                allocated_usd: portion_cost,
-                portion_number,
-                new_average_entry_price: new_avg,
-                total_size,
-                final_invalidation_level,
-            }).await;
+            let _ = telemetry_tx
+                .send(db::TelemetryMsg::PaperScaleInPortion {
+                    symbol: symbol.to_string(),
+                    direction: direction.to_string(),
+                    entry_price,
+                    size: new_size_f64,
+                    allocated_usd: portion_cost_f64,
+                    portion_number,
+                    new_average_entry_price: new_avg,
+                    total_size,
+                    final_invalidation_level,
+                })
+                .await;
 
             PaperScaleInResult {
                 success: true,
@@ -291,35 +453,40 @@ pub async fn scale_in_portion(
         }
         None => {
             // Open new position (portion 1)
-            let new_size = portion_cost / entry_price;
+            let new_size = portion_cost / price_dec;
+            let new_size_f64 = f64_from_dec(new_size);
 
-            sqlx::query("UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1")
-                .bind(symbol)
-                .bind(portion_cost)
-                .execute(&*pool)
-                .await
-                .ok();
+            sqlx::query(
+                "UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1",
+            )
+            .bind(symbol)
+            .bind(portion_cost_f64)
+            .execute(&*pool)
+            .await
+            .ok();
 
-            let _ = telemetry_tx.send(db::TelemetryMsg::PaperScaleInPortion {
-                symbol: symbol.to_string(),
-                direction: direction.to_string(),
-                entry_price,
-                size: new_size,
-                allocated_usd: portion_cost,
-                portion_number: 1,
-                new_average_entry_price: entry_price,
-                total_size: new_size,
-                final_invalidation_level,
-            }).await;
+            let _ = telemetry_tx
+                .send(db::TelemetryMsg::PaperScaleInPortion {
+                    symbol: symbol.to_string(),
+                    direction: direction.to_string(),
+                    entry_price,
+                    size: new_size_f64,
+                    allocated_usd: portion_cost_f64,
+                    portion_number: 1,
+                    new_average_entry_price: entry_price,
+                    total_size: new_size_f64,
+                    final_invalidation_level,
+                })
+                .await;
 
             PaperScaleInResult {
                 success: true,
                 message: format!(
                     "OPEN (Portion 1/3): {} {} @ ${:.2} | Size: {:.4} | Allocated: ${:.2}",
-                    symbol, direction, entry_price, new_size, portion_cost
+                    symbol, direction, entry_price, new_size_f64, portion_cost_f64
                 ),
                 new_average_entry_price: entry_price,
-                total_size: new_size,
+                total_size: new_size_f64,
                 portion_number: 1,
             }
         }
@@ -342,45 +509,60 @@ pub async fn scale_out_portion(
     match position {
         Some(pos) => {
             let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
-            let close_size = pos.size * size_fraction;
-            let remaining_size = pos.size - close_size;
+            let entry_dec = dec(entry);
+            let exit_dec = dec(exit_price);
+            let size_dec = dec(pos.size);
+            let frac_dec = dec(size_fraction);
 
-            let realized_pnl = if pos.direction == "LONG" {
-                (exit_price - entry) * close_size
+            let close_size_dec = size_dec * frac_dec;
+            let remaining_size_dec = size_dec - close_size_dec;
+            let remaining_size = f64_from_dec(remaining_size_dec).max(0.0);
+
+            let realized_pnl_dec = if pos.direction == "LONG" {
+                (exit_dec - entry_dec) * close_size_dec
             } else {
-                (entry - exit_price) * close_size
+                (entry_dec - exit_dec) * close_size_dec
             };
+            let realized_pnl = f64_from_dec(realized_pnl_dec);
 
-            if remaining_size <= 0.0 {
+            if remaining_size_dec <= Decimal::ZERO {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_millis() as i64;
-                let _ = telemetry_tx.send(db::TelemetryMsg::PaperClosePosition {
-                    symbol: symbol.to_string(),
-                    exit_price,
-                    exit_timestamp: now,
-                    trigger: trigger.to_string(),
-                }).await;
+                let _ = telemetry_tx
+                    .send(db::TelemetryMsg::PaperClosePosition {
+                        symbol: symbol.to_string(),
+                        exit_price,
+                        exit_timestamp: now,
+                        trigger: trigger.to_string(),
+                    })
+                    .await;
             } else {
-                let _ = telemetry_tx.send(db::TelemetryMsg::PaperScaleOutPortion {
-                    symbol: symbol.to_string(),
-                    exit_price,
-                    size_fraction,
-                    realized_pnl,
-                    remaining_size,
-                    target_id,
-                }).await;
+                let _ = telemetry_tx
+                    .send(db::TelemetryMsg::PaperScaleOutPortion {
+                        symbol: symbol.to_string(),
+                        exit_price,
+                        size_fraction,
+                        realized_pnl,
+                        remaining_size,
+                        target_id,
+                    })
+                    .await;
             }
 
             PaperScaleOutResult {
                 success: true,
                 message: format!(
                     "SCALE-OUT: {} @ ${:.2} | {:.0}% closed | PnL: ${:.2} | Remaining: {:.4}",
-                    symbol, exit_price, size_fraction * 100.0, realized_pnl, remaining_size.max(0.0)
+                    symbol,
+                    exit_price,
+                    f64_from_dec(frac_dec * dec(100.0)),
+                    realized_pnl,
+                    remaining_size
                 ),
                 realized_pnl,
-                remaining_size: remaining_size.max(0.0),
+                remaining_size,
             }
         }
         None => PaperScaleOutResult {
@@ -405,10 +587,22 @@ pub async fn invalidate_position(
     match position {
         Some(pos) => {
             let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
-            let realized_loss = if pos.direction == "LONG" {
-                (exit_price - entry) * pos.size
+            let entry_dec = dec(entry);
+            let exit_dec = dec(exit_price);
+            let size_dec = dec(pos.size);
+            let alloc_dec = dec(pos.allocated_usd);
+
+            let realized_loss_dec = if pos.direction == "LONG" {
+                (exit_dec - entry_dec) * size_dec
             } else {
-                (entry - exit_price) * pos.size
+                (entry_dec - exit_dec) * size_dec
+            };
+            let realized_loss = f64_from_dec(realized_loss_dec);
+
+            let roi_pct = if alloc_dec > Decimal::ZERO {
+                f64_from_dec((realized_loss_dec / alloc_dec) * dec(100.0))
+            } else {
+                0.0
             };
 
             let now = std::time::SystemTime::now()
@@ -416,27 +610,31 @@ pub async fn invalidate_position(
                 .unwrap()
                 .as_millis() as i64;
 
-            let _ = telemetry_tx.send(db::TelemetryMsg::PaperInvalidatePosition {
-                symbol: symbol.to_string(),
-                exit_price,
-                exit_timestamp: now,
-                realized_loss,
-                reason: reason.to_string(),
-            }).await;
+            let _ = telemetry_tx
+                .send(db::TelemetryMsg::PaperInvalidatePosition {
+                    symbol: symbol.to_string(),
+                    exit_price,
+                    exit_timestamp: now,
+                    realized_loss,
+                    reason: reason.to_string(),
+                })
+                .await;
 
-            let _ = telemetry_tx.send(db::TelemetryMsg::JournalTrade {
-                symbol: symbol.to_string(),
-                direction: pos.direction.clone(),
-                entry_price: entry,
-                exit_price,
-                entry_timestamp: pos.entry_timestamp,
-                exit_timestamp: now,
-                size: pos.size,
-                realized_pnl: realized_loss,
-                roi_pct: if pos.allocated_usd > 0.0 { (realized_loss / pos.allocated_usd) * 100.0 } else { 0.0 },
-                allocated_usd: pos.allocated_usd,
-                trigger: format!("INVALIDATION:{}", reason),
-            }).await;
+            let _ = telemetry_tx
+                .send(db::TelemetryMsg::JournalTrade {
+                    symbol: symbol.to_string(),
+                    direction: pos.direction.clone(),
+                    entry_price: entry,
+                    exit_price,
+                    entry_timestamp: pos.entry_timestamp,
+                    exit_timestamp: now,
+                    size: pos.size,
+                    realized_pnl: realized_loss,
+                    roi_pct,
+                    allocated_usd: pos.allocated_usd,
+                    trigger: format!("INVALIDATION:{}", reason),
+                })
+                .await;
 
             PaperScaleOutResult {
                 success: true,
@@ -469,10 +667,19 @@ pub async fn calculate_allocated_capital(
     macro_trend: &str,
 ) -> (f64, i32, i32, String) {
     let score = profile_evaluation::calculate_eight_factor_score(
-        bias, snap, support_levels, resistance_levels, macro_trend,
+        bias,
+        snap,
+        support_levels,
+        resistance_levels,
+        macro_trend,
     );
     let signals_json = serde_json::to_string(&score.signals).unwrap_or_default();
-    (score.allocated_capital_pct, score.total_score, score.max_score, signals_json)
+    (
+        score.allocated_capital_pct,
+        score.total_score,
+        score.max_score,
+        signals_json,
+    )
 }
 
 /// Evaluate whether an opposite-signal exit should trigger.
@@ -486,7 +693,11 @@ pub fn evaluate_opposite_exit(
     max_opposite: u32,
 ) -> (bool, u32) {
     let opposite_score = calculate_opposite_score(
-        position_direction, snap, support_levels, resistance_levels, macro_trend,
+        position_direction,
+        snap,
+        support_levels,
+        resistance_levels,
+        macro_trend,
     );
     (opposite_score > max_opposite, opposite_score)
 }
@@ -494,11 +705,7 @@ pub fn evaluate_opposite_exit(
 /// Check if a break-even trailing update is needed.
 /// When the current price crosses beyond TP1 (first take-profit target),
 /// the stop-loss for the remaining position should be moved to the entry price.
-pub async fn check_break_even_trail(
-    pool: &SqlitePool,
-    symbol: &str,
-    current_price: f64,
-) -> bool {
+pub async fn check_break_even_trail(pool: &SqlitePool, symbol: &str, current_price: f64) -> bool {
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = match position {
         Some(ref p) => p,
@@ -509,7 +716,7 @@ pub async fn check_break_even_trail(
     let targets = sqlx::query_as::<_, (i64, f64, f64, i64)>(
         "SELECT id, target_price, size_fraction, is_hit FROM position_take_profit_targets
          WHERE symbol = ?1 AND is_hit = 0
-         ORDER BY target_price ASC"
+         ORDER BY target_price ASC",
     )
     .bind(symbol)
     .fetch_all(&*pool)
@@ -534,7 +741,7 @@ pub async fn check_break_even_trail(
             // For TP1, move stop-loss to entry (break-even)
             let new_invalidation = entry;
             sqlx::query(
-                "UPDATE active_positions SET final_invalidation_level = ?2 WHERE symbol = ?1"
+                "UPDATE active_positions SET final_invalidation_level = ?2 WHERE symbol = ?1",
             )
             .bind(symbol)
             .bind(new_invalidation)

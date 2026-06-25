@@ -2,10 +2,10 @@
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
-    import { getState } from '../state.svelte';
+    import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    const app = getState();
+    const app = useAppStore();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
@@ -17,6 +17,7 @@
 
     let container: HTMLDivElement;
     let chart: IChartApi;
+    let ro: ResizeObserver;
     let adxSeries: ISeriesApi<'Line'>;
     let adxPlusSeries: ISeriesApi<'Line'>;
     let adxMinusSeries: ISeriesApi<'Line'>;
@@ -111,15 +112,14 @@
             }
         })();
 
-        const ro = new ResizeObserver(() => {
+        ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
-
-        return () => ro.disconnect();
     });
 
     onDestroy(() => {
+        ro?.disconnect();
         if (chart) {
             unregisterChart(chart);
             chart.remove();
@@ -141,7 +141,7 @@
         if (snap.adx_14 != null) {
             const adxVal = parseFloat(String(snap.adx_14));
             const slope = snap.adx_slope != null ? parseFloat(String(snap.adx_slope)) : 0;
-            const regime = snap.adx_regime != null ? String(snap.adx_regime) : 'congestion';
+            const regime = snap.adx_regime != null ? String(snap.adx_regime) as 'congestion' | 'emerging' | 'strong' | 'extreme' : 'congestion';
 
             adxSeries.update({ time: timeSec as Time, value: adxVal });
             if (snap.adx_plus) adxPlusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_plus)) });
@@ -160,7 +160,7 @@
             tf.adxDiCrossoverDetected = !!snap.adx_di_crossover_detected;
         }
         if (snap.adx_di_crossover_direction != null) {
-            tf.adxDiCrossoverDirection = String(snap.adx_di_crossover_direction);
+            tf.adxDiCrossoverDirection = String(snap.adx_di_crossover_direction) as 'BULLISH' | 'BEARISH' | 'NONE';
         }
     });
 </script>

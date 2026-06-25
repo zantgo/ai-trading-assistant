@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use super::bollinger::BollingerBands;
+use rust_decimal::Decimal;
 
 /// Bollinger Band Width Percentile — measures volatility compression / exhaustion.
 ///
@@ -122,7 +122,11 @@ mod tests {
             price -= dec!(10.00);
         }
         let result = bbwp.update(price).unwrap();
-        assert!(result > dec!(50.00), "High volatility should produce high percentile, got {}", result);
+        assert!(
+            result > dec!(50.00),
+            "High volatility should produce high percentile, got {}",
+            result
+        );
     }
 
     #[test]

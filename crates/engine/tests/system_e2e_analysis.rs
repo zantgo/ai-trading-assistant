@@ -1,23 +1,23 @@
+use engine::analyzer::{ActivePair, TimeframePipeline};
 use engine::config::AppConfig;
+use engine::config::FibonacciConfig;
 use engine::db;
+use engine::instance::{Instance, TimeframeBuffers};
 use engine::llm::LlmClient;
 use engine::server::{self, AppState};
+use engine::sr_engine::SrRoleTracker;
 use engine::workspace::Workspace;
-use engine::instance::Instance;
+use http_body_util::BodyExt;
+use hyper::body::Buf;
+use rust_decimal_macros::dec;
+use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use tokio::sync::{mpsc, RwLock, broadcast};
-use hyper::body::Buf;
-use http_body_util::BodyExt;
-use engine::analyzer::{ActivePair, TimeframePipeline};
-use shared::indicators::DivergenceDetector;
-use engine::sr_engine::SrRoleTracker;
-use engine::config::FibonacciConfig;
-use rust_decimal_macros::dec;
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -41,7 +41,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             recommendation_rationale TEXT NOT NULL,
             symbol TEXT NOT NULL,
             trigger_type TEXT NOT NULL DEFAULT 'Manual'
-        )"
+        )",
     )
     .execute(&pool)
     .await
@@ -49,23 +49,35 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
 
     let config = Arc::new(RwLock::new(AppConfig {
         symbols: vec!["Hyperliquid:BTC".to_string()],
-        candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
-        indicators: Default::default(), hyperliquid: Default::default(),
-        fibonacci: Default::default(), pivots: Default::default(),
-        medium_timeframe: Default::default(), large_timeframe: Default::default(),
-        leverage: Default::default(), scoring: Default::default(),
-        fees: Default::default(), costs: Default::default(),
-        workspace: Default::default(), safety: Default::default(),
-        intervals: Default::default(), api_failover: Default::default(),
+        candles: engine::config::CandlesConfig {
+            duration_seconds: 60,
+            analysis_limit: 100,
+        },
+        indicators: Default::default(),
+        hyperliquid: Default::default(),
+        fibonacci: Default::default(),
+        pivots: Default::default(),
+        medium_timeframe: Default::default(),
+        large_timeframe: Default::default(),
+        leverage: Default::default(),
+        scoring: Default::default(),
+        fees: Default::default(),
+        costs: Default::default(),
+        workspace: Default::default(),
+        safety: Default::default(),
+        intervals: Default::default(),
+        api_failover: Default::default(),
         instances: HashMap::new(),
     }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
-    symbol_mapper.register(shared::normalized::Exchange::Hyperliquid, "BTC", "BTC").await;
+    symbol_mapper
+        .register(shared::normalized::Exchange::Hyperliquid, "BTC", "BTC")
+        .await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<db::TelemetryMsg>(100);
     let (llm_client, _) = LlmClient::from_env();
-    let llm = Arc::new(RwLock::new(llm_client));
+    let llm = Arc::new(llm_client);
     let api_key_configured = Arc::new(AtomicBool::new(false));
     let ws_url = "ws://127.0.0.1:1".to_string();
 
@@ -75,8 +87,12 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
     });
 
     let workspace = Arc::new(Workspace::new(
-        config.clone(), pool.clone(), symbol_mapper.clone(),
-        telemetry_tx.clone(), api_key_configured.clone(), ws_url.clone(),
+        config.clone(),
+        pool.clone(),
+        symbol_mapper.clone(),
+        telemetry_tx.clone(),
+        api_key_configured.clone(),
+        ws_url.clone(),
     ));
 
     let (mid_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
@@ -118,28 +134,58 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             volume: Some(dec!(10.0)),
             average_volume: None,
             rvol: None,
-            bb_upper: None, bb_middle: None, bb_lower: None,
-            atr_14: None, atr_slope: None, atr_volatility_regime: None,
-            atr_stop_loss_level: None, atr_take_profit_level: None,
-            vwap: None, vwap_bias: None,
-            adx_14: None, adx_plus: None, adx_minus: None,
-            ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None,
-            ema_stack_state: None, rsi_14: None,
-            macd_line: None, macd_signal: None, macd_hist: None,
-            squeeze_on: None, squeeze_momentum: None,
-            squeeze_duration: None, squeeze_release_trigger: None,
-            squeeze_momentum_direction: None, bbwp: None,
-            support_levels: None, resistance_levels: None, sr_flip_events: None,
-            fib_golden_pocket_low: None, fib_golden_pocket_high: None,
-            fib_extension_1618: None, fib_extension_2618: None,
-            swing_high: None, swing_low: None,
-            chart_pattern: None, chart_pattern_confidence: None,
-            rsi_divergence_status: None, rsi_divergence_coords: None,
-            macd_divergence_status: None, macd_divergence_coords: None,
-            macd_histogram_peak: None, macd_trend_state: None,
-            macd_crossover_detected: None, macd_crossover_direction: None,
-            adx_slope: None, adx_peak: None, adx_regime: None,
-            adx_di_crossover_detected: None, adx_di_crossover_direction: None,
+            bb_upper: None,
+            bb_middle: None,
+            bb_lower: None,
+            atr_14: None,
+            atr_slope: None,
+            atr_volatility_regime: None,
+            atr_stop_loss_level: None,
+            atr_take_profit_level: None,
+            vwap: None,
+            vwap_bias: None,
+            adx_14: None,
+            adx_plus: None,
+            adx_minus: None,
+            ema_fast: None,
+            ema_medium: None,
+            ema_slow: None,
+            ema_long: None,
+            ema_stack_state: None,
+            rsi_14: None,
+            macd_line: None,
+            macd_signal: None,
+            macd_hist: None,
+            squeeze_on: None,
+            squeeze_momentum: None,
+            squeeze_duration: None,
+            squeeze_release_trigger: None,
+            squeeze_momentum_direction: None,
+            bbwp: None,
+            support_levels: None,
+            resistance_levels: None,
+            sr_flip_events: None,
+            fib_golden_pocket_low: None,
+            fib_golden_pocket_high: None,
+            fib_extension_1618: None,
+            fib_extension_2618: None,
+            swing_high: None,
+            swing_low: None,
+            chart_pattern: None,
+            chart_pattern_confidence: None,
+            rsi_divergence_status: None,
+            rsi_divergence_coords: None,
+            macd_divergence_status: None,
+            macd_divergence_coords: None,
+            macd_histogram_peak: None,
+            macd_trend_state: None,
+            macd_crossover_detected: None,
+            macd_crossover_direction: None,
+            adx_slope: None,
+            adx_peak: None,
+            adx_regime: None,
+            adx_di_crossover_detected: None,
+            adx_di_crossover_direction: None,
         });
     }
 
@@ -159,7 +205,9 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         cancel,
     });
 
-    let snap_hist = Arc::new(RwLock::new(std::collections::VecDeque::<MarketSnapshot>::new()));
+    let snap_hist = Arc::new(RwLock::new(
+        std::collections::VecDeque::<MarketSnapshot>::new(),
+    ));
     let instance = Arc::new(Instance::new(
         "inst_test".to_string(),
         ("BTC".to_string(), "USDT".to_string()),
@@ -168,38 +216,43 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         config.clone(),
         Default::default(),
         Default::default(),
-        pair.micro.history.clone(),
-        pair.short.history.clone(),
-        pair.medium.history.clone(),
-        pair.large.history.clone(),
-        pair.micro.latest_snapshot.clone(),
-        pair.short.latest_snapshot.clone(),
-        pair.medium.latest_snapshot.clone(),
-        pair.large.latest_snapshot.clone(),
-        snap_hist.clone(),
-        snap_hist.clone(),
-        snap_hist.clone(),
-        snap_hist.clone(),
+        TimeframeBuffers { history: pair.micro.history.clone(), latest: pair.micro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.short.history.clone(), latest: pair.short.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.medium.history.clone(), latest: pair.medium.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.large.history.clone(), latest: pair.large.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
     ));
-    workspace.instances.write().await.insert("BTC-USDT".to_string(), instance);
+    workspace
+        .instances
+        .write()
+        .await
+        .insert("BTC-USDT".to_string(), instance);
 
     let state = Arc::new(AppState {
-        workspace, config, pool: pool.clone(),
-        llm_client: Arc::new(RwLock::new(LlmClient::from_env().0)),
-        api_key_configured, symbol_mapper, telemetry_tx,
+        workspace,
+        config,
+        pool: pool.clone(),
+        llm_client: Arc::new(LlmClient::from_env().0),
+        api_key_configured,
+        symbol_mapper,
+        telemetry_tx,
         ws_url: "ws://127.0.0.1:1".to_string(),
     });
 
     (state, pool)
 }
 
-fn build_pipeline(history: std::collections::VecDeque<shared::normalized::NormalizedCandle>, snap_history: std::collections::VecDeque<MarketSnapshot>, bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePipeline {
+fn build_pipeline(
+    history: std::collections::VecDeque<shared::normalized::NormalizedCandle>,
+    snap_history: std::collections::VecDeque<MarketSnapshot>,
+    bcast: broadcast::Sender<MarketSnapshot>,
+) -> TimeframePipeline {
     TimeframePipeline {
         history: Arc::new(RwLock::new(history)),
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: Arc::new(RwLock::new(snap_history)),
-        timeframe_secs: 60, timeframe_label: "Micro",
+        timeframe_secs: 60,
+        timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
@@ -212,7 +265,8 @@ fn build_pipeline_empty(bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePi
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-        timeframe_secs: 60, timeframe_label: "Micro",
+        timeframe_secs: 60,
+        timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
         fibonacci: FibonacciConfig::default(),
@@ -257,12 +311,15 @@ async fn test_e2e_analysis_master_record_created_and_error_when_no_key() {
         let status = response.status();
 
         // Without API key, should return 503
-        assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            "Should return 503 when no API key configured");
+        assert_eq!(
+            status,
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Should return 503 when no API key configured"
+        );
 
         // Verify master record was created in DB (use raw query since query_master_records filters PENDING)
         let row: (i64, String, String) = sqlx::query_as(
-            "SELECT id, position, symbol FROM master_assistant_records ORDER BY id DESC LIMIT 1"
+            "SELECT id, position, symbol FROM master_assistant_records ORDER BY id DESC LIMIT 1",
         )
         .fetch_one(&pool)
         .await
@@ -289,15 +346,27 @@ async fn test_e2e_history_endpoint_with_populated_data() {
 
         use tower::ServiceExt;
         let response = router.oneshot(request).await.unwrap();
-        assert!(response.status().is_success(), "History endpoint should succeed");
+        assert!(
+            response.status().is_success(),
+            "History endpoint should succeed"
+        );
 
         // Read response body
         let body = response.collect().await.unwrap().aggregate();
-        let history_resp: serde_json::Value = serde_json::from_reader(body.reader()).unwrap_or_default();
-        let candles = history_resp["candles"].as_array()
+        let history_resp: serde_json::Value =
+            serde_json::from_reader(body.reader()).unwrap_or_default();
+        let candles = history_resp["candles"]
+            .as_array()
             .expect("History response should have a 'candles' array");
-        assert!(!candles.is_empty(), "History should return pre-populated candles");
-        assert!(candles.len() >= 50, "Should have at least 50 candles, got {}", candles.len());
+        assert!(
+            !candles.is_empty(),
+            "History should return pre-populated candles"
+        );
+        assert!(
+            candles.len() >= 50,
+            "Should have at least 50 candles, got {}",
+            candles.len()
+        );
     })
     .await
     .expect("E2E history test timed out");

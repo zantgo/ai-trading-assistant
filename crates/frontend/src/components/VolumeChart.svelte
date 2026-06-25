@@ -2,10 +2,10 @@
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
-    import { getState } from '../state.svelte';
+    import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    const app = getState();
+    const app = useAppStore();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(

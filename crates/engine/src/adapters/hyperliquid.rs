@@ -1,16 +1,16 @@
-use std::str::FromStr;
-use std::sync::Arc;
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use shared::normalized::{
+    ConnectionStatus, Exchange, ExchangeAdapter, NormalizedEvent, NormalizedOrderBook,
+    NormalizedTrade, SymbolMapper, TradeSide,
+};
+use std::str::FromStr;
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio_util::sync::CancellationToken;
-use shared::normalized::{
-    Exchange, ExchangeAdapter, NormalizedEvent, NormalizedTrade, NormalizedOrderBook,
-    SymbolMapper, TradeSide, ConnectionStatus,
-};
 
 pub struct HyperliquidAdapter {
     pub ws_url: String,
@@ -87,18 +87,23 @@ impl ExchangeAdapter for HyperliquidAdapter {
         println!("✅ Hyperliquid Adapter: TCP/WS Handshake completed.");
         let (mut write, mut read) = ws_stream.split();
 
-        let _ = event_tx.send(NormalizedEvent::Status {
-            exchange: Exchange::Hyperliquid,
-            status: ConnectionStatus::Connected,
-            message: "Testnet WS connection established.".to_string(),
-        }).await;
+        let _ = event_tx
+            .send(NormalizedEvent::Status {
+                exchange: Exchange::Hyperliquid,
+                status: ConnectionStatus::Connected,
+                message: "Testnet WS connection established.".to_string(),
+            })
+            .await;
 
         let mut subscriptions = Vec::new();
         for sym in &symbols {
             if let Some(raw_sym) = mapper.get_raw(Exchange::Hyperliquid, sym).await {
                 subscriptions.push(serde_json::json!({"type": "trades", "coin": raw_sym}));
                 subscriptions.push(serde_json::json!({"type": "l2Book", "coin": raw_sym}));
-                println!("📡 Hyperliquid Adapter: Subscribed to trades + l2Book for {} ({})", sym, raw_sym);
+                println!(
+                    "📡 Hyperliquid Adapter: Subscribed to trades + l2Book for {} ({})",
+                    sym, raw_sym
+                );
             }
         }
 
@@ -111,8 +116,13 @@ impl ExchangeAdapter for HyperliquidAdapter {
                 "method": "subscribe",
                 "subscription": sub
             });
-            println!("📡 Hyperliquid Adapter: Subscribing to stream: {}", sub_request);
-            write.send(Message::Text(sub_request.to_string().into())).await?;
+            println!(
+                "📡 Hyperliquid Adapter: Subscribing to stream: {}",
+                sub_request
+            );
+            write
+                .send(Message::Text(sub_request.to_string().into()))
+                .await?;
         }
 
         while let Some(msg) = read.next().await {
@@ -169,7 +179,11 @@ impl ExchangeAdapter for HyperliquidAdapter {
                                     let symbol = to_internal_symbol(&t.coin);
                                     let price = Decimal::from_str(&t.px).unwrap_or(Decimal::ZERO);
                                     let size = Decimal::from_str(&t.sz).unwrap_or(Decimal::ZERO);
-                                    let side = if t.side == "A" { TradeSide::Sell } else { TradeSide::Buy };
+                                    let side = if t.side == "A" {
+                                        TradeSide::Sell
+                                    } else {
+                                        TradeSide::Buy
+                                    };
 
                                     let event = NormalizedEvent::Trade(NormalizedTrade {
                                         exchange: Exchange::Hyperliquid,
@@ -225,11 +239,13 @@ pub async fn run_for_symbol(
     println!("✅ Hyperliquid [{}]: TCP/WS Handshake completed.", symbol);
     let (mut write, mut read) = ws_stream.split();
 
-    let _ = event_tx.send(NormalizedEvent::Status {
-        exchange: Exchange::Hyperliquid,
-        status: ConnectionStatus::Connected,
-        message: format!("Dedicated WS connected for {}", symbol),
-    }).await;
+    let _ = event_tx
+        .send(NormalizedEvent::Status {
+            exchange: Exchange::Hyperliquid,
+            status: ConnectionStatus::Connected,
+            message: format!("Dedicated WS connected for {}", symbol),
+        })
+        .await;
 
     let subscriptions = vec![
         serde_json::json!({"type": "trades", "coin": &symbol}),
@@ -240,9 +256,18 @@ pub async fn run_for_symbol(
             "method": "subscribe",
             "subscription": sub
         });
-        println!("📡 Hyperliquid [{}]: Subscribing to stream: {}", symbol, sub_request);
-        if let Err(e) = write.send(Message::Text(sub_request.to_string().into())).await {
-            eprintln!("❌ Hyperliquid [{}]: Failed to send subscription: {}", symbol, e);
+        println!(
+            "📡 Hyperliquid [{}]: Subscribing to stream: {}",
+            symbol, sub_request
+        );
+        if let Err(e) = write
+            .send(Message::Text(sub_request.to_string().into()))
+            .await
+        {
+            eprintln!(
+                "❌ Hyperliquid [{}]: Failed to send subscription: {}",
+                symbol, e
+            );
             return;
         }
     }
@@ -314,7 +339,11 @@ pub async fn run_for_symbol(
                             for t in trades {
                                 let price = Decimal::from_str(&t.px).unwrap_or(Decimal::ZERO);
                                 let size = Decimal::from_str(&t.sz).unwrap_or(Decimal::ZERO);
-                                let side = if t.side == "A" { TradeSide::Sell } else { TradeSide::Buy };
+                                let side = if t.side == "A" {
+                                    TradeSide::Sell
+                                } else {
+                                    TradeSide::Buy
+                                };
 
                                 let event = NormalizedEvent::Trade(NormalizedTrade {
                                     exchange: Exchange::Hyperliquid,
@@ -342,9 +371,11 @@ pub async fn run_for_symbol(
         }
     }
 
-    let _ = event_tx.send(NormalizedEvent::Status {
-        exchange: Exchange::Hyperliquid,
-        status: ConnectionStatus::Disconnected,
-        message: format!("Dedicated WS disconnected for {}", symbol),
-    }).await;
+    let _ = event_tx
+        .send(NormalizedEvent::Status {
+            exchange: Exchange::Hyperliquid,
+            status: ConnectionStatus::Disconnected,
+            message: format!("Dedicated WS disconnected for {}", symbol),
+        })
+        .await;
 }

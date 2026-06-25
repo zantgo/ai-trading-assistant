@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum KeySource {
@@ -18,11 +18,13 @@ pub struct ApiFailoverState {
     pub total_calls: AtomicU32,
     pub total_failures: AtomicU32,
     pub permanently_failed: AtomicBool,
+    pub failed_at: RwLock<Option<Instant>>,
 
     // Configuration
     pub retry_delay_secs: u64,
     pub max_retries_per_call: u32,
     pub max_consecutive_failures: u32,
+    pub cool_down_secs: u64,
 }
 
 impl ApiFailoverState {
@@ -32,6 +34,7 @@ impl ApiFailoverState {
         retry_delay_secs: u64,
         max_retries_per_call: u32,
         max_consecutive_failures: u32,
+        cool_down_secs: u64,
     ) -> Self {
         let source = if primary_key.is_some() {
             KeySource::Primary
@@ -49,9 +52,11 @@ impl ApiFailoverState {
             total_calls: AtomicU32::new(0),
             total_failures: AtomicU32::new(0),
             permanently_failed: AtomicBool::new(false),
+            failed_at: RwLock::new(None),
             retry_delay_secs,
             max_retries_per_call,
             max_consecutive_failures,
+            cool_down_secs,
         }
     }
 
@@ -72,13 +77,14 @@ impl ApiFailoverState {
     }
 
     /// Record a failed API call. Returns true if the system should halt.
-    pub fn record_failure(&self) -> bool {
+    pub async fn record_failure(&self) -> bool {
         self.total_calls.fetch_add(1, Ordering::Relaxed);
         self.total_failures.fetch_add(1, Ordering::Relaxed);
         let current = self.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
 
         if current >= self.max_consecutive_failures {
             self.permanently_failed.store(true, Ordering::Relaxed);
+            *self.failed_at.write().await = Some(Instant::now());
             true // Halt
         } else {
             false
@@ -117,6 +123,7 @@ impl ApiFailoverState {
         }
         self.permanently_failed.store(false, Ordering::Relaxed);
         self.consecutive_failures.store(0, Ordering::Relaxed);
+        *self.failed_at.write().await = None;
     }
 
     /// Set a new backup key.
@@ -144,10 +151,37 @@ impl ApiFailoverState {
         Fut: std::future::Future<Output = Result<T, String>>,
     {
         if self.permanently_failed.load(Ordering::Relaxed) {
-            return Err(format!(
-                "[{}] API failover permanently halted due to {} consecutive failures",
-                call_name, self.max_consecutive_failures
-            ));
+            // Check if the cool-down period has elapsed for auto-recovery
+            if let Some(failed_at) = *self.failed_at.read().await {
+                let elapsed = failed_at.elapsed().as_secs();
+                if elapsed >= self.cool_down_secs {
+                    eprintln!(
+                        "🔄 API Failover: Cool-down period ({}) ended. Attempting auto-recovery...",
+                        self.cool_down_secs
+                    );
+                    self.permanently_failed.store(false, Ordering::Relaxed);
+                    self.consecutive_failures.store(0, Ordering::Relaxed);
+                    *self.failed_at.write().await = None;
+                    // Try switching back to primary
+                    if self.primary_key.read().await.is_some() {
+                        *self.active_source.write().await = KeySource::Primary;
+                        println!(
+                            "🔄 API Failover: Switched back to primary API key after cool-down"
+                        );
+                    }
+                } else {
+                    let remaining = self.cool_down_secs - elapsed;
+                    return Err(format!(
+                        "[{}] API failover cooling down — auto-recovery in {}s ({} consecutive failures)",
+                        call_name, remaining, self.max_consecutive_failures
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "[{}] API failover permanently halted due to {} consecutive failures",
+                    call_name, self.max_consecutive_failures
+                ));
+            }
         }
 
         let mut last_error: Option<String> = None;
@@ -200,7 +234,7 @@ impl ApiFailoverState {
         }
 
         // All failed. Record final failure and check if we should halt.
-        let should_halt = self.record_failure();
+        let should_halt = self.record_failure().await;
         let msg = format!(
             "[{}] All API calls failed after {} retries. {}",
             call_name,
@@ -209,7 +243,10 @@ impl ApiFailoverState {
         );
 
         if should_halt {
-            eprintln!("🛑 API Failover: Instance halted after {} consecutive failures", self.max_consecutive_failures);
+            eprintln!(
+                "🛑 API Failover: Instance halted after {} consecutive failures",
+                self.max_consecutive_failures
+            );
         }
 
         Err(msg)
@@ -219,27 +256,23 @@ impl ApiFailoverState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::AtomicU32;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_success_on_first_attempt() {
-        let state = ApiFailoverState::new(
-            Some("pk-test".into()),
-            None,
-            1,
-            3,
-            10,
-        );
+        let state = ApiFailoverState::new(Some("pk-test".into()), None, 1, 3, 10, 0);
 
         let call_count = AtomicU32::new(0);
-        let result = state.execute_with_failover("test", |key| {
-            call_count.fetch_add(1, Ordering::Relaxed);
-            async move {
-                assert_eq!(key, "pk-test");
-                Ok("success")
-            }
-        }).await;
+        let result = state
+            .execute_with_failover("test", |key| {
+                call_count.fetch_add(1, Ordering::Relaxed);
+                async move {
+                    assert_eq!(key, "pk-test");
+                    Ok("success")
+                }
+            })
+            .await;
 
         assert_eq!(result.unwrap(), "success");
         assert_eq!(call_count.load(Ordering::Relaxed), 1);
@@ -254,19 +287,22 @@ mod tests {
             0, // No delay for test
             2,
             10,
+            0,
         );
 
         let call_count = AtomicU32::new(0);
-        let result = state.execute_with_failover("test", |key| {
-            let n = call_count.fetch_add(1, Ordering::Relaxed) + 1;
-            async move {
-                if n <= 2 {
-                    Err(format!("fail {}", n))
-                } else {
-                    Ok(format!("ok via {}", key))
+        let result = state
+            .execute_with_failover("test", |key| {
+                let n = call_count.fetch_add(1, Ordering::Relaxed) + 1;
+                async move {
+                    if n <= 2 {
+                        Err(format!("fail {}", n))
+                    } else {
+                        Ok(format!("ok via {}", key))
+                    }
                 }
-            }
-        }).await;
+            })
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(call_count.load(Ordering::Relaxed), 3); // 2 fail + 1 success
@@ -280,27 +316,33 @@ mod tests {
             0,
             1, // Only 1 retry per call -> 2 attempts
             10,
+            0,
         );
 
         let call_count = AtomicU32::new(0);
         let seen_keys = Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen_keys_clone = seen_keys.clone();
 
-        let result = state.execute_with_failover("test", move |key| {
-            seen_keys_clone.lock().unwrap().push(key.clone());
-            let _n = call_count.fetch_add(1, Ordering::Relaxed) + 1;
-            async move {
-                if key == "pk-bad" {
-                    Err("bad key".into())
-                } else {
-                    Ok("ok")
+        let result = state
+            .execute_with_failover("test", move |key| {
+                seen_keys_clone.lock().unwrap().push(key.clone());
+                let _n = call_count.fetch_add(1, Ordering::Relaxed) + 1;
+                async move {
+                    if key == "pk-bad" {
+                        Err("bad key".into())
+                    } else {
+                        Ok("ok")
+                    }
                 }
-            }
-        }).await;
+            })
+            .await;
 
         assert!(result.is_ok());
         let keys = seen_keys.lock().unwrap();
-        assert!(keys.iter().any(|k| k == "bk-good"), "Should have tried backup key");
+        assert!(
+            keys.iter().any(|k| k == "bk-good"),
+            "Should have tried backup key"
+        );
     }
 
     #[tokio::test]
@@ -309,29 +351,30 @@ mod tests {
             Some("bad".into()),
             None,
             0,
-            0, // no retries per call
-            3, // halt after 3 consecutive failures
+            0,      // no retries per call
+            3,      // halt after 3 consecutive failures
+            86_400, // high cool-down to prevent auto-recovery during test
         );
 
         for i in 0..3 {
-            let r = state.execute_with_failover("test", |_| async {
-                Err::<&str, _>("fail".into())
-            }).await;
+            let r = state
+                .execute_with_failover("test", |_| async { Err::<&str, _>("fail".into()) })
+                .await;
             if i < 2 {
                 assert!(r.is_err());
             }
         }
         // Third failure triggers halt
-        let r = state.execute_with_failover("test", |_| async {
-            Err::<&str, _>("fail".into())
-        }).await;
+        let r = state
+            .execute_with_failover("test", |_| async { Err::<&str, _>("fail".into()) })
+            .await;
         assert!(r.is_err());
 
-        // Subsequent calls should fail immediately
-        let r = state.execute_with_failover("test", |_| async {
-            Ok::<&str, _>("should not be called")
-        }).await;
+        // Subsequent calls should fail with cooling-down message
+        let r = state
+            .execute_with_failover("test", |_| async { Ok::<&str, _>("should not be called") })
+            .await;
         assert!(r.is_err());
-        assert!(r.unwrap_err().contains("permanently halted"));
+        assert!(r.unwrap_err().contains("cooling down"));
     }
 }

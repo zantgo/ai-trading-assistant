@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::{RwLock, mpsc};
-use sqlx::SqlitePool;
-use shared::normalized::SymbolMapper;
 use crate::config::AppConfig;
 use crate::instance::Instance;
+use shared::normalized::SymbolMapper;
+use sqlx::SqlitePool;
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TradingMode {
@@ -110,6 +110,26 @@ impl Workspace {
         self.instances.read().await.len()
     }
 
+    pub async fn get_active_pair(
+        &self,
+        pair_key: &str,
+    ) -> Option<Arc<crate::analyzer::ActivePair>> {
+        self.instances
+            .read()
+            .await
+            .get(pair_key)
+            .map(|inst| inst.active_pair.clone())
+    }
+
+    pub async fn get_instance_by_id(&self, id: &str) -> Option<Arc<Instance>> {
+        self.instances
+            .read()
+            .await
+            .values()
+            .find(|i| i.id == id)
+            .cloned()
+    }
+
     pub async fn init_session(
         &self,
         trading_mode: TradingMode,
@@ -118,7 +138,9 @@ impl Workspace {
         initial_capital: f64,
     ) -> Result<(), String> {
         if trading_mode == TradingMode::Live {
-            return Err("Live trading is not yet available. Please select Paper Trading.".to_string());
+            return Err(
+                "Live trading is not yet available. Please select Paper Trading.".to_string(),
+            );
         }
         if initial_capital <= 0.0 {
             return Err("Initial capital must be greater than 0.".to_string());
@@ -134,9 +156,14 @@ impl Workspace {
         *self.session.base_currency.write().await = Some(currency);
         *self.session.exchange.write().await = Some(exchange);
         *self.session.initial_capital.write().await = Some(initial_capital);
-        self.session.active.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.session
+            .active
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
-        println!("✅ Session initialized: Paper Trading, {:.2} USDT on Hyperliquid", initial_capital);
+        println!(
+            "✅ Session initialized: Paper Trading, {:.2} USDT on Hyperliquid",
+            initial_capital
+        );
         Ok(())
     }
 
@@ -161,12 +188,15 @@ impl Workspace {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis() as i64;
-                    let _ = self.telemetry_tx.send(crate::db::TelemetryMsg::PaperClosePosition {
-                        symbol: symbol.clone(),
-                        exit_price,
-                        exit_timestamp: now,
-                        trigger: "SESSION_QUIT".to_string(),
-                    }).await;
+                    let _ = self
+                        .telemetry_tx
+                        .send(crate::db::TelemetryMsg::PaperClosePosition {
+                            symbol: symbol.clone(),
+                            exit_price,
+                            exit_timestamp: now,
+                            trigger: "SESSION_QUIT".to_string(),
+                        })
+                        .await;
                 }
                 instance.cancel.cancel();
             }
@@ -179,7 +209,9 @@ impl Workspace {
         self.instances.write().await.clear();
 
         // Reset session state
-        self.session.active.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.session
+            .active
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         *self.session.trading_mode.write().await = None;
         *self.session.base_currency.write().await = None;
         *self.session.exchange.write().await = None;

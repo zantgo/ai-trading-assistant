@@ -1,7 +1,7 @@
 use proptest::prelude::*;
-use shared::indicators::{SqueezeMomentum, MomentumDirection};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::Decimal;
+use shared::indicators::{MomentumDirection, SqueezeMomentum};
 
 fn dec(v: f64) -> Decimal {
     Decimal::from_f64(v).unwrap_or(Decimal::ZERO)

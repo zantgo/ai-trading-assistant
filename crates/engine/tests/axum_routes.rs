@@ -1,21 +1,22 @@
+use engine::analyzer::{ActivePair, TimeframePipeline};
 use engine::config::AppConfig;
+use engine::config::FibonacciConfig;
 use engine::db;
 use engine::llm::LlmClient;
 use engine::server::{self, AppState};
+use engine::instance::TimeframeBuffers;
+use engine::sr_engine::SrRoleTracker;
 use engine::workspace::Workspace;
+use shared::indicators::DivergenceDetector;
+use shared::models::MarketSnapshot;
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use tokio::sync::{mpsc, RwLock, broadcast};
+use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::{broadcast, mpsc, RwLock};
 use tower::ServiceExt;
-use shared::models::MarketSnapshot;
-use engine::analyzer::{ActivePair, TimeframePipeline};
-use shared::indicators::DivergenceDetector;
-use engine::sr_engine::SrRoleTracker;
-use engine::config::FibonacciConfig;
 
 async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -24,7 +25,10 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
 
     let config = Arc::new(RwLock::new(AppConfig {
         symbols: vec!["Hyperliquid:BTC".to_string()],
-        candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
+        candles: engine::config::CandlesConfig {
+            duration_seconds: 60,
+            analysis_limit: 100,
+        },
         indicators: Default::default(),
         hyperliquid: Default::default(),
         fibonacci: Default::default(),
@@ -43,11 +47,13 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
     }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
-    symbol_mapper.register(shared::normalized::Exchange::Hyperliquid, "BTC", "BTC").await;
+    symbol_mapper
+        .register(shared::normalized::Exchange::Hyperliquid, "BTC", "BTC")
+        .await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<db::TelemetryMsg>(100);
     let (llm_client, _) = LlmClient::from_env();
-    let llm = Arc::new(RwLock::new(llm_client));
+    let llm = Arc::new(llm_client);
     let api_key_configured = Arc::new(AtomicBool::new(false));
     let ws_url = "ws://127.0.0.1:1".to_string();
 
@@ -69,7 +75,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         workspace,
         config,
         pool: pool.clone(),
-        llm_client: Arc::new(RwLock::new(LlmClient::from_env().0)),
+        llm_client: Arc::new(LlmClient::from_env().0),
         api_key_configured,
         symbol_mapper,
         telemetry_tx,
@@ -97,12 +103,17 @@ async fn test_analyze_missing_position_returns_400() {
         .method("POST")
         .uri("/api/analyze")
         .header("content-type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_string(&body).unwrap(),
+        ))
         .unwrap();
 
     let response = router.oneshot(request).await.unwrap();
-    assert!(response.status().is_client_error(),
-        "Missing position should return 4xx, got {}", response.status());
+    assert!(
+        response.status().is_client_error(),
+        "Missing position should return 4xx, got {}",
+        response.status()
+    );
 }
 
 #[tokio::test]
@@ -117,8 +128,11 @@ async fn test_history_invalid_symbol_returns_empty_or_error() {
         .unwrap();
 
     let response = router.oneshot(request).await.unwrap();
-    assert!(!response.status().is_server_error(),
-        "Server should not 500 on invalid symbol, got {}", response.status());
+    assert!(
+        !response.status().is_server_error(),
+        "Server should not 500 on invalid symbol, got {}",
+        response.status()
+    );
 }
 
 #[tokio::test]
@@ -133,8 +147,11 @@ async fn test_config_endpoint_returns_ok() {
         .unwrap();
 
     let response = router.oneshot(request).await.unwrap();
-    assert!(response.status().is_success(),
-        "/api/config should return success, got {}", response.status());
+    assert!(
+        response.status().is_success(),
+        "/api/config should return success, got {}",
+        response.status()
+    );
 }
 
 #[tokio::test]
@@ -154,7 +171,10 @@ async fn test_websocket_stream_with_active_pair() {
 
     let config = Arc::new(RwLock::new(AppConfig {
         symbols: vec!["Hyperliquid:BTC".to_string()],
-        candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
+        candles: engine::config::CandlesConfig {
+            duration_seconds: 60,
+            analysis_limit: 100,
+        },
         indicators: Default::default(),
         hyperliquid: Default::default(),
         fibonacci: Default::default(),
@@ -173,11 +193,13 @@ async fn test_websocket_stream_with_active_pair() {
     }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
-    symbol_mapper.register(shared::normalized::Exchange::Hyperliquid, "BTC", "BTC").await;
+    symbol_mapper
+        .register(shared::normalized::Exchange::Hyperliquid, "BTC", "BTC")
+        .await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<db::TelemetryMsg>(100);
     let (llm_client, _) = LlmClient::from_env();
-    let llm = Arc::new(RwLock::new(llm_client));
+    let llm = Arc::new(llm_client);
     let api_key_configured = Arc::new(AtomicBool::new(false));
     let ws_url = "ws://127.0.0.1:1".to_string();
 
@@ -204,7 +226,9 @@ async fn test_websocket_stream_with_active_pair() {
     let (snapshot_tx, _snapshot_rx) = mpsc::channel::<shared::normalized::NormalizedEvent>(100);
     let cancel = tokio_util::sync::CancellationToken::new();
 
-    let snap_hist = Arc::new(RwLock::new(std::collections::VecDeque::<MarketSnapshot>::new()));
+    let snap_hist = Arc::new(RwLock::new(
+        std::collections::VecDeque::<MarketSnapshot>::new(),
+    ));
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
         micro: TimeframePipeline {
@@ -263,26 +287,22 @@ async fn test_websocket_stream_with_active_pair() {
         config.clone(),
         Default::default(),
         Default::default(),
-        pair.micro.history.clone(),
-        pair.short.history.clone(),
-        pair.medium.history.clone(),
-        pair.large.history.clone(),
-        pair.micro.latest_snapshot.clone(),
-        pair.short.latest_snapshot.clone(),
-        pair.medium.latest_snapshot.clone(),
-        pair.large.latest_snapshot.clone(),
-        snap_hist.clone(),
-        snap_hist.clone(),
-        snap_hist.clone(),
-        snap_hist.clone(),
+        TimeframeBuffers { history: pair.micro.history.clone(), latest: pair.micro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.short.history.clone(), latest: pair.short.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.medium.history.clone(), latest: pair.medium.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.large.history.clone(), latest: pair.large.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
     ));
-    workspace.instances.write().await.insert("BTC-USDT".to_string(), instance);
+    workspace
+        .instances
+        .write()
+        .await
+        .insert("BTC-USDT".to_string(), instance);
 
     let state = Arc::new(AppState {
         workspace,
         config,
         pool: pool.clone(),
-        llm_client: Arc::new(RwLock::new(LlmClient::from_env().0)),
+        llm_client: Arc::new(LlmClient::from_env().0),
         api_key_configured,
         symbol_mapper,
         telemetry_tx,
@@ -291,7 +311,9 @@ async fn test_websocket_stream_with_active_pair() {
 
     let router = server::build_router(state.clone());
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Failed to bind");
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
@@ -306,8 +328,11 @@ async fn test_websocket_stream_with_active_pair() {
         .await
         .expect("WebSocket connection should succeed");
 
-    assert!(response.status().is_success() || response.status() == 101,
-        "WS handshake should succeed, got {}", response.status());
+    assert!(
+        response.status().is_success() || response.status() == 101,
+        "WS handshake should succeed, got {}",
+        response.status()
+    );
 
     // Connection should be open — the pair exists, so handle_ws_socket subscribes
     drop(ws_stream);
@@ -317,7 +342,8 @@ async fn test_websocket_stream_with_active_pair() {
     let unknown_result = tokio_tungstenite::connect_async(&unknown_url).await;
     // The handshake may still succeed (upgrade happens before handler checks pairs)
     // but we verify no panic — the handler gracefully returns None
-    assert!(unknown_result.is_ok() || unknown_result.is_err(),
-        "WS with unknown pair should not crash the server");
+    assert!(
+        unknown_result.is_ok() || unknown_result.is_err(),
+        "WS with unknown pair should not crash the server"
+    );
 }
-

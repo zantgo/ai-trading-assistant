@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getState } from '../state.svelte';
+import { useAppStore } from '../state.svelte';
 
 describe('TEST-UI: Global State Runes', () => {
-    let app: ReturnType<typeof getState>;
+    let app: ReturnType<typeof useAppStore>;
 
     beforeEach(() => {
-        app = getState();
+        app = useAppStore();
         app.analysisPhase = 'idle';
         app.currentPosition = 'None';
         app.entryPriceVal = '';

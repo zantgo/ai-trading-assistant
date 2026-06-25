@@ -1,11 +1,10 @@
-use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-use tokio::sync::RwLock;
-use tokio_util::sync::CancellationToken;
-use sqlx::SqlitePool;
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use std::sync::atomic::AtomicU32;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
-use crate::llm::{LlmClient, ChatMessage, ChatRequest, ResponseFormat};
+use crate::llm::{ChatMessage, ChatRequest, LlmClient, ResponseFormat};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoricalRecommendation {
@@ -27,7 +26,7 @@ pub struct HistoricalAnalyst {
     pub symbol: String,
     pub pair_key: String,
     pub pool: SqlitePool,
-    pub llm_client: Arc<RwLock<LlmClient>>,
+    pub llm_client: Arc<LlmClient>,
     pub sweep_interval_trades: u32,
     pub trade_counter: AtomicU32,
 }
@@ -37,7 +36,7 @@ impl HistoricalAnalyst {
         symbol: String,
         pair_key: String,
         pool: SqlitePool,
-        llm_client: Arc<RwLock<LlmClient>>,
+        llm_client: Arc<LlmClient>,
         sweep_interval_trades: u32,
     ) -> Self {
         Self {
@@ -52,7 +51,10 @@ impl HistoricalAnalyst {
 
     /// Run the background analysis loop. Polls trade count and triggers analysis.
     pub async fn run_background_loop(&self, cancel: CancellationToken) {
-        println!("📊 Historical Analyst: Started for {} (every {} trades)", self.symbol, self.sweep_interval_trades);
+        println!(
+            "📊 Historical Analyst: Started for {} (every {} trades)",
+            self.symbol, self.sweep_interval_trades
+        );
 
         let mut last_analyzed_count: i64 = 0;
 
@@ -69,12 +71,21 @@ impl HistoricalAnalyst {
             // Check current trade count
             let current_count: i64 = match self.get_trade_count().await {
                 Ok(c) => c,
-                Err(_) => continue,
+                Err(e) => {
+                    eprintln!(
+                        "historical_analyst: get_trade_count failed for {}: {}",
+                        self.symbol, e
+                    );
+                    continue;
+                }
             };
 
             if current_count >= last_analyzed_count + self.sweep_interval_trades as i64 {
                 if let Err(e) = self.run_analysis().await {
-                    eprintln!("📊 Historical Analyst: {} analysis failed: {}", self.symbol, e);
+                    eprintln!(
+                        "📊 Historical Analyst: {} analysis failed: {}",
+                        self.symbol, e
+                    );
                 }
                 last_analyzed_count = current_count;
             }
@@ -82,25 +93,27 @@ impl HistoricalAnalyst {
     }
 
     async fn get_trade_count(&self) -> Result<i64, String> {
-        let row: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM trade_telemetry_history WHERE symbol = ?1"
-        )
-        .bind(&self.symbol)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to count trades: {}", e))?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM trade_telemetry_history WHERE symbol = ?1")
+                .bind(&self.symbol)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to count trades: {}", e))?;
         Ok(row.0)
     }
 
     /// Run the full historical analysis cycle.
     pub async fn run_analysis(&self) -> Result<HistoricalRecommendation, String> {
-        println!("📊 Historical Analyst: Running analysis for {}...", self.symbol);
+        println!(
+            "📊 Historical Analyst: Running analysis for {}...",
+            self.symbol
+        );
 
         // Fetch recent trades
         let trades: Vec<TradeRecord> = sqlx::query_as(
             "SELECT id, symbol, direction, entry_price, exit_price, realized_pnl, roi_percentage, \
              entry_timestamp, exit_timestamp, trigger_source \
-             FROM trade_telemetry_history WHERE symbol = ?1 ORDER BY exit_timestamp DESC LIMIT 50"
+             FROM trade_telemetry_history WHERE symbol = ?1 ORDER BY exit_timestamp DESC LIMIT 50",
         )
         .bind(&self.symbol)
         .fetch_all(&self.pool)
@@ -120,24 +133,40 @@ impl HistoricalAnalyst {
 
         let avg_win: f64 = if !wins.is_empty() {
             wins.iter().map(|t| t.realized_pnl).sum::<f64>() / wins.len() as f64
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
         let avg_loss: f64 = if !losses.is_empty() {
             losses.iter().map(|t| t.realized_pnl.abs()).sum::<f64>() / losses.len() as f64
-        } else { 0.0 };
+        } else {
+            0.0
+        };
 
-        let avg_risk_reward = if avg_loss > 0.0 { avg_win / avg_loss } else { 0.0 };
+        let avg_risk_reward = if avg_loss > 0.0 {
+            avg_win / avg_loss
+        } else {
+            0.0
+        };
 
         let gross_profit: f64 = wins.iter().map(|t| t.realized_pnl).sum();
         let gross_loss: f64 = losses.iter().map(|t| t.realized_pnl.abs()).sum();
-        let profit_factor = if gross_loss > 0.0 { gross_profit / gross_loss } else if gross_profit > 0.0 { f64::INFINITY } else { 0.0 };
+        let profit_factor = if gross_loss > 0.0 {
+            gross_profit / gross_loss
+        } else if gross_profit > 0.0 {
+            f64::INFINITY
+        } else {
+            0.0
+        };
 
-        let avg_hold_time_minutes: f64 = trades.iter()
+        let avg_hold_time_minutes: f64 = trades
+            .iter()
             .map(|t| {
                 let dur = t.exit_timestamp.saturating_sub(t.entry_timestamp);
                 dur as f64 / 60_000.0
             })
-            .sum::<f64>() / total as f64;
+            .sum::<f64>()
+            / total as f64;
 
         // Compute suggested adjustments
         let suggested_rr = if avg_risk_reward < 1.5 {
@@ -146,7 +175,13 @@ impl HistoricalAnalyst {
             (avg_risk_reward * 0.9).max(2.0)
         };
 
-        let suggested_sizing = if win_rate < 0.4 { 1.0 } else if win_rate < 0.5 { 1.5 } else { 2.0 };
+        let suggested_sizing = if win_rate < 0.4 {
+            1.0
+        } else if win_rate < 0.5 {
+            1.5
+        } else {
+            2.0
+        };
 
         // Build trade summary for LLM
         let trade_summary = format!(
@@ -154,10 +189,14 @@ impl HistoricalAnalyst {
              Avg Win: ${:.2} | Avg Loss: ${:.2}\n\
              Avg Risk/Reward: {:.2}\nProfit Factor: {:.2}\n\
              Avg Hold Time: {:.0} min",
-            total, wins.len(), losses.len(),
+            total,
+            wins.len(),
+            losses.len(),
             win_rate * 100.0,
-            avg_win, avg_loss,
-            avg_risk_reward, profit_factor,
+            avg_win,
+            avg_loss,
+            avg_risk_reward,
+            profit_factor,
             avg_hold_time_minutes,
         );
 
@@ -186,7 +225,10 @@ impl HistoricalAnalyst {
 
         println!(
             "📊 Historical Analyst: {} complete — Win: {:.0}% PF: {:.2} R:R: {:.2}",
-            self.symbol, win_rate * 100.0, profit_factor, avg_risk_reward
+            self.symbol,
+            win_rate * 100.0,
+            profit_factor,
+            avg_risk_reward
         );
 
         Ok(recommendation)
@@ -199,19 +241,29 @@ impl HistoricalAnalyst {
     ) -> Result<LlmAnalysisResult, String> {
         let system_prompt = HISTORICAL_ANALYST_PROMPT;
 
-        let llm = self.llm_client.read().await;
         let request_body = ChatRequest {
-            model: llm.model.clone(),
+            model: self.llm_client.model.as_ref().clone(),
             messages: vec![
-                ChatMessage { role: "system".into(), content: system_prompt.into() },
-                ChatMessage { role: "user".into(), content: trade_summary.to_string() },
+                ChatMessage {
+                    role: "system".into(),
+                    content: system_prompt.into(),
+                },
+                ChatMessage {
+                    role: "user".into(),
+                    content: trade_summary.to_string(),
+                },
             ],
             temperature: 0.2,
-            response_format: Some(ResponseFormat { format_type: "json_object".into() }),
+            response_format: Some(ResponseFormat {
+                format_type: "json_object".into(),
+            }),
             max_tokens: 512,
         };
 
-        let chat_response = llm.call_chat_completion(&request_body, "historical-analyst").await?;
+        let chat_response = self
+            .llm_client
+            .call_chat_completion(&request_body, "historical-analyst")
+            .await?;
 
         let content = chat_response
             .choices
@@ -221,8 +273,12 @@ impl HistoricalAnalyst {
             .content
             .clone();
 
-        let result: LlmAnalysisResult = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse historical analyst JSON: {}. Raw: {}", e, content))?;
+        let result: LlmAnalysisResult = serde_json::from_str(&content).map_err(|e| {
+            format!(
+                "Failed to parse historical analyst JSON: {}. Raw: {}",
+                e, content
+            )
+        })?;
 
         Ok(result)
     }
@@ -236,7 +292,7 @@ impl HistoricalAnalyst {
              (symbol, pair_key, generated_at, trades_analyzed, win_rate, avg_risk_reward, \
               avg_hold_time_minutes, profit_factor, suggested_rr, suggested_sizing_pct, \
               regime_analysis, key_improvements, risk_recommendation) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         )
         .bind(&rec.symbol)
         .bind(&self.pair_key)
@@ -318,7 +374,7 @@ pub async fn add_historical_recommendations_table(pool: &SqlitePool) {
             regime_analysis TEXT NOT NULL DEFAULT '',
             key_improvements TEXT NOT NULL DEFAULT '',
             risk_recommendation TEXT NOT NULL DEFAULT ''
-        )"
+        )",
     )
     .execute(pool)
     .await

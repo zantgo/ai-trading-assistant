@@ -83,7 +83,11 @@ impl SrRoleTracker {
         }
 
         self.levels = new_levels.into_values().collect();
-        self.levels.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal));
+        self.levels.sort_by(|a, b| {
+            a.price
+                .partial_cmp(&b.price)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
 
     /// Process a 5-minute candle close. Returns any flip events.
@@ -133,7 +137,8 @@ impl SrRoleTracker {
 
     /// Get current support levels (including flipped ones).
     pub fn get_supports(&self) -> Vec<f64> {
-        self.levels.iter()
+        self.levels
+            .iter()
             .filter(|l| l.role == LevelRole::Support)
             .map(|l| l.price)
             .collect()
@@ -141,7 +146,8 @@ impl SrRoleTracker {
 
     /// Get current resistance levels (including flipped ones).
     pub fn get_resistances(&self) -> Vec<f64> {
-        self.levels.iter()
+        self.levels
+            .iter()
             .filter(|l| l.role == LevelRole::Resistance)
             .map(|l| l.price)
             .collect()
@@ -154,12 +160,16 @@ impl SrRoleTracker {
 
     /// Check if a specific price is currently acting as support.
     pub fn is_support(&self, price: f64) -> bool {
-        self.levels.iter().any(|l| (l.price - price).abs() < 0.01 && l.role == LevelRole::Support)
+        self.levels
+            .iter()
+            .any(|l| (l.price - price).abs() < 0.01 && l.role == LevelRole::Support)
     }
 
     /// Check if a specific price is currently acting as resistance.
     pub fn is_resistance(&self, price: f64) -> bool {
-        self.levels.iter().any(|l| (l.price - price).abs() < 0.01 && l.role == LevelRole::Resistance)
+        self.levels
+            .iter()
+            .any(|l| (l.price - price).abs() < 0.01 && l.role == LevelRole::Resistance)
     }
 }
 

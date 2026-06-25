@@ -57,7 +57,11 @@ impl JsonRpcRequest {
         }
     }
 
-    pub fn with_string_id(method: impl Into<String>, params: Option<Value>, id: impl Into<String>) -> Self {
+    pub fn with_string_id(
+        method: impl Into<String>,
+        params: Option<Value>,
+        id: impl Into<String>,
+    ) -> Self {
         Self::new(method, params, Value::String(id.into()))
     }
 
@@ -93,7 +97,11 @@ impl JsonRpcResponse {
         }
     }
 
-    pub fn error_with_string_id(id: impl Into<String>, code: i32, message: impl Into<String>) -> Self {
+    pub fn error_with_string_id(
+        id: impl Into<String>,
+        code: i32,
+        message: impl Into<String>,
+    ) -> Self {
         Self::error(Value::String(id.into()), code, message)
     }
 

@@ -38,12 +38,16 @@ impl CandleAggregator {
     }
 
     /// Process a 1-minute closed candle. Returns completed macro candles if any.
-    pub fn process_1m_candle(&mut self, candle: &NormalizedCandle) -> (Option<AggregatedCandle>, Option<AggregatedCandle>) {
+    pub fn process_1m_candle(
+        &mut self,
+        candle: &NormalizedCandle,
+    ) -> (Option<AggregatedCandle>, Option<AggregatedCandle>) {
         let mut completed_4h = None;
         let mut completed_1d = None;
 
         // Aggregate 4h candle (240 × 1m)
-        let interval_start_4h = (candle.start_time_ms / (self.duration_4h * 1000)) * (self.duration_4h * 1000);
+        let interval_start_4h =
+            (candle.start_time_ms / (self.duration_4h * 1000)) * (self.duration_4h * 1000);
 
         if let Some(ref pending) = self.pending_4h {
             let pending_start = pending.candle.start_time_ms;
@@ -83,7 +87,8 @@ impl CandleAggregator {
         }
 
         // Aggregate 1d candle (1440 × 1m)
-        let interval_start_1d = (candle.start_time_ms / (self.duration_1d * 1000)) * (self.duration_1d * 1000);
+        let interval_start_1d =
+            (candle.start_time_ms / (self.duration_1d * 1000)) * (self.duration_1d * 1000);
 
         if let Some(ref pending) = self.pending_1d {
             let pending_start = pending.candle.start_time_ms;
@@ -148,10 +153,16 @@ pub fn spawn_candle_aggregator(
                     }
                 }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    eprintln!("⚠️ Candle Aggregator [{}]: Lagged by {} messages, resetting", symbol, n);
+                    eprintln!(
+                        "⚠️ Candle Aggregator [{}]: Lagged by {} messages, resetting",
+                        symbol, n
+                    );
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    eprintln!("📭 Candle Aggregator [{}]: 1m channel closed, shutting down", symbol);
+                    eprintln!(
+                        "📭 Candle Aggregator [{}]: 1m channel closed, shutting down",
+                        symbol
+                    );
                     break;
                 }
             }

@@ -4,10 +4,10 @@
 //! data models and technical analysis indicator modules accessible
 //! to the main trading engine or other workspace consumers.
 
-pub mod models;
 pub mod indicators;
-pub mod normalized;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
+pub mod models;
+pub mod normalized;
 
 pub use normalized::TriggerType;

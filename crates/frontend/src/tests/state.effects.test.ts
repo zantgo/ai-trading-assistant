@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getState } from '../state.svelte';
+import { useAppStore } from '../state.svelte';
 
 describe('TEST-UI: State Reactive Effects', () => {
-    let app: ReturnType<typeof getState>;
+    let app: ReturnType<typeof useAppStore>;
 
     beforeEach(() => {
-        app = getState();
+        app = useAppStore();
         app.initInstance('BTC');
         app.apiKeyConfigured = true;
     });

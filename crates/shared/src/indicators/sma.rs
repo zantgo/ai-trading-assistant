@@ -9,7 +9,10 @@ pub struct Sma {
 
 impl Sma {
     pub fn new(period: usize) -> Self {
-        Self { period, values: Vec::new() }
+        Self {
+            period,
+            values: Vec::new(),
+        }
     }
 
     pub fn update(&mut self, val: Decimal) -> Option<Decimal> {

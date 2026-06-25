@@ -131,6 +131,17 @@ See `.github/workflows/ci.yml` — 3-stage sequential pipeline:
 - Candle aggregation happens server-side; the broadcast includes both completed candle snapshots and "shadow" (real-time flickering) values
 - The local variable holding `getState()` must NOT be named `state` — it conflicts with the `$state` rune. Use `app` or `store` instead.
 
+## Frontend CSS Management
+
+Every Svelte component with custom styles must follow the **Scoped CSS Modules** pattern:
+
+1. **Extraction:** Remove the `<style>` block from the `.svelte` file entirely and move it into a companion `[ComponentName].module.css` file in the same directory.
+2. **Import:** In the `<script>` block, add `import styles from './[ComponentName].module.css';`.
+3. **Binding:** Map CSS classes to elements using `class={styles.className}` syntax. For conditional classes use template literals: `class="{styles.baseClass} {condition ? styles.active : ''}"`.
+4. **Naming:** CSS class names use kebab-case (`.welcome-card`). The Vite config maps these to `camelCaseOnly`, so reference them as `styles.welcomeCard`.
+5. **Exception:** Chart-only components (AtrChart, RsiChart, MacdChart, SqueezeChart, VolumeChart, AdxChart) that only render a raw canvas via Lightweight Charts with a minimal wrapper style (`.chart-container { width:100%; height:100% }`) do not need companion stylesheets.
+6. **Line limit:** No single source file (`.svelte`, `.ts`, `.css`) may exceed 500 lines of code.
+
 ## Implementation Guidelines
 
 When writing code to realize the AI Assistant workflow, adhere to the following setup instructions:

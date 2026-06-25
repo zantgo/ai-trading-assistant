@@ -143,8 +143,7 @@ pub struct MonthlySummary {
 }
 
 pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) -> DashboardStats {
-    let trades: Vec<(i64, String, String, f64, f64, f64, f64, f64, f64, String)> =
-        crate::db::dash_trade_detail(pool).await;
+    let trades: Vec<TradeDetailRow> = crate::db::dash_trade_detail(pool).await;
 
     if trades.is_empty() {
         return empty_dashboard();
@@ -230,61 +229,105 @@ fn empty_dashboard() -> DashboardStats {
     }
 }
 
-type TradeRow = (i64, String, String, f64, f64, f64, f64, f64, f64, String);
-// (exit_ts, symbol, direction, entry_price, exit_price, size, realized_pnl, commission_fees, roi_pct, trigger)
+use crate::db::TradeDetailRow;
 
-fn compute_core_stats(trades: &[TradeRow]) -> CoreStats {
+fn compute_core_stats(trades: &[TradeDetailRow]) -> CoreStats {
+    if trades.is_empty() {
+        return CoreStats {
+            total_pnl: 0.0, win_rate: 0.0, avg_loss: 0.0, avg_gain: 0.0,
+            expectancy: 0.0, avg_risk_reward_ratio: 0.0, profit_factor: 0.0,
+            largest_loss: 0.0, largest_gain: 0.0,
+            total_trades: 0, wins: 0, losses: 0,
+        };
+    }
+
+    let mut wins_count = 0usize;
+    let mut losses_count = 0usize;
+    let mut total_pnl = 0.0f64;
+    let mut largest_gain = 0.0f64;
+    let mut largest_loss = 0.0f64;
+    let mut win_pnl_sum = 0.0f64;
+    let mut loss_pnl_sum = 0.0f64;
+    let mut win_roi_sum = 0.0f64;
+    let mut loss_roi_sum = 0.0f64;
+
+    for t in trades {
+        total_pnl += t.realized_pnl;
+        largest_gain = largest_gain.max(t.realized_pnl);
+        largest_loss = largest_loss.min(t.realized_pnl);
+        if t.realized_pnl > 0.0 {
+            wins_count += 1;
+            win_pnl_sum += t.realized_pnl;
+            win_roi_sum += t.roi_percentage.abs();
+        } else if t.realized_pnl < 0.0 {
+            losses_count += 1;
+            loss_pnl_sum += t.realized_pnl.abs();
+            loss_roi_sum += t.roi_percentage.abs();
+        }
+    }
+
     let total = trades.len();
-    let wins: Vec<&TradeRow> = trades.iter().filter(|t| t.6 > 0.0).collect();
-    let losses: Vec<&TradeRow> = trades.iter().filter(|t| t.6 < 0.0).collect();
 
-    let total_pnl: f64 = trades.iter().map(|t| t.6).sum();
-    let win_rate = if total > 0 { wins.len() as f64 / total as f64 } else { 0.0 };
+    let win_rate = if total > 0 {
+        let val = wins_count as f64 / total as f64;
+        if val.is_nan() { 0.0 } else { val }
+    } else { 0.0 };
 
-    let avg_gain = if wins.is_empty() { 0.0 } else { wins.iter().map(|t| t.6).sum::<f64>() / wins.len() as f64 };
-    let avg_loss = if losses.is_empty() { 0.0 } else { losses.iter().map(|t| t.6.abs()).sum::<f64>() / losses.len() as f64 };
+    let avg_gain = if wins_count > 0 {
+        let val = win_pnl_sum / wins_count as f64;
+        if val.is_nan() { 0.0 } else { val }
+    } else { 0.0 };
+
+    let avg_loss = if losses_count > 0 {
+        let val = loss_pnl_sum / losses_count as f64;
+        if val.is_nan() { 0.0 } else { val }
+    } else { 0.0 };
 
     let expectancy = if total > 0 {
-        (win_rate * avg_gain) - ((1.0 - win_rate) * avg_loss)
+        let val = (win_rate * avg_gain) - ((1.0 - win_rate) * avg_loss);
+        if val.is_nan() { 0.0 } else { val }
     } else { 0.0 };
 
-    let largest_gain = trades.iter().map(|t| t.6).fold(0.0, f64::max);
-    let largest_loss = trades.iter().map(|t| t.6).fold(0.0, f64::min);
-
-    let avg_rr = if !wins.is_empty() && !losses.is_empty() {
-        let win_roi = wins.iter().map(|t| t.8.abs()).sum::<f64>() / wins.len() as f64;
-        let loss_roi = losses.iter().map(|t| t.8.abs()).sum::<f64>() / losses.len() as f64;
-        if loss_roi > 0.0 { win_roi / loss_roi } else { 0.0 }
+    let avg_rr = if wins_count > 0 && losses_count > 0 {
+        let win_roi_avg = win_roi_sum / wins_count as f64;
+        let loss_roi_avg = loss_roi_sum / losses_count as f64;
+        if loss_roi_avg > 0.0 {
+            let val = win_roi_avg / loss_roi_avg;
+            if val.is_nan() { 0.0 } else { val }
+        } else { 0.0 }
     } else { 0.0 };
 
-    let gross_profit: f64 = wins.iter().map(|t| t.6).sum();
-    let gross_loss: f64 = losses.iter().map(|t| t.6.abs()).sum();
-    let profit_factor = if gross_loss > 0.0 { gross_profit / gross_loss } else if gross_profit > 0.0 { f64::INFINITY } else { 0.0 };
+    let gross_profit = win_pnl_sum;
+    let gross_loss = loss_pnl_sum;
+    let profit_factor = if gross_loss > 0.0 {
+        let val = gross_profit / gross_loss;
+        if val.is_nan() { 0.0 } else { val }
+    } else if gross_profit > 0.0 { f64::INFINITY } else { 0.0 };
 
     CoreStats {
         total_pnl, win_rate, avg_loss, avg_gain, expectancy, avg_risk_reward_ratio: avg_rr,
         profit_factor,
         largest_loss, largest_gain,
-        total_trades: total, wins: wins.len(), losses: losses.len(),
+        total_trades: total, wins: wins_count, losses: losses_count,
     }
 }
 
-fn compute_equity_curve(trades: &[TradeRow]) -> Vec<(i64, f64)> {
+fn compute_equity_curve(trades: &[TradeDetailRow]) -> Vec<(i64, f64)> {
     let mut cumulative = 0.0;
     trades.iter().map(|t| {
-        cumulative += t.6;
-        (t.0, cumulative)
+        cumulative += t.realized_pnl;
+        (t.exit_timestamp, cumulative)
     }).collect()
 }
 
-fn compute_daily_activity(trades: &[TradeRow]) -> Vec<DailyActivity> {
+fn compute_daily_activity(trades: &[TradeDetailRow]) -> Vec<DailyActivity> {
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
     for t in trades {
-        let date = format_ts_date(t.0);
+        let date = format_ts_date(t.exit_timestamp);
         let entry = groups.entry(date).or_insert((0, 0, 0));
-        if t.2.to_uppercase() == "LONG" { entry.0 += 1; } else { entry.1 += 1; }
-        if t.6 > 0.0 { entry.2 += 1; }
+        if t.direction.to_uppercase() == "LONG" { entry.0 += 1; } else { entry.1 += 1; }
+        if t.realized_pnl > 0.0 { entry.2 += 1; }
     }
     groups.into_iter().map(|(date, (longs, shorts, wins))| {
         let total = longs + shorts;
@@ -292,22 +335,22 @@ fn compute_daily_activity(trades: &[TradeRow]) -> Vec<DailyActivity> {
     }).collect()
 }
 
-fn compute_daily_pnl(trades: &[TradeRow]) -> Vec<DailyPnl> {
+fn compute_daily_pnl(trades: &[TradeDetailRow]) -> Vec<DailyPnl> {
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, f64> = BTreeMap::new();
     for t in trades {
-        *groups.entry(format_ts_date(t.0)).or_insert(0.0) += t.6;
+        *groups.entry(format_ts_date(t.exit_timestamp)).or_insert(0.0) += t.realized_pnl;
     }
     groups.into_iter().map(|(date, pnl)| DailyPnl { date, pnl }).collect()
 }
 
-fn compute_win_rate_by_hour(trades: &[TradeRow]) -> Vec<HourlyWinRate> {
+fn compute_win_rate_by_hour(trades: &[TradeDetailRow]) -> Vec<HourlyWinRate> {
     let mut hours = vec![vec![0_usize; 2]; 24];
     for t in trades {
-        let h = ts_to_hour(t.0);
+        let h = ts_to_hour(t.exit_timestamp);
         if h < 24 {
             hours[h][0] += 1;
-            if t.6 > 0.0 { hours[h][1] += 1; }
+            if t.realized_pnl > 0.0 { hours[h][1] += 1; }
         }
     }
     hours.iter().enumerate().map(|(h, counts)| {
@@ -320,14 +363,14 @@ fn compute_win_rate_by_hour(trades: &[TradeRow]) -> Vec<HourlyWinRate> {
     }).collect()
 }
 
-fn compute_win_rate_by_weekday(trades: &[TradeRow]) -> Vec<WeekdayWinRate> {
+fn compute_win_rate_by_weekday(trades: &[TradeDetailRow]) -> Vec<WeekdayWinRate> {
     const NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     let mut days = vec![vec![0_usize; 2]; 7];
     for t in trades {
-        let wd = ts_to_weekday(t.0);
+        let wd = ts_to_weekday(t.exit_timestamp);
         if wd < 7 {
             days[wd][0] += 1;
-            if t.6 > 0.0 { days[wd][1] += 1; }
+            if t.realized_pnl > 0.0 { days[wd][1] += 1; }
         }
     }
     days.iter().enumerate().map(|(d, counts)| {
@@ -340,28 +383,28 @@ fn compute_win_rate_by_weekday(trades: &[TradeRow]) -> Vec<WeekdayWinRate> {
     }).collect()
 }
 
-fn compute_direction_breakdown(trades: &[TradeRow]) -> DirectionBreakdown {
-    let longs: Vec<&TradeRow> = trades.iter().filter(|t| t.2.to_uppercase() == "LONG").collect();
-    let shorts: Vec<&TradeRow> = trades.iter().filter(|t| t.2.to_uppercase() == "SHORT").collect();
+fn compute_direction_breakdown(trades: &[TradeDetailRow]) -> DirectionBreakdown {
+    let longs: Vec<&TradeDetailRow> = trades.iter().filter(|t| t.direction.to_uppercase() == "LONG").collect();
+    let shorts: Vec<&TradeDetailRow> = trades.iter().filter(|t| t.direction.to_uppercase() == "SHORT").collect();
 
-    let long_exp = if !longs.is_empty() { longs.iter().map(|t| t.6).sum::<f64>() / longs.len() as f64 } else { 0.0 };
-    let short_exp = if !shorts.is_empty() { shorts.iter().map(|t| t.6).sum::<f64>() / shorts.len() as f64 } else { 0.0 };
+    let long_exp = if !longs.is_empty() { longs.iter().map(|t| t.realized_pnl).sum::<f64>() / longs.len() as f64 } else { 0.0 };
+    let short_exp = if !shorts.is_empty() { shorts.iter().map(|t| t.realized_pnl).sum::<f64>() / shorts.len() as f64 } else { 0.0 };
 
-    let long_wins_list: Vec<&&TradeRow> = longs.iter().filter(|t| t.6 > 0.0).collect();
-    let long_losses_list: Vec<&&TradeRow> = longs.iter().filter(|t| t.6 < 0.0).collect();
+    let long_wins_list: Vec<&&TradeDetailRow> = longs.iter().filter(|t| t.realized_pnl > 0.0).collect();
+    let long_losses_list: Vec<&&TradeDetailRow> = longs.iter().filter(|t| t.realized_pnl < 0.0).collect();
     let long_wins = long_wins_list.len();
     let long_losses = long_losses_list.len();
     let long_win_rate = if !longs.is_empty() { (long_wins as f64 / longs.len() as f64) * 100.0 } else { 0.0 };
-    let long_avg_gain = if !long_wins_list.is_empty() { long_wins_list.iter().map(|t| t.8).sum::<f64>() / long_wins as f64 } else { 0.0 };
-    let long_avg_loss = if !long_losses_list.is_empty() { long_losses_list.iter().map(|t| t.8.abs()).sum::<f64>() / long_losses as f64 } else { 0.0 };
+    let long_avg_gain = if !long_wins_list.is_empty() { long_wins_list.iter().map(|t| t.roi_percentage).sum::<f64>() / long_wins as f64 } else { 0.0 };
+    let long_avg_loss = if !long_losses_list.is_empty() { long_losses_list.iter().map(|t| t.roi_percentage.abs()).sum::<f64>() / long_losses as f64 } else { 0.0 };
 
-    let short_wins_list: Vec<&&TradeRow> = shorts.iter().filter(|t| t.6 > 0.0).collect();
-    let short_losses_list: Vec<&&TradeRow> = shorts.iter().filter(|t| t.6 < 0.0).collect();
+    let short_wins_list: Vec<&&TradeDetailRow> = shorts.iter().filter(|t| t.realized_pnl > 0.0).collect();
+    let short_losses_list: Vec<&&TradeDetailRow> = shorts.iter().filter(|t| t.realized_pnl < 0.0).collect();
     let short_wins = short_wins_list.len();
     let short_losses = short_losses_list.len();
     let short_win_rate = if !shorts.is_empty() { (short_wins as f64 / shorts.len() as f64) * 100.0 } else { 0.0 };
-    let short_avg_gain = if !short_wins_list.is_empty() { short_wins_list.iter().map(|t| t.8).sum::<f64>() / short_wins as f64 } else { 0.0 };
-    let short_avg_loss = if !short_losses_list.is_empty() { short_losses_list.iter().map(|t| t.8.abs()).sum::<f64>() / short_losses as f64 } else { 0.0 };
+    let short_avg_gain = if !short_wins_list.is_empty() { short_wins_list.iter().map(|t| t.roi_percentage).sum::<f64>() / short_wins as f64 } else { 0.0 };
+    let short_avg_loss = if !short_losses_list.is_empty() { short_losses_list.iter().map(|t| t.roi_percentage.abs()).sum::<f64>() / short_losses as f64 } else { 0.0 };
 
     DirectionBreakdown {
         longs: longs.len(),
@@ -381,22 +424,22 @@ fn compute_direction_breakdown(trades: &[TradeRow]) -> DirectionBreakdown {
     }
 }
 
-fn compute_compounded_curve(trades: &[TradeRow], initial_capital: f64) -> Vec<(i64, f64)> {
+fn compute_compounded_curve(trades: &[TradeDetailRow], initial_capital: f64) -> Vec<(i64, f64)> {
     let mut balance = initial_capital;
     trades.iter().map(|t| {
-        let roi_multiplier = 1.0 + (t.8 / 100.0);
+        let roi_multiplier = 1.0 + (t.roi_percentage / 100.0);
         balance *= roi_multiplier;
-        (t.0, balance)
+        (t.exit_timestamp, balance)
     }).collect()
 }
 
-fn compute_trader_style(trades: &[TradeRow]) -> TraderStyleBreakdown {
+fn compute_trader_style(trades: &[TradeDetailRow]) -> TraderStyleBreakdown {
     let mut scalper = Vec::new();
     let mut day_trader = Vec::new();
     let mut swing = Vec::new();
     for t in trades {
-        let dur_min = (t.4 - t.3).max(0.0) / 60.0; // duration in minutes
-        let dur_entry = (dur_min, t.6);
+        let dur_min = (t.exit_price - t.entry_price).max(0.0) / 60.0; // duration in minutes
+        let dur_entry = (dur_min, t.realized_pnl);
         if dur_min <= 30.0 { scalper.push(dur_entry); }
         else if dur_min <= 1440.0 { day_trader.push(dur_entry); }
         else { swing.push(dur_entry); }
@@ -415,7 +458,7 @@ fn compute_trader_style(trades: &[TradeRow]) -> TraderStyleBreakdown {
     }
 }
 
-fn compute_streaks(trades: &[TradeRow]) -> (StreakMetrics, StreakMetrics, f64) {
+fn compute_streaks(trades: &[TradeDetailRow]) -> (StreakMetrics, StreakMetrics, f64) {
     let mut win_streaks = vec![];
     let mut loss_streaks = vec![];
     let mut cur_win_streak = 0;
@@ -424,17 +467,17 @@ fn compute_streaks(trades: &[TradeRow]) -> (StreakMetrics, StreakMetrics, f64) {
     let mut cur_loss_val = 0.0;
 
     for t in trades {
-        if t.6 > 0.0 {
+        if t.realized_pnl > 0.0 {
             cur_win_streak += 1;
-            cur_win_val += t.6;
+            cur_win_val += t.realized_pnl;
             if cur_loss_streak > 0 {
                 loss_streaks.push((cur_loss_streak, cur_loss_val));
                 cur_loss_streak = 0;
                 cur_loss_val = 0.0;
             }
-        } else if t.6 < 0.0 {
+        } else if t.realized_pnl < 0.0 {
             cur_loss_streak += 1;
-            cur_loss_val += t.6;
+            cur_loss_val += t.realized_pnl;
             if cur_win_streak > 0 {
                 win_streaks.push((cur_win_streak, cur_win_val));
                 cur_win_streak = 0;
@@ -456,9 +499,9 @@ fn compute_streaks(trades: &[TradeRow]) -> (StreakMetrics, StreakMetrics, f64) {
     let mut post_loss_recovery = 0;
     let mut post_loss_opportunities = 0;
     for i in 1..trades.len() {
-        if trades[i - 1].6 < 0.0 {
+        if trades[i - 1].realized_pnl < 0.0 {
             post_loss_opportunities += 1;
-            if trades[i].6 > 0.0 { post_loss_recovery += 1; }
+            if trades[i].realized_pnl > 0.0 { post_loss_recovery += 1; }
         }
     }
     let recovery_pct = if post_loss_opportunities > 0 {
@@ -468,12 +511,12 @@ fn compute_streaks(trades: &[TradeRow]) -> (StreakMetrics, StreakMetrics, f64) {
     (build(&win_streaks), build(&loss_streaks), recovery_pct)
 }
 
-fn compute_pnl_calendar(trades: &[TradeRow]) -> Vec<CalendarDay> {
+fn compute_pnl_calendar(trades: &[TradeDetailRow]) -> Vec<CalendarDay> {
     use std::collections::BTreeMap;
     let mut days: BTreeMap<String, f64> = BTreeMap::new();
     for t in trades {
-        let date = format_ts_date(t.0);
-        *days.entry(date).or_insert(0.0) += t.6;
+        let date = format_ts_date(t.exit_timestamp);
+        *days.entry(date).or_insert(0.0) += t.realized_pnl;
     }
     days.into_iter().map(|(date, pnl)| {
         let parts: Vec<&str> = date.split('-').collect();
@@ -483,42 +526,42 @@ fn compute_pnl_calendar(trades: &[TradeRow]) -> Vec<CalendarDay> {
     }).collect()
 }
 
-fn compute_pair_volume(trades: &[TradeRow]) -> Vec<PairStat> {
+fn compute_pair_volume(trades: &[TradeDetailRow]) -> Vec<PairStat> {
     aggregate_by_symbol(trades, |_| 1.0)
 }
 
-fn compute_pair_profitability(trades: &[TradeRow]) -> (Vec<PairStat>, Vec<PairStat>) {
-    let mut all = aggregate_by_symbol(trades, |t| t.6);
+fn compute_pair_profitability(trades: &[TradeDetailRow]) -> (Vec<PairStat>, Vec<PairStat>) {
+    let mut all = aggregate_by_symbol(trades, |t| t.realized_pnl);
     all.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap_or(std::cmp::Ordering::Equal));
     let top = all.iter().take(6).cloned().collect();
     let bottom: Vec<PairStat> = all.iter().rev().take(6).cloned().collect();
     (top, bottom)
 }
 
-fn aggregate_by_symbol(trades: &[TradeRow], f: fn(&TradeRow) -> f64) -> Vec<PairStat> {
+fn aggregate_by_symbol(trades: &[TradeDetailRow], f: fn(&TradeDetailRow) -> f64) -> Vec<PairStat> {
     use std::collections::BTreeMap;
     let mut map: BTreeMap<String, f64> = BTreeMap::new();
     for t in trades {
-        *map.entry(t.1.clone()).or_insert(0.0) += f(t);
+        *map.entry(t.symbol.clone()).or_insert(0.0) += f(t);
     }
     map.into_iter().map(|(symbol, value)| PairStat { symbol, value }).collect()
 }
 
-fn compute_commission_stats(trades: &[TradeRow]) -> (Vec<DailyCommission>, Vec<(i64, f64)>, Vec<FeePnlRatio>) {
+fn compute_commission_stats(trades: &[TradeDetailRow]) -> (Vec<DailyCommission>, Vec<(i64, f64)>, Vec<FeePnlRatio>) {
     use std::collections::BTreeMap;
     let mut daily: BTreeMap<String, (f64, f64)> = BTreeMap::new();
     for t in trades {
-        let date = format_ts_date(t.0);
+        let date = format_ts_date(t.exit_timestamp);
         let entry = daily.entry(date).or_insert((0.0, 0.0));
-        entry.0 += t.7;
-        entry.1 += t.6;
+        entry.0 += t.commission_fees;
+        entry.1 += t.realized_pnl;
     }
     let daily_commissions: Vec<DailyCommission> = daily.iter().map(|(date, (fees, _))| {
         DailyCommission { date: date.clone(), fees: *fees }
     }).collect();
 
     let mut cum = 0.0;
-    let cumulative: Vec<(i64, f64)> = trades.iter().map(|t| { cum += t.7; (t.0, cum) }).collect();
+    let cumulative: Vec<(i64, f64)> = trades.iter().map(|t| { cum += t.commission_fees; (t.exit_timestamp, cum) }).collect();
 
     let fee_pnl: Vec<FeePnlRatio> = daily.iter().map(|(date, (fees, pnl))| {
         let ratio = if pnl.abs() > 0.0 { (fees / pnl.abs()) * 100.0 } else { 0.0 };
@@ -528,49 +571,49 @@ fn compute_commission_stats(trades: &[TradeRow]) -> (Vec<DailyCommission>, Vec<(
     (daily_commissions, cumulative, fee_pnl)
 }
 
-fn compute_monthly_summary(trades: &[TradeRow]) -> Vec<MonthlySummary> {
+fn compute_monthly_summary(trades: &[TradeDetailRow]) -> Vec<MonthlySummary> {
     use std::collections::BTreeMap;
     let mut months: BTreeMap<String, (f64, usize, usize)> = BTreeMap::new();
     for t in trades {
-        let month = format_ts_month(t.0);
+        let month = format_ts_month(t.exit_timestamp);
         let entry = months.entry(month).or_insert((0.0, 0, 0));
-        entry.0 += t.6;
+        entry.0 += t.realized_pnl;
         entry.1 += 1;
-        if t.6 > 0.0 { entry.2 += 1; }
+        if t.realized_pnl > 0.0 { entry.2 += 1; }
     }
     months.into_iter().map(|(month, (pnl, total, wins))| {
         MonthlySummary { month, net_pnl: pnl, win_rate: if total > 0 { wins as f64 / total as f64 } else { 0.0 }, trade_count: total }
     }).collect()
 }
 
+fn ts_normalize(ts: i64) -> i64 {
+    if ts > 9_000_000_000 { ts / 1000 } else { ts }
+}
+
 fn format_ts_date(ts: i64) -> String {
-    let secs = if ts > 9_000_000_000 { ts / 1000 } else { ts };
-    let days_since_epoch = secs / 86400;
-    let year = 1970 + (days_since_epoch / 365);
-    let day_of_year = days_since_epoch % 365;
-    let mut month = 0;
-    let months_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut remaining = day_of_year;
-    for (i, &md) in months_days.iter().enumerate() {
-        if remaining < md { month = i + 1; break; }
-        remaining -= md;
-        month = i + 1;
-    }
-    let day = remaining + 1;
-    format!("{:04}-{:02}-{:02}", year, month, day)
+    let secs = ts_normalize(ts);
+    chrono::DateTime::from_timestamp(secs, 0)
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "1970-01-01".to_string())
 }
 
 fn format_ts_month(ts: i64) -> String {
-    let date = format_ts_date(ts);
-    date[..7].to_string()
+    let secs = ts_normalize(ts);
+    chrono::DateTime::from_timestamp(secs, 0)
+        .map(|dt| dt.format("%Y-%m").to_string())
+        .unwrap_or_else(|| "1970-01".to_string())
 }
 
 fn ts_to_hour(ts: i64) -> usize {
-    let secs = if ts > 9_000_000_000 { ts / 1000 } else { ts };
-    ((secs % 86400) / 3600) as usize
+    let secs = ts_normalize(ts);
+    chrono::DateTime::from_timestamp(secs, 0)
+        .map(|dt| dt.format("%H").to_string().parse::<usize>().unwrap_or(0))
+        .unwrap_or(0)
 }
 
 fn ts_to_weekday(ts: i64) -> usize {
-    let secs = if ts > 9_000_000_000 { ts / 1000 } else { ts };
-    ((secs / 86400 + 4) % 7) as usize
+    let secs = ts_normalize(ts);
+    chrono::DateTime::from_timestamp(secs, 0)
+        .map(|dt| dt.format("%w").to_string().parse::<usize>().unwrap_or(0))
+        .unwrap_or(0)
 }

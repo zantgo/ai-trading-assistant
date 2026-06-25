@@ -1,3 +1,4 @@
+use super::traits::{BarInput, Indicator};
 use rust_decimal::Decimal;
 
 /// Exponential Moving Average
@@ -9,7 +10,10 @@ pub struct Ema {
 
 impl Ema {
     pub fn new(period: usize) -> Self {
-        Self { period, current_value: None }
+        Self {
+            period,
+            current_value: None,
+        }
     }
 
     pub fn update(&mut self, price: Decimal) -> Decimal {
@@ -26,6 +30,18 @@ impl Ema {
                 next_ema
             }
         }
+    }
+}
+
+impl Indicator for Ema {
+    type Output = Decimal;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = Ema::new(self.period);
     }
 }
 

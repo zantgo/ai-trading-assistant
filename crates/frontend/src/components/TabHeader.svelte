@@ -1,6 +1,7 @@
 <script lang="ts">
-    import { getState } from '../state.svelte';
-    const app = getState();
+    import { useAppStore } from '../state.svelte';
+    import styles from './TabHeader.module.css';
+    const app = useAppStore();
 
     let newPairInput = $state('');
     let showAddInput = $state(false);
@@ -42,174 +43,41 @@
     }
 </script>
 
-<div class="tab-bar">
-    <div class="tab-left-section">
-        <div class="tabs-container">
+<div class={styles.tabBar}>
+    <div class={styles.tabLeftSection}>
+        <div class={styles.tabsContainer}>
             {#each Object.keys(app.instancesMap) as symbol (symbol)}
                 <button
-                    class="tab-btn"
-                    class:tab-active={symbol === app.activeTab}
+                    class="{styles.tabBtn} {symbol === app.activeTab ? styles.tabActive : ''}"
                     onclick={() => selectTab(symbol)}
                 >
-                    <span class="tab-label">[{symbol}]</span>
+                    <span class={styles.tabLabel}>[{symbol}]</span>
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <span class="tab-close" role="button" tabindex="0" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') removeInstance(symbol); }} onclick={(e: MouseEvent) => { e.stopPropagation(); removeInstance(symbol); }}>&times;</span>
+                    <span class={styles.tabClose} role="button" tabindex="0" onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') removeInstance(symbol); }} onclick={(e: MouseEvent) => { e.stopPropagation(); removeInstance(symbol); }}>&times;</span>
                 </button>
             {/each}
 
             {#if showAddInput}
-                <div class="add-pair-field">
+                <div class={styles.addPairField}>
                     <input
                         type="text"
-                        class="pair-input"
+                        class={styles.pairInput}
                         placeholder="SYMBOL"
                         maxlength="10"
                         bind:value={newPairInput}
                         onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') { showAddInput = false; newPairInput = ''; } }}
                     />
-                    <button class="add-confirm-btn" onclick={confirmAdd}>+</button>
-                    <button class="add-cancel-btn" onclick={() => { showAddInput = false; newPairInput = ''; }}>&times;</button>
+                    <button class={styles.addConfirmBtn} onclick={confirmAdd}>+</button>
+                    <button class={styles.addCancelBtn} onclick={() => { showAddInput = false; newPairInput = ''; }}>&times;</button>
                 </div>
             {:else}
-                <button class="tab-btn add-tab-btn" onclick={() => showAddInput = true}>[ + Add Instance ]</button>
+                <button class="{styles.tabBtn} {styles.addTabBtn}" onclick={() => showAddInput = true}>[ + Add Instance ]</button>
             {/if}
         </div>
     </div>
 
-    <div class="status-badge" class:status-online={app.isConnected} class:status-offline={!app.isConnected}>
-        <span class="status-pulse-dot {app.isConnected ? 'dot-online' : 'dot-offline'} animate-pulse"></span>
+    <div class="{styles.statusBadge} {app.isConnected ? styles.statusOnline : styles.statusOffline}">
+        <span class="{styles.statusPulseDot} {app.isConnected ? styles.dotOnline : styles.dotOffline} animate-pulse"></span>
         <span>{app.isConnected ? 'LIVE' : 'OFFLINE'}</span>
     </div>
 </div>
-
-<style>
-    .tab-bar {
-        background-color: #131722;
-        border-bottom: 1px solid #1e293b;
-        padding: 6px 16px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-    }
-    .tab-left-section {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-    }
-    .tabs-container {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    .tab-btn {
-        background: #1a2030;
-        border: 1px solid #2a3040;
-        color: #8892b0;
-        font-family: 'Courier New', monospace;
-        font-size: 13px;
-        padding: 4px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        transition: all 0.15s;
-    }
-    .tab-btn:hover {
-        background: #232d40;
-        color: #ccd6f6;
-        border-color: #3a4560;
-    }
-    .tab-active {
-        background: #1e3a5f;
-        border-color: #3498db;
-        color: #64ffda;
-    }
-    .tab-label {
-        white-space: nowrap;
-    }
-    .tab-close {
-        font-size: 11px;
-        color: #546080;
-        line-height: 1;
-        padding: 0 2px;
-        border-radius: 2px;
-    }
-    .tab-close:hover {
-        color: #ff6b6b;
-        background: rgba(255, 107, 107, 0.15);
-    }
-    .add-tab-btn {
-        opacity: 0.5;
-        border-style: dashed;
-    }
-    .add-tab-btn:hover {
-        opacity: 1;
-    }
-    .add-pair-field {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    .pair-input {
-        width: 70px;
-        background: #1a2030;
-        border: 1px solid #3498db;
-        color: #64ffda;
-        font-family: 'Courier New', monospace;
-        font-size: 13px;
-        padding: 3px 6px;
-        border-radius: 4px;
-        outline: none;
-        text-transform: uppercase;
-    }
-    .add-confirm-btn, .add-cancel-btn {
-        background: #1a2030;
-        border: 1px solid #2a3040;
-        color: #64ffda;
-        font-size: 13px;
-        padding: 2px 6px;
-        border-radius: 4px;
-        cursor: pointer;
-    }
-    .add-cancel-btn {
-        color: #ff6b6b;
-    }
-    .status-badge {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.5px;
-        font-family: 'Courier New', monospace;
-        padding: 3px 10px;
-        border-radius: 4px;
-        white-space: nowrap;
-    }
-    .status-online {
-        background: rgba(16, 185, 129, 0.1);
-        border: 1px solid rgba(16, 185, 129, 0.3);
-        color: #10b981;
-    }
-    .status-offline {
-        background: rgba(239, 68, 68, 0.1);
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        color: #ef4444;
-    }
-    .status-pulse-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        display: inline-block;
-    }
-    .dot-online {
-        background: #10b981;
-        box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
-    }
-    .dot-offline {
-        background: #ef4444;
-        box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
-    }
-</style>

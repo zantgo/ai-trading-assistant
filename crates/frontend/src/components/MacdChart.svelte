@@ -2,10 +2,10 @@
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
-    import { getState } from '../state.svelte';
+    import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    const app = getState();
+    const app = useAppStore();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
@@ -17,6 +17,7 @@
 
     let container: HTMLDivElement;
     let chart: IChartApi;
+    let ro: ResizeObserver;
     let macdLineSeries: ISeriesApi<'Line'>;
     let macdSigSeries: ISeriesApi<'Line'>;
     let macdHistSeries: ISeriesApi<'Histogram'>;
@@ -107,15 +108,14 @@
             }
         })();
 
-        const ro = new ResizeObserver(() => {
+        ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
-
-        return () => ro.disconnect();
     });
 
     onDestroy(() => {
+        ro?.disconnect();
         if (chart) {
             unregisterChart(chart);
             chart.remove();
@@ -158,7 +158,7 @@
             tf.macdCrossoverDetected = !!snap.macd_crossover_detected;
         }
         if (snap.macd_crossover_direction != null) {
-            tf.macdCrossoverDirection = String(snap.macd_crossover_direction);
+            tf.macdCrossoverDirection = String(snap.macd_crossover_direction) as 'BULLISH' | 'BEARISH' | 'NONE';
         }
         if (snap.macd_trend_state === 'decelerating') {
             tf.macdContractionTriggered = true;

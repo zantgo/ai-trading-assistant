@@ -1,7 +1,7 @@
 use proptest::prelude::*;
-use shared::indicators::{Ema, Sma};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::Decimal;
+use shared::indicators::{Ema, Sma};
 
 fn dec(v: f64) -> Decimal {
     Decimal::from_f64(v).unwrap_or(Decimal::ZERO)

@@ -1,0 +1,13 @@
+pub mod analyze;
+pub mod assistant;
+pub mod chat;
+pub mod config;
+pub mod dashboard;
+pub mod exchange_keys;
+pub mod history;
+pub mod instances;
+pub mod paper;
+pub mod profiles;
+pub mod session;
+pub mod system;
+pub mod trades;

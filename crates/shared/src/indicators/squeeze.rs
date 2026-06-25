@@ -1,9 +1,10 @@
-use rust_decimal::Decimal;
-use rust_decimal::prelude::{ToPrimitive, FromPrimitive};
-use serde::{Deserialize, Serialize};
-use super::sma::Sma;
-use super::ema::Ema;
 use super::atr::Atr;
+use super::ema::Ema;
+use super::sma::Sma;
+use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 /// Momentum direction classification for squeeze histogram bars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,7 +107,9 @@ impl SqueezeMomentum {
         }
 
         let std_dev = {
-            let sum_sq: f64 = self.prices_history.iter()
+            let sum_sq: f64 = self
+                .prices_history
+                .iter()
                 .map(|&price| {
                     let diff = (price - sma_val).to_f64().unwrap_or(0.0);
                     diff * diff
@@ -160,10 +163,7 @@ impl SqueezeMomentum {
             let momentum_val = Decimal::from_f64(momentum_val_f64).unwrap_or(Decimal::ZERO);
 
             // Classify momentum direction
-            let momentum_direction = classify_momentum_direction(
-                momentum_val,
-                self.prev_momentum,
-            );
+            let momentum_direction = classify_momentum_direction(momentum_val, self.prev_momentum);
 
             self.prev_momentum = Some(momentum_val);
             self.prev_squeeze_on = Some(squeeze_on);
@@ -194,16 +194,29 @@ impl SqueezeMomentum {
     }
 }
 
+impl Indicator for SqueezeMomentum {
+    type Output = Option<SqueezeOutput>;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.high, bar.low, bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = SqueezeMomentum::new(self.period);
+    }
+}
+
 /// Classify momentum direction based on current value and sign relative to zero,
 /// plus whether it's growing or shrinking relative to the previous bar.
-fn classify_momentum_direction(
-    current: Decimal,
-    prev: Option<Decimal>,
-) -> MomentumDirection {
+fn classify_momentum_direction(current: Decimal, prev: Option<Decimal>) -> MomentumDirection {
     let is_positive = current > Decimal::ZERO;
     let is_growing = match prev {
         Some(p) => {
-            let abs_current = if current < Decimal::ZERO { -current } else { current };
+            let abs_current = if current < Decimal::ZERO {
+                -current
+            } else {
+                current
+            };
             let abs_prev = if p < Decimal::ZERO { -p } else { p };
             abs_current >= abs_prev
         }
@@ -219,7 +232,7 @@ fn classify_momentum_direction(
     match (is_positive, is_growing) {
         (true, true) => MomentumDirection::BullishAcceleration,
         (true, false) => MomentumDirection::BullishDeceleration,
-        (false, true) => MomentumDirection::BearishAcceleration,  // growing more negative
+        (false, true) => MomentumDirection::BearishAcceleration, // growing more negative
         (false, false) => MomentumDirection::BearishDeceleration, // becoming less negative
     }
 }
@@ -247,7 +260,10 @@ mod tests {
             price += dec!(0.10);
         }
         let result = sqz.update(price, price, price);
-        assert!(result.is_some(), "At tick 39, squeeze should return a result");
+        assert!(
+            result.is_some(),
+            "At tick 39, squeeze should return a result"
+        );
     }
 
     #[test]
@@ -259,7 +275,10 @@ mod tests {
             price += dec!(0.50);
         }
         let out = sqz.update(price, price, price).unwrap();
-        assert!(out.momentum_value > dec!(0.00), "Rising prices should produce positive momentum");
+        assert!(
+            out.momentum_value > dec!(0.00),
+            "Rising prices should produce positive momentum"
+        );
     }
 
     #[test]
@@ -280,7 +299,10 @@ mod tests {
                 }
             }
         }
-        assert!(counted, "Should hit squeeze state with very tight price range");
+        assert!(
+            counted,
+            "Should hit squeeze state with very tight price range"
+        );
     }
 
     #[test]

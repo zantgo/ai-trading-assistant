@@ -1,7 +1,8 @@
 <script lang="ts">
-    import { getState } from '../state.svelte';
+    import { useAppStore } from '../state.svelte';
+    import styles from './GeneralSettings.module.css';
 
-    const app = getState();
+    const app = useAppStore();
 
     // Safety settings
     let draftLossCaution = $state(3);
@@ -124,160 +125,81 @@
     $effect(() => { loadSettings(); loadPrompts(); });
 </script>
 
-<div class="settings-view">
+<div class={styles.settingsView}>
     <h2>General Settings</h2>
 
     {#if !loaded}
-        <div class="loading-row">Loading settings...</div>
+        <div class={styles.loadingRow}>Loading settings...</div>
     {:else}
-        <div class="settings-grid">
+        <div class={styles.settingsGrid}>
             <!-- Safety Dropdowns -->
-            <div class="settings-card">
+            <div class={styles.settingsCard}>
                 <h3>🛡️ Safety Dropdowns</h3>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Consecutive Loss Caution:</label>
                     <input type="number" bind:value={draftLossCaution} min="1" max="100" />
-                    <span class="hint">≥ this → AI becomes cautious</span>
+                    <span class={styles.hint}>≥ this → AI becomes cautious</span>
                 </div>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Consecutive Loss Dropout:</label>
                     <input type="number" bind:value={draftLossDropout} min="1" max="100" />
-                    <span class="hint">≥ this → instance suspended</span>
+                    <span class={styles.hint}>≥ this → instance suspended</span>
                 </div>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Dropout Duration (hours):</label>
                     <input type="number" bind:value={draftDropoutHours} min="1" max="168" />
                 </div>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Capital Drawdown Limit (%):</label>
                     <input type="number" bind:value={draftDrawdownPct} min="1" max="100" step="0.5" />
-                    <span class="hint">% loss from initial capital → stop</span>
+                    <span class={styles.hint}>% loss from initial capital → stop</span>
                 </div>
-                <button class="save-btn" onclick={saveSafety}>Save Safety Settings</button>
+                <button class={styles.saveBtn} onclick={saveSafety}>Save Safety Settings</button>
             </div>
 
             <!-- API Failover -->
-            <div class="settings-card">
+            <div class={styles.settingsCard}>
                 <h3>🔄 API Failover</h3>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Max Retries Per Call:</label>
                     <input type="number" bind:value={draftFailoverRetries} min="1" max="20" />
                 </div>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Retry Delay (seconds):</label>
                     <input type="number" bind:value={draftFailoverDelay} min="1" max="300" />
                 </div>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Max Consecutive Failures:</label>
                     <input type="number" bind:value={draftFailoverMax} min="1" max="50" />
-                    <span class="hint">halt instance after this many</span>
+                    <span class={styles.hint}>halt instance after this many</span>
                 </div>
             </div>
 
             <!-- Backup API Key -->
-            <div class="settings-card">
+            <div class={styles.settingsCard}>
                 <h3>🔑 Backup API Key</h3>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Global Backup Key:</label>
                     <input type="password" bind:value={draftBackupKey} placeholder="sk-..." />
                 </div>
-                <button class="save-btn" onclick={saveBackupKey} disabled={backupKeyStatus === 'saving'}>
+                <button class={styles.saveBtn} onclick={saveBackupKey} disabled={backupKeyStatus === 'saving'}>
                     {backupKeyStatus === 'saving' ? 'Saving...' : backupKeyStatus === 'success' ? '✓ Saved' : 'Save Backup Key'}
                 </button>
             </div>
 
             <!-- System Prompts -->
-            <div class="settings-card full-width">
+            <div class="{styles.settingsCard} {styles.fullWidth}">
                 <h3>📝 System Prompts</h3>
-                <div class="input-row">
+                <div class={styles.inputRow}>
                     <label>Orchestrator / Rules Guide:</label>
                 </div>
-                <textarea bind:value={draftOrchestratorPrompt} rows="12" class="prompt-editor"></textarea>
-                <button class="save-btn" onclick={savePrompts} disabled={promptsStatus === 'saving'}>
+                <textarea bind:value={draftOrchestratorPrompt} rows="12" class={styles.promptEditor}></textarea>
+                <button class={styles.saveBtn} onclick={savePrompts} disabled={promptsStatus === 'saving'}>
                     {promptsStatus === 'saving' ? 'Saving...' : promptsStatus === 'success' ? '✓ Saved' : 'Save Prompts'}
                 </button>
-                <span class="hint">Edits the indicators-guide.md that all agents and the orchestrator reference.</span>
+                <span class={styles.hint}>Edits the indicators-guide.md that all agents and the orchestrator reference.</span>
             </div>
         </div>
     {/if}
 </div>
 
-<style>
-    .settings-view {
-        padding: 1.5rem;
-        color: #cbd5e1;
-        max-width: 900px;
-        margin: 0 auto;
-    }
-    .settings-view h2 { margin: 0 0 1rem 0; color: #e0e0ff; font-size: 1.2rem; }
-    .settings-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-    }
-    .full-width { grid-column: span 2; }
-    .settings-card {
-        background: #14142a;
-        border: 1px solid #2a2a4a;
-        border-radius: 8px;
-        padding: 1rem;
-    }
-    .settings-card h3 { margin: 0 0 0.75rem 0; font-size: 0.9rem; color: #e0e0ff; }
-    .input-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 0.5rem;
-        flex-wrap: wrap;
-    }
-    .input-row label {
-        font-size: 0.78rem;
-        color: #8888aa;
-        min-width: 160px;
-    }
-    .input-row input {
-        width: 100px;
-        padding: 0.35rem 0.5rem;
-        background: #1e1e3a;
-        border: 1px solid #333355;
-        border-radius: 4px;
-        color: #e0e0ff;
-        font-size: 0.82rem;
-        outline: none;
-    }
-    .input-row input:focus { border-color: #5b7fff; }
-    .hint {
-        font-size: 0.68rem;
-        color: #556;
-        width: 100%;
-    }
-    .prompt-editor {
-        width: 100%;
-        margin-top: 0.5rem;
-        padding: 0.6rem;
-        background: #1e1e3a;
-        border: 1px solid #333355;
-        border-radius: 4px;
-        color: #e0e0ff;
-        font-family: monospace;
-        font-size: 0.75rem;
-        resize: vertical;
-        outline: none;
-        box-sizing: border-box;
-    }
-    .prompt-editor:focus { border-color: #5b7fff; }
-    .save-btn {
-        margin-top: 0.75rem;
-        padding: 0.45rem 1rem;
-        background: #5b7fff;
-        border: none;
-        border-radius: 6px;
-        color: white;
-        font-size: 0.82rem;
-        font-weight: 600;
-        cursor: pointer;
-    }
-    .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .save-btn:hover:not(:disabled) { background: #4a6eef; }
-    .loading-row { text-align: center; padding: 2rem; color: #64748b; }
-</style>

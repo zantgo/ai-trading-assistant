@@ -31,7 +31,9 @@ async fn test_symbol_mapper_duplicate_registration_overwrites() {
     assert_eq!(normalized, Some("ETH-USD".to_string()));
 
     // Should still only return one result for the exchange
-    let symbols = mapper.get_normalized_for_exchange(Exchange::Hyperliquid).await;
+    let symbols = mapper
+        .get_normalized_for_exchange(Exchange::Hyperliquid)
+        .await;
     assert_eq!(symbols.len(), 1);
 }
 
@@ -55,7 +57,10 @@ fn test_candle_generator_first_trade_seeds_open() {
         trade_id: "t1".to_string(),
     };
     let (closed, live) = gen.process_trade(&trade);
-    assert!(closed.is_none(), "First trade should not produce a closed candle");
+    assert!(
+        closed.is_none(),
+        "First trade should not produce a closed candle"
+    );
     assert_eq!(live.open, dec!(50000.00));
     assert_eq!(live.high, dec!(50000.00));
     assert_eq!(live.low, dec!(50000.00));
@@ -89,7 +94,10 @@ fn test_candle_generator_multi_trade_aggregation() {
         trade_id: "t2".to_string(),
     };
     let (closed, live) = gen.process_trade(&t2);
-    assert!(closed.is_none(), "Trades within same candle window should not close");
+    assert!(
+        closed.is_none(),
+        "Trades within same candle window should not close"
+    );
     assert_eq!(live.open, dec!(3000.00));
     assert_eq!(live.high, dec!(3010.00));
     assert_eq!(live.low, dec!(3000.00));
@@ -125,7 +133,10 @@ fn test_candle_generator_crosses_boundary_emits_closed() {
         trade_id: "t2".to_string(),
     };
     let (closed2, live2) = gen.process_trade(&t2);
-    assert!(closed2.is_some(), "Trade in next window should close previous candle");
+    assert!(
+        closed2.is_some(),
+        "Trade in next window should close previous candle"
+    );
     let closed = closed2.unwrap();
     assert_eq!(closed.start_time_ms, 120000);
     assert_eq!(closed.open, dec!(100.00));

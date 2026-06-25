@@ -79,7 +79,8 @@ fn test_market_snapshot_json_roundtrip() {
     };
 
     let json = serde_json::to_string(&snap).expect("serialization should succeed");
-    let parsed: MarketSnapshot = serde_json::from_str(&json).expect("deserialization should succeed");
+    let parsed: MarketSnapshot =
+        serde_json::from_str(&json).expect("deserialization should succeed");
 
     assert_eq!(parsed.symbol, "BTC");
     assert_eq!(parsed.mid_price, dec!(50000.00));
@@ -176,7 +177,8 @@ fn test_market_snapshot_option_fields_null() {
     };
 
     let json = serde_json::to_string(&snap).expect("serialization of all-None opts should succeed");
-    let parsed: MarketSnapshot = serde_json::from_str(&json).expect("deserialization of all-None opts should succeed");
+    let parsed: MarketSnapshot =
+        serde_json::from_str(&json).expect("deserialization of all-None opts should succeed");
 
     assert_eq!(parsed.symbol, "EMPTY");
     assert_eq!(parsed.mid_price, dec!(0.0));

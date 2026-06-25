@@ -157,7 +157,11 @@ pub fn compute_commission_projection(
     let cap_1 = input.capital * (input.capital_entry_1_pct / 100.0);
     let cap_2 = input.capital - cap_1;
 
-    let order_type = if input.order_type == "maker" { "maker" } else { "taker" };
+    let order_type = if input.order_type == "maker" {
+        "maker"
+    } else {
+        "taker"
+    };
     let effective_fee_pct = if order_type == "maker" {
         fees_config.maker_fee_pct
     } else {
@@ -167,15 +171,29 @@ pub fn compute_commission_projection(
     let funding_rate = input.funding_rate_8h.unwrap_or(0.0);
 
     let entry_1 = compute_entry_metrics(
-        1, input.entry_1, input.stop_loss_1, input.take_profit_1,
-        cap_1, input.leverage, input.max_risk_pct, commission_override,
-        funding_rate, is_long,
+        1,
+        input.entry_1,
+        input.stop_loss_1,
+        input.take_profit_1,
+        cap_1,
+        input.leverage,
+        input.max_risk_pct,
+        commission_override,
+        funding_rate,
+        is_long,
     )?;
 
     let entry_2 = compute_entry_metrics(
-        2, input.entry_2, input.stop_loss_2, input.take_profit_2,
-        cap_2, input.leverage, input.max_risk_pct, commission_override,
-        funding_rate, is_long,
+        2,
+        input.entry_2,
+        input.stop_loss_2,
+        input.take_profit_2,
+        cap_2,
+        input.leverage,
+        input.max_risk_pct,
+        commission_override,
+        funding_rate,
+        is_long,
     )?;
 
     let total_notional = entry_1.position_notional + entry_2.position_notional;
@@ -183,19 +201,25 @@ pub fn compute_commission_projection(
     let total_cap = cap_1 + cap_2;
 
     let weighted_avg_entry = if total_notional > 0.0 {
-        (entry_1.entry_price * entry_1.position_notional + entry_2.entry_price * entry_2.position_notional) / total_notional
+        (entry_1.entry_price * entry_1.position_notional
+            + entry_2.entry_price * entry_2.position_notional)
+            / total_notional
     } else {
         0.0
     };
 
     let effective_sl = if total_notional > 0.0 {
-        (input.stop_loss_1 * entry_1.position_notional + input.stop_loss_2 * entry_2.position_notional) / total_notional
+        (input.stop_loss_1 * entry_1.position_notional
+            + input.stop_loss_2 * entry_2.position_notional)
+            / total_notional
     } else {
         0.0
     };
 
     let effective_tp = if total_notional > 0.0 {
-        (input.take_profit_1 * entry_1.position_notional + input.take_profit_2 * entry_2.position_notional) / total_notional
+        (input.take_profit_1 * entry_1.position_notional
+            + input.take_profit_2 * entry_2.position_notional)
+            / total_notional
     } else {
         0.0
     };

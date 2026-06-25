@@ -1,3 +1,4 @@
+use super::traits::{BarInput, Indicator};
 use rust_decimal::Decimal;
 
 /// Relative Strength Index (using Wilder's Smoothing)
@@ -30,8 +31,16 @@ impl Rsi {
         self.prev_close = Some(close);
 
         let change = close - prev;
-        let gain = if change > Decimal::ZERO { change } else { Decimal::ZERO };
-        let loss = if change < Decimal::ZERO { change.abs() } else { Decimal::ZERO };
+        let gain = if change > Decimal::ZERO {
+            change
+        } else {
+            Decimal::ZERO
+        };
+        let loss = if change < Decimal::ZERO {
+            change.abs()
+        } else {
+            Decimal::ZERO
+        };
 
         match (self.avg_gain, self.avg_loss) {
             (Some(ag), Some(al)) => {
@@ -58,6 +67,18 @@ impl Rsi {
                 None
             }
         }
+    }
+}
+
+impl Indicator for Rsi {
+    type Output = Option<Decimal>;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = Rsi::new(self.period);
     }
 }
 
@@ -124,10 +145,22 @@ mod tests {
         let mut rsi = Rsi::new(14);
         rsi.update(dec!(100.00));
         for i in 0..50 {
-            let price = if i % 2 == 0 { dec!(200.00) } else { dec!(10.00) };
+            let price = if i % 2 == 0 {
+                dec!(200.00)
+            } else {
+                dec!(10.00)
+            };
             if let Some(val) = rsi.update(price) {
-                assert!(val >= dec!(0.00), "RSI should never be negative, got {}", val);
-                assert!(val <= dec!(100.00), "RSI should never exceed 100, got {}", val);
+                assert!(
+                    val >= dec!(0.00),
+                    "RSI should never be negative, got {}",
+                    val
+                );
+                assert!(
+                    val <= dec!(100.00),
+                    "RSI should never exceed 100, got {}",
+                    val
+                );
             }
         }
     }

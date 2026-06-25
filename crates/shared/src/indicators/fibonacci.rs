@@ -48,6 +48,16 @@ pub struct PivotPoint {
     pub strength: usize,
 }
 
+/// Unified Fibonacci level calculator.
+/// Computes levels as: anchor_start + (anchor_end - anchor_start) * coeff
+fn calculate_fib_levels(anchor_start: Decimal, anchor_end: Decimal, coeffs: &[f64]) -> Vec<Decimal> {
+    let range = anchor_end - anchor_start;
+    coeffs
+        .iter()
+        .map(|c| anchor_start + range * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
+        .collect()
+}
+
 impl FibonacciRange {
     /// Computes bullish Fibonacci levels from swing_low → swing_high.
     /// Retracements are computed downward from swing_high.
@@ -63,45 +73,33 @@ impl FibonacciRange {
             return Self::default();
         }
 
-        let mut retracement_levels: Vec<Decimal> = retracement_coeffs
-            .iter()
-            .map(|c| swing_high - distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
-            .collect();
-
+        let mut retracement_levels = calculate_fib_levels(swing_high, swing_low, retracement_coeffs);
         retracement_levels.sort_by(|a, b| b.cmp(a));
 
-        let extension_levels: Vec<Decimal> = extension_coeffs
-            .iter()
-            .map(|c| swing_low + distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
-            .collect();
+        let extension_levels = calculate_fib_levels(swing_low, swing_high, extension_coeffs);
 
-        let get_fib = |coeff: f64| -> Option<Decimal> {
-            let d = Decimal::from_f64_retain(coeff)?;
-            Some(swing_high - distance * d)
-        };
-
-        let get_ext = |coeff: f64| -> Option<Decimal> {
-            let d = Decimal::from_f64_retain(coeff)?;
-            Some(swing_low + distance * d)
-        };
+        let fib_levels =
+            calculate_fib_levels(swing_high, swing_low, &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786]);
+        let ext_levels =
+            calculate_fib_levels(swing_low, swing_high, &[1.272, 1.618, 2.000, 2.618]);
 
         Self {
             swing_high: Some(swing_high),
             swing_low: Some(swing_low),
             swing_distance: Some(distance),
             swing_type: Some(SwingLegType::Bullish),
-            fib_0236: get_fib(0.236),
-            fib_0382: get_fib(0.382),
-            fib_0500: get_fib(0.500),
-            fib_0618: get_fib(0.618),
-            fib_0660: get_fib(0.660),
-            fib_0786: get_fib(0.786),
-            golden_pocket_low: get_fib(0.660),
-            golden_pocket_high: get_fib(0.618),
-            ext_1272: get_ext(1.272),
-            ext_1618: get_ext(1.618),
-            ext_2000: get_ext(2.000),
-            ext_2618: get_ext(2.618),
+            fib_0236: Some(fib_levels[0]),
+            fib_0382: Some(fib_levels[1]),
+            fib_0500: Some(fib_levels[2]),
+            fib_0618: Some(fib_levels[3]),
+            fib_0660: Some(fib_levels[4]),
+            fib_0786: Some(fib_levels[5]),
+            golden_pocket_low: Some(fib_levels[4]),
+            golden_pocket_high: Some(fib_levels[3]),
+            ext_1272: Some(ext_levels[0]),
+            ext_1618: Some(ext_levels[1]),
+            ext_2000: Some(ext_levels[2]),
+            ext_2618: Some(ext_levels[3]),
             retracement_levels,
             extension_levels,
         }
@@ -121,45 +119,33 @@ impl FibonacciRange {
             return Self::default();
         }
 
-        let mut retracement_levels: Vec<Decimal> = retracement_coeffs
-            .iter()
-            .map(|c| swing_low + distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
-            .collect();
-
+        let mut retracement_levels = calculate_fib_levels(swing_low, swing_high, retracement_coeffs);
         retracement_levels.sort_by(|a, b| a.cmp(b));
 
-        let extension_levels: Vec<Decimal> = extension_coeffs
-            .iter()
-            .map(|c| swing_high - distance * Decimal::from_f64_retain(*c).unwrap_or(Decimal::ZERO))
-            .collect();
+        let extension_levels = calculate_fib_levels(swing_high, swing_low, extension_coeffs);
 
-        let get_fib = |coeff: f64| -> Option<Decimal> {
-            let d = Decimal::from_f64_retain(coeff)?;
-            Some(swing_low + distance * d)
-        };
-
-        let get_ext = |coeff: f64| -> Option<Decimal> {
-            let d = Decimal::from_f64_retain(coeff)?;
-            Some(swing_high - distance * d)
-        };
+        let fib_levels =
+            calculate_fib_levels(swing_low, swing_high, &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786]);
+        let ext_levels =
+            calculate_fib_levels(swing_high, swing_low, &[1.272, 1.618, 2.000, 2.618]);
 
         Self {
             swing_high: Some(swing_high),
             swing_low: Some(swing_low),
             swing_distance: Some(distance),
             swing_type: Some(SwingLegType::Bearish),
-            fib_0236: get_fib(0.236),
-            fib_0382: get_fib(0.382),
-            fib_0500: get_fib(0.500),
-            fib_0618: get_fib(0.618),
-            fib_0660: get_fib(0.660),
-            fib_0786: get_fib(0.786),
-            golden_pocket_low: get_fib(0.618),
-            golden_pocket_high: get_fib(0.660),
-            ext_1272: get_ext(1.272),
-            ext_1618: get_ext(1.618),
-            ext_2000: get_ext(2.000),
-            ext_2618: get_ext(2.618),
+            fib_0236: Some(fib_levels[0]),
+            fib_0382: Some(fib_levels[1]),
+            fib_0500: Some(fib_levels[2]),
+            fib_0618: Some(fib_levels[3]),
+            fib_0660: Some(fib_levels[4]),
+            fib_0786: Some(fib_levels[5]),
+            golden_pocket_low: Some(fib_levels[3]),
+            golden_pocket_high: Some(fib_levels[4]),
+            ext_1272: Some(ext_levels[0]),
+            ext_1618: Some(ext_levels[1]),
+            ext_2000: Some(ext_levels[2]),
+            ext_2618: Some(ext_levels[3]),
             retracement_levels,
             extension_levels,
         }
@@ -237,7 +223,9 @@ impl FibonacciRange {
     /// Returns (older_anchor, newer_anchor) and the leg type.
     /// For Bullish Leg: older is Pivot Low, newer is Pivot High (upward impulse).
     /// For Bearish Leg: older is Pivot High, newer is Pivot Low (downward impulse).
-    pub fn detect_swing_leg(pivots: &[PivotPoint]) -> Option<(PivotPoint, PivotPoint, SwingLegType, Decimal)> {
+    pub fn detect_swing_leg(
+        pivots: &[PivotPoint],
+    ) -> Option<(PivotPoint, PivotPoint, SwingLegType, Decimal)> {
         let end_idx = pivots.len();
         if end_idx < 2 {
             return None;
@@ -251,13 +239,23 @@ impl FibonacciRange {
                 (PivotType::Low, PivotType::High) => {
                     let distance = newer.price - older.price;
                     if distance > Decimal::ZERO {
-                        return Some((older.clone(), newer.clone(), SwingLegType::Bullish, distance));
+                        return Some((
+                            older.clone(),
+                            newer.clone(),
+                            SwingLegType::Bullish,
+                            distance,
+                        ));
                     }
                 }
                 (PivotType::High, PivotType::Low) => {
                     let distance = older.price - newer.price;
                     if distance > Decimal::ZERO {
-                        return Some((older.clone(), newer.clone(), SwingLegType::Bearish, distance));
+                        return Some((
+                            older.clone(),
+                            newer.clone(),
+                            SwingLegType::Bearish,
+                            distance,
+                        ));
                     }
                 }
                 _ => continue,
@@ -279,12 +277,18 @@ impl FibonacciRange {
         let pivots = Self::detect_pivots(candles_high, candles_low, pivot_strength, scan_range);
         match Self::detect_swing_leg(&pivots) {
             Some((older, newer, leg_type, _distance)) => match leg_type {
-                SwingLegType::Bullish => {
-                    Self::compute_bullish(older.price, newer.price, retracement_coeffs, extension_coeffs)
-                }
-                SwingLegType::Bearish => {
-                    Self::compute_bearish(older.price, newer.price, retracement_coeffs, extension_coeffs)
-                }
+                SwingLegType::Bullish => Self::compute_bullish(
+                    older.price,
+                    newer.price,
+                    retracement_coeffs,
+                    extension_coeffs,
+                ),
+                SwingLegType::Bearish => Self::compute_bearish(
+                    older.price,
+                    newer.price,
+                    retracement_coeffs,
+                    extension_coeffs,
+                ),
             },
             None => Self::default(),
         }
@@ -293,21 +297,11 @@ impl FibonacciRange {
     // Legacy compatibility methods
 
     pub fn compute(swing_high: Decimal, swing_low: Decimal) -> Self {
-        Self::compute_bullish(
-            swing_low,
-            swing_high,
-            &[0.618, 0.660],
-            &[1.618, 2.618],
-        )
+        Self::compute_bullish(swing_low, swing_high, &[0.618, 0.660], &[1.618, 2.618])
     }
 
     pub fn compute_bearish_legacy(swing_high: Decimal, swing_low: Decimal) -> Self {
-        Self::compute_bearish(
-            swing_high,
-            swing_low,
-            &[0.618, 0.660],
-            &[1.618, 2.618],
-        )
+        Self::compute_bearish(swing_high, swing_low, &[0.618, 0.660], &[1.618, 2.618])
     }
 
     /// Detects the most recent swing high from price history (legacy).
@@ -420,8 +414,18 @@ mod tests {
     #[test]
     fn test_detect_swing_leg_bullish() {
         let pivots = vec![
-            PivotPoint { index: 10, price: dec!(100.0), pivot_type: PivotType::Low, strength: 10 },
-            PivotPoint { index: 20, price: dec!(150.0), pivot_type: PivotType::High, strength: 10 },
+            PivotPoint {
+                index: 10,
+                price: dec!(100.0),
+                pivot_type: PivotType::Low,
+                strength: 10,
+            },
+            PivotPoint {
+                index: 20,
+                price: dec!(150.0),
+                pivot_type: PivotType::High,
+                strength: 10,
+            },
         ];
         let leg = FibonacciRange::detect_swing_leg(&pivots);
         assert!(leg.is_some());
@@ -433,8 +437,18 @@ mod tests {
     #[test]
     fn test_detect_swing_leg_bearish() {
         let pivots = vec![
-            PivotPoint { index: 10, price: dec!(200.0), pivot_type: PivotType::High, strength: 10 },
-            PivotPoint { index: 20, price: dec!(150.0), pivot_type: PivotType::Low, strength: 10 },
+            PivotPoint {
+                index: 10,
+                price: dec!(200.0),
+                pivot_type: PivotType::High,
+                strength: 10,
+            },
+            PivotPoint {
+                index: 20,
+                price: dec!(150.0),
+                pivot_type: PivotType::Low,
+                strength: 10,
+            },
         ];
         let leg = FibonacciRange::detect_swing_leg(&pivots);
         assert!(leg.is_some());
@@ -452,8 +466,10 @@ mod tests {
             &[1.272, 1.618, 2.000, 2.618],
         );
         for i in 1..fib.retracement_levels.len() {
-            assert!(fib.retracement_levels[i - 1] > fib.retracement_levels[i],
-                "retracement levels should be descending for bullish");
+            assert!(
+                fib.retracement_levels[i - 1] > fib.retracement_levels[i],
+                "retracement levels should be descending for bullish"
+            );
         }
     }
 
@@ -466,8 +482,10 @@ mod tests {
             &[1.272, 1.618, 2.000, 2.618],
         );
         for i in 1..fib.retracement_levels.len() {
-            assert!(fib.retracement_levels[i - 1] < fib.retracement_levels[i],
-                "retracement levels should be ascending for bearish");
+            assert!(
+                fib.retracement_levels[i - 1] < fib.retracement_levels[i],
+                "retracement levels should be ascending for bearish"
+            );
         }
     }
 
@@ -504,7 +522,10 @@ mod tests {
         lows[45] = dec!(175.0);
 
         let fib = FibonacciRange::compute_from_candles(
-            &highs, &lows, 10, 60,
+            &highs,
+            &lows,
+            10,
+            60,
             &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
             &[1.272, 1.618, 2.000, 2.618],
         );

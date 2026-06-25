@@ -36,7 +36,8 @@ impl MarketDataOrchestrator {
                 let mut retry_cooldown_secs = 2u64;
                 let mut consecutive_failures = 0u32;
                 let mut last_failure_ts = std::time::Instant::now()
-                    - std::time::Duration::from_secs(301);
+                    .checked_sub(std::time::Duration::from_secs(301))
+                    .unwrap_or_else(std::time::Instant::now);
                 loop {
                     let exchange_label = adapter_clone.exchange();
 

@@ -1,19 +1,29 @@
 use proptest::prelude::*;
-use shared::indicators::{detect_pattern, ChartPattern};
-use shared::indicators::fibonacci::{PivotPoint, PivotType};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
+use shared::indicators::fibonacci::{PivotPoint, PivotType};
+use shared::indicators::{detect_pattern, ChartPattern};
 
 fn dec(v: f64) -> Decimal {
     Decimal::from_f64(v).unwrap_or(Decimal::ZERO)
 }
 
 fn make_high(index: usize, price: f64) -> PivotPoint {
-    PivotPoint { index, price: dec(price), pivot_type: PivotType::High, strength: 10 }
+    PivotPoint {
+        index,
+        price: dec(price),
+        pivot_type: PivotType::High,
+        strength: 10,
+    }
 }
 
 fn make_low(index: usize, price: f64) -> PivotPoint {
-    PivotPoint { index, price: dec(price), pivot_type: PivotType::Low, strength: 10 }
+    PivotPoint {
+        index,
+        price: dec(price),
+        pivot_type: PivotType::Low,
+        strength: 10,
+    }
 }
 
 proptest! {

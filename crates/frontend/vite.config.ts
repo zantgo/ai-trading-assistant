@@ -9,6 +9,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [svelte()],
+    css: {
+      modules: {
+        localsConvention: 'camelCaseOnly',
+        generateScopedName: '[name]__[local]___[hash:base64:5]',
+      },
+    },
     test: {
       include: ['src/**/*.test.ts'],
     },

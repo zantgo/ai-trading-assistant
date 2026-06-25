@@ -1,8 +1,9 @@
 <script lang="ts">
-    import { getState } from '../state.svelte';
-    import type { TimeframeTelemetry } from '../state.svelte';
+    import { useAppStore } from '../state.svelte';
+    import styles from './TelemetryTable.module.css';
+    import type { TimeframeTelemetry } from '../types';
 
-    const app = getState();
+    const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     let copied = $state(false);
@@ -24,15 +25,15 @@
     }
 
     function rsiClass(val: number): string {
-        if (val >= 70) return 'rsi-overbought';
-        if (val <= 30) return 'rsi-oversold';
+        if (val >= 70) return 'rsiOverbought';
+        if (val <= 30) return 'rsiOversold';
         return '';
     }
 
     function adxClass(regime: string): string {
-        if (regime === 'extreme') return 'adx-extreme';
-        if (regime === 'strong') return 'adx-strong';
-        if (regime === 'emerging') return 'adx-emerging';
+        if (regime === 'extreme') return 'adxExtreme';
+        if (regime === 'strong') return 'adxStrong';
+        if (regime === 'emerging') return 'adxEmerging';
         return '';
     }
 
@@ -43,7 +44,7 @@
 
     function squeezeColor(tf: TimeframeTelemetry): string {
         if (!tf?.isSqueezeOn) return 'color: #4a5568';
-        return tf.squeezeMomentumDirection === 'Up' ? 'color: #22c55e' : 'color: #ef4444';
+        return tf.squeezeMomentumDirection.startsWith('Bullish') ? 'color: #22c55e' : tf.squeezeMomentumDirection.startsWith('Bearish') ? 'color: #ef4444' : 'color: #a1a1aa';
     }
 
     function bbwpColor(val: number): string {
@@ -123,36 +124,36 @@
 
 {#if pair}
 {@const pairObj = pair}
-<div class="telemetry-table">
-    <div class="tt-header">
-        <span class="tt-title">TELEMETRY MONITOR</span>
-        <span class="tt-symbol">{pairObj.symbol}/USDT</span>
-        <button class="tt-copy-btn" onclick={copyJson}>
+<div class={styles.telemetryTable}>
+    <div class={styles.ttHeader}>
+        <span class={styles.ttTitle}>TELEMETRY MONITOR</span>
+        <span class={styles.ttSymbol}>{pairObj.symbol}/USDT</span>
+        <button class={styles.ttCopyBtn} onclick={copyJson}>
             {copied ? 'COPIED' : 'JSON'}
         </button>
     </div>
-    <div class="tt-scroll">
+    <div class={styles.ttScroll}>
         <table>
             <thead>
                 <tr>
-                    <th class="tt-row-label"></th>
+                    <th class={styles.ttRowLabel}></th>
                     {#each timeframes as tfKey}
-                        <th class="tt-tf-header">{tfLabels[tfKey]}</th>
+                        <th class={styles.ttTfHeader}>{tfLabels[tfKey]}</th>
                     {/each}
                 </tr>
             </thead>
             <tbody>
                 {#each rows as row}
                     <tr>
-                        <td class="tt-row-label">{row.label}</td>
+                        <td class={styles.ttRowLabel}>{row.label}</td>
                         {#each timeframes as tfKey}
                             {@const tf = (pairObj as any)[tfKey] as TimeframeTelemetry}
                             {#if tf}
-                            <td class="tt-cell {row?.class?.(tf) ?? ''}" style={row?.style?.(tf) ?? ''}>
+                            <td class="{styles.ttCell} {row?.class?.(tf) ? styles[row.class(tf) as keyof typeof styles] || '' : ''}" style={row?.style?.(tf) ?? ''}>
                                 {fmt(null, tf, row)}
                             </td>
                             {:else}
-                            <td class="tt-cell">--</td>
+                            <td class={styles.ttCell}>--</td>
                             {/if}
                         {/each}
                     </tr>
@@ -162,113 +163,3 @@
     </div>
 </div>
 {/if}
-
-<style>
-    .telemetry-table {
-        width: 100%;
-        height: 170px;
-        flex-shrink: 0;
-        background: #0f111a;
-        border-top: 1px solid #1e293b;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-    .tt-header {
-        flex-shrink: 0;
-        padding: 6px 10px;
-        border-bottom: 1px solid #1e293b;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-    .tt-title {
-        font-size: 10px;
-        font-weight: 700;
-        color: #64ffda;
-        font-family: 'Courier New', monospace;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-    }
-    .tt-symbol {
-        font-size: 9px;
-        color: #64748b;
-        font-family: 'Courier New', monospace;
-        flex: 1;
-    }
-    .tt-copy-btn {
-        padding: 2px 8px;
-        border: 1px solid #1e293b;
-        border-radius: 3px;
-        background: transparent;
-        color: #4a5568;
-        font-size: 8px;
-        font-weight: 700;
-        font-family: 'Courier New', monospace;
-        cursor: pointer;
-        letter-spacing: 0.05em;
-        transition: all 0.15s;
-    }
-    .tt-copy-btn:hover {
-        border-color: #64ffda;
-        color: #64ffda;
-        background: rgba(100, 255, 218, 0.08);
-    }
-    .tt-scroll {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-    }
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'Courier New', monospace;
-        font-size: 10px;
-    }
-    thead {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-    }
-    .tt-tf-header {
-        background: #0a0d14;
-        color: #64748b;
-        padding: 4px 8px;
-        text-align: center;
-        font-weight: 700;
-        font-size: 9px;
-        letter-spacing: 0.05em;
-        border-bottom: 1px solid #1e293b;
-    }
-    .tt-row-label {
-        color: #4a5568;
-        padding: 3px 8px;
-        text-align: left;
-        font-size: 8px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        white-space: nowrap;
-        background: #0a0d14;
-        border-right: 1px solid #1a1d26;
-    }
-    .tt-cell {
-        padding: 3px 8px;
-        text-align: center;
-        font-size: 9px;
-        font-weight: 600;
-        border-bottom: 1px solid #14142a;
-        white-space: nowrap;
-    }
-    tbody tr:hover .tt-cell {
-        background: #1a1d26;
-    }
-    tbody tr:hover .tt-row-label {
-        background: #14142a;
-        color: #cbd5e1;
-    }
-    .rsi-overbought { background: rgba(239, 68, 68, 0.15); }
-    .rsi-oversold { background: rgba(34, 197, 94, 0.15); }
-    .adx-extreme { background: rgba(239, 68, 68, 0.2); }
-    .adx-strong { background: rgba(249, 115, 22, 0.2); }
-    .adx-emerging { background: rgba(34, 197, 94, 0.1); }
-</style>

@@ -1,6 +1,6 @@
-use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use crate::indicators::fibonacci::{PivotPoint, PivotType};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 /// Chart Pattern Detection — identifies continuation and reversal patterns
 /// on the execution (5-minute) chart using pivot point sequences.
@@ -42,8 +42,14 @@ impl PatternResult {
 /// Detect chart patterns from pivot highs and lows.
 /// Requires at least 4 pivots (2 highs, 2 lows) or 2 swing highs and 2 swing lows.
 pub fn detect_pattern(pivots: &[PivotPoint]) -> PatternResult {
-    let highs: Vec<_> = pivots.iter().filter(|p| p.pivot_type == PivotType::High).collect();
-    let lows: Vec<_> = pivots.iter().filter(|p| p.pivot_type == PivotType::Low).collect();
+    let highs: Vec<_> = pivots
+        .iter()
+        .filter(|p| p.pivot_type == PivotType::High)
+        .collect();
+    let lows: Vec<_> = pivots
+        .iter()
+        .filter(|p| p.pivot_type == PivotType::Low)
+        .collect();
 
     if highs.len() < 2 || lows.len() < 2 {
         return PatternResult::none();
@@ -108,18 +114,22 @@ fn detect_triangle(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<Patter
     }
 
     // Determine bias from breakout direction context
-    let (pattern, is_bullish, is_bearish) = if high_slope < Decimal::ZERO && low_slope > Decimal::ZERO {
-        (ChartPattern::BullishTriangle, true, false)
-    } else {
-        (ChartPattern::BearishTriangle, false, true)
-    };
+    let (pattern, is_bullish, is_bearish) =
+        if high_slope < Decimal::ZERO && low_slope > Decimal::ZERO {
+            (ChartPattern::BullishTriangle, true, false)
+        } else {
+            (ChartPattern::BearishTriangle, false, true)
+        };
 
     Some(PatternResult {
         pattern,
         is_bullish,
         is_bearish,
         confidence,
-        description: format!("Triangle pattern detected — highs descending, lows ascending, {}% convergence", confidence as u32),
+        description: format!(
+            "Triangle pattern detected — highs descending, lows ascending, {}% convergence",
+            confidence as u32
+        ),
     })
 }
 
@@ -216,18 +226,23 @@ fn detect_channel(
     }
 
     // Verify most price pivots touch the channel lines
-    let touching_count = all_pivots.iter().filter(|p| {
-        let interpolated_high = interpolate_line(&recent_highs, p.index);
-        let interpolated_low = interpolate_line(&recent_lows, p.index);
-        match interpolated_high.zip(interpolated_low) {
-            Some((h, l)) => {
-                let near_high = (p.price - h).abs() < channel_width * Decimal::from(1) / Decimal::from(10);
-                let near_low = (p.price - l).abs() < channel_width * Decimal::from(1) / Decimal::from(10);
-                near_high || near_low
+    let touching_count = all_pivots
+        .iter()
+        .filter(|p| {
+            let interpolated_high = interpolate_line(&recent_highs, p.index);
+            let interpolated_low = interpolate_line(&recent_lows, p.index);
+            match interpolated_high.zip(interpolated_low) {
+                Some((h, l)) => {
+                    let near_high =
+                        (p.price - h).abs() < channel_width * Decimal::from(1) / Decimal::from(10);
+                    let near_low =
+                        (p.price - l).abs() < channel_width * Decimal::from(1) / Decimal::from(10);
+                    near_high || near_low
+                }
+                None => false,
             }
-            None => false,
-        }
-    }).count();
+        })
+        .count();
 
     let ratio = touching_count as f64 / all_pivots.len().max(1) as f64;
     if ratio < 0.4 {
@@ -279,11 +294,21 @@ mod tests {
     use super::*;
 
     fn make_high(idx: usize, price: f64) -> PivotPoint {
-        PivotPoint { index: idx, price: Decimal::from_f64_retain(price).unwrap(), pivot_type: PivotType::High, strength: 10 }
+        PivotPoint {
+            index: idx,
+            price: Decimal::from_f64_retain(price).unwrap(),
+            pivot_type: PivotType::High,
+            strength: 10,
+        }
     }
 
     fn make_low(idx: usize, price: f64) -> PivotPoint {
-        PivotPoint { index: idx, price: Decimal::from_f64_retain(price).unwrap(), pivot_type: PivotType::Low, strength: 10 }
+        PivotPoint {
+            index: idx,
+            price: Decimal::from_f64_retain(price).unwrap(),
+            pivot_type: PivotType::Low,
+            strength: 10,
+        }
     }
 
     #[test]
@@ -304,7 +329,10 @@ mod tests {
             make_high(30, 140.0),
         ];
         let result = detect_pattern(&pivots);
-        assert!(matches!(result.pattern, ChartPattern::BullishTriangle | ChartPattern::BearishTriangle));
+        assert!(matches!(
+            result.pattern,
+            ChartPattern::BullishTriangle | ChartPattern::BearishTriangle
+        ));
         assert!(result.confidence > 0.0);
     }
 
@@ -319,7 +347,10 @@ mod tests {
             make_high(26, 130.0),
         ];
         let result = detect_pattern(&pivots);
-        assert!(matches!(result.pattern, ChartPattern::AscendingChannel | ChartPattern::DescendingChannel));
+        assert!(matches!(
+            result.pattern,
+            ChartPattern::AscendingChannel | ChartPattern::DescendingChannel
+        ));
     }
 
     #[test]
@@ -333,7 +364,14 @@ mod tests {
             make_high(30, 145.0),
         ];
         let result = detect_pattern(&pivots);
-        assert!(matches!(result.pattern, ChartPattern::FallingWedge | ChartPattern::RisingWedge | ChartPattern::BullishTriangle | ChartPattern::BearishTriangle | ChartPattern::None));
+        assert!(matches!(
+            result.pattern,
+            ChartPattern::FallingWedge
+                | ChartPattern::RisingWedge
+                | ChartPattern::BullishTriangle
+                | ChartPattern::BearishTriangle
+                | ChartPattern::None
+        ));
     }
 
     #[test]

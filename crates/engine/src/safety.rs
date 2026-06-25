@@ -166,10 +166,16 @@ impl SafetyManager {
                 losses
             ),
             CautionLevel::Suspended => {
-                let remaining = self.dropout_until.read().await
+                let remaining = self
+                    .dropout_until
+                    .read()
+                    .await
                     .map(|u| u.duration_since(Instant::now()).as_secs())
                     .unwrap_or(0);
-                format!("SUSPENDED: {} consecutive losses. {}s remaining.", losses, remaining)
+                format!(
+                    "SUSPENDED: {} consecutive losses. {}s remaining.",
+                    losses, remaining
+                )
             }
             CautionLevel::DrawdownStop => format!(
                 "HALTED: Capital drawdown limit exceeded. {} consecutive losses.",

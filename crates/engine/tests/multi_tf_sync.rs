@@ -1,14 +1,14 @@
+use rust_decimal_macros::dec;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
-use rust_decimal_macros::dec;
 
 use engine::analyzer;
-use engine::config::{TimeframeConfig, FibonacciConfig};
-use shared::models::MarketSnapshot;
-use shared::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide, NormalizedCandle};
+use engine::config::{FibonacciConfig, TimeframeConfig};
 use shared::indicators::DivergenceDetector;
+use shared::models::MarketSnapshot;
+use shared::normalized::{Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide};
 
 #[tokio::test]
 async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
@@ -30,8 +30,12 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
         let (large_broadcast, _) = broadcast::channel::<MarketSnapshot>(120);
 
         let cap = 100usize;
-        let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(cap)));
-        let small_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(cap)));
+        let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+            cap,
+        )));
+        let small_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+            cap,
+        )));
 
         let micro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
         let small_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
@@ -64,10 +68,34 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
             extension_coefficients: vec![1.618, 2.618],
         };
 
-        let micro_tf = TimeframeConfig { candles: engine::config::CandlesConfig { duration_seconds: 30, analysis_limit: 100 }, indicators: indicators.clone() };
-        let small_tf = TimeframeConfig { candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 }, indicators: indicators.clone() };
-        let medium_tf = TimeframeConfig { candles: engine::config::CandlesConfig { duration_seconds: 90, analysis_limit: 100 }, indicators: indicators.clone() };
-        let large_tf = TimeframeConfig { candles: engine::config::CandlesConfig { duration_seconds: 150, analysis_limit: 100 }, indicators: indicators.clone() };
+        let micro_tf = TimeframeConfig {
+            candles: engine::config::CandlesConfig {
+                duration_seconds: 30,
+                analysis_limit: 100,
+            },
+            indicators: indicators.clone(),
+        };
+        let small_tf = TimeframeConfig {
+            candles: engine::config::CandlesConfig {
+                duration_seconds: 60,
+                analysis_limit: 100,
+            },
+            indicators: indicators.clone(),
+        };
+        let medium_tf = TimeframeConfig {
+            candles: engine::config::CandlesConfig {
+                duration_seconds: 90,
+                analysis_limit: 100,
+            },
+            indicators: indicators.clone(),
+        };
+        let large_tf = TimeframeConfig {
+            candles: engine::config::CandlesConfig {
+                duration_seconds: 150,
+                analysis_limit: 100,
+            },
+            indicators: indicators.clone(),
+        };
 
         // Event router fanning out to 4 timeframes
         let router_cancel = cancel.clone();
@@ -81,18 +109,43 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                 large_tx,
                 router_symbol,
                 router_cancel,
-            ).await;
+            )
+            .await;
         });
 
-        let spawn_analyzer = |rx, broadcast, tf_cfg: TimeframeConfig, fib: FibonacciConfig,
-            div_det: Arc<tokio::sync::Mutex<DivergenceDetector>>,
-            history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
-            latest: Arc<RwLock<Option<MarketSnapshot>>>,
-            symbol: String, pk: String, secs: u64, label: &'static str,
-            cancel: CancellationToken| {
+        let spawn_analyzer = |rx,
+                              broadcast,
+                              tf_cfg: TimeframeConfig,
+                              fib: FibonacciConfig,
+                              div_det: Arc<tokio::sync::Mutex<DivergenceDetector>>,
+                              history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+                              latest: Arc<RwLock<Option<MarketSnapshot>>>,
+                              symbol: String,
+                              pk: String,
+                              secs: u64,
+                              label: &'static str,
+                              cancel: CancellationToken| {
             let t = telemetry_tx.clone();
             tokio::spawn(async move {
-                analyzer::run_single(rx, t, broadcast, tf_cfg, fib, div_det, history, latest, Arc::new(RwLock::new(VecDeque::new())), symbol, pk, secs, label, cancel, None, None).await;
+                analyzer::run_single(
+                    rx,
+                    t,
+                    broadcast,
+                    tf_cfg,
+                    fib,
+                    div_det,
+                    history,
+                    latest,
+                    Arc::new(RwLock::new(VecDeque::new())),
+                    symbol,
+                    pk,
+                    secs,
+                    label,
+                    cancel,
+                    None,
+                    None,
+                )
+                .await;
             })
         };
 
@@ -104,10 +157,62 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
         // Long-lived history for async borrow in future (keeps references alive)
         let _ = (&micro_history, &small_history);
 
-        let _h1 = spawn_analyzer(micro_rx, micro_broadcast, micro_tf, fib_config.clone(), micro_div, micro_history.clone(), micro_latest.clone(), symbol.clone(), pair_key.clone(), 30, "Micro", cancel.clone());
-        let _h2 = spawn_analyzer(small_rx, small_broadcast, small_tf, fib_config.clone(), small_div, small_history.clone(), small_latest.clone(), symbol.clone(), pair_key.clone(), 60, "Small", cancel.clone());
-        let _h3 = spawn_analyzer(medium_rx, medium_broadcast, medium_tf, fib_config.clone(), medium_div, Arc::new(RwLock::new(VecDeque::with_capacity(cap))), Arc::new(RwLock::new(None)), symbol.clone(), pair_key.clone(), 90, "Medium", cancel.clone());
-        let _h4 = spawn_analyzer(large_rx, large_broadcast, large_tf, fib_config.clone(), large_div, Arc::new(RwLock::new(VecDeque::with_capacity(cap))), Arc::new(RwLock::new(None)), symbol.clone(), pair_key.clone(), 150, "Large", cancel.clone());
+        let _h1 = spawn_analyzer(
+            micro_rx,
+            micro_broadcast,
+            micro_tf,
+            fib_config.clone(),
+            micro_div,
+            micro_history.clone(),
+            micro_latest.clone(),
+            symbol.clone(),
+            pair_key.clone(),
+            30,
+            "Micro",
+            cancel.clone(),
+        );
+        let _h2 = spawn_analyzer(
+            small_rx,
+            small_broadcast,
+            small_tf,
+            fib_config.clone(),
+            small_div,
+            small_history.clone(),
+            small_latest.clone(),
+            symbol.clone(),
+            pair_key.clone(),
+            60,
+            "Small",
+            cancel.clone(),
+        );
+        let _h3 = spawn_analyzer(
+            medium_rx,
+            medium_broadcast,
+            medium_tf,
+            fib_config.clone(),
+            medium_div,
+            Arc::new(RwLock::new(VecDeque::with_capacity(cap))),
+            Arc::new(RwLock::new(None)),
+            symbol.clone(),
+            pair_key.clone(),
+            90,
+            "Medium",
+            cancel.clone(),
+        );
+        let _h4 = spawn_analyzer(
+            large_rx,
+            large_broadcast,
+            large_tf,
+            fib_config.clone(),
+            large_div,
+            Arc::new(RwLock::new(VecDeque::with_capacity(cap))),
+            Arc::new(RwLock::new(None)),
+            symbol.clone(),
+            pair_key.clone(),
+            150,
+            "Large",
+            cancel.clone(),
+        );
 
         // Timestamps spaced 60s apart, 50 trades = 3000 seconds → ~100 mid candles, ~50 long candles
         let base_price = 50000.0f64;
@@ -120,7 +225,11 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                 symbol: format!("{}-USD", symbol),
                 price: rust_decimal::Decimal::from_f64_retain(price).unwrap_or(dec!(50000.00)),
                 size: dec!(0.5) + rust_decimal::Decimal::from(i % 4),
-                side: if i % 3 == 0 { TradeSide::Sell } else { TradeSide::Buy },
+                side: if i % 3 == 0 {
+                    TradeSide::Sell
+                } else {
+                    TradeSide::Buy
+                },
                 timestamp_ms: ts,
                 trade_id: format!("t_{}", i),
             };
@@ -133,25 +242,50 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
 
         let micro_count = micro_history.read().await.len();
         let small_count = small_history.read().await.len();
-        eprintln!("History counts — Micro(30s): {}, Small(60s): {}", micro_count, small_count);
+        eprintln!(
+            "History counts — Micro(30s): {}, Small(60s): {}",
+            micro_count, small_count
+        );
 
-        assert!(micro_count <= cap, "Micro history capped at {}; got {}", cap, micro_count);
-        assert!(small_count <= cap, "Small history capped at {}; got {}", cap, small_count);
+        assert!(
+            micro_count <= cap,
+            "Micro history capped at {}; got {}",
+            cap,
+            micro_count
+        );
+        assert!(
+            small_count <= cap,
+            "Small history capped at {}; got {}",
+            cap,
+            small_count
+        );
 
         let total = micro_count + small_count;
-        assert!(total > 0, "At least one timeframe should produce candle history");
+        assert!(
+            total > 0,
+            "At least one timeframe should produce candle history"
+        );
 
         // Broadcast verification
         let micro_snaps = drain_broadcast(&mut micro_bcast_rx);
         let small_snaps = drain_broadcast(&mut small_bcast_rx);
-        eprintln!("Broadcast snapshots — Micro: {}, Small: {}", micro_snaps, small_snaps);
+        eprintln!(
+            "Broadcast snapshots — Micro: {}, Small: {}",
+            micro_snaps, small_snaps
+        );
 
         let total_snaps = micro_snaps + small_snaps;
-        assert!(total_snaps > 0, "At least one broadcast channel should have delivered snapshots");
+        assert!(
+            total_snaps > 0,
+            "At least one broadcast channel should have delivered snapshots"
+        );
 
         // Verify latest snapshots
         let has_latest = micro_latest.read().await.is_some() || small_latest.read().await.is_some();
-        assert!(has_latest, "At least one timeframe should have a latest snapshot");
+        assert!(
+            has_latest,
+            "At least one timeframe should have a latest snapshot"
+        );
 
         // FIFO eviction: if at capacity, oldest should have valid timestamps
         if micro_count >= 10 {

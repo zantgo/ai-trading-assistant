@@ -1,8 +1,8 @@
+use crate::db;
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use sqlx::SqlitePool;
-use crate::db;
 
 #[derive(Debug, Clone)]
 pub struct PortfolioRiskState {
@@ -59,10 +59,7 @@ pub async fn validate_new_position(
         ));
     }
 
-    let current_exposure: f64 = existing_positions
-        .iter()
-        .map(|p| p.allocated_usd)
-        .sum();
+    let current_exposure: f64 = existing_positions.iter().map(|p| p.allocated_usd).sum();
     let current_exposure_pct = if state.total_capital > 0.0 {
         (current_exposure / state.total_capital) * 100.0
     } else {
@@ -132,7 +129,7 @@ pub async fn query_all_active_positions(pool: &SqlitePool) -> Vec<db::ActivePape
     let rows = match sqlx::query(
         "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp,
                 average_entry_price, current_portions, final_invalidation_level, target_profit_ratio
-         FROM active_positions"
+         FROM active_positions",
     )
     .fetch_all(pool)
     .await

@@ -1,0 +1,128 @@
+    /* Token Cost Dashboard */
+    .cost-dashboard {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .cost-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .cost-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f1f5f9;
+        margin: 0;
+    }
+    .cost-refresh-btn {
+        background: #1e40af;
+        border: 1px solid #3b82f6;
+        color: #f1f5f9;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 8px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-transform: uppercase;
+    }
+    .cost-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .cost-cards-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .cost-card {
+        background: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .cost-card-daily { border-color: rgba(59, 130, 246, 0.3); background: rgba(59, 130, 246, 0.04); }
+    .cost-card-weekly { border-color: rgba(139, 92, 246, 0.3); background: rgba(139, 92, 246, 0.04); }
+    .cost-card-monthly { border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04); }
+    .cost-card-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+    }
+    .cost-card-value {
+        font-size: 28px;
+        font-weight: 800;
+        color: #f1f5f9;
+        font-family: ui-monospace, monospace;
+    }
+    .cost-card-daily .cost-card-value { color: #3b82f6; }
+    .cost-card-weekly .cost-card-value { color: #8b5cf6; }
+    .cost-card-monthly .cost-card-value { color: #10b981; }
+    .cost-card-sub {
+        font-size: 10px;
+        color: #64748b;
+        font-weight: 500;
+    }
+    .cost-details-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    .cost-detail-box {
+        background: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .cost-detail-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #94a3b8;
+        margin: 0 0 2px 0;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 8px;
+    }
+    .cost-detail-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        color: #94a3b8;
+    }
+    .cost-detail-row .mono {
+        font-family: ui-monospace, monospace;
+        color: #cbd5e1;
+        font-weight: 600;
+    }
+    .cost-info-box {
+        background: rgba(59, 130, 246, 0.04);
+        border: 1px solid rgba(59, 130, 246, 0.15);
+        border-radius: 8px;
+        padding: 14px 18px;
+    }
+    .cost-info-box p {
+        font-size: 11px;
+        color: #94a3b8;
+        line-height: 1.6;
+        margin: 0;
+    }
+    .cost-info-box strong {
+        color: #cbd5e1;
+    }
+    @media (max-width: 768px) {
+        .cost-cards-row { grid-template-columns: 1fr; }
+        .cost-details-grid { grid-template-columns: 1fr; }
+    }

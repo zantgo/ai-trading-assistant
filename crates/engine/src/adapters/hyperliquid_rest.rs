@@ -30,7 +30,8 @@ struct CandleSnapshot {
 }
 
 fn parse_decimal(s: &str) -> Result<Decimal, String> {
-    s.parse::<Decimal>().map_err(|e| format!("Failed to parse decimal '{}': {}", s, e))
+    s.parse::<Decimal>()
+        .map_err(|e| format!("Failed to parse decimal '{}': {}", s, e))
 }
 
 /// Fetch historical candles from the Hyperliquid Info REST API.
@@ -77,10 +78,12 @@ pub async fn fetch_historical_candles(
         ));
     }
 
-    let snapshots: Vec<CandleSnapshot> = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse candle snapshot JSON for {} {}: {}", symbol, interval, e))?;
+    let snapshots: Vec<CandleSnapshot> = response.json().await.map_err(|e| {
+        format!(
+            "Failed to parse candle snapshot JSON for {} {}: {}",
+            symbol, interval, e
+        )
+    })?;
 
     snapshots
         .into_iter()

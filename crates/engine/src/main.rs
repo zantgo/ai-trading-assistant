@@ -1,9 +1,12 @@
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tokio::sync::{mpsc::channel, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use engine::{config, db, server, llm, performance_evaluator, strategy_optimizer, workspace, cli, instance_registry};
+use engine::{
+    cli, config, db, registry, llm, performance_evaluator, server, strategy_optimizer,
+    workspace,
+};
 use shared::normalized::SymbolMapper;
 
 #[tokio::main]
@@ -26,25 +29,48 @@ async fn main() {
     println!("⚙️  AI Trading Assistant: Loading Master Configuration...");
     let mut app_config = config::load_config();
     app_config.instances = config::load_instances();
-    println!("✅ Configuration Loaded: Initial pairs: {:?} ({} instance-specific configs)", app_config.symbols, app_config.instances.len());
+    println!(
+        "✅ Configuration Loaded: Initial pairs: {:?} ({} instance-specific configs)",
+        app_config.symbols,
+        app_config.instances.len()
+    );
     let app_config = Arc::new(RwLock::new(app_config));
     let initial_symbols = app_config.read().await.symbols.clone();
-    println!("✅ Configuration Loaded: Initial pairs: {:?}", initial_symbols);
+    println!(
+        "✅ Configuration Loaded: Initial pairs: {:?}",
+        initial_symbols
+    );
 
-    let (llm_client, key_present) = llm::LlmClient::from_env();
-    let llm_client = Arc::new(RwLock::new(llm_client));
+    let (llm_client, key_present) = {
+        let api_key = std::env::var("DEEPSEEK_API_KEY")
+            .ok()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty());
+        let base_url = std::env::var("DEEPSEEK_BASE_URL")
+            .unwrap_or_else(|_| "https://api.deepseek.com/v1".into());
+        let model =
+            std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".into());
+        llm::LlmClient::from_config(llm::LlmClientConfig {
+            api_key,
+            base_url,
+            model,
+        })
+    };
+    let llm_client = Arc::new(llm_client);
     let api_key_configured = Arc::new(AtomicBool::new(false));
 
     if key_present {
         println!("🔑 Validating DeepSeek API key...");
-        let llm = llm_client.read().await;
-        match llm.validate_key().await {
+        match llm_client.validate_key().await {
             Ok(()) => {
                 println!("✅ Key validated successfully.");
                 api_key_configured.store(true, std::sync::atomic::Ordering::Relaxed);
             }
             Err(e) => {
-                eprintln!("⚠️  API Key Validation Failed: {}. You can configure it manually in the UI.", e);
+                eprintln!(
+                    "⚠️  API Key Validation Failed: {}. You can configure it manually in the UI.",
+                    e
+                );
             }
         }
     } else {
@@ -55,14 +81,21 @@ async fn main() {
     let db_pool = db::init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
 
-    db::check_encryption_warning(&db_pool).await;
+    if let Ok(secret) = std::env::var("EXCHANGE_SECRET_KEY") {
+        let secret = secret.trim().to_string();
+        if !secret.is_empty() {
+            db::crypto::init_master_key(&secret);
+        }
+    }
+    db::verify_encryption_or_panic(&db_pool).await;
 
     let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(10000);
-    let logger_pool = db_pool.clone();
-    let logger_llm = llm_client.clone();
-
-    let logger_handle = tokio::spawn(async move {
-        db::run_telemetry_logger(logger_pool, telemetry_rx, logger_llm).await;
+    let logger_handle = tokio::spawn({
+        let pool = db_pool.clone();
+        let llm = llm_client.clone();
+        async move {
+            db::run_telemetry_logger(pool, telemetry_rx, llm).await;
+        }
     });
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
@@ -102,11 +135,8 @@ async fn main() {
         // Drop the web app — CLI handles all interaction
         drop(app);
 
-        let cli_console = cli::CliConsole::new(
-            workspace.clone(),
-            db_pool.clone(),
-            llm_client.clone(),
-        );
+        let cli_console =
+            cli::CliConsole::new(workspace.clone(), db_pool.clone(), llm_client.clone());
         cli_console.run().await;
 
         println!("👋 CLI session ended. Shutting down...");
@@ -121,11 +151,15 @@ async fn main() {
         println!("🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000");
 
         let server_handle = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+            axum::serve(listener, app)
+                .await
+                .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
         });
         handles.push(server_handle);
     } else {
-        println!("🖥️  CLI Mode: Running as headless daemon — Web server disabled (use --web to enable).");
+        println!(
+            "🖥️  CLI Mode: Running as headless daemon — Web server disabled (use --web to enable)."
+        );
         drop(app);
     }
 
@@ -136,13 +170,15 @@ async fn main() {
 
         println!("🚀 Bootstrapping instance for {}-{}...", base, quote);
 
-        match instance_registry::add_instance(
-            &workspace,
-            (base.clone(), quote),
-            llm_client.clone(),
-        ).await {
+        match registry::add_instance(&workspace, (base.clone(), quote), llm_client.clone())
+            .await
+        {
             Ok(instance) => {
-                println!("✅ Instance bootstrapped: {} ({})", instance.pair_display(), instance.id);
+                println!(
+                    "✅ Instance bootstrapped: {} ({})",
+                    instance.pair_display(),
+                    instance.id
+                );
             }
             Err(e) => {
                 eprintln!("❌ Failed to bootstrap instance for {}: {}", raw_symbol, e);
@@ -154,23 +190,21 @@ async fn main() {
     let eval_pool = db_pool.clone();
     let eval_cancel1 = eval_cancel.clone();
     handles.push(tokio::spawn(async move {
-        performance_evaluator::run_performance_evaluator(
-            performance_evaluator::EvaluatorConfig {
-                pool: eval_pool,
-                cancel: eval_cancel1,
-                eval_interval_secs: 300,
-            },
-        ).await;
+        performance_evaluator::run_performance_evaluator(performance_evaluator::EvaluatorConfig {
+            pool: eval_pool,
+            cancel: eval_cancel1,
+            eval_interval_secs: 300,
+        })
+        .await;
     }));
 
     handles.push(tokio::spawn(async move {
-        strategy_optimizer::run_strategy_optimizer(
-            strategy_optimizer::OptimizerConfig {
-                pool: db_pool,
-                cancel: eval_cancel,
-                interval_secs: 3600,
-            },
-        ).await;
+        strategy_optimizer::run_strategy_optimizer(strategy_optimizer::OptimizerConfig {
+            pool: db_pool,
+            cancel: eval_cancel,
+            interval_secs: 3600,
+        })
+        .await;
     }));
 
     let _ = futures_util::future::join_all(handles).await;

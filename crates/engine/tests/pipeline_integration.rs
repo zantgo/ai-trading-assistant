@@ -1,6 +1,6 @@
-use tokio::sync::mpsc;
 use rust_decimal_macros::dec;
-use shared::normalized::{Exchange, NormalizedEvent, NormalizedTrade, TradeSide, CandleGenerator};
+use shared::normalized::{CandleGenerator, Exchange, NormalizedEvent, NormalizedTrade, TradeSide};
+use tokio::sync::mpsc;
 
 #[tokio::test]
 async fn test_ingestion_to_candle_generation_pipeline() {
@@ -55,7 +55,11 @@ async fn test_ingestion_to_candle_generation_pipeline() {
             }
         }
 
-        assert_eq!(closed_candles.len(), 1, "Exactly one candle should have completed and closed.");
+        assert_eq!(
+            closed_candles.len(),
+            1,
+            "Exactly one candle should have completed and closed."
+        );
         let target = &closed_candles[0];
         assert_eq!(target.start_time_ms, 1000);
         assert_eq!(target.open, dec!(3000.00));

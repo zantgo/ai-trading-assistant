@@ -1,6 +1,6 @@
+use crate::db;
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
-use crate::db;
 
 pub struct OptimizerConfig {
     pub pool: SqlitePool,
@@ -61,7 +61,10 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
         let mut recommendations = Vec::new();
 
         for (regime, regime_trades) in &by_regime {
-            let wins = regime_trades.iter().filter(|t| t.realized_pnl > 0.0).count();
+            let wins = regime_trades
+                .iter()
+                .filter(|t| t.realized_pnl > 0.0)
+                .count();
             let _losses = regime_trades
                 .iter()
                 .filter(|t| t.realized_pnl < 0.0)
@@ -89,7 +92,7 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
             };
 
             let total_pnl: f64 = regime_trades.iter().map(|t| t.realized_pnl).sum();
-            let avg_r = regime_trades
+            let valid_r_multiples: Vec<f64> = regime_trades
                 .iter()
                 .filter_map(|t| {
                     if t.allocated_usd > 0.0 {
@@ -98,8 +101,12 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
                         None
                     }
                 })
-                .fold(0.0, |acc, r| acc + r)
-                / regime_trades.len().max(1) as f64;
+                .collect();
+            let avg_r = if !valid_r_multiples.is_empty() {
+                valid_r_multiples.iter().sum::<f64>() / valid_r_multiples.len() as f64
+            } else {
+                0.0
+            };
 
             regime_reports.push(RegimePerformanceReport {
                 regime: regime.clone(),
@@ -116,10 +123,7 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
                     regime, win_rate
                 ));
             }
-            if profit_factor < 1.0
-                && profit_factor.is_finite()
-                && regime_trades.len() > 5
-            {
+            if profit_factor < 1.0 && profit_factor.is_finite() && regime_trades.len() > 5 {
                 recommendations.push(format!(
                     "REGIME {}: Profit factor {:.2} < 1.0 — trend-following in this regime may need review",
                     regime, profit_factor

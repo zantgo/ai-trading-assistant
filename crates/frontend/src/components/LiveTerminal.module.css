@@ -1,0 +1,100 @@
+.terminal-workspace {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+.mtf-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 8px;
+    padding: 8px;
+    overflow: hidden;
+    min-height: 0;
+}
+.timescale-column {
+    background-color: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+.timescale-header {
+    background-color: #0f111a;
+    border-bottom: 1px solid #1e293b;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+.timescale-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+}
+.timescale-price {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64ffda;
+    font-family: 'Courier New', monospace;
+}
+.timescale-charts {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+}
+.panel-label {
+    position: absolute;
+    top: 3px;
+    left: 6px;
+    z-index: 5;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #4a5568;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    pointer-events: none;
+}
+.panel-box {
+    position: relative;
+    background: #0f111a;
+    border-radius: 4px;
+    min-height: 80px;
+    flex-shrink: 0;
+}
+.panel-box.pane-price { height: 120px; }
+.panel-box.pane-vol { height: 60px; }
+.panel-box.pane-adx { height: 60px; }
+.panel-box.pane-atr { height: 60px; }
+.panel-box.pane-rsi { height: 60px; }
+.panel-box.pane-macd { height: 60px; }
+.panel-box.pane-squeeze { height: 60px; }
+.panel-box.pane-bbwp { height: 60px; }
+.hidden-pane { display: none; }
+
+@media (max-width: 1600px) {
+    .mtf-grid {
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: repeat(2, 1fr);
+    }
+}
+@media (max-width: 1280px) {
+    .mtf-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(4, 400px);
+        overflow-y: auto;
+    }
+}

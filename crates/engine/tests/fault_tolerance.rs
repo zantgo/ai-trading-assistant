@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use std::collections::{HashMap, VecDeque};
-use tokio::sync::{mpsc, RwLock};
-use tokio_util::sync::CancellationToken;
 use engine::adapters;
 use engine::analyzer;
-use engine::config::{AppConfig, TimeframeConfig, FibonacciConfig};
-use shared::models::MarketSnapshot;
-use shared::normalized::{NormalizedEvent, NormalizedCandle};
+use engine::config::{AppConfig, FibonacciConfig, TimeframeConfig};
 use shared::indicators::DivergenceDetector;
+use shared::models::MarketSnapshot;
+use shared::normalized::{NormalizedCandle, NormalizedEvent};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
@@ -28,7 +28,10 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
 
         let test_config = AppConfig {
             symbols: vec!["Hyperliquid:BTC".to_string()],
-            candles: engine::config::CandlesConfig { duration_seconds: 60, analysis_limit: 100 },
+            candles: engine::config::CandlesConfig {
+                duration_seconds: 60,
+                analysis_limit: 100,
+            },
             indicators: Default::default(),
             hyperliquid: Default::default(),
             fibonacci: Default::default(),
@@ -83,29 +86,23 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let ws_tx = snapshot_tx.clone();
         let ws_symbol = symbol.clone();
         let ws_handle = tokio::spawn(async move {
-            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, "ws://127.0.0.1:1").await;
+            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, "ws://127.0.0.1:1")
+                .await;
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         cancel.cancel();
 
-        let ws_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(5),
-            ws_handle,
-        )
-        .await;
+        let ws_result = tokio::time::timeout(tokio::time::Duration::from_secs(5), ws_handle).await;
 
         assert!(
             ws_result.is_ok(),
             "WS ingestion task should exit cleanly when cancellation is triggered"
         );
 
-        let analyzer_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(5),
-            analyzer_handle,
-        )
-        .await;
+        let analyzer_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(5), analyzer_handle).await;
 
         assert!(
             analyzer_result.is_ok(),

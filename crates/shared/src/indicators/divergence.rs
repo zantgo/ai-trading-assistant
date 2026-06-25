@@ -22,13 +22,6 @@ pub struct DivergenceDetector {
     lookback: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Divergence {
-    Bullish,
-    Bearish,
-    None,
-}
-
 /// Specific type of divergence detected
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DivergenceType {
@@ -49,7 +42,10 @@ pub enum DivergenceStatus {
 
 impl DivergenceStatus {
     pub fn is_active(&self) -> bool {
-        matches!(self, DivergenceStatus::Potential | DivergenceStatus::Confirmed)
+        matches!(
+            self,
+            DivergenceStatus::Potential | DivergenceStatus::Confirmed
+        )
     }
 
     pub fn is_confirmed(&self) -> bool {
@@ -72,7 +68,10 @@ impl PeakTrough {
     }
 
     pub fn indicator_f64(&self) -> f64 {
-        self.indicator_value.to_string().parse::<f64>().unwrap_or(0.0)
+        self.indicator_value
+            .to_string()
+            .parse::<f64>()
+            .unwrap_or(0.0)
     }
 }
 
@@ -255,23 +254,6 @@ impl DivergenceDetector {
         confirmed
     }
 
-    /// Legacy update: price + RSI only (backward-compatible).
-    pub fn update(&mut self, price: Decimal, rsi: Decimal) -> Divergence {
-        self.price_history.push(price);
-        self.rsi_history.push(rsi);
-
-        if self.price_history.len() > self.lookback {
-            self.price_history.remove(0);
-            self.rsi_history.remove(0);
-        }
-
-        if self.price_history.len() < self.lookback {
-            return Divergence::None;
-        }
-
-        self.detect()
-    }
-
     /// Get the current lookback window size
     pub fn len(&self) -> usize {
         self.price_history.len()
@@ -287,25 +269,34 @@ impl DivergenceDetector {
         let half = self.lookback / 2;
 
         // Bullish: price lower low, RSI higher low
-        if let (Some(first), Some(last)) =
-            self.extrema_min_with_index(&self.price_history, &self.rsi_history, half)
-        {
+        let len = self.price_history.len();
+        if let (Some(first), Some(last)) = (
+            find_extrema(&self.price_history, &self.rsi_history, 0..half, false),
+            find_extrema(&self.price_history, &self.rsi_history, half..len, false),
+        ) {
             if last.price < first.price && last.indicator_value > first.indicator_value {
                 return (
                     DivergenceType::RsiBullish,
-                    Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                 );
             }
         }
 
         // Bearish: price higher high, RSI lower high
-        if let (Some(first), Some(last)) =
-            self.extrema_max_with_index(&self.price_history, &self.rsi_history, half)
-        {
+        if let (Some(first), Some(last)) = (
+            find_extrema(&self.price_history, &self.rsi_history, 0..half, true),
+            find_extrema(&self.price_history, &self.rsi_history, half..len, true),
+        ) {
             if last.price > first.price && last.indicator_value < first.indicator_value {
                 return (
                     DivergenceType::RsiBearish,
-                    Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                 );
             }
         }
@@ -322,25 +313,33 @@ impl DivergenceDetector {
         let half = self.lookback / 2;
 
         // Bullish: price lower low, MACD histogram higher low
-        if let (Some(first), Some(last)) =
-            self.extrema_min_with_index(&self.price_history, &self.macd_hist_history, half)
-        {
+        if let (Some(first), Some(last)) = (
+            find_extrema(&self.price_history, &self.macd_hist_history, 0..half, false),
+            find_extrema(&self.price_history, &self.macd_hist_history, half..self.len(), false),
+        ) {
             if last.price < first.price && last.indicator_value > first.indicator_value {
                 return (
                     DivergenceType::MacdBullish,
-                    Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                 );
             }
         }
 
         // Bearish: price higher high, MACD histogram lower high
-        if let (Some(first), Some(last)) =
-            self.extrema_max_with_index(&self.price_history, &self.macd_hist_history, half)
-        {
+        if let (Some(first), Some(last)) = (
+            find_extrema(&self.price_history, &self.macd_hist_history, 0..half, true),
+            find_extrema(&self.price_history, &self.macd_hist_history, half..self.len(), true),
+        ) {
             if last.price > first.price && last.indicator_value < first.indicator_value {
                 return (
                     DivergenceType::MacdBearish,
-                    Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                 );
             }
         }
@@ -348,108 +347,32 @@ impl DivergenceDetector {
         (DivergenceType::None, None)
     }
 
-    /// Find the minimum values in the first and second halves of the history,
-    /// returning PeakTrough structs with their indices.
-    fn extrema_min_with_index(
-        &self,
-        prices: &[Decimal],
-        values: &[Decimal],
-        half: usize,
-    ) -> (Option<PeakTrough>, Option<PeakTrough>) {
-        let first = find_min_with_index(prices, values, 0, half);
-        let last = find_min_with_index(prices, values, half, prices.len());
-        (first, last)
-    }
+    
 
-    /// Find the maximum values in the first and second halves of the history,
-    /// returning PeakTrough structs with their indices.
-    fn extrema_max_with_index(
-        &self,
-        prices: &[Decimal],
-        values: &[Decimal],
-        half: usize,
-    ) -> (Option<PeakTrough>, Option<PeakTrough>) {
-        let first = find_max_with_index(prices, values, 0, half);
-        let last = find_max_with_index(prices, values, half, prices.len());
-        (first, last)
-    }
 
-    fn detect(&self) -> Divergence {
-        let half = self.lookback / 2;
-
-        let price_first = self.price_history[..half].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let price_last = self.price_history[half..].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let rsi_first = self.rsi_history[..half].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let rsi_last = self.rsi_history[half..].iter().min_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        if let (Some(&pf), Some(&pl), Some(&rf), Some(&rl)) = (price_first, price_last, rsi_first, rsi_last) {
-            if pl < pf && rl > rf {
-                return Divergence::Bullish;
-            }
-        }
-
-        let price_first_high = self.price_history[..half].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let price_last_high = self.price_history[half..].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let rsi_first_high = self.rsi_history[..half].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let rsi_last_high = self.rsi_history[half..].iter().max_by(|a, b| {
-            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        if let (Some(&pf_h), Some(&pl_h), Some(&rf_h), Some(&rl_h)) = (price_first_high, price_last_high, rsi_first_high, rsi_last_high) {
-            if pl_h > pf_h && rl_h < rf_h {
-                return Divergence::Bearish;
-            }
-        }
-
-        Divergence::None
-    }
 }
 
-/// Find the minimum price in a slice range and the corresponding value at the same index.
-fn find_min_with_index(
+fn find_extrema(
     prices: &[Decimal],
     values: &[Decimal],
-    start: usize,
-    end: usize,
+    range: std::ops::Range<usize>,
+    find_max: bool,
 ) -> Option<PeakTrough> {
-    let slice = &prices[start..end.min(prices.len())];
-    let (offset, _) = slice.iter().enumerate()
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
-    let idx = start + offset;
-    Some(PeakTrough {
-        price: prices[idx],
-        indicator_value: values.get(idx).copied().unwrap_or(Decimal::ZERO),
-        index: idx,
-    })
-}
-
-/// Find the maximum price in a slice range and the corresponding value at the same index.
-fn find_max_with_index(
-    prices: &[Decimal],
-    values: &[Decimal],
-    start: usize,
-    end: usize,
-) -> Option<PeakTrough> {
-    let slice = &prices[start..end.min(prices.len())];
-    let (offset, _) = slice.iter().enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
-    let idx = start + offset;
+    let end = range.end.min(prices.len());
+    let slice = &prices[range.start..end];
+    let cmp = |a: &Decimal, b: &Decimal| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal);
+    let (offset, _) = if find_max {
+        slice
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| cmp(a, b))?
+    } else {
+        slice
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| cmp(a, b))?
+    };
+    let idx = range.start + offset;
     Some(PeakTrough {
         price: prices[idx],
         indicator_value: values.get(idx).copied().unwrap_or(Decimal::ZERO),
@@ -466,52 +389,56 @@ mod tests {
     fn test_returns_none_before_warmup() {
         let mut det = DivergenceDetector::new(10);
         for _ in 0..9 {
-            assert_eq!(det.update(dec!(100.00), dec!(50.00)), Divergence::None);
+            let r = det.update_full(dec!(100.00), dec!(50.00), Decimal::ZERO);
+            assert_eq!(r.rsi_divergence, DivergenceType::None);
+            assert_eq!(r.macd_divergence, DivergenceType::None);
         }
     }
 
     #[test]
-    fn test_bullish_divergence() {
+    fn test_bullish_rsi_divergence() {
         let mut det = DivergenceDetector::new(10);
-        det.update(dec!(105.00), dec!(40.00));
-        det.update(dec!(104.00), dec!(42.00));
-        det.update(dec!(103.00), dec!(44.00));
-        det.update(dec!(102.00), dec!(46.00));
-        det.update(dec!(101.00), dec!(48.00));
-        det.update(dec!(100.00), dec!(50.00));
-        det.update(dec!(99.00), dec!(52.00));
-        det.update(dec!(98.00), dec!(54.00));
-        det.update(dec!(97.00), dec!(56.00));
-        let result = det.update(dec!(96.00), dec!(58.00));
-        assert_eq!(result, Divergence::Bullish);
+        det.update_full(dec!(105.00), dec!(40.00), Decimal::ZERO);
+        det.update_full(dec!(104.00), dec!(42.00), Decimal::ZERO);
+        det.update_full(dec!(103.00), dec!(44.00), Decimal::ZERO);
+        det.update_full(dec!(102.00), dec!(46.00), Decimal::ZERO);
+        det.update_full(dec!(101.00), dec!(48.00), Decimal::ZERO);
+        det.update_full(dec!(100.00), dec!(50.00), Decimal::ZERO);
+        det.update_full(dec!(99.00), dec!(52.00), Decimal::ZERO);
+        det.update_full(dec!(98.00), dec!(54.00), Decimal::ZERO);
+        det.update_full(dec!(97.00), dec!(56.00), Decimal::ZERO);
+        let result = det.update_full(dec!(96.00), dec!(58.00), Decimal::ZERO);
+        assert_eq!(result.rsi_divergence, DivergenceType::RsiBullish);
     }
 
     #[test]
-    fn test_bearish_divergence() {
+    fn test_bearish_rsi_divergence() {
         let mut det = DivergenceDetector::new(10);
-        det.update(dec!(100.00), dec!(70.00));
-        det.update(dec!(101.00), dec!(68.00));
-        det.update(dec!(102.00), dec!(66.00));
-        det.update(dec!(103.00), dec!(64.00));
-        det.update(dec!(104.00), dec!(62.00));
-        det.update(dec!(105.00), dec!(60.00));
-        det.update(dec!(106.00), dec!(58.00));
-        det.update(dec!(107.00), dec!(56.00));
-        det.update(dec!(109.00), dec!(52.00));
-        let result = det.update(dec!(110.00), dec!(50.00));
-        assert_eq!(result, Divergence::Bearish);
+        det.update_full(dec!(100.00), dec!(70.00), Decimal::ZERO);
+        det.update_full(dec!(101.00), dec!(68.00), Decimal::ZERO);
+        det.update_full(dec!(102.00), dec!(66.00), Decimal::ZERO);
+        det.update_full(dec!(103.00), dec!(64.00), Decimal::ZERO);
+        det.update_full(dec!(104.00), dec!(62.00), Decimal::ZERO);
+        det.update_full(dec!(105.00), dec!(60.00), Decimal::ZERO);
+        det.update_full(dec!(106.00), dec!(58.00), Decimal::ZERO);
+        det.update_full(dec!(107.00), dec!(56.00), Decimal::ZERO);
+        det.update_full(dec!(109.00), dec!(52.00), Decimal::ZERO);
+        let result = det.update_full(dec!(110.00), dec!(50.00), Decimal::ZERO);
+        assert_eq!(result.rsi_divergence, DivergenceType::RsiBearish);
     }
 
     #[test]
     fn test_no_divergence_on_aligned_movement() {
         let mut det = DivergenceDetector::new(10);
         for _ in 0..5 {
-            det.update(dec!(100.00), dec!(50.00));
+            det.update_full(dec!(100.00), dec!(50.00), Decimal::ZERO);
         }
         for _ in 0..5 {
-            det.update(dec!(105.00), dec!(60.00));
+            det.update_full(dec!(105.00), dec!(60.00), Decimal::ZERO);
         }
-        assert_eq!(det.update(dec!(105.00), dec!(60.00)), Divergence::None);
+        let result = det.update_full(dec!(105.00), dec!(60.00), Decimal::ZERO);
+        assert!(!result.has_bullish);
+        assert!(!result.has_bearish);
     }
 
     #[test]
@@ -571,9 +498,9 @@ mod tests {
         // Confirm: close breaks below support at 90.00 with >0.2% tolerance
         let confirmed = det.check_divergence_confirmation(
             &result,
-            dec!(89.50),        // close below 90.00 support
-            Some(dec!(90.00)),  // support level
-            None,               // no resistance
+            dec!(89.50),       // close below 90.00 support
+            Some(dec!(90.00)), // support level
+            None,              // no resistance
         );
         assert_eq!(confirmed.rsi_status, DivergenceStatus::Confirmed);
     }
@@ -592,7 +519,7 @@ mod tests {
         // Close not decisively below support
         let still_potential = det.check_divergence_confirmation(
             &result,
-            dec!(90.10),        // close above support (barely below, within tolerance)
+            dec!(90.10), // close above support (barely below, within tolerance)
             Some(dec!(90.00)),
             None,
         );
@@ -615,9 +542,9 @@ mod tests {
         // Confirm: close breaks above resistance at 120.00
         let confirmed = det.check_divergence_confirmation(
             &result,
-            dec!(120.50),        // close above 120.00 resistance
+            dec!(120.50), // close above 120.00 resistance
             None,
-            Some(dec!(120.00)),  // resistance level
+            Some(dec!(120.00)), // resistance level
         );
         assert_eq!(confirmed.rsi_status, DivergenceStatus::Confirmed);
     }

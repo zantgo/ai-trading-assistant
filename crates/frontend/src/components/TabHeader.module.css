@@ -1,0 +1,129 @@
+.tab-bar {
+    background-color: #131722;
+    border-bottom: 1px solid #1e293b;
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.tab-left-section {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.tabs-container {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.tab-btn {
+    background: #1a2030;
+    border: 1px solid #2a3040;
+    color: #8892b0;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+}
+.tab-btn:hover {
+    background: #232d40;
+    color: #ccd6f6;
+    border-color: #3a4560;
+}
+.tab-active {
+    background: #1e3a5f;
+    border-color: #3498db;
+    color: #64ffda;
+}
+.tab-label {
+    white-space: nowrap;
+}
+.tab-close {
+    font-size: 11px;
+    color: #546080;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+.tab-close:hover {
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.15);
+}
+.add-tab-btn {
+    opacity: 0.5;
+    border-style: dashed;
+}
+.add-tab-btn:hover {
+    opacity: 1;
+}
+.add-pair-field {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.pair-input {
+    width: 70px;
+    background: #1a2030;
+    border: 1px solid #3498db;
+    color: #64ffda;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    outline: none;
+    text-transform: uppercase;
+}
+.add-confirm-btn, .add-cancel-btn {
+    background: #1a2030;
+    border: 1px solid #2a3040;
+    color: #64ffda;
+    font-size: 13px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.add-cancel-btn {
+    color: #ff6b6b;
+}
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    font-family: 'Courier New', monospace;
+    padding: 3px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+.status-online {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10b981;
+}
+.status-offline {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+.status-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.dot-online {
+    background: #10b981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+.dot-offline {
+    background: #ef4444;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}

@@ -1,7 +1,8 @@
-use rust_decimal::Decimal;
-use std::collections::VecDeque;
 use super::ema::Ema;
+use super::traits::{BarInput, Indicator};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 
 /// Direction of a +DI/-DI crossover event
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,10 +14,10 @@ pub enum DiCrossoverDir {
 /// Trend strength regime classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrendRegime {
-    Congestion,  // ADX < 20
-    Emerging,    // 20 <= ADX < 25
-    Strong,      // 25 <= ADX <= 40
-    Extreme,     // ADX > 40
+    Congestion, // ADX < 20
+    Emerging,   // 20 <= ADX < 25
+    Strong,     // 25 <= ADX <= 40
+    Extreme,    // ADX > 40
 }
 
 /// Max ADX history length for slope calculation
@@ -40,6 +41,7 @@ pub struct AdxOutput {
 /// crossover detection, and a running ADX peak for exhaustion monitoring.
 #[derive(Debug, Clone)]
 pub struct Adx {
+    period: usize,
     prev_high: Option<Decimal>,
     prev_low: Option<Decimal>,
     prev_close: Option<Decimal>,
@@ -59,6 +61,7 @@ pub struct Adx {
 impl Adx {
     pub fn new(period: usize) -> Self {
         Self {
+            period,
             prev_high: None,
             prev_low: None,
             prev_close: None,
@@ -77,7 +80,12 @@ impl Adx {
     }
 
     /// Configure the trend and exhaustion thresholds.
-    pub fn set_thresholds(&mut self, trend_threshold: Decimal, exhaustion_threshold: Decimal, slope_lookback: usize) {
+    pub fn set_thresholds(
+        &mut self,
+        trend_threshold: Decimal,
+        exhaustion_threshold: Decimal,
+        slope_lookback: usize,
+    ) {
         self.trend_threshold = trend_threshold;
         self.exhaustion_threshold = exhaustion_threshold;
         self.slope_lookback = slope_lookback;
@@ -106,8 +114,16 @@ impl Adx {
         let up_move = high - p_high;
         let down_move = p_low - low;
 
-        let plus_dm = if up_move > down_move && up_move > Decimal::ZERO { up_move } else { Decimal::ZERO };
-        let minus_dm = if down_move > up_move && down_move > Decimal::ZERO { down_move } else { Decimal::ZERO };
+        let plus_dm = if up_move > down_move && up_move > Decimal::ZERO {
+            up_move
+        } else {
+            Decimal::ZERO
+        };
+        let minus_dm = if down_move > up_move && down_move > Decimal::ZERO {
+            down_move
+        } else {
+            Decimal::ZERO
+        };
 
         let tr_smooth = self.tr_ema.update(tr);
         let plus_dm_smooth = self.plus_dm_ema.update(plus_dm);
@@ -177,7 +193,11 @@ impl Adx {
     }
 
     /// Detect +DI/-DI crossover from previous values to current.
-    fn detect_di_crossover(&self, current_plus: Decimal, current_minus: Decimal) -> Option<DiCrossoverDir> {
+    fn detect_di_crossover(
+        &self,
+        current_plus: Decimal,
+        current_minus: Decimal,
+    ) -> Option<DiCrossoverDir> {
         let (prev_p, prev_m) = match (self.prev_plus_di, self.prev_minus_di) {
             (Some(p), Some(m)) => (p, m),
             _ => return None,
@@ -208,8 +228,24 @@ impl Adx {
     }
 }
 
+impl Indicator for Adx {
+    type Output = Option<AdxOutput>;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.high, bar.low, bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = Adx::new(self.period);
+    }
+}
+
 /// Classify the trend regime based on ADX value against configured thresholds.
-fn classify_regime(adx: Decimal, trend_threshold: Decimal, exhaustion_threshold: Decimal) -> TrendRegime {
+fn classify_regime(
+    adx: Decimal,
+    trend_threshold: Decimal,
+    exhaustion_threshold: Decimal,
+) -> TrendRegime {
     if adx > exhaustion_threshold {
         TrendRegime::Extreme
     } else if adx >= trend_threshold + Decimal::new(5, 0) {
@@ -247,8 +283,13 @@ mod tests {
             adx.update(high, low, close);
         }
 
-        let out = adx.update(high + dec!(2.00), low + dec!(1.50), close + dec!(2.00)).unwrap();
-        assert!(out.plus_di > out.minus_di, "Strong uptrend: +DI should exceed -DI");
+        let out = adx
+            .update(high + dec!(2.00), low + dec!(1.50), close + dec!(2.00))
+            .unwrap();
+        assert!(
+            out.plus_di > out.minus_di,
+            "Strong uptrend: +DI should exceed -DI"
+        );
         assert!(out.adx > Decimal::ZERO);
     }
 
@@ -259,8 +300,10 @@ mod tests {
         adx.update(price, price, price);
         for _ in 0..20 {
             if let Some(out) = adx.update(price, price, price) {
-                assert!((out.plus_di - out.minus_di).abs() < dec!(1.00),
-                    "Zero movement: +DI and -DI should be near equal");
+                assert!(
+                    (out.plus_di - out.minus_di).abs() < dec!(1.00),
+                    "Zero movement: +DI and -DI should be near equal"
+                );
             }
         }
     }
@@ -287,7 +330,9 @@ mod tests {
             close -= dec!(1.00);
             adx.update(high, low, close);
         }
-        let out = adx.update(high - dec!(1.00), low - dec!(0.50), close - dec!(1.00)).unwrap();
+        let out = adx
+            .update(high - dec!(1.00), low - dec!(0.50), close - dec!(1.00))
+            .unwrap();
         // After sustained downtrend, -DI should exceed +DI
         assert!(out.minus_di > out.plus_di);
     }

@@ -1,7 +1,7 @@
 use proptest::prelude::*;
-use shared::indicators::{DivergenceDetector, DivergenceType, DivergenceStatus};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
+use shared::indicators::{DivergenceDetector, DivergenceStatus, DivergenceType};
 
 fn dec(v: f64) -> Decimal {
     Decimal::from_f64(v).unwrap_or(Decimal::ZERO)

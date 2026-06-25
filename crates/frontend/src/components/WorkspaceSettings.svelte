@@ -1,0 +1,497 @@
+<script lang="ts">
+    import { useAppStore } from '../state.svelte';
+    import type { InstanceState } from '../types';
+    import styles from './WorkspaceSettings.module.css';
+
+    let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
+
+    const app = useAppStore();
+
+    let draft = $state({
+        symbol: '',
+        exchange: 'Hyperliquid' as string,
+        timeframe: {
+            value: 60 as number,
+            unit: 'seconds' as 'seconds' | 'minutes' | 'hours',
+        },
+        indicators: {
+            emaFast: 10, emaMedium: 50, emaSlow: 100, emaLong: 200,
+            rsiPeriod: 14,
+            macdFast: 12, macdSlow: 26, macdSignal: 9,
+            adxPeriod: 14, atrPeriod: 14, squeezePeriod: 20,
+            macdExtremeHigh: 1000, macdExtremeLow: -1000, macdContraction: 0.30,
+            adxTrendThreshold: 20, adxExhaustionThreshold: 40, adxSlopeLookback: 3,
+            squeezeMinDuration: 5, squeezeBbStdDev: 2.0, squeezeKcAtrMult: 1.5,
+            srProximityThreshold: 0.5, srFlipTolerance: 0.3,
+            atrMultiplier: 2.0, atrTargetRR: 2.5,
+            volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
+            analysisLimit: 100,
+        },
+        visuals: {
+            showEmas: true, showBb: true, showVwap: true, showVolume: true,
+            showAdx: true, showAtr: true, showRsi: true, showMacd: true,
+            showSqueeze: true, showBbwp: true, showFib: true,
+        },
+        automation: {
+            enabled: false as boolean,
+            intervalValue: 15 as number,
+            intervalUnit: 'minutes' as 'seconds' | 'minutes' | 'hours',
+        },
+        intervals: {
+            slow: 3600 as number,
+            normal: 900 as number,
+            fast: 300 as number,
+        },
+        costs: {
+            inputPrice: 0.27 as number,
+            outputPrice: 1.10 as number,
+        },
+        apiKey: '' as string,
+        rules: '' as string,
+    });
+
+    let apiKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+    let apiKeyError = $state('');
+    let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
+
+    $effect(() => {
+        const sec = pair.microTerm.barDurationSec;
+        if (sec % 3600 === 0) { draft.timeframe.value = sec / 3600; draft.timeframe.unit = 'hours'; }
+        else if (sec % 60 === 0) { draft.timeframe.value = sec / 60; draft.timeframe.unit = 'minutes'; }
+        else { draft.timeframe.value = sec; draft.timeframe.unit = 'seconds'; }
+
+        draft.symbol = pair.symbol; draft.exchange = pair.exchange;
+        const m = pair.microTerm;
+        for (const f of ['emaFast','emaMedium','emaSlow','emaLong','rsiPeriod','macdFast','macdSlow','macdSignal','adxPeriod','atrPeriod','squeezePeriod']) {
+            (draft.indicators as any)[f] = (m as any)[f + 'Val'];
+        }
+        draft.indicators.analysisLimit = m.analysisLimit;
+        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib']) {
+            (draft.visuals as any)[f] = (m as any)[f];
+        }
+        draft.automation.enabled = pair.automationEnabled;
+        draft.automation.intervalValue = pair.automationIntervalValue;
+        draft.automation.intervalUnit = pair.automationIntervalUnit;
+        draft.intervals.slow = pair.slowIntervalSecs;
+        draft.intervals.normal = pair.normalIntervalSecs;
+        draft.intervals.fast = pair.fastIntervalSecs;
+        draft.costs.inputPrice = app.costPriceInput;
+        draft.costs.outputPrice = app.costPriceOutput;
+    });
+
+    let calculatedDuration = $derived.by(() => {
+        const val = Number(draft.timeframe.value) || 1;
+        if (draft.timeframe.unit === 'hours') return val * 3600;
+        if (draft.timeframe.unit === 'minutes') return val * 60;
+        return val;
+    });
+
+    let calculatedAutomationInterval = $derived.by(() => {
+        const val = Number(draft.automation.intervalValue) || 1;
+        if (draft.automation.intervalUnit === 'hours') return val * 3600;
+        if (draft.automation.intervalUnit === 'minutes') return val * 60;
+        return val;
+    });
+
+    function formatIntervalRemaining(totalSeconds: number): string {
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
+        if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+        return `${s}s`;
+    }
+
+    async function saveApiKey() {
+        const key = draft.apiKey.trim();
+        if (!key) return;
+        apiKeyStatus = 'saving';
+        try {
+            const res = await fetch('/api/config/key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: key }),
+            });
+            if (res.ok) {
+                app.apiKeyConfigured = true;
+                draft.apiKey = '';
+                apiKeyStatus = 'success';
+                setTimeout(() => { apiKeyStatus = 'idle'; }, 2000);
+            } else {
+                apiKeyError = 'Rejected by Server';
+                apiKeyStatus = 'error';
+            }
+        } catch (e: any) {
+            apiKeyError = e.message || 'Connection failed';
+            apiKeyStatus = 'error';
+        }
+    }
+
+    async function fetchRules() {
+        rulesStatus = 'loading';
+        try {
+            const res = await fetch('/api/rules');
+            const data = await res.json();
+            draft.rules = data.content || '';
+            app.rulesContent = draft.rules;
+            rulesStatus = 'idle';
+        } catch (_) {
+            rulesStatus = 'error';
+        }
+    }
+
+    async function saveRules() {
+        rulesStatus = 'saving';
+        try {
+            const res = await fetch('/api/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: draft.rules }),
+            });
+            if (res.ok) {
+                app.rulesContent = draft.rules;
+                rulesStatus = 'success';
+                setTimeout(() => { rulesStatus = 'idle'; }, 2000);
+            } else {
+                rulesStatus = 'error';
+            }
+        } catch (_) {
+            rulesStatus = 'error';
+        }
+    }
+
+    function buildTermIndicators(ind: typeof draft.indicators) {
+        return {
+            ema_fast: Number(ind.emaFast), ema_medium: Number(ind.emaMedium), ema_slow: Number(ind.emaSlow), ema_long: Number(ind.emaLong),
+            rsi_period: Number(ind.rsiPeriod), macd_fast: Number(ind.macdFast), macd_slow: Number(ind.macdSlow), macd_signal: Number(ind.macdSignal),
+            adx_period: Number(ind.adxPeriod), atr_period: Number(ind.atrPeriod), squeeze_period: Number(ind.squeezePeriod),
+        };
+    }
+
+    function setTermIndicators(term: Record<string, any>, ind: typeof draft.indicators) {
+        Object.assign(term, {
+            emaFastVal: ind.emaFast, emaMediumVal: ind.emaMedium, emaSlowVal: ind.emaSlow, emaLongVal: ind.emaLong,
+            rsiPeriodVal: ind.rsiPeriod, macdFastVal: ind.macdFast, macdSlowVal: ind.macdSlow, macdSignalVal: ind.macdSignal,
+            adxPeriodVal: ind.adxPeriod, atrPeriodVal: ind.atrPeriod, squeezePeriodVal: ind.squeezePeriod,
+            analysisLimit: ind.analysisLimit,
+        });
+    }
+
+    function setTermVisuals(term: Record<string, any>, vis: typeof draft.visuals) {
+        Object.assign(term, {
+            showEmas: vis.showEmas, showBb: vis.showBb, showVwap: vis.showVwap,
+            showVolume: vis.showVolume, showAdx: vis.showAdx, showAtr: vis.showAtr,
+            showRsi: vis.showRsi, showMacd: vis.showMacd, showSqueeze: vis.showSqueeze,
+            showBbwp: vis.showBbwp, showFib: vis.showFib,
+        });
+    }
+
+    async function applySettings() {
+        const cleanedSymbol = draft.symbol.trim().toUpperCase();
+        if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
+            alert("Invalid Ticker. Must be 2-10 characters (alphanumeric).");
+            return;
+        }
+
+        const { indicators: ind, automation: auto, visuals: vis } = draft;
+        const alc = Number(ind.analysisLimit);
+        const inds = buildTermIndicators(ind);
+        const body = {
+            micro_term: { candles: { duration_seconds: Number(calculatedDuration), analysis_limit: alc }, indicators: inds },
+            short_term: { candles: { duration_seconds: 300, analysis_limit: alc }, indicators: inds },
+            medium_term: { candles: { duration_seconds: 900, analysis_limit: alc }, indicators: inds },
+            large_term: { candles: { duration_seconds: 3600, analysis_limit: alc }, indicators: inds },
+            automation: { enabled: auto.enabled, interval_seconds: Number(calculatedAutomationInterval) },
+        };
+
+        const isIdentityChanged = cleanedSymbol !== pair.symbol || draft.exchange !== pair.exchange;
+        let target = pair;
+
+        try {
+            if (isIdentityChanged) {
+                const newPairKey = `${draft.exchange}-${cleanedSymbol}`;
+                await fetch(`/api/instances`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base: cleanedSymbol, quote: 'USDT' }),
+                });
+                await fetch(`/api/instances/${encodeURIComponent(newPairKey)}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                app.initInstance(cleanedSymbol, draft.exchange);
+                target = app.instancesMap[newPairKey] || pair;
+                target.microTerm.barDurationSec = calculatedDuration;
+                app.removeInstance(tabKey);
+                app.activeTab = newPairKey;
+            } else {
+                await fetch(`/api/instances/${encodeURIComponent(tabKey)}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                target.microTerm.barDurationSec = calculatedDuration;
+                for (const tf of [target.microTerm, target.smallTerm, target.mediumTerm, target.largeTerm]) {
+                    tf.latestSnapshot = null;
+                    tf.priceText = '--';
+                    tf.vwapText = '--';
+                }
+            }
+
+            for (const tf of [target.microTerm, target.smallTerm, target.mediumTerm, target.largeTerm]) {
+                setTermIndicators(tf, ind);
+                setTermVisuals(tf, vis);
+            }
+
+            target.automationEnabled = auto.enabled;
+            target.automationIntervalValue = auto.intervalValue;
+            target.automationIntervalUnit = auto.intervalUnit;
+            target.slowIntervalSecs = draft.intervals.slow;
+            target.normalIntervalSecs = draft.intervals.normal;
+            target.fastIntervalSecs = draft.intervals.fast;
+            target.nextEvaluationIn = auto.enabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
+            target.currentView = 'terminal';
+        } catch (e) {
+            console.error("Save config exception:", e);
+        }
+    }
+</script>
+
+<div class="{styles.settingsWorkspaceTab} animate-fade">
+    <div class={styles.settingsGrid}>
+
+        <!-- Visual Layout Column -->
+        <div class={styles.settingsCol}>
+            <h3 class={styles.cardTitle}>Visual Overlays</h3>
+            <div class={styles.settingGroupBox}>
+                <span class={styles.selectorsLabel}>Chart Display Items</span>
+                <div class={styles.toggleGrid}>
+                    <button class="{styles.selectorBtn} {draft.visuals.showEmas ? styles.active : ''}" onclick={() => draft.visuals.showEmas = !draft.visuals.showEmas}>EMAs</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showBb ? styles.active : ''}" onclick={() => draft.visuals.showBb = !draft.visuals.showBb}>Bollinger</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showVwap ? styles.active : ''}" onclick={() => draft.visuals.showVwap = !draft.visuals.showVwap}>VWAP</button>
+                </div>
+            </div>
+
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <span class={styles.selectorsLabel}>Indicator Panels</span>
+                <div class={styles.toggleGrid}>
+                    <button class="{styles.selectorBtn} {draft.visuals.showVolume ? styles.active : ''}" onclick={() => draft.visuals.showVolume = !draft.visuals.showVolume}>Volume</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showAdx ? styles.active : ''}" onclick={() => draft.visuals.showAdx = !draft.visuals.showAdx}>ADX</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showAtr ? styles.active : ''}" onclick={() => draft.visuals.showAtr = !draft.visuals.showAtr}>ATR</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showRsi ? styles.active : ''}" onclick={() => draft.visuals.showRsi = !draft.visuals.showRsi}>RSI</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showMacd ? styles.active : ''}" onclick={() => draft.visuals.showMacd = !draft.visuals.showMacd}>MACD</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showSqueeze ? styles.active : ''}" onclick={() => draft.visuals.showSqueeze = !draft.visuals.showSqueeze}>Squeeze</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showBbwp ? styles.active : ''}" onclick={() => draft.visuals.showBbwp = !draft.visuals.showBbwp}>BBWP</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showFib ? styles.active : ''}" onclick={() => draft.visuals.showFib = !draft.visuals.showFib}>Fibonacci</button>
+                </div>
+            </div>
+
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <span class={styles.selectorsLabel}>Automated AI Evaluation</span>
+                <div class={styles.toggleRow}>
+                    <span class={styles.toggleLabel}>Status</span>
+                    <button class="{styles.selectorBtn} {draft.automation.enabled ? styles.active : ''}"
+                            onclick={() => draft.automation.enabled = !draft.automation.enabled}>
+                        {draft.automation.enabled ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+                {#if draft.automation.enabled}
+                    <div class={styles.inputRow} style="margin-top: 8px;">
+                        <label for="autoInterval">Interval:</label>
+                        <div class={styles.tfSplitGroup}>
+                            <input id="autoInterval" type="number" bind:value={draft.automation.intervalValue} min="1" class={styles.tfNumberInput} />
+                            <select bind:value={draft.automation.intervalUnit} class={styles.tfUnitSelect}>
+                                <option value="seconds">Seconds</option>
+                                <option value="minutes">Minutes</option>
+                                <option value="hours">Hours</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class={styles.liveCounter} style="margin-top: 8px; font-size: 10px; color: #3b82f6;">
+                        Next evaluation in: {pair.nextEvaluationIn}
+                    </div>
+                {/if}
+            </div>
+
+        </div>
+
+        <!-- Indicator Parameters Column -->
+        <div class={styles.settingsCol}>
+            <h3 class={styles.cardTitle}>Technical Parameters</h3>
+            <div class="{styles.parameterInputsScroll} font-mono">
+                <div class={styles.inputRow}>
+                    <label for="exchange">Exchange Source:</label>
+                    <select id="exchange" bind:value={draft.exchange} class={styles.tfUnitSelect}>
+                        <option value="Hyperliquid">Hyperliquid</option>
+                    </select>
+                </div>
+                <div class={styles.inputRow}>
+                    <label for="symbol">Market Pair:</label>
+                    <input id="symbol" type="text" bind:value={draft.symbol} />
+                </div>
+                <div class={styles.inputRow}>
+                    <label for="tf">Timeframe:</label>
+                    <div class={styles.tfSplitGroup}>
+                        <input id="tf" type="number" bind:value={draft.timeframe.value} min="1" class={styles.tfNumberInput} />
+                        <select bind:value={draft.timeframe.unit} class={styles.tfUnitSelect}>
+                            <option value="seconds">Seconds</option>
+                            <option value="minutes">Minutes</option>
+                            <option value="hours">Hours</option>
+                        </select>
+                    </div>
+                </div>
+                <div class={styles.inputRow}>
+                    <label for="analysisLimit">AI Analysis Lookback (Candles):</label>
+                    <input id="analysisLimit" type="number" bind:value={draft.indicators.analysisLimit} min="10" max="500" step="5" />
+                </div>
+                <hr class={styles.sectionDivider} />
+                <div class={styles.inputRow}><label for="emaf">EMA Fast:</label><input id="emaf" type="number" bind:value={draft.indicators.emaFast} /></div>
+                <div class={styles.inputRow}><label for="emam">EMA Med:</label><input id="emam" type="number" bind:value={draft.indicators.emaMedium} /></div>
+                <div class={styles.inputRow}><label for="emas">EMA Slow:</label><input id="emas" type="number" bind:value={draft.indicators.emaSlow} /></div>
+                <div class={styles.inputRow}><label for="emal">EMA Long:</label><input id="emal" type="number" bind:value={draft.indicators.emaLong} /></div>
+                <div class={styles.inputRow}><label for="rsi">RSI Window:</label><input id="rsi" type="number" bind:value={draft.indicators.rsiPeriod} /></div>
+                <div class={styles.inputRow}><label for="macdf">MACD Fast:</label><input id="macdf" type="number" bind:value={draft.indicators.macdFast} /></div>
+                <div class={styles.inputRow}><label for="macds">MACD Slow:</label><input id="macds" type="number" bind:value={draft.indicators.macdSlow} /></div>
+                <div class={styles.inputRow}><label for="macdsig">MACD Signal:</label><input id="macdsig" type="number" bind:value={draft.indicators.macdSignal} /></div>
+                <div class={styles.inputRow}><label for="adx">ADX Period:</label><input id="adx" type="number" bind:value={draft.indicators.adxPeriod} /></div>
+                <div class={styles.inputRow}><label for="atr">ATR Period:</label><input id="atr" type="number" bind:value={draft.indicators.atrPeriod} /></div>
+                <div class={styles.inputRow}><label for="sqz">Squeeze Wave:</label><input id="sqz" type="number" bind:value={draft.indicators.squeezePeriod} /></div>
+                <div class={styles.inputRow}><label for="macdHiTh">MACD Extreme High:</label><input id="macdHiTh" type="number" step="0.01" bind:value={draft.indicators.macdExtremeHigh} /></div>
+                <div class={styles.inputRow}><label for="macdLoTh">MACD Extreme Low:</label><input id="macdLoTh" type="number" step="0.01" bind:value={draft.indicators.macdExtremeLow} /></div>
+                <div class={styles.inputRow}><label for="macdContr">MACD Contraction %:</label><input id="macdContr" type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.indicators.macdContraction} /></div>
+                <div class={styles.inputRow}><label for="adxTrend">ADX Trend Threshold:</label><input id="adxTrend" type="number" bind:value={draft.indicators.adxTrendThreshold} /></div>
+                <div class={styles.inputRow}><label for="adxExh">ADX Exhaustion Threshold:</label><input id="adxExh" type="number" bind:value={draft.indicators.adxExhaustionThreshold} /></div>
+                <div class={styles.inputRow}><label for="adxSlope">ADX Slope Lookback:</label><input id="adxSlope" type="number" bind:value={draft.indicators.adxSlopeLookback} /></div>
+                <div class={styles.inputRow}><label for="sqzMin">Squeeze Min Duration:</label><input id="sqzMin" type="number" bind:value={draft.indicators.squeezeMinDuration} /></div>
+                <div class={styles.inputRow}><label for="sqzBb">Squeeze BB Std Dev:</label><input id="sqzBb" type="number" step="0.1" bind:value={draft.indicators.squeezeBbStdDev} /></div>
+                <div class={styles.inputRow}><label for="sqzKc">Squeeze KC ATR Mult:</label><input id="sqzKc" type="number" step="0.1" bind:value={draft.indicators.squeezeKcAtrMult} /></div>
+                <div class={styles.inputRow}><label for="srProx">SR Proximity %:</label><input id="srProx" type="number" step="0.1" bind:value={draft.indicators.srProximityThreshold} /></div>
+                <div class={styles.inputRow}><label for="srFlip">SR Flip Tolerance %:</label><input id="srFlip" type="number" step="0.1" bind:value={draft.indicators.srFlipTolerance} /></div>
+                <div class={styles.inputRow}><label for="atrMult">ATR Stop Multiplier:</label><input id="atrMult" type="number" step="0.1" bind:value={draft.indicators.atrMultiplier} /></div>
+                <div class={styles.inputRow}><label for="atrRR">Target R:R Ratio:</label><input id="atrRR" type="number" step="0.1" bind:value={draft.indicators.atrTargetRR} /></div>
+                <div class={styles.inputRow}><label for="volPeriod">Volume Avg Period:</label><input id="volPeriod" type="number" bind:value={draft.indicators.volumeAvgPeriod} /></div>
+                <div class={styles.inputRow}><label for="rvolInst">RVOL Institutional:</label><input id="rvolInst" type="number" step="0.1" bind:value={draft.indicators.rvolInstitutional} /></div>
+                <div class={styles.inputRow}><label for="rvolClx">RVOL Climax:</label><input id="rvolClx" type="number" step="0.1" bind:value={draft.indicators.rvolClimax} /></div>
+            </div>
+
+            <div class="settings-footer-row" style="margin-top: 16px;">
+                <button class={styles.applyWorkspaceBtn} onclick={applySettings}>
+                    Apply Workspace Configuration
+                </button>
+            </div>
+        </div>
+
+        <!-- Backend Secrets & Prompts Guide Column -->
+        <div class={styles.settingsCol}>
+            <h3 class={styles.cardTitle}>Backend & AI Prompts</h3>
+
+            <!-- API Key Config -->
+            <div class={styles.settingGroupBox}>
+                <span class={styles.selectorsLabel}>DeepSeek API Secret Key</span>
+                <div class={styles.keyInputRow}>
+                    <input type="password" class={styles.keyField} placeholder="sk-..." bind:value={draft.apiKey} />
+                    <button class={styles.keySaveBtn} disabled={apiKeyStatus === 'saving'} onclick={saveApiKey}>
+                        {apiKeyStatus === 'saving' ? '...' : 'Save'}
+                    </button>
+                </div>
+                {#if apiKeyStatus === 'success'}
+                    <div class="{styles.statusMsg} {styles.successMsg}">Key saved.</div>
+                {/if}
+            </div>
+
+            <!-- Rules Editor -->
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <span class={styles.selectorsLabel}>Technical rules guide handbook (Markdown)</span>
+                <textarea class={styles.rulesEditor} rows="6" bind:value={draft.rules}></textarea>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                    <button class={styles.keySaveBtn} onclick={fetchRules}>Fetch</button>
+                    <button class={styles.keySaveBtn} disabled={rulesStatus === 'saving'} onclick={saveRules}>
+                        {rulesStatus === 'saving' ? '...' : 'Update Rules'}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Paper Trading Rules Column -->
+        <div class={styles.settingsCol}>
+            <h3 class={styles.cardTitle}>Paper Trading Rules</h3>
+
+            <div class={styles.settingGroupBox}>
+                <span class={styles.selectorsLabel}>Account Configuration</span>
+                <div class={styles.inputRow} style="margin-top: 4px;">
+                    <label for="paperUSD">Initial USD:</label>
+                    <input id="paperUSD" type="number" bind:value={app.paperInitialUSD} min="100" step="100" />
+                </div>
+                <div class={styles.inputRow} style="margin-top: 8px;">
+                    <label for="paperAlloc">Allocation %:</label>
+                    <input id="paperAlloc" type="number" bind:value={app.paperAllocationPct} min="1" max="100" step="1" />
+                </div>
+                <div class={styles.inputRow} style="margin-top: 8px;">
+                    <label for="paperMaxRisk">Max Risk %:</label>
+                    <input id="paperMaxRisk" type="number" bind:value={app.paperMaxRiskPct} min="0.5" max="10" step="0.1" />
+                </div>
+                <div class={styles.inputRow} style="margin-top: 8px;">
+                    <label for="paperLeverage">Leverage:</label>
+                    <input id="paperLeverage" type="number" bind:value={app.paperLeverage} min="1" max="20" step="1" />
+                </div>
+                <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
+                        onclick={() => app.savePaperConfig(
+                            app.paperInitialUSD,
+                            app.paperAllocationPct,
+                            app.paperAutoExecute
+                        )}>
+                    Save Paper Config
+                </button>
+            </div>
+
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <span class={styles.selectorsLabel}>AI Orchestrator Settings</span>
+                <div class={styles.inputRow} style="margin-top: 4px;">
+                    <label for="paperInterval">Eval Interval (min):</label>
+                    <input id="paperInterval" type="number" bind:value={app.paperAutoExecuteIntervals} min="1" max="1440" step="1" />
+                </div>
+                <div class={styles.inputRow} style="margin-top: 8px;">
+                    <label for="paperLookback">Lookback Trades:</label>
+                    <input id="paperLookback" type="number" bind:value={app.paperLookbackTrades} min="1" max="50" step="1" />
+                </div>
+                <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
+                    Number of past trades fed to the Master Orchestrator for context.
+                </p>
+            </div>
+
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <span class={styles.selectorsLabel}>Auto-Execution</span>
+                <div class={styles.toggleRow}>
+                    <span class={styles.toggleLabel}>Auto-Place Orders</span>
+                    <button class="{styles.selectorBtn} {app.paperAutoExecute ? styles.active : ''}"
+                            onclick={() => {
+                                app.paperAutoExecute = !app.paperAutoExecute;
+                                app.savePaperConfig(
+                                    app.paperInitialUSD,
+                                    app.paperAllocationPct,
+                                    app.paperAutoExecute
+                                );
+                            }}>
+                        {app.paperAutoExecute ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+                <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
+                    When enabled, automated AI signals will automatically place paper orders.
+                </p>
+            </div>
+
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <button class={styles.paperResetBtn} onclick={() => {
+                    if (confirm('Reset paper account? This will close any active position and restore initial balance.')) {
+                        app.resetPaperAccount();
+                    }
+                }}>
+                    Reset Account Balance
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+

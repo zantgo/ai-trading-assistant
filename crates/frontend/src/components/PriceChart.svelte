@@ -2,10 +2,11 @@
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
-    import { getState } from '../state.svelte';
+    import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import styles from './PriceChart.module.css';
 
-    const app = getState();
+    const app = useAppStore();
     let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
@@ -17,6 +18,7 @@
 
     let container: HTMLDivElement;
     let chart: IChartApi;
+    let ro: ResizeObserver;
     let candleSeries: ISeriesApi<'Candlestick'>;
     let ema10Series: ISeriesApi<'Line'>;
     let ema50Series: ISeriesApi<'Line'>;
@@ -129,15 +131,14 @@
             }
         })();
 
-        const ro = new ResizeObserver(() => {
+        ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
-
-        return () => ro.disconnect();
     });
 
     onDestroy(() => {
+        ro?.disconnect();
         if (chart) {
             unregisterChart(chart);
             chart.remove();
@@ -202,6 +203,7 @@
 
     // Support level price lines
     $effect(() => {
+        if (!candleSeries) return;
         supportLines.forEach(l => candleSeries.removePriceLine(l));
         supportLines = [];
         const supports = pair ? app.markedSupportLevels : [];
@@ -220,6 +222,7 @@
 
     // Resistance level price lines
     $effect(() => {
+        if (!candleSeries) return;
         resistanceLines.forEach(l => candleSeries.removePriceLine(l));
         resistanceLines = [];
         const resistances = pair ? app.markedResistanceLevels : [];
@@ -238,6 +241,7 @@
 
     // Entry price line (when position is active)
     $effect(() => {
+        if (!candleSeries) return;
         if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
         const pos = pair ? app.activePaperPosition as Record<string, unknown> | null : null;
         if (pos?.entry_price) {
@@ -257,8 +261,9 @@
 
     // Stop-loss price line
     $effect(() => {
+        if (!candleSeries) return;
         if (stopLossLine) { candleSeries.removePriceLine(stopLossLine); stopLossLine = null; }
-        const level = pair ? pair.paperInvalidationLevel : 0;
+        const level = pair ? app.paperInvalidationLevel : 0;
         if (level > 0) {
             stopLossLine = candleSeries.createPriceLine({
                 price: level,
@@ -273,6 +278,7 @@
 
     // Divergence extrema price lines
     $effect(() => {
+        if (!candleSeries) return;
         divergenceLines.forEach(l => candleSeries.removePriceLine(l));
         divergenceLines = [];
         if (!pair) return;
@@ -317,6 +323,7 @@
 
     // Fibonacci Golden Pocket + Extension lines
     $effect(() => {
+        if (!candleSeries) return;
         if (fibGpTopLine) { candleSeries.removePriceLine(fibGpTopLine); fibGpTopLine = null; }
         if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
         if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
@@ -374,59 +381,14 @@
     });
 </script>
 
-<div class="chart-wrapper">
+<div class={styles.chartWrapper}>
     {#if pair}
-        <span class="ema-stack-label"
-            class:bullish={tf.emaStackState === 'bullish'}
-            class:bearish={tf.emaStackState === 'bearish'}
-        >
+        <span class="{styles.emaStackLabel} {tf.emaStackState === 'bullish' ? styles.bullish : ''} {tf.emaStackState === 'bearish' ? styles.bearish : ''}">
             {tf.emaStackState?.toUpperCase() || 'TANGLED'}
         </span>
-        <span class="vwap-bias-label"
-            class:premium={tf.vwapBias === 'premium'}
-            class:discount={tf.vwapBias === 'discount'}
-        >
+        <span class="{styles.vwapBiasLabel} {tf.vwapBias === 'premium' ? styles.premium : ''} {tf.vwapBias === 'discount' ? styles.discount : ''}">
             VWAP: {tf.vwapBias?.toUpperCase() || '--'}
         </span>
     {/if}
-    <div class="chart-container" bind:this={container}></div>
+    <div class={styles.chartContainer} bind:this={container}></div>
 </div>
-
-<style>
-    .chart-wrapper { position: relative; width: 100%; height: 100%; }
-    .chart-container { width: 100%; height: 100%; }
-    .ema-stack-label {
-        position: absolute;
-        top: 4px;
-        left: 6px;
-        z-index: 10;
-        font-size: 8px;
-        font-weight: 700;
-        font-family: 'Courier New', monospace;
-        letter-spacing: 0.05em;
-        padding: 1px 5px;
-        border-radius: 3px;
-        background: rgba(15, 17, 26, 0.85);
-        color: #8f929d;
-        border: 1px solid #4c525e;
-    }
-    .ema-stack-label.bullish { color: #26a69a; border-color: rgba(38, 166, 154, 0.4); }
-    .ema-stack-label.bearish { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
-    .vwap-bias-label {
-        position: absolute;
-        top: 4px;
-        left: 64px;
-        z-index: 10;
-        font-size: 8px;
-        font-weight: 700;
-        font-family: 'Courier New', monospace;
-        letter-spacing: 0.05em;
-        padding: 1px 5px;
-        border-radius: 3px;
-        background: rgba(15, 17, 26, 0.85);
-        color: #8f929d;
-        border: 1px solid #4c525e;
-    }
-    .vwap-bias-label.premium { color: #ffb300; border-color: rgba(255, 179, 0, 0.4); }
-    .vwap-bias-label.discount { color: #ff5252; border-color: rgba(255, 82, 82, 0.4); }
-</style>

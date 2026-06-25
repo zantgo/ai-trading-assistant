@@ -5,6 +5,9 @@ use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
+use rust_decimal::prelude::*;
+use rust_decimal::Decimal;
+
 use crate::config::{AppConfig, AutomationConfig, IntervalsConfig};
 use crate::db;
 use crate::llm::LlmClient;
@@ -80,7 +83,7 @@ pub struct AutomationContext {
     pub large_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
-    pub llm_client: Arc<RwLock<LlmClient>>,
+    pub llm_client: Arc<LlmClient>,
     pub telemetry_tx: mpsc::Sender<db::TelemetryMsg>,
     pub cancel: CancellationToken,
     pub api_key_configured: Arc<AtomicBool>,
@@ -185,7 +188,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             // Immediately close any open positions to protect remaining capital
             if let Some(_) = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await {
                 let price = ctx.micro_latest.read().await.as_ref()
-                    .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
+                    .and_then(|s| s.mid_price.to_f64())
                     .unwrap_or(0.0);
                 if price > 0.0 {
                     let _ = paper_trading::close_paper_position(
@@ -225,7 +228,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
         let prices: Vec<f64> = history_guard.iter().map(|c| {
-            c.close.to_string().parse::<f64>().unwrap_or(0.0)
+            c.close.to_f64().unwrap_or(0.0)
         }).collect();
         drop(history_guard);
 
@@ -237,30 +240,9 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             *entry = prices.clone();
         }
 
-        let llm = ctx.llm_client.read().await;
-        if llm.api_key.is_empty() {
-            drop(llm);
+        if ctx.llm_client.api_key.read().await.is_empty() {
             continue;
         }
-
-        // Gather snapshots from all 4 timeframes
-        let config_guard = ctx.config.read().await;
-        let medium_tf_secs = config_guard.medium_timeframe.duration_seconds;
-        let large_tf_secs = config_guard.large_timeframe.duration_seconds;
-        drop(config_guard);
-
-        let snapshot_micro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
-        let snapshot_small = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 300).await;
-        let snapshot_medium = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, medium_tf_secs).await;
-        let snapshot_large = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, large_tf_secs).await;
-
-        let indicators_micro = build_indicator_snapshot(&snapshot_micro);
-        let indicators_small = build_indicator_snapshot(&snapshot_small);
-        let indicators_medium = build_indicator_snapshot(&snapshot_medium);
-        let indicators_large = build_indicator_snapshot(&snapshot_large);
-
-        let (support_levels, resistance_levels) =
-            crate::server::compute_support_resistance(&prices, last_close);
 
         let master_id = db::insert_master_placeholder(
             &ctx.pool,
@@ -282,336 +264,430 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
         state.last_run = Some(std::time::Instant::now());
 
-        // Spawn analysis + paper trading as background task
-        let bg_pool = ctx.pool.clone();
-        let bg_telemetry = ctx.telemetry_tx.clone();
-        let bg_llm = ctx.llm_client.clone();
-        let bg_config = ctx.config.clone();
-        let bg_symbol = ctx.symbol.clone();
-        let bg_pair_key = ctx.pair_key.clone();
-        let bg_micro_history = ctx.micro_history.clone();
-        let bg_support_levels = support_levels.clone();
-        let bg_resistance_levels = resistance_levels.clone();
-        let bg_indicators_micro = indicators_micro.clone();
-        let bg_indicators_small = indicators_small.clone();
-        let bg_indicators_medium = indicators_medium.clone();
-        let bg_indicators_large = indicators_large.clone();
-        let bg_prices = prices.clone();
-        let bg_portfolio_risk = ctx.portfolio_risk.clone();
-        let bg_pair_close_histories = ctx.pair_close_histories.clone();
-        let bg_next_interval_override = ctx.next_interval_override.clone();
-        let bg_intervals = ctx.intervals.clone();
-
-        tokio::spawn(async move {
-            let llm = bg_llm.read().await;
-            if llm.api_key.is_empty() {
-                return;
-            }
-
-            let support_strings: Vec<String> = bg_support_levels.iter().map(|s| s.to_string()).collect();
-            let resistance_strings: Vec<String> = bg_resistance_levels.iter().map(|s| s.to_string()).collect();
-            let telemetry = crate::server::compile_deterministic_telemetry(
-                &bg_indicators_micro,
-                &support_strings,
-                &resistance_strings,
-            );
-
-            let multi_agent_results = match crate::server::run_multi_agent_pipeline(
-                bg_llm.clone(),
-                bg_pool.clone(),
-                &bg_symbol,
-                &bg_indicators_micro,
-                &bg_indicators_small,
-                &bg_indicators_medium,
-                &bg_indicators_large,
-                &bg_prices,
-                master_id,
-                &telemetry,
-            ).await {
-                Ok(res) => res,
-                Err(e) => {
-                    eprintln!("❌ Parallel agents failed during automated run for {}: {}", bg_symbol, e);
-                    return;
-                }
-            };
-
-            let legacy_signals = multi_agent_results.to_legacy_signals();
-            let phase_one_json = serde_json::to_string(&legacy_signals).unwrap_or_else(|_| "[]".into());
-
-            let journal_context = db::query_recent_journal_for_context(&bg_pool, &bg_symbol, 10).await;
-            let journal_opt: Option<&str> = if journal_context.is_empty() { None } else { Some(&journal_context) };
-
-            let phase_two = match llm.run_multi_timeframe_orchestrator(
-                "None",
-                "",
-                &bg_symbol,
-                &phase_one_json,
-                &support_strings,
-                &resistance_strings,
-                journal_opt,
-                Some(&bg_symbol),
-            ).await {
-                Ok(master_result) => {
-                    let _ = bg_telemetry.send(db::TelemetryMsg::UpdateMasterRecord {
-                        master_id,
-                        general_trend: master_result.general_trend.clone(),
-                        support_levels: serde_json::to_string(&master_result.support_and_resistance.detected_support_levels).unwrap_or_default(),
-                        resistance_levels: serde_json::to_string(&master_result.support_and_resistance.detected_resistance_levels).unwrap_or_default(),
-                        indicator_synthesis_summary: master_result.indicator_synthesis.summary_count.clone(),
-                        indicator_synthesis_evaluation: master_result.indicator_synthesis.evaluation.clone(),
-                        recommended_action: master_result.position_recommendation.action.clone(),
-                        recommendation_rationale: master_result.position_recommendation.rationale.clone(),
-                        score_points: Some(master_result.eight_factor_score),
-                        signals_json: None,
-                    }).await;
-                    master_result
-                }
-                Err(e) => {
-                    eprintln!("⚠️  Automation Orchestrator failed for {}: {}", bg_pair_key, e);
-                    return;
-                }
-            };
-            drop(llm);
-
-            println!(
-                "🤖 Automation: {} analysis complete. Action: {} | Trend: {} | Interval: {}",
-                bg_pair_key,
-                phase_two.position_recommendation.action,
-                phase_two.general_trend,
-                phase_two.position_recommendation.next_interval.as_deref().unwrap_or("normal"),
-            );
-
-            // ─── Dynamic Interval Selection ─────────────────────────
-            if let Some(ref next) = phase_two.position_recommendation.next_interval {
-                let new_secs = match next.as_str() {
-                    "slow" => bg_intervals.slow_seconds,
-                    "fast" => bg_intervals.fast_seconds,
-                    _ => bg_intervals.normal_seconds,
-                };
-                *bg_next_interval_override.write().await = Some(new_secs);
-            }
-
-            let local_snap = indicator_to_snapshot(&bg_indicators_micro);
-            let regime = classify_market_regime(&local_snap);
-
-            let _ = sqlx::query(
-                "UPDATE master_assistant_records SET market_regime = ?2, portfolio_allocation_pct = ?3 WHERE id = ?1"
-            )
-            .bind(master_id)
-            .bind(regime.as_str())
-            .bind(phase_two.allocation_pct)
-            .execute(&bg_pool)
-            .await;
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as i64;
-            db::insert_decision_memory_buffer(
-                &bg_pool,
-                &bg_symbol,
-                now,
-                regime.as_str(),
-                &phase_two.position_recommendation.action,
-                85,
-                phase_two.eight_factor_score,
-                2.0,
-            ).await;
-
-            // Paper trading evaluation
-            let balance = db::paper_get_balance(&bg_pool, &bg_symbol).await;
-            if balance.auto_execute {
-                let action = phase_two.position_recommendation.action.as_str();
-                let current_price = bg_prices.last().copied().unwrap_or(0.0);
-
-                let sr_levels_f64: (Vec<f64>, Vec<f64>) = {
-                    let supports: Vec<f64> = bg_support_levels.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
-                    let resistances: Vec<f64> = bg_resistance_levels.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
-                    (supports, resistances)
-                };
-
-                let auto_cfg = {
-                    let cfg = bg_config.read().await;
-                    cfg.instances.get(&bg_pair_key)
-                        .map(|p| p.automation.clone())
-                        .unwrap_or_default()
-                };
-                let use_scoring = auto_cfg.use_scoring_allocation;
-                let max_opposite = auto_cfg.max_opposite_exit_signals as u32;
-
-                // Portfolio risk validation
-                let existing_positions = crate::portfolio_risk::query_all_active_positions(&bg_pool).await;
-                let validation = crate::portfolio_risk::validate_new_position(
-                    &bg_portfolio_risk,
-                    &bg_pool,
-                    &bg_symbol,
-                    phase_two.allocation_pct,
-                    &existing_positions,
-                    &bg_pair_close_histories,
-                ).await;
-                if !validation.allowed && phase_two.allocation_pct > 0.0 && (action == "Open Long" || action == "Open Short") {
-                    println!("🛑 Auto Paper: {} portfolio risk check failed: {}", bg_pair_key, validation.reason);
-                    return;
-                }
-
-                let eight_factor_score = if use_scoring {
-                    Some(phase_two.allocation_pct)
-                } else {
-                    None
-                };
-
-                if use_scoring {
-                    let pos = db::paper_get_active_position(&bg_pool, &bg_symbol).await;
-                    if let Some(ref p) = pos {
-                        let macro_trend = phase_two.general_trend.as_str();
-                        let snap_values = indicator_to_snapshot(&bg_indicators_micro);
-                        let (should_exit, opposite_count) = paper_trading::evaluate_opposite_exit(
-                            &p.direction,
-                            &snap_values,
-                            &sr_levels_f64.0, &sr_levels_f64.1,
-                            macro_trend,
-                            max_opposite,
-                        );
-                        if should_exit {
-                            println!(
-                                "🛑 Auto Paper: {} Opposite-signal exit triggered! {} opposite signals (limit: {})",
-                                bg_pair_key, opposite_count, max_opposite
-                            );
-                            let _ = paper_trading::close_paper_position(
-                                &bg_pool, &bg_telemetry,
-                                &bg_symbol, current_price, &format!("OPPOSITE_EXIT:{}", opposite_count),
-                            ).await;
-                            return;
-                        }
-                    }
-                }
-
-                if use_scoring {
-                    paper_trading::check_break_even_trail(&bg_pool, &bg_symbol, current_price).await;
-                }
-
-                let mid_hist = bg_micro_history.read().await;
-                let mid_candles: Vec<NormalizedCandle> = mid_hist.iter().cloned().collect();
-                drop(mid_hist);
-                if let Some(inval_price) = check_decisive_close_invalidation(
-                    &bg_pool, &bg_symbol, &mid_candles,
-                ).await {
-                    let _ = paper_trading::invalidate_position(
-                        &bg_pool, &bg_telemetry,
-                        &bg_symbol, inval_price,
-                        "DECISIVE_CLOSE_1M",
-                    ).await;
-                    println!("🛑 Auto Paper: {} position invalidated by 1m decisive close at ${:.2}", bg_pair_key, inval_price);
-                    return;
-                }
-
-                let medium_trend_direction = determine_medium_trend_direction(&bg_indicators_medium);
-
-                let micro_trend = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("micro-"))
-                    .map(|r| r.signal.as_str())
-                    .collect::<Vec<_>>();
-                let small_trend = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("small-"))
-                    .map(|r| r.signal.as_str())
-                    .collect::<Vec<_>>();
-                let medium_trend_signals = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("medium-"))
-                    .map(|r| r.signal.as_str())
-                    .collect::<Vec<_>>();
-                let large_trend_signals = &legacy_signals.iter()
-                    .filter(|r| r.indicator_name.starts_with("large-"))
-                    .map(|r| r.signal.as_str())
-                    .collect::<Vec<_>>();
-
-                let micro_consensus = if micro_trend.iter().filter(|&&s| s == "BULLISH").count() >= micro_trend.len() / 2 { "BULLISH" } else if micro_trend.iter().filter(|&&s| s == "BEARISH").count() >= micro_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let small_consensus = if small_trend.iter().filter(|&&s| s == "BULLISH").count() >= small_trend.len() / 2 { "BULLISH" } else if small_trend.iter().filter(|&&s| s == "BEARISH").count() >= small_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let medium_consensus = if medium_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= medium_trend_signals.len() / 2 { "BULLISH" } else if medium_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= medium_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-                let large_consensus = if large_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= large_trend_signals.len() / 2 { "BULLISH" } else if large_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= large_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-
-                let (confluence, count) = evaluate_confluence_mtf(micro_consensus, small_consensus, medium_consensus, large_consensus);
-
-                match action {
-                    "Open Long" => {
-                        if medium_trend_direction != "BULLISH" {
-                            println!("📄 Auto Paper: {} skipping Open Long — medium trend is {} (15m chart)", bg_pair_key, medium_trend_direction);
-                        } else if confluence == "BULLISH" {
-                            let res = paper_trading::verify_margin_and_open_with_alloc(
-                                &bg_pool, &bg_telemetry,
-                                &bg_symbol, "LONG", current_price,
-                                eight_factor_score,
-                            ).await;
-                            println!("📄 Auto Paper: {} {} (confluence {}/4, medium {})", bg_pair_key, res.message, count, medium_trend_direction);
-                        } else {
-                            println!("📄 Auto Paper: {} skipping Open Long — no confluence ({}/4 aligned)", bg_pair_key, count);
-                        }
-                    }
-                    "Open Short" => {
-                        if medium_trend_direction != "BEARISH" {
-                            println!("📄 Auto Paper: {} skipping Open Short — medium trend is {} (15m chart)", bg_pair_key, medium_trend_direction);
-                        } else if confluence == "BEARISH" {
-                            let res = paper_trading::verify_margin_and_open_with_alloc(
-                                &bg_pool, &bg_telemetry,
-                                &bg_symbol, "SHORT", current_price,
-                                eight_factor_score,
-                            ).await;
-                            println!("📄 Auto Paper: {} {} (confluence {}/4, medium {})", bg_pair_key, res.message, count, medium_trend_direction);
-                        } else {
-                            println!("📄 Auto Paper: {} skipping Open Short — no confluence ({}/4 aligned)", bg_pair_key, count);
-                        }
-                    }
-                    "Close" => {
-                        let pos = db::paper_get_active_position(&bg_pool, &bg_symbol).await;
-                        if pos.is_some() {
-                            let res = paper_trading::close_paper_position(
-                                &bg_pool, &bg_telemetry,
-                                &bg_symbol, current_price, "AUTOMATED",
-                            ).await;
-                            println!("📄 Auto Paper: {} {}", bg_pair_key, res.message);
-
-                            if let Some(ref p) = pos {
-                                let pnl = if p.direction == "LONG" {
-                                    (current_price - p.entry_price) * p.size
-                                } else {
-                                    (p.entry_price - current_price) * p.size
-                                };
-                                let roi = if p.allocated_usd > 0.0 {
-                                    (pnl / p.allocated_usd) * 100.0
-                                } else { 0.0 };
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_millis() as i64;
-                                db::trade_telemetry_insert(
-                                    &bg_pool, "Hyperliquid", &bg_symbol, &p.direction,
-                                    p.entry_timestamp, now,
-                                    p.entry_price, current_price, p.size,
-                                    p.allocated_usd * 0.0006, 0.0, pnl, roi, "AUTOMATED",
-                                ).await;
-
-                                let _ = bg_telemetry.send(db::TelemetryMsg::JournalTrade {
-                                    symbol: bg_symbol.clone(),
-                                    direction: p.direction.clone(),
-                                    entry_price: p.entry_price,
-                                    exit_price: current_price,
-                                    entry_timestamp: p.entry_timestamp,
-                                    exit_timestamp: now,
-                                    size: p.size,
-                                    realized_pnl: pnl,
-                                    roi_pct: roi,
-                                    allocated_usd: p.allocated_usd,
-                                    trigger: "AUTOMATED".to_string(),
-                                }).await;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        });
+        if let Err(e) = execute_automation_cycle(&ctx, master_id, &prices).await {
+            eprintln!("Automation cycle error for {}: {}", ctx.pair_key, e);
+        }
     }
 
     println!("🛑 Automation Task: {} scheduler terminated.", ctx.pair_key);
+}
+
+async fn execute_automation_cycle(
+    ctx: &AutomationContext,
+    master_id: i64,
+    prices: &[f64],
+) -> Result<(), String> {
+    let llm = ctx.llm_client.clone();
+    if llm.api_key.read().await.is_empty() {
+        return Ok(());
+    }
+
+    let last_close = prices.last().copied().unwrap_or(0.0);
+
+    // Gather snapshots from all 4 timeframes
+    let config_guard = ctx.config.read().await;
+    let medium_tf_secs = config_guard.medium_timeframe.duration_seconds;
+    let large_tf_secs = config_guard.large_timeframe.duration_seconds;
+    drop(config_guard);
+
+    let snapshot_micro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
+    let snapshot_small = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 300).await;
+    let snapshot_medium = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, medium_tf_secs).await;
+    let snapshot_large = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, large_tf_secs).await;
+
+    let indicators_micro = build_indicator_snapshot(&snapshot_micro);
+    let indicators_small = build_indicator_snapshot(&snapshot_small);
+    let indicators_medium = build_indicator_snapshot(&snapshot_medium);
+    let indicators_large = build_indicator_snapshot(&snapshot_large);
+
+    let (support_levels, resistance_levels) =
+        crate::server::compute_support_resistance(prices, last_close);
+
+    let support_strings: Vec<String> = support_levels.iter().map(|s| s.to_string()).collect();
+    let resistance_strings: Vec<String> = resistance_levels.iter().map(|s| s.to_string()).collect();
+    let telemetry = crate::server::compile_deterministic_telemetry(
+        &indicators_micro,
+        &support_strings,
+        &resistance_strings,
+    );
+
+    let multi_agent_results = crate::server::run_multi_agent_pipeline(
+        llm.clone(),
+        ctx.pool.clone(),
+        &ctx.symbol,
+        &indicators_micro,
+        &indicators_small,
+        &indicators_medium,
+        &indicators_large,
+        prices,
+        master_id,
+        &telemetry,
+    )
+    .await
+    .map_err(|e| format!("Parallel agents failed: {}", e))?;
+
+    let legacy_signals = multi_agent_results.to_legacy_signals();
+    let phase_one_json = serde_json::to_string(&legacy_signals).unwrap_or_else(|_| "[]".into());
+
+    let journal_context =
+        db::query_recent_journal_for_context(&ctx.pool, &ctx.symbol, 10).await;
+    let journal_opt: Option<&str> =
+        if journal_context.is_empty() {
+            None
+        } else {
+            Some(&journal_context)
+        };
+
+    let phase_two = llm
+        .run_multi_timeframe_orchestrator(
+            "None",
+            "",
+            &ctx.symbol,
+            &phase_one_json,
+            &support_strings,
+            &resistance_strings,
+            journal_opt,
+            Some(&ctx.symbol),
+        )
+        .await
+        .map_err(|e| format!("Orchestrator failed: {}", e))?;
+
+    let _ = ctx
+        .telemetry_tx
+        .send(db::TelemetryMsg::UpdateMasterRecord {
+            master_id,
+            general_trend: phase_two.general_trend.clone(),
+            support_levels: serde_json::to_string(
+                &phase_two.support_and_resistance.detected_support_levels,
+            )
+            .unwrap_or_default(),
+            resistance_levels: serde_json::to_string(
+                &phase_two.support_and_resistance.detected_resistance_levels,
+            )
+            .unwrap_or_default(),
+            indicator_synthesis_summary: phase_two.indicator_synthesis.summary_count.clone(),
+            indicator_synthesis_evaluation: phase_two.indicator_synthesis.evaluation.clone(),
+            recommended_action: phase_two.position_recommendation.action.clone(),
+            recommendation_rationale: phase_two.position_recommendation.rationale.clone(),
+            score_points: Some(phase_two.eight_factor_score),
+            signals_json: None,
+        })
+        .await;
+
+    println!(
+        "🤖 Automation: {} analysis complete. Action: {} | Trend: {} | Interval: {}",
+        ctx.pair_key,
+        phase_two.position_recommendation.action,
+        phase_two.general_trend,
+        phase_two.position_recommendation.next_interval.as_deref().unwrap_or("normal"),
+    );
+
+    // ─── Dynamic Interval Selection ─────────────────────────
+    if let Some(ref next) = phase_two.position_recommendation.next_interval {
+        let new_secs = match next.as_str() {
+            "slow" => ctx.intervals.slow_seconds,
+            "fast" => ctx.intervals.fast_seconds,
+            _ => ctx.intervals.normal_seconds,
+        };
+        *ctx.next_interval_override.write().await = Some(new_secs);
+    }
+
+    let local_snap = indicator_to_snapshot(&indicators_micro);
+    let regime = classify_market_regime(&local_snap);
+
+    let _ = sqlx::query(
+        "UPDATE master_assistant_records SET market_regime = ?2, portfolio_allocation_pct = ?3 WHERE id = ?1",
+    )
+    .bind(master_id)
+    .bind(regime.as_str())
+    .bind(phase_two.allocation_pct)
+    .execute(&ctx.pool)
+    .await;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    db::insert_decision_memory_buffer(
+        &ctx.pool,
+        &ctx.symbol,
+        now,
+        regime.as_str(),
+        &phase_two.position_recommendation.action,
+        85,
+        phase_two.eight_factor_score,
+        2.0,
+    )
+    .await;
+
+    // Paper trading evaluation
+    let balance = db::paper_get_balance(&ctx.pool, &ctx.symbol).await;
+    if !balance.auto_execute {
+        return Ok(());
+    }
+
+    let action = phase_two.position_recommendation.action.as_str();
+    let current_price = prices.last().copied().unwrap_or(0.0);
+
+    let sr_levels_f64: (Vec<f64>, Vec<f64>) = {
+        let supports: Vec<f64> = support_levels.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
+        let resistances: Vec<f64> = resistance_levels.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
+        (supports, resistances)
+    };
+
+    let auto_cfg = {
+        let cfg = ctx.config.read().await;
+        cfg.instances
+            .get(&ctx.pair_key)
+            .map(|p| p.automation.clone())
+            .unwrap_or_default()
+    };
+    let use_scoring = auto_cfg.use_scoring_allocation;
+    let max_opposite = auto_cfg.max_opposite_exit_signals as u32;
+
+    // Portfolio risk validation
+    let existing_positions = crate::portfolio_risk::query_all_active_positions(&ctx.pool).await;
+    let validation = crate::portfolio_risk::validate_new_position(
+        &ctx.portfolio_risk,
+        &ctx.pool,
+        &ctx.symbol,
+        phase_two.allocation_pct,
+        &existing_positions,
+        &ctx.pair_close_histories,
+    )
+    .await;
+    if !validation.allowed
+        && phase_two.allocation_pct > 0.0
+        && (action == "Open Long" || action == "Open Short")
+    {
+        println!(
+            "🛑 Auto Paper: {} portfolio risk check failed: {}",
+            ctx.pair_key, validation.reason
+        );
+        return Ok(());
+    }
+
+    let eight_factor_score = if use_scoring {
+        Some(phase_two.allocation_pct)
+    } else {
+        None
+    };
+
+    if use_scoring {
+        let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
+        if let Some(ref p) = pos {
+            let macro_trend = phase_two.general_trend.as_str();
+            let snap_values = indicator_to_snapshot(&indicators_micro);
+            let (should_exit, opposite_count) = paper_trading::evaluate_opposite_exit(
+                &p.direction,
+                &snap_values,
+                &sr_levels_f64.0,
+                &sr_levels_f64.1,
+                macro_trend,
+                max_opposite,
+            );
+            if should_exit {
+                println!(
+                    "🛑 Auto Paper: {} Opposite-signal exit triggered! {} opposite signals (limit: {})",
+                    ctx.pair_key, opposite_count, max_opposite
+                );
+                let _ = paper_trading::close_paper_position(
+                    &ctx.pool,
+                    &ctx.telemetry_tx,
+                    &ctx.symbol,
+                    current_price,
+                    &format!("OPPOSITE_EXIT:{}", opposite_count),
+                )
+                .await;
+                return Ok(());
+            }
+        }
+    }
+
+    if use_scoring {
+        paper_trading::check_break_even_trail(&ctx.pool, &ctx.symbol, current_price).await;
+    }
+
+    let mid_hist = ctx.micro_history.read().await;
+    let mid_candles: Vec<NormalizedCandle> = mid_hist.iter().cloned().collect();
+    drop(mid_hist);
+    if let Some(inval_price) =
+        check_decisive_close_invalidation(&ctx.pool, &ctx.symbol, &mid_candles).await
+    {
+        let _ = paper_trading::invalidate_position(
+            &ctx.pool,
+            &ctx.telemetry_tx,
+            &ctx.symbol,
+            inval_price,
+            "DECISIVE_CLOSE_1M",
+        )
+        .await;
+        println!(
+            "🛑 Auto Paper: {} position invalidated by 1m decisive close at ${:.2}",
+            ctx.pair_key, inval_price
+        );
+        return Ok(());
+    }
+
+    let medium_trend_direction = determine_medium_trend_direction(&indicators_medium);
+
+    let micro_trend = &legacy_signals
+        .iter()
+        .filter(|r| r.indicator_name.starts_with("micro-"))
+        .map(|r| r.signal.as_str())
+        .collect::<Vec<_>>();
+    let small_trend = &legacy_signals
+        .iter()
+        .filter(|r| r.indicator_name.starts_with("small-"))
+        .map(|r| r.signal.as_str())
+        .collect::<Vec<_>>();
+    let medium_trend_signals = &legacy_signals
+        .iter()
+        .filter(|r| r.indicator_name.starts_with("medium-"))
+        .map(|r| r.signal.as_str())
+        .collect::<Vec<_>>();
+    let large_trend_signals = &legacy_signals
+        .iter()
+        .filter(|r| r.indicator_name.starts_with("large-"))
+        .map(|r| r.signal.as_str())
+        .collect::<Vec<_>>();
+
+    let micro_consensus = if micro_trend.iter().filter(|&&s| s == "BULLISH").count() >= micro_trend.len() / 2 { "BULLISH" } else if micro_trend.iter().filter(|&&s| s == "BEARISH").count() >= micro_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+    let small_consensus = if small_trend.iter().filter(|&&s| s == "BULLISH").count() >= small_trend.len() / 2 { "BULLISH" } else if small_trend.iter().filter(|&&s| s == "BEARISH").count() >= small_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+    let medium_consensus = if medium_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= medium_trend_signals.len() / 2 { "BULLISH" } else if medium_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= medium_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+    let large_consensus = if large_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= large_trend_signals.len() / 2 { "BULLISH" } else if large_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= large_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+
+    let (confluence, count) = evaluate_confluence_mtf(
+        micro_consensus,
+        small_consensus,
+        medium_consensus,
+        large_consensus,
+    );
+
+    match action {
+        "Open Long" => {
+            if medium_trend_direction != "BULLISH" {
+                println!(
+                    "📄 Auto Paper: {} skipping Open Long — medium trend is {} (15m chart)",
+                    ctx.pair_key, medium_trend_direction
+                );
+            } else if confluence == "BULLISH" {
+                let res = paper_trading::verify_margin_and_open_with_alloc(
+                    &ctx.pool,
+                    &ctx.telemetry_tx,
+                    &ctx.symbol,
+                    "LONG",
+                    current_price,
+                    eight_factor_score,
+                )
+                .await;
+                println!(
+                    "📄 Auto Paper: {} {} (confluence {}/4, medium {})",
+                    ctx.pair_key, res.message, count, medium_trend_direction
+                );
+            } else {
+                println!(
+                    "📄 Auto Paper: {} skipping Open Long — no confluence ({}/4 aligned)",
+                    ctx.pair_key, count
+                );
+            }
+        }
+        "Open Short" => {
+            if medium_trend_direction != "BEARISH" {
+                println!(
+                    "📄 Auto Paper: {} skipping Open Short — medium trend is {} (15m chart)",
+                    ctx.pair_key, medium_trend_direction
+                );
+            } else if confluence == "BEARISH" {
+                let res = paper_trading::verify_margin_and_open_with_alloc(
+                    &ctx.pool,
+                    &ctx.telemetry_tx,
+                    &ctx.symbol,
+                    "SHORT",
+                    current_price,
+                    eight_factor_score,
+                )
+                .await;
+                println!(
+                    "📄 Auto Paper: {} {} (confluence {}/4, medium {})",
+                    ctx.pair_key, res.message, count, medium_trend_direction
+                );
+            } else {
+                println!(
+                    "📄 Auto Paper: {} skipping Open Short — no confluence ({}/4 aligned)",
+                    ctx.pair_key, count
+                );
+            }
+        }
+        "Close" => {
+            let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
+            if pos.is_some() {
+                let res = paper_trading::close_paper_position(
+                    &ctx.pool,
+                    &ctx.telemetry_tx,
+                    &ctx.symbol,
+                    current_price,
+                    "AUTOMATED",
+                )
+                .await;
+                println!("📄 Auto Paper: {} {}", ctx.pair_key, res.message);
+
+                if let Some(ref p) = pos {
+                    let pnl = if p.direction == "LONG" {
+                        (current_price - p.entry_price) * p.size
+                    } else {
+                        (p.entry_price - current_price) * p.size
+                    };
+                    let roi = if p.allocated_usd > 0.0 {
+                        (pnl / p.allocated_usd) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64;
+                    db::trade_telemetry_insert(
+                        &ctx.pool,
+                        "Hyperliquid",
+                        &ctx.symbol,
+                        &p.direction,
+                        p.entry_timestamp,
+                        now,
+                        p.entry_price,
+                        current_price,
+                        p.size,
+                        p.allocated_usd * 0.0006,
+                        0.0,
+                        pnl,
+                        roi,
+                        "AUTOMATED",
+                    )
+                    .await;
+
+                    let _ = ctx
+                        .telemetry_tx
+                        .send(db::TelemetryMsg::JournalTrade {
+                            symbol: ctx.symbol.clone(),
+                            direction: p.direction.clone(),
+                            entry_price: p.entry_price,
+                            exit_price: current_price,
+                            entry_timestamp: p.entry_timestamp,
+                            exit_timestamp: now,
+                            size: p.size,
+                            realized_pnl: pnl,
+                            roi_pct: roi,
+                            allocated_usd: p.allocated_usd,
+                            trigger: "AUTOMATED".to_string(),
+                        })
+                        .await;
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
 
 /// Determine the medium trend direction from the 15-minute chart (Section 3.2).
@@ -639,27 +715,24 @@ async fn check_decisive_close_invalidation(
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = position.as_ref()?;
 
-    let invalidation = pos.final_invalidation_level?;
+    let invalidation = Decimal::from_f64(pos.final_invalidation_level?)?;
     let last_candle = micro_history.last()?;
+    let close = last_candle.close;
 
-    let tolerance_pct = 0.002;
-    let buffer = last_candle.close.to_string().parse::<f64>().unwrap_or(0.0) * tolerance_pct;
+    let tolerance_pct = Decimal::from_f64(0.002).unwrap_or(Decimal::ZERO);
+    let buffer = close * tolerance_pct;
 
     match pos.direction.as_str() {
         "LONG" => {
-            if last_candle.close.to_string().parse::<f64>().unwrap_or(0.0) < invalidation
-                && (invalidation - last_candle.close.to_string().parse::<f64>().unwrap_or(0.0)) > buffer
-            {
-                Some(last_candle.close.to_string().parse::<f64>().unwrap_or(0.0))
+            if close < invalidation && (invalidation - close) > buffer {
+                close.to_f64()
             } else {
                 None
             }
         }
         "SHORT" => {
-            if last_candle.close.to_string().parse::<f64>().unwrap_or(0.0) > invalidation
-                && (last_candle.close.to_string().parse::<f64>().unwrap_or(0.0) - invalidation) > buffer
-            {
-                Some(last_candle.close.to_string().parse::<f64>().unwrap_or(0.0))
+            if close > invalidation && (close - invalidation) > buffer {
+                close.to_f64()
             } else {
                 None
             }

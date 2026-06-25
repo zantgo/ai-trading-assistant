@@ -1,0 +1,107 @@
+.telemetry-table {
+    width: 100%;
+    height: 170px;
+    flex-shrink: 0;
+    background: #0f111a;
+    border-top: 1px solid #1e293b;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.tt-header {
+    flex-shrink: 0;
+    padding: 6px 10px;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.tt-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #64ffda;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+.tt-symbol {
+    font-size: 9px;
+    color: #64748b;
+    font-family: 'Courier New', monospace;
+    flex: 1;
+}
+.tt-copy-btn {
+    padding: 2px 8px;
+    border: 1px solid #1e293b;
+    border-radius: 3px;
+    background: transparent;
+    color: #4a5568;
+    font-size: 8px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+}
+.tt-copy-btn:hover {
+    border-color: #64ffda;
+    color: #64ffda;
+    background: rgba(100, 255, 218, 0.08);
+}
+.tt-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+}
+thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.tt-tf-header {
+    background: #0a0d14;
+    color: #64748b;
+    padding: 4px 8px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #1e293b;
+}
+.tt-row-label {
+    color: #4a5568;
+    padding: 3px 8px;
+    text-align: left;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    background: #0a0d14;
+    border-right: 1px solid #1a1d26;
+}
+.tt-cell {
+    padding: 3px 8px;
+    text-align: center;
+    font-size: 9px;
+    font-weight: 600;
+    border-bottom: 1px solid #14142a;
+    white-space: nowrap;
+}
+tbody tr:hover .tt-cell {
+    background: #1a1d26;
+}
+tbody tr:hover .tt-row-label {
+    background: #14142a;
+    color: #cbd5e1;
+}
+.rsi-overbought { background: rgba(239, 68, 68, 0.15); }
+.rsi-oversold { background: rgba(34, 197, 94, 0.15); }
+.adx-extreme { background: rgba(239, 68, 68, 0.2); }
+.adx-strong { background: rgba(249, 115, 22, 0.2); }
+.adx-emerging { background: rgba(34, 197, 94, 0.1); }

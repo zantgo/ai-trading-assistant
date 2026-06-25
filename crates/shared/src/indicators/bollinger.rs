@@ -1,6 +1,7 @@
-use rust_decimal::Decimal;
-use rust_decimal::prelude::{ToPrimitive, FromPrimitive};
 use super::sma::Sma;
+use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::Decimal;
 
 /// Bollinger Bands Indicator (20 SMA +/- 2 Standard Deviations)
 #[derive(Debug, Clone)]
@@ -30,7 +31,9 @@ impl BollingerBands {
         }
 
         let std_dev = {
-            let sum_sq: f64 = self.prices_history.iter()
+            let sum_sq: f64 = self
+                .prices_history
+                .iter()
                 .map(|&p| {
                     let diff = (p - sma).to_f64().unwrap_or(0.0);
                     diff * diff
@@ -44,6 +47,18 @@ impl BollingerBands {
         let lower = sma - std_dev * Decimal::from(2);
 
         Some((upper, sma, lower))
+    }
+}
+
+impl Indicator for BollingerBands {
+    type Output = Option<(Decimal, Decimal, Decimal)>;
+
+    fn update(&mut self, bar: &BarInput) -> Self::Output {
+        self.update(bar.close)
+    }
+
+    fn reset(&mut self) {
+        *self = BollingerBands::new();
     }
 }
 
@@ -106,7 +121,10 @@ mod tests {
         }
         let (upper, middle, lower) = bb.update(dec!(105.00)).unwrap();
         let bandwidth = (upper - lower) / middle;
-        assert!(bandwidth > dec!(0.00), "Bandwidth should be positive with varying prices");
+        assert!(
+            bandwidth > dec!(0.00),
+            "Bandwidth should be positive with varying prices"
+        );
         assert!(upper > middle, "Upper band must be above middle");
         assert!(middle > lower, "Middle band must be above lower band");
     }
@@ -126,10 +144,16 @@ mod tests {
         let (upper, _middle, lower) = bb.update(close).unwrap();
         assert!(upper > lower, "Bands must have non-zero width");
         let pct_b = (close - lower) / (upper - lower);
-        assert!(pct_b >= dec!(0.00) && pct_b <= dec!(1.00),
-            "%B should stay in [0,1], got {}", pct_b);
+        assert!(
+            pct_b >= dec!(0.00) && pct_b <= dec!(1.00),
+            "%B should stay in [0,1], got {}",
+            pct_b
+        );
         // At the middle of the price range, %B should be near 0.5
-        assert!((pct_b - dec!(0.5)).abs() < dec!(0.4),
-            "%B should be near 0.5 at mid-range, got {}", pct_b);
+        assert!(
+            (pct_b - dec!(0.5)).abs() < dec!(0.4),
+            "%B should be near 0.5 at mid-range, got {}",
+            pct_b
+        );
     }
 }

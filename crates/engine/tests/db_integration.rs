@@ -1,8 +1,7 @@
-use engine::db::{TelemetryMsg, run_telemetry_logger};
-use sqlx::SqlitePool;
+use engine::db::{run_telemetry_logger, TelemetryMsg};
 use shared::TriggerType;
+use sqlx::SqlitePool;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 async fn setup_test_db() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -17,7 +16,7 @@ async fn setup_test_db() -> SqlitePool {
             signal TEXT NOT NULL,
             reason TEXT NOT NULL,
             timestamp INTEGER NOT NULL
-        )"
+        )",
     )
     .execute(&pool)
     .await
@@ -39,7 +38,7 @@ async fn setup_test_db() -> SqlitePool {
             recommendation_rationale TEXT NOT NULL,
             symbol TEXT NOT NULL,
             trigger_type TEXT NOT NULL DEFAULT 'Manual'
-        )"
+        )",
     )
     .execute(&pool)
     .await
@@ -57,7 +56,7 @@ async fn test_orchestrator_database_pipeline() {
     // Spawn background logger to process channel messages
     let logger_pool = pool.clone();
     let (llm_client, _) = engine::llm::LlmClient::from_env();
-    let llm = Arc::new(RwLock::new(llm_client));
+    let llm = Arc::new(llm_client);
     tokio::spawn(async move {
         run_telemetry_logger(logger_pool, rx, llm).await;
     });
@@ -69,8 +68,12 @@ async fn test_orchestrator_database_pipeline() {
         "3125.50",
         "ETH",
         TriggerType::Manual,
-    ).await;
-    assert!(master_id > 0, "Master ID should be a valid incrementing integer");
+    )
+    .await;
+    assert!(
+        master_id > 0,
+        "Master ID should be a valid incrementing integer"
+    );
 
     tx.send(TelemetryMsg::InsertIndividualLog {
         master_record_id: master_id,
@@ -78,7 +81,9 @@ async fn test_orchestrator_database_pipeline() {
         signal: "BULLISH".to_string(),
         reason: "RSI is above 50 and rising".to_string(),
         timeframe_secs: 60,
-    }).await.expect("Failed to send InsertIndividualLog");
+    })
+    .await
+    .expect("Failed to send InsertIndividualLog");
 
     tx.send(TelemetryMsg::UpdateMasterRecord {
         master_id,
@@ -91,7 +96,9 @@ async fn test_orchestrator_database_pipeline() {
         recommendation_rationale: "Trend is upward and indicators are strong".to_string(),
         score_points: None,
         signals_json: None,
-    }).await.expect("Failed to send UpdateMasterRecord");
+    })
+    .await
+    .expect("Failed to send UpdateMasterRecord");
 
     // Give the logger a moment to process
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
