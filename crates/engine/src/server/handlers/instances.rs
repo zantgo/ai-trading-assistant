@@ -162,12 +162,30 @@ pub async fn serve_update_instance_config(
             };
             config.instances.insert(pk.clone(), specific_config);
             crate::config::save_instances(&config.instances).await;
-            println!("Instance config saved: {}", pk);
-            (
-                axum::http::StatusCode::OK,
-                "Instance configuration saved successfully",
+            drop(config);
+            println!("Instance config saved: {} — triggering pipeline recharge", pk);
+
+            match registry::recharge_instance(
+                &state.workspace,
+                &pk,
+                state.llm_client.clone(),
             )
-                .into_response()
+            .await
+            {
+                Ok(()) => (
+                    axum::http::StatusCode::OK,
+                    "Instance configuration saved and pipelines recharged",
+                )
+                    .into_response(),
+                Err(e) => {
+                    eprintln!("Pipeline recharge failed for {}: {}", pk, e);
+                    (
+                        axum::http::StatusCode::OK,
+                        format!("Config saved but pipeline recharge failed: {}", e),
+                    )
+                        .into_response()
+                }
+            }
         }
         None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }

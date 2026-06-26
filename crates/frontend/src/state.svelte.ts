@@ -43,6 +43,12 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,
         bbwpPeriodVal: 20, bbwpLookbackVal: 252, analysisLimit: 100,
+        macdExtremeHighVal: 1000, macdExtremeLowVal: -1000, macdContractionVal: 0.30,
+        adxTrendThresholdVal: 20, adxExhaustionThresholdVal: 40, adxSlopeLookbackVal: 3,
+        squeezeMinDurationVal: 5, squeezeBbPeriodVal: 20, squeezeBbStdDevVal: 2.0,
+        squeezeKcPeriodVal: 20, squeezeKcAtrMultVal: 1.5,
+        atrMultiplierVal: 2.0, atrTargetRRVal: 2.5,
+        volumeAvgPeriodVal: 20, rvolInstitutionalVal: 1.5, rvolClimaxVal: 3.0,
     };
 }
 
@@ -400,7 +406,7 @@ export class AppStore {
     get isChatLoading() { return this.activeInstance().isChatLoading; }
     set isChatLoading(v: boolean) { this.activeInstance().isChatLoading = v; }
     get currentView() { return this.activeInstance().currentView; }
-    set currentView(v: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability') { this.activeInstance().currentView = v; }
+    set currentView(v: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings') { this.activeInstance().currentView = v; }
 
     // Automation accessors
     get automationEnabled() { return this.activeInstance().automationEnabled; }

@@ -20,6 +20,7 @@
     import AiAssistantPanel from './components/AiAssistantPanel.svelte';
     import PaperTradingPanel from './components/PaperTradingPanel.svelte';
     import CostDashboardPanel from './components/CostDashboardPanel.svelte';
+    import TimeframeSettings from './components/TimeframeSettings.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
     import styles from './App.module.css';
@@ -242,6 +243,13 @@
                         </button>
                         <button
                             class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'timeframe_settings'}
+                            onclick={() => { pair.currentView = 'timeframe_settings'; }}
+                        >
+                            🕐 Timeframe Settings
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
                             class:sub-tab-active={pair.currentView === 'observability'}
                             onclick={() => { pair.currentView = 'observability'; }}
                         >
@@ -321,6 +329,8 @@
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <ObservabilityHub />
                     </div>
+                {:else if pair.currentView === 'timeframe_settings'}
+                    <TimeframeSettings {pair} {tabKey} />
                 {/if}
 
             </div>

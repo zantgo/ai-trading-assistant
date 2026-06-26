@@ -109,6 +109,29 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         const specific = pairConfigs[pairKey];
         const targetState = app.instancesMap[pairKey];
 
+        function advancedIndicators(ind: Record<string, unknown>) {
+            return {
+                bbwpLookbackVal: (ind.bbwp_lookback as number) ?? 252,
+                bbwpPeriodVal: (ind.bbwp_period as number) ?? 20,
+                macdExtremeHighVal: (ind.macd_extreme_high_threshold as number) ?? 1000,
+                macdExtremeLowVal: (ind.macd_extreme_low_threshold as number) ?? -1000,
+                macdContractionVal: (ind.macd_histogram_contraction_threshold as number) ?? 0.30,
+                adxTrendThresholdVal: (ind.adx_trend_threshold as number) ?? 20,
+                adxExhaustionThresholdVal: (ind.adx_exhaustion_threshold as number) ?? 40,
+                adxSlopeLookbackVal: (ind.adx_slope_lookback as number) ?? 3,
+                squeezeMinDurationVal: (ind.squeeze_min_duration as number) ?? 5,
+                squeezeBbPeriodVal: (ind.squeeze_bb_period as number) ?? 20,
+                squeezeBbStdDevVal: (ind.squeeze_bb_std_dev as number) ?? 2.0,
+                squeezeKcPeriodVal: (ind.squeeze_kc_period as number) ?? 20,
+                squeezeKcAtrMultVal: (ind.squeeze_kc_atr_multiplier as number) ?? 1.5,
+                atrMultiplierVal: (ind.atr_multiplier_coefficient as number) ?? 2.0,
+                atrTargetRRVal: (ind.atr_target_rr_ratio as number) ?? 2.5,
+                volumeAvgPeriodVal: (ind.volume_average_period as number) ?? 20,
+                rvolInstitutionalVal: (ind.rvol_threshold_institutional as number) ?? 1.5,
+                rvolClimaxVal: (ind.rvol_threshold_climax as number) ?? 3.0,
+            };
+        }
+
         if (specific && targetState) {
             if (specific.micro_term) {
                 targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
@@ -125,6 +148,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     atrPeriodVal: specific.micro_term.indicators.atr_period,
                     squeezePeriodVal: specific.micro_term.indicators.squeeze_period,
                     analysisLimit: specific.micro_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.short_term) {
@@ -142,6 +166,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     atrPeriodVal: specific.short_term.indicators.atr_period,
                     squeezePeriodVal: specific.short_term.indicators.squeeze_period,
                     analysisLimit: specific.short_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.short_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.medium_term) {
@@ -159,6 +184,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     atrPeriodVal: specific.medium_term.indicators.atr_period,
                     squeezePeriodVal: specific.medium_term.indicators.squeeze_period,
                     analysisLimit: specific.medium_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.medium_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.large_term) {
@@ -176,6 +202,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     atrPeriodVal: specific.large_term.indicators.atr_period,
                     squeezePeriodVal: specific.large_term.indicators.squeeze_period,
                     analysisLimit: specific.large_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.large_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.automation) {

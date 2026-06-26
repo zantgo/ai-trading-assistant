@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
 use crate::db;
-use crate::instance::{Instance, InstanceStatus};
+use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::workspace::Workspace;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -291,6 +291,196 @@ pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> R
         instance.pair_display(),
         instance_id
     );
+    Ok(())
+}
+
+/// Recharge an existing instance with new timeframe/indicator configurations.
+/// Cancels old tasks, flushes buffers, re-bootstraps, and re-spawns pipelines
+/// while preserving active paper positions, safety state, and token tracking.
+pub async fn recharge_instance(
+    workspace: &Arc<Workspace>,
+    pair_key: &str,
+    llm_client: Arc<crate::llm::LlmClient>,
+) -> Result<(), String> {
+    let old_instance = {
+        let instances = workspace.instances.read().await;
+        instances
+            .get(pair_key)
+            .cloned()
+            .ok_or_else(|| format!("Instance for pair {} not found", pair_key))?
+    };
+
+    println!("🔄 Recharging instance: {} ({})", old_instance.pair_display(), old_instance.id);
+
+    // Cancel all active tasks for old instance
+    old_instance.cancel.cancel();
+
+    // Drain old buffers
+    {
+        old_instance.micro.history.write().await.clear();
+        old_instance.short.history.write().await.clear();
+        old_instance.medium.history.write().await.clear();
+        old_instance.large.history.write().await.clear();
+        *old_instance.micro.latest.write().await = None;
+        *old_instance.short.latest.write().await = None;
+        *old_instance.medium.latest.write().await = None;
+        *old_instance.large.latest.write().await = None;
+        old_instance.micro.snapshot_history.write().await.clear();
+        old_instance.short.snapshot_history.write().await.clear();
+        old_instance.medium.snapshot_history.write().await.clear();
+        old_instance.large.snapshot_history.write().await.clear();
+    }
+
+    // Build fresh pipeline configs from saved TOML config
+    let (base, _quote) = old_instance.pair.clone();
+    let config_guard = workspace.config.read().await;
+    let pair_cfg = config_guard
+        .instances
+        .get(pair_key)
+        .cloned()
+        .ok_or_else(|| format!("No saved config for pair {}", pair_key))?;
+    let default_indicators = config_guard.indicators.clone();
+    let fib_config = config_guard.fibonacci.clone();
+    let safety_config = config_guard.safety.clone();
+    let intervals_config = config_guard.intervals.clone();
+    let rest_url = config_guard.hyperliquid.rest_url();
+    drop(config_guard);
+
+    let micro_cfg = pair_cfg.micro_term.clone();
+    let short_cfg = pair_cfg.short_term.clone();
+    let medium_cfg = pair_cfg.medium_term.clone().unwrap_or_else(|| {
+        TimeframeConfig::new(900, default_indicators.clone())
+    });
+    let large_cfg = pair_cfg.large_term.clone().unwrap_or_else(|| {
+        TimeframeConfig::new(3600, default_indicators.clone())
+    });
+
+    let micro_secs = micro_cfg.candles.duration_seconds;
+    let short_secs = short_cfg.candles.duration_seconds;
+    let medium_secs = medium_cfg.candles.duration_seconds;
+    let large_secs = large_cfg.candles.duration_seconds;
+
+    let micro_limit = micro_cfg.candles.analysis_limit as u64;
+    let short_limit = short_cfg.candles.analysis_limit as u64;
+    let medium_limit = medium_cfg.candles.analysis_limit as u64;
+    let large_limit = large_cfg.candles.analysis_limit as u64;
+
+    // Fresh historical bootstrap
+    let bootstrap_input = bootstrap::BootstrapInput {
+        base: base.clone(),
+        rest_url,
+        micro_cfg: micro_cfg.clone(),
+        short_cfg: short_cfg.clone(),
+        medium_cfg: medium_cfg.clone(),
+        large_cfg: large_cfg.clone(),
+        fib_config: fib_config.clone(),
+        micro_secs,
+        short_secs,
+        medium_secs,
+        large_secs,
+        micro_limit,
+        short_limit,
+        medium_limit,
+        large_limit,
+    };
+
+    let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
+
+    // Build fresh pipelines
+    let cancel = CancellationToken::new();
+    let pipeline_ctx = pipelines::PipelineContext {
+        base: base.clone(),
+        pair_key: pair_key.to_string(),
+        micro_cfg: micro_cfg.clone(),
+        short_cfg: short_cfg.clone(),
+        medium_cfg: medium_cfg.clone(),
+        large_cfg: large_cfg.clone(),
+        fib_config,
+        safety_config: safety_config.clone(),
+        intervals_config: intervals_config.clone(),
+        cancel: cancel.clone(),
+    };
+
+    let artifacts = pipelines::build_pipelines(
+        &pipeline_ctx,
+        workspace,
+        llm_client,
+        warmed_states.as_ref().ok().cloned(),
+    )
+    .await;
+
+    // Populate buffers from warmed states
+    if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
+        bootstrap::populate_buffers(
+            &Some(wm.clone()),
+            &Some(ws.clone()),
+            &Some(wmed.clone()),
+            &Some(wl.clone()),
+            &artifacts.micro.history,
+            &artifacts.short.history,
+            &artifacts.medium.history,
+            &artifacts.large.history,
+            &artifacts.micro.latest,
+            &artifacts.short.latest,
+            &artifacts.medium.latest,
+            &artifacts.large.latest,
+            &artifacts.micro.snapshot_history,
+            &artifacts.short.snapshot_history,
+            &artifacts.medium.snapshot_history,
+            &artifacts.large.snapshot_history,
+        )
+        .await;
+    }
+
+    // Construct new instance shell reusing preserved state from old instance
+    let new_instance = Arc::new(Instance {
+        id: old_instance.id.clone(),
+        pair: old_instance.pair.clone(),
+        cancel: cancel.clone(),
+        trading: {
+            let old_trading = old_instance.trading.read().await;
+            tokio::sync::RwLock::new(old_trading.clone())
+        },
+        config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config)),
+        safety_config,
+        api_key: {
+            let old_key = old_instance.api_key.read().await;
+            tokio::sync::RwLock::new(old_key.clone())
+        },
+        api_key_valid: {
+            let old_valid = old_instance.api_key_valid.load(std::sync::atomic::Ordering::Relaxed);
+            std::sync::atomic::AtomicBool::new(old_valid)
+        },
+        api_failover: old_instance.api_failover.clone(),
+        token_tracker: old_instance.token_tracker.clone(),
+        safety: old_instance.safety.clone(),
+        active_pair: artifacts.instance.active_pair.clone(),
+        automation_ctx: artifacts.instance.automation_ctx.clone(),
+        pool: old_instance.pool.clone(),
+        config: old_instance.config.clone(),
+        micro: artifacts.micro,
+        short: artifacts.short,
+        medium: artifacts.medium,
+        large: artifacts.large,
+    });
+
+    // Swap in workspace map
+    workspace
+        .instances
+        .write()
+        .await
+        .insert(pair_key.to_string(), Arc::clone(&new_instance));
+
+    println!(
+        "⚡ Instance recharged: {} ({}) — micro={}s short={}s medium={}s large={}s",
+        new_instance.pair_display(),
+        new_instance.id,
+        micro_secs,
+        short_secs,
+        medium_secs,
+        large_secs,
+    );
+
     Ok(())
 }
 

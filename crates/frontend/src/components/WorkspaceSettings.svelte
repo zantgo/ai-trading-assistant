@@ -10,23 +10,7 @@
     let draft = $state({
         symbol: '',
         exchange: 'Hyperliquid' as string,
-        timeframe: {
-            value: 60 as number,
-            unit: 'seconds' as 'seconds' | 'minutes' | 'hours',
-        },
-        indicators: {
-            emaFast: 10, emaMedium: 50, emaSlow: 100, emaLong: 200,
-            rsiPeriod: 14,
-            macdFast: 12, macdSlow: 26, macdSignal: 9,
-            adxPeriod: 14, atrPeriod: 14, squeezePeriod: 20,
-            macdExtremeHigh: 1000, macdExtremeLow: -1000, macdContraction: 0.30,
-            adxTrendThreshold: 20, adxExhaustionThreshold: 40, adxSlopeLookback: 3,
-            squeezeMinDuration: 5, squeezeBbStdDev: 2.0, squeezeKcAtrMult: 1.5,
-            srProximityThreshold: 0.5, srFlipTolerance: 0.3,
-            atrMultiplier: 2.0, atrTargetRR: 2.5,
-            volumeAvgPeriod: 20, rvolInstitutional: 1.5, rvolClimax: 3.0,
-            analysisLimit: 100,
-        },
+        analysisLimit: 100 as number,
         visuals: {
             showEmas: true, showBb: true, showVwap: true, showVolume: true,
             showAdx: true, showAtr: true, showRsi: true, showMacd: true,
@@ -38,15 +22,6 @@
             intervalValue: 15 as number,
             intervalUnit: 'minutes' as 'seconds' | 'minutes' | 'hours',
         },
-        intervals: {
-            slow: 3600 as number,
-            normal: 900 as number,
-            fast: 300 as number,
-        },
-        costs: {
-            inputPrice: 0.27 as number,
-            outputPrice: 1.10 as number,
-        },
         apiKey: '' as string,
         rules: '' as string,
     });
@@ -56,35 +31,14 @@
     let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
 
     $effect(() => {
-        const sec = pair.microTerm.barDurationSec;
-        if (sec % 3600 === 0) { draft.timeframe.value = sec / 3600; draft.timeframe.unit = 'hours'; }
-        else if (sec % 60 === 0) { draft.timeframe.value = sec / 60; draft.timeframe.unit = 'minutes'; }
-        else { draft.timeframe.value = sec; draft.timeframe.unit = 'seconds'; }
-
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
-        const m = pair.microTerm;
-        for (const f of ['emaFast','emaMedium','emaSlow','emaLong','rsiPeriod','macdFast','macdSlow','macdSignal','adxPeriod','atrPeriod','squeezePeriod']) {
-            (draft.indicators as any)[f] = (m as any)[f + 'Val'];
-        }
-        draft.indicators.analysisLimit = m.analysisLimit;
+        draft.analysisLimit = pair.microTerm.analysisLimit;
         for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol']) {
-            (draft.visuals as any)[f] = (m as any)[f];
+            (draft.visuals as any)[f] = (pair.microTerm as any)[f];
         }
         draft.automation.enabled = pair.automationEnabled;
         draft.automation.intervalValue = pair.automationIntervalValue;
         draft.automation.intervalUnit = pair.automationIntervalUnit;
-        draft.intervals.slow = pair.slowIntervalSecs;
-        draft.intervals.normal = pair.normalIntervalSecs;
-        draft.intervals.fast = pair.fastIntervalSecs;
-        draft.costs.inputPrice = app.costPriceInput;
-        draft.costs.outputPrice = app.costPriceOutput;
-    });
-
-    let calculatedDuration = $derived.by(() => {
-        const val = Number(draft.timeframe.value) || 1;
-        if (draft.timeframe.unit === 'hours') return val * 3600;
-        if (draft.timeframe.unit === 'minutes') return val * 60;
-        return val;
     });
 
     let calculatedAutomationInterval = $derived.by(() => {
@@ -161,24 +115,7 @@
         }
     }
 
-    function buildTermIndicators(ind: typeof draft.indicators) {
-        return {
-            ema_fast: Number(ind.emaFast), ema_medium: Number(ind.emaMedium), ema_slow: Number(ind.emaSlow), ema_long: Number(ind.emaLong),
-            rsi_period: Number(ind.rsiPeriod), macd_fast: Number(ind.macdFast), macd_slow: Number(ind.macdSlow), macd_signal: Number(ind.macdSignal),
-            adx_period: Number(ind.adxPeriod), atr_period: Number(ind.atrPeriod), squeeze_period: Number(ind.squeezePeriod),
-        };
-    }
-
-    function setTermIndicators(term: Record<string, any>, ind: typeof draft.indicators) {
-        Object.assign(term, {
-            emaFastVal: ind.emaFast, emaMediumVal: ind.emaMedium, emaSlowVal: ind.emaSlow, emaLongVal: ind.emaLong,
-            rsiPeriodVal: ind.rsiPeriod, macdFastVal: ind.macdFast, macdSlowVal: ind.macdSlow, macdSignalVal: ind.macdSignal,
-            adxPeriodVal: ind.adxPeriod, atrPeriodVal: ind.atrPeriod, squeezePeriodVal: ind.squeezePeriod,
-            analysisLimit: ind.analysisLimit,
-        });
-    }
-
-    function setTermVisuals(term: Record<string, any>, vis: typeof draft.visuals) {
+    function applyVisualsToTerm(term: Record<string, any>, vis: typeof draft.visuals) {
         Object.assign(term, {
             showEmas: vis.showEmas, showBb: vis.showBb, showVwap: vis.showVwap,
             showVolume: vis.showVolume, showAdx: vis.showAdx, showAtr: vis.showAtr,
@@ -195,17 +132,7 @@
             return;
         }
 
-        const { indicators: ind, automation: auto, visuals: vis } = draft;
-        const alc = Number(ind.analysisLimit);
-        const inds = buildTermIndicators(ind);
-        const body = {
-            micro_term: { candles: { duration_seconds: Number(calculatedDuration), analysis_limit: alc }, indicators: inds },
-            short_term: { candles: { duration_seconds: 300, analysis_limit: alc }, indicators: inds },
-            medium_term: { candles: { duration_seconds: 900, analysis_limit: alc }, indicators: inds },
-            large_term: { candles: { duration_seconds: 3600, analysis_limit: alc }, indicators: inds },
-            automation: { enabled: auto.enabled, interval_seconds: Number(calculatedAutomationInterval) },
-        };
-
+        const { automation: auto, visuals: vis } = draft;
         const isIdentityChanged = cleanedSymbol !== pair.symbol || draft.exchange !== pair.exchange;
         let target = pair;
 
@@ -217,46 +144,24 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ base: cleanedSymbol, quote: 'USDT' }),
                 });
-                await fetch(`/api/instances/${encodeURIComponent(newPairKey)}/config`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
                 app.initInstance(cleanedSymbol, draft.exchange);
                 target = app.instancesMap[newPairKey] || pair;
-                target.microTerm.barDurationSec = calculatedDuration;
                 app.removeInstance(tabKey);
                 app.activeTab = newPairKey;
-            } else {
-                await fetch(`/api/instances/${encodeURIComponent(tabKey)}/config`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                target.microTerm.barDurationSec = calculatedDuration;
-                for (const tf of [target.microTerm, target.smallTerm, target.mediumTerm, target.largeTerm]) {
-                    tf.latestSnapshot = null;
-                    tf.priceText = '--';
-                    tf.vwapText = '--';
-                }
             }
-
-            for (const tf of [target.microTerm, target.smallTerm, target.mediumTerm, target.largeTerm]) {
-                setTermIndicators(tf, ind);
-                setTermVisuals(tf, vis);
-            }
-
-            target.automationEnabled = auto.enabled;
-            target.automationIntervalValue = auto.intervalValue;
-            target.automationIntervalUnit = auto.intervalUnit;
-            target.slowIntervalSecs = draft.intervals.slow;
-            target.normalIntervalSecs = draft.intervals.normal;
-            target.fastIntervalSecs = draft.intervals.fast;
-            target.nextEvaluationIn = auto.enabled ? formatIntervalRemaining(calculatedAutomationInterval) : '--';
-            target.currentView = 'terminal';
         } catch (e) {
-            console.error("Save config exception:", e);
+            console.error("Instance change exception:", e);
+            return;
         }
+
+        for (const tf of [target.microTerm, target.smallTerm, target.mediumTerm, target.largeTerm]) {
+            applyVisualsToTerm(tf, vis);
+            tf.analysisLimit = draft.analysisLimit;
+        }
+
+        target.automationEnabled = auto.enabled;
+        target.automationIntervalValue = auto.intervalValue;
+        target.automationIntervalUnit = auto.intervalUnit;
     }
 </script>
 
@@ -291,7 +196,7 @@
             </div>
 
             <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>Automated AI Evaluation</span>
+                <span class={styles.selectorsLabel}>AI & Automation</span>
                 <div class={styles.toggleRow}>
                     <span class={styles.toggleLabel}>Status</span>
                     <button class="{styles.selectorBtn} {draft.automation.enabled ? styles.active : ''}"
@@ -317,65 +222,18 @@
                 {/if}
             </div>
 
-        </div>
-
-        <!-- Indicator Parameters Column -->
-        <div class={styles.settingsCol}>
-            <h3 class={styles.cardTitle}>Technical Parameters</h3>
-            <div class="{styles.parameterInputsScroll} font-mono">
-                <div class={styles.inputRow}>
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <span class={styles.selectorsLabel}>Identity</span>
+                <div class={styles.inputRow} style="margin-top: 4px;">
                     <label for="exchange">Exchange Source:</label>
                     <select id="exchange" bind:value={draft.exchange} class={styles.tfUnitSelect}>
                         <option value="Hyperliquid">Hyperliquid</option>
                     </select>
                 </div>
-                <div class={styles.inputRow}>
+                <div class={styles.inputRow} style="margin-top: 8px;">
                     <label for="symbol">Market Pair:</label>
                     <input id="symbol" type="text" bind:value={draft.symbol} />
                 </div>
-                <div class={styles.inputRow}>
-                    <label for="tf">Timeframe:</label>
-                    <div class={styles.tfSplitGroup}>
-                        <input id="tf" type="number" bind:value={draft.timeframe.value} min="1" class={styles.tfNumberInput} />
-                        <select bind:value={draft.timeframe.unit} class={styles.tfUnitSelect}>
-                            <option value="seconds">Seconds</option>
-                            <option value="minutes">Minutes</option>
-                            <option value="hours">Hours</option>
-                        </select>
-                    </div>
-                </div>
-                <div class={styles.inputRow}>
-                    <label for="analysisLimit">AI Analysis Lookback (Candles):</label>
-                    <input id="analysisLimit" type="number" bind:value={draft.indicators.analysisLimit} min="10" max="500" step="5" />
-                </div>
-                <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for="emaf">EMA Fast:</label><input id="emaf" type="number" bind:value={draft.indicators.emaFast} /></div>
-                <div class={styles.inputRow}><label for="emam">EMA Med:</label><input id="emam" type="number" bind:value={draft.indicators.emaMedium} /></div>
-                <div class={styles.inputRow}><label for="emas">EMA Slow:</label><input id="emas" type="number" bind:value={draft.indicators.emaSlow} /></div>
-                <div class={styles.inputRow}><label for="emal">EMA Long:</label><input id="emal" type="number" bind:value={draft.indicators.emaLong} /></div>
-                <div class={styles.inputRow}><label for="rsi">RSI Window:</label><input id="rsi" type="number" bind:value={draft.indicators.rsiPeriod} /></div>
-                <div class={styles.inputRow}><label for="macdf">MACD Fast:</label><input id="macdf" type="number" bind:value={draft.indicators.macdFast} /></div>
-                <div class={styles.inputRow}><label for="macds">MACD Slow:</label><input id="macds" type="number" bind:value={draft.indicators.macdSlow} /></div>
-                <div class={styles.inputRow}><label for="macdsig">MACD Signal:</label><input id="macdsig" type="number" bind:value={draft.indicators.macdSignal} /></div>
-                <div class={styles.inputRow}><label for="adx">ADX Period:</label><input id="adx" type="number" bind:value={draft.indicators.adxPeriod} /></div>
-                <div class={styles.inputRow}><label for="atr">ATR Period:</label><input id="atr" type="number" bind:value={draft.indicators.atrPeriod} /></div>
-                <div class={styles.inputRow}><label for="sqz">Squeeze Wave:</label><input id="sqz" type="number" bind:value={draft.indicators.squeezePeriod} /></div>
-                <div class={styles.inputRow}><label for="macdHiTh">MACD Extreme High:</label><input id="macdHiTh" type="number" step="0.01" bind:value={draft.indicators.macdExtremeHigh} /></div>
-                <div class={styles.inputRow}><label for="macdLoTh">MACD Extreme Low:</label><input id="macdLoTh" type="number" step="0.01" bind:value={draft.indicators.macdExtremeLow} /></div>
-                <div class={styles.inputRow}><label for="macdContr">MACD Contraction %:</label><input id="macdContr" type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.indicators.macdContraction} /></div>
-                <div class={styles.inputRow}><label for="adxTrend">ADX Trend Threshold:</label><input id="adxTrend" type="number" bind:value={draft.indicators.adxTrendThreshold} /></div>
-                <div class={styles.inputRow}><label for="adxExh">ADX Exhaustion Threshold:</label><input id="adxExh" type="number" bind:value={draft.indicators.adxExhaustionThreshold} /></div>
-                <div class={styles.inputRow}><label for="adxSlope">ADX Slope Lookback:</label><input id="adxSlope" type="number" bind:value={draft.indicators.adxSlopeLookback} /></div>
-                <div class={styles.inputRow}><label for="sqzMin">Squeeze Min Duration:</label><input id="sqzMin" type="number" bind:value={draft.indicators.squeezeMinDuration} /></div>
-                <div class={styles.inputRow}><label for="sqzBb">Squeeze BB Std Dev:</label><input id="sqzBb" type="number" step="0.1" bind:value={draft.indicators.squeezeBbStdDev} /></div>
-                <div class={styles.inputRow}><label for="sqzKc">Squeeze KC ATR Mult:</label><input id="sqzKc" type="number" step="0.1" bind:value={draft.indicators.squeezeKcAtrMult} /></div>
-                <div class={styles.inputRow}><label for="srProx">SR Proximity %:</label><input id="srProx" type="number" step="0.1" bind:value={draft.indicators.srProximityThreshold} /></div>
-                <div class={styles.inputRow}><label for="srFlip">SR Flip Tolerance %:</label><input id="srFlip" type="number" step="0.1" bind:value={draft.indicators.srFlipTolerance} /></div>
-                <div class={styles.inputRow}><label for="atrMult">ATR Stop Multiplier:</label><input id="atrMult" type="number" step="0.1" bind:value={draft.indicators.atrMultiplier} /></div>
-                <div class={styles.inputRow}><label for="atrRR">Target R:R Ratio:</label><input id="atrRR" type="number" step="0.1" bind:value={draft.indicators.atrTargetRR} /></div>
-                <div class={styles.inputRow}><label for="volPeriod">Volume Avg Period:</label><input id="volPeriod" type="number" bind:value={draft.indicators.volumeAvgPeriod} /></div>
-                <div class={styles.inputRow}><label for="rvolInst">RVOL Institutional:</label><input id="rvolInst" type="number" step="0.1" bind:value={draft.indicators.rvolInstitutional} /></div>
-                <div class={styles.inputRow}><label for="rvolClx">RVOL Climax:</label><input id="rvolClx" type="number" step="0.1" bind:value={draft.indicators.rvolClimax} /></div>
             </div>
 
             <div class="settings-footer-row" style="margin-top: 16px;">
@@ -401,6 +259,13 @@
                 {#if apiKeyStatus === 'success'}
                     <div class="{styles.statusMsg} {styles.successMsg}">Key saved.</div>
                 {/if}
+            </div>
+
+            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+                <div class={styles.inputRow}>
+                    <label for="wsAnalysisLimit">AI Analysis Lookback (Candles):</label>
+                    <input id="wsAnalysisLimit" type="number" bind:value={draft.analysisLimit} min="10" max="500" step="5" />
+                </div>
             </div>
 
             <!-- Rules Editor -->
@@ -497,4 +362,3 @@
 
     </div>
 </div>
-

@@ -7,8 +7,13 @@
     }
     .settings-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(3, 1fr);
         gap: 16px;
+    }
+    @media (max-width: 1000px) {
+        .settings-grid {
+            grid-template-columns: 1fr;
+        }
     }
     .settings-col {
         background-color: #131722;

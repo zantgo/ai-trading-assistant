@@ -41,12 +41,10 @@ pub struct ActivePair {
 
 impl ActivePair {
     fn pipeline_for(&self, timeframe_secs: u64) -> &TimeframePipeline {
-        match timeframe_secs {
-            300 => &self.short,
-            900 => &self.medium,
-            3600 => &self.large,
-            _ => &self.micro,
-        }
+        if self.short.timeframe_secs == timeframe_secs { return &self.short; }
+        if self.medium.timeframe_secs == timeframe_secs { return &self.medium; }
+        if self.large.timeframe_secs == timeframe_secs { return &self.large; }
+        &self.micro
     }
 
     pub fn subscribe_broadcast(&self, timeframe_secs: u64) -> broadcast::Receiver<MarketSnapshot> {

@@ -94,7 +94,7 @@ pub async fn build_pipelines(
             broadcast_tx: micro_broadcast_tx.clone(),
             latest_snapshot: micro_latest.clone(),
             snapshot_history: micro_snapshot_history.clone(),
-            timeframe_secs: 60,
+            timeframe_secs: ctx.micro_cfg.candles.duration_seconds,
             timeframe_label: "Micro",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
@@ -105,7 +105,7 @@ pub async fn build_pipelines(
             broadcast_tx: short_broadcast_tx.clone(),
             latest_snapshot: short_latest.clone(),
             snapshot_history: short_snapshot_history.clone(),
-            timeframe_secs: 300,
+            timeframe_secs: ctx.short_cfg.candles.duration_seconds,
             timeframe_label: "Small",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
@@ -356,6 +356,8 @@ async fn spawn_tasks(
     // Spawn 4 pipeline tasks
     let large_secs = large_cfg.candles.duration_seconds;
     let medium_secs = medium_cfg.candles.duration_seconds;
+    let short_secs = short_cfg.candles.duration_seconds;
+    let micro_secs = micro_cfg.candles.duration_seconds;
     let (w_micro, w_short, w_medium, w_large) = match &warmed_states {
         Some((m, s, med, l)) => (Some(m.clone()), Some(s.clone()), Some(med.clone()), Some(l.clone())),
         None => (None, None, None, None),
@@ -381,7 +383,7 @@ async fn spawn_tasks(
             micro_latest.clone(),
             micro_snapshot_history.clone(),
             "Micro",
-            60u64,
+            micro_secs,
             micro_broadcast_tx.clone(),
             active_pair.micro.divergence_detector.clone(),
             Some(candle_fwd_tx.clone()),
@@ -394,7 +396,7 @@ async fn spawn_tasks(
             short_latest.clone(),
             short_snapshot_history.clone(),
             "Small",
-            300u64,
+            short_secs,
             short_broadcast_tx.clone(),
             active_pair.short.divergence_detector.clone(),
             None,

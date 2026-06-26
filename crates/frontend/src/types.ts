@@ -356,6 +356,22 @@ export interface TimeframeTelemetry {
     bbwpPeriodVal: number;
     bbwpLookbackVal: number;
     analysisLimit: number;
+    macdExtremeHighVal: number;
+    macdExtremeLowVal: number;
+    macdContractionVal: number;
+    adxTrendThresholdVal: number;
+    adxExhaustionThresholdVal: number;
+    adxSlopeLookbackVal: number;
+    squeezeMinDurationVal: number;
+    squeezeBbPeriodVal: number;
+    squeezeBbStdDevVal: number;
+    squeezeKcPeriodVal: number;
+    squeezeKcAtrMultVal: number;
+    atrMultiplierVal: number;
+    atrTargetRRVal: number;
+    volumeAvgPeriodVal: number;
+    rvolInstitutionalVal: number;
+    rvolClimaxVal: number;
 }
 
 export interface InstanceState {
@@ -382,7 +398,7 @@ export interface InstanceState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
-    currentView: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability';
+    currentView: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings';
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
