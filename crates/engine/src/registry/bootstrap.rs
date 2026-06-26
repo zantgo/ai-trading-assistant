@@ -25,21 +25,17 @@ pub struct BootstrapInput {
     pub large_limit: u64,
 }
 
-pub async fn run_bootstrap(
+pub async fn fetch_and_warm_bootstrap(
     input: &BootstrapInput,
-    micro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    short_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    medium_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    large_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    micro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    short_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    medium_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    large_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    micro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    short_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    medium_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    large_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-) {
+) -> Result<
+    (
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+    ),
+    String,
+> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -92,99 +88,72 @@ pub async fn run_bootstrap(
         ),
     );
 
-    let (warmed_micro, warmed_short, warmed_medium, warmed_large, _historical_micro) =
-        match bootstrap_result {
-            Ok((micro_candles, short_candles, medium_candles, large_candles)) => {
-                println!(
-                    "📡 Historical Bootstrap [{}]: Fetched {}/{}/{}/{} candles (1m/5m/15m/1h)",
-                    input.base,
-                    micro_candles.len(),
-                    short_candles.len(),
-                    medium_candles.len(),
-                    large_candles.len()
-                );
+    match bootstrap_result {
+        Ok((micro_candles, short_candles, medium_candles, large_candles)) => {
+            println!(
+                "📡 Historical Bootstrap [{}]: Fetched {}/{}/{}/{} candles (1m/5m/15m/1h)",
+                input.base,
+                micro_candles.len(),
+                short_candles.len(),
+                medium_candles.len(),
+                large_candles.len()
+            );
 
-                if micro_candles.is_empty() {
-                    eprintln!("⚠️  Historical Bootstrap [{}]: 1m REST returned 0 candles — micro chart will populate from live data only.", input.base);
-                }
-                if short_candles.is_empty() {
-                    eprintln!("⚠️  Historical Bootstrap [{}]: 5m REST returned 0 candles.", input.base);
-                }
-                if medium_candles.is_empty() {
-                    eprintln!("⚠️  Historical Bootstrap [{}]: 15m REST returned 0 candles.", input.base);
-                }
-                if large_candles.is_empty() {
-                    eprintln!("⚠️  Historical Bootstrap [{}]: 1h REST returned 0 candles.", input.base);
-                }
-
-                let w_micro = analyzer::warm_indicators_for_timeframe(
-                    micro_candles.clone(),
-                    &input.micro_cfg,
-                    &input.fib_config,
-                    &input.base,
-                    input.micro_secs,
-                );
-                let w_short = analyzer::warm_indicators_for_timeframe(
-                    short_candles,
-                    &input.short_cfg,
-                    &input.fib_config,
-                    &input.base,
-                    input.short_secs,
-                );
-                let w_medium = analyzer::warm_indicators_for_timeframe(
-                    medium_candles.clone(),
-                    &input.medium_cfg,
-                    &input.fib_config,
-                    &input.base,
-                    input.medium_secs,
-                );
-                let w_large = analyzer::warm_indicators_for_timeframe(
-                    large_candles,
-                    &input.large_cfg,
-                    &input.fib_config,
-                    &input.base,
-                    input.large_secs,
-                );
-
-                (
-                    Some(w_micro),
-                    Some(w_short),
-                    Some(w_medium),
-                    Some(w_large),
-                    Some(micro_candles),
-                )
+            if micro_candles.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 1m REST returned 0 candles — micro chart will populate from live data only.", input.base);
             }
-            Err(e) => {
-                eprintln!(
-                    "⚠️  Historical Bootstrap [{}]: REST fetch failed — {}. Falling back to live-only data.",
-                    input.base, e
-                );
-                (None, None, None, None, None)
+            if short_candles.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 5m REST returned 0 candles.", input.base);
             }
-        };
+            if medium_candles.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 15m REST returned 0 candles.", input.base);
+            }
+            if large_candles.is_empty() {
+                eprintln!("⚠️  Historical Bootstrap [{}]: 1h REST returned 0 candles.", input.base);
+            }
 
-    populate_buffers(
-        &warmed_micro,
-        &warmed_short,
-        &warmed_medium,
-        &warmed_large,
-        micro_history,
-        short_history,
-        medium_history,
-        large_history,
-        micro_latest,
-        short_latest,
-        medium_latest,
-        large_latest,
-        micro_snapshot_history,
-        short_snapshot_history,
-        medium_snapshot_history,
-        large_snapshot_history,
-    )
-    .await;
+            let w_micro = analyzer::warm_indicators_for_timeframe(
+                micro_candles.clone(),
+                &input.micro_cfg,
+                &input.fib_config,
+                &input.base,
+                input.micro_secs,
+            );
+            let w_short = analyzer::warm_indicators_for_timeframe(
+                short_candles,
+                &input.short_cfg,
+                &input.fib_config,
+                &input.base,
+                input.short_secs,
+            );
+            let w_medium = analyzer::warm_indicators_for_timeframe(
+                medium_candles.clone(),
+                &input.medium_cfg,
+                &input.fib_config,
+                &input.base,
+                input.medium_secs,
+            );
+            let w_large = analyzer::warm_indicators_for_timeframe(
+                large_candles,
+                &input.large_cfg,
+                &input.fib_config,
+                &input.base,
+                input.large_secs,
+            );
+
+            Ok((w_micro, w_short, w_medium, w_large))
+        }
+        Err(e) => {
+            eprintln!(
+                "⚠️  Historical Bootstrap [{}]: REST fetch failed — {}. Falling back to live-only data.",
+                input.base, e
+            );
+            Err(e)
+        }
+    }
 }
 
-async fn populate_buffers(
+pub(crate) async fn populate_buffers(
     warmed_micro: &Option<analyzer::WarmedPipelineState>,
     warmed_short: &Option<analyzer::WarmedPipelineState>,
     warmed_medium: &Option<analyzer::WarmedPipelineState>,
@@ -232,7 +201,7 @@ async fn populate_buffers(
     .await;
 }
 
-async fn populate_single(
+pub(crate) async fn populate_single(
     warmed: &Option<analyzer::WarmedPipelineState>,
     history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest: &Arc<RwLock<Option<MarketSnapshot>>>,

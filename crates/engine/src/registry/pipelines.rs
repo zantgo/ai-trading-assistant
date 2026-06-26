@@ -41,7 +41,12 @@ pub async fn build_pipelines(
     ctx: &PipelineContext,
     workspace: &Arc<Workspace>,
     llm_client: Arc<LlmClient>,
-    historical_micro: Option<Vec<NormalizedCandle>>,
+    warmed_states: Option<(
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+    )>,
 ) -> PipelineArtifacts {
     let (snapshot_tx, snapshot_rx) = mpsc::channel::<NormalizedEvent>(500);
     let cancel = ctx.cancel.clone();
@@ -160,7 +165,7 @@ pub async fn build_pipelines(
         &large_snapshot_history,
         &active_pair,
         workspace,
-        historical_micro,
+        warmed_states,
     )
     .await;
 
@@ -266,7 +271,12 @@ async fn spawn_tasks(
     large_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     active_pair: &Arc<analyzer::ActivePair>,
     workspace: &Arc<Workspace>,
-    historical_micro: Option<Vec<NormalizedCandle>>,
+    warmed_states: Option<(
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+        analyzer::WarmedPipelineState,
+    )>,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (short_chan_tx, short_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -337,15 +347,20 @@ async fn spawn_tasks(
         }
     });
 
-    if let Some(ref hist_micro) = historical_micro {
-        for c in hist_micro {
-            let _ = candle_fwd_tx.send(c.clone());
+    if let Some(ref ws) = warmed_states {
+        for c in &ws.0.history {
+            let _ = candle_fwd_tx.send(c.clone()).await;
         }
     }
 
     // Spawn 4 pipeline tasks
     let large_secs = large_cfg.candles.duration_seconds;
     let medium_secs = medium_cfg.candles.duration_seconds;
+    let (w_micro, w_short, w_medium, w_large) = match &warmed_states {
+        Some((m, s, med, l)) => (Some(m.clone()), Some(s.clone()), Some(med.clone()), Some(l.clone())),
+        None => (None, None, None, None),
+    };
+
     let pipeline_specs: Vec<(
         mpsc::Receiver<NormalizedEvent>,
         TimeframeConfig,
@@ -357,6 +372,7 @@ async fn spawn_tasks(
         tokio::sync::broadcast::Sender<MarketSnapshot>,
         Arc<tokio::sync::Mutex<DivergenceDetector>>,
         Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
+        Option<analyzer::WarmedPipelineState>,
     )> = vec![
         (
             micro_chan_rx,
@@ -369,6 +385,7 @@ async fn spawn_tasks(
             micro_broadcast_tx.clone(),
             active_pair.micro.divergence_detector.clone(),
             Some(candle_fwd_tx.clone()),
+            w_micro,
         ),
         (
             short_chan_rx,
@@ -381,6 +398,7 @@ async fn spawn_tasks(
             short_broadcast_tx.clone(),
             active_pair.short.divergence_detector.clone(),
             None,
+            w_short,
         ),
         (
             medium_chan_rx,
@@ -393,6 +411,7 @@ async fn spawn_tasks(
             medium_broadcast_tx.clone(),
             active_pair.medium.divergence_detector.clone(),
             None,
+            w_medium,
         ),
         (
             large_chan_rx,
@@ -405,10 +424,11 @@ async fn spawn_tasks(
             large_broadcast_tx.clone(),
             active_pair.large.divergence_detector.clone(),
             None,
+            w_large,
         ),
     ];
 
-    for (rx, tf_cfg, hist, snap, snap_hist, label, tf_secs, bcast, div_det, candle_fwd) in
+    for (rx, tf_cfg, hist, snap, snap_hist, label, tf_secs, bcast, div_det, candle_fwd, warmed) in
         pipeline_specs
     {
         let a_symbol = base.to_string();
@@ -433,7 +453,7 @@ async fn spawn_tasks(
                 label,
                 a_cancel,
                 candle_fwd,
-                None,
+                warmed,
             )
             .await;
         });

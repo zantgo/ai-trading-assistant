@@ -101,29 +101,7 @@ pub async fn add_instance(
     let medium_limit = medium_cfg.candles.analysis_limit as u64;
     let large_limit = large_cfg.candles.analysis_limit as u64;
 
-    // ── Build pipelines (creates channels, buffers, ActivePair) ──
-    let pipeline_ctx = pipelines::PipelineContext {
-        base: base.clone(),
-        pair_key: pair_key.clone(),
-        micro_cfg: micro_cfg.clone(),
-        short_cfg: short_cfg.clone(),
-        medium_cfg: medium_cfg.clone(),
-        large_cfg: large_cfg.clone(),
-        fib_config: drop_fib.clone(),
-        safety_config,
-        intervals_config: intervals_config.clone(),
-        cancel: cancel.clone(),
-    };
-
-    let artifacts = pipelines::build_pipelines(
-        &pipeline_ctx,
-        workspace,
-        llm_client,
-        None,
-    )
-    .await;
-
-    // ── Historical Bootstrap ──
+    // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         rest_url,
@@ -131,7 +109,7 @@ pub async fn add_instance(
         short_cfg: short_cfg.clone(),
         medium_cfg: medium_cfg.clone(),
         large_cfg: large_cfg.clone(),
-        fib_config: drop_fib,
+        fib_config: drop_fib.clone(),
         micro_secs,
         short_secs,
         medium_secs,
@@ -142,26 +120,52 @@ pub async fn add_instance(
         large_limit,
     };
 
-    bootstrap::run_bootstrap(
-        &bootstrap_input,
-        &artifacts.micro.history,
-        &artifacts.short.history,
-        &artifacts.medium.history,
-        &artifacts.large.history,
-        &artifacts.micro.latest,
-        &artifacts.short.latest,
-        &artifacts.medium.latest,
-        &artifacts.large.latest,
-        &artifacts.micro.snapshot_history,
-        &artifacts.short.snapshot_history,
-        &artifacts.medium.snapshot_history,
-        &artifacts.large.snapshot_history,
+    let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
+
+    // ── Build pipelines (creates channels, buffers, ActivePair) ──
+    let pipeline_ctx = pipelines::PipelineContext {
+        base: base.clone(),
+        pair_key: pair_key.clone(),
+        micro_cfg: micro_cfg.clone(),
+        short_cfg: short_cfg.clone(),
+        medium_cfg: medium_cfg.clone(),
+        large_cfg: large_cfg.clone(),
+        fib_config: drop_fib,
+        safety_config,
+        intervals_config: intervals_config.clone(),
+        cancel: cancel.clone(),
+    };
+
+    let artifacts = pipelines::build_pipelines(
+        &pipeline_ctx,
+        workspace,
+        llm_client,
+        warmed_states.as_ref().ok().cloned(),
     )
     .await;
 
-    // ── Not ideal: pipelines were built before bootstrap, so re-spawn with warmed state ──
-    // For now, this is acceptable — the pre-built pipelines work with empty buffers initially,
-    // and the bootstrap populates them afterwards. On next candle, everything aligns.
+    // Populates buffers directly if warmed states are present
+    if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
+        bootstrap::populate_buffers(
+            &Some(wm.clone()),
+            &Some(ws.clone()),
+            &Some(wmed.clone()),
+            &Some(wl.clone()),
+            &artifacts.micro.history,
+            &artifacts.short.history,
+            &artifacts.medium.history,
+            &artifacts.large.history,
+            &artifacts.micro.latest,
+            &artifacts.short.latest,
+            &artifacts.medium.latest,
+            &artifacts.large.latest,
+            &artifacts.micro.snapshot_history,
+            &artifacts.short.snapshot_history,
+            &artifacts.medium.snapshot_history,
+            &artifacts.large.snapshot_history,
+        )
+        .await;
+    }
 
     // Persist symbol to config
     {

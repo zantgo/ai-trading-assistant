@@ -153,12 +153,29 @@ pub async fn run_single(
         vwap_sum_vol = w.vwap_sum_vol;
         last_day_index = w.last_day_index;
         volume_history = w.volume_history;
+
+        // Pre-populate history from warmed state
+        {
+            let mut hist = history.write().await;
+            for c in &w.history {
+                hist.push_back(c.clone());
+            }
+        }
+        // Pre-populate latest_snapshot from warmed state
+        if let Some(ref snap) = w.latest_snapshot {
+            *latest_snapshot.write().await = Some(snap.clone());
+        }
         // Pre-populate snapshot_history from warmed state
         {
             let mut snap_hist = snapshot_history.write().await;
             for snap in &w.snapshot_history {
                 snap_hist.push_back(snap.clone());
             }
+        }
+        // Pre-populate divergence detector state
+        {
+            let mut det = divergence_detector.lock().await;
+            *det = w.divergence_detector.clone();
         }
     } else {
         ema_fast = Ema::new(active_indicators.ema_fast);

@@ -15,6 +15,7 @@ pub const HIST_BUFFER_MAX: usize = 1000;
 
 /// Pre-warmed indicator state produced by feeding historical candles through
 /// all technical indicators before live WebSocket ingestion begins.
+#[derive(Clone)]
 pub struct WarmedPipelineState {
     pub ema_fast: Ema,
     pub ema_medium: Ema,
