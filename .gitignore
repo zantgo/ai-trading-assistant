@@ -65,3 +65,7 @@ Thumbs.db
 *.dll
 *.so
 *.dylib
+
+telemetry.db-shm
+telemetry.db-wal
+
