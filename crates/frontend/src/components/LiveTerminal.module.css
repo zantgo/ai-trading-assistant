@@ -171,3 +171,22 @@
 
 .expanded-tf-column .panel-box.pane-price { flex: 2 1 0%; height: auto !important; }
 .expanded-tf-column .panel-box { flex: 1 1 0%; height: auto !important; }
+
+.single-chart-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 999999 !important;
+    background-color: #131722 !important;
+    display: flex;
+    flex-direction: column;
+}
+.single-chart-body {
+    flex: 1;
+    min-height: 0;
+    padding: 8px 12px 12px 12px;
+}

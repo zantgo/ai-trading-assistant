@@ -6,7 +6,7 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = useAppStore();
-    let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
+    let { pairKey, timeframe = 60, onDoubleClick }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
         timeframe === 300 ? pair?.smallTerm :
@@ -73,6 +73,8 @@
         });
 
         registerChart(chart);
+
+        if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
         // Bootstrap historical data
         (async () => {

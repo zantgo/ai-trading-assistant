@@ -261,14 +261,29 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td class={styles.colLabel}>ATR</td>
-                                <td class={styles.colValue}>{tf.atrText}</td>
-                                <td class={styles.colState} style={getStateStyle(getAtrState(tf))}>{getAtrState(tf)}</td>
+                                <td class={styles.colLabel}>PRICE ACT</td>
+                                <td class={styles.colValue}>{tf.priceText}</td>
+                                <td class={styles.colState} style={getStateStyle(getPriceActionState(tf))}>{getPriceActionState(tf)}</td>
                             </tr>
                             <tr>
-                                <td class={styles.colLabel}>RSI</td>
-                                <td class={styles.colValue}>{tf.rsiText}</td>
-                                <td class={styles.colState} style={getStateStyle(getRsiState(tf))}>{getRsiState(tf)}</td>
+                                <td class={styles.colLabel}>VWAP</td>
+                                <td class={styles.colValue}>{tf.vwapText}</td>
+                                <td class={styles.colState} style={getStateStyle(getVwapState(tf))}>{getVwapState(tf)}</td>
+                            </tr>
+                            <tr>
+                                <td class={styles.colLabel}>EMA</td>
+                                <td class={styles.colValue}>{tf.emaFastText}</td>
+                                <td class={styles.colState} style={getStateStyle(getEmaState(tf))}>{getEmaState(tf)}</td>
+                            </tr>
+                            <tr>
+                                <td class={styles.colLabel}>VOLUME</td>
+                                <td class={styles.colValue}>{tf.volText}</td>
+                                <td class={styles.colState} style={getStateStyle(getVolumeState(tf))}>{getVolumeState(tf)}</td>
+                            </tr>
+                            <tr>
+                                <td class={styles.colLabel}>RVOL</td>
+                                <td class={styles.colValue}>{tf.rvol ? tf.rvol.toFixed(2) : '1.0'}</td>
+                                <td class={styles.colState} style={getStateStyle(getRvolState(tf))}>{getRvolState(tf)}</td>
                             </tr>
                             <tr>
                                 <td class={styles.colLabel}>MACD</td>
@@ -281,6 +296,11 @@
                                 <td class={styles.colState} style={getStateStyle(getSqueezeState(tf))}>{getSqueezeState(tf)}</td>
                             </tr>
                             <tr>
+                                <td class={styles.colLabel}>RSI</td>
+                                <td class={styles.colValue}>{tf.rsiText}</td>
+                                <td class={styles.colState} style={getStateStyle(getRsiState(tf))}>{getRsiState(tf)}</td>
+                            </tr>
+                            <tr>
                                 <td class={styles.colLabel}>ADX</td>
                                 <td class={styles.colValue}>{tf.adxText}</td>
                                 <td class={styles.colState} style={getStateStyle(getAdxState(tf))}>{getAdxState(tf)}</td>
@@ -291,29 +311,9 @@
                                 <td class={styles.colState} style={getStateStyle(getBbwpState(tf))}>{getBbwpState(tf)}</td>
                             </tr>
                             <tr>
-                                <td class={styles.colLabel}>VOLUME</td>
-                                <td class={styles.colValue}>{tf.volText}</td>
-                                <td class={styles.colState} style={getStateStyle(getVolumeState(tf))}>{getVolumeState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>PRICE ACT</td>
-                                <td class={styles.colValue}>{tf.priceText}</td>
-                                <td class={styles.colState} style={getStateStyle(getPriceActionState(tf))}>{getPriceActionState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>EMA</td>
-                                <td class={styles.colValue}>{tf.emaFastText}</td>
-                                <td class={styles.colState} style={getStateStyle(getEmaState(tf))}>{getEmaState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>VWAP</td>
-                                <td class={styles.colValue}>{tf.vwapText}</td>
-                                <td class={styles.colState} style={getStateStyle(getVwapState(tf))}>{getVwapState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>RVOL</td>
-                                <td class={styles.colValue}>{tf.rvol ? tf.rvol.toFixed(2) : '1.0'}</td>
-                                <td class={styles.colState} style={getStateStyle(getRvolState(tf))}>{getRvolState(tf)}</td>
+                                <td class={styles.colLabel}>ATR</td>
+                                <td class={styles.colValue}>{tf.atrText}</td>
+                                <td class={styles.colState} style={getStateStyle(getAtrState(tf))}>{getAtrState(tf)}</td>
                             </tr>
                         </tbody>
                     </table>
