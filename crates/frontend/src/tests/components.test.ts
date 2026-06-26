@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '../state.svelte';
+import { tradeToMarkers } from '../lib/tradeMarkerHelper';
+import type { TradeMarkerInput } from '../lib/tradeMarkerHelper';
 
 describe('TEST-UI: Component State Validation', () => {
     let app: ReturnType<typeof useAppStore>;
@@ -92,5 +94,115 @@ describe('TEST-UI: Component State Validation', () => {
     it('should maintain risk profile list state', () => {
         expect(Array.isArray(app.riskProfiles)).toBe(true);
         expect(typeof app.activeRiskProfileId).toBe('number');
+    });
+});
+
+describe('tradeMarkerHelper', () => {
+    const BAR_DURATION = 60;
+    const SYMBOL = 'BTC';
+
+    it('should map a completed LONG trade to correct markers', () => {
+        const trade: TradeMarkerInput = {
+            direction: 'LONG',
+            entry_timestamp: 1_000_000_000_000,
+            exit_timestamp: 1_000_006_000_000,
+            symbol: 'BTC',
+        };
+
+        const markers = tradeToMarkers(trade, BAR_DURATION, SYMBOL);
+
+        expect(markers).toHaveLength(2);
+        expect(markers[0]).toMatchObject({
+            position: 'belowBar',
+            color: '#26a69a',
+            shape: 'arrowUp',
+            text: 'Open Long',
+        });
+        expect(markers[1]).toMatchObject({
+            position: 'aboveBar',
+            color: '#ef5350',
+            shape: 'arrowDown',
+            text: 'Close Long',
+        });
+    });
+
+    it('should map a completed SHORT trade to correct markers', () => {
+        const trade: TradeMarkerInput = {
+            direction: 'SHORT',
+            entry_timestamp: 1_000_000_000_000,
+            exit_timestamp: 1_000_006_000_000,
+            symbol: 'BTC',
+        };
+
+        const markers = tradeToMarkers(trade, BAR_DURATION, SYMBOL);
+
+        expect(markers).toHaveLength(2);
+        expect(markers[0]).toMatchObject({
+            position: 'aboveBar',
+            color: '#ef5350',
+            shape: 'arrowDown',
+            text: 'Open Short',
+        });
+        expect(markers[1]).toMatchObject({
+            position: 'belowBar',
+            color: '#26a69a',
+            shape: 'arrowUp',
+            text: 'Close Short',
+        });
+    });
+
+    it('should only produce entry marker for active position without exit_timestamp', () => {
+        const trade: TradeMarkerInput = {
+            direction: 'LONG',
+            entry_timestamp: 1_000_000_000_000,
+            symbol: 'BTC',
+        };
+
+        const markers = tradeToMarkers(trade, BAR_DURATION, SYMBOL);
+
+        expect(markers).toHaveLength(1);
+        expect(markers[0]).toMatchObject({
+            position: 'belowBar',
+            shape: 'arrowUp',
+            text: 'Open Long',
+        });
+    });
+
+    it('should skip trade when entry_timestamp is zero', () => {
+        const trade: TradeMarkerInput = {
+            direction: 'LONG',
+            entry_timestamp: 0,
+            symbol: 'BTC',
+        };
+
+        const markers = tradeToMarkers(trade, BAR_DURATION, SYMBOL);
+        expect(markers).toHaveLength(0);
+    });
+
+    it('should skip trade when symbol does not match', () => {
+        const trade: TradeMarkerInput = {
+            direction: 'LONG',
+            entry_timestamp: 1_000_000_000_000,
+            symbol: 'ETH',
+        };
+
+        const markers = tradeToMarkers(trade, BAR_DURATION, SYMBOL);
+        expect(markers).toHaveLength(0);
+    });
+
+    it('should align timestamps to candle boundaries', () => {
+        const trade: TradeMarkerInput = {
+            direction: 'LONG',
+            entry_timestamp: 1_000_000_075_000,
+            exit_timestamp: 1_000_006_123_000,
+            symbol: 'BTC',
+        };
+
+        const markers = tradeToMarkers(trade, BAR_DURATION, SYMBOL);
+
+        expect(markers).toHaveLength(2);
+        for (const m of markers) {
+            expect(m.time % BAR_DURATION).toBe(0);
+        }
     });
 });

@@ -1,10 +1,11 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
+    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import styles from './PriceChart.module.css';
+    import { tradeToMarkers } from '../lib/tradeMarkerHelper';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: {
@@ -44,6 +45,50 @@
     let fibExt2618Line: IPriceLine | null = null;
     let entryLine: IPriceLine | null = null;
     let stopLossLine: IPriceLine | null = null;
+    let markersApi: any = null;
+
+    async function updateMarkers() {
+        if (!candleSeries || !markersApi || !pair) return;
+
+        const markersList: any[] = [];
+        const currentSymbol = pair.symbol;
+        const barDurationSec = tf?.barDurationSec || 60;
+
+        try {
+            const perfRes = await fetch(`/api/paper/performance?symbol=${encodeURIComponent(pairKey)}`);
+            if (perfRes.ok) {
+                const data = await perfRes.json();
+                const trades = data.trades || [];
+                for (const t of trades) {
+                    markersList.push(...tradeToMarkers(t, barDurationSec, currentSymbol));
+                }
+            }
+
+            const statusRes = await fetch(`/api/paper/status?symbol=${encodeURIComponent(pairKey)}`);
+            if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData.active_position) {
+                    markersList.push(...tradeToMarkers(statusData.active_position, barDurationSec, currentSymbol));
+                }
+            }
+        } catch (err) {
+            console.error("Error loading trade markers:", err);
+        }
+
+        markersList.sort((a, b) => (a.time as number) - (b.time as number));
+
+        const seenKeys = new Set<string>();
+        const uniqueMarkers = [];
+        for (const m of markersList) {
+            const key = `${m.time}-${m.shape}`;
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                uniqueMarkers.push(m);
+            }
+        }
+
+        markersApi.setMarkers(uniqueMarkers);
+    }
 
     onMount(() => {
         chart = createChart(container, {
@@ -61,6 +106,8 @@
             upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         });
+
+        markersApi = createSeriesMarkers(candleSeries, []);
 
         ema10Series = chart.addSeries(LineSeries, { color: '#fdd835', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ema50Series = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
@@ -170,6 +217,8 @@
             } catch (err) {
                 console.error("Error bootstrapping price chart history:", err);
             }
+
+            updateMarkers();
         })();
 
         ro = new ResizeObserver(() => {
@@ -418,6 +467,17 @@
                 axisLabelVisible: true,
                 title: '2.618 Ext',
             });
+        }
+    });
+
+    $effect(() => {
+        const _pos = app.activePaperPosition;
+        const _tab = app.activeTab;
+        const _tf = timeframe;
+        void _pos; void _tab; void _tf;
+
+        if (candleSeries && pair) {
+            updateMarkers();
         }
     });
 </script>
