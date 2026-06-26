@@ -40,14 +40,16 @@
     }
 
     let expandedChartKey = $state<string | null>(null);
+    let triggerScreenshot = $state<(() => void) | null>(null);
 
     function handleChartDblClick(chartType: string, timeframe: number) {
         if (expandedTf === null) return;
         expandedChartKey = `${chartType}-${timeframe}`;
+        triggerScreenshot = null;
     }
 
     function handleFullscreenKeydown(e: KeyboardEvent) {
-        if (e.key === 'Escape') expandedChartKey = null;
+        if (e.key === 'Escape') { expandedChartKey = null; triggerScreenshot = null; }
     }
 
     $effect(() => {
@@ -351,28 +353,31 @@
         <div class={styles.timescaleHeader}>
             <span class={styles.timescaleTitle}>{chartType.toUpperCase()}</span>
             <div class={styles.headerActions}>
-                <button class={styles.expandBtn} onclick={() => expandedChartKey = null} title="Close">✕</button>
+                {#if triggerScreenshot}
+                    <button class={styles.expandBtn} onclick={() => triggerScreenshot?.()} title="Save Screenshot">📸 SCREENSHOT</button>
+                {/if}
+                <button class={styles.expandBtn} onclick={() => { expandedChartKey = null; triggerScreenshot = null; }} title="Close">✕</button>
             </div>
         </div>
         <div class={styles.singleChartBody}>
             {#if chartType === 'price'}
-                <PriceChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <PriceChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'volume'}
-                <VolumeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <VolumeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'rvol'}
-                <RvolChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <RvolChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'macd'}
-                <MacdChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <MacdChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'squeeze'}
-                <SqueezeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <SqueezeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'rsi'}
-                <RsiChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <RsiChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'adx'}
-                <AdxChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <AdxChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'bbwp'}
-                <BbwpChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <BbwpChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'atr'}
-                <AtrChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => expandedChartKey = null} />
+                <AtrChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {/if}
         </div>
     </div>

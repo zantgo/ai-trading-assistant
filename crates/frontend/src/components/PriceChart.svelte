@@ -7,7 +7,12 @@
     import styles from './PriceChart.module.css';
 
     const app = useAppStore();
-    let { pairKey, timeframe = 60, onDoubleClick }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void } = $props();
+    let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: {
+        pairKey: string;
+        timeframe?: number;
+        onDoubleClick?: () => void;
+        onScreenshotReady?: (fn: () => void) => void;
+    } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
         timeframe === 300 ? pair?.smallTerm :
@@ -73,6 +78,18 @@
         registerChart(chart);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
+
+        if (onScreenshotReady) {
+            onScreenshotReady(() => {
+                if (!chart) return;
+                const canvas = chart.takeScreenshot();
+                const dataUrl = canvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.download = `${pairKey}_${timeframe}s_price.png`;
+                link.href = dataUrl;
+                link.click();
+            });
+        }
 
         (async () => {
             if (!pair) return;

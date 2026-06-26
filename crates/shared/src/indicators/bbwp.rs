@@ -10,7 +10,6 @@ pub struct Bbwp {
     bb: BollingerBands,
     width_history: Vec<Decimal>,
     lookback: usize,
-    period: usize,
 }
 
 impl Bbwp {
@@ -19,7 +18,6 @@ impl Bbwp {
             bb: BollingerBands::new(period),
             width_history: Vec::new(),
             lookback,
-            period,
         }
     }
 

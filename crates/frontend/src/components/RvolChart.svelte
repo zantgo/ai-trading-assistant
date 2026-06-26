@@ -6,7 +6,7 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = useAppStore();
-    let { pairKey, timeframe = 60, onDoubleClick }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void } = $props();
+    let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
         timeframe === 300 ? pair?.smallTerm :
@@ -80,6 +80,18 @@
         registerChart(chart);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
+
+        if (onScreenshotReady) {
+            onScreenshotReady(() => {
+                if (!chart) return;
+                const canvas = chart.takeScreenshot();
+                const dataUrl = canvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.download = `${pairKey}_${timeframe}s_rvol.png`;
+                link.href = dataUrl;
+                link.click();
+            });
+        }
 
         (async () => {
             if (!pair) return;
@@ -155,8 +167,5 @@
 <div class="chart-container" bind:this={container}></div>
 
 <style>
-    .chart-container {
-        width: 100%;
-        height: 100%;
-    }
+    .chart-container { width: 100%; height: 100%; }
 </style>
