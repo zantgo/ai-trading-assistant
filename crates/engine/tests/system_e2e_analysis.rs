@@ -198,9 +198,9 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
         micro: build_pipeline(history, snap_history, mid_bcast),
-        short: build_pipeline_empty(b2),
-        medium: build_pipeline_empty(b3),
-        large: build_pipeline_empty(b4),
+        short: build_pipeline_empty(b2, 300),
+        medium: build_pipeline_empty(b3, 900),
+        large: build_pipeline_empty(b4, 3600),
         snapshot_tx,
         cancel,
     });
@@ -259,13 +259,13 @@ fn build_pipeline(
     }
 }
 
-fn build_pipeline_empty(bcast: broadcast::Sender<MarketSnapshot>) -> TimeframePipeline {
+fn build_pipeline_empty(bcast: broadcast::Sender<MarketSnapshot>, tf_secs: u64) -> TimeframePipeline {
     TimeframePipeline {
         history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
         broadcast_tx: bcast,
         latest_snapshot: Arc::new(RwLock::new(None)),
         snapshot_history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
-        timeframe_secs: 60,
+        timeframe_secs: tf_secs,
         timeframe_label: "Micro",
         divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
         sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),

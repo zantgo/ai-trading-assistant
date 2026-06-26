@@ -147,10 +147,10 @@ export function connectWebsocket(app: AppStore, state: WsState): void {
     const pair = app.instancesMap[symbol];
     if (!pair) return;
 
-    connectWebsocketForTimeframe(app, state, pair.microTerm, 'wsMicro', 60);
-    connectWebsocketForTimeframe(app, state, pair.smallTerm, 'wsSmall', 300);
-    connectWebsocketForTimeframe(app, state, pair.mediumTerm, 'wsMedium', 900);
-    connectWebsocketForTimeframe(app, state, pair.largeTerm, 'wsLarge', 3600);
+    connectWebsocketForTimeframe(app, state, pair.microTerm, 'wsMicro', pair.microTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.smallTerm, 'wsSmall', pair.smallTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.mediumTerm, 'wsMedium', pair.mediumTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.largeTerm, 'wsLarge', pair.largeTerm.barDurationSec);
 }
 
 /** Returns true if the active tab has changed since the last connect, meaning a reconnect is needed. */

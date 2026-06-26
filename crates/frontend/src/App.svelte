@@ -166,6 +166,13 @@
                         </button>
                         <button
                             class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'timeframe_settings'}
+                            onclick={() => { pair.currentView = 'timeframe_settings'; }}
+                        >
+                            🕐 Timeframe Settings
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
                             class:sub-tab-active={pair.currentView === 'assistant'}
                             onclick={() => pair.currentView = 'assistant'}
                         >
@@ -240,13 +247,6 @@
                             onclick={() => { pair.currentView = 'costs'; app.fetchCostEstimate(); }}
                         >
                             💰 Token Costs
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'timeframe_settings'}
-                            onclick={() => { pair.currentView = 'timeframe_settings'; }}
-                        >
-                            🕐 Timeframe Settings
                         </button>
                         <button
                             class={styles.subTabBtn}
@@ -330,7 +330,7 @@
                         <ObservabilityHub />
                     </div>
                 {:else if pair.currentView === 'timeframe_settings'}
-                    <TimeframeSettings {pair} {tabKey} />
+                    <TimeframeSettings {pair} {tabKey} onApplied={() => connectWs(app, wsState)} />
                 {/if}
 
             </div>

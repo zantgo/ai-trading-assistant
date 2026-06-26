@@ -109,15 +109,27 @@ pub async fn fetch_historical_candles(
 pub fn timeframe_secs_to_interval(secs: u64) -> &'static str {
     match secs {
         60 => "1m",
+        180 => "3m",
         300 => "5m",
         900 => "15m",
+        1800 => "30m",
         3600 => "1h",
-        other => {
-            if other < 3601 {
-                "15m"
-            } else {
-                "1h"
-            }
-        }
+        7200 => "2h",
+        14400 => "4h",
+        28800 => "8h",
+        43200 => "12h",
+        86400 => "1d",
+        other if other < 60 => "1m",
+        other if other < 180 => "1m",
+        other if other < 300 => "3m",
+        other if other < 900 => "5m",
+        other if other < 1800 => "15m",
+        other if other < 3600 => "30m",
+        other if other < 7200 => "1h",
+        other if other < 14400 => "2h",
+        other if other < 28800 => "4h",
+        other if other < 43200 => "8h",
+        other if other < 86400 => "12h",
+        _ => "1d",
     }
 }

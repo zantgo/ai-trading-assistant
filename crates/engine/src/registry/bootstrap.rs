@@ -49,6 +49,68 @@ pub async fn fetch_and_warm_bootstrap(
     let fetch_base = input.base.clone();
     let fetch_rest = input.rest_url.clone();
 
+    let micro_fut = if input.micro_secs < 60 {
+        None
+    } else {
+        Some(crate::adapters::hyperliquid_rest::fetch_historical_candles(
+            &fetch_base,
+            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.micro_secs),
+            micro_start,
+            now_ms,
+            &fetch_rest,
+        ))
+    };
+    let short_fut = if input.short_secs < 60 {
+        None
+    } else {
+        Some(crate::adapters::hyperliquid_rest::fetch_historical_candles(
+            &fetch_base,
+            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.short_secs),
+            short_start,
+            now_ms,
+            &fetch_rest,
+        ))
+    };
+    let medium_fut = if input.medium_secs < 60 {
+        None
+    } else {
+        Some(crate::adapters::hyperliquid_rest::fetch_historical_candles(
+            &fetch_base,
+            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.medium_secs),
+            medium_start,
+            now_ms,
+            &fetch_rest,
+        ))
+    };
+    let large_fut = if input.large_secs < 60 {
+        None
+    } else {
+        Some(crate::adapters::hyperliquid_rest::fetch_historical_candles(
+            &fetch_base,
+            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.large_secs),
+            large_start,
+            now_ms,
+            &fetch_rest,
+        ))
+    };
+
+    let micro_candles: Result<Vec<NormalizedCandle>, String> = match micro_fut {
+        Some(f) => f.await,
+        None => Ok(Vec::new()),
+    };
+    let short_candles: Result<Vec<NormalizedCandle>, String> = match short_fut {
+        Some(f) => f.await,
+        None => Ok(Vec::new()),
+    };
+    let medium_candles: Result<Vec<NormalizedCandle>, String> = match medium_fut {
+        Some(f) => f.await,
+        None => Ok(Vec::new()),
+    };
+    let large_candles: Result<Vec<NormalizedCandle>, String> = match large_fut {
+        Some(f) => f.await,
+        None => Ok(Vec::new()),
+    };
+
     let bootstrap_result: Result<
         (
             Vec<NormalizedCandle>,
@@ -57,59 +119,56 @@ pub async fn fetch_and_warm_bootstrap(
             Vec<NormalizedCandle>,
         ),
         String,
-    > = tokio::try_join!(
-        crate::adapters::hyperliquid_rest::fetch_historical_candles(
-            &fetch_base,
-            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.micro_secs),
-            micro_start,
-            now_ms,
-            &fetch_rest,
-        ),
-        crate::adapters::hyperliquid_rest::fetch_historical_candles(
-            &fetch_base,
-            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.short_secs),
-            short_start,
-            now_ms,
-            &fetch_rest,
-        ),
-        crate::adapters::hyperliquid_rest::fetch_historical_candles(
-            &fetch_base,
-            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.medium_secs),
-            medium_start,
-            now_ms,
-            &fetch_rest,
-        ),
-        crate::adapters::hyperliquid_rest::fetch_historical_candles(
-            &fetch_base,
-            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(input.large_secs),
-            large_start,
-            now_ms,
-            &fetch_rest,
-        ),
-    );
+    > = Ok((micro_candles?, short_candles?, medium_candles?, large_candles?));
 
     match bootstrap_result {
         Ok((micro_candles, short_candles, medium_candles, large_candles)) => {
+            let label = |s: u64| -> String {
+                if s >= 86400 { format!("{}d", s / 86400) }
+                else if s >= 3600 { format!("{}h", s / 3600) }
+                else if s >= 60 { format!("{}m", s / 60) }
+                else { format!("{}s", s) }
+            };
             println!(
-                "📡 Historical Bootstrap [{}]: Fetched {}/{}/{}/{} candles (1m/5m/15m/1h)",
+                "📡 Historical Bootstrap [{}]: Fetched {}/{}/{}/{} candles ({}/{}/{}/{})",
                 input.base,
                 micro_candles.len(),
                 short_candles.len(),
                 medium_candles.len(),
-                large_candles.len()
+                large_candles.len(),
+                label(input.micro_secs),
+                label(input.short_secs),
+                label(input.medium_secs),
+                label(input.large_secs),
             );
 
             if micro_candles.is_empty() {
-                eprintln!("⚠️  Historical Bootstrap [{}]: 1m REST returned 0 candles — micro chart will populate from live data only.", input.base);
+                if input.micro_secs < 60 {
+                    eprintln!("⚡ Historical Bootstrap [{}]: {}s sub-minute — starting from live data only.", input.base, input.micro_secs);
+                } else {
+                    eprintln!("⚠️  Historical Bootstrap [{}]: {}s REST returned 0 candles — chart will populate from live data only.", input.base, label(input.micro_secs));
+                }
             }
             if short_candles.is_empty() {
-                eprintln!("⚠️  Historical Bootstrap [{}]: 5m REST returned 0 candles.", input.base);
+                if input.short_secs < 60 {
+                    eprintln!("⚡ Historical Bootstrap [{}]: {}s sub-minute — starting from live data only.", input.base, input.short_secs);
+                } else {
+                    eprintln!("⚠️  Historical Bootstrap [{}]: {}s REST returned 0 candles.", input.base, label(input.short_secs));
+                }
             }
             if medium_candles.is_empty() {
-                eprintln!("⚠️  Historical Bootstrap [{}]: 15m REST returned 0 candles.", input.base);
+                if input.medium_secs < 60 {
+                    eprintln!("⚡ Historical Bootstrap [{}]: {}s sub-minute — starting from live data only.", input.base, input.medium_secs);
+                } else {
+                    eprintln!("⚠️  Historical Bootstrap [{}]: {}s REST returned 0 candles.", input.base, label(input.medium_secs));
+                }
             }
             if large_candles.is_empty() {
-                eprintln!("⚠️  Historical Bootstrap [{}]: 1h REST returned 0 candles.", input.base);
+                if input.large_secs < 60 {
+                    eprintln!("⚡ Historical Bootstrap [{}]: {}s sub-minute — starting from live data only.", input.base, input.large_secs);
+                } else {
+                    eprintln!("⚠️  Historical Bootstrap [{}]: {}s REST returned 0 candles.", input.base, label(input.large_secs));
+                }
             }
 
             let w_micro = analyzer::warm_indicators_for_timeframe(
