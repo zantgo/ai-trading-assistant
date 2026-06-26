@@ -227,7 +227,7 @@ export function readDraftFromPair(pair: InstanceState): {
     analysisLimit: number;
     showEmas: boolean; showBb: boolean; showVwap: boolean; showVolume: boolean;
     showAdx: boolean; showAtr: boolean; showRsi: boolean; showMacd: boolean;
-    showSqueeze: boolean; showBbwp: boolean; showFib: boolean;
+    showSqueeze: boolean; showBbwp: boolean; showFib: boolean; showRvol: boolean;
     automationEnabled: boolean; automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
     slowInterval: number; normalInterval: number; fastInterval: number;
@@ -271,9 +271,10 @@ export function readDraftFromPair(pair: InstanceState): {
         showRsi: pair.microTerm.showRsi,
         showMacd: pair.microTerm.showMacd,
         showSqueeze: pair.microTerm.showSqueeze,
-        showBbwp: pair.microTerm.showBbwp,
-        showFib: pair.microTerm.showFib,
-        automationEnabled: pair.automationEnabled,
+    showBbwp: pair.microTerm.showBbwp,
+    showFib: pair.microTerm.showFib,
+    showRvol: pair.microTerm.showRvol,
+    automationEnabled: pair.automationEnabled,
         automationIntervalValue: autoValue,
         automationIntervalUnit: autoUnit,
         slowInterval: pair.slowIntervalSecs || 3600,

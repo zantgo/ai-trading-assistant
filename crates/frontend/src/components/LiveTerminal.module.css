@@ -103,6 +103,7 @@
 .panel-box.pane-macd { height: 110px; }
 .panel-box.pane-squeeze { height: 110px; }
 .panel-box.pane-bbwp { height: 110px; }
+.panel-box.pane-rvol { height: 110px; }
 .hidden-pane { display: none; }
 
 @media (max-width: 1600px) {

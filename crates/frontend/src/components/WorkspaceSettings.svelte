@@ -31,6 +31,7 @@
             showEmas: true, showBb: true, showVwap: true, showVolume: true,
             showAdx: true, showAtr: true, showRsi: true, showMacd: true,
             showSqueeze: true, showBbwp: true, showFib: true,
+            showRvol: true,
         },
         automation: {
             enabled: false as boolean,
@@ -66,7 +67,7 @@
             (draft.indicators as any)[f] = (m as any)[f + 'Val'];
         }
         draft.indicators.analysisLimit = m.analysisLimit;
-        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib']) {
+        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol']) {
             (draft.visuals as any)[f] = (m as any)[f];
         }
         draft.automation.enabled = pair.automationEnabled;
@@ -183,6 +184,7 @@
             showVolume: vis.showVolume, showAdx: vis.showAdx, showAtr: vis.showAtr,
             showRsi: vis.showRsi, showMacd: vis.showMacd, showSqueeze: vis.showSqueeze,
             showBbwp: vis.showBbwp, showFib: vis.showFib,
+            showRvol: vis.showRvol,
         });
     }
 
@@ -283,6 +285,7 @@
                     <button class="{styles.selectorBtn} {draft.visuals.showMacd ? styles.active : ''}" onclick={() => draft.visuals.showMacd = !draft.visuals.showMacd}>MACD</button>
                     <button class="{styles.selectorBtn} {draft.visuals.showSqueeze ? styles.active : ''}" onclick={() => draft.visuals.showSqueeze = !draft.visuals.showSqueeze}>Squeeze</button>
                     <button class="{styles.selectorBtn} {draft.visuals.showBbwp ? styles.active : ''}" onclick={() => draft.visuals.showBbwp = !draft.visuals.showBbwp}>BBWP</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showRvol ? styles.active : ''}" onclick={() => draft.visuals.showRvol = !draft.visuals.showRvol}>RVOL</button>
                     <button class="{styles.selectorBtn} {draft.visuals.showFib ? styles.active : ''}" onclick={() => draft.visuals.showFib = !draft.visuals.showFib}>Fibonacci</button>
                 </div>
             </div>

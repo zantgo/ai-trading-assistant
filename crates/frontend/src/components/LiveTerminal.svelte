@@ -12,6 +12,7 @@
     import MacdChart from './MacdChart.svelte';
     import SqueezeChart from './SqueezeChart.svelte';
     import BbwpChart from './BbwpChart.svelte';
+    import RvolChart from './RvolChart.svelte';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -105,6 +106,12 @@
                         <BbwpChart pairKey={pairKey} timeframe={60} />
                     {/key}
                 </div>
+                <div class="{styles.panelBox} {styles.paneRvol} {!pair.microTerm.showRvol ? styles.hiddenPane : ''}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={60} />
+                    {/key}
+                </div>
             </div>
         </div>
 
@@ -166,6 +173,12 @@
                     <div class={styles.panelLabel}>BBWP</div>
                     {#key `${pairKey}-${pair.smallTerm.barDurationSec}-bbwp`}
                         <BbwpChart pairKey={pairKey} timeframe={300} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRvol} {!pair.smallTerm.showRvol ? styles.hiddenPane : ''}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.smallTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={300} />
                     {/key}
                 </div>
             </div>
@@ -231,6 +244,12 @@
                         <BbwpChart pairKey={pairKey} timeframe={900} />
                     {/key}
                 </div>
+                <div class="{styles.panelBox} {styles.paneRvol} {!pair.mediumTerm.showRvol ? styles.hiddenPane : ''}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.mediumTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={900} />
+                    {/key}
+                </div>
             </div>
         </div>
 
@@ -292,6 +311,12 @@
                     <div class={styles.panelLabel}>BBWP</div>
                     {#key `${pairKey}-${pair.largeTerm.barDurationSec}-bbwp`}
                         <BbwpChart pairKey={pairKey} timeframe={3600} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRvol} {!pair.largeTerm.showRvol ? styles.hiddenPane : ''}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.largeTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={3600} />
                     {/key}
                 </div>
             </div>

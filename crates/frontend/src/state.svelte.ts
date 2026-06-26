@@ -38,7 +38,7 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         isCompleted: false, latestSnapshot: null, historyPrices: [],
         showEmas: true, showBb: true, showVwap: true, showVolume: true,
         showAdx: true, showAtr: true, showRsi: true, showMacd: true,
-        showSqueeze: true, showBbwp: true, showFib: true,
+        showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,

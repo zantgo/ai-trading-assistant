@@ -341,6 +341,7 @@ export interface TimeframeTelemetry {
     showSqueeze: boolean;
     showBbwp: boolean;
     showFib: boolean;
+    showRvol: boolean;
     emaFastVal: number;
     emaMediumVal: number;
     emaSlowVal: number;
