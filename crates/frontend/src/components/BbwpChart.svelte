@@ -1,40 +1,35 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, type IChartApi, type ISeriesApi, type HistogramData, ColorType, CrosshairMode, HistogramSeries, LineSeries } from 'lightweight-charts';
+    import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
+    import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+    import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
-    let { pairKey, timeframe = 60, containerClass = '' }: {
-        pairKey: string;
-        timeframe?: number;
-        containerClass?: string;
-    } = $props();
+    const app = useAppStore();
+    let { pairKey, timeframe = 60 }: { pairKey: string; timeframe?: number } = $props();
+    const pair = $derived(app.instancesMap[pairKey]);
+    const tf = $derived(
+        timeframe === 300 ? pair?.smallTerm :
+        timeframe === 900 ? pair?.mediumTerm :
+        timeframe === 3600 ? pair?.largeTerm :
+        pair?.microTerm
+    );
 
-    let chartContainer: HTMLDivElement | null = $state(null);
-    let chart: IChartApi | null = $state(null);
-    let bbwpSeries: ISeriesApi<'Histogram'> | null = $state(null);
-    let compLine: ISeriesApi<'Line'> | null = $state(null);
-    let exhaustLine: ISeriesApi<'Line'> | null = $state(null);
+    let container: HTMLDivElement;
+    let chart: IChartApi;
+    let ro: ResizeObserver;
+    let bbwpSeries: ISeriesApi<'Histogram'>;
 
     onMount(() => {
-        if (!chartContainer) return;
-
-        chart = createChart(chartContainer, {
-            height: 120,
-            layout: {
-                background: { type: ColorType.Solid, color: 'transparent' },
-                textColor: '#8b949e',
-            },
-            grid: {
-                vertLines: { color: 'rgba(255,255,255,0.06)' },
-                horzLines: { color: 'rgba(255,255,255,0.06)' },
-            },
-            crosshair: { mode: CrosshairMode.Normal },
-            rightPriceScale: {
-                scaleMargins: { top: 0.05, bottom: 0.05 },
-                borderColor: 'rgba(255,255,255,0.1)',
-            },
+        chart = createChart(container, {
+            autoSize: true,
+            layout: { background: { color: '#131722' }, textColor: '#8f929d', fontSize: 10 },
+            grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
+            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
+            rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: 'rgba(255,255,255,0.1)',
+                borderColor: '#2a2e39',
+                visible: false,
                 timeVisible: false,
                 secondsVisible: false,
                 tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
@@ -44,61 +39,60 @@
                     return `${hours}:${minutes}`;
                 }
             },
+            handleScale: true,
+            handleScroll: true,
         });
+
+        chart.priceScale('right').applyOptions({ alignLabels: true });
+        chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         bbwpSeries = chart.addSeries(HistogramSeries, {
             color: '#00d4aa',
             base: 0,
+            priceLineVisible: false
         });
 
-        compLine = chart.addSeries(LineSeries, {
+        // 10% Compression line (dashed blue)
+        bbwpSeries.createPriceLine({
+            price: 10,
             color: '#4488ff',
             lineWidth: 1,
             lineStyle: 2,
-            priceLineVisible: false,
-            lastValueVisible: false,
+            axisLabelVisible: true,
+            title: 'COMPRESSION',
         });
 
-        exhaustLine = chart.addSeries(LineSeries, {
+        // 90% Exhaustion line (dashed red)
+        bbwpSeries.createPriceLine({
+            price: 90,
             color: '#ff4444',
             lineWidth: 1,
             lineStyle: 2,
-            priceLineVisible: false,
-            lastValueVisible: false,
+            axisLabelVisible: true,
+            title: 'EXHAUSTION',
         });
 
-        if (compLine) {
-            compLine.setData([
-                { time: (Date.now() / 1000) - 3600 as any, value: 10 },
-                { time: (Date.now() / 1000) as any, value: 10 },
-            ]);
-        }
-        if (exhaustLine) {
-            exhaustLine.setData([
-                { time: (Date.now() / 1000) - 3600 as any, value: 90 },
-                { time: (Date.now() / 1000) as any, value: 90 },
-            ]);
-        }
+        registerChart(chart);
 
-        if (chart) registerChart(chart);
-
+        // Bootstrap historical data
         (async () => {
+            if (!pair) return;
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
                 const ih = data.indicator_history;
-                if (ih && ih.bbwp && ih.bbwp.length > 0 && bbwpSeries) {
+                if (ih && ih.bbwp && ih.bbwp.length > 0) {
                     const rawBbwpData = ih.times.map((t: number, i: number) => {
                         const val = parseFloat(ih.bbwp[i]) || 0;
                         return {
-                            time: t as any,
+                            time: t as Time,
                             value: val,
                             color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa',
                         };
                     });
 
                     const seenTimes = new Set<number>();
-                    const cleanedBbwpData: { time: any; value: number; color: string }[] = [];
+                    const cleanedBbwpData: { time: Time; value: number; color: string }[] = [];
                     for (const item of rawBbwpData) {
                         const tNum = item.time as number;
                         if (item && tNum && !seenTimes.has(tNum)) {
@@ -109,34 +103,57 @@
                     cleanedBbwpData.sort((a, b) => (a.time as number) - (b.time as number));
 
                     bbwpSeries.setData(cleanedBbwpData);
-                    chart?.timeScale().fitContent();
+                    chart.timeScale().fitContent();
                 }
             } catch (err) {
                 console.error("Error bootstrapping BBWP chart history:", err);
             }
         })();
+
+        // Watch the parent element dimension adjustments
+        ro = new ResizeObserver(() => {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            if (chart && w > 0 && h > 0) {
+                chart.resize(w, h);
+            }
+        });
+        if (container?.parentElement) {
+            ro.observe(container.parentElement);
+        }
     });
 
     onDestroy(() => {
+        ro?.disconnect();
         if (chart) {
             unregisterChart(chart);
             chart.remove();
         }
     });
+
+    // Handle real-time WebSockets data changes
+    $effect(() => {
+        if (!pair) return;
+        const snap = tf?.latestSnapshot;
+        if (!snap) return;
+        const timeSec = snap.timestamp as number;
+        if (snap.bbwp != null) {
+            const val = parseFloat(String(snap.bbwp));
+            bbwpSeries.update({
+                time: timeSec as Time,
+                value: val,
+                color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa'
+            });
+            tf.lastBbwp = val;
+        }
+    });
 </script>
 
-<div class="bbwp-chart-container {containerClass}">
-    <div bind:this={chartContainer} class="bbwp-chart"></div>
-</div>
+<div class="chart-container" bind:this={container}></div>
 
 <style>
-    .bbwp-chart-container {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    .bbwp-chart {
+    .chart-container {
         width: 100%;
-        height: 120px;
+        height: 100%;
     }
 </style>

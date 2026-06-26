@@ -40,6 +40,7 @@ pub struct PaperScaleOutResult {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum RiskError {
     InsufficientCapital { required: Decimal, available: Decimal },
     PositionTooLarge { max: Decimal, requested: Decimal },
@@ -74,16 +75,16 @@ impl std::error::Error for RiskError {}
 
 struct PositionRiskValidator {
     capital: Decimal,
-    max_risk_pct: Decimal,
-    leverage: i32,
+    _max_risk_pct: Decimal,
+    _leverage: i32,
 }
 
 impl PositionRiskValidator {
     fn new(capital: f64, max_risk_pct: f64, leverage: i32) -> Self {
         Self {
             capital: dec(capital),
-            max_risk_pct: dec(max_risk_pct),
-            leverage,
+            _max_risk_pct: dec(max_risk_pct),
+            _leverage: leverage,
         }
     }
 
@@ -103,6 +104,7 @@ impl PositionRiskValidator {
         Ok(cost)
     }
 
+    #[allow(dead_code)]
     fn validate_position_size(
         &self,
         entry_price: Decimal,
@@ -129,6 +131,7 @@ impl PositionRiskValidator {
         Ok(size)
     }
 
+    #[allow(dead_code)]
     fn max_position_size(&self, entry_price: Decimal) -> Decimal {
         if entry_price <= Decimal::ZERO {
             return Decimal::ZERO;

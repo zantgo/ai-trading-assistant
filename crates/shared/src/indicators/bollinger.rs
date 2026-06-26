@@ -3,30 +3,32 @@ use super::traits::{BarInput, Indicator};
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::Decimal;
 
-/// Bollinger Bands Indicator (20 SMA +/- 2 Standard Deviations)
+/// Bollinger Bands Indicator (SMA +/- 2 Standard Deviations)
 #[derive(Debug, Clone)]
 pub struct BollingerBands {
-    sma_20: Sma,
+    sma: Sma,
+    period: usize,
     prices_history: Vec<Decimal>,
 }
 
 impl BollingerBands {
-    pub fn new() -> Self {
+    pub fn new(period: usize) -> Self {
         Self {
-            sma_20: Sma::new(20),
+            sma: Sma::new(period),
+            period,
             prices_history: Vec::new(),
         }
     }
 
     pub fn update(&mut self, close: Decimal) -> Option<(Decimal, Decimal, Decimal)> {
         self.prices_history.push(close);
-        if self.prices_history.len() > 20 {
+        if self.prices_history.len() > self.period {
             self.prices_history.remove(0);
         }
 
-        let sma = self.sma_20.update(close)?;
+        let sma = self.sma.update(close)?;
 
-        if self.prices_history.len() < 20 {
+        if self.prices_history.len() < self.period {
             return None;
         }
 
@@ -39,7 +41,7 @@ impl BollingerBands {
                     diff * diff
                 })
                 .sum();
-            let variance = sum_sq / 20.0;
+            let variance = sum_sq / self.period as f64;
             Decimal::from_f64(variance.sqrt()).unwrap_or(Decimal::ZERO)
         };
 
@@ -58,7 +60,7 @@ impl Indicator for BollingerBands {
     }
 
     fn reset(&mut self) {
-        *self = BollingerBands::new();
+        *self = BollingerBands::new(self.period);
     }
 }
 
@@ -69,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_returns_none_before_20_values() {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         for _ in 0..19 {
             assert_eq!(bb.update(dec!(100.00)), None);
         }
@@ -77,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_returns_bands_at_20_values() {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         for _ in 0..19 {
             bb.update(dec!(100.00));
         }
@@ -88,13 +90,13 @@ mod tests {
 
     #[test]
     fn test_upper_band_widens_with_volatility() {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         for _ in 0..20 {
             bb.update(dec!(100.00));
         }
         let narrow = bb.update(dec!(100.00)).unwrap();
 
-        let mut bb2 = BollingerBands::new();
+        let mut bb2 = BollingerBands::new(20);
         let mut price = dec!(100.00);
         for _ in 0..10 {
             bb2.update(price);
@@ -110,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_bandwidth_calculation() {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         // Feed alternating prices to create a non-zero standard deviation
         for i in 0..20 {
             if i % 2 == 0 {
@@ -131,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_percent_b_stays_in_bounds() {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         // Feed prices with variance to get non-zero bandwidth
         for i in 0..20 {
             if i % 2 == 0 {

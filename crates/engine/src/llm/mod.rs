@@ -22,4 +22,4 @@ pub use types::{
 pub use token::{PairTokenUsage, TokenTracker};
 
 // Crate-private re-exports for internal use
-pub(crate) use types::{ChatRequest, ChatResponse, Choice, ChoiceMessage, ResponseFormat, Usage};
+pub(crate) use types::{ChatRequest, ResponseFormat};

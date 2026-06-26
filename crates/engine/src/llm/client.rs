@@ -1,22 +1,12 @@
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 // LlmClient — HTTP client for DeepSeek API with failover, token tracking, and agent orchestration.
 
-use super::prompts::*;
 use super::token::*;
 
-use crate::api_failover::ApiFailoverState;
 
-use super::prompts::{
-    CHAT_SYSTEM_PROMPT, JOURNAL_AGENT_PROMPT, MASTER_ORCHESTRATOR_PROMPT,
-    MULTI_TF_MASTER_ORCHESTRATOR_PROMPT, POSITION_AGENT_PROMPT, RISK_AGENT_PROMPT,
-    STRUCTURE_AGENT_PROMPT, TREND_AGENT_PROMPT, VOLATILITY_AGENT_PROMPT,
-};
 use super::token::TokenTracker;
 use super::types::{
-    AgentEvaluationResult, ChatMessage, ChatRequest, ChatResponse, ChoiceMessage,
-    IndividualIndicatorResult, JournalResult, MasterOrchestratorResult, ResponseFormat,
-    SupportResistance, Usage,
+    ChatRequest, ChatResponse, Usage,
 };
 
 #[derive(Clone)]

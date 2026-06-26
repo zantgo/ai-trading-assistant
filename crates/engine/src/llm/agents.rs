@@ -1,7 +1,6 @@
 use super::client::LlmClient;
 use super::types::*;
 use super::prompts::*;
-use std::sync::Arc;
 
 impl LlmClient {
     pub async fn run_indicator_agent(

@@ -1,4 +1,6 @@
-use super::{Exchange, NormalizedCandle, NormalizedTrade, TradeSide};
+use super::{NormalizedCandle, NormalizedTrade};
+#[cfg(test)]
+use super::{Exchange, TradeSide};
 use rust_decimal::Decimal;
 
 pub struct CandleGenerator {

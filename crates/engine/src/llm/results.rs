@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::types::{
-    IndividualIndicatorResult, MultiAgentResults, PositionAgentData, RiskAgentData,
-    StructureAgentData, TrendAgentData, VolatilityAgentData,
+    IndividualIndicatorResult, MultiAgentResults,
 };
 
 // ─── Multi-Agent Pipeline Results ─────────────────────────────────

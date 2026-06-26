@@ -1,18 +1,12 @@
-use std::sync::Arc;
 use std::collections::VecDeque;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{broadcast, RwLock};
 use rust_decimal::Decimal;
-use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
 use crate::config::FibonacciConfig;
-use crate::db;
 
 use shared::models::MarketSnapshot;
-use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
+use shared::normalized::{NormalizedCandle, Exchange};
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, FibonacciRange, Bbwp, detect_pattern};
-use crate::sr_engine::SrRoleTracker;
 
 /// Maximum number of candles/snapshots retained in live memory buffers.
 /// Bootstrap fetches up to `analysis_limit` (default 500); live buffers grow
@@ -69,7 +63,7 @@ pub fn warm_indicators_for_timeframe(
     );
     let mut sqz_mom = SqueezeMomentum::new(active_indicators.squeeze_period);
     sqz_mom.set_min_duration(active_indicators.squeeze_min_duration);
-    let mut bollinger = BollingerBands::new();
+    let mut bollinger = BollingerBands::new(20);
     let mut atr_standalone = Atr::new(active_indicators.atr_period);
     let mut bbwp_indicator = Bbwp::new(active_indicators.bbwp_lookback, active_indicators.bbwp_period);
     let mut divergence_detector = DivergenceDetector::new(20);

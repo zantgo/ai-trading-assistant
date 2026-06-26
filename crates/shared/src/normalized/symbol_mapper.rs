@@ -1,6 +1,5 @@
-use super::{Exchange, NormalizedEvent};
+use super::Exchange;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Default)]

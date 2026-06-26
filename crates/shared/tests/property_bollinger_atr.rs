@@ -10,7 +10,7 @@ fn dec(v: f64) -> Decimal {
 proptest! {
     #[test]
     fn bollinger_band_ordering(prices in proptest::collection::vec(1.0f64..100_000.0, 20..100)) {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         for &p in &prices {
             if let Some((upper, middle, lower)) = bb.update(dec(p)) {
                 prop_assert!(upper >= middle, "Upper({}) >= Middle({})", upper, middle);
@@ -24,7 +24,7 @@ proptest! {
         highs in proptest::collection::vec(1.0f64..100_000.0, 20..100),
         lows in proptest::collection::vec(0.1f64..50_000.0, 20..100)
     ) {
-        let mut bb = BollingerBands::new();
+        let mut bb = BollingerBands::new(20);
         let n = highs.len().min(lows.len());
         for i in 0..n {
             let close = (highs[i] + lows[i]) / 2.0;

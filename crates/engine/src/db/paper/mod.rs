@@ -1,4 +1,3 @@
-use sqlx::SqlitePool;
 
 pub mod operations;
 pub mod queries;

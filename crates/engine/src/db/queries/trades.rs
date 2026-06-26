@@ -125,7 +125,7 @@ pub async fn trade_telemetry_insert(
 #[derive(sqlx::FromRow)]
 struct TradeTelemetryQueryRow {
     id: i64,
-    exchange: String,
+    _exchange: String,
     symbol: String,
     direction: String,
     entry_timestamp: i64,

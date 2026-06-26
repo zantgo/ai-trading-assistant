@@ -11,28 +11,21 @@ pub struct Bbwp {
     width_history: Vec<Decimal>,
     lookback: usize,
     period: usize,
-    prices_history: Vec<Decimal>,
 }
 
 impl Bbwp {
     pub fn new(lookback: usize, period: usize) -> Self {
         Self {
-            bb: BollingerBands::new(),
+            bb: BollingerBands::new(period),
             width_history: Vec::new(),
             lookback,
             period,
-            prices_history: Vec::new(),
         }
     }
 
     /// Updates the BBWP with a new close price.
     /// Returns the current BBWP percentile value (0-100).
     pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
-        self.prices_history.push(close);
-        if self.prices_history.len() > self.period + 1 {
-            self.prices_history.remove(0);
-        }
-
         let bands = self.bb.update(close)?;
         let (upper, middle, lower) = bands;
 

@@ -50,10 +50,12 @@
 .timescale-charts {
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable both-edges;
+    border-left: 10px solid #0f111a;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 4px 8px 4px 4px;
+    padding: 0 4px 0 6px;
 }
 
 .timescale-charts::-webkit-scrollbar {
@@ -158,15 +160,13 @@
 }
 
 .expanded-tf-column .timescale-charts {
-    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    scrollbar-gutter: stable both-edges;
+    border-left: 10px solid #0f111a;
+    padding: 0 16px 0 22px;
     gap: 12px;
 }
 
-.expanded-tf-column .panel-box.pane-price { height: 350px !important; }
-.expanded-tf-column .panel-box.pane-vol { height: 160px !important; }
-.expanded-tf-column .panel-box.pane-adx { height: 160px !important; }
-.expanded-tf-column .panel-box.pane-atr { height: 160px !important; }
-.expanded-tf-column .panel-box.pane-rsi { height: 160px !important; }
-.expanded-tf-column .panel-box.pane-macd { height: 160px !important; }
-.expanded-tf-column .panel-box.pane-squeeze { height: 160px !important; }
-.expanded-tf-column .panel-box.pane-bbwp { height: 160px !important; }
+.expanded-tf-column .panel-box.pane-price { flex: 2 1 0%; height: auto !important; }
+.expanded-tf-column .panel-box { flex: 1 1 0%; height: auto !important; }

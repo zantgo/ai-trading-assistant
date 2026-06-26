@@ -1,12 +1,9 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use tokio::sync::RwLock;
 pub use tokio::sync::broadcast::error::RecvError;
 use sqlx::SqlitePool;
 use rustyline::{DefaultEditor, error::ReadlineError};
 
 use crate::workspace::Workspace;
-use crate::registry;
 use crate::llm::LlmClient;
 
 // ─── ANSI Color Constants ──────────────────────────────────────────

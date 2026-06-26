@@ -151,7 +151,7 @@ pub async fn query_latest_snapshot(
                 bb_upper, bb_middle, bb_lower, atr_14, vwap,
                 ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
                 macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
-                squeeze_on, squeeze_momentum
+                squeeze_on, squeeze_momentum, bbwp, support_levels, resistance_levels
          FROM market_snapshots
          WHERE symbol = ?1 AND timeframe_secs = ?2 AND close IS NOT NULL
          ORDER BY id DESC

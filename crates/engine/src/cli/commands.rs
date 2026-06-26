@@ -1,9 +1,7 @@
 use super::CliConsole;
 use super::{BOLD, RESET, CYAN, RED, GREEN, YELLOW, truncate, opt_decimal, opt_decimal_short, RecvError};
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tokio::sync::RwLock;
 
 use crate::registry;
 

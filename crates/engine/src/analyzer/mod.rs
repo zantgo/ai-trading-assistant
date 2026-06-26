@@ -175,7 +175,7 @@ pub async fn run_single(
         );
         sqz_mom = SqueezeMomentum::new(active_indicators.squeeze_period);
         sqz_mom.set_min_duration(active_indicators.squeeze_min_duration);
-        bollinger = BollingerBands::new();
+        bollinger = BollingerBands::new(20);
         atr_standalone = Atr::new(active_indicators.atr_period);
         bbwp_indicator = Bbwp::new(active_indicators.bbwp_lookback, active_indicators.bbwp_period);
         vwap_sum_tp_vol = Decimal::ZERO;

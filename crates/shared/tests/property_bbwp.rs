@@ -47,7 +47,7 @@ proptest! {
                 if pct_v < 10.0 { prop_assert!(is_comp); }
                 if pct_v > 90.0 { prop_assert!(is_exh); }
                 // Compression and exhaustion are mutually exclusive
-                if pct_v < 10.0 && pct_v > 90.0 {
+                if pct_v < 10.0 || pct_v > 90.0 {
                     prop_assert!(!(is_comp && is_exh));
                 }
             }

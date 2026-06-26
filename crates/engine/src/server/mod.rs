@@ -1,5 +1,4 @@
 use axum::{
-    extract::{Path, State},
     response::Redirect,
     routing::{delete, get, post},
     Router,

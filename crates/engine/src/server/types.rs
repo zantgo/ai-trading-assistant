@@ -1,7 +1,6 @@
 use crate::db::{CompletedTradesBufferRow, DecisionMemoryBufferRow};
 use crate::llm::{ChatMessage, IndividualIndicatorResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct AnalyzeRequest {
