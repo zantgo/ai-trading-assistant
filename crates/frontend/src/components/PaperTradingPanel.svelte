@@ -6,31 +6,6 @@
 
     let draftTpLevels = $state(1);
     let draftSlLevels = $state(1);
-    let draftCostInputPrice = $state(app.costPriceInput);
-    let draftCostOutputPrice = $state(app.costPriceOutput);
-    let costSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
-
-    async function saveCostConfig() {
-        costSaveStatus = 'saving';
-        try {
-            const res = await fetch('/api/config/costs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    price_per_1m_input_tokens: Number(draftCostInputPrice),
-                    price_per_1m_output_tokens: Number(draftCostOutputPrice),
-                }),
-            });
-            costSaveStatus = res.ok ? 'success' : 'error';
-            if (res.ok) {
-                app.costPriceInput = Number(draftCostInputPrice);
-                app.costPriceOutput = Number(draftCostOutputPrice);
-                setTimeout(() => { costSaveStatus = 'idle'; }, 2000);
-            }
-        } catch (_) {
-            costSaveStatus = 'error';
-        }
-    }
 </script>
 
 <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
@@ -157,26 +132,6 @@
                     </select>
                 </div>
             </div>
-        </div>
-
-        <!-- Token Cost Calculator -->
-        <div class={styles.settingGroupBox} style="margin-top: 12px;">
-            <span class={styles.selectorsLabel}>AI Token Cost Calculator (per 1M tokens)</span>
-            <div class={styles.inputRow} style="margin-top: 4px;">
-                <label for="costInput">Input Price $/1M:</label>
-                <input id="costInput" type="number" bind:value={draftCostInputPrice} min="0" step="0.01" />
-            </div>
-            <div class={styles.inputRow} style="margin-top: 8px;">
-                <label for="costOutput">Output Price $/1M:</label>
-                <input id="costOutput" type="number" bind:value={draftCostOutputPrice} min="0" step="0.01" />
-            </div>
-            <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
-                    disabled={costSaveStatus === 'saving'} onclick={saveCostConfig}>
-                {costSaveStatus === 'saving' ? 'Saving...' : 'Save Cost Config'}
-            </button>
-            {#if costSaveStatus === 'success'}
-                <div class={styles.statusMsg + " " + styles.successMsg}>Pricing saved.</div>
-            {/if}
         </div>
     </div>
 </div>

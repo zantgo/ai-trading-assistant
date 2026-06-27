@@ -93,9 +93,9 @@ pub async fn run_phase_one_agents_mtf(
     client: &LlmClient,
     symbol: &str,
     micro: &IndicatorSnapshot,
-    small: &IndicatorSnapshot,
-    medium: &IndicatorSnapshot,
-    large: &IndicatorSnapshot,
+    fast: &IndicatorSnapshot,
+    slow: &IndicatorSnapshot,
+    macro_snap: &IndicatorSnapshot,
     _prices: &[f64],
     master_id: i64,
     telemetry_tx: &mpsc::Sender<crate::db::TelemetryMsg>,
@@ -126,13 +126,13 @@ pub async fn run_phase_one_agents_mtf(
         &vol_ema_section,
         &vwap_section,
     ];
-    let medium_tf_secs = 900u64;
-    let large_tf_secs = 3600u64;
+    let slow_tf_secs = 300u64;
+    let macro_tf_secs = 900u64;
     let timeframes: [(&str, &IndicatorSnapshot, u64); 4] = [
         ("micro", micro, 60),
-        ("small", small, 300),
-        ("medium", medium, medium_tf_secs),
-        ("large", large, large_tf_secs),
+        ("fast", fast, 180),
+        ("slow", slow, slow_tf_secs),
+        ("macro", macro_snap, macro_tf_secs),
     ];
 
     let pair_key = symbol.to_string();
@@ -455,9 +455,9 @@ pub async fn run_multi_agent_pipeline(
     pool: SqlitePool,
     symbol: &str,
     micro: &IndicatorSnapshot,
-    _small: &IndicatorSnapshot,
-    _medium: &IndicatorSnapshot,
-    _large: &IndicatorSnapshot,
+    _fast: &IndicatorSnapshot,
+    _slow: &IndicatorSnapshot,
+    _macro: &IndicatorSnapshot,
     prices: &[f64],
     master_id: i64,
     telemetry: &DeterministicTelemetry,
@@ -466,7 +466,7 @@ pub async fn run_multi_agent_pipeline(
     let pair_key = symbol.to_string();
 
     let context_trend = format!(
-        r#"{{ "close": {}, "ema_stack_state": "{}", "deterministic_eight_factor_score": {}, "medium_trend_regime": "{}" }}"#,
+        r#"{{ "close": {}, "ema_stack_state": "{}", "deterministic_eight_factor_score": {}, "slow_trend_regime": "{}" }}"#,
         micro.current_price.unwrap_or(0.0),
         micro.ema_stack_state.as_deref().unwrap_or("tangled"),
         telemetry.total_confluence_score,

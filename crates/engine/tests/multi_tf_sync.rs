@@ -19,26 +19,26 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
         let (event_tx, event_rx) = mpsc::channel::<NormalizedEvent>(500);
 
         let (micro_tx, micro_rx) = mpsc::channel::<NormalizedEvent>(200);
-        let (small_tx, small_rx) = mpsc::channel::<NormalizedEvent>(200);
-        let (medium_tx, medium_rx) = mpsc::channel::<NormalizedEvent>(200);
-        let (large_tx, large_rx) = mpsc::channel::<NormalizedEvent>(200);
+        let (fast_tx, fast_rx) = mpsc::channel::<NormalizedEvent>(200);
+        let (slow_tx, slow_rx) = mpsc::channel::<NormalizedEvent>(200);
+        let (macro_tx, macro_rx) = mpsc::channel::<NormalizedEvent>(200);
 
         // Broadcast channels — subscribe to verify snapshot delivery
         let (micro_broadcast, mut micro_bcast_rx) = broadcast::channel::<MarketSnapshot>(120);
-        let (small_broadcast, mut small_bcast_rx) = broadcast::channel::<MarketSnapshot>(120);
-        let (medium_broadcast, _) = broadcast::channel::<MarketSnapshot>(120);
-        let (large_broadcast, _) = broadcast::channel::<MarketSnapshot>(120);
+        let (fast_broadcast, mut fast_bcast_rx) = broadcast::channel::<MarketSnapshot>(120);
+        let (slow_broadcast, _) = broadcast::channel::<MarketSnapshot>(120);
+        let (macro_broadcast, _) = broadcast::channel::<MarketSnapshot>(120);
 
         let cap = 100usize;
         let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
             cap,
         )));
-        let small_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+        let fast_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
             cap,
         )));
 
         let micro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-        let small_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+        let fast_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
 
         let cancel = CancellationToken::new();
         let (telemetry_tx, _telemetry_rx) = mpsc::channel::<engine::db::TelemetryMsg>(10);
@@ -75,21 +75,21 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
             },
             indicators: indicators.clone(),
         };
-        let small_tf = TimeframeConfig {
+        let fast_tf = TimeframeConfig {
             candles: engine::config::CandlesConfig {
                 duration_seconds: 60,
                 analysis_limit: 100,
             },
             indicators: indicators.clone(),
         };
-        let medium_tf = TimeframeConfig {
+        let slow_tf = TimeframeConfig {
             candles: engine::config::CandlesConfig {
                 duration_seconds: 90,
                 analysis_limit: 100,
             },
             indicators: indicators.clone(),
         };
-        let large_tf = TimeframeConfig {
+        let macro_tf = TimeframeConfig {
             candles: engine::config::CandlesConfig {
                 duration_seconds: 150,
                 analysis_limit: 100,
@@ -104,9 +104,9 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
             analyzer::run_event_router(
                 event_rx,
                 micro_tx,
-                small_tx,
-                medium_tx,
-                large_tx,
+                fast_tx,
+                slow_tx,
+                macro_tx,
                 router_symbol,
                 router_cancel,
             )
@@ -150,12 +150,12 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
         };
 
         let micro_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
-        let small_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
-        let medium_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
-        let large_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
+        let fast_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
+        let slow_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
+        let macro_div = Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(10)));
 
         // Long-lived history for async borrow in future (keeps references alive)
-        let _ = (&micro_history, &small_history);
+        let _ = (&micro_history, &fast_history);
 
         let _h1 = spawn_analyzer(
             micro_rx,
@@ -172,45 +172,45 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
             cancel.clone(),
         );
         let _h2 = spawn_analyzer(
-            small_rx,
-            small_broadcast,
-            small_tf,
+            fast_rx,
+            fast_broadcast,
+            fast_tf,
             fib_config.clone(),
-            small_div,
-            small_history.clone(),
-            small_latest.clone(),
+            fast_div,
+            fast_history.clone(),
+            fast_latest.clone(),
             symbol.clone(),
             pair_key.clone(),
             60,
-            "Small",
+            "Fast",
             cancel.clone(),
         );
         let _h3 = spawn_analyzer(
-            medium_rx,
-            medium_broadcast,
-            medium_tf,
+            slow_rx,
+            slow_broadcast,
+            slow_tf,
             fib_config.clone(),
-            medium_div,
+            slow_div,
             Arc::new(RwLock::new(VecDeque::with_capacity(cap))),
             Arc::new(RwLock::new(None)),
             symbol.clone(),
             pair_key.clone(),
             90,
-            "Medium",
+            "Slow",
             cancel.clone(),
         );
         let _h4 = spawn_analyzer(
-            large_rx,
-            large_broadcast,
-            large_tf,
+            macro_rx,
+            macro_broadcast,
+            macro_tf,
             fib_config.clone(),
-            large_div,
+            macro_div,
             Arc::new(RwLock::new(VecDeque::with_capacity(cap))),
             Arc::new(RwLock::new(None)),
             symbol.clone(),
             pair_key.clone(),
             150,
-            "Large",
+            "Macro",
             cancel.clone(),
         );
 
@@ -241,10 +241,10 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
         tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
 
         let micro_count = micro_history.read().await.len();
-        let small_count = small_history.read().await.len();
+        let fast_count = fast_history.read().await.len();
         eprintln!(
-            "History counts — Micro(30s): {}, Small(60s): {}",
-            micro_count, small_count
+            "History counts — Micro(30s): {}, Fast(60s): {}",
+            micro_count, fast_count
         );
 
         assert!(
@@ -254,13 +254,13 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
             micro_count
         );
         assert!(
-            small_count <= cap,
-            "Small history capped at {}; got {}",
+            fast_count <= cap,
+            "Fast history capped at {}; got {}",
             cap,
-            small_count
+            fast_count
         );
 
-        let total = micro_count + small_count;
+        let total = micro_count + fast_count;
         assert!(
             total > 0,
             "At least one timeframe should produce candle history"
@@ -268,20 +268,20 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
 
         // Broadcast verification
         let micro_snaps = drain_broadcast(&mut micro_bcast_rx);
-        let small_snaps = drain_broadcast(&mut small_bcast_rx);
+        let fast_snaps = drain_broadcast(&mut fast_bcast_rx);
         eprintln!(
-            "Broadcast snapshots — Micro: {}, Small: {}",
-            micro_snaps, small_snaps
+            "Broadcast snapshots — Micro: {}, Fast: {}",
+            micro_snaps, fast_snaps
         );
 
-        let total_snaps = micro_snaps + small_snaps;
+        let total_snaps = micro_snaps + fast_snaps;
         assert!(
             total_snaps > 0,
             "At least one broadcast channel should have delivered snapshots"
         );
 
         // Verify latest snapshots
-        let has_latest = micro_latest.read().await.is_some() || small_latest.read().await.is_some();
+        let has_latest = micro_latest.read().await.is_some() || fast_latest.read().await.is_some();
         assert!(
             has_latest,
             "At least one timeframe should have a latest snapshot"

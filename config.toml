@@ -66,12 +66,12 @@ sr_proximity_threshold_pct = 0.5
 sr_flip_tolerance_pct = 0.3
 pattern_slope_tolerance = 0.2
 
-[medium_timeframe]
+[slow_timeframe]
 enabled = true
-duration_seconds = 900
+duration_seconds = 300
 analysis_limit = 500
 
-[large_timeframe]
+[macro_timeframe]
 enabled = true
 duration_seconds = 900
 analysis_limit = 500

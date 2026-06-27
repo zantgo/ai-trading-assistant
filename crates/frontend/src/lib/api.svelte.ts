@@ -98,7 +98,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     const costInputPrice = costs?.price_per_1m_input_tokens ?? 0.27;
     const costOutputPrice = costs?.price_per_1m_output_tokens ?? 1.10;
 
-    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; short_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; medium_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; large_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number } }>;
+    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number } }>;
     const symbols: string[] = (config.symbols as string[]) || ['BTC'];
 
     for (const item of symbols) {
@@ -151,58 +151,58 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
                     ...advancedIndicators(specific.micro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
-            if (specific.short_term) {
-                targetState.smallTerm.barDurationSec = specific.short_term.candles.duration_seconds;
-                Object.assign(targetState.smallTerm, {
-                    emaFastVal: specific.short_term.indicators.ema_fast,
-                    emaMediumVal: specific.short_term.indicators.ema_medium,
-                    emaSlowVal: specific.short_term.indicators.ema_slow,
-                    emaLongVal: specific.short_term.indicators.ema_long,
-                    rsiPeriodVal: specific.short_term.indicators.rsi_period,
-                    macdFastVal: specific.short_term.indicators.macd_fast,
-                    macdSlowVal: specific.short_term.indicators.macd_slow,
-                    macdSignalVal: specific.short_term.indicators.macd_signal,
-                    adxPeriodVal: specific.short_term.indicators.adx_period,
-                    atrPeriodVal: specific.short_term.indicators.atr_period,
-                    squeezePeriodVal: specific.short_term.indicators.squeeze_period,
-                    analysisLimit: specific.short_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.short_term.indicators as unknown as Record<string, unknown>),
+            if (specific.fast_term) {
+                targetState.fastTerm.barDurationSec = specific.fast_term.candles.duration_seconds;
+                Object.assign(targetState.fastTerm, {
+                    emaFastVal: specific.fast_term.indicators.ema_fast,
+                    emaMediumVal: specific.fast_term.indicators.ema_medium,
+                    emaSlowVal: specific.fast_term.indicators.ema_slow,
+                    emaLongVal: specific.fast_term.indicators.ema_long,
+                    rsiPeriodVal: specific.fast_term.indicators.rsi_period,
+                    macdFastVal: specific.fast_term.indicators.macd_fast,
+                    macdSlowVal: specific.fast_term.indicators.macd_slow,
+                    macdSignalVal: specific.fast_term.indicators.macd_signal,
+                    adxPeriodVal: specific.fast_term.indicators.adx_period,
+                    atrPeriodVal: specific.fast_term.indicators.atr_period,
+                    squeezePeriodVal: specific.fast_term.indicators.squeeze_period,
+                    analysisLimit: specific.fast_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.fast_term.indicators as unknown as Record<string, unknown>),
                 });
             }
-            if (specific.medium_term) {
-                targetState.mediumTerm.barDurationSec = specific.medium_term.candles.duration_seconds;
-                Object.assign(targetState.mediumTerm, {
-                    emaFastVal: specific.medium_term.indicators.ema_fast,
-                    emaMediumVal: specific.medium_term.indicators.ema_medium,
-                    emaSlowVal: specific.medium_term.indicators.ema_slow,
-                    emaLongVal: specific.medium_term.indicators.ema_long,
-                    rsiPeriodVal: specific.medium_term.indicators.rsi_period,
-                    macdFastVal: specific.medium_term.indicators.macd_fast,
-                    macdSlowVal: specific.medium_term.indicators.macd_slow,
-                    macdSignalVal: specific.medium_term.indicators.macd_signal,
-                    adxPeriodVal: specific.medium_term.indicators.adx_period,
-                    atrPeriodVal: specific.medium_term.indicators.atr_period,
-                    squeezePeriodVal: specific.medium_term.indicators.squeeze_period,
-                    analysisLimit: specific.medium_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.medium_term.indicators as unknown as Record<string, unknown>),
+            if (specific.slow_term) {
+                targetState.slowTerm.barDurationSec = specific.slow_term.candles.duration_seconds;
+                Object.assign(targetState.slowTerm, {
+                    emaFastVal: specific.slow_term.indicators.ema_fast,
+                    emaMediumVal: specific.slow_term.indicators.ema_medium,
+                    emaSlowVal: specific.slow_term.indicators.ema_slow,
+                    emaLongVal: specific.slow_term.indicators.ema_long,
+                    rsiPeriodVal: specific.slow_term.indicators.rsi_period,
+                    macdFastVal: specific.slow_term.indicators.macd_fast,
+                    macdSlowVal: specific.slow_term.indicators.macd_slow,
+                    macdSignalVal: specific.slow_term.indicators.macd_signal,
+                    adxPeriodVal: specific.slow_term.indicators.adx_period,
+                    atrPeriodVal: specific.slow_term.indicators.atr_period,
+                    squeezePeriodVal: specific.slow_term.indicators.squeeze_period,
+                    analysisLimit: specific.slow_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.slow_term.indicators as unknown as Record<string, unknown>),
                 });
             }
-            if (specific.large_term) {
-                targetState.largeTerm.barDurationSec = specific.large_term.candles.duration_seconds;
-                Object.assign(targetState.largeTerm, {
-                    emaFastVal: specific.large_term.indicators.ema_fast,
-                    emaMediumVal: specific.large_term.indicators.ema_medium,
-                    emaSlowVal: specific.large_term.indicators.ema_slow,
-                    emaLongVal: specific.large_term.indicators.ema_long,
-                    rsiPeriodVal: specific.large_term.indicators.rsi_period,
-                    macdFastVal: specific.large_term.indicators.macd_fast,
-                    macdSlowVal: specific.large_term.indicators.macd_slow,
-                    macdSignalVal: specific.large_term.indicators.macd_signal,
-                    adxPeriodVal: specific.large_term.indicators.adx_period,
-                    atrPeriodVal: specific.large_term.indicators.atr_period,
-                    squeezePeriodVal: specific.large_term.indicators.squeeze_period,
-                    analysisLimit: specific.large_term.candles.analysis_limit ?? 100,
-                    ...advancedIndicators(specific.large_term.indicators as unknown as Record<string, unknown>),
+            if (specific.macro_term) {
+                targetState.macroTerm.barDurationSec = specific.macro_term.candles.duration_seconds;
+                Object.assign(targetState.macroTerm, {
+                    emaFastVal: specific.macro_term.indicators.ema_fast,
+                    emaMediumVal: specific.macro_term.indicators.ema_medium,
+                    emaSlowVal: specific.macro_term.indicators.ema_slow,
+                    emaLongVal: specific.macro_term.indicators.ema_long,
+                    rsiPeriodVal: specific.macro_term.indicators.rsi_period,
+                    macdFastVal: specific.macro_term.indicators.macd_fast,
+                    macdSlowVal: specific.macro_term.indicators.macd_slow,
+                    macdSignalVal: specific.macro_term.indicators.macd_signal,
+                    adxPeriodVal: specific.macro_term.indicators.adx_period,
+                    atrPeriodVal: specific.macro_term.indicators.atr_period,
+                    squeezePeriodVal: specific.macro_term.indicators.squeeze_period,
+                    analysisLimit: specific.macro_term.candles.analysis_limit ?? 100,
+                    ...advancedIndicators(specific.macro_term.indicators as unknown as Record<string, unknown>),
                 });
             }
             if (specific.automation) {

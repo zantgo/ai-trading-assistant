@@ -16,9 +16,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub pivots: PivotsConfig,
     #[serde(default)]
-    pub medium_timeframe: MediumTimeframeConfig,
+    pub slow_timeframe: SlowTimeframeConfig,
     #[serde(default)]
-    pub large_timeframe: MediumTimeframeConfig,
+    pub macro_timeframe: SlowTimeframeConfig,
     #[serde(default)]
     pub leverage: LeverageConfig,
     #[serde(default)]

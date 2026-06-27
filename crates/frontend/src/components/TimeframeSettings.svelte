@@ -78,18 +78,18 @@
 
     let draft = $state({
         micro: defaultTermDraft(),
-        small: defaultTermDraft(),
-        medium: defaultTermDraft(),
-        large: defaultTermDraft(),
+        fast: defaultTermDraft(),
+        slow: defaultTermDraft(),
+        macro: defaultTermDraft(),
     });
 
     let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
 
     $effect(() => {
         draft.micro = readTermFromTelemetry(pair.microTerm);
-        draft.small = readTermFromTelemetry(pair.smallTerm);
-        draft.medium = readTermFromTelemetry(pair.mediumTerm);
-        draft.large = readTermFromTelemetry(pair.largeTerm);
+        draft.fast = readTermFromTelemetry(pair.fastTerm);
+        draft.slow = readTermFromTelemetry(pair.slowTerm);
+        draft.macro = readTermFromTelemetry(pair.macroTerm);
     });
 
     function selectedOption(seconds: number): number {
@@ -157,9 +157,9 @@
     async function applySettings() {
         const durations = [
             draft.micro.durationSeconds,
-            draft.small.durationSeconds,
-            draft.medium.durationSeconds,
-            draft.large.durationSeconds,
+            draft.fast.durationSeconds,
+            draft.slow.durationSeconds,
+            draft.macro.durationSeconds,
         ];
         const uniqueDurations = new Set(durations);
         if (uniqueDurations.size < 4) {
@@ -173,16 +173,16 @@
                 indicators: buildIndicators(draft.micro),
             },
             short_term: {
-                candles: { duration_seconds: draft.small.durationSeconds, analysis_limit: draft.small.analysisLimit },
-                indicators: buildIndicators(draft.small),
+                candles: { duration_seconds: draft.fast.durationSeconds, analysis_limit: draft.fast.analysisLimit },
+                indicators: buildIndicators(draft.fast),
             },
             medium_term: {
-                candles: { duration_seconds: draft.medium.durationSeconds, analysis_limit: draft.medium.analysisLimit },
-                indicators: buildIndicators(draft.medium),
+                candles: { duration_seconds: draft.slow.durationSeconds, analysis_limit: draft.slow.analysisLimit },
+                indicators: buildIndicators(draft.slow),
             },
             large_term: {
-                candles: { duration_seconds: draft.large.durationSeconds, analysis_limit: draft.large.analysisLimit },
-                indicators: buildIndicators(draft.large),
+                candles: { duration_seconds: draft.macro.durationSeconds, analysis_limit: draft.macro.analysisLimit },
+                indicators: buildIndicators(draft.macro),
             },
             automation: {
                 enabled: pair.automationEnabled,
@@ -203,9 +203,9 @@
             });
             if (res.ok) {
                 applyTermToTelemetry(draft.micro, pair.microTerm);
-                applyTermToTelemetry(draft.small, pair.smallTerm);
-                applyTermToTelemetry(draft.medium, pair.mediumTerm);
-                applyTermToTelemetry(draft.large, pair.largeTerm);
+                applyTermToTelemetry(draft.fast, pair.fastTerm);
+                applyTermToTelemetry(draft.slow, pair.slowTerm);
+                applyTermToTelemetry(draft.macro, pair.macroTerm);
                 onApplied?.();
                 saveStatus = 'success';
                 setTimeout(() => { saveStatus = 'idle'; pair.currentView = 'terminal'; }, 800);
@@ -272,149 +272,149 @@
         </div>
 
         <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Small Term</h3>
+            <h3 class={styles.cardTitle}>Fast Term</h3>
             <div class={styles.timeframeRow}>
                 <select class={styles.tfSelect}
-                    value={selectedOption(draft.small.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.small.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.small.durationSeconds)}</option>
+                    value={selectedOption(draft.fast.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.fast.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(draft.fast.durationSeconds)}</option>
                     {#each TIMEFRAME_OPTIONS as opt}
                         <option value={opt.seconds}>{opt.label}</option>
                     {/each}
                 </select>
             </div>
             <div class="{styles.indicatorInputsScroll} font-mono">
-                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Fast')}>EMA Fast</label><input id={fieldId('small', 'EMA Fast')} type="number" bind:value={draft.small.emaFast} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Med')}>EMA Med</label><input id={fieldId('small', 'EMA Med')} type="number" bind:value={draft.small.emaMedium} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Slow')}>EMA Slow</label><input id={fieldId('small', 'EMA Slow')} type="number" bind:value={draft.small.emaSlow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Long')}>EMA Long</label><input id={fieldId('small', 'EMA Long')} type="number" bind:value={draft.small.emaLong} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'RSI Window')}>RSI Window</label><input id={fieldId('small', 'RSI Window')} type="number" bind:value={draft.small.rsiPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Fast')}>MACD Fast</label><input id={fieldId('small', 'MACD Fast')} type="number" bind:value={draft.small.macdFast} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Slow')}>MACD Slow</label><input id={fieldId('small', 'MACD Slow')} type="number" bind:value={draft.small.macdSlow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Signal')}>MACD Signal</label><input id={fieldId('small', 'MACD Signal')} type="number" bind:value={draft.small.macdSignal} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Period')}>ADX Period</label><input id={fieldId('small', 'ADX Period')} type="number" bind:value={draft.small.adxPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'ATR Period')}>ATR Period</label><input id={fieldId('small', 'ATR Period')} type="number" bind:value={draft.small.atrPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId('small', 'Squeeze Wave')} type="number" bind:value={draft.small.squeezePeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'BBWP Period')}>BBWP Period</label><input id={fieldId('small', 'BBWP Period')} type="number" bind:value={draft.small.bbwpPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId('small', 'BBWP Lookback')} type="number" bind:value={draft.small.bbwpLookback} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Fast')}>EMA Fast</label><input id={fieldId('small', 'EMA Fast')} type="number" bind:value={draft.fast.emaFast} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Med')}>EMA Med</label><input id={fieldId('small', 'EMA Med')} type="number" bind:value={draft.fast.emaMedium} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Slow')}>EMA Slow</label><input id={fieldId('small', 'EMA Slow')} type="number" bind:value={draft.fast.emaSlow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'EMA Long')}>EMA Long</label><input id={fieldId('small', 'EMA Long')} type="number" bind:value={draft.fast.emaLong} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'RSI Window')}>RSI Window</label><input id={fieldId('small', 'RSI Window')} type="number" bind:value={draft.fast.rsiPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Fast')}>MACD Fast</label><input id={fieldId('small', 'MACD Fast')} type="number" bind:value={draft.fast.macdFast} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Slow')}>MACD Slow</label><input id={fieldId('small', 'MACD Slow')} type="number" bind:value={draft.fast.macdSlow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Signal')}>MACD Signal</label><input id={fieldId('small', 'MACD Signal')} type="number" bind:value={draft.fast.macdSignal} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Period')}>ADX Period</label><input id={fieldId('small', 'ADX Period')} type="number" bind:value={draft.fast.adxPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'ATR Period')}>ATR Period</label><input id={fieldId('small', 'ATR Period')} type="number" bind:value={draft.fast.atrPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId('small', 'Squeeze Wave')} type="number" bind:value={draft.fast.squeezePeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'BBWP Period')}>BBWP Period</label><input id={fieldId('small', 'BBWP Period')} type="number" bind:value={draft.fast.bbwpPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId('small', 'BBWP Lookback')} type="number" bind:value={draft.fast.bbwpLookback} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Extr High')}>MACD Extr High</label><input id={fieldId('small', 'MACD Extr High')} type="number" step="0.01" bind:value={draft.small.macdExtremeHigh} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId('small', 'MACD Extr Low')} type="number" step="0.01" bind:value={draft.small.macdExtremeLow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Contr %')}>MACD Contr %</label><input id={fieldId('small', 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.small.macdContraction} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId('small', 'ADX Trend Th')} type="number" bind:value={draft.small.adxTrendThreshold} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId('small', 'ADX Exhaustion')} type="number" bind:value={draft.small.adxExhaustionThreshold} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId('small', 'ADX Slope Lbk')} type="number" bind:value={draft.small.adxSlopeLookback} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Extr High')}>MACD Extr High</label><input id={fieldId('small', 'MACD Extr High')} type="number" step="0.01" bind:value={draft.fast.macdExtremeHigh} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId('small', 'MACD Extr Low')} type="number" step="0.01" bind:value={draft.fast.macdExtremeLow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'MACD Contr %')}>MACD Contr %</label><input id={fieldId('small', 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.fast.macdContraction} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId('small', 'ADX Trend Th')} type="number" bind:value={draft.fast.adxTrendThreshold} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId('small', 'ADX Exhaustion')} type="number" bind:value={draft.fast.adxExhaustionThreshold} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId('small', 'ADX Slope Lbk')} type="number" bind:value={draft.fast.adxSlopeLookback} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId('small', 'Sqz Min Dur')} type="number" bind:value={draft.small.squeezeMinDuration} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId('small', 'Sqz BB Period')} type="number" bind:value={draft.small.squeezeBbPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId('small', 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={draft.small.squeezeBbStdDev} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId('small', 'Sqz KC Period')} type="number" bind:value={draft.small.squeezeKcPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId('small', 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={draft.small.squeezeKcAtrMult} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId('small', 'Sqz Min Dur')} type="number" bind:value={draft.fast.squeezeMinDuration} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId('small', 'Sqz BB Period')} type="number" bind:value={draft.fast.squeezeBbPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId('small', 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={draft.fast.squeezeBbStdDev} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId('small', 'Sqz KC Period')} type="number" bind:value={draft.fast.squeezeKcPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId('small', 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={draft.fast.squeezeKcAtrMult} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('small', 'ATR Mult')}>ATR Mult</label><input id={fieldId('small', 'ATR Mult')} type="number" step="0.1" bind:value={draft.small.atrMultiplier} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Target R:R')}>Target R:R</label><input id={fieldId('small', 'Target R:R')} type="number" step="0.1" bind:value={draft.small.atrTargetRR} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId('small', 'Vol Avg Period')} type="number" bind:value={draft.small.volumeAvgPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'RVOL Inst')}>RVOL Inst</label><input id={fieldId('small', 'RVOL Inst')} type="number" step="0.1" bind:value={draft.small.rvolInstitutional} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'RVOL Climax')}>RVOL Climax</label><input id={fieldId('small', 'RVOL Climax')} type="number" step="0.1" bind:value={draft.small.rvolClimax} /></div>
-                <div class={styles.inputRow}><label for={fieldId('small', 'Analysis Limit')}>Analysis Limit</label><input id={fieldId('small', 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={draft.small.analysisLimit} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'ATR Mult')}>ATR Mult</label><input id={fieldId('small', 'ATR Mult')} type="number" step="0.1" bind:value={draft.fast.atrMultiplier} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Target R:R')}>Target R:R</label><input id={fieldId('small', 'Target R:R')} type="number" step="0.1" bind:value={draft.fast.atrTargetRR} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId('small', 'Vol Avg Period')} type="number" bind:value={draft.fast.volumeAvgPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'RVOL Inst')}>RVOL Inst</label><input id={fieldId('small', 'RVOL Inst')} type="number" step="0.1" bind:value={draft.fast.rvolInstitutional} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'RVOL Climax')}>RVOL Climax</label><input id={fieldId('small', 'RVOL Climax')} type="number" step="0.1" bind:value={draft.fast.rvolClimax} /></div>
+                <div class={styles.inputRow}><label for={fieldId('small', 'Analysis Limit')}>Analysis Limit</label><input id={fieldId('small', 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={draft.fast.analysisLimit} /></div>
             </div>
         </div>
 
         <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Medium Term</h3>
+            <h3 class={styles.cardTitle}>Slow Term</h3>
             <div class={styles.timeframeRow}>
                 <select class={styles.tfSelect}
-                    value={selectedOption(draft.medium.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.medium.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.medium.durationSeconds)}</option>
+                    value={selectedOption(draft.slow.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.slow.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(draft.slow.durationSeconds)}</option>
                     {#each TIMEFRAME_OPTIONS as opt}
                         <option value={opt.seconds}>{opt.label}</option>
                     {/each}
                 </select>
             </div>
             <div class="{styles.indicatorInputsScroll} font-mono">
-                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Fast')}>EMA Fast</label><input id={fieldId('medium', 'EMA Fast')} type="number" bind:value={draft.medium.emaFast} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Med')}>EMA Med</label><input id={fieldId('medium', 'EMA Med')} type="number" bind:value={draft.medium.emaMedium} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Slow')}>EMA Slow</label><input id={fieldId('medium', 'EMA Slow')} type="number" bind:value={draft.medium.emaSlow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Long')}>EMA Long</label><input id={fieldId('medium', 'EMA Long')} type="number" bind:value={draft.medium.emaLong} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'RSI Window')}>RSI Window</label><input id={fieldId('medium', 'RSI Window')} type="number" bind:value={draft.medium.rsiPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Fast')}>MACD Fast</label><input id={fieldId('medium', 'MACD Fast')} type="number" bind:value={draft.medium.macdFast} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Slow')}>MACD Slow</label><input id={fieldId('medium', 'MACD Slow')} type="number" bind:value={draft.medium.macdSlow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Signal')}>MACD Signal</label><input id={fieldId('medium', 'MACD Signal')} type="number" bind:value={draft.medium.macdSignal} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Period')}>ADX Period</label><input id={fieldId('medium', 'ADX Period')} type="number" bind:value={draft.medium.adxPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'ATR Period')}>ATR Period</label><input id={fieldId('medium', 'ATR Period')} type="number" bind:value={draft.medium.atrPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId('medium', 'Squeeze Wave')} type="number" bind:value={draft.medium.squeezePeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'BBWP Period')}>BBWP Period</label><input id={fieldId('medium', 'BBWP Period')} type="number" bind:value={draft.medium.bbwpPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId('medium', 'BBWP Lookback')} type="number" bind:value={draft.medium.bbwpLookback} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Fast')}>EMA Fast</label><input id={fieldId('medium', 'EMA Fast')} type="number" bind:value={draft.slow.emaFast} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Med')}>EMA Med</label><input id={fieldId('medium', 'EMA Med')} type="number" bind:value={draft.slow.emaMedium} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Slow')}>EMA Slow</label><input id={fieldId('medium', 'EMA Slow')} type="number" bind:value={draft.slow.emaSlow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'EMA Long')}>EMA Long</label><input id={fieldId('medium', 'EMA Long')} type="number" bind:value={draft.slow.emaLong} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'RSI Window')}>RSI Window</label><input id={fieldId('medium', 'RSI Window')} type="number" bind:value={draft.slow.rsiPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Fast')}>MACD Fast</label><input id={fieldId('medium', 'MACD Fast')} type="number" bind:value={draft.slow.macdFast} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Slow')}>MACD Slow</label><input id={fieldId('medium', 'MACD Slow')} type="number" bind:value={draft.slow.macdSlow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Signal')}>MACD Signal</label><input id={fieldId('medium', 'MACD Signal')} type="number" bind:value={draft.slow.macdSignal} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Period')}>ADX Period</label><input id={fieldId('medium', 'ADX Period')} type="number" bind:value={draft.slow.adxPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'ATR Period')}>ATR Period</label><input id={fieldId('medium', 'ATR Period')} type="number" bind:value={draft.slow.atrPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId('medium', 'Squeeze Wave')} type="number" bind:value={draft.slow.squeezePeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'BBWP Period')}>BBWP Period</label><input id={fieldId('medium', 'BBWP Period')} type="number" bind:value={draft.slow.bbwpPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId('medium', 'BBWP Lookback')} type="number" bind:value={draft.slow.bbwpLookback} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Extr High')}>MACD Extr High</label><input id={fieldId('medium', 'MACD Extr High')} type="number" step="0.01" bind:value={draft.medium.macdExtremeHigh} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId('medium', 'MACD Extr Low')} type="number" step="0.01" bind:value={draft.medium.macdExtremeLow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Contr %')}>MACD Contr %</label><input id={fieldId('medium', 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.medium.macdContraction} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId('medium', 'ADX Trend Th')} type="number" bind:value={draft.medium.adxTrendThreshold} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId('medium', 'ADX Exhaustion')} type="number" bind:value={draft.medium.adxExhaustionThreshold} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId('medium', 'ADX Slope Lbk')} type="number" bind:value={draft.medium.adxSlopeLookback} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Extr High')}>MACD Extr High</label><input id={fieldId('medium', 'MACD Extr High')} type="number" step="0.01" bind:value={draft.slow.macdExtremeHigh} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId('medium', 'MACD Extr Low')} type="number" step="0.01" bind:value={draft.slow.macdExtremeLow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'MACD Contr %')}>MACD Contr %</label><input id={fieldId('medium', 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.slow.macdContraction} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId('medium', 'ADX Trend Th')} type="number" bind:value={draft.slow.adxTrendThreshold} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId('medium', 'ADX Exhaustion')} type="number" bind:value={draft.slow.adxExhaustionThreshold} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId('medium', 'ADX Slope Lbk')} type="number" bind:value={draft.slow.adxSlopeLookback} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId('medium', 'Sqz Min Dur')} type="number" bind:value={draft.medium.squeezeMinDuration} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId('medium', 'Sqz BB Period')} type="number" bind:value={draft.medium.squeezeBbPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId('medium', 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={draft.medium.squeezeBbStdDev} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId('medium', 'Sqz KC Period')} type="number" bind:value={draft.medium.squeezeKcPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId('medium', 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={draft.medium.squeezeKcAtrMult} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId('medium', 'Sqz Min Dur')} type="number" bind:value={draft.slow.squeezeMinDuration} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId('medium', 'Sqz BB Period')} type="number" bind:value={draft.slow.squeezeBbPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId('medium', 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={draft.slow.squeezeBbStdDev} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId('medium', 'Sqz KC Period')} type="number" bind:value={draft.slow.squeezeKcPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId('medium', 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={draft.slow.squeezeKcAtrMult} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('medium', 'ATR Mult')}>ATR Mult</label><input id={fieldId('medium', 'ATR Mult')} type="number" step="0.1" bind:value={draft.medium.atrMultiplier} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Target R:R')}>Target R:R</label><input id={fieldId('medium', 'Target R:R')} type="number" step="0.1" bind:value={draft.medium.atrTargetRR} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId('medium', 'Vol Avg Period')} type="number" bind:value={draft.medium.volumeAvgPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'RVOL Inst')}>RVOL Inst</label><input id={fieldId('medium', 'RVOL Inst')} type="number" step="0.1" bind:value={draft.medium.rvolInstitutional} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'RVOL Climax')}>RVOL Climax</label><input id={fieldId('medium', 'RVOL Climax')} type="number" step="0.1" bind:value={draft.medium.rvolClimax} /></div>
-                <div class={styles.inputRow}><label for={fieldId('medium', 'Analysis Limit')}>Analysis Limit</label><input id={fieldId('medium', 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={draft.medium.analysisLimit} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'ATR Mult')}>ATR Mult</label><input id={fieldId('medium', 'ATR Mult')} type="number" step="0.1" bind:value={draft.slow.atrMultiplier} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Target R:R')}>Target R:R</label><input id={fieldId('medium', 'Target R:R')} type="number" step="0.1" bind:value={draft.slow.atrTargetRR} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId('medium', 'Vol Avg Period')} type="number" bind:value={draft.slow.volumeAvgPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'RVOL Inst')}>RVOL Inst</label><input id={fieldId('medium', 'RVOL Inst')} type="number" step="0.1" bind:value={draft.slow.rvolInstitutional} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'RVOL Climax')}>RVOL Climax</label><input id={fieldId('medium', 'RVOL Climax')} type="number" step="0.1" bind:value={draft.slow.rvolClimax} /></div>
+                <div class={styles.inputRow}><label for={fieldId('medium', 'Analysis Limit')}>Analysis Limit</label><input id={fieldId('medium', 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={draft.slow.analysisLimit} /></div>
             </div>
         </div>
 
         <div class={styles.termCard}>
-            <h3 class={styles.cardTitle}>Large Term</h3>
+            <h3 class={styles.cardTitle}>Macro Term</h3>
             <div class={styles.timeframeRow}>
                 <select class={styles.tfSelect}
-                    value={selectedOption(draft.large.durationSeconds)}
-                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.large.durationSeconds = v; }}>
-                    <option value={-1} disabled>Custom: {durationLabel(draft.large.durationSeconds)}</option>
+                    value={selectedOption(draft.macro.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) draft.macro.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(draft.macro.durationSeconds)}</option>
                     {#each TIMEFRAME_OPTIONS as opt}
                         <option value={opt.seconds}>{opt.label}</option>
                     {/each}
                 </select>
             </div>
             <div class="{styles.indicatorInputsScroll} font-mono">
-                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Fast')}>EMA Fast</label><input id={fieldId('large', 'EMA Fast')} type="number" bind:value={draft.large.emaFast} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Med')}>EMA Med</label><input id={fieldId('large', 'EMA Med')} type="number" bind:value={draft.large.emaMedium} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Slow')}>EMA Slow</label><input id={fieldId('large', 'EMA Slow')} type="number" bind:value={draft.large.emaSlow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Long')}>EMA Long</label><input id={fieldId('large', 'EMA Long')} type="number" bind:value={draft.large.emaLong} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'RSI Window')}>RSI Window</label><input id={fieldId('large', 'RSI Window')} type="number" bind:value={draft.large.rsiPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Fast')}>MACD Fast</label><input id={fieldId('large', 'MACD Fast')} type="number" bind:value={draft.large.macdFast} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Slow')}>MACD Slow</label><input id={fieldId('large', 'MACD Slow')} type="number" bind:value={draft.large.macdSlow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Signal')}>MACD Signal</label><input id={fieldId('large', 'MACD Signal')} type="number" bind:value={draft.large.macdSignal} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Period')}>ADX Period</label><input id={fieldId('large', 'ADX Period')} type="number" bind:value={draft.large.adxPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'ATR Period')}>ATR Period</label><input id={fieldId('large', 'ATR Period')} type="number" bind:value={draft.large.atrPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId('large', 'Squeeze Wave')} type="number" bind:value={draft.large.squeezePeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'BBWP Period')}>BBWP Period</label><input id={fieldId('large', 'BBWP Period')} type="number" bind:value={draft.large.bbwpPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId('large', 'BBWP Lookback')} type="number" bind:value={draft.large.bbwpLookback} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Fast')}>EMA Fast</label><input id={fieldId('large', 'EMA Fast')} type="number" bind:value={draft.macro.emaFast} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Med')}>EMA Med</label><input id={fieldId('large', 'EMA Med')} type="number" bind:value={draft.macro.emaMedium} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Slow')}>EMA Slow</label><input id={fieldId('large', 'EMA Slow')} type="number" bind:value={draft.macro.emaSlow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'EMA Long')}>EMA Long</label><input id={fieldId('large', 'EMA Long')} type="number" bind:value={draft.macro.emaLong} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'RSI Window')}>RSI Window</label><input id={fieldId('large', 'RSI Window')} type="number" bind:value={draft.macro.rsiPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Fast')}>MACD Fast</label><input id={fieldId('large', 'MACD Fast')} type="number" bind:value={draft.macro.macdFast} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Slow')}>MACD Slow</label><input id={fieldId('large', 'MACD Slow')} type="number" bind:value={draft.macro.macdSlow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Signal')}>MACD Signal</label><input id={fieldId('large', 'MACD Signal')} type="number" bind:value={draft.macro.macdSignal} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Period')}>ADX Period</label><input id={fieldId('large', 'ADX Period')} type="number" bind:value={draft.macro.adxPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'ATR Period')}>ATR Period</label><input id={fieldId('large', 'ATR Period')} type="number" bind:value={draft.macro.atrPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId('large', 'Squeeze Wave')} type="number" bind:value={draft.macro.squeezePeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'BBWP Period')}>BBWP Period</label><input id={fieldId('large', 'BBWP Period')} type="number" bind:value={draft.macro.bbwpPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId('large', 'BBWP Lookback')} type="number" bind:value={draft.macro.bbwpLookback} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Extr High')}>MACD Extr High</label><input id={fieldId('large', 'MACD Extr High')} type="number" step="0.01" bind:value={draft.large.macdExtremeHigh} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId('large', 'MACD Extr Low')} type="number" step="0.01" bind:value={draft.large.macdExtremeLow} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Contr %')}>MACD Contr %</label><input id={fieldId('large', 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.large.macdContraction} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId('large', 'ADX Trend Th')} type="number" bind:value={draft.large.adxTrendThreshold} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId('large', 'ADX Exhaustion')} type="number" bind:value={draft.large.adxExhaustionThreshold} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId('large', 'ADX Slope Lbk')} type="number" bind:value={draft.large.adxSlopeLookback} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Extr High')}>MACD Extr High</label><input id={fieldId('large', 'MACD Extr High')} type="number" step="0.01" bind:value={draft.macro.macdExtremeHigh} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId('large', 'MACD Extr Low')} type="number" step="0.01" bind:value={draft.macro.macdExtremeLow} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'MACD Contr %')}>MACD Contr %</label><input id={fieldId('large', 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={draft.macro.macdContraction} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId('large', 'ADX Trend Th')} type="number" bind:value={draft.macro.adxTrendThreshold} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId('large', 'ADX Exhaustion')} type="number" bind:value={draft.macro.adxExhaustionThreshold} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId('large', 'ADX Slope Lbk')} type="number" bind:value={draft.macro.adxSlopeLookback} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId('large', 'Sqz Min Dur')} type="number" bind:value={draft.large.squeezeMinDuration} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId('large', 'Sqz BB Period')} type="number" bind:value={draft.large.squeezeBbPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId('large', 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={draft.large.squeezeBbStdDev} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId('large', 'Sqz KC Period')} type="number" bind:value={draft.large.squeezeKcPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId('large', 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={draft.large.squeezeKcAtrMult} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId('large', 'Sqz Min Dur')} type="number" bind:value={draft.macro.squeezeMinDuration} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId('large', 'Sqz BB Period')} type="number" bind:value={draft.macro.squeezeBbPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId('large', 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={draft.macro.squeezeBbStdDev} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId('large', 'Sqz KC Period')} type="number" bind:value={draft.macro.squeezeKcPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId('large', 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={draft.macro.squeezeKcAtrMult} /></div>
                 <hr class={styles.sectionDivider} />
-                <div class={styles.inputRow}><label for={fieldId('large', 'ATR Mult')}>ATR Mult</label><input id={fieldId('large', 'ATR Mult')} type="number" step="0.1" bind:value={draft.large.atrMultiplier} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Target R:R')}>Target R:R</label><input id={fieldId('large', 'Target R:R')} type="number" step="0.1" bind:value={draft.large.atrTargetRR} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId('large', 'Vol Avg Period')} type="number" bind:value={draft.large.volumeAvgPeriod} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'RVOL Inst')}>RVOL Inst</label><input id={fieldId('large', 'RVOL Inst')} type="number" step="0.1" bind:value={draft.large.rvolInstitutional} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'RVOL Climax')}>RVOL Climax</label><input id={fieldId('large', 'RVOL Climax')} type="number" step="0.1" bind:value={draft.large.rvolClimax} /></div>
-                <div class={styles.inputRow}><label for={fieldId('large', 'Analysis Limit')}>Analysis Limit</label><input id={fieldId('large', 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={draft.large.analysisLimit} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'ATR Mult')}>ATR Mult</label><input id={fieldId('large', 'ATR Mult')} type="number" step="0.1" bind:value={draft.macro.atrMultiplier} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Target R:R')}>Target R:R</label><input id={fieldId('large', 'Target R:R')} type="number" step="0.1" bind:value={draft.macro.atrTargetRR} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId('large', 'Vol Avg Period')} type="number" bind:value={draft.macro.volumeAvgPeriod} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'RVOL Inst')}>RVOL Inst</label><input id={fieldId('large', 'RVOL Inst')} type="number" step="0.1" bind:value={draft.macro.rvolInstitutional} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'RVOL Climax')}>RVOL Climax</label><input id={fieldId('large', 'RVOL Climax')} type="number" step="0.1" bind:value={draft.macro.rvolClimax} /></div>
+                <div class={styles.inputRow}><label for={fieldId('large', 'Analysis Limit')}>Analysis Limit</label><input id={fieldId('large', 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={draft.macro.analysisLimit} /></div>
             </div>
         </div>
     </div>

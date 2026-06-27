@@ -18,11 +18,11 @@ pub struct AnalyzeRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct MultiTimeframeIndicators {
     pub micro_term: IndicatorSnapshot,
-    pub short_term: IndicatorSnapshot,
+    pub fast_term: IndicatorSnapshot,
     #[serde(default)]
-    pub medium_term: Option<IndicatorSnapshot>,
+    pub slow_term: Option<IndicatorSnapshot>,
     #[serde(default)]
-    pub large_term: Option<IndicatorSnapshot>,
+    pub macro_term: Option<IndicatorSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -458,7 +458,7 @@ pub struct InstanceListResponse { pub instances: Vec<crate::registry::InstanceSu
 pub struct InstanceDetailQuery { #[serde(default)] pub id: String, #[serde(default)] pub pair_key: Option<String> }
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceConfigPayload { pub micro_term: crate::config::TimeframeConfig, pub short_term: crate::config::TimeframeConfig, pub medium_term: Option<crate::config::TimeframeConfig>, pub large_term: Option<crate::config::TimeframeConfig>, pub automation: crate::config::AutomationConfig }
+pub struct InstanceConfigPayload { pub micro_term: crate::config::TimeframeConfig, pub fast_term: crate::config::TimeframeConfig, pub slow_term: Option<crate::config::TimeframeConfig>, pub macro_term: Option<crate::config::TimeframeConfig>, pub automation: crate::config::AutomationConfig }
 
 #[derive(Debug, Deserialize)]
 pub struct InstanceManualRequest { pub action: String, pub direction: Option<String>, #[serde(default)] pub price: Option<f64> }

@@ -32,18 +32,18 @@ pub struct TimeframePipeline {
 pub struct ActivePair {
     pub symbol: String,
     pub micro: TimeframePipeline,
-    pub short: TimeframePipeline,
-    pub medium: TimeframePipeline,
-    pub large: TimeframePipeline,
+    pub fast: TimeframePipeline,
+    pub slow: TimeframePipeline,
+    pub r#macro: TimeframePipeline,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
 }
 
 impl ActivePair {
     fn pipeline_for(&self, timeframe_secs: u64) -> &TimeframePipeline {
-        if self.short.timeframe_secs == timeframe_secs { return &self.short; }
-        if self.medium.timeframe_secs == timeframe_secs { return &self.medium; }
-        if self.large.timeframe_secs == timeframe_secs { return &self.large; }
+        if self.fast.timeframe_secs == timeframe_secs { return &self.fast; }
+        if self.slow.timeframe_secs == timeframe_secs { return &self.slow; }
+        if self.r#macro.timeframe_secs == timeframe_secs { return &self.r#macro; }
         &self.micro
     }
 
@@ -70,9 +70,9 @@ impl ActivePair {
 pub async fn run_event_router(
     mut rx: Receiver<NormalizedEvent>,
     micro_tx: Sender<NormalizedEvent>,
-    short_tx: Sender<NormalizedEvent>,
-    medium_tx: Sender<NormalizedEvent>,
-    large_tx: Sender<NormalizedEvent>,
+    fast_tx: Sender<NormalizedEvent>,
+    slow_tx: Sender<NormalizedEvent>,
+    macro_tx: Sender<NormalizedEvent>,
     symbol: String,
     cancel: CancellationToken,
 ) {
@@ -97,9 +97,9 @@ pub async fn run_event_router(
         };
 
         let _ = micro_tx.send(event.clone()).await;
-        let _ = short_tx.send(event.clone()).await;
-        let _ = medium_tx.send(event.clone()).await;
-        let _ = large_tx.send(event).await;
+        let _ = fast_tx.send(event.clone()).await;
+        let _ = slow_tx.send(event.clone()).await;
+        let _ = macro_tx.send(event).await;
     }
 }
 

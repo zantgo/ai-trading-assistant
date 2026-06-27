@@ -37,7 +37,7 @@
         "rvol_threshold_climax": 3.0
       }
     },
-    "short_term": {
+    "fast_term": {
       "candles": {
         "duration_seconds": 180,
         "analysis_limit": 500
@@ -74,7 +74,7 @@
         "rvol_threshold_climax": 3.0
       }
     },
-    "medium_term": {
+    "slow_term": {
       "candles": {
         "duration_seconds": 300,
         "analysis_limit": 500
@@ -111,7 +111,7 @@
         "rvol_threshold_climax": 3.0
       }
     },
-    "large_term": {
+    "macro_term": {
       "candles": {
         "duration_seconds": 900,
         "analysis_limit": 500
@@ -193,7 +193,7 @@
         "rvol_threshold_climax": 3.0
       }
     },
-    "short_term": {
+    "fast_term": {
       "candles": {
         "duration_seconds": 5,
         "analysis_limit": 100
@@ -230,7 +230,7 @@
         "rvol_threshold_climax": 3.0
       }
     },
-    "medium_term": {
+    "slow_term": {
       "candles": {
         "duration_seconds": 15,
         "analysis_limit": 100
@@ -267,7 +267,7 @@
         "rvol_threshold_climax": 3.0
       }
     },
-    "large_term": {
+    "macro_term": {
       "candles": {
         "duration_seconds": 30,
         "analysis_limit": 100

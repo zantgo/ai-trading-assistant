@@ -9,7 +9,7 @@
     let copied = $state(false);
     let expandedTfTable = $state<string | null>(null);
 
-    const timeframes = ['microTerm', 'smallTerm', 'mediumTerm', 'largeTerm'] as const;
+    const timeframes = ['microTerm', 'fastTerm', 'slowTerm', 'macroTerm'] as const;
 
     function formatTfLabel(secs: number): string {
         if (secs >= 86400) return `${secs / 86400}d`;
@@ -20,9 +20,9 @@
 
     function formatTfName(key: string): string {
         if (key === 'microTerm') return 'MICRO';
-        if (key === 'smallTerm') return 'SMALL';
-        if (key === 'mediumTerm') return 'MEDIUM';
-        return 'LARGE';
+        if (key === 'fastTerm') return 'FAST';
+        if (key === 'slowTerm') return 'SLOW';
+        return 'MACRO';
     }
 
     // --- State Mapping Engine ---

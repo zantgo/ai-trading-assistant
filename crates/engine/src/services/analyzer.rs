@@ -62,12 +62,12 @@ impl AnalysisService {
         let empty_snap = IndicatorSnapshot::default();
         let mtf = req.timeframes.as_ref();
         let micro_snap = mtf.map(|t| &t.micro_term).unwrap_or(&indicators);
-        let small_snap = mtf.map(|t| &t.short_term).unwrap_or(&indicators);
-        let medium_snap = mtf
-            .and_then(|t| t.medium_term.as_ref())
+        let fast_snap = mtf.map(|t| &t.fast_term).unwrap_or(&indicators);
+        let slow_snap = mtf
+            .and_then(|t| t.slow_term.as_ref())
             .unwrap_or(&empty_snap);
-        let large_snap = mtf
-            .and_then(|t| t.large_term.as_ref())
+        let macro_snap = mtf
+            .and_then(|t| t.macro_term.as_ref())
             .unwrap_or(&empty_snap);
 
         let telemetry =
@@ -79,9 +79,9 @@ impl AnalysisService {
                 self.pool.clone(),
                 &raw_symbol,
                 micro_snap,
-                small_snap,
-                medium_snap,
-                large_snap,
+                fast_snap,
+                slow_snap,
+                macro_snap,
                 &prices,
                 master_id,
                 &telemetry,

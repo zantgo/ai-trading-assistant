@@ -155,9 +155,9 @@ pub async fn serve_update_instance_config(
             let mut config = state.config.write().await;
             let specific_config = crate::config::InstanceSpecificConfig {
                 micro_term: payload.micro_term,
-                short_term: payload.short_term,
-                medium_term: payload.medium_term,
-                large_term: payload.large_term,
+                fast_term: payload.fast_term,
+                slow_term: payload.slow_term,
+                macro_term: payload.macro_term,
                 automation: payload.automation,
             };
             config.instances.insert(pk.clone(), specific_config);

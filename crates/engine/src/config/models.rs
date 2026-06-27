@@ -173,7 +173,7 @@ fn default_sr_flip_tolerance() -> f64 { 0.3 }
 fn default_pattern_slope_tolerance() -> f64 { 0.2 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MediumTimeframeConfig {
+pub struct SlowTimeframeConfig {
     #[serde(default = "default_enabled_true")]
     pub enabled: bool,
     pub duration_seconds: u64,
@@ -183,11 +183,11 @@ pub struct MediumTimeframeConfig {
 
 fn default_enabled_true() -> bool { true }
 
-impl Default for MediumTimeframeConfig {
+impl Default for SlowTimeframeConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            duration_seconds: 900,
+            duration_seconds: 300,
             analysis_limit: default_analysis_limit(),
         }
     }
@@ -340,11 +340,11 @@ impl TimeframeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceSpecificConfig {
     pub micro_term: TimeframeConfig,
-    pub short_term: TimeframeConfig,
+    pub fast_term: TimeframeConfig,
     #[serde(default)]
-    pub medium_term: Option<TimeframeConfig>,
+    pub slow_term: Option<TimeframeConfig>,
     #[serde(default)]
-    pub large_term: Option<TimeframeConfig>,
+    pub macro_term: Option<TimeframeConfig>,
     #[serde(default)]
     pub automation: AutomationConfig,
 }

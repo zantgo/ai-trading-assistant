@@ -20,9 +20,9 @@ pub struct PipelineContext {
     pub base: String,
     pub pair_key: String,
     pub micro_cfg: TimeframeConfig,
-    pub short_cfg: TimeframeConfig,
-    pub medium_cfg: TimeframeConfig,
-    pub large_cfg: TimeframeConfig,
+    pub fast_cfg: TimeframeConfig,
+    pub slow_cfg: TimeframeConfig,
+    pub macro_cfg: TimeframeConfig,
     pub fib_config: FibonacciConfig,
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
@@ -32,9 +32,9 @@ pub struct PipelineContext {
 pub struct PipelineArtifacts {
     pub instance: Arc<Instance>,
     pub micro: TimeframeBuffers,
-    pub short: TimeframeBuffers,
-    pub medium: TimeframeBuffers,
-    pub large: TimeframeBuffers,
+    pub fast: TimeframeBuffers,
+    pub slow: TimeframeBuffers,
+    pub r#macro: TimeframeBuffers,
 }
 
 pub async fn build_pipelines(
@@ -52,38 +52,38 @@ pub async fn build_pipelines(
     let cancel = ctx.cancel.clone();
 
     let (micro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (short_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (medium_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
-    let (large_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (fast_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (slow_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
+    let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
 
     let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
         ctx.micro_cfg.candles.analysis_limit,
     )));
-    let short_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.short_cfg.candles.analysis_limit,
+    let fast_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+        ctx.fast_cfg.candles.analysis_limit,
     )));
-    let medium_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.medium_cfg.candles.analysis_limit,
+    let slow_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+        ctx.slow_cfg.candles.analysis_limit,
     )));
-    let large_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.large_cfg.candles.analysis_limit,
+    let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
+        ctx.macro_cfg.candles.analysis_limit,
     )));
 
     let micro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let short_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let medium_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
-    let large_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let fast_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let slow_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
+    let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
 
     let micro_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
         analyzer::HIST_BUFFER_MAX,
     )));
-    let short_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
+    let fast_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
         analyzer::HIST_BUFFER_MAX,
     )));
-    let medium_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
+    let slow_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
         analyzer::HIST_BUFFER_MAX,
     )));
-    let large_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
+    let macro_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
         analyzer::HIST_BUFFER_MAX,
     )));
 
@@ -100,35 +100,35 @@ pub async fn build_pipelines(
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
         },
-        short: analyzer::TimeframePipeline {
-            history: short_history.clone(),
-            broadcast_tx: short_broadcast_tx.clone(),
-            latest_snapshot: short_latest.clone(),
-            snapshot_history: short_snapshot_history.clone(),
-            timeframe_secs: ctx.short_cfg.candles.duration_seconds,
-            timeframe_label: "Small",
+        fast: analyzer::TimeframePipeline {
+            history: fast_history.clone(),
+            broadcast_tx: fast_broadcast_tx.clone(),
+            latest_snapshot: fast_latest.clone(),
+            snapshot_history: fast_snapshot_history.clone(),
+            timeframe_secs: ctx.fast_cfg.candles.duration_seconds,
+            timeframe_label: "Fast",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
         },
-        medium: analyzer::TimeframePipeline {
-            history: medium_history.clone(),
-            broadcast_tx: medium_broadcast_tx.clone(),
-            latest_snapshot: medium_latest.clone(),
-            snapshot_history: medium_snapshot_history.clone(),
-            timeframe_secs: ctx.medium_cfg.candles.duration_seconds,
-            timeframe_label: "Medium",
+        slow: analyzer::TimeframePipeline {
+            history: slow_history.clone(),
+            broadcast_tx: slow_broadcast_tx.clone(),
+            latest_snapshot: slow_latest.clone(),
+            snapshot_history: slow_snapshot_history.clone(),
+            timeframe_secs: ctx.slow_cfg.candles.duration_seconds,
+            timeframe_label: "Slow",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
         },
-        large: analyzer::TimeframePipeline {
-            history: large_history.clone(),
-            broadcast_tx: large_broadcast_tx.clone(),
-            latest_snapshot: large_latest.clone(),
-            snapshot_history: large_snapshot_history.clone(),
-            timeframe_secs: ctx.large_cfg.candles.duration_seconds,
-            timeframe_label: "Large",
+        r#macro: analyzer::TimeframePipeline {
+            history: macro_history.clone(),
+            broadcast_tx: macro_broadcast_tx.clone(),
+            latest_snapshot: macro_latest.clone(),
+            snapshot_history: macro_snapshot_history.clone(),
+            timeframe_secs: ctx.macro_cfg.candles.duration_seconds,
+            timeframe_label: "Macro",
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
@@ -142,27 +142,27 @@ pub async fn build_pipelines(
         &ctx.base,
         &ctx.pair_key,
         &ctx.micro_cfg,
-        &ctx.short_cfg,
-        &ctx.medium_cfg,
-        &ctx.large_cfg,
+        &ctx.fast_cfg,
+        &ctx.slow_cfg,
+        &ctx.macro_cfg,
         &ctx.fib_config,
         &cancel,
         &micro_broadcast_tx,
-        &short_broadcast_tx,
-        &medium_broadcast_tx,
-        &large_broadcast_tx,
+        &fast_broadcast_tx,
+        &slow_broadcast_tx,
+        &macro_broadcast_tx,
         &micro_history,
-        &short_history,
-        &medium_history,
-        &large_history,
+        &fast_history,
+        &slow_history,
+        &macro_history,
         &micro_latest,
-        &short_latest,
-        &medium_latest,
-        &large_latest,
+        &fast_latest,
+        &slow_latest,
+        &macro_latest,
         &micro_snapshot_history,
-        &short_snapshot_history,
-        &medium_snapshot_history,
-        &large_snapshot_history,
+        &fast_snapshot_history,
+        &slow_snapshot_history,
+        &macro_snapshot_history,
         &active_pair,
         workspace,
         warmed_states,
@@ -174,20 +174,20 @@ pub async fn build_pipelines(
         latest: micro_latest.clone(),
         snapshot_history: micro_snapshot_history.clone(),
     };
-    let short_buf = TimeframeBuffers {
-        history: short_history.clone(),
-        latest: short_latest.clone(),
-        snapshot_history: short_snapshot_history.clone(),
+    let fast_buf = TimeframeBuffers {
+        history: fast_history.clone(),
+        latest: fast_latest.clone(),
+        snapshot_history: fast_snapshot_history.clone(),
     };
-    let medium_buf = TimeframeBuffers {
-        history: medium_history.clone(),
-        latest: medium_latest.clone(),
-        snapshot_history: medium_snapshot_history.clone(),
+    let slow_buf = TimeframeBuffers {
+        history: slow_history.clone(),
+        latest: slow_latest.clone(),
+        snapshot_history: slow_snapshot_history.clone(),
     };
-    let large_buf = TimeframeBuffers {
-        history: large_history.clone(),
-        latest: large_latest.clone(),
-        snapshot_history: large_snapshot_history.clone(),
+    let macro_buf = TimeframeBuffers {
+        history: macro_history.clone(),
+        latest: macro_latest.clone(),
+        snapshot_history: macro_snapshot_history.clone(),
     };
 
     let instance = Arc::new(Instance::new(
@@ -199,26 +199,26 @@ pub async fn build_pipelines(
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
         micro_buf.clone(),
-        short_buf.clone(),
-        medium_buf.clone(),
-        large_buf.clone(),
+        fast_buf.clone(),
+        slow_buf.clone(),
+        macro_buf.clone(),
     ));
 
     let auto_ctx = automation::AutomationContext {
         pair_key: ctx.pair_key.clone(),
         symbol: ctx.base.clone(),
         micro_history: micro_history.clone(),
-        short_history: short_history.clone(),
-        medium_history: medium_history.clone(),
-        large_history: large_history.clone(),
+        fast_history: fast_history.clone(),
+        slow_history: slow_history.clone(),
+        macro_history: macro_history.clone(),
         micro_latest: micro_latest.clone(),
-        short_latest: short_latest.clone(),
-        medium_latest: medium_latest.clone(),
-        large_latest: large_latest.clone(),
+        fast_latest: fast_latest.clone(),
+        slow_latest: slow_latest.clone(),
+        macro_latest: macro_latest.clone(),
         micro_snapshot_history: micro_snapshot_history.clone(),
-        short_snapshot_history: short_snapshot_history.clone(),
-        medium_snapshot_history: medium_snapshot_history.clone(),
-        large_snapshot_history: large_snapshot_history.clone(),
+        fast_snapshot_history: fast_snapshot_history.clone(),
+        slow_snapshot_history: slow_snapshot_history.clone(),
+        macro_snapshot_history: macro_snapshot_history.clone(),
         config: workspace.config.clone(),
         pool: workspace.pool.clone(),
         llm_client,
@@ -236,9 +236,9 @@ pub async fn build_pipelines(
     PipelineArtifacts {
         instance,
         micro: micro_buf,
-        short: short_buf,
-        medium: medium_buf,
-        large: large_buf,
+        fast: fast_buf,
+        slow: slow_buf,
+        r#macro: macro_buf,
     }
 }
 
@@ -248,27 +248,27 @@ async fn spawn_tasks(
     base: &str,
     pair_key: &str,
     micro_cfg: &TimeframeConfig,
-    short_cfg: &TimeframeConfig,
-    medium_cfg: &TimeframeConfig,
-    large_cfg: &TimeframeConfig,
+    fast_cfg: &TimeframeConfig,
+    slow_cfg: &TimeframeConfig,
+    macro_cfg: &TimeframeConfig,
     fib_config: &FibonacciConfig,
     cancel: &CancellationToken,
     micro_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    short_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    medium_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
-    large_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
+    fast_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
+    slow_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
+    macro_broadcast_tx: &tokio::sync::broadcast::Sender<MarketSnapshot>,
     micro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    short_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    medium_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
-    large_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    fast_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    slow_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    macro_history: &Arc<RwLock<VecDeque<NormalizedCandle>>>,
     micro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    short_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    medium_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
-    large_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
+    fast_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
+    slow_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
+    macro_latest: &Arc<RwLock<Option<MarketSnapshot>>>,
     micro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    short_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    medium_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
-    large_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    fast_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    slow_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
+    macro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     active_pair: &Arc<analyzer::ActivePair>,
     workspace: &Arc<Workspace>,
     warmed_states: Option<(
@@ -279,9 +279,9 @@ async fn spawn_tasks(
     )>,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (short_chan_tx, short_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (medium_chan_tx, medium_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
-    let (large_chan_tx, large_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (slow_chan_tx, slow_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
+    let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
 
     let router_symbol = base.to_string();
     let router_cancel = cancel.clone();
@@ -289,9 +289,9 @@ async fn spawn_tasks(
         analyzer::run_event_router(
             snapshot_rx,
             micro_chan_tx,
-            short_chan_tx,
-            medium_chan_tx,
-            large_chan_tx,
+            fast_chan_tx,
+            slow_chan_tx,
+            macro_chan_tx,
             router_symbol,
             router_cancel,
         )
@@ -354,11 +354,11 @@ async fn spawn_tasks(
     }
 
     // Spawn 4 pipeline tasks
-    let large_secs = large_cfg.candles.duration_seconds;
-    let medium_secs = medium_cfg.candles.duration_seconds;
-    let short_secs = short_cfg.candles.duration_seconds;
+    let macro_secs = macro_cfg.candles.duration_seconds;
+    let slow_secs = slow_cfg.candles.duration_seconds;
+    let fast_secs = fast_cfg.candles.duration_seconds;
     let micro_secs = micro_cfg.candles.duration_seconds;
-    let (w_micro, w_short, w_medium, w_large) = match &warmed_states {
+    let (w_micro, w_fast, w_slow, w_macro) = match &warmed_states {
         Some((m, s, med, l)) => (Some(m.clone()), Some(s.clone()), Some(med.clone()), Some(l.clone())),
         None => (None, None, None, None),
     };
@@ -390,43 +390,43 @@ async fn spawn_tasks(
             w_micro,
         ),
         (
-            short_chan_rx,
-            short_cfg.clone(),
-            short_history.clone(),
-            short_latest.clone(),
-            short_snapshot_history.clone(),
-            "Small",
-            short_secs,
-            short_broadcast_tx.clone(),
-            active_pair.short.divergence_detector.clone(),
+            fast_chan_rx,
+            fast_cfg.clone(),
+            fast_history.clone(),
+            fast_latest.clone(),
+            fast_snapshot_history.clone(),
+            "Fast",
+            fast_secs,
+            fast_broadcast_tx.clone(),
+            active_pair.fast.divergence_detector.clone(),
             None,
-            w_short,
+            w_fast,
         ),
         (
-            medium_chan_rx,
-            medium_cfg.clone(),
-            medium_history.clone(),
-            medium_latest.clone(),
-            medium_snapshot_history.clone(),
-            "Medium",
-            medium_secs,
-            medium_broadcast_tx.clone(),
-            active_pair.medium.divergence_detector.clone(),
+            slow_chan_rx,
+            slow_cfg.clone(),
+            slow_history.clone(),
+            slow_latest.clone(),
+            slow_snapshot_history.clone(),
+            "Slow",
+            slow_secs,
+            slow_broadcast_tx.clone(),
+            active_pair.slow.divergence_detector.clone(),
             None,
-            w_medium,
+            w_slow,
         ),
         (
-            large_chan_rx,
-            large_cfg.clone(),
-            large_history.clone(),
-            large_latest.clone(),
-            large_snapshot_history.clone(),
-            "Large",
-            large_secs,
-            large_broadcast_tx.clone(),
-            active_pair.large.divergence_detector.clone(),
+            macro_chan_rx,
+            macro_cfg.clone(),
+            macro_history.clone(),
+            macro_latest.clone(),
+            macro_snapshot_history.clone(),
+            "Macro",
+            macro_secs,
+            macro_broadcast_tx.clone(),
+            active_pair.r#macro.divergence_detector.clone(),
             None,
-            w_large,
+            w_macro,
         ),
     ];
 

@@ -57,8 +57,8 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         hyperliquid: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
-        medium_timeframe: Default::default(),
-        large_timeframe: Default::default(),
+        slow_timeframe: Default::default(),
+        macro_timeframe: Default::default(),
         leverage: Default::default(),
         scoring: Default::default(),
         fees: Default::default(),
@@ -198,9 +198,9 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
         micro: build_pipeline(history, snap_history, mid_bcast),
-        short: build_pipeline_empty(b2, 300),
-        medium: build_pipeline_empty(b3, 900),
-        large: build_pipeline_empty(b4, 3600),
+        fast: build_pipeline_empty(b2, 300),
+        slow: build_pipeline_empty(b3, 900),
+        r#macro: build_pipeline_empty(b4, 3600),
         snapshot_tx,
         cancel,
     });
@@ -217,9 +217,9 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         Default::default(),
         Default::default(),
         TimeframeBuffers { history: pair.micro.history.clone(), latest: pair.micro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
-        TimeframeBuffers { history: pair.short.history.clone(), latest: pair.short.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
-        TimeframeBuffers { history: pair.medium.history.clone(), latest: pair.medium.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
-        TimeframeBuffers { history: pair.large.history.clone(), latest: pair.large.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.fast.history.clone(), latest: pair.fast.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.slow.history.clone(), latest: pair.slow.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers { history: pair.r#macro.history.clone(), latest: pair.r#macro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
     ));
     workspace
         .instances

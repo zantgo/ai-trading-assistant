@@ -448,12 +448,12 @@ impl CliConsole {
         };
 
         let mut rx = {
-            if tf_secs == 300 {
-                inst.active_pair.short.broadcast_tx.subscribe()
+            if tf_secs == 180 {
+                inst.active_pair.fast.broadcast_tx.subscribe()
+            } else if tf_secs == 300 {
+                inst.active_pair.slow.broadcast_tx.subscribe()
             } else if tf_secs == 900 {
-                inst.active_pair.medium.broadcast_tx.subscribe()
-            } else if tf_secs == 3600 {
-                inst.active_pair.large.broadcast_tx.subscribe()
+                inst.active_pair.r#macro.broadcast_tx.subscribe()
             } else {
                 inst.active_pair.micro.broadcast_tx.subscribe()
             }

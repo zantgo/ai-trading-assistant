@@ -16,9 +16,9 @@
     } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
-        timeframe === pair?.smallTerm?.barDurationSec ? pair?.smallTerm :
-        timeframe === pair?.mediumTerm?.barDurationSec ? pair?.mediumTerm :
-        timeframe === pair?.largeTerm?.barDurationSec ? pair?.largeTerm :
+        timeframe === pair?.fastTerm?.barDurationSec ? pair?.fastTerm :
+        timeframe === pair?.slowTerm?.barDurationSec ? pair?.slowTerm :
+        timeframe === pair?.macroTerm?.barDurationSec ? pair?.macroTerm :
         pair?.microTerm
     );
 

@@ -41,7 +41,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "small-SQUEEZE".to_string(),
+                indicator_name: "fast-SQUEEZE".to_string(),
                 signal: squeeze_signal,
                 reason: vol_thought.clone(),
                 confidence_score: 0,
@@ -50,7 +50,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "medium-ADX".to_string(),
+                indicator_name: "slow-ADX".to_string(),
                 signal: adx_signal,
                 reason: vol_thought.clone(),
                 confidence_score: 0,
@@ -59,7 +59,7 @@ impl MultiAgentResults {
                 is_confirmed: None,
             },
             IndividualIndicatorResult {
-                indicator_name: "large-VWAP".to_string(),
+                indicator_name: "macro-VWAP".to_string(),
                 signal: trend_bias.clone(),
                 reason: trend_thought.clone(),
                 confidence_score: 0,

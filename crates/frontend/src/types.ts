@@ -379,9 +379,9 @@ export interface InstanceState {
     exchange: string;
     isConnected: boolean;
     microTerm: TimeframeTelemetry;
-    smallTerm: TimeframeTelemetry;
-    mediumTerm: TimeframeTelemetry;
-    largeTerm: TimeframeTelemetry;
+    fastTerm: TimeframeTelemetry;
+    slowTerm: TimeframeTelemetry;
+    macroTerm: TimeframeTelemetry;
     assistantHistory: AssistantHistoryRecord[];
     chatHistory: ChatMessage[];
     currentPosition: 'None' | 'Long' | 'Short';

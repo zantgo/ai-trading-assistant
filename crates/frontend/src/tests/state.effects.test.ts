@@ -19,9 +19,9 @@ describe('TEST-UI: State Reactive Effects', () => {
 
         // All four timeframes should exist with default values
         expect(pair.microTerm).toBeDefined();
-        expect(pair.smallTerm).toBeDefined();
-        expect(pair.mediumTerm).toBeDefined();
-        expect(pair.largeTerm).toBeDefined();
+        expect(pair.fastTerm).toBeDefined();
+        expect(pair.slowTerm).toBeDefined();
+        expect(pair.macroTerm).toBeDefined();
 
         // Micro-term defaults
         expect(pair.microTerm.priceText).toBe('--');
@@ -111,13 +111,13 @@ describe('TEST-UI: State Reactive Effects', () => {
         app.instancesMap['BTC-USDT'].microTerm.rsiText = '62.5';
 
         // Set values on ETH small-term
-        app.instancesMap['ETH-USDT'].smallTerm.priceText = '3200.00';
-        app.instancesMap['ETH-USDT'].smallTerm.rsiText = '45.0';
+        app.instancesMap['ETH-USDT'].fastTerm.priceText = '3200.00';
+        app.instancesMap['ETH-USDT'].fastTerm.rsiText = '45.0';
 
         // BTC micro-term unchanged
         expect(app.instancesMap['BTC-USDT'].microTerm.priceText).toBe('65000.00');
         // ETH small-term holds its value
-        expect(app.instancesMap['ETH-USDT'].smallTerm.priceText).toBe('3200.00');
+        expect(app.instancesMap['ETH-USDT'].fastTerm.priceText).toBe('3200.00');
         // ETH micro-term still default
         expect(app.instancesMap['ETH-USDT'].microTerm.priceText).toBe('--');
     });

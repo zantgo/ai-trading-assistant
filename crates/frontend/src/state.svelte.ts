@@ -56,9 +56,9 @@ function createInstanceState(symbol: string): InstanceState {
     return {
         symbol, exchange: 'Hyperliquid', isConnected: false,
         microTerm: createTimeframeTelemetry(symbol, 60),
-        smallTerm: createTimeframeTelemetry(symbol, 300),
-        mediumTerm: createTimeframeTelemetry(symbol, 900),
-        largeTerm: createTimeframeTelemetry(symbol, 3600),
+        fastTerm: createTimeframeTelemetry(symbol, 180),
+        slowTerm: createTimeframeTelemetry(symbol, 300),
+        macroTerm: createTimeframeTelemetry(symbol, 900),
         assistantHistory: [], chatHistory: [],
         currentPosition: 'None', entryPriceVal: '', stopLossVal: '',
         assistantLoading: false, assistantError: null,
@@ -199,7 +199,7 @@ export class AppStore {
             this.instancesMap[key] = createInstanceState(symbol);
         } else {
             const pair = this.instancesMap[key];
-            for (const tf of [pair.microTerm, pair.smallTerm, pair.mediumTerm, pair.largeTerm] as TimeframeTelemetry[]) {
+            for (const tf of [pair.microTerm, pair.fastTerm, pair.slowTerm, pair.macroTerm] as TimeframeTelemetry[]) {
                 tf.emaFastVal = this.settings.globalIndicatorsConfig.ema_fast;
                 tf.emaMediumVal = this.settings.globalIndicatorsConfig.ema_medium;
                 tf.emaSlowVal = this.settings.globalIndicatorsConfig.ema_slow;
@@ -214,9 +214,9 @@ export class AppStore {
                 tf.analysisLimit = this.settings.globalCandlesConfig.analysis_limit ?? 100;
             }
             pair.microTerm.barDurationSec = 60;
-            pair.smallTerm.barDurationSec = 300;
-            pair.mediumTerm.barDurationSec = 900;
-            pair.largeTerm.barDurationSec = 3600;
+        pair.fastTerm.barDurationSec = 180;
+        pair.slowTerm.barDurationSec = 300;
+        pair.macroTerm.barDurationSec = 900;
         }
     }
 
@@ -260,9 +260,9 @@ export class AppStore {
     // ─── Instance / Telemetry Accessors ──────────────────────────────
 
     get microTerm() { return this.activeInstance().microTerm; }
-    get smallTerm() { return this.activeInstance().smallTerm; }
-    get mediumTerm() { return this.activeInstance().mediumTerm; }
-    get largeTerm() { return this.activeInstance().largeTerm; }
+    get fastTerm() { return this.activeInstance().fastTerm; }
+    get slowTerm() { return this.activeInstance().slowTerm; }
+    get macroTerm() { return this.activeInstance().macroTerm; }
     get activeSymbol() { return this.activeInstance().symbol; }
     get activeExchange() { return this.activeInstance().exchange; }
     get isConnected() { return this.activeInstance().isConnected; }

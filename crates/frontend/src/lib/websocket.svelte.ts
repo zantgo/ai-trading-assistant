@@ -1,22 +1,22 @@
 import type { AppStore } from '../state.svelte';
 import type { TimeframeTelemetry } from '../types';
 
-export type WsKey = 'wsMicro' | 'wsSmall' | 'wsMedium' | 'wsLarge';
+export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
 
 export interface WsState {
     wsMicro: WebSocket | null;
-    wsSmall: WebSocket | null;
-    wsMedium: WebSocket | null;
-    wsLarge: WebSocket | null;
+    wsFast: WebSocket | null;
+    wsSlow: WebSocket | null;
+    wsMacro: WebSocket | null;
     currentWsSymbol: string;
 }
 
 export function createWsState(): WsState {
     return {
         wsMicro: null,
-        wsSmall: null,
-        wsMedium: null,
-        wsLarge: null,
+        wsFast: null,
+        wsSlow: null,
+        wsMacro: null,
         currentWsSymbol: '',
     };
 }
@@ -35,9 +35,9 @@ export function closeWs(ws: WebSocket | null): void {
 
 export function disconnectAllWs(state: WsState): void {
     closeWs(state.wsMicro); state.wsMicro = null;
-    closeWs(state.wsSmall); state.wsSmall = null;
-    closeWs(state.wsMedium); state.wsMedium = null;
-    closeWs(state.wsLarge); state.wsLarge = null;
+    closeWs(state.wsFast); state.wsFast = null;
+    closeWs(state.wsSlow); state.wsSlow = null;
+    closeWs(state.wsMacro); state.wsMacro = null;
 }
 
 /** Parse and apply a WebSocket message to a TimeframeTelemetry object. */
@@ -148,9 +148,9 @@ export function connectWebsocket(app: AppStore, state: WsState): void {
     if (!pair) return;
 
     connectWebsocketForTimeframe(app, state, pair.microTerm, 'wsMicro', pair.microTerm.barDurationSec);
-    connectWebsocketForTimeframe(app, state, pair.smallTerm, 'wsSmall', pair.smallTerm.barDurationSec);
-    connectWebsocketForTimeframe(app, state, pair.mediumTerm, 'wsMedium', pair.mediumTerm.barDurationSec);
-    connectWebsocketForTimeframe(app, state, pair.largeTerm, 'wsLarge', pair.largeTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.fastTerm, 'wsFast', pair.fastTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.slowTerm, 'wsSlow', pair.slowTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.macroTerm, 'wsMacro', pair.macroTerm.barDurationSec);
 }
 
 /** Returns true if the active tab has changed since the last connect, meaning a reconnect is needed. */

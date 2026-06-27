@@ -209,7 +209,7 @@ RULES:
              USER'S ENTRY PRICE: {}\n\
              COMPUTED SUPPORT LEVELS: {}\n\
              COMPUTED RESISTANCE LEVELS: {}\n\
-             PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (micro/small/medium/large prefix):\n{}{}",
+             PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (micro/fast/slow/macro prefix):\n{}{}",
             symbol, position, entry_info,
             supports_str, resistances_str,
             phase_one_results_json,

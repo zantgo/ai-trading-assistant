@@ -9,9 +9,9 @@
     function syncAll(fn: (tf: any) => void) {
         if (!pair) return;
         fn(pair.microTerm);
-        fn(pair.smallTerm);
-        fn(pair.mediumTerm);
-        fn(pair.largeTerm);
+        fn(pair.fastTerm);
+        fn(pair.slowTerm);
+        fn(pair.macroTerm);
     }
 
     function toggleLineMode() {

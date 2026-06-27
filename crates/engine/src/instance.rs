@@ -105,9 +105,9 @@ pub struct Instance {
     pub config: Arc<RwLock<AppConfig>>,
 
     pub micro: TimeframeBuffers,
-    pub short: TimeframeBuffers,
-    pub medium: TimeframeBuffers,
-    pub large: TimeframeBuffers,
+    pub fast: TimeframeBuffers,
+    pub slow: TimeframeBuffers,
+    pub r#macro: TimeframeBuffers,
 }
 
 impl Instance {
@@ -120,9 +120,9 @@ impl Instance {
         inter_config: IntervalsConfig,
         safe_config: SafetyConfig,
         micro: TimeframeBuffers,
-        short: TimeframeBuffers,
-        medium: TimeframeBuffers,
-        large: TimeframeBuffers,
+        fast: TimeframeBuffers,
+        slow: TimeframeBuffers,
+        r#macro: TimeframeBuffers,
     ) -> Self {
         let safety = Arc::new(SafetyManager::new(
             safe_config.consecutive_loss_caution,
@@ -148,9 +148,9 @@ impl Instance {
             pool,
             config,
             micro,
-            short,
-            medium,
-            large,
+            fast,
+            slow,
+            r#macro,
         }
     }
 

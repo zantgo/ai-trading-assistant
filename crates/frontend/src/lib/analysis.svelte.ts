@@ -43,18 +43,18 @@ export async function requestAssistantAnalysis(app: AppStore): Promise<void> {
         { name: 'micro-SQUEEZE', status: 'pending' }, { name: 'micro-ADX', status: 'pending' },
         { name: 'micro-BOLLINGER_ATR', status: 'pending' }, { name: 'micro-VOLUME_EMA', status: 'pending' },
         { name: 'micro-VWAP', status: 'pending' },
-        { name: 'small-RSI', status: 'pending' }, { name: 'small-MACD', status: 'pending' },
-        { name: 'small-SQUEEZE', status: 'pending' }, { name: 'small-ADX', status: 'pending' },
-        { name: 'small-BOLLINGER_ATR', status: 'pending' }, { name: 'small-VOLUME_EMA', status: 'pending' },
-        { name: 'small-VWAP', status: 'pending' },
-        { name: 'medium-RSI', status: 'pending' }, { name: 'medium-MACD', status: 'pending' },
-        { name: 'medium-SQUEEZE', status: 'pending' }, { name: 'medium-ADX', status: 'pending' },
-        { name: 'medium-BOLLINGER_ATR', status: 'pending' }, { name: 'medium-VOLUME_EMA', status: 'pending' },
-        { name: 'medium-VWAP', status: 'pending' },
-        { name: 'large-RSI', status: 'pending' }, { name: 'large-MACD', status: 'pending' },
-        { name: 'large-SQUEEZE', status: 'pending' }, { name: 'large-ADX', status: 'pending' },
-        { name: 'large-BOLLINGER_ATR', status: 'pending' }, { name: 'large-VOLUME_EMA', status: 'pending' },
-        { name: 'large-VWAP', status: 'pending' },
+        { name: 'fast-RSI', status: 'pending' }, { name: 'fast-MACD', status: 'pending' },
+        { name: 'fast-SQUEEZE', status: 'pending' }, { name: 'fast-ADX', status: 'pending' },
+        { name: 'fast-BOLLINGER_ATR', status: 'pending' }, { name: 'fast-VOLUME_EMA', status: 'pending' },
+        { name: 'fast-VWAP', status: 'pending' },
+        { name: 'slow-RSI', status: 'pending' }, { name: 'slow-MACD', status: 'pending' },
+        { name: 'slow-SQUEEZE', status: 'pending' }, { name: 'slow-ADX', status: 'pending' },
+        { name: 'slow-BOLLINGER_ATR', status: 'pending' }, { name: 'slow-VOLUME_EMA', status: 'pending' },
+        { name: 'slow-VWAP', status: 'pending' },
+        { name: 'macro-RSI', status: 'pending' }, { name: 'macro-MACD', status: 'pending' },
+        { name: 'macro-SQUEEZE', status: 'pending' }, { name: 'macro-ADX', status: 'pending' },
+        { name: 'macro-BOLLINGER_ATR', status: 'pending' }, { name: 'macro-VOLUME_EMA', status: 'pending' },
+        { name: 'macro-VWAP', status: 'pending' },
     ];
 
     try {
@@ -72,9 +72,9 @@ export async function requestAssistantAnalysis(app: AppStore): Promise<void> {
             indicators: buildIndicators(snap),
             timeframes: {
                 micro_term: buildIndicators(app.microTerm.latestSnapshot || {}),
-                short_term: buildIndicators(app.smallTerm.latestSnapshot || {}),
-                medium_term: buildIndicators(app.mediumTerm.latestSnapshot || {}),
-                large_term: buildIndicators(app.largeTerm.latestSnapshot || {}),
+                fast_term: buildIndicators(app.fastTerm.latestSnapshot || {}),
+                slow_term: buildIndicators(app.slowTerm.latestSnapshot || {}),
+                macro_term: buildIndicators(app.macroTerm.latestSnapshot || {}),
             },
         };
 

@@ -66,22 +66,22 @@ pub async fn add_instance(
     let micro_cfg = pair_cfg
         .map(|p| p.micro_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let short_cfg = pair_cfg
-        .map(|p| p.short_term.clone())
-        .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
-    let medium_cfg = pair_cfg
-        .and_then(|p| p.medium_term.clone())
+    let fast_cfg = pair_cfg
+        .map(|p| p.fast_term.clone())
+        .unwrap_or_else(|| TimeframeConfig::new(180, default_indicators.clone()));
+    let slow_cfg = pair_cfg
+        .and_then(|p| p.slow_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
-                config_guard.medium_timeframe.duration_seconds,
+                config_guard.slow_timeframe.duration_seconds,
                 default_indicators.clone(),
             )
         });
-    let large_cfg = pair_cfg
-        .and_then(|p| p.large_term.clone())
+    let macro_cfg = pair_cfg
+        .and_then(|p| p.macro_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
-                config_guard.large_timeframe.duration_seconds,
+                config_guard.macro_timeframe.duration_seconds,
                 default_indicators.clone(),
             )
         });
@@ -92,32 +92,32 @@ pub async fn add_instance(
     let cancel = CancellationToken::new();
 
     let micro_secs = micro_cfg.candles.duration_seconds;
-    let short_secs = short_cfg.candles.duration_seconds;
-    let medium_secs = medium_cfg.candles.duration_seconds;
-    let large_secs = large_cfg.candles.duration_seconds;
+    let fast_secs = fast_cfg.candles.duration_seconds;
+    let slow_secs = slow_cfg.candles.duration_seconds;
+    let macro_secs = macro_cfg.candles.duration_seconds;
 
     let micro_limit = micro_cfg.candles.analysis_limit as u64;
-    let short_limit = short_cfg.candles.analysis_limit as u64;
-    let medium_limit = medium_cfg.candles.analysis_limit as u64;
-    let large_limit = large_cfg.candles.analysis_limit as u64;
+    let fast_limit = fast_cfg.candles.analysis_limit as u64;
+    let slow_limit = slow_cfg.candles.analysis_limit as u64;
+    let macro_limit = macro_cfg.candles.analysis_limit as u64;
 
     // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         rest_url,
         micro_cfg: micro_cfg.clone(),
-        short_cfg: short_cfg.clone(),
-        medium_cfg: medium_cfg.clone(),
-        large_cfg: large_cfg.clone(),
+        fast_cfg: fast_cfg.clone(),
+        slow_cfg: slow_cfg.clone(),
+        macro_cfg: macro_cfg.clone(),
         fib_config: drop_fib.clone(),
         micro_secs,
-        short_secs,
-        medium_secs,
-        large_secs,
+        fast_secs,
+        slow_secs,
+        macro_secs,
         micro_limit,
-        short_limit,
-        medium_limit,
-        large_limit,
+        fast_limit,
+        slow_limit,
+        macro_limit,
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
@@ -127,9 +127,9 @@ pub async fn add_instance(
         base: base.clone(),
         pair_key: pair_key.clone(),
         micro_cfg: micro_cfg.clone(),
-        short_cfg: short_cfg.clone(),
-        medium_cfg: medium_cfg.clone(),
-        large_cfg: large_cfg.clone(),
+        fast_cfg: fast_cfg.clone(),
+        slow_cfg: slow_cfg.clone(),
+        macro_cfg: macro_cfg.clone(),
         fib_config: drop_fib,
         safety_config,
         intervals_config: intervals_config.clone(),
@@ -152,17 +152,17 @@ pub async fn add_instance(
             &Some(wmed.clone()),
             &Some(wl.clone()),
             &artifacts.micro.history,
-            &artifacts.short.history,
-            &artifacts.medium.history,
-            &artifacts.large.history,
+            &artifacts.fast.history,
+            &artifacts.slow.history,
+            &artifacts.r#macro.history,
             &artifacts.micro.latest,
-            &artifacts.short.latest,
-            &artifacts.medium.latest,
-            &artifacts.large.latest,
+            &artifacts.fast.latest,
+            &artifacts.slow.latest,
+            &artifacts.r#macro.latest,
             &artifacts.micro.snapshot_history,
-            &artifacts.short.snapshot_history,
-            &artifacts.medium.snapshot_history,
-            &artifacts.large.snapshot_history,
+            &artifacts.fast.snapshot_history,
+            &artifacts.slow.snapshot_history,
+            &artifacts.r#macro.snapshot_history,
         )
         .await;
     }
@@ -318,17 +318,15 @@ pub async fn recharge_instance(
     // Drain old buffers
     {
         old_instance.micro.history.write().await.clear();
-        old_instance.short.history.write().await.clear();
-        old_instance.medium.history.write().await.clear();
-        old_instance.large.history.write().await.clear();
-        *old_instance.micro.latest.write().await = None;
-        *old_instance.short.latest.write().await = None;
-        *old_instance.medium.latest.write().await = None;
-        *old_instance.large.latest.write().await = None;
-        old_instance.micro.snapshot_history.write().await.clear();
-        old_instance.short.snapshot_history.write().await.clear();
-        old_instance.medium.snapshot_history.write().await.clear();
-        old_instance.large.snapshot_history.write().await.clear();
+        old_instance.fast.history.write().await.clear();
+        old_instance.slow.history.write().await.clear();
+        old_instance.r#macro.history.write().await.clear();
+        *old_instance.fast.latest.write().await = None;
+        *old_instance.slow.latest.write().await = None;
+        *old_instance.r#macro.latest.write().await = None;
+        old_instance.fast.snapshot_history.write().await.clear();
+        old_instance.slow.snapshot_history.write().await.clear();
+        old_instance.r#macro.snapshot_history.write().await.clear();
     }
 
     // Build fresh pipeline configs from saved TOML config
@@ -347,41 +345,41 @@ pub async fn recharge_instance(
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
-    let short_cfg = pair_cfg.short_term.clone();
-    let medium_cfg = pair_cfg.medium_term.clone().unwrap_or_else(|| {
-        TimeframeConfig::new(900, default_indicators.clone())
+    let fast_cfg = pair_cfg.fast_term.clone();
+    let slow_cfg = pair_cfg.slow_term.clone().unwrap_or_else(|| {
+        TimeframeConfig::new(300, default_indicators.clone())
     });
-    let large_cfg = pair_cfg.large_term.clone().unwrap_or_else(|| {
-        TimeframeConfig::new(3600, default_indicators.clone())
+    let macro_cfg = pair_cfg.macro_term.clone().unwrap_or_else(|| {
+        TimeframeConfig::new(900, default_indicators.clone())
     });
 
     let micro_secs = micro_cfg.candles.duration_seconds;
-    let short_secs = short_cfg.candles.duration_seconds;
-    let medium_secs = medium_cfg.candles.duration_seconds;
-    let large_secs = large_cfg.candles.duration_seconds;
+    let fast_secs = fast_cfg.candles.duration_seconds;
+    let slow_secs = slow_cfg.candles.duration_seconds;
+    let macro_secs = macro_cfg.candles.duration_seconds;
 
     let micro_limit = micro_cfg.candles.analysis_limit as u64;
-    let short_limit = short_cfg.candles.analysis_limit as u64;
-    let medium_limit = medium_cfg.candles.analysis_limit as u64;
-    let large_limit = large_cfg.candles.analysis_limit as u64;
+    let fast_limit = fast_cfg.candles.analysis_limit as u64;
+    let slow_limit = slow_cfg.candles.analysis_limit as u64;
+    let macro_limit = macro_cfg.candles.analysis_limit as u64;
 
     // Fresh historical bootstrap
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
         rest_url,
         micro_cfg: micro_cfg.clone(),
-        short_cfg: short_cfg.clone(),
-        medium_cfg: medium_cfg.clone(),
-        large_cfg: large_cfg.clone(),
+        fast_cfg: fast_cfg.clone(),
+        slow_cfg: slow_cfg.clone(),
+        macro_cfg: macro_cfg.clone(),
         fib_config: fib_config.clone(),
         micro_secs,
-        short_secs,
-        medium_secs,
-        large_secs,
+        fast_secs,
+        slow_secs,
+        macro_secs,
         micro_limit,
-        short_limit,
-        medium_limit,
-        large_limit,
+        fast_limit,
+        slow_limit,
+        macro_limit,
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
@@ -392,9 +390,9 @@ pub async fn recharge_instance(
         base: base.clone(),
         pair_key: pair_key.to_string(),
         micro_cfg: micro_cfg.clone(),
-        short_cfg: short_cfg.clone(),
-        medium_cfg: medium_cfg.clone(),
-        large_cfg: large_cfg.clone(),
+        fast_cfg: fast_cfg.clone(),
+        slow_cfg: slow_cfg.clone(),
+        macro_cfg: macro_cfg.clone(),
         fib_config,
         safety_config: safety_config.clone(),
         intervals_config: intervals_config.clone(),
@@ -417,17 +415,17 @@ pub async fn recharge_instance(
             &Some(wmed.clone()),
             &Some(wl.clone()),
             &artifacts.micro.history,
-            &artifacts.short.history,
-            &artifacts.medium.history,
-            &artifacts.large.history,
+            &artifacts.fast.history,
+            &artifacts.slow.history,
+            &artifacts.r#macro.history,
             &artifacts.micro.latest,
-            &artifacts.short.latest,
-            &artifacts.medium.latest,
-            &artifacts.large.latest,
+            &artifacts.fast.latest,
+            &artifacts.slow.latest,
+            &artifacts.r#macro.latest,
             &artifacts.micro.snapshot_history,
-            &artifacts.short.snapshot_history,
-            &artifacts.medium.snapshot_history,
-            &artifacts.large.snapshot_history,
+            &artifacts.fast.snapshot_history,
+            &artifacts.slow.snapshot_history,
+            &artifacts.r#macro.snapshot_history,
         )
         .await;
     }
@@ -459,9 +457,9 @@ pub async fn recharge_instance(
         pool: old_instance.pool.clone(),
         config: old_instance.config.clone(),
         micro: artifacts.micro,
-        short: artifacts.short,
-        medium: artifacts.medium,
-        large: artifacts.large,
+        fast: artifacts.fast,
+        slow: artifacts.slow,
+        r#macro: artifacts.r#macro,
     });
 
     // Swap in workspace map
@@ -472,13 +470,13 @@ pub async fn recharge_instance(
         .insert(pair_key.to_string(), Arc::clone(&new_instance));
 
     println!(
-        "⚡ Instance recharged: {} ({}) — micro={}s short={}s medium={}s large={}s",
+        "⚡ Instance recharged: {} ({}) — micro={}s fast={}s slow={}s macro={}s",
         new_instance.pair_display(),
         new_instance.id,
         micro_secs,
-        short_secs,
-        medium_secs,
-        large_secs,
+        fast_secs,
+        slow_secs,
+        macro_secs,
     );
 
     Ok(())
