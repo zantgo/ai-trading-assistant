@@ -10,12 +10,20 @@
     let expandedTfTable = $state<string | null>(null);
 
     const timeframes = ['microTerm', 'smallTerm', 'mediumTerm', 'largeTerm'] as const;
-    const tfLabels: Record<string, string> = { 
-        microTerm: 'MICRO 1m', 
-        smallTerm: 'SMALL 5m', 
-        mediumTerm: 'MEDIUM 15m', 
-        largeTerm: 'LARGE 1h' 
-    };
+
+    function formatTfLabel(secs: number): string {
+        if (secs >= 86400) return `${secs / 86400}d`;
+        if (secs >= 3600) return `${secs / 3600}h`;
+        if (secs >= 60) return `${secs / 60}m`;
+        return `${secs}s`;
+    }
+
+    function formatTfName(key: string): string {
+        if (key === 'microTerm') return 'MICRO';
+        if (key === 'smallTerm') return 'SMALL';
+        if (key === 'mediumTerm') return 'MEDIUM';
+        return 'LARGE';
+    }
 
     // --- State Mapping Engine ---
 
@@ -200,7 +208,7 @@
         for (const tfKey of timeframes) {
             const tf = (pair as any)[tfKey] as TimeframeTelemetry;
             if (!tf) continue;
-            (dump.telemetry as any)[tfLabels[tfKey]] = {
+            (dump.telemetry as any)[`${formatTfName(tfKey)} (${formatTfLabel(tf.barDurationSec)})`] = {
                 price: tf.priceText ?? '--',
                 market_state: getMarketState(tf),
                 atr: getAtrState(tf),
@@ -241,7 +249,7 @@
             {#if tf}
                 <div class="{styles.tfTableCard} {expandedTfTable === tfKey ? styles.expandedTableCard : ''}">
                     <div class={styles.tfCardHeader}>
-                        <span class={styles.tfCardLabel}>{tfLabels[tfKey]}</span>
+                        <span class={styles.tfCardLabel}>{formatTfName(tfKey)} ({formatTfLabel(tf.barDurationSec)})</span>
                         <div class={styles.headerActions}>
                             <span class={styles.tfCardMarketState} style={getStateStyle(getMarketState(tf))}>
                                 {getMarketState(tf)}

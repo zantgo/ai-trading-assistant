@@ -493,7 +493,7 @@ pub async fn run_single(
                     shadow_bid, shadow_ask,
                     &ema_fast, &ema_medium, &ema_slow, &ema_long,
                     &rsi_14, &macd, &adx_14, &sqz_mom,
-                    &bollinger, &atr_standalone,
+                    &bollinger, &atr_standalone, &bbwp_indicator,
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
                     timeframe_secs,
@@ -526,7 +526,7 @@ pub async fn run_single(
                         shadow_bid, shadow_ask,
                         &ema_fast, &ema_medium, &ema_slow, &ema_long,
                         &rsi_14, &macd, &adx_14, &sqz_mom,
-                        &bollinger, &atr_standalone,
+                        &bollinger, &atr_standalone, &bbwp_indicator,
                         &vwap_sum_tp_vol, &vwap_sum_vol,
                         &volume_history,
                         timeframe_secs,
@@ -559,6 +559,7 @@ fn broadcast_live_snapshot(
     sqz_mom: &SqueezeMomentum,
     bollinger: &BollingerBands,
     atr_standalone: &Atr,
+    bbwp_indicator: &Bbwp,
     vwap_sum_tp_vol: &Decimal,
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
@@ -574,6 +575,7 @@ fn broadcast_live_snapshot(
     let val_sqz = sqz_mom.clone().update(candle.high, candle.low, candle.close);
     let val_bb = bollinger.clone().update(candle.close);
     let val_atr = atr_standalone.clone().update(candle.high, candle.low, candle.close);
+    let val_bbwp = bbwp_indicator.clone().update(candle.close);
 
     let typical_price = (candle.high + candle.low + candle.close) / Decimal::from(3);
     let temp_sum_tp_vol = *vwap_sum_tp_vol + typical_price * candle.volume;
@@ -589,6 +591,11 @@ fn broadcast_live_snapshot(
         Some(sum / Decimal::from(volume_history.len()))
     } else {
         None
+    };
+
+    let rvol = match (candle.volume, avg_vol) {
+        (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
+        _ => None,
     };
 
     let snapshot = MarketSnapshot {
@@ -609,7 +616,7 @@ fn broadcast_live_snapshot(
         close: Some(candle.close),
         volume: Some(candle.volume),
         average_volume: avg_vol,
-        rvol: None,
+        rvol,
         bb_upper: val_bb.map(|b| b.0),
         bb_middle: val_bb.map(|b| b.1),
         bb_lower: val_bb.map(|b| b.2),
@@ -637,7 +644,7 @@ fn broadcast_live_snapshot(
         squeeze_duration: val_sqz.as_ref().map(|s| s.squeeze_duration),
         squeeze_release_trigger: val_sqz.as_ref().map(|s| s.squeeze_release_trigger),
         squeeze_momentum_direction: val_sqz.as_ref().map(|s| format!("{:?}", s.momentum_direction)),
-        bbwp: None,
+        bbwp: val_bbwp,
                         support_levels: None,
                         resistance_levels: None,
                         sr_flip_events: None,

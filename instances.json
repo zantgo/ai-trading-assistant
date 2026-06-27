@@ -158,7 +158,7 @@
   "BTC-USDT": {
     "micro_term": {
       "candles": {
-        "duration_seconds": 1,
+        "duration_seconds": 60,
         "analysis_limit": 500
       },
       "indicators": {
@@ -195,7 +195,7 @@
     },
     "short_term": {
       "candles": {
-        "duration_seconds": 5,
+        "duration_seconds": 180,
         "analysis_limit": 500
       },
       "indicators": {
@@ -232,7 +232,7 @@
     },
     "medium_term": {
       "candles": {
-        "duration_seconds": 30,
+        "duration_seconds": 300,
         "analysis_limit": 500
       },
       "indicators": {
@@ -269,7 +269,7 @@
     },
     "large_term": {
       "candles": {
-        "duration_seconds": 60,
+        "duration_seconds": 900,
         "analysis_limit": 500
       },
       "indicators": {
