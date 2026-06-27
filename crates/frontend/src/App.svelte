@@ -7,7 +7,6 @@
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
     import RiskCalculator from './components/RiskCalculator.svelte';
-    import ExchangeSettings from './components/ExchangeSettings.svelte';
     import AnalyticsDashboard from './components/AnalyticsDashboard.svelte';
     import TradeListLedger from './components/TradeListLedger.svelte';
     import CommissionCalculator from './components/CommissionCalculator.svelte';
@@ -173,13 +172,6 @@
                         </button>
                         <button
                             class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'assistant'}
-                            onclick={() => pair.currentView = 'assistant'}
-                        >
-                            🤖 AI Assistant
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
                             class:sub-tab-active={pair.currentView === 'positions'}
                             onclick={() => { pair.currentView = 'positions'; app.fetchPaperStatus(); }}
                         >
@@ -194,38 +186,10 @@
                         </button>
                         <button
                             class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'settings'}
-                            onclick={() => { pair.currentView = 'settings'; }}
-                        >
-                            ⚙️ Workspace Settings
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'decision'}
-                            onclick={() => { pair.currentView = 'decision'; }}
-                        >
-                            🎯 Decision Trading
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
                             class:sub-tab-active={pair.currentView === 'risk'}
                             onclick={() => { pair.currentView = 'risk'; }}
                         >
                             🛡️ Risk Management
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'commission'}
-                            onclick={() => { pair.currentView = 'commission'; }}
-                        >
-                            💸 Fee Projection
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'exchange'}
-                            onclick={() => { pair.currentView = 'exchange'; }}
-                        >
-                            🔐 Exchange Settings
                         </button>
                         <button
                             class={styles.subTabBtn}
@@ -243,10 +207,10 @@
                         </button>
                         <button
                             class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'costs'}
-                            onclick={() => { pair.currentView = 'costs'; app.fetchCostEstimate(); }}
+                            class:sub-tab-active={pair.currentView === 'decision'}
+                            onclick={() => { pair.currentView = 'decision'; }}
                         >
-                            💰 Token Costs
+                            🎯 Decision Trading
                         </button>
                         <button
                             class={styles.subTabBtn}
@@ -254,6 +218,34 @@
                             onclick={() => { pair.currentView = 'observability'; }}
                         >
                             🎯 DECISION HUD
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'assistant'}
+                            onclick={() => pair.currentView = 'assistant'}
+                        >
+                            🤖 AI Assistant
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'commission'}
+                            onclick={() => { pair.currentView = 'commission'; }}
+                        >
+                            💸 Fee Projection
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'costs'}
+                            onclick={() => { pair.currentView = 'costs'; app.fetchCostEstimate(); }}
+                        >
+                            💰 Token Costs
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'settings'}
+                            onclick={() => { pair.currentView = 'settings'; }}
+                        >
+                            ⚙️ Workspace Settings
                         </button>
                     </div>
                 </div>
@@ -302,12 +294,6 @@
                 {:else if pair.currentView === 'commission'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <CommissionCalculator />
-                    </div>
-
-                <!-- 6. Exchange Settings View -->
-                {:else if pair.currentView === 'exchange'}
-                    <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
-                        <ExchangeSettings />
                     </div>
 
                 <!-- 7. Analytics Dashboard View -->

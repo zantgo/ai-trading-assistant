@@ -161,3 +161,10 @@
         text-transform: uppercase;
     }
     .paper-reset-btn:hover { background: rgba(239, 68, 68, 0.18); }
+    .exchange-container {
+        margin-top: 16px;
+        background-color: #131722;
+        border: 1px solid #2a2e39;
+        border-radius: 8px;
+        padding: 16px;
+    }

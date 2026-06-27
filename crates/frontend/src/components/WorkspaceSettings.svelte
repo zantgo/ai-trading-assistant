@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import type { InstanceState } from '../types';
+    import ExchangeSettings from './ExchangeSettings.svelte';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -360,5 +361,10 @@
             </div>
         </div>
 
+    </div>
+
+    <div class={styles.exchangeContainer}>
+        <h3 class={styles.cardTitle}>Exchange Accounts</h3>
+        <ExchangeSettings />
     </div>
 </div>
