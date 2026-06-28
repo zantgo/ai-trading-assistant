@@ -127,8 +127,6 @@ pub async fn serve_get_instance_detail(
                 "paper_balance": paper.current_cash,
                 "paper_equity": paper.total_account_value,
                 "paper_unrealized_pnl": paper.unrealized_pnl,
-                "tp_levels": trading.tp_levels,
-                "sl_levels": trading.sl_levels,
                 "consecutive_losses": inst.safety.consecutive_losses.load(std::sync::atomic::Ordering::Relaxed),
                 "caution_level": inst.safety.caution_level.read().await.as_str().to_string(),
             }))
@@ -431,8 +429,6 @@ pub async fn serve_instance_usage(
                 paper_balance: 0.0,
                 paper_equity: 0.0,
                 paper_unrealized_pnl: 0.0,
-                tp_levels: inst.trading.read().await.tp_levels as i32,
-                sl_levels: inst.trading.read().await.sl_levels as i32,
                 consecutive_losses: inst.safety.consecutive_losses.load(std::sync::atomic::Ordering::Relaxed),
                 caution_level: inst.safety.caution_level.read().await.as_str().to_string(),
                 instance_id: id,

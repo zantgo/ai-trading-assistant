@@ -32,6 +32,7 @@ pub enum TelemetryMsg {
         entry_price: f64,
         size: f64,
         allocated_usd: f64,
+        pct: f64,
     },
     PaperClosePosition {
         symbol: String,
@@ -148,6 +149,7 @@ pub async fn run_telemetry_logger(
                 entry_price,
                 size,
                 allocated_usd,
+                ..
             } => {
                 if let Err(e) = crate::db::paper::paper_open_position_internal(
                     &pool,

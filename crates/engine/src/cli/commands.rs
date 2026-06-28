@@ -165,8 +165,6 @@ impl CliConsole {
             let roi_color = if roi >= 0.0 { GREEN } else { RED };
             println!("  ROI:        {}{:+.2}%{}", roi_color, roi, RESET);
         }
-        println!("  TP Levels:  {}", inst.trading.read().await.tp_levels);
-        println!("  SL Levels:  {}", inst.trading.read().await.sl_levels);
         println!("  API Key:    {}", if inst.api_key_valid.load(Ordering::Relaxed) { "✅ Configured" } else { "❌ Not set" });
         println!("  Intervals:  slow={}s normal={}s fast={}s",
             inst.config_state.read().await.intervals.slow_seconds,

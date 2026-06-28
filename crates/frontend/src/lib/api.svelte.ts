@@ -258,7 +258,6 @@ export function readDraftFromPair(pair: InstanceState): {
     automationEnabled: boolean; automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
     slowInterval: number; normalInterval: number; fastInterval: number;
-    tpLevels: number; slLevels: number;
 } {
     const sec = pair.microTerm.barDurationSec;
     let durationValue: number, durationUnit: 'seconds' | 'minutes' | 'hours';
@@ -307,7 +306,5 @@ export function readDraftFromPair(pair: InstanceState): {
         slowInterval: pair.slowIntervalSecs || 3600,
         normalInterval: pair.normalIntervalSecs || 900,
         fastInterval: pair.fastIntervalSecs || 300,
-        tpLevels: pair.tpLevels || 1,
-        slLevels: pair.slLevels || 1,
     };
 }

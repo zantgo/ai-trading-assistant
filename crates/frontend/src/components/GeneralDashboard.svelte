@@ -23,56 +23,46 @@
     }
     let paperPositions = $state<PaperPosition[]>([]);
 
-    let equityContainer = $state<HTMLDivElement | null>(null);
-    let equityChart: IChartApi | null = null;
-    let equitySeries: ISeriesApi<'Line'> | null = null;
+    let totalRealizedPnl = $state(0);
+    let totalUnrealizedPnl = $state(0);
+    let totalPortfolioValue = $state(app.sessionCapital);
+    let selectedTimeframe = $state<'24H' | '7D' | '1M' | 'ALL'>('ALL');
 
     let compoundedContainer = $state<HTMLDivElement | null>(null);
     let compoundedChart: IChartApi | null = null;
     let compoundedSeries: ISeriesApi<'Line'> | null = null;
 
     let ro: ResizeObserver;
-
-    onMount(() => {
-        ro = new ResizeObserver(() => {
-            if (equityContainer) {
-                const w = equityContainer.clientWidth, h = equityContainer.clientHeight;
-                if (equityChart && w > 0 && h > 0) equityChart.resize(w, h);
-            }
-            if (compoundedContainer) {
-                const w = compoundedContainer.clientWidth, h = compoundedContainer.clientHeight;
-                if (compoundedChart && w > 0 && h > 0) compoundedChart.resize(w, h);
-            }
-        });
-    });
-
-    $effect(() => {
-        if (ro) {
-            if (equityContainer) ro.observe(equityContainer);
-            if (compoundedContainer) ro.observe(compoundedContainer);
-        }
-    });
+    let pollInterval: ReturnType<typeof setInterval>;
 
     async function fetchAll() {
-        loading = true;
         try {
-            const [statsRes, recsRes, statusRes, instancesRes] = await Promise.all([
+            const [statsRes, recsRes, statusRes, instancesRes, paperPerfRes] = await Promise.all([
                 fetch(`/api/dashboard/stats?initial_capital=${app.sessionCapital}`),
                 fetch('/api/historical-recommendations'),
                 fetch('/api/system/status'),
                 fetch('/api/instances'),
+                fetch('/api/paper/performance'),
             ]);
+
             if (statsRes.ok) stats = await statsRes.json();
             if (recsRes.ok) {
                 const data = await recsRes.json();
                 recommendations = data.recommendations || [];
             }
             if (statusRes.ok) heartbeat = await statusRes.json();
+
+            let paperPnl = 0;
+            if (paperPerfRes.ok) {
+                const data = await paperPerfRes.json();
+                paperPnl = data.total_pnl ?? 0;
+            }
+            totalRealizedPnl = paperPnl;
+
             if (instancesRes.ok) {
                 const data = await instancesRes.json();
                 instances = data.instances || [];
 
-                // Fetch paper positions for each instance in parallel
                 const positions: PaperPosition[] = [];
                 const paperResults = await Promise.allSettled(
                     instances.map((inst: InstanceSummary) =>
@@ -80,120 +70,204 @@
                             .then(r => r.ok ? r.json() : null)
                     )
                 );
+
+                let totalUnrealized = 0;
                 for (let i = 0; i < instances.length; i++) {
                     const result = paperResults[i];
-                    if (result.status === 'fulfilled' && result.value?.active_position) {
-                        const pos = result.value.active_position;
-                        positions.push({
-                            symbol: instances[i].symbol,
-                            direction: pos.direction || '',
-                            entryPrice: pos.entry_price ?? 0,
-                            size: pos.size ?? 0,
-                            unrealizedPnl: result.value.unrealized_pnl ?? 0,
-                            unrealizedRoi: result.value.unrealized_roi_pct ?? 0,
-                        });
+                    if (result.status === 'fulfilled' && result.value) {
+                        const val = result.value;
+                        totalUnrealized += val.unrealized_pnl ?? 0;
+                        if (val.active_position) {
+                            const pos = val.active_position;
+                            positions.push({
+                                symbol: instances[i].symbol,
+                                direction: pos.direction || '',
+                                entryPrice: pos.entry_price ?? 0,
+                                size: pos.size ?? 0,
+                                unrealizedPnl: val.unrealized_pnl ?? 0,
+                                unrealizedRoi: val.unrealized_roi_pct ?? 0,
+                            });
+                        }
                     }
                 }
                 paperPositions = positions;
+                totalUnrealizedPnl = totalUnrealized;
+                totalPortfolioValue = app.sessionCapital + paperPnl + totalUnrealized;
             }
-        } catch (_) {
+        } catch (e) {
+            console.error('Error polling dashboard metrics:', e);
         } finally {
             loading = false;
         }
     }
 
-    function buildEquityChart() {
-        if (!equityContainer || !stats?.equity_curve || stats.equity_curve.length === 0) return;
-        if (equityChart) { equityChart.remove(); equityChart = null; }
+    function filterCurveData(curve: [number, number][]) {
+        if (!curve || curve.length === 0) {
+            const now = Math.floor(Date.now() / 1000);
+            return [{ time: now as Time, value: app.sessionCapital }];
+        }
 
-        const data = stats.equity_curve.map(([ts, val]) => ({
-            time: ts as Time,
+        const nowMs = Date.now();
+        let cutoffMs = 0;
+
+        if (selectedTimeframe === '24H') {
+            cutoffMs = nowMs - 24 * 60 * 60 * 1000;
+        } else if (selectedTimeframe === '7D') {
+            cutoffMs = nowMs - 7 * 24 * 60 * 60 * 1000;
+        } else if (selectedTimeframe === '1M') {
+            cutoffMs = nowMs - 30 * 24 * 60 * 60 * 1000;
+        }
+
+        const normalizedCurve = curve.map(([ts, val]) => {
+            const normalizedTs = ts > 9_000_000_000 ? ts : ts * 1000;
+            return [normalizedTs, val] as [number, number];
+        });
+
+        let filtered = selectedTimeframe === 'ALL'
+            ? normalizedCurve
+            : normalizedCurve.filter(([ts, _]) => ts >= cutoffMs);
+
+        const beforeCutoff = normalizedCurve.filter(([ts, _]) => ts < cutoffMs);
+
+        if (selectedTimeframe !== 'ALL') {
+            if (beforeCutoff.length > 0) {
+                const lastBefore = beforeCutoff[beforeCutoff.length - 1];
+                filtered = [[cutoffMs, lastBefore[1]], ...filtered];
+            } else if (filtered.length === 0) {
+                filtered = [[cutoffMs, app.sessionCapital], [nowMs, app.sessionCapital]];
+            } else {
+                const first = filtered[0];
+                filtered = [[cutoffMs, first[1]], ...filtered];
+            }
+        } else if (filtered.length > 0) {
+            const first = filtered[0];
+            filtered = [[first[0] - 60000, app.sessionCapital], ...filtered];
+        }
+
+        return filtered.map(([ts, val]) => ({
+            time: Math.floor(ts / 1000) as Time,
             value: val,
         }));
-
-        if (!equityContainer) return;
-        equityChart = createChart(equityContainer, {
-            autoSize: true,
-            layout: { background: { color: '#14142a' }, textColor: '#8f929d', fontSize: 10 },
-            grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-            rightPriceScale: { borderColor: '#2a2a4a' },
-            timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: false },
-            handleScale: false,
-            handleScroll: false,
-        });
-        equityChart.timeScale().fitContent();
-
-        equitySeries = equityChart.addSeries(LineSeries, {
-            color: '#5b7fff',
-            lineWidth: 2,
-            priceLineVisible: false,
-            crosshairMarkerVisible: false,
-        });
-        equitySeries.setData(data);
     }
 
     function buildCompoundedChart() {
-        if (!compoundedContainer || !stats?.compounded_curve || stats.compounded_curve.length < 2) return;
-        if (compoundedChart) { compoundedChart.remove(); compoundedChart = null; }
-
-        const data = stats.compounded_curve.map(([ts, val]) => ({
-            time: ts as Time,
-            value: val,
-        }));
-
         if (!compoundedContainer) return;
+        if (compoundedChart) {
+            compoundedChart.remove();
+            compoundedChart = null;
+        }
+
+        const curve = stats?.compounded_curve || [];
+        const filteredData = filterCurveData(curve);
+
         compoundedChart = createChart(compoundedContainer, {
             autoSize: true,
-            layout: { background: { color: '#14142a' }, textColor: '#8f929d', fontSize: 10 },
+            layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 10 },
             grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-            rightPriceScale: { borderColor: '#2a2a4a' },
-            timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: false },
-            handleScale: false,
-            handleScroll: false,
+            rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
+            timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
+            handleScale: true,
+            handleScroll: true,
         });
-        compoundedChart.timeScale().fitContent();
 
         compoundedSeries = compoundedChart.addSeries(LineSeries, {
-            color: '#f59e0b',
-            lineWidth: 2,
+            color: '#3b82f6',
+            lineWidth: 3,
             priceLineVisible: false,
-            crosshairMarkerVisible: false,
+            crosshairMarkerVisible: true,
         });
-        compoundedSeries.setData(data);
+
+        compoundedSeries.setData(filteredData);
+        compoundedChart.timeScale().fitContent();
     }
 
-    $effect(() => { fetchAll(); });
+    onMount(() => {
+        fetchAll();
+        pollInterval = setInterval(fetchAll, 5000);
 
-    $effect(() => {
-        if (!loading && stats?.equity_curve) {
-            requestAnimationFrame(() => buildEquityChart());
-        }
-        if (!loading && stats?.compounded_curve && stats.compounded_curve.length >= 2) {
-            requestAnimationFrame(() => buildCompoundedChart());
+        ro = new ResizeObserver(() => {
+            if (compoundedContainer && compoundedChart) {
+                const w = compoundedContainer.clientWidth;
+                const h = compoundedContainer.clientHeight;
+                if (w > 0 && h > 0) compoundedChart.resize(w, h);
+            }
+        });
+
+        if (compoundedContainer?.parentElement) {
+            ro.observe(compoundedContainer.parentElement);
         }
     });
 
     onDestroy(() => {
+        clearInterval(pollInterval);
         ro?.disconnect();
-        if (equityChart) { equityChart.remove(); equityChart = null; equitySeries = null; }
-        if (compoundedChart) { compoundedChart.remove(); compoundedChart = null; compoundedSeries = null; }
+        if (compoundedChart) {
+            compoundedChart.remove();
+            compoundedChart = null;
+            compoundedSeries = null;
+        }
     });
+
+    $effect(() => {
+        if (!loading && stats?.compounded_curve) {
+            requestAnimationFrame(() => buildCompoundedChart());
+        }
+    });
+
+    function handleTimeframeChange(tf: '24H' | '7D' | '1M' | 'ALL') {
+        selectedTimeframe = tf;
+        buildCompoundedChart();
+    }
 </script>
 
 <div class={styles.dashboardView}>
-    <h2>General Dashboard</h2>
+    <h2 class={styles.dashboardTitle}>General Dashboard</h2>
 
     {#if loading}
-        <div class={styles.loadingRow}>Loading dashboard...</div>
+        <div class={styles.loadingRow}>Loading dashboard metrics...</div>
     {:else}
+        <div class={styles.portfolioHeaderPanel}>
+            <div class={styles.portfolioSummaryDetails}>
+                <div class={styles.hudHeader}>
+                    <span class={styles.hudLabel}>Total Account Value (USDT)</span>
+                </div>
+                <div class={styles.hudValue}>
+                    ${totalPortfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div class={styles.hudSubRow}>
+                    <div class={styles.hudSubItem}>
+                        <span class={styles.hudSubLabel}>Realized P&L</span>
+                        <span class="{styles.hudSubValue} {totalRealizedPnl >= 0 ? styles.positive : styles.negative}">
+                            {totalRealizedPnl >= 0 ? '+' : ''}${totalRealizedPnl.toFixed(2)}
+                            ({totalRealizedPnl >= 0 ? '+' : ''}{(totalRealizedPnl / app.sessionCapital * 100).toFixed(2)}%)
+                        </span>
+                    </div>
+                    <div class={styles.hudSubItem}>
+                        <span class={styles.hudSubLabel}>Unrealized P&L</span>
+                        <span class="{styles.hudSubValue} {totalUnrealizedPnl >= 0 ? styles.positive : styles.negative}">
+                            {totalUnrealizedPnl >= 0 ? '+' : ''}${totalUnrealizedPnl.toFixed(2)}
+                            ({totalUnrealizedPnl >= 0 ? '+' : ''}{(totalUnrealizedPnl / app.sessionCapital * 100).toFixed(2)}%)
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class={styles.portfolioChartContainer}>
+                <div class={styles.chartControlBar}>
+                    <span class={styles.chartTitle}>Portfolio Performance Curve</span>
+                    <div class={styles.timeframeTabs}>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '24H' ? styles.active : ''}" onclick={() => handleTimeframeChange('24H')}>24H</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '7D' ? styles.active : ''}" onclick={() => handleTimeframeChange('7D')}>7D</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1M' ? styles.active : ''}" onclick={() => handleTimeframeChange('1M')}>1M</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === 'ALL' ? styles.active : ''}" onclick={() => handleTimeframeChange('ALL')}>ALL</button>
+                    </div>
+                </div>
+                <div class={styles.equityChartContainer} bind:this={compoundedContainer}></div>
+            </div>
+        </div>
+
         <!-- Overview Cards -->
         <div class={styles.statsGrid}>
-            <div class={styles.statCard}>
-                <span class={styles.statLabel}>Total P&L</span>
-                <span class="{styles.statValue} {(stats?.core_stats?.total_pnl ?? 0) >= 0 ? styles.positive : ''} {(stats?.core_stats?.total_pnl ?? 0) < 0 ? styles.negative : ''}">
-                    ${Math.abs(stats?.core_stats?.total_pnl ?? 0).toFixed(2)}
-                </span>
-            </div>
             <div class={styles.statCard}>
                 <span class={styles.statLabel}>Win Rate</span>
                 <span class={styles.statValue}>{((stats?.core_stats?.win_rate ?? 0) * 100).toFixed(1)}%</span>
@@ -316,26 +390,6 @@
                     </table>
                 </div>
             {/if}
-
-            <!-- Equity Curve -->
-            {#if stats?.equity_curve && stats.equity_curve.length > 0}
-                <div class={styles.sectionHeader} style="margin-top: 1.5rem;">
-                    <h3>Equity Curve</h3>
-                </div>
-                <div class={styles.equityChartWrapper}>
-                    <div class={styles.equityChartContainer} bind:this={equityContainer}></div>
-                </div>
-            {/if}
-
-            <!-- Compounded Balance Curve -->
-            {#if stats?.compounded_curve && stats.compounded_curve.length >= 2}
-                <div class={styles.sectionHeader} style="margin-top: 1.5rem;">
-                    <h3>Compounded Balance Curve</h3>
-                </div>
-                <div class={styles.equityChartWrapper}>
-                    <div class={styles.equityChartContainer} bind:this={compoundedContainer}></div>
-                </div>
-            {/if}
         {/if}
 
         <!-- Detailed Stats -->
@@ -446,7 +500,7 @@
         <!-- Historical Analyst Recommendations -->
         {#if recommendations.length > 0}
             <div class={styles.sectionHeader}>
-                <h3>📊 Historical Analyst Recommendations</h3>
+                <h3>Historical Analyst Recommendations</h3>
             </div>
             <div class={styles.recommendationsList}>
                 {#each recommendations.slice(0, 5) as rec}
@@ -479,5 +533,3 @@
         {/if}
     {/if}
 </div>
-
-

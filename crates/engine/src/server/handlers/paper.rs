@@ -1,7 +1,7 @@
 use crate::server::helpers::get_active_pair;
 use crate::server::types::{
     PaperConfigRequest, PaperOrderRequest, PaperPerformanceQuery, PaperResetRequest,
-    PaperScaleInRequest, PaperScaleOutRequest, PaperStatusQuery,
+    PaperPositionPctRequest, PaperTpSlRequest, PaperStatusQuery,
 };
 use crate::server::AppState;
 use axum::{
@@ -168,94 +168,97 @@ pub async fn serve_paper_order(
     }
 }
 
-pub async fn serve_paper_scale_in(
+/// Open/close position using percentage of balance.
+pub async fn serve_paper_position_pct(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<PaperScaleInRequest>,
+    Json(payload): Json<PaperPositionPctRequest>,
 ) -> impl IntoResponse {
     let pair = get_active_pair(&state.workspace, &payload.symbol).await;
     let current_price = if let Some(ref p) = pair {
-        p.latest_price().await.unwrap_or(payload.entry_price)
+        p.latest_price().await.unwrap_or(0.0)
     } else {
-        payload.entry_price
+        0.0
     };
 
-    let price = if payload.entry_price > 0.0 {
-        payload.entry_price
-    } else {
-        current_price
-    };
-
-    if price <= 0.0 {
-        return Json(serde_json::json!({"success": false, "message": "No price data available"}))
-            .into_response();
+    if current_price <= 0.0 {
+        return Json(serde_json::json!({"success": false, "message": "No price data available"})).into_response();
     }
 
     let dir = payload.direction.to_uppercase();
     if dir != "LONG" && dir != "SHORT" {
-        return Json(
-            serde_json::json!({"success": false, "message": "Direction must be LONG or SHORT"}),
-        )
-        .into_response();
+        return Json(serde_json::json!({"success": false, "message": "Direction must be LONG or SHORT"})).into_response();
     }
 
-    let portion = payload.portion_number.max(1).min(3);
-
-    let result = crate::paper_trading::scale_in_portion(
-        &state.pool,
-        &state.telemetry_tx,
-        &payload.symbol,
-        &dir,
-        price,
-        portion,
-        payload.final_invalidation_level.unwrap_or(0.0),
-    )
-    .await;
+    let result = crate::paper_trading::open_position_pct(
+        &state.pool, &state.telemetry_tx, &payload.symbol, &dir, payload.pct, current_price,
+    ).await;
 
     Json(serde_json::json!({
         "success": result.success,
         "message": result.message,
-        "new_average_entry_price": result.new_average_entry_price,
-        "total_size": result.total_size,
-        "portion_number": result.portion_number,
-    }))
-    .into_response()
+        "direction": result.direction,
+        "position_pct": result.position_pct,
+        "free_balance_pct": result.free_balance_pct,
+        "entry_price": result.entry_price,
+        "size": result.size,
+        "allocated_usd": result.allocated_usd,
+    })).into_response()
 }
 
-pub async fn serve_paper_scale_out(
+/// Close percentage of current position.
+pub async fn serve_paper_close_pct(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<PaperScaleOutRequest>,
+    Json(payload): Json<PaperPositionPctRequest>,
 ) -> impl IntoResponse {
     let pair = get_active_pair(&state.workspace, &payload.symbol).await;
     let current_price = if let Some(ref p) = pair {
-        p.latest_price().await.unwrap_or(payload.exit_price)
+        p.latest_price().await.unwrap_or(0.0)
     } else {
-        payload.exit_price
+        0.0
     };
 
-    let price = if payload.exit_price > 0.0 {
-        payload.exit_price
-    } else {
-        current_price
-    };
-    let fraction = payload.size_fraction.clamp(0.01, 1.0);
+    if current_price <= 0.0 {
+        return Json(serde_json::json!({"success": false, "message": "No price data available"})).into_response();
+    }
 
-    let result = crate::paper_trading::scale_out_portion(
-        &state.pool,
-        &state.telemetry_tx,
-        &payload.symbol,
-        price,
-        fraction,
-        payload.target_id,
-        &payload.trigger_source.unwrap_or_else(|| "MANUAL".to_string()),
-    )
-    .await;
+    let result = crate::paper_trading::close_position_pct(
+        &state.pool, &state.telemetry_tx, &payload.symbol, payload.pct, current_price,
+    ).await;
 
     Json(serde_json::json!({
         "success": result.success,
         "message": result.message,
-        "realized_pnl": result.realized_pnl,
-        "remaining_size": result.remaining_size,
-    }))
+        "direction": result.direction,
+        "position_pct": result.position_pct,
+        "free_balance_pct": result.free_balance_pct,
+        "entry_price": result.entry_price,
+        "size": result.size,
+        "allocated_usd": result.allocated_usd,
+    })).into_response()
+}
+
+/// Set take-profit targets.
+pub async fn serve_paper_set_tp(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperTpSlRequest>,
+) -> impl IntoResponse {
+    let targets: Vec<(f64, f64)> = payload.targets.iter().map(|t| (t.pct, t.price)).collect();
+    match crate::paper_trading::set_take_profit_targets(&state.pool, &payload.symbol, &targets).await {
+        Ok(msg) => Json(serde_json::json!({"success": true, "message": msg})).into_response(),
+        Err(e) => Json(serde_json::json!({"success": false, "message": e})).into_response(),
+    }
+}
+
+/// Set stop-loss levels.
+pub async fn serve_paper_set_sl(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperTpSlRequest>,
+) -> impl IntoResponse {
+    let stops: Vec<(f64, f64)> = payload.targets.iter().map(|t| (t.pct, t.price)).collect();
+    match crate::paper_trading::set_stop_loss_levels(&state.pool, &payload.symbol, &stops).await {
+        Ok(msg) => Json(serde_json::json!({"success": true, "message": msg})).into_response(),
+        Err(e) => Json(serde_json::json!({"success": false, "message": e})).into_response(),
+    }
 }
 
 pub async fn serve_paper_unrealized(

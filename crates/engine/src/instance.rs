@@ -34,8 +34,6 @@ impl InstanceStatus {
 pub struct TradingState {
     pub initial_capital: f64,
     pub current_equity: f64,
-    pub tp_levels: u8,
-    pub sl_levels: u8,
 }
 
 impl Default for TradingState {
@@ -43,8 +41,6 @@ impl Default for TradingState {
         Self {
             initial_capital: 0.0,
             current_equity: 0.0,
-            tp_levels: 1,
-            sl_levels: 1,
         }
     }
 }

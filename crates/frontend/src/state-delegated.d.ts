@@ -40,6 +40,7 @@ declare module './state.svelte' {
         paperAvgEntryPrice: number; paperInvalidationLevel: number;
         paperFilledPortions: number; paperMaxRiskPct: number; paperLeverage: number;
         paperAutoExecuteIntervals: number; paperLookbackTrades: number;
+        paperPositionPct: number; paperFreeBalancePct: number; paperDirection: 'LONG' | 'SHORT' | '';
 
         apiKeyConfigured: boolean; rulesContent: string;
         globalCandlesConfig: { duration_seconds: number; analysis_limit: number };

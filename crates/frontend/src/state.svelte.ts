@@ -70,7 +70,7 @@ function createInstanceState(symbol: string): InstanceState {
         automationEnabled: false, automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
         slowIntervalSecs: 3600, normalIntervalSecs: 900, fastIntervalSecs: 300,
-        tpLevels: 1, slLevels: 1, nextEvaluationIn: '--',
+        nextEvaluationIn: '--',
         totalPointsScore: 0, allocatedCapitalPct: 0, activeOppositeSignalsCount: 0,
         markedSupportLevels: [], markedResistanceLevels: [], srFlipEvents: '[]',
         priceLineMode: false,
@@ -125,6 +125,7 @@ export class AppStore {
             'paperTakeProfitTargets', 'paperAvgEntryPrice',
             'paperInvalidationLevel', 'paperFilledPortions', 'paperMaxRiskPct',
             'paperLeverage', 'paperAutoExecuteIntervals', 'paperLookbackTrades',
+            'paperPositionPct', 'paperFreeBalancePct', 'paperDirection',
         ]);
 
         this._delegate(this.settings, [
@@ -421,10 +422,6 @@ export class AppStore {
     set normalIntervalSecs(v: number) { this.activeInstance().normalIntervalSecs = v; }
     get fastIntervalSecs() { return this.activeInstance().fastIntervalSecs; }
     set fastIntervalSecs(v: number) { this.activeInstance().fastIntervalSecs = v; }
-    get tpLevels() { return this.activeInstance().tpLevels; }
-    set tpLevels(v: number) { this.activeInstance().tpLevels = v; }
-    get slLevels() { return this.activeInstance().slLevels; }
-    set slLevels(v: number) { this.activeInstance().slLevels = v; }
     get nextEvaluationIn() { return this.activeInstance().nextEvaluationIn; }
     set nextEvaluationIn(v: string) { this.activeInstance().nextEvaluationIn = v; }
 
@@ -449,6 +446,10 @@ export class AppStore {
     async fetchPaperStatus() { await this.paper.fetchPaperStatus(this.activeTab); }
     async openPaperPosition(direction: 'LONG' | 'SHORT') { await this.paper.openPaperPosition(this.activeTab, direction); }
     async closePaperPosition() { await this.paper.closePaperPosition(this.activeTab); }
+    async openPositionPct(direction: 'LONG' | 'SHORT', pct: number) { return await this.paper.openPositionPct(this.activeTab, direction, pct); }
+    async closePositionPct(pct: number) { return await this.paper.closePositionPct(this.activeTab, pct); }
+    async setTpTargets(targets: { pct: number; price: number }[]) { return await this.paper.setTpTargets(this.activeTab, targets); }
+    async setSlLevels(stops: { pct: number; price: number }[]) { return await this.paper.setSlLevels(this.activeTab, stops); }
     async resetPaperAccount() { await this.paper.resetPaperAccount(this.activeTab); }
     async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) { await this.paper.savePaperConfig(this.activeTab, initialUSD, allocationPct, autoExecute); }
     async fetchPaperHistory(symbol?: string) { await this.paper.fetchPaperHistory(this.activeTab, symbol); }

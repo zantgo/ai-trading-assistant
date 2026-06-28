@@ -308,11 +308,13 @@ pub struct PaperResetRequest { pub symbol: String }
 pub struct PaperOrderRequest { pub symbol: String, pub direction: String, pub action: String }
 
 #[derive(Debug, Deserialize)]
-pub struct PaperScaleInRequest { pub symbol: String, pub direction: String, pub entry_price: f64, pub portion_number: i32, pub sl: f64, #[serde(default)] pub final_invalidation_level: Option<f64> }
+pub struct PaperPositionPctRequest { pub symbol: String, pub direction: String, #[serde(default)] pub pct: f64 }
 
 #[derive(Debug, Deserialize)]
-pub struct PaperScaleOutRequest { pub symbol: String, pub exit_price: f64, #[serde(default = "default_size_fraction")] pub size_fraction: f64, pub remaining_size: f64, pub target_id: i64, #[serde(default)] pub trigger_source: Option<String> }
-fn default_size_fraction() -> f64 { 0.5 }
+pub struct PaperTpSlRequest { pub symbol: String, pub targets: Vec<TpSlTarget> }
+
+#[derive(Debug, Deserialize)]
+pub struct TpSlTarget { pub pct: f64, pub price: f64 }
 
 #[derive(Debug, Deserialize)]
 pub struct PaperPerformanceQuery { #[serde(default)] pub symbol: Option<String> }
@@ -471,7 +473,7 @@ pub struct InstanceUsageResponse {
     pub id: String, pub pair: String, pub symbol: String, pub status: String,
     pub initial_capital: f64, pub current_equity: f64, pub paper_balance: f64,
     pub paper_equity: f64, pub paper_unrealized_pnl: f64,
-    pub tp_levels: i32, pub sl_levels: i32, pub consecutive_losses: u32,
+    pub consecutive_losses: u32,
     pub caution_level: String, pub instance_id: String, pub consecutive_failures: u32,
     pub failover_active: bool, pub failover_source: Option<String>,
     pub input_tokens: u64, pub output_tokens: u64,

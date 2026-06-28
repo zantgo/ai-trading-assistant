@@ -126,12 +126,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/paper/reset", post(handlers::paper::serve_paper_reset))
         .route("/api/paper/order", post(handlers::paper::serve_paper_order))
         .route(
-            "/api/paper/scale-in",
-            post(handlers::paper::serve_paper_scale_in),
+            "/api/paper/position",
+            post(handlers::paper::serve_paper_position_pct),
         )
         .route(
-            "/api/paper/scale-out",
-            post(handlers::paper::serve_paper_scale_out),
+            "/api/paper/close",
+            post(handlers::paper::serve_paper_close_pct),
+        )
+        .route(
+            "/api/paper/tp",
+            post(handlers::paper::serve_paper_set_tp),
+        )
+        .route(
+            "/api/paper/sl",
+            post(handlers::paper::serve_paper_set_sl),
         )
         .route(
             "/api/paper/unrealized",

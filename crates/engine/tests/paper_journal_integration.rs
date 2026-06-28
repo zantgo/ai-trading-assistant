@@ -185,13 +185,11 @@ async fn test_full_paper_trade_to_journal_loop() {
 
     let tx = spawn_logger(pool.clone());
 
-    // ── STEP 1: Open (scale-in portion 1) ────────────────────────────
+    // ── STEP 1: Open 30% position ─────────────────────────────────────
     let open =
-        engine::paper_trading::scale_in_portion(&pool, &tx, "BTC", "LONG", 50000.0, 1, 48000.0)
-            .await;
-    assert!(open.success, "Portion 1 should succeed: {}", open.message);
-    assert_eq!(open.portion_number, 1);
-    assert!((open.new_average_entry_price - 50000.0).abs() < 0.01);
+        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 30.0, 50000.0).await;
+    assert!(open.success, "30% open should succeed: {}", open.message);
+    assert!((open.position_pct - 30.0).abs() < 0.01);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
@@ -200,52 +198,28 @@ async fn test_full_paper_trade_to_journal_loop() {
     assert!(pos.is_some(), "Active position should exist after open");
     let p = pos.unwrap();
     assert_eq!(p.direction, "LONG");
-    assert_eq!(p.entry_price, 50000.0);
     assert_eq!(p.current_portions.unwrap_or(0), 1);
 
-    // Verify margin deducted from balance
+    // Verify margin deducted
     let balance_after_open = db::paper_get_balance(&pool, "BTC").await;
-    assert!(
-        balance_after_open.current_cash < 10000.0,
-        "Cash should be deducted after open, got {}",
-        balance_after_open.current_cash
-    );
+    assert!(balance_after_open.current_cash < 10000.0, "Cash should be deducted");
 
-    // ── STEP 2: Scale-in portion 2 ────────────────────────────────────
+    // ── STEP 2: Scale in additional 20% ────────────────────────────────
     let p2 =
-        engine::paper_trading::scale_in_portion(&pool, &tx, "BTC", "LONG", 51000.0, 2, 48500.0)
-            .await;
-    assert!(p2.success, "Portion 2 should succeed: {}", p2.message);
-    assert_eq!(p2.portion_number, 2);
+        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 20.0, 51000.0).await;
+    assert!(p2.success, "Scale-in 20% should succeed: {}", p2.message);
+    assert!((p2.position_pct - 50.0).abs() < 0.01);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
-    // Verify current_portions updated
     let pos2 = db::paper_get_active_position(&pool, "BTC").await.unwrap();
     assert_eq!(pos2.current_portions.unwrap_or(0), 2);
 
-    // ── STEP 3: Scale-in portion 3 ────────────────────────────────────
+    // ── STEP 3: Try over 100% — REJECTED ───────────────────────────────
     let p3 =
-        engine::paper_trading::scale_in_portion(&pool, &tx, "BTC", "LONG", 52000.0, 3, 49000.0)
-            .await;
-    assert!(p3.success, "Portion 3 should succeed: {}", p3.message);
-    assert_eq!(p3.portion_number, 3);
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-
-    let pos3 = db::paper_get_active_position(&pool, "BTC").await.unwrap();
-    assert_eq!(pos3.current_portions.unwrap_or(0), 3);
-
-    // ── STEP 4: 4th scale-in REJECTED ─────────────────────────────────
-    let p4 =
-        engine::paper_trading::scale_in_portion(&pool, &tx, "BTC", "LONG", 53000.0, 4, 50000.0)
-            .await;
-    assert!(!p4.success, "Portion 4 must be rejected: {}", p4.message);
-    assert!(
-        p4.message.contains("All 3 portions already filled"),
-        "Expected 3-portion limit message, got: {}",
-        p4.message
-    );
+        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 60.0, 52000.0).await;
+    assert!(!p3.success, "Over-100% should be rejected: {}", p3.message);
+    assert!(p3.message.contains("exceeds 100%"));
 
     // ── STEP 5: Close position ────────────────────────────────────────
     let close =

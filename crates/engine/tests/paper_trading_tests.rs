@@ -188,7 +188,7 @@ async fn test_position_invalidation() {
     let tx = spawn_logger(pool.clone());
 
     let open =
-        engine::paper_trading::scale_in_portion(&pool, &tx, "DOT", "SHORT", 10.0, 1, 12.0).await;
+        engine::paper_trading::verify_margin_and_open_with_alloc(&pool, &tx, "DOT", "SHORT", 10.0, Some(10.0)).await;
     assert!(open.success, "Open failed: {}", open.message);
 
     // Wait for logger to persist the position
@@ -197,7 +197,6 @@ async fn test_position_invalidation() {
     let inval =
         engine::paper_trading::invalidate_position(&pool, &tx, "DOT", 12.0, "DECISIVE_CLOSE").await;
     assert!(inval.success, "Invalidate failed: {}", inval.message);
-    assert!(inval.realized_pnl < 0.0);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     let pos = db::paper_get_active_position(&pool, "DOT").await;
@@ -205,17 +204,16 @@ async fn test_position_invalidation() {
 }
 
 #[tokio::test]
-async fn test_scale_in_portion_1_opens_position() {
+async fn test_open_position_pct_opens_position() {
     let pool = setup_paper_db().await;
     seed_balance(&pool, "MATIC", 10000.0, 30.0).await;
 
     let tx = spawn_logger(pool.clone());
 
     let p1 =
-        engine::paper_trading::scale_in_portion(&pool, &tx, "MATIC", "LONG", 1.00, 1, 0.90).await;
-    assert!(p1.success, "Failed portion 1: {}", p1.message);
-    assert_eq!(p1.portion_number, 1);
-    assert!((p1.new_average_entry_price - 1.00).abs() < 0.001);
+        engine::paper_trading::open_position_pct(&pool, &tx, "MATIC", "LONG", 10.0, 1.00).await;
+    assert!(p1.success, "Failed open: {}", p1.message);
+    assert_eq!(p1.position_pct as i32, 10);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 

@@ -25,6 +25,11 @@ export class PaperTradingStore {
     paperAutoExecuteIntervals = $state(15);
     paperLookbackTrades = $state(10);
 
+    // Percentage-based position tracking
+    paperPositionPct = $state(0);
+    paperFreeBalancePct = $state(100);
+    paperDirection = $state<'LONG' | 'SHORT' | ''>('');
+
     async fetchPaperStatus(pairKey: string) {
         try {
             const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(pairKey)}`);
@@ -51,6 +56,19 @@ export class PaperTradingStore {
             this.paperLeverage = data.leverage ?? 20;
             this.paperAutoExecuteIntervals = data.auto_execute_intervals ?? 15;
             this.paperLookbackTrades = data.lookback_trades ?? 10;
+
+            // Compute percentage-based state
+            const pos = data.active_position;
+            const init = data.initial_usd ?? 10000;
+            if (pos && init > 0) {
+                this.paperPositionPct = Math.round((pos.allocated_usd / init) * 100);
+                this.paperFreeBalancePct = 100 - this.paperPositionPct;
+                this.paperDirection = pos.direction ?? '';
+            } else {
+                this.paperPositionPct = 0;
+                this.paperFreeBalancePct = 100;
+                this.paperDirection = '';
+            }
         } catch (_) {}
     }
 
@@ -74,6 +92,60 @@ export class PaperTradingStore {
             });
             if (res.ok) await this.fetchPaperStatus(pairKey);
         } catch (_) {} finally { this.paperLoading = false; }
+    }
+
+    /** Open position with percentage of balance. */
+    async openPositionPct(pairKey: string, direction: 'LONG' | 'SHORT', pct: number) {
+        this.paperLoading = true;
+        try {
+            const res = await fetch('/api/paper/position', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, direction, pct }),
+            });
+            const data = await res.json();
+            await this.fetchPaperStatus(pairKey);
+            return data;
+        } catch (_) { return { success: false, message: 'Network error' }; }
+        finally { this.paperLoading = false; }
+    }
+
+    /** Close percentage of current position. */
+    async closePositionPct(pairKey: string, pct: number) {
+        this.paperLoading = true;
+        try {
+            const res = await fetch('/api/paper/close', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, direction: '', pct }),
+            });
+            const data = await res.json();
+            await this.fetchPaperStatus(pairKey);
+            return data;
+        } catch (_) { return { success: false, message: 'Network error' }; }
+        finally { this.paperLoading = false; }
+    }
+
+    /** Set take-profit targets. */
+    async setTpTargets(pairKey: string, targets: { pct: number; price: number }[]) {
+        try {
+            const res = await fetch('/api/paper/tp', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, targets }),
+            });
+            await this.fetchPaperStatus(pairKey);
+            return await res.json();
+        } catch (_) { return { success: false, message: 'Network error' }; }
+    }
+
+    /** Set stop-loss levels. */
+    async setSlLevels(pairKey: string, stops: { pct: number; price: number }[]) {
+        try {
+            const res = await fetch('/api/paper/sl', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, targets: stops }),
+            });
+            await this.fetchPaperStatus(pairKey);
+            return await res.json();
+        } catch (_) { return { success: false, message: 'Network error' }; }
     }
 
     async resetPaperAccount(pairKey: string) {

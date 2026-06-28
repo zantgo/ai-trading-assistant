@@ -73,7 +73,7 @@ analysis_limit = 500
 
 [macro_timeframe]
 enabled = true
-duration_seconds = 900
+duration_seconds = 300
 analysis_limit = 500
 
 [leverage]

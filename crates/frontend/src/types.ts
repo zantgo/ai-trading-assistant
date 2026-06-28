@@ -405,8 +405,6 @@ export interface InstanceState {
     slowIntervalSecs: number;
     normalIntervalSecs: number;
     fastIntervalSecs: number;
-    tpLevels: number;
-    slLevels: number;
     nextEvaluationIn: string;
     totalPointsScore: number;
     allocatedCapitalPct: number;
