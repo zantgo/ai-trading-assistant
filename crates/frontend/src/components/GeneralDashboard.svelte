@@ -26,7 +26,7 @@
     let totalRealizedPnl = $state(0);
     let totalUnrealizedPnl = $state(0);
     let totalPortfolioValue = $state(app.sessionCapital);
-    let selectedTimeframe = $state<'24H' | '7D' | '1M' | 'ALL'>('ALL');
+    let selectedTimeframe = $state<'1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL'>('ALL');
 
     let compoundedContainer = $state<HTMLDivElement | null>(null);
     let compoundedChart: IChartApi | null = null;
@@ -110,12 +110,16 @@
         const nowMs = Date.now();
         let cutoffMs = 0;
 
-        if (selectedTimeframe === '24H') {
+        if (selectedTimeframe === '1H') {
+            cutoffMs = nowMs - 60 * 60 * 1000;
+        } else if (selectedTimeframe === '1D') {
             cutoffMs = nowMs - 24 * 60 * 60 * 1000;
-        } else if (selectedTimeframe === '7D') {
+        } else if (selectedTimeframe === '1W') {
             cutoffMs = nowMs - 7 * 24 * 60 * 60 * 1000;
         } else if (selectedTimeframe === '1M') {
             cutoffMs = nowMs - 30 * 24 * 60 * 60 * 1000;
+        } else if (selectedTimeframe === '1Y') {
+            cutoffMs = nowMs - 365 * 24 * 60 * 60 * 1000;
         }
 
         const normalizedCurve = curve.map(([ts, val]) => {
@@ -159,6 +163,8 @@
 
         const curve = stats?.compounded_curve || [];
         const filteredData = filterCurveData(curve);
+        const nowSec = Math.floor(Date.now() / 1000) as Time;
+        filteredData.push({ time: nowSec, value: totalPortfolioValue });
 
         compoundedChart = createChart(compoundedContainer, {
             autoSize: true,
@@ -214,7 +220,7 @@
         }
     });
 
-    function handleTimeframeChange(tf: '24H' | '7D' | '1M' | 'ALL') {
+    function handleTimeframeChange(tf: '1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL') {
         selectedTimeframe = tf;
         buildCompoundedChart();
     }
@@ -256,9 +262,11 @@
                 <div class={styles.chartControlBar}>
                     <span class={styles.chartTitle}>Portfolio Performance Curve</span>
                     <div class={styles.timeframeTabs}>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '24H' ? styles.active : ''}" onclick={() => handleTimeframeChange('24H')}>24H</button>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '7D' ? styles.active : ''}" onclick={() => handleTimeframeChange('7D')}>7D</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1H' ? styles.active : ''}" onclick={() => handleTimeframeChange('1H')}>1H</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1D' ? styles.active : ''}" onclick={() => handleTimeframeChange('1D')}>1D</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1W' ? styles.active : ''}" onclick={() => handleTimeframeChange('1W')}>1W</button>
                         <button class="{styles.timeframeBtn} {selectedTimeframe === '1M' ? styles.active : ''}" onclick={() => handleTimeframeChange('1M')}>1M</button>
+                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1Y' ? styles.active : ''}" onclick={() => handleTimeframeChange('1Y')}>1Y</button>
                         <button class="{styles.timeframeBtn} {selectedTimeframe === 'ALL' ? styles.active : ''}" onclick={() => handleTimeframeChange('ALL')}>ALL</button>
                     </div>
                 </div>
