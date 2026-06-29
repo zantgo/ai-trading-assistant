@@ -27,6 +27,12 @@
     let totalUnrealizedPnl = $state(0);
     let totalPortfolioValue = $state(app.sessionCapital);
     let selectedTimeframe = $state<'1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL'>('ALL');
+    let lastTimeframe = $state('');
+
+    let showModal = $state(false);
+    let modalChartContainer = $state<HTMLDivElement | null>(null);
+    let modalChart: IChartApi | null = null;
+    let modalSeries: ISeriesApi<'Line'> | null = null;
 
     let utcTime = $state('');
     let clockInterval: ReturnType<typeof setInterval>;
@@ -171,35 +177,47 @@
 
     function buildCompoundedChart() {
         if (!compoundedContainer) return;
-        if (compoundedChart) {
-            compoundedChart.remove();
-            compoundedChart = null;
-        }
 
         const curve = stats?.compounded_curve || [];
         const filteredData = filterCurveData(curve);
         const nowSec = Math.floor(Date.now() / 1000) as Time;
         filteredData.push({ time: nowSec, value: totalPortfolioValue });
 
-        compoundedChart = createChart(compoundedContainer, {
-            autoSize: true,
-            layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 10 },
-            grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-            rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
-            timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
-            handleScale: true,
-            handleScroll: true,
-        });
+        const timeframeChanged = lastTimeframe !== selectedTimeframe;
+        lastTimeframe = selectedTimeframe;
 
-        compoundedSeries = compoundedChart.addSeries(LineSeries, {
-            color: '#3b82f6',
-            lineWidth: 3,
-            priceLineVisible: false,
-            crosshairMarkerVisible: true,
-        });
+        if (!compoundedChart) {
+            compoundedChart = createChart(compoundedContainer, {
+                autoSize: true,
+                layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 10 },
+                grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
+                rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
+                timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
+                handleScale: true,
+                handleScroll: true,
+            });
 
-        compoundedSeries.setData(filteredData);
-        compoundedChart.timeScale().fitContent();
+            compoundedSeries = compoundedChart.addSeries(LineSeries, {
+                color: '#3b82f6',
+                lineWidth: 3,
+                priceLineVisible: false,
+                crosshairMarkerVisible: true,
+            });
+
+            compoundedSeries.setData(filteredData);
+            compoundedChart.timeScale().fitContent();
+
+            compoundedChart.subscribeDblClick(() => {
+                showModal = true;
+            });
+        } else {
+            if (compoundedSeries) {
+                compoundedSeries.setData(filteredData);
+            }
+            if (timeframeChanged) {
+                compoundedChart.timeScale().fitContent();
+            }
+        }
     }
 
     onMount(() => {
@@ -213,6 +231,11 @@
                 const w = compoundedContainer.clientWidth;
                 const h = compoundedContainer.clientHeight;
                 if (w > 0 && h > 0) compoundedChart.resize(w, h);
+            }
+            if (modalChartContainer && modalChart) {
+                const w = modalChartContainer.clientWidth;
+                const h = modalChartContainer.clientHeight;
+                if (w > 0 && h > 0) modalChart.resize(w, h);
             }
         });
 
@@ -230,11 +253,66 @@
             compoundedChart = null;
             compoundedSeries = null;
         }
+        if (modalChart) {
+            modalChart.remove();
+            modalChart = null;
+            modalSeries = null;
+        }
     });
 
     $effect(() => {
         if (!loading && stats?.compounded_curve) {
             requestAnimationFrame(() => buildCompoundedChart());
+        }
+    });
+
+    $effect(() => {
+        if (showModal && modalChartContainer && !modalChart) {
+            requestAnimationFrame(() => {
+                if (!modalChartContainer || modalChart) return;
+                modalChart = createChart(modalChartContainer, {
+                    autoSize: true,
+                    layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 11 },
+                    grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
+                    rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
+                    timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
+                    handleScale: true,
+                    handleScroll: true,
+                });
+
+                modalSeries = modalChart.addSeries(LineSeries, {
+                    color: '#3b82f6',
+                    lineWidth: 3,
+                    priceLineVisible: false,
+                    crosshairMarkerVisible: true,
+                });
+
+                const curve = stats?.compounded_curve || [];
+                const filteredData = filterCurveData(curve);
+                const nowSec = Math.floor(Date.now() / 1000) as Time;
+                filteredData.push({ time: nowSec, value: totalPortfolioValue });
+
+                modalSeries.setData(filteredData);
+                modalChart.timeScale().fitContent();
+            });
+        }
+
+        return () => {
+            if (modalChart) {
+                modalChart.remove();
+                modalChart = null;
+                modalSeries = null;
+            }
+        };
+    });
+
+    $effect(() => {
+        if (showModal && modalSeries && stats?.compounded_curve) {
+            const curve = stats.compounded_curve;
+            const filteredData = filterCurveData(curve);
+            const nowSec = Math.floor(Date.now() / 1000) as Time;
+            filteredData.push({ time: nowSec, value: totalPortfolioValue });
+            modalSeries.setData(filteredData);
         }
     });
 
@@ -562,3 +640,17 @@
         {/if}
     {/if}
 </div>
+
+{#if showModal}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class={styles.modalOverlay} onclick={() => showModal = false} role="presentation">
+        <div class={styles.modalContent} onclick={e => e.stopPropagation()} role="dialog" tabindex="-1">
+            <div class={styles.modalHeader}>
+                <span class={styles.modalTitle}>Portfolio Performance Curve — Expanded View</span>
+                <button class={styles.modalCloseBtn} onclick={() => showModal = false}>✕</button>
+            </div>
+            <div class={styles.modalChartContainer} bind:this={modalChartContainer}></div>
+        </div>
+    </div>
+{/if}

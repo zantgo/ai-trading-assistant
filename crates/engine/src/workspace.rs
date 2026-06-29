@@ -165,11 +165,11 @@ impl Workspace {
             .store(true, std::sync::atomic::Ordering::Relaxed);
 
         {
-            let instances = self.instances.read().await;
-            for (pair_key, _) in instances.iter() {
+            let instances: Vec<_> = self.instances.read().await.keys().cloned().collect();
+            if instances.len() == 1 {
                 let _ = crate::db::paper_set_advanced_config(
                     &self.pool,
-                    pair_key,
+                    &instances[0],
                     initial_capital,
                     10.0,
                     false,

@@ -49,7 +49,6 @@
     let triggerScreenshot = $state<(() => void) | null>(null);
 
     function handleChartDblClick(chartType: string, timeframe: number) {
-        if (expandedTf === null) return;
         expandedChartKey = `${chartType}-${timeframe}`;
         triggerScreenshot = null;
     }
