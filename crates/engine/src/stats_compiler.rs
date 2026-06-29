@@ -143,9 +143,15 @@ pub struct MonthlySummary {
 }
 
 pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) -> DashboardStats {
-    let trades: Vec<TradeDetailRow> = crate::db::dash_trade_detail(pool).await;
+    let compounded_curve = crate::portfolio_equity::fetch_equity_history(pool, None, None).await;
+
+    let mut trades: Vec<TradeDetailRow> = crate::db::dash_trade_detail(pool).await;
 
     if trades.is_empty() {
+        trades = fetch_paper_trades_as_detail(pool).await;
+    }
+
+    if trades.is_empty() && compounded_curve.is_empty() {
         return empty_dashboard();
     }
 
@@ -161,7 +167,11 @@ pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) ->
     let pnl_calendar = compute_pnl_calendar(&trades);
     let pair_volume = compute_pair_volume(&trades);
     let (top_pairs_profitability, bottom_pairs_profitability) = compute_pair_profitability(&trades);
-    let compounded_curve = compute_compounded_curve(&trades, initial_capital);
+    let compounded_curve = if compounded_curve.is_empty() {
+        compute_compounded_curve(&trades, initial_capital)
+    } else {
+        compounded_curve
+    };
     let (daily_commissions, cumulative_commissions, fee_pnl_ratio) = compute_commission_stats(&trades);
     let monthly_summary = compute_monthly_summary(&trades);
 
@@ -230,6 +240,25 @@ fn empty_dashboard() -> DashboardStats {
 }
 
 use crate::db::TradeDetailRow;
+
+async fn fetch_paper_trades_as_detail(pool: &SqlitePool) -> Vec<TradeDetailRow> {
+    let records = crate::db::paper_query_trades(pool, None, 10000).await;
+    records
+        .into_iter()
+        .map(|r| TradeDetailRow {
+            exit_timestamp: r.exit_timestamp,
+            symbol: r.symbol,
+            direction: r.direction,
+            entry_price: r.entry_price,
+            exit_price: r.exit_price,
+            size: r.size,
+            realized_pnl: r.realized_pnl,
+            commission_fees: 0.0,
+            roi_percentage: r.roi_pct,
+            trigger_source: r.trigger,
+        })
+        .collect()
+}
 
 fn compute_core_stats(trades: &[TradeDetailRow]) -> CoreStats {
     if trades.is_empty() {

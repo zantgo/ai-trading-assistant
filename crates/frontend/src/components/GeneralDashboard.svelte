@@ -103,8 +103,15 @@
 
     function filterCurveData(curve: [number, number][]) {
         if (!curve || curve.length === 0) {
-            const now = Math.floor(Date.now() / 1000);
-            return [{ time: now as Time, value: app.sessionCapital }];
+            const nowMs = Date.now();
+            let startMs = nowMs;
+            if (selectedTimeframe === '1H') startMs = nowMs - 3600 * 1000;
+            else if (selectedTimeframe === '1D') startMs = nowMs - 86400 * 1000;
+            else if (selectedTimeframe === '1W') startMs = nowMs - 604800 * 1000;
+            else if (selectedTimeframe === '1M') startMs = nowMs - 2592000 * 1000;
+            else if (selectedTimeframe === '1Y') startMs = nowMs - 31536000 * 1000;
+            else startMs = nowMs - 86400 * 1000;
+            return [{ time: Math.floor(startMs / 1000) as Time, value: app.sessionCapital }];
         }
 
         const nowMs = Date.now();

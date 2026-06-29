@@ -110,6 +110,10 @@ impl Workspace {
         self.instances.read().await.len()
     }
 
+    pub async fn get_all_instances(&self) -> Vec<Arc<Instance>> {
+        self.instances.read().await.values().cloned().collect()
+    }
+
     pub async fn get_active_pair(
         &self,
         pair_key: &str,

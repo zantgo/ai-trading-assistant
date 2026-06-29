@@ -4,8 +4,8 @@ use tokio::sync::{mpsc::channel, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use engine::{
-    cli, config, db, registry, llm, performance_evaluator, server, strategy_optimizer,
-    workspace,
+    cli, config, db, llm, performance_evaluator, portfolio_equity, registry, server,
+    strategy_optimizer, workspace,
 };
 use shared::normalized::SymbolMapper;
 
@@ -196,6 +196,13 @@ async fn main() {
             eval_interval_secs: 300,
         })
         .await;
+    }));
+
+    let eq_pool = db_pool.clone();
+    let eq_workspace = workspace.clone();
+    let eq_cancel = eval_cancel.clone();
+    handles.push(tokio::spawn(async move {
+        portfolio_equity::run_portfolio_equity_logger(eq_pool, eq_workspace, eq_cancel).await;
     }));
 
     handles.push(tokio::spawn(async move {

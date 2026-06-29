@@ -13,6 +13,7 @@ pub mod registry;
 pub mod llm;
 pub mod paper_trading;
 pub mod performance_evaluator;
+pub mod portfolio_equity;
 pub mod portfolio_risk;
 pub mod profile_evaluation;
 pub mod risk_calculator;
