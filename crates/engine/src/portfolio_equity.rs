@@ -78,25 +78,26 @@ async fn write_snapshot(pool: &SqlitePool, workspace: &Arc<Workspace>) {
     let instances = workspace.get_all_instances().await;
 
     let mut total_unrealized = 0.0;
+    let mut total_margin = 0.0;
     for instance in &instances {
         let status = instance.status().await;
         if status != InstanceStatus::Running {
             continue;
         }
-        if let Some(price) = instance.latest_price().await {
-            let symbol = &instance.pair.0;
-            if let Some(pos) = crate::db::paper_get_active_position(pool, symbol).await {
-                let unrealized = if pos.direction == "LONG" {
-                    pos.size * (price - pos.entry_price)
-                } else {
-                    pos.size * (pos.entry_price - price)
-                };
-                total_unrealized += unrealized;
-            }
+        let symbol = format!("{}-{}", instance.pair.0, instance.pair.1);
+        if let Some(pos) = crate::db::paper_get_active_position(pool, &symbol).await {
+            total_margin += pos.allocated_usd;
+            let price = instance.latest_price().await.unwrap_or(pos.entry_price);
+            let unrealized = if pos.direction == "LONG" {
+                pos.size * (price - pos.entry_price)
+            } else {
+                pos.size * (pos.entry_price - price)
+            };
+            total_unrealized += unrealized;
         }
     }
 
-    let total_value = total_cash + total_unrealized;
+    let total_value = total_cash + total_margin + total_unrealized;
 
     insert_equity_snapshot(pool, now_ms, total_value, total_cash, total_unrealized).await;
     purge_equity_history(pool, now_ms - PURGE_OLDER_THAN_MS).await;
