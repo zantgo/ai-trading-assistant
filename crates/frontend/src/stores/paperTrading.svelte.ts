@@ -1,14 +1,14 @@
 import type { ScaleInPortion, TakeProfitTarget } from '../types';
 
 export class PaperTradingStore {
-    paperCashBalance = $state(10000);
-    paperInitialUSD = $state(10000);
+    paperCashBalance = $state(0);
+    paperInitialUSD = $state(0);
     paperAllocationPct = $state(10);
     paperAutoExecute = $state(false);
     activePaperPosition = $state<Record<string, unknown> | null>(null);
     paperUnrealizedPnl = $state(0);
     paperUnrealizedRoi = $state(0);
-    paperTotalAccountValue = $state(10000);
+    paperTotalAccountValue = $state(0);
     paperMarginUsed = $state(0);
     paperMaxTrades = $state(10);
     paperActiveTrades = $state(0);
@@ -35,14 +35,14 @@ export class PaperTradingStore {
             const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(pairKey)}`);
             if (!res.ok) return;
             const data = await res.json();
-            this.paperCashBalance = data.current_cash ?? 10000;
-            this.paperInitialUSD = data.initial_usd ?? 10000;
+            this.paperCashBalance = data.current_cash ?? 0;
+            this.paperInitialUSD = data.initial_usd ?? 0;
             this.paperAllocationPct = data.allocation_pct ?? 10;
             this.paperAutoExecute = data.auto_execute ?? false;
             this.activePaperPosition = data.active_position ?? null;
             this.paperUnrealizedPnl = data.unrealized_pnl ?? 0;
             this.paperUnrealizedRoi = data.unrealized_roi_pct ?? 0;
-            this.paperTotalAccountValue = data.total_account_value ?? 10000;
+            this.paperTotalAccountValue = data.total_account_value ?? 0;
             this.paperMarginUsed = data.margin_used ?? 0;
             this.paperMaxTrades = data.max_trades ?? 10;
             this.paperActiveTrades = data.active_trades ?? 0;
@@ -59,7 +59,7 @@ export class PaperTradingStore {
 
             // Compute percentage-based state
             const pos = data.active_position;
-            const init = data.initial_usd ?? 10000;
+            const init = data.initial_usd ?? 0;
             if (pos && init > 0) {
                 this.paperPositionPct = Math.round((pos.allocated_usd / init) * 100);
                 this.paperFreeBalancePct = 100 - this.paperPositionPct;

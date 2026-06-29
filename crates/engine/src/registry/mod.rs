@@ -178,6 +178,21 @@ pub async fn add_instance(
         }
     }
 
+    if let Some(capital) = *workspace.session.initial_capital.read().await {
+        let _ = crate::db::paper_set_advanced_config(
+            &workspace.pool,
+            &pair_key,
+            capital,
+            10.0,
+            false,
+            2.0,
+            20,
+            15,
+            10,
+        )
+        .await;
+    }
+
     // Register instance
     workspace
         .instances

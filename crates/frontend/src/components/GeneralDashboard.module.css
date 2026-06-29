@@ -6,10 +6,25 @@
     width: 100%;
     box-sizing: border-box;
 }
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
 .dashboard-title {
-    margin: 0 0 1rem 0;
+    margin: 0;
     color: #e0e0ff;
     font-size: 1.2rem;
+}
+.utc-clock {
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    color: #64748b;
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 4px 10px;
 }
 
 .portfolio-header-panel {

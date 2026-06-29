@@ -28,6 +28,14 @@
     let totalPortfolioValue = $state(app.sessionCapital);
     let selectedTimeframe = $state<'1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL'>('ALL');
 
+    let utcTime = $state('');
+    let clockInterval: ReturnType<typeof setInterval>;
+
+    function updateUtcClock() {
+        const now = new Date();
+        utcTime = now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    }
+
     let compoundedContainer = $state<HTMLDivElement | null>(null);
     let compoundedChart: IChartApi | null = null;
     let compoundedSeries: ISeriesApi<'Line'> | null = null;
@@ -197,6 +205,8 @@
     onMount(() => {
         fetchAll();
         pollInterval = setInterval(fetchAll, 5000);
+        updateUtcClock();
+        clockInterval = setInterval(updateUtcClock, 1000);
 
         ro = new ResizeObserver(() => {
             if (compoundedContainer && compoundedChart) {
@@ -213,6 +223,7 @@
 
     onDestroy(() => {
         clearInterval(pollInterval);
+        clearInterval(clockInterval);
         ro?.disconnect();
         if (compoundedChart) {
             compoundedChart.remove();
@@ -234,7 +245,10 @@
 </script>
 
 <div class={styles.dashboardView}>
-    <h2 class={styles.dashboardTitle}>General Dashboard</h2>
+    <div class={styles.headerRow}>
+        <h2 class={styles.dashboardTitle}>General Dashboard</h2>
+        <div class={styles.utcClock}>{utcTime}</div>
+    </div>
 
     {#if loading}
         <div class={styles.loadingRow}>Loading dashboard metrics...</div>

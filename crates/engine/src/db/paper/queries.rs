@@ -99,7 +99,7 @@ pub struct TakeProfitTargetRecord {
 pub async fn paper_ensure_balance(pool: &SqlitePool, symbol: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades)
-         VALUES (?1, 10000.0, 10000.0, 10.0, 0, 2.0, 20, 15, 10)"
+         VALUES (?1, 0.0, 0.0, 10.0, 0, 2.0, 20, 15, 10)"
     )
     .bind(symbol)
     .execute(&*pool)
@@ -137,8 +137,8 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
         None => PaperBalance {
             id: 0,
             symbol: symbol.to_string(),
-            initial_usd: 10000.0,
-            current_cash: 10000.0,
+            initial_usd: 0.0,
+            current_cash: 0.0,
             allocation_pct: 10.0,
             auto_execute: false,
             max_risk_pct: 2.0,

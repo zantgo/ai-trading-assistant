@@ -164,6 +164,24 @@ impl Workspace {
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
 
+        {
+            let instances = self.instances.read().await;
+            for (pair_key, _) in instances.iter() {
+                let _ = crate::db::paper_set_advanced_config(
+                    &self.pool,
+                    pair_key,
+                    initial_capital,
+                    10.0,
+                    false,
+                    2.0,
+                    20,
+                    15,
+                    10,
+                )
+                .await;
+            }
+        }
+
         println!(
             "✅ Session initialized: Paper Trading, {:.2} USDT on Hyperliquid",
             initial_capital
