@@ -1,47 +1,64 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import { calcLiqPrice, calcSizeUnits, calcEstFees } from '../stores/paperTrading.svelte';
     import styles from './PaperTradingPanel.module.css';
 
     const app = useAppStore();
 
-    // Trade panel state
-    let draftPct = $state(100);
-    let draftOrderType = $state<'Market' | 'Limit' | 'Stop'>('Market');
+    let executionDirection = $state<'LONG' | 'SHORT'>('LONG');
+    let orderType = $state<'Market' | 'Limit' | 'Stop'>('Market');
+    let draftPayAmount = $state('');
     let draftLimitPrice = $state('');
-    let draftTriggerPrice = $state('');
+    let draftStopPrice = $state('');
     let draftLeverage = $state(app.paperLeverage);
-    let showTpSl = $state(false);
+    let draftTpPrice = $state('');
+    let draftSlPrice = $state('');
+    let showAdvanced = $state(false);
+    let activeConsoleTab = $state<'positions' | 'orders' | 'history'>('positions');
 
-    // TP/SL draft state
-    let tpTargets = $state<{ pct: number; price: string }[]>([]);
-    let slTargets = $state<{ pct: number; price: string }[]>([]);
-
-    // Dirty tracking for Apply button
     let lastSavedLeverage = $state(app.paperLeverage);
-    let isLeverageDirty = $derived(draftLeverage !== lastSavedLeverage);
 
-    // Derive available percentages for sliders
-    let posPct = $derived(app.paperPositionPct);
-    let freePct = $derived(app.paperFreeBalancePct);
-    let hasPosition = $derived(posPct > 0);
-    let direction = $derived(app.paperDirection);
-
-    let maxTpSlots = $derived(Math.floor(posPct / 10));
-    let canOpenMore = $derived(freePct >= 10 && posPct < 100);
-
-    // Button state
-    let primaryLabel = $derived(
-        hasPosition ? `Close ${direction} ${freePct >= 10 ? `| +Open ${direction}` : ''}` :
-        `Open`
+    const markPrice = $derived(parseFloat(app.priceText) || 0);
+    const payAmount = $derived(parseFloat(draftPayAmount) || 0);
+    const rawPct = $derived(
+        app.paperTotalAccountValue > 0 ? (payAmount / app.paperTotalAccountValue) * 100 : 0
     );
-
-    // Pct presets for quick selection
-    const pctPresets = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    const snappedPct = $derived(Math.min(100, Math.max(10, Math.round(rawPct / 10) * 10)));
+    const sizeUnits = $derived(calcSizeUnits(payAmount, draftLeverage, markPrice));
+    const liqPrice = $derived(calcLiqPrice(markPrice, executionDirection, draftLeverage));
+    const estFees = $derived(calcEstFees(sizeUnits, markPrice));
+    const isLimitOrStop = $derived(orderType !== 'Market');
+    const hasPosition = $derived(app.paperDirection !== '');
+    const positionCount = $derived(hasPosition ? 1 : 0);
+    const canExecute = $derived(
+        !app.paperLoading && !isLimitOrStop && payAmount > 0 && snappedPct >= 10
+    );
+    const isLeverageDirty = $derived(draftLeverage !== lastSavedLeverage);
 
     $effect(() => {
         draftLeverage = app.paperLeverage;
         lastSavedLeverage = app.paperLeverage;
     });
+
+    $effect(() => {
+        app.fetchPaperStatus();
+        app.fetchPaperHistory();
+    });
+
+    function fmt(n: number, decimals = 2): string {
+        if (!isFinite(n)) return '—';
+        return n.toFixed(decimals);
+    }
+
+    function fmtTs(ts: number): string {
+        if (!ts) return '—';
+        return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function fmtPnl(val: number): string {
+        if (!isFinite(val)) return '$0.00';
+        return (val >= 0 ? '+' : '') + '$' + val.toFixed(2);
+    }
 
     async function handleLeverageApply() {
         app.paperLeverage = draftLeverage;
@@ -50,285 +67,373 @@
         await app.fetchPaperStatus();
     }
 
-    async function handleOpen(d: 'LONG' | 'SHORT') {
-        if (draftPct < 10) return;
-        const result = await app.openPositionPct(d, draftPct);
+    async function handleExecute() {
+        if (app.paperLoading || isLimitOrStop || snappedPct < 10) return;
+        const result = await app.openPositionPct(executionDirection, snappedPct);
+        if (!result.success) alert(result.message);
+        else {
+            await app.fetchPaperStatus();
+            draftPayAmount = '';
+        }
+    }
+
+    async function handleClose() {
+        if (app.paperLoading) return;
+        const result = await app.closePositionPct(100);
         if (!result.success) alert(result.message);
         else await app.fetchPaperStatus();
     }
 
-    async function handleClose(pct?: number) {
-        const cpct = pct ?? 100;
-        if (cpct < 10) return;
-        const result = await app.closePositionPct(cpct);
-        if (!result.success) alert(result.message);
-        else await app.fetchPaperStatus();
-    }
-
-    function addTpSlot() {
-        if (tpTargets.length >= maxTpSlots) return;
-        tpTargets = [...tpTargets, { pct: 10, price: '' }];
-    }
-
-    function addSlSlot() {
-        if (slTargets.length >= maxTpSlots) return;
-        slTargets = [...slTargets, { pct: 10, price: '' }];
-    }
-
-    function removeTpSlot(i: number) {
-        tpTargets = tpTargets.filter((_, idx) => idx !== i);
-    }
-
-    function removeSlSlot(i: number) {
-        slTargets = slTargets.filter((_, idx) => idx !== i);
-    }
-
-    async function saveTpSl() {
-        const validTps = tpTargets.filter(t => t.price && parseFloat(t.price) > 0).map(t => ({ pct: t.pct, price: parseFloat(t.price) }));
-        const validSls = slTargets.filter(s => s.price && parseFloat(s.price) > 0).map(s => ({ pct: s.pct, price: parseFloat(s.price) }));
-        if (validTps.length > 0) await app.setTpTargets(validTps);
-        if (validSls.length > 0) await app.setSlLevels(validSls);
+    async function handleApplyTpSl() {
+        const tp = parseFloat(draftTpPrice);
+        const sl = parseFloat(draftSlPrice);
+        if (tp > 0) await app.setTpTargets([{ pct: 100, price: tp }]);
+        if (sl > 0) await app.setSlLevels([{ pct: 100, price: sl }]);
         await app.fetchPaperStatus();
+        draftTpPrice = '';
+        draftSlPrice = '';
     }
 </script>
 
-<div class={styles.container}>
-    <!-- Position Status Card -->
-    <div class={styles.positionCard} class:hasPosition class:emptyPosition={!hasPosition}>
-        <div class={styles.positionHeader}>
-            <div class={styles.headerLeft}>
-                <span class={styles.pairLabel}>{app.activeTab || '—'} / USDT</span>
-                {#if hasPosition}
-                    <span class={styles.directionBadge} class:directionLong={direction === 'LONG'} class:directionShort={direction === 'SHORT'}>
-                        {direction} {posPct}%
-                    </span>
-                {:else}
-                    <span class={styles.directionBadge + ' ' + styles.noPosition}>No Position</span>
-                {/if}
-            </div>
-            <div class={styles.headerRight}>
-                <span class={styles.priceLabel}>Mark: </span>
-                <span class={styles.priceValue}>${app.paperAvgEntryPrice.toFixed(2) || '—'}</span>
+<div class={styles.panelLayout}>
+
+    <!-- ═══ SIDEBAR ORDER TICKET ═══ -->
+    <aside class={styles.orderTicket}>
+
+        <!-- Direction Tabs -->
+        <div class={styles.directionTabs}>
+            <button
+                class="{styles.directionTab} {executionDirection === 'LONG' ? styles.directionLongActive : ''}"
+                onclick={() => executionDirection = 'LONG'}
+            >Long</button>
+            <button
+                class="{styles.directionTab} {executionDirection === 'SHORT' ? styles.directionShortActive : ''}"
+                onclick={() => executionDirection = 'SHORT'}
+            >Short</button>
+        </div>
+
+        <!-- Order Type Pills -->
+        <div class={styles.orderTypeRow}>
+            <button
+                class="{styles.orderTypeBtn} {orderType === 'Market' ? styles.orderTypeActive : ''}"
+                onclick={() => orderType = 'Market'}
+            >Market</button>
+            <button
+                class="{styles.orderTypeBtn} {orderType === 'Limit' ? styles.orderTypeActive : ''}"
+                onclick={() => orderType = 'Limit'}
+            >Limit</button>
+            <button
+                class="{styles.orderTypeBtn} {orderType === 'Stop' ? styles.orderTypeActive : ''}"
+                onclick={() => orderType = 'Stop'}
+            >Stop</button>
+        </div>
+
+        <!-- Pay Input -->
+        <div class={styles.paySection}>
+            <span class={styles.payLabel}>Pay</span>
+            <div class={styles.payInputRow}>
+                <input
+                    type="number" class={styles.payField}
+                    bind:value={draftPayAmount}
+                    min="0" step="1" placeholder="0.00"
+                />
+                <span class={styles.payCurrency}>USDT</span>
             </div>
         </div>
 
-        {#if hasPosition}
-            <div class={styles.balanceBars}>
-                <div class={styles.barRow}>
-                    <span class={styles.barLabel}>Used</span>
-                    <div class={styles.barTrack}>
-                        <div class={styles.barFill} class:barLong={direction === 'LONG'} class:barShort={direction === 'SHORT'}
-                             style="width: {posPct}%"></div>
-                    </div>
-                    <span class={styles.barValue}>{posPct}%</span>
-                </div>
-                <div class={styles.barRow}>
-                    <span class={styles.barLabel}>Free</span>
-                    <div class={styles.barTrack}>
-                        <div class={styles.barFill + ' ' + styles.barFree} style="width: {freePct}%"></div>
-                    </div>
-                    <span class={styles.barValue}>{freePct}%</span>
-                </div>
+        <!-- Limit / Stop Price -->
+        {#if orderType === 'Limit'}
+            <div class={styles.priceInputRow}>
+                <span class={styles.priceInputLabel}>Limit Price</span>
+                <input
+                    type="number" class={styles.priceField}
+                    bind:value={draftLimitPrice}
+                    step="0.01" placeholder="0.00"
+                />
             </div>
-
-            <!-- Close options when position open -->
-            <div class={styles.closeSection}>
-                <span class={styles.sectionLabel}>Close Position</span>
-                <div class={styles.pctGrid}>
-                    {#each pctPresets.filter(p => p <= posPct) as p}
-                        <button class={styles.pctBtn} class:pctActive={draftPct === p}
-                                onclick={() => { draftPct = p; handleClose(p); }}>
-                            {p}%
-                        </button>
-                    {/each}
-                </div>
-            </div>
-
-            <!-- TP / SL Toggle -->
-            <button class={styles.tpSlToggle} onclick={() => showTpSl = !showTpSl}>
-                {showTpSl ? '▼' : '▶'} TP / SL ({maxTpSlots} slots available)
-            </button>
-
-            {#if showTpSl}
-                <div class={styles.tpSlPanel}>
-                    <div class={styles.tpSlSection}>
-                        <span class={styles.tpSlTitle + ' ' + styles.tpTitle}>Take Profit</span>
-                        {#each tpTargets as t, i}
-                            <div class={styles.tpSlRow}>
-                                <input type="number" class={styles.pctInput} bind:value={t.pct} min="10" max="100" step="10" />
-                                <span class={styles.pctUnit}>% @ $</span>
-                                <input type="number" class={styles.priceInput} bind:value={t.price} step="0.01" placeholder="Price" />
-                                <button class={styles.removeBtn} onclick={() => removeTpSlot(i)}>×</button>
-                            </div>
-                        {/each}
-                        {#if tpTargets.length < maxTpSlots}
-                            <button class={styles.addBtn + ' ' + styles.addTp} onclick={addTpSlot}>+ Add TP</button>
-                        {/if}
-                    </div>
-                    <div class={styles.tpSlSection}>
-                        <span class={styles.tpSlTitle + ' ' + styles.slTitle}>Stop Loss</span>
-                        {#each slTargets as s, i}
-                            <div class={styles.tpSlRow}>
-                                <input type="number" class={styles.pctInput} bind:value={s.pct} min="10" max="100" step="10" />
-                                <span class={styles.pctUnit}>% @ $</span>
-                                <input type="number" class={styles.priceInput} bind:value={s.price} step="0.01" placeholder="Price" />
-                                <button class={styles.removeBtn} onclick={() => removeSlSlot(i)}>×</button>
-                            </div>
-                        {/each}
-                        {#if slTargets.length < maxTpSlots}
-                            <button class={styles.addBtn + ' ' + styles.addSl} onclick={addSlSlot}>+ Add SL</button>
-                        {/if}
-                    </div>
-                    <button class={styles.applyTpSlBtn} onclick={saveTpSl}>Apply TP/SL</button>
-                </div>
-            {/if}
-
-            <!-- Unrealized P&L -->
-            <div class={styles.pnlSection}>
-                <div class={styles.pnlRow}>
-                    <span>Unrealized P&L</span>
-                    <span class={styles.pnlValue} class:pnlPos={app.paperUnrealizedPnl >= 0} class:pnlNeg={app.paperUnrealizedPnl < 0}>
-                        {app.paperUnrealizedPnl >= 0 ? '+' : ''}${app.paperUnrealizedPnl.toFixed(2)}
-                    </span>
-                </div>
-                <div class={styles.pnlRow}>
-                    <span>ROI</span>
-                    <span class={styles.pnlValue} class:pnlPos={app.paperUnrealizedRoi >= 0} class:pnlNeg={app.paperUnrealizedRoi < 0}>
-                        {app.paperUnrealizedRoi.toFixed(2)}%
-                    </span>
-                </div>
-            </div>
-        {:else}
-            <!-- No position — balance bars -->
-            <div class={styles.balanceBars}>
-                <div class={styles.barRow}>
-                    <span class={styles.barLabel}>Free</span>
-                    <div class={styles.barTrack}>
-                        <div class={styles.barFill + ' ' + styles.barFree} style="width: 100%"></div>
-                    </div>
-                    <span class={styles.barValue}>100%</span>
-                </div>
+        {:else if orderType === 'Stop'}
+            <div class={styles.priceInputRow}>
+                <span class={styles.priceInputLabel}>Trigger Price</span>
+                <input
+                    type="number" class={styles.priceField}
+                    bind:value={draftStopPrice}
+                    step="0.01" placeholder="0.00"
+                />
             </div>
         {/if}
-    </div>
 
-    <!-- Trade Controls -->
-    <div class={styles.tradeControls}>
+        <!-- Size Readout -->
+        <div class={styles.sizeDisplay}>
+            <span class={styles.sizeLabel}>Size</span>
+            <span class={styles.sizeValue}>
+                {sizeUnits > 0 ? fmt(sizeUnits, 5) : '—'} units
+            </span>
+        </div>
+
         <!-- Leverage -->
-        <div class={styles.controlGroup}>
-            <div class={styles.controlHeader}>
-                <span class={styles.controlLabel}>Leverage</span>
-                <span class={styles.controlValue}>{draftLeverage}x</span>
+        <div class={styles.leverageSection}>
+            <div class={styles.leverageHeader}>
+                <span class={styles.leverageLabel}>Leverage</span>
+                <span class={styles.leverageValue}>{draftLeverage}x</span>
             </div>
-            <div class={styles.sliderRow}>
-                <input type="range" class={styles.slider} bind:value={draftLeverage} min="1" max="100" step="1" />
+            <input type="range" class={styles.leverageSlider}
+                bind:value={draftLeverage} min="1" max="100" step="1"
+            />
+            <div class={styles.leverageMarks}>
+                <span>1x</span><span>10x</span><span>25x</span><span>50x</span><span>75x</span><span>100x</span>
             </div>
-            <div class={styles.sliderLabels}>
-                <span>1x</span><span>25x</span><span>50x</span><span>75x</span><span>100x</span>
-            </div>
-            <button class={isLeverageDirty ? styles.applyBtn : styles.savedBtn}
-                    disabled={!isLeverageDirty} onclick={handleLeverageApply}>
-                {isLeverageDirty ? 'Apply' : 'Saved ✓'}
-            </button>
-        </div>
-
-        <!-- Order Type -->
-        <div class={styles.controlGroup}>
-            <span class={styles.controlLabel}>Order Type</span>
-            <div class={styles.orderTypeRow}>
-                <button class={styles.orderTypeBtn} class:orderActive={draftOrderType === 'Market'}
-                        onclick={() => draftOrderType = 'Market'}>Market</button>
-                <button class={styles.orderTypeBtn} class:orderActive={draftOrderType === 'Limit'}
-                        onclick={() => draftOrderType = 'Limit'}>Limit</button>
-                <button class={styles.orderTypeBtn} class:orderActive={draftOrderType === 'Stop'}
-                        onclick={() => draftOrderType = 'Stop'}>Stop</button>
-            </div>
-            {#if draftOrderType === 'Limit'}
-                <input type="number" class={styles.priceField} bind:value={draftLimitPrice} step="0.01" placeholder="Limit Price" />
-            {:else if draftOrderType === 'Stop'}
-                <input type="number" class={styles.priceField} bind:value={draftTriggerPrice} step="0.01" placeholder="Trigger Price" />
+            {#if isLeverageDirty}
+                <button class={styles.executeBtn + ' ' + styles.executeBtnLong}
+                    style="font-size:10px;padding:6px;"
+                    onclick={handleLeverageApply}
+                >Apply Leverage</button>
             {/if}
         </div>
 
-        <!-- Position Size -->
-        <div class={styles.controlGroup}>
-            <div class={styles.controlHeader}>
-                <span class={styles.controlLabel}>Position Size</span>
-                <span class={styles.controlValue}>{draftPct}%</span>
-            </div>
-            <div class={styles.sliderRow}>
-                <input type="range" class={styles.slider} bind:value={draftPct} min="10" max="100" step="10" />
-            </div>
-            <div class={styles.pctGrid}>
-                {#each pctPresets as p}
-                    <button class={styles.pctBtn} class:pctActive={draftPct === p} onclick={() => draftPct = p}>{p}%</button>
-                {/each}
-            </div>
-        </div>
-
-        <!-- Action Buttons -->
-        {#if hasPosition}
-            <div class={styles.actionSection}>
-                <button class={styles.actionBtn + ' ' + styles.closeBtn} onclick={() => handleClose(draftPct)}
-                        disabled={app.paperLoading || draftPct > posPct}>
-                    {app.paperLoading ? 'Processing...' : `Close ${draftPct}% of ${direction}`}
-                </button>
-                {#if canOpenMore && direction}
-                    <button class={styles.actionBtn + ' ' + (direction === 'LONG' ? styles.longBtn : styles.shortBtn)}
-                            onclick={() => handleOpen(direction as 'LONG' | 'SHORT')}
-                            disabled={app.paperLoading}>
-                        + Add {draftPct}% {direction}
-                    </button>
-                {/if}
-                {#if freePct >= 10}
-                    <button class={styles.actionBtn + ' ' + (direction === 'LONG' ? styles.shortBtn : styles.longBtn)}
-                            onclick={() => handleOpen(direction === 'LONG' ? 'SHORT' : 'LONG')}
-                            disabled={app.paperLoading}>
-                        Flip to {(direction === 'LONG' ? 'SHORT' : 'LONG')} {draftPct}%
-                    </button>
-                {/if}
-            </div>
-        {:else}
-            <div class={styles.actionSection}>
-                <button class={styles.actionBtn + ' ' + styles.longBtn} onclick={() => handleOpen('LONG')}
-                        disabled={app.paperLoading}>
-                    {app.paperLoading ? 'Processing...' : `Open Long ${draftPct}%`}
-                </button>
-                <button class={styles.actionBtn + ' ' + styles.shortBtn} onclick={() => handleOpen('SHORT')}
-                        disabled={app.paperLoading}>
-                    {app.paperLoading ? 'Processing...' : `Open Short ${draftPct}%`}
-                </button>
+        <!-- TP / SL Advanced -->
+        <button class={styles.advancedToggle} onclick={() => showAdvanced = !showAdvanced}>
+            {showAdvanced ? '▼' : '▶'} TP / SL
+        </button>
+        {#if showAdvanced}
+            <div class={styles.advancedInputs}>
+                <div class={styles.tpSlRow}>
+                    <span class="{styles.tpSlLabel} {styles.tpLabel}">TP</span>
+                    <input
+                        type="number" class={styles.tpSlInput}
+                        bind:value={draftTpPrice}
+                        step="0.01" placeholder="Take Profit"
+                    />
+                </div>
+                <div class={styles.tpSlRow}>
+                    <span class="{styles.tpSlLabel} {styles.slLabel}">SL</span>
+                    <input
+                        type="number" class={styles.tpSlInput}
+                        bind:value={draftSlPrice}
+                        step="0.01" placeholder="Stop Loss"
+                    />
+                </div>
+                <button class={styles.executeBtn + ' ' + styles.executeBtnLong}
+                    style="font-size:10px;padding:6px;"
+                    disabled={!(draftTpPrice || draftSlPrice)}
+                    onclick={handleApplyTpSl}
+                >Set TP/SL</button>
             </div>
         {/if}
 
-        <!-- Margin Info -->
-        <div class={styles.marginInfo}>
-            <div class={styles.marginRow}><span>Margin Mode</span><span>Isolated</span></div>
-            <div class={styles.marginRow}><span>Position Mode</span><span>One-Way</span></div>
-            <div class={styles.marginRow}><span>Leverage</span><span>{draftLeverage}x</span></div>
+        <!-- Execution Summary -->
+        <div class={styles.executionSummary}>
+            <div class={styles.summaryRow}>
+                <span class={styles.summaryLabel}>Est. Liq Price</span>
+                <span class="{styles.summaryValue} {markPrice > 0 && liqPrice > 0 ? styles.summaryDanger : ''}">
+                    {markPrice > 0 ? '$' + fmt(liqPrice) : '—'}
+                </span>
+            </div>
+            <div class={styles.summaryRow}>
+                <span class={styles.summaryLabel}>Position Size</span>
+                <span class={styles.summaryValue}>
+                    {sizeUnits > 0 ? fmt(sizeUnits, 5) : '—'}
+                </span>
+            </div>
+            <div class={styles.summaryRow}>
+                <span class={styles.summaryLabel}>Margin Required</span>
+                <span class={styles.summaryValue}>
+                    {payAmount > 0 ? '$' + fmt(payAmount) : '—'}
+                </span>
+            </div>
+            <div class={styles.summaryRow}>
+                <span class={styles.summaryLabel}>Est. Fees (0.04%)</span>
+                <span class={styles.summaryValue}>
+                    {estFees > 0 ? '$' + fmt(estFees) : '—'}
+                </span>
+            </div>
+        </div>
+
+        <!-- Execute Button -->
+        {#if isLimitOrStop}
+            <button class={styles.executeBtn} disabled>
+                {orderType} Not Available in Paper Mode
+            </button>
+            <div class={styles.unsupportedHint}>
+                Paper trading currently supports Market orders only.
+            </div>
+        {:else if hasPosition && executionDirection !== app.paperDirection}
+            <button class={styles.executeBtn} disabled>
+                Close {app.paperDirection} Position First
+            </button>
+            <div class={styles.unsupportedHint}>
+                Netting will close your existing {app.paperDirection} position at market price.
+            </div>
+        {:else}
+            <button
+                class="{styles.executeBtn} {executionDirection === 'LONG' ? styles.executeBtnLong : styles.executeBtnShort}"
+                disabled={!canExecute}
+                onclick={handleExecute}
+            >
+                {app.paperLoading ? 'Processing...' : (executionDirection === 'LONG' ? 'Buy / Long' : 'Sell / Short')}
+            </button>
+        {/if}
+    </aside>
+
+    <!-- ═══ BOTTOM CONSOLE ═══ -->
+    <div class={styles.consoleWorkspace}>
+
+        <!-- Tab Bar -->
+        <div class={styles.consoleTabBar}>
+            <button
+                class="{styles.consoleTab} {activeConsoleTab === 'positions' ? styles.consoleTabActive : ''}"
+                onclick={() => activeConsoleTab = 'positions'}
+            >
+                Positions<span class={styles.consoleTabCount}>{positionCount}</span>
+            </button>
+            <button
+                class="{styles.consoleTab} {activeConsoleTab === 'orders' ? styles.consoleTabActive : ''}"
+                onclick={() => activeConsoleTab = 'orders'}
+            >
+                Open Orders<span class={styles.consoleTabCount}>0</span>
+            </button>
+            <button
+                class="{styles.consoleTab} {activeConsoleTab === 'history' ? styles.consoleTabActive : ''}"
+                onclick={() => activeConsoleTab = 'history'}
+            >
+                History<span class={styles.consoleTabCount}>{app.paperHistory.length}</span>
+            </button>
+        </div>
+
+        <!-- Positions Table -->
+        {#if activeConsoleTab === 'positions'}
+            {@const pos = app.activePaperPosition ?? ({} as Record<string, unknown>)}
+            {@const entryPx = (pos.average_entry_price as number) ?? (pos.entry_price as number) ?? 0}
+            {@const posSize = (pos.size as number) ?? 0}
+            {@const posLiq = entryPx > 0 ? calcLiqPrice(entryPx, app.paperDirection as 'LONG' | 'SHORT', app.paperLeverage) : 0}
+            <div class={styles.tableWrapper}>
+                {#if hasPosition}
+                    <table class={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>Market</th>
+                                <th>Side</th>
+                                <th class={styles.tableColRight}>Size</th>
+                                <th class={styles.tableColRight}>Entry</th>
+                                <th class={styles.tableColRight}>Mark</th>
+                                <th class={styles.tableColRight}>Liq Price</th>
+                                <th class={styles.tableColRight}>Margin</th>
+                                <th class={styles.tableColRight}>P&L</th>
+                                <th class={styles.tableColRight}>ROI</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class={styles.marketCell}>{app.activeTab}</td>
+                                <td class="{styles.directionCell} {app.paperDirection === 'LONG' ? styles.directionLong : styles.directionShort}">
+                                    {app.paperDirection}
+                                </td>
+                                <td class={styles.numRight}>{fmt(posSize, 5)}</td>
+                                <td class={styles.numRight}>
+                                    {entryPx > 0 ? '$' + fmt(entryPx) : '—'}
+                                </td>
+                                <td class={styles.numRight}>
+                                    {markPrice > 0 ? '$' + fmt(markPrice) : '—'}
+                                </td>
+                                <td class={styles.numRight}>
+                                    {posLiq > 0 ? '$' + fmt(posLiq) : '—'}
+                                </td>
+                                <td class={styles.numRight}>
+                                    ${app.paperMarginUsed.toFixed(2)}
+                                </td>
+                                <td class="{styles.numRight} {app.paperUnrealizedPnl >= 0 ? styles.pnlPositive : styles.pnlNegative}">
+                                    {fmtPnl(app.paperUnrealizedPnl)}
+                                </td>
+                                <td class="{styles.numRight} {app.paperUnrealizedRoi >= 0 ? styles.pnlPositive : styles.pnlNegative}">
+                                    {app.paperUnrealizedRoi.toFixed(2)}%
+                                </td>
+                                <td>
+                                    <button class={styles.closeBtn} disabled={app.paperLoading}
+                                        onclick={handleClose}
+                                    >Close</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                {:else}
+                    <div class={styles.emptyState}>No active position</div>
+                {/if}
+            </div>
+
+        <!-- Open Orders Table -->
+        {:else if activeConsoleTab === 'orders'}
+            <div class={styles.emptyState}>
+                Paper trading currently supports Market orders only.
+            </div>
+
+        <!-- History Table -->
+        {:else}
+            <div class={styles.tableWrapper}>
+                {#if app.paperHistory.length > 0}
+                    <table class={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Market</th>
+                                <th>Side</th>
+                                <th class={styles.tableColRight}>Entry</th>
+                                <th class={styles.tableColRight}>Exit</th>
+                                <th class={styles.tableColRight}>P&L</th>
+                                <th class={styles.tableColRight}>ROI</th>
+                                <th>Trigger</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each app.paperHistory as trade}
+                                {@const t = trade as Record<string, unknown>}
+                                <tr>
+                                    <td>{fmtTs((t.exit_timestamp as number) ?? 0)}</td>
+                                    <td class={styles.marketCell}>{(t.symbol as string) ?? '—'}</td>
+                                    <td class="{styles.directionCell} {(t.direction as string) === 'LONG' ? styles.directionLong : styles.directionShort}">
+                                        {t.direction as string}
+                                    </td>
+                                    <td class={styles.numRight}>
+                                        {(t.entry_price as number) > 0 ? '$' + fmt(t.entry_price as number) : '—'}
+                                    </td>
+                                    <td class={styles.numRight}>
+                                        {(t.exit_price as number) > 0 ? '$' + fmt(t.exit_price as number) : '—'}
+                                    </td>
+                                    <td class="{styles.numRight} {(t.realized_pnl as number) >= 0 ? styles.pnlPositive : styles.pnlNegative}">
+                                        {fmtPnl((t.realized_pnl as number) ?? 0)}
+                                    </td>
+                                    <td class="{styles.numRight} {(t.roi_pct as number) >= 0 ? styles.pnlPositive : styles.pnlNegative}">
+                                        {fmt((t.roi_pct as number) ?? 0)}%
+                                    </td>
+                                    <td>{(t.trigger as string) ?? '—'}</td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                {:else}
+                    <div class={styles.emptyState}>No trade history</div>
+                {/if}
+            </div>
+        {/if}
+
+        <!-- Account Mini Bar -->
+        <div class={styles.accountBar}>
+            <div class={styles.accountItem}>
+                <span class={styles.accountItemLabel}>Balance</span>
+                <span class={styles.accountItemValue}>${app.paperTotalAccountValue.toFixed(2)}</span>
+            </div>
+            <div class={styles.accountItem}>
+                <span class={styles.accountItemLabel}>Available</span>
+                <span class={styles.accountItemValue}>${app.paperCashBalance.toFixed(2)}</span>
+            </div>
+            <div class={styles.accountItem}>
+                <span class={styles.accountItemLabel}>Margin Used</span>
+                <span class={styles.accountItemValue}>${app.paperMarginUsed.toFixed(2)}</span>
+            </div>
+            <div class={styles.accountItem}>
+                <span class={styles.accountItemLabel}>Leverage</span>
+                <span class={styles.accountItemValue}>{app.paperLeverage}x</span>
+            </div>
         </div>
     </div>
 
-    <!-- Account Summary -->
-    <div class={styles.accountCard}>
-        <h3 class={styles.accountTitle}>Account</h3>
-        <div class={styles.accountGrid}>
-            <div class={styles.accountItem}>
-                <span class={styles.accountLabel}>Balance</span>
-                <span class={styles.accountValue}>${app.paperTotalAccountValue.toFixed(2)}</span>
-            </div>
-            <div class={styles.accountItem}>
-                <span class={styles.accountLabel}>Available</span>
-                <span class={styles.accountValue}>${app.paperCashBalance.toFixed(2)}</span>
-            </div>
-            <div class={styles.accountItem}>
-                <span class={styles.accountLabel}>Margin Used</span>
-                <span class={styles.accountValue}>${app.paperMarginUsed.toFixed(2)}</span>
-            </div>
-            <div class={styles.accountItem}>
-                <span class={styles.accountLabel}>Free Balance</span>
-                <span class={styles.accountValue}>{freePct}%</span>
-            </div>
-        </div>
-    </div>
 </div>

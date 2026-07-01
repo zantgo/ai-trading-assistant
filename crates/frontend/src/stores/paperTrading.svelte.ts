@@ -178,3 +178,20 @@ export class PaperTradingStore {
         } catch (_) {}
     }
 }
+
+export function calcLiqPrice(entryPrice: number, direction: 'LONG' | 'SHORT', leverage: number): number {
+    if (entryPrice <= 0 || leverage <= 0) return 0;
+    const invLeverage = 1 / leverage;
+    return direction === 'LONG'
+        ? entryPrice * (1 - invLeverage)
+        : entryPrice * (1 + invLeverage);
+}
+
+export function calcSizeUnits(payAmountUsd: number, leverage: number, markPrice: number): number {
+    if (markPrice <= 0 || leverage <= 0) return 0;
+    return (payAmountUsd * leverage) / markPrice;
+}
+
+export function calcEstFees(sizeUnits: number, markPrice: number, takerFeePct: number = 0.04): number {
+    return sizeUnits * markPrice * (takerFeePct / 100);
+}
