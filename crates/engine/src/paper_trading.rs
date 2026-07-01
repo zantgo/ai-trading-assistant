@@ -1055,7 +1055,6 @@ pub async fn open_slot_internal(
     let position_id: i64 = if let Some(ref p) = pos {
         p.id
     } else {
-        let init_margin = new_margin;
         let result = sqlx::query(
             "INSERT INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, initial_allocated_margin, realized_pnl_accumulator)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, 1, 0, ?7, 0.0)"
@@ -1066,7 +1065,7 @@ pub async fn open_slot_internal(
         .bind(size)
         .bind(new_margin)
         .bind(now)
-        .bind(init_margin)
+        .bind(cycle_capital)
         .execute(&mut *tx)
         .await;
 
@@ -1277,6 +1276,24 @@ pub async fn close_slot_internal(
     .bind(roi_pct)
     .bind(oldest.timestamp)
     .bind(now)
+    .bind(trigger)
+    .execute(&mut *tx)
+    .await
+    .ok();
+
+    sqlx::query(
+        "INSERT INTO trade_telemetry_history (exchange, symbol, direction, entry_timestamp, exit_timestamp, entry_price, exit_price, size, realized_pnl, roi_percentage, trigger_source)
+         VALUES ('PAPER', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+    )
+    .bind(symbol)
+    .bind(&direction)
+    .bind(oldest.timestamp)
+    .bind(now)
+    .bind(oldest.entry_price)
+    .bind(current_price)
+    .bind(oldest.size)
+    .bind(pnl)
+    .bind(roi_pct)
     .bind(trigger)
     .execute(&mut *tx)
     .await

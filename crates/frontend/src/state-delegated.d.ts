@@ -4,6 +4,7 @@ import type {
     DashboardStats, TradeLedgerRecord, TradeJournalRecord,
     ScaleInPortion, TakeProfitTarget, UserTrade,
     SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
+    OpenOrder, SlotState, PositionSlot, EquitySnapshot,
 } from './types';
 
 declare module './state.svelte' {
@@ -41,6 +42,11 @@ declare module './state.svelte' {
         paperFilledPortions: number; paperMaxRiskPct: number; paperLeverage: number;
         paperAutoExecuteIntervals: number; paperLookbackTrades: number;
         paperPositionPct: number; paperFreeBalancePct: number; paperDirection: 'LONG' | 'SHORT' | '';
+        openOrders: OpenOrder[];
+        activeSlots: SlotState[]; positionSlots: PositionSlot[];
+        equitySnapshots: EquitySnapshot[];
+        paperInitialAllocatedMargin: number;
+        paperRealizedPnlAccumulator: number;
 
         apiKeyConfigured: boolean; rulesContent: string;
         globalCandlesConfig: { duration_seconds: number; analysis_limit: number };
