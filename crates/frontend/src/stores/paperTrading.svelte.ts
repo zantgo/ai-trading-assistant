@@ -1,4 +1,4 @@
-import type { OpenOrder, PlaceOrderPayload, ScaleInPortion, TakeProfitTarget } from '../types';
+import type { OpenOrder, PlaceOrderPayload, ScaleInPortion, TakeProfitTarget, SlotState, PositionSlot, EquitySnapshot } from '../types';
 
 export class PaperTradingStore {
     paperCashBalance = $state(0);
@@ -31,6 +31,23 @@ export class PaperTradingStore {
     paperDirection = $state<'LONG' | 'SHORT' | ''>('');
     openOrders = $state<OpenOrder[]>([]);
 
+    // Slot-based state (4-Portion Dynamic Margin)
+    activeSlots = $state<SlotState[]>([]);
+    positionSlots = $state<PositionSlot[]>([]);
+    equitySnapshots = $state<EquitySnapshot[]>([]);
+    paperInitialAllocatedMargin = $state(0);
+    paperRealizedPnlAccumulator = $state(0);
+
+    // Derived runes for slot button counters
+    get activeLongs(): number {
+        if (this.paperDirection !== 'LONG') return 0;
+        return this.activeSlots.filter(s => s.is_active).length;
+    }
+    get activeShorts(): number {
+        if (this.paperDirection !== 'SHORT') return 0;
+        return this.activeSlots.filter(s => s.is_active).length;
+    }
+
     async fetchPaperStatus(pairKey: string) {
         try {
             const res = await fetch(`/api/paper/status?symbol=${encodeURIComponent(pairKey)}`);
@@ -57,6 +74,20 @@ export class PaperTradingStore {
             this.paperLeverage = data.leverage ?? 20;
             this.paperAutoExecuteIntervals = data.auto_execute_intervals ?? 15;
             this.paperLookbackTrades = data.lookback_trades ?? 10;
+            this.paperInitialAllocatedMargin = data.initial_allocated_margin ?? 0;
+            this.paperRealizedPnlAccumulator = data.realized_pnl_accumulator ?? 0;
+
+            // Slot data
+            if (data.position_slots) {
+                this.positionSlots = data.position_slots;
+                this.activeSlots = data.position_slots.map((s: PositionSlot) => ({
+                    slot_index: s.slot_index,
+                    is_active: s.is_active,
+                    entry_price: s.entry_price,
+                    size: s.size,
+                    allocated_usd: s.allocated_usd,
+                }));
+            }
 
             // Compute percentage-based state
             const pos = data.active_position;
@@ -184,6 +215,62 @@ export class PaperTradingStore {
             const res = await fetch(`/api/paper/open-orders?symbol=${encodeURIComponent(pairKey)}`);
             if (res.ok) { this.openOrders = await res.json(); }
         } catch (_) {}
+    }
+
+    async fetchSlotStates(pairKey: string) {
+        try {
+            const res = await fetch(`/api/paper/slot-states?symbol=${encodeURIComponent(pairKey)}`);
+            if (res.ok) {
+                const data = await res.json();
+                this.activeSlots = data.slots || [];
+                if (this.activeSlots.length > 0) {
+                    const active = this.activeSlots.filter((s: SlotState) => s.is_active);
+                    this.paperDirection = active.length > 0 ? (active[0].entry_price > 0 ? this.paperDirection || 'LONG' : this.paperDirection) : '';
+                } else {
+                    this.paperDirection = '';
+                }
+            }
+        } catch (_) {}
+    }
+
+    async fetchEquityHistory(pairKey: string) {
+        try {
+            const res = await fetch(`/api/paper/equity-history?symbol=${encodeURIComponent(pairKey)}&limit=200`);
+            if (res.ok) {
+                const data = await res.json();
+                this.equitySnapshots = data.snapshots || [];
+            }
+        } catch (_) {}
+    }
+
+    async openSlot(pairKey: string, direction: 'LONG' | 'SHORT') {
+        this.paperLoading = true;
+        try {
+            const res = await fetch('/api/paper/portion/open', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, direction }),
+            });
+            const data = await res.json();
+            await this.fetchPaperStatus(pairKey);
+            await this.fetchSlotStates(pairKey);
+            return data;
+        } catch (_) { return { success: false, message: 'Network error' }; }
+        finally { this.paperLoading = false; }
+    }
+
+    async closeSlot(pairKey: string) {
+        this.paperLoading = true;
+        try {
+            const res = await fetch('/api/paper/portion/close', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey }),
+            });
+            const data = await res.json();
+            await this.fetchPaperStatus(pairKey);
+            await this.fetchSlotStates(pairKey);
+            return data;
+        } catch (_) { return { success: false, message: 'Network error' }; }
+        finally { this.paperLoading = false; }
     }
 
     async placeOrder(pairKey: string, order: PlaceOrderPayload) {

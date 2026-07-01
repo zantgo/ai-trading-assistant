@@ -251,6 +251,19 @@ pub async fn open_position_pct(
             .await
             .ok();
 
+            // Also create position_slots entry for backward compat
+            let slot_idx = (current_portions - 1) as i32;
+            sqlx::query(
+                "INSERT OR IGNORE INTO position_slots (position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7, 0.0, ?8)"
+            )
+            .bind(pos.id).bind(symbol).bind(direction).bind(slot_idx)
+            .bind(current_price).bind(f64_from_dec(new_size)).bind(new_allocated_f64)
+            .bind(now)
+            .execute(pool)
+            .await
+            .ok();
+
             let free_pct = 100.0 - total_pct;
             PaperPositionOpResult {
                 success: true,
@@ -287,26 +300,25 @@ pub async fn open_position_pct(
 
             if let Ok(mut tx) = pool.begin().await {
                 sqlx::query(
-                    "INSERT OR REPLACE INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, 1, 0)"
+                    "INSERT OR REPLACE INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, initial_allocated_margin, realized_pnl_accumulator)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, 1, 0, ?5, 0.0)"
                 )
-                .bind(symbol)
-                .bind(direction)
-                .bind(current_price)
-                .bind(size)
-                .bind(allocated_f64)
-                .bind(now)
-                .execute(&mut *tx)
-                .await
-                .ok();
+                .bind(symbol).bind(direction).bind(current_price).bind(size).bind(allocated_f64).bind(now)
+                .execute(&mut *tx).await.ok();
 
                 sqlx::query("UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1")
-                    .bind(symbol)
-                    .bind(allocated_f64)
-                    .execute(&mut *tx)
-                    .await
-                    .ok();
+                    .bind(symbol).bind(allocated_f64).execute(&mut *tx).await.ok();
 
+                // Also create position_slots entry
+                let pos_id: i64 = sqlx::query_scalar("SELECT id FROM active_positions WHERE symbol = ?1")
+                    .bind(symbol).fetch_one(&mut *tx).await.unwrap_or(0);
+                if pos_id > 0 {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO position_slots (position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp)
+                         VALUES (?1, ?2, ?3, 0, 1, ?4, ?5, ?6, 0.0, ?7)"
+                    ).bind(pos_id).bind(symbol).bind(direction).bind(current_price).bind(size).bind(allocated_f64).bind(now)
+                    .execute(&mut *tx).await.ok();
+                }
                 let _ = tx.commit().await;
             }
 
@@ -444,7 +456,7 @@ pub async fn close_position_pct(
 
 // ─── TP/SL Management (25% Portion Model, via open_orders) ─────────
 
-/// Set take-profit targets. Max 2 brackets, sizes must be multiples of 25.
+/// Set take-profit targets. Max X brackets where X = active slot count.
 pub async fn set_take_profit_targets(
     pool: &SqlitePool,
     symbol: &str,
@@ -453,9 +465,12 @@ pub async fn set_take_profit_targets(
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = position.ok_or("No active position".to_string())?;
 
+    let active_count = db::paper_get_active_slot_count(pool, symbol).await;
+    let max_brackets = active_count.max(1) as usize;
+
     let (tp_count, _) = db::paper_count_brackets_by_type(pool, pos.id).await;
-    if tp_count + targets.len() as i32 > 2 {
-        return Err("Maximum 2 Take-Profit brackets allowed".to_string());
+    if tp_count + targets.len() as i32 > max_brackets as i32 {
+        return Err(format!("Maximum {} Take-Profit brackets allowed (one per active slot)", max_brackets));
     }
 
     let total_tp_pct: f64 = targets.iter().map(|(p, _)| p).sum();
@@ -479,7 +494,7 @@ pub async fn set_take_profit_targets(
     Ok(format!("{} TP targets set", targets.len()))
 }
 
-/// Set stop-loss levels. Max 2 brackets, sizes must be multiples of 25.
+/// Set stop-loss levels. Max X brackets where X = active slot count.
 pub async fn set_stop_loss_levels(
     pool: &SqlitePool,
     symbol: &str,
@@ -489,9 +504,12 @@ pub async fn set_stop_loss_levels(
     let pos = position.ok_or("No active position".to_string())?;
     let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
 
+    let active_count = db::paper_get_active_slot_count(pool, symbol).await;
+    let max_brackets = active_count.max(1) as usize;
+
     let (_, sl_count) = db::paper_count_brackets_by_type(pool, pos.id).await;
-    if sl_count + stops.len() as i32 > 2 {
-        return Err("Maximum 2 Stop-Loss brackets allowed".to_string());
+    if sl_count + stops.len() as i32 > max_brackets as i32 {
+        return Err(format!("Maximum {} Stop-Loss brackets allowed (one per active slot)", max_brackets));
     }
 
     let total_sl_pct: f64 = stops.iter().map(|(p, _)| p).sum();
@@ -630,7 +648,7 @@ pub async fn verify_margin_and_open_with_alloc(
     let size = total_allocation / price_dec;
     let alloc_f64 = f64_from_dec(total_allocation);
 
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let _now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
     let _ = db::paper::paper_open_position_internal(pool, symbol, direction, current_price, f64_from_dec(size), alloc_f64).await;
 
     sqlx::query("UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1")
@@ -806,4 +824,564 @@ pub async fn verify_margin_and_open_with_alloc_and_pct(
     allocation_pct_override: Option<f64>,
 ) -> Result<PaperTradeResult, String> {
     Ok(verify_margin_and_open_with_alloc(pool, telemetry_tx, symbol, direction, current_price, allocation_pct_override).await)
+}
+
+// ─── 4-Portion Dynamic Margin State Machine ─────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SlotState {
+    pub slot_index: usize,
+    pub is_active: bool,
+    pub entry_price: f64,
+    pub size: f64,
+    pub allocated_usd: f64,
+}
+
+/// Result type for portion (slot) operations.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PaperSlotOpResult {
+    pub success: bool,
+    pub message: String,
+    pub slot_index: i32,
+    pub size: f64,
+    pub allocated_usd: f64,
+    pub realized_pnl: f64,
+    pub refunded_usd: f64,
+    pub active_count: i32,
+    pub direction: String,
+}
+
+/// Calculate the dynamic margin for a newly opened portion slot.
+/// C_cycle = initial_allocated_margin + realized_pnl_accumulator
+/// K_new = (C_cycle - sum(K_active)) / N_vacant
+pub fn calculate_slot_margin(
+    total_cycle_capital: f64,
+    active_slots: &[SlotState],
+) -> Result<f64, String> {
+    let active_count = active_slots.iter().filter(|s| s.is_active).count();
+    if active_count >= 4 {
+        return Err("Position fully allocated (4/4 portions active)".into());
+    }
+    let vacant_count = 4 - active_count;
+    let locked_margin: f64 = active_slots.iter().filter(|s| s.is_active).map(|s| s.allocated_usd).sum();
+    let unallocated_capital = total_cycle_capital - locked_margin;
+
+    if unallocated_capital <= 0.0 {
+        return Err("No unallocated margin remains in this position cycle".into());
+    }
+    Ok(unallocated_capital / vacant_count as f64)
+}
+
+/// Recalculate aggregate position fields from active slot data and update.
+pub async fn recalculate_position_aggregates(
+    pool: &SqlitePool,
+    symbol: &str,
+) -> Result<(), sqlx::Error> {
+    let active_slots: Vec<db::PositionSlotRecord> = db::paper_get_active_slots(pool, symbol).await;
+
+    if active_slots.is_empty() {
+        // No active slots — clean up position
+        if let Some(pos) = db::paper_get_active_position(pool, symbol).await {
+            let _now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            sqlx::query("DELETE FROM active_positions WHERE id = ?1")
+                .bind(pos.id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM position_slots WHERE position_id = ?1")
+                .bind(pos.id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM open_orders WHERE associated_position_id = ?1")
+                .bind(pos.id)
+                .execute(pool)
+                .await?;
+        }
+        return Ok(());
+    }
+
+    let total_size: f64 = active_slots.iter().map(|s| s.size).sum();
+    let total_allocated: f64 = active_slots.iter().map(|s| s.allocated_usd).sum();
+    let weighted_price = if total_size > 0.0 {
+        active_slots.iter().map(|s| s.entry_price * s.size).sum::<f64>() / total_size
+    } else {
+        0.0
+    };
+    let portion_count = active_slots.len() as i32;
+    let _direction = &active_slots[0].direction;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    sqlx::query(
+        "UPDATE active_positions SET size = ?2, allocated_usd = ?3, average_entry_price = ?4, current_portions = ?5, entry_timestamp = ?6 WHERE symbol = ?1"
+    )
+    .bind(symbol)
+    .bind(total_size)
+    .bind(total_allocated)
+    .bind(weighted_price)
+    .bind(portion_count)
+    .bind(now)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Open a portion slot for the given symbol + direction at current market price.
+/// Uses dynamic margin allocation: K_new = (C_cycle - sum(K_active)) / N_vacant.
+pub async fn open_slot_internal(
+    pool: &SqlitePool,
+    _telemetry_tx: &mpsc::Sender<db::TelemetryMsg>,
+    symbol: &str,
+    direction: &str,
+    current_price: f64,
+) -> PaperSlotOpResult {
+    if current_price <= 0.0 {
+        return PaperSlotOpResult {
+            success: false,
+            message: "Invalid market price".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count: 0, direction: direction.to_string(),
+        };
+    }
+
+    let active_slots = db::paper_get_active_slots(pool, symbol).await;
+    let active_count = active_slots.len() as i32;
+
+    // Netting check: if opposite direction has active slots, close them all first
+    if active_count > 0 && active_slots[0].direction != direction {
+        return PaperSlotOpResult {
+            success: false,
+            message: format!("Cannot open {}: active {} position exists. Close it first or open in the same direction.", direction, active_slots[0].direction),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count, direction: active_slots[0].direction.clone(),
+        };
+    }
+
+    if active_count >= 4 {
+        return PaperSlotOpResult {
+            success: false,
+            message: "Position fully allocated (4/4 portions active)".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count, direction: direction.to_string(),
+        };
+    }
+
+    // Determine cycle capital
+    let pos = db::paper_get_active_position(pool, symbol).await;
+    let cycle_capital = if let Some(ref p) = pos {
+        let initial_margin = p.initial_allocated_margin.unwrap_or(p.allocated_usd);
+        let realized_accum = p.realized_pnl_accumulator.unwrap_or(0.0);
+        initial_margin + realized_accum
+    } else {
+        // Fresh cycle: use the balance's paper_initial_usd as first allocation
+        let balance = db::paper_get_balance(pool, symbol).await;
+        balance.initial_usd
+    };
+
+    let active_state: Vec<SlotState> = active_slots.iter().map(|s| SlotState {
+        slot_index: s.slot_index as usize,
+        is_active: s.is_active,
+        entry_price: s.entry_price,
+        size: s.size,
+        allocated_usd: s.allocated_usd,
+    }).collect();
+
+    let new_margin = match calculate_slot_margin(cycle_capital, &active_state) {
+        Ok(m) => m,
+        Err(e) => {
+            return PaperSlotOpResult {
+                success: false,
+                message: e,
+                slot_index: -1, size: 0.0, allocated_usd: 0.0,
+                realized_pnl: 0.0, refunded_usd: 0.0,
+                active_count, direction: direction.to_string(),
+            };
+        }
+    };
+
+    let balance = db::paper_get_balance(pool, symbol).await;
+    if balance.current_cash < new_margin {
+        return PaperSlotOpResult {
+            success: false,
+            message: format!("Insufficient cash: need ${:.2}, have ${:.2}", new_margin, balance.current_cash),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count, direction: direction.to_string(),
+        };
+    }
+
+    let slot_index = match db::paper_find_vacant_slot(pool, symbol).await {
+        Some(idx) => idx,
+        None => {
+            return PaperSlotOpResult {
+                success: false,
+                message: "No vacant slot available (all 4 slots occupied)".into(),
+                slot_index: -1, size: 0.0, allocated_usd: 0.0,
+                realized_pnl: 0.0, refunded_usd: 0.0,
+                active_count, direction: direction.to_string(),
+            };
+        }
+    };
+
+    let size = new_margin / current_price;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return PaperSlotOpResult {
+                success: false,
+                message: format!("DB error: {}", e),
+                slot_index: -1, size: 0.0, allocated_usd: 0.0,
+                realized_pnl: 0.0, refunded_usd: 0.0,
+                active_count, direction: direction.to_string(),
+            };
+        }
+    };
+
+    // Ensure active_positions row exists
+    let position_id: i64 = if let Some(ref p) = pos {
+        p.id
+    } else {
+        let init_margin = new_margin;
+        let result = sqlx::query(
+            "INSERT INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, initial_allocated_margin, realized_pnl_accumulator)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, 1, 0, ?7, 0.0)"
+        )
+        .bind(symbol)
+        .bind(direction)
+        .bind(current_price)
+        .bind(size)
+        .bind(new_margin)
+        .bind(now)
+        .bind(init_margin)
+        .execute(&mut *tx)
+        .await;
+
+        match result {
+            Ok(_) => {
+                let row = sqlx::query_as::<_, (i64,)>("SELECT id FROM active_positions WHERE symbol = ?1")
+                    .bind(symbol)
+                    .fetch_one(&mut *tx)
+                    .await;
+                match row {
+                    Ok(r) => r.0,
+                    Err(e) => { let _ = tx.rollback().await; return PaperSlotOpResult { success: false, message: format!("Failed to get position ID: {}", e), slot_index: -1, size: 0.0, allocated_usd: 0.0, realized_pnl: 0.0, refunded_usd: 0.0, active_count, direction: direction.to_string() }; }
+                }
+            }
+            Err(e) => { let _ = tx.rollback().await; return PaperSlotOpResult { success: false, message: format!("Failed to create position: {}", e), slot_index: -1, size: 0.0, allocated_usd: 0.0, realized_pnl: 0.0, refunded_usd: 0.0, active_count, direction: direction.to_string() }; }
+        }
+    };
+
+    // Insert the slot record
+    if let Err(e) = sqlx::query(
+        "INSERT INTO position_slots (position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp)
+         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7, 0.0, ?8)"
+    )
+    .bind(position_id)
+    .bind(symbol)
+    .bind(direction)
+    .bind(slot_index)
+    .bind(current_price)
+    .bind(size)
+    .bind(new_margin)
+    .bind(now)
+    .execute(&mut *tx)
+    .await {
+        let _ = tx.rollback().await;
+        return PaperSlotOpResult {
+            success: false,
+            message: format!("Failed to insert slot: {}", e),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count, direction: direction.to_string(),
+        };
+    }
+
+    // Deduct from paper balance
+    if let Err(e) = sqlx::query("UPDATE paper_balances SET current_cash = current_cash - ?2 WHERE symbol = ?1")
+        .bind(symbol)
+        .bind(new_margin)
+        .execute(&mut *tx)
+        .await {
+        let _ = tx.rollback().await;
+        return PaperSlotOpResult {
+            success: false,
+            message: format!("Failed to deduct balance: {}", e),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count, direction: direction.to_string(),
+        };
+    }
+
+    let _ = tx.commit().await;
+
+    // Recalculate aggregates
+    let _ = recalculate_position_aggregates(pool, symbol).await;
+
+    PaperSlotOpResult {
+        success: true,
+        message: format!("Opened {} slot {}: ${:.2} margin, {:.5} size at ${:.2}", direction, slot_index, new_margin, size, current_price),
+        slot_index,
+        size,
+        allocated_usd: new_margin,
+        realized_pnl: 0.0,
+        refunded_usd: 0.0,
+        active_count: active_count + 1,
+        direction: direction.to_string(),
+    }
+}
+
+/// Close the oldest active slot (FIFO) for the given symbol.
+/// Returns the allocated margin + realized P&L to the paper balance.
+pub async fn close_slot_internal(
+    pool: &SqlitePool,
+    telemetry_tx: &mpsc::Sender<db::TelemetryMsg>,
+    symbol: &str,
+    current_price: f64,
+    trigger: &str,
+) -> PaperSlotOpResult {
+    if current_price <= 0.0 {
+        return PaperSlotOpResult {
+            success: false,
+            message: "Invalid market price".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count: 0, direction: String::new(),
+        };
+    }
+
+    let active_count = db::paper_get_active_slot_count(pool, symbol).await;
+    if active_count == 0 {
+        return PaperSlotOpResult {
+            success: false,
+            message: "No active slots to close".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count: 0, direction: String::new(),
+        };
+    }
+
+    let oldest = match db::paper_get_oldest_active_slot(pool, symbol).await {
+        Some(s) => s,
+        None => {
+            return PaperSlotOpResult {
+                success: false,
+                message: "No active slot found".into(),
+                slot_index: -1, size: 0.0, allocated_usd: 0.0,
+                realized_pnl: 0.0, refunded_usd: 0.0,
+                active_count: 0, direction: String::new(),
+            };
+        }
+    };
+
+    let pnl = if oldest.direction == "LONG" {
+        (current_price - oldest.entry_price) * oldest.size
+    } else {
+        (oldest.entry_price - current_price) * oldest.size
+    };
+
+    let refund = oldest.allocated_usd + pnl;
+    let direction = oldest.direction.clone();
+    let slot_index = oldest.slot_index;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return PaperSlotOpResult {
+                success: false,
+                message: format!("DB error: {}", e),
+                slot_index, size: 0.0, allocated_usd: 0.0,
+                realized_pnl: pnl, refunded_usd: 0.0,
+                active_count, direction,
+            };
+        }
+    };
+
+    // Mark slot inactive
+    if let Err(e) = sqlx::query("UPDATE position_slots SET is_active = 0, realized_pnl = ?2 WHERE id = ?1")
+        .bind(oldest.id)
+        .bind(pnl)
+        .execute(&mut *tx)
+        .await {
+        let _ = tx.rollback().await;
+        return PaperSlotOpResult {
+            success: false,
+            message: format!("Failed to update slot: {}", e),
+            slot_index, size: oldest.size, allocated_usd: oldest.allocated_usd,
+            realized_pnl: pnl, refunded_usd: 0.0,
+            active_count, direction,
+        };
+    }
+
+    // Update realized_pnl_accumulator on active_positions
+    if let Some(pos) = db::paper_get_active_position(pool, symbol).await {
+        let current_accum = pos.realized_pnl_accumulator.unwrap_or(0.0);
+        let _ = sqlx::query("UPDATE active_positions SET realized_pnl_accumulator = ?2 WHERE symbol = ?1")
+            .bind(symbol)
+            .bind(current_accum + pnl)
+            .execute(&mut *tx)
+            .await;
+    }
+
+    // Refund margin + PnL to paper balance
+    if let Err(e) = sqlx::query("UPDATE paper_balances SET current_cash = current_cash + ?2 WHERE symbol = ?1")
+        .bind(symbol)
+        .bind(refund)
+        .execute(&mut *tx)
+        .await {
+        let _ = tx.rollback().await;
+        return PaperSlotOpResult {
+            success: false,
+            message: format!("Failed to refund balance: {}", e),
+            slot_index, size: oldest.size, allocated_usd: oldest.allocated_usd,
+            realized_pnl: pnl, refunded_usd: 0.0,
+            active_count, direction,
+        };
+    }
+
+    // Record trade
+    let _pos = db::paper_get_active_position(pool, symbol).await;
+    let roi_pct = if oldest.allocated_usd > 0.0 {
+        (pnl / oldest.allocated_usd) * 100.0
+    } else {
+        0.0
+    };
+    sqlx::query(
+        "INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+    )
+    .bind(symbol)
+    .bind(&direction)
+    .bind(oldest.entry_price)
+    .bind(current_price)
+    .bind(oldest.size)
+    .bind(pnl)
+    .bind(roi_pct)
+    .bind(oldest.timestamp)
+    .bind(now)
+    .bind(trigger)
+    .execute(&mut *tx)
+    .await
+    .ok();
+
+    let _ = tx.commit().await;
+
+    // Recalculate aggregates; will clean up if no active slots remain
+    let _ = recalculate_position_aggregates(pool, symbol).await;
+
+    // Journal trade
+    let _ = telemetry_tx.send(db::TelemetryMsg::JournalTrade {
+        symbol: symbol.to_string(),
+        direction: direction.clone(),
+        entry_price: oldest.entry_price,
+        exit_price: current_price,
+        entry_timestamp: oldest.timestamp,
+        exit_timestamp: now,
+        size: oldest.size,
+        realized_pnl: pnl,
+        roi_pct,
+        allocated_usd: oldest.allocated_usd,
+        trigger: trigger.to_string(),
+    }).await;
+
+    let new_active = db::paper_get_active_slot_count(pool, symbol).await;
+
+    PaperSlotOpResult {
+        success: true,
+        message: format!("Closed {} slot {}: PnL ${:.2}, refunded ${:.2}", direction, slot_index, pnl, refund),
+        slot_index,
+        size: oldest.size,
+        allocated_usd: oldest.allocated_usd,
+        realized_pnl: pnl,
+        refunded_usd: refund,
+        active_count: new_active,
+        direction,
+    }
+}
+
+/// Netting close: close all active slots for the symbol (opposite direction entry).
+pub async fn close_all_slots(
+    pool: &SqlitePool,
+    telemetry_tx: &mpsc::Sender<db::TelemetryMsg>,
+    symbol: &str,
+    current_price: f64,
+    trigger: &str,
+) -> PaperSlotOpResult {
+    let mut total_pnl = 0.0;
+    let mut total_refund = 0.0;
+    let active_count = db::paper_get_active_slot_count(pool, symbol).await;
+    let direction = db::paper_get_active_slots(pool, symbol).await
+        .first()
+        .map(|s| s.direction.clone())
+        .unwrap_or_default();
+
+    if active_count == 0 {
+        return PaperSlotOpResult {
+            success: true,
+            message: "No active slots to close".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+            realized_pnl: 0.0, refunded_usd: 0.0,
+            active_count: 0, direction,
+        };
+    }
+
+    for _ in 0..active_count {
+        let result = close_slot_internal(pool, telemetry_tx, symbol, current_price, trigger).await;
+        if result.success {
+            total_pnl += result.realized_pnl;
+            total_refund += result.refunded_usd;
+        }
+    }
+
+    PaperSlotOpResult {
+        success: true,
+        message: format!("Closed all {} slots. Total PnL: ${:.2}, Total refund: ${:.2}", active_count, total_pnl, total_refund),
+        slot_index: -1, size: 0.0, allocated_usd: 0.0,
+        realized_pnl: total_pnl, refunded_usd: total_refund,
+        active_count: 0, direction,
+    }
+}
+
+/// Get slot states for the given symbol, padded to 4 slots.
+pub async fn get_slot_states(pool: &SqlitePool, symbol: &str) -> Vec<SlotState> {
+    let active_slots = db::paper_get_active_slots(pool, symbol).await;
+    let mut states: Vec<SlotState> = (0..4).map(|i| SlotState {
+        slot_index: i,
+        is_active: false,
+        entry_price: 0.0,
+        size: 0.0,
+        allocated_usd: 0.0,
+    }).collect();
+
+    for slot in &active_slots {
+        let idx = slot.slot_index as usize;
+        if idx < 4 {
+            states[idx] = SlotState {
+                slot_index: idx,
+                is_active: true,
+                entry_price: slot.entry_price,
+                size: slot.size,
+                allocated_usd: slot.allocated_usd,
+            };
+        }
+    }
+    states
 }

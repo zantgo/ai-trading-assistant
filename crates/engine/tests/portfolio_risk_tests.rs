@@ -57,6 +57,8 @@ fn make_position(symbol: &str, direction: &str, allocated: f64) -> engine::db::A
         current_portions: Some(1),
         final_invalidation_level: None,
         target_profit_ratio: Some(2.0),
+        initial_allocated_margin: Some(allocated),
+        realized_pnl_accumulator: Some(0.0),
     }
 }
 

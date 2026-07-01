@@ -1,0 +1,271 @@
+.consoleWorkspace {
+    display: flex;
+    flex-direction: column;
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 0;
+    height: 100%;
+}
+
+.consoleTabBar {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    border-bottom: 1px solid #2a2e39;
+    padding: 0 4px;
+    background: #0f111a;
+    flex-shrink: 0;
+}
+.consoleTabs { display: flex; }
+.consoleTab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.consoleTab:hover { color: #cbd5e1; }
+.consoleTabActive { color: #f1f5f9; border-bottom-color: #3b82f6; }
+.consoleTabCount {
+    display: inline-block;
+    background: rgba(59,130,246,0.15);
+    color: #3b82f6;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 4px;
+}
+.exportBtn {
+    background: rgba(59,130,246,0.1);
+    border: 1px solid rgba(59,130,246,0.2);
+    color: #3b82f6;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin: 6px 8px;
+    transition: all 0.15s;
+    white-space: nowrap;
+    align-self: center;
+}
+.exportBtn:hover { background: rgba(59,130,246,0.2); }
+
+/* Slot blocks */
+.slotBlocks {
+    font-family: monospace;
+    letter-spacing: 2px;
+    text-align: center;
+}
+.slotChar {
+    color: #10b981;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+/* Tables */
+.tableWrapper {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    min-height: 0;
+}
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+.table thead th {
+    background: #0f111a;
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 9px 10px;
+    text-align: left;
+    border-bottom: 1px solid #2a2e39;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.tableColRight { text-align: right; }
+.table tbody td {
+    padding: 9px 10px;
+    color: #cbd5e1;
+    font-family: monospace;
+    font-size: 11px;
+    border-bottom: 1px solid #1a1f2e;
+    white-space: nowrap;
+}
+.numRight { text-align: right; }
+.marketCell { font-weight: 700; color: #f1f5f9; font-family: inherit !important; }
+.directionCell { font-size: 10px; font-weight: 800; text-transform: uppercase; font-family: inherit !important; }
+.directionLong, .pnlPositive { color: #10b981; }
+.directionShort, .pnlNegative { color: #ef4444; }
+
+.positionRow { cursor: pointer; }
+.positionRow:hover { background: rgba(59,130,246,0.06); }
+
+.closeBtn {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.25);
+    color: #f87171;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    white-space: nowrap;
+    font-family: inherit;
+}
+.closeBtn:hover { background: rgba(239,68,68,0.18); }
+
+.emptyState {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 120px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Bracket Creator */
+.bracketCreator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 1px solid #1a1f2e;
+    background: #0d1117;
+    flex-shrink: 0;
+}
+.creatorInput {
+    width: 100px;
+    background: #171b26;
+    border: 1px solid #2a2e39;
+    color: #cbd5e1;
+    font-size: 11px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    font-family: monospace;
+    outline: none;
+}
+.creatorInput:focus { border-color: #3b82f6; }
+.creatorSelect {
+    background: #171b26;
+    border: 1px solid #2a2e39;
+    color: #cbd5e1;
+    font-size: 11px;
+    padding: 5px 6px;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+.addBracketBtn {
+    background: rgba(59,130,246,0.12);
+    border: 1px solid rgba(59,130,246,0.3);
+    color: #3b82f6;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+}
+.addBracketBtn:hover { background: rgba(59,130,246,0.2); }
+.addBracketBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Bracket chips */
+.bracketsRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #0d1117;
+    border-top: 1px solid #1a1f2e;
+    flex-shrink: 0;
+}
+.bracketChip {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-family: monospace;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.chipTp { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.chipSl { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.cancelBracketBtn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0 2px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+/* Account bar */
+.accountBar {
+    display: flex;
+    gap: 12px;
+    padding: 8px 14px;
+    background: #0f111a;
+    border-top: 1px solid #2a2e39;
+    flex-shrink: 0;
+}
+.accountItem { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.accountItemLabel { font-size: 8px; color: #64748b; text-transform: uppercase; font-weight: 600; }
+.accountItemValue { font-size: 12px; font-weight: 700; color: #f1f5f9; font-family: monospace; }
+
+/* Modal */
+.modalBackdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.modalContent {
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    padding: 0;
+    width: 560px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.modalHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid #2a2e39;
+}
+.modalHeader h4 { margin: 0; color: #f1f5f9; font-size: 13px; }
+.modalClose {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 16px;
+    cursor: pointer;
+}
+.modalClose:hover { color: #f1f5f9; }

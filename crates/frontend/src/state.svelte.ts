@@ -127,6 +127,8 @@ export class AppStore {
             'paperLeverage', 'paperAutoExecuteIntervals', 'paperLookbackTrades',
             'paperPositionPct', 'paperFreeBalancePct', 'paperDirection',
             'openOrders',
+            'activeSlots', 'positionSlots', 'equitySnapshots',
+            'paperInitialAllocatedMargin', 'paperRealizedPnlAccumulator',
         ]);
 
         this._delegate(this.settings, [
@@ -457,6 +459,10 @@ export class AppStore {
     async fetchOpenOrders() { await this.paper.fetchOpenOrders(this.activeTab); }
     async placeOrder(order: import('./types').PlaceOrderPayload) { return await this.paper.placeOrder(this.activeTab, order); }
     async cancelOrder(orderId: number) { return await this.paper.cancelOrder(this.activeTab, orderId); }
+    async fetchSlotStates() { await this.paper.fetchSlotStates(this.activeTab); }
+    async fetchEquityHistory() { await this.paper.fetchEquityHistory(this.activeTab); }
+    async openSlot(direction: 'LONG' | 'SHORT') { return await this.paper.openSlot(this.activeTab, direction); }
+    async closeSlot() { return await this.paper.closeSlot(this.activeTab); }
 
     async fetchDashboardStats() { await this.analytics.fetchDashboardStats(this.sessionCapital); }
 }

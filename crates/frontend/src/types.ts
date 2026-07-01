@@ -427,6 +427,35 @@ export interface ScaleInPortion {
     portion_number: number;
 }
 
+export interface PositionSlot {
+    id: number;
+    position_id: number;
+    symbol: string;
+    direction: 'LONG' | 'SHORT';
+    slot_index: number;
+    is_active: boolean;
+    entry_price: number;
+    size: number;
+    allocated_usd: number;
+    realized_pnl: number;
+    timestamp: number;
+}
+
+export interface SlotState {
+    slot_index: number;
+    is_active: boolean;
+    entry_price: number;
+    size: number;
+    allocated_usd: number;
+}
+
+export interface EquitySnapshot {
+    timestamp: number;
+    equity_value: number;
+    cash_balance: number;
+    unrealized_pnl: number;
+}
+
 export interface TakeProfitTarget {
     id: number;
     target_price: number;

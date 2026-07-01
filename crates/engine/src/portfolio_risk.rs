@@ -127,9 +127,10 @@ pub async fn validate_new_position(
 pub async fn query_all_active_positions(pool: &SqlitePool) -> Vec<db::ActivePaperPosition> {
     use sqlx::Row;
     let rows = match sqlx::query(
-        "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp,
-                average_entry_price, current_portions, final_invalidation_level, target_profit_ratio
-         FROM active_positions",
+    "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp,
+            average_entry_price, current_portions, final_invalidation_level, target_profit_ratio,
+            initial_allocated_margin, realized_pnl_accumulator
+     FROM active_positions",
     )
     .fetch_all(pool)
     .await
@@ -151,6 +152,8 @@ pub async fn query_all_active_positions(pool: &SqlitePool) -> Vec<db::ActivePape
             current_portions: r.get(8),
             final_invalidation_level: r.get(9),
             target_profit_ratio: r.get(10),
+            initial_allocated_margin: r.get(11),
+            realized_pnl_accumulator: r.get(12),
         })
         .collect()
 }

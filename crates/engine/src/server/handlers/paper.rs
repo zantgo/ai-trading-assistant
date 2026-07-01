@@ -1,8 +1,9 @@
 use crate::server::helpers::get_active_pair;
 use crate::server::types::{
-    CancelOrderRequest, PaperConfigRequest, PaperOrderRequest, PaperPerformanceQuery,
-    PaperResetRequest, PaperPositionPctRequest, PaperStatusQuery, PaperTpSlRequest,
-    PlaceOrderRequest, PlaceOrderResponse,
+    CancelOrderRequest, PaperConfigRequest, PaperEquityHistoryQuery, PaperOrderRequest,
+    PaperPerformanceQuery, PaperPortionCloseRequest, PaperPortionCloseResponse,
+    PaperPortionOpenRequest, PaperPortionOpenResponse, PaperPositionPctRequest,
+    PaperResetRequest, PaperStatusQuery, PaperTpSlRequest, PlaceOrderRequest, PlaceOrderResponse,
 };
 use crate::server::AppState;
 use axum::{
@@ -489,4 +490,131 @@ pub async fn serve_paper_performance(
         avg_roi,
         max_drawdown_pct,
     })
+}
+
+/// Open a portion slot at the first vacant index using dynamic margin allocation.
+pub async fn serve_paper_portion_open(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperPortionOpenRequest>,
+) -> impl IntoResponse {
+    let pair = get_active_pair(&state.workspace, &payload.symbol).await;
+    let current_price = if let Some(ref p) = pair {
+        p.latest_price().await.unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    if current_price <= 0.0 {
+        return Json(PaperPortionOpenResponse {
+            success: false, message: "No price data available".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+        });
+    }
+
+    let dir = payload.direction.to_uppercase();
+    if dir != "LONG" && dir != "SHORT" {
+        return Json(PaperPortionOpenResponse {
+            success: false, message: "Direction must be LONG or SHORT".into(),
+            slot_index: -1, size: 0.0, allocated_usd: 0.0,
+        });
+    }
+
+    let result = crate::paper_trading::open_slot_internal(
+        &state.pool, &state.telemetry_tx, &payload.symbol, &dir, current_price,
+    ).await;
+
+    Json(PaperPortionOpenResponse {
+        success: result.success,
+        message: result.message,
+        slot_index: result.slot_index,
+        size: result.size,
+        allocated_usd: result.allocated_usd,
+    })
+}
+
+/// Close the oldest active portion slot (FIFO) for the given symbol.
+pub async fn serve_paper_portion_close(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PaperPortionCloseRequest>,
+) -> impl IntoResponse {
+    let pair = get_active_pair(&state.workspace, &payload.symbol).await;
+    let current_price = if let Some(ref p) = pair {
+        p.latest_price().await.unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    if current_price <= 0.0 {
+        return Json(PaperPortionCloseResponse {
+            success: false, message: "No price data available".into(),
+            slot_index: -1, realized_pnl: 0.0, refunded_usd: 0.0,
+        });
+    }
+
+    let result = crate::paper_trading::close_slot_internal(
+        &state.pool, &state.telemetry_tx, &payload.symbol, current_price, "MANUAL",
+    ).await;
+
+    Json(PaperPortionCloseResponse {
+        success: result.success,
+        message: result.message,
+        slot_index: result.slot_index,
+        realized_pnl: result.realized_pnl,
+        refunded_usd: result.refunded_usd,
+    })
+}
+
+/// Fetch position-level equity history for the performance chart.
+pub async fn serve_paper_equity_history(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PaperEquityHistoryQuery>,
+) -> impl IntoResponse {
+    let symbol = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        crate::server::helpers::default_pair_key(&first)
+    } else {
+        query.symbol
+    };
+
+    let limit = query.limit.min(1000);
+    let rows = crate::db::paper_fetch_equity_history(&state.pool, &symbol, limit).await;
+
+    let snapshots: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|(ts, ev, cb, up)| {
+            serde_json::json!({
+                "timestamp": ts,
+                "equity_value": ev,
+                "cash_balance": cb,
+                "unrealized_pnl": up,
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "symbol": symbol,
+        "snapshots": snapshots,
+        "count": snapshots.len(),
+    }))
+}
+
+/// Fetch slot states for the given symbol (padded to 4 slots).
+pub async fn serve_paper_slot_states(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PaperStatusQuery>,
+) -> impl IntoResponse {
+    let symbol = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        crate::server::helpers::default_pair_key(&first)
+    } else {
+        query.symbol
+    };
+
+    let states = crate::paper_trading::get_slot_states(&state.pool, &symbol).await;
+    Json(serde_json::json!({
+        "symbol": symbol,
+        "slots": states,
+    }))
 }

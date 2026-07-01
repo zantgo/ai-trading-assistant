@@ -90,116 +90,119 @@ async fn handle_reduce_only_fill(
         None => return,
     };
 
-    let size_fraction_pct = order.size;
-    let close_fraction = (size_fraction_pct / 100.0).min(1.0);
-    let exit_size = pos.size * close_fraction;
-    let remaining_size = pos.size - exit_size;
+    // Use FIFO slot-based closure
+    let oldest = match db::paper_get_oldest_active_slot(pool, symbol).await {
+        Some(s) => s,
+        None => {
+            // Legacy fallback: no position_slots entries — close via old percentage method
+            let size_fraction_pct = order.size;
+            let close_fraction = (size_fraction_pct / 100.0).min(1.0);
+            let exit_size = pos.size * close_fraction;
+            let remaining_size = pos.size - exit_size;
+            let entry_avg = pos.average_entry_price.unwrap_or(pos.entry_price);
+            let realized_pnl = if pos.direction == "LONG" {
+                (current_price - entry_avg) * exit_size
+            } else {
+                (entry_avg - current_price) * exit_size
+            };
+            let allocated_released = pos.allocated_usd * close_fraction;
+            let total_credit = allocated_released + realized_pnl;
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
 
-    let entry_avg = pos.average_entry_price.unwrap_or(pos.entry_price);
-    let realized_pnl = if pos.direction == "LONG" {
-        (current_price - entry_avg) * exit_size
-    } else {
-        (entry_avg - current_price) * exit_size
+            if let Ok(mut tx) = pool.begin().await {
+                if remaining_size > 0.0 {
+                    let new_allocated = pos.allocated_usd - allocated_released;
+                    sqlx::query("UPDATE active_positions SET size = ?2, allocated_usd = ?3 WHERE symbol = ?1")
+                        .bind(symbol).bind(remaining_size).bind(new_allocated)
+                        .execute(&mut *tx).await.ok();
+                } else {
+                    sqlx::query("DELETE FROM active_positions WHERE symbol = ?1").bind(symbol).execute(&mut *tx).await.ok();
+                    sqlx::query("DELETE FROM position_slots WHERE symbol = ?1").bind(symbol).execute(&mut *tx).await.ok();
+                    sqlx::query("DELETE FROM open_orders WHERE associated_position_id = ?1").bind(pos.id).execute(&mut *tx).await.ok();
+                }
+                sqlx::query("UPDATE paper_balances SET current_cash = current_cash + ?2 WHERE symbol = ?1")
+                    .bind(symbol).bind(total_credit).execute(&mut *tx).await.ok();
+                let roi_pct = if allocated_released > 0.0 { (realized_pnl / allocated_released) * 100.0 } else { 0.0 };
+                sqlx::query("INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
+                    .bind(symbol).bind(&pos.direction).bind(entry_avg).bind(current_price).bind(exit_size).bind(realized_pnl).bind(roi_pct).bind(pos.entry_timestamp).bind(now).bind(if order.order_type == "LIMIT" { "TP" } else { "SL" })
+                    .execute(&mut *tx).await.ok();
+                let _ = tx.commit().await;
+            }
+            let _ = telemetry_tx.send(db::TelemetryMsg::JournalTrade {
+                symbol: symbol.to_string(), direction: pos.direction.clone(),
+                entry_price: entry_avg, exit_price: current_price,
+                entry_timestamp: pos.entry_timestamp, exit_timestamp: now,
+                size: exit_size, realized_pnl, roi_pct: if allocated_released > 0.0 { (realized_pnl / allocated_released) * 100.0 } else { 0.0 },
+                allocated_usd: allocated_released,
+                trigger: if order.order_type == "LIMIT" { "TP".to_string() } else { "SL".to_string() },
+            }).await;
+            return;
+        }
     };
 
-    let allocated_released = pos.allocated_usd * close_fraction;
-    let total_credit = allocated_released + realized_pnl;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
+    // FIFO slot-based closure: close the oldest active slot
+    let pnl = if oldest.direction == "LONG" {
+        (current_price - oldest.entry_price) * oldest.size
+    } else {
+        (oldest.entry_price - current_price) * oldest.size
+    };
+    let refund = oldest.allocated_usd + pnl;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
 
     if let Ok(mut tx) = pool.begin().await {
-        if remaining_size > 0.0 {
-            let new_allocated = pos.allocated_usd - allocated_released;
-            sqlx::query(
-                "UPDATE active_positions SET size = ?2, allocated_usd = ?3 WHERE symbol = ?1",
-            )
-            .bind(symbol)
-            .bind(remaining_size)
-            .bind(new_allocated)
-            .execute(&mut *tx)
-            .await
-            .ok();
+        // Mark slot inactive with realized PnL
+        sqlx::query("UPDATE position_slots SET is_active = 0, realized_pnl = ?2 WHERE id = ?1")
+            .bind(oldest.id).bind(pnl).execute(&mut *tx).await.ok();
+
+        // Update realized_pnl_accumulator
+        let current_accum = pos.realized_pnl_accumulator.unwrap_or(0.0);
+        sqlx::query("UPDATE active_positions SET realized_pnl_accumulator = ?2 WHERE symbol = ?1")
+            .bind(symbol).bind(current_accum + pnl).execute(&mut *tx).await.ok();
+
+        // Refund margin + PnL to balance
+        sqlx::query("UPDATE paper_balances SET current_cash = current_cash + ?2 WHERE symbol = ?1")
+            .bind(symbol).bind(refund).execute(&mut *tx).await.ok();
+
+        // Record trade
+        let roi_pct = if oldest.allocated_usd > 0.0 { (pnl / oldest.allocated_usd) * 100.0 } else { 0.0 };
+        sqlx::query("INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
+            .bind(symbol).bind(&oldest.direction).bind(oldest.entry_price).bind(current_price).bind(oldest.size).bind(pnl).bind(roi_pct).bind(oldest.timestamp).bind(now).bind(if order.order_type == "LIMIT" { "TP" } else { "SL" })
+            .execute(&mut *tx).await.ok();
+
+        // Recalculate aggregates; clean up if no active slots remain
+        let remaining = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM position_slots WHERE symbol = ?1 AND is_active = 1")
+            .bind(symbol).fetch_one(&mut *tx).await.unwrap_or(0);
+        if remaining == 0 {
+            sqlx::query("DELETE FROM active_positions WHERE symbol = ?1").bind(symbol).execute(&mut *tx).await.ok();
+            sqlx::query("DELETE FROM position_slots WHERE symbol = ?1").bind(symbol).execute(&mut *tx).await.ok();
+            sqlx::query("DELETE FROM open_orders WHERE associated_position_id = ?1").bind(pos.id).execute(&mut *tx).await.ok();
         } else {
-            sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
-                .bind(symbol)
-                .execute(&mut *tx)
-                .await
-                .ok();
-            sqlx::query("DELETE FROM active_position_portions WHERE symbol = ?1")
-                .bind(symbol)
-                .execute(&mut *tx)
-                .await
-                .ok();
-            sqlx::query(
-                "DELETE FROM open_orders WHERE associated_position_id = ?1",
-            )
-            .bind(pos.id)
-            .execute(&mut *tx)
-            .await
-            .ok();
+            // Recalculate aggregate position fields
+            let total_size: f64 = sqlx::query_scalar("SELECT COALESCE(SUM(size), 0.0) FROM position_slots WHERE symbol = ?1 AND is_active = 1")
+                .bind(symbol).fetch_one(&mut *tx).await.unwrap_or(0.0);
+            let total_alloc: f64 = sqlx::query_scalar("SELECT COALESCE(SUM(allocated_usd), 0.0) FROM position_slots WHERE symbol = ?1 AND is_active = 1")
+                .bind(symbol).fetch_one(&mut *tx).await.unwrap_or(0.0);
+            let weighted_price = if total_size > 0.0 {
+                sqlx::query_scalar::<_, f64>("SELECT COALESCE(SUM(entry_price * size) / SUM(size), 0.0) FROM position_slots WHERE symbol = ?1 AND is_active = 1")
+                    .bind(symbol).fetch_one(&mut *tx).await.unwrap_or(0.0)
+            } else { 0.0 };
+            let count = remaining as i32;
+            sqlx::query("UPDATE active_positions SET size = ?2, allocated_usd = ?3, average_entry_price = ?4, current_portions = ?5 WHERE symbol = ?1")
+                .bind(symbol).bind(total_size).bind(total_alloc).bind(weighted_price).bind(count)
+                .execute(&mut *tx).await.ok();
         }
-
-        sqlx::query(
-            "UPDATE paper_balances SET current_cash = current_cash + ?2 WHERE symbol = ?1",
-        )
-        .bind(symbol)
-        .bind(total_credit)
-        .execute(&mut *tx)
-        .await
-        .ok();
-
-        let roi_pct = if allocated_released > 0.0 {
-            (realized_pnl / allocated_released) * 100.0
-        } else {
-            0.0
-        };
-        sqlx::query(
-            "INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        )
-        .bind(symbol)
-        .bind(&pos.direction)
-        .bind(entry_avg)
-        .bind(current_price)
-        .bind(exit_size)
-        .bind(realized_pnl)
-        .bind(roi_pct)
-        .bind(pos.entry_timestamp)
-        .bind(now)
-        .bind(if order.order_type == "LIMIT" { "TP" } else { "SL" })
-        .execute(&mut *tx)
-        .await
-        .ok();
-
         let _ = tx.commit().await;
     }
 
-    let _ = telemetry_tx
-        .send(db::TelemetryMsg::JournalTrade {
-            symbol: symbol.to_string(),
-            direction: pos.direction.clone(),
-            entry_price: entry_avg,
-            exit_price: current_price,
-            entry_timestamp: pos.entry_timestamp,
-            exit_timestamp: now,
-            size: exit_size,
-            realized_pnl,
-            roi_pct: if allocated_released > 0.0 {
-                (realized_pnl / allocated_released) * 100.0
-            } else {
-                0.0
-            },
-            allocated_usd: allocated_released,
-            trigger: if order.order_type == "LIMIT" {
-                "TP".to_string()
-            } else {
-                "SL".to_string()
-            },
-        })
-        .await;
+    let _ = telemetry_tx.send(db::TelemetryMsg::JournalTrade {
+        symbol: symbol.to_string(), direction: oldest.direction.clone(),
+        entry_price: oldest.entry_price, exit_price: current_price,
+        entry_timestamp: oldest.timestamp, exit_timestamp: now,
+        size: oldest.size, realized_pnl: pnl,
+        roi_pct: if oldest.allocated_usd > 0.0 { (pnl / oldest.allocated_usd) * 100.0 } else { 0.0 },
+        allocated_usd: oldest.allocated_usd,
+        trigger: if order.order_type == "LIMIT" { "TP".to_string() } else { "SL".to_string() },
+    }).await;
 }
 
 async fn handle_standard_entry_fill(
@@ -211,11 +214,11 @@ async fn handle_standard_entry_fill(
 ) {
     let dir = if order.direction == "BUY" { "LONG" } else { "SHORT" };
     let result =
-        paper_trading::open_position_pct(pool, telemetry_tx, symbol, dir, 25.0, current_price).await;
+        paper_trading::open_slot_internal(pool, telemetry_tx, symbol, dir, current_price).await;
     if result.success {
         println!(
-            "📄 Order Matcher: Filled {} entry for {} at ${:.2}",
-            order.order_type, symbol, current_price
+            "📄 Order Matcher: Filled {} entry for {} at ${:.2} (slot {})",
+            order.order_type, symbol, current_price, result.slot_index
         );
     } else {
         eprintln!(

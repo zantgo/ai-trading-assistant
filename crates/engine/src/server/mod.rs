@@ -162,6 +162,22 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::paper::serve_paper_cancel_order),
         )
         .route(
+            "/api/paper/portion/open",
+            post(handlers::paper::serve_paper_portion_open),
+        )
+        .route(
+            "/api/paper/portion/close",
+            post(handlers::paper::serve_paper_portion_close),
+        )
+        .route(
+            "/api/paper/equity-history",
+            get(handlers::paper::serve_paper_equity_history),
+        )
+        .route(
+            "/api/paper/slot-states",
+            get(handlers::paper::serve_paper_slot_states),
+        )
+        .route(
             "/api/instances",
             get(handlers::instances::serve_list_instances)
                 .post(handlers::instances::serve_add_instance),

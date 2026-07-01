@@ -15,8 +15,8 @@ pub(crate) async fn paper_open_position_internal(
 
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT OR REPLACE INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, target_profit_ratio)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, 1, 0, 2.0)"
+        "INSERT OR REPLACE INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, target_profit_ratio, initial_allocated_margin, realized_pnl_accumulator)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, 1, 0, 2.0, ?5, 0.0)"
     )
     .bind(symbol)
     .bind(direction)
@@ -92,7 +92,7 @@ pub(crate) async fn paper_close_position_internal(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM active_position_portions WHERE symbol = ?1")
+    sqlx::query("DELETE FROM position_slots WHERE symbol = ?1")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
@@ -152,28 +152,32 @@ pub(crate) async fn paper_scale_in_portion_internal(
         .unwrap()
         .as_millis() as i64;
 
-    let mut tx = pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO active_position_portions (symbol, direction, entry_price, size, allocated_usd, portion_number, timestamp)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
-    )
-    .bind(symbol)
-    .bind(direction)
-    .bind(entry_price)
-    .bind(size)
-    .bind(allocated_usd)
-    .bind(portion_number)
-    .bind(now)
-    .execute(&mut *tx)
-    .await?;
+    let position = sqlx::query_as::<_, (i64,)>("SELECT id FROM active_positions WHERE symbol = ?1")
+        .bind(symbol)
+        .fetch_optional(&*pool)
+        .await?;
 
-    let now_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
+    let mut tx = pool.begin().await?;
+    if let Some((pos_id,)) = position {
+        sqlx::query(
+            "INSERT OR IGNORE INTO position_slots (position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp)
+             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7, 0.0, ?8)"
+        )
+        .bind(pos_id)
+        .bind(symbol)
+        .bind(direction)
+        .bind(portion_number)
+        .bind(entry_price)
+        .bind(size)
+        .bind(allocated_usd)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     sqlx::query(
-        "INSERT INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, target_profit_ratio)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 2.0)
+        "INSERT INTO active_positions (symbol, direction, entry_price, size, allocated_usd, entry_timestamp, average_entry_price, current_portions, final_invalidation_level, target_profit_ratio, initial_allocated_margin, realized_pnl_accumulator)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 2.0, ?5, 0.0)
          ON CONFLICT(symbol) DO UPDATE SET
             entry_price = excluded.entry_price,
             size = excluded.size,
@@ -186,7 +190,7 @@ pub(crate) async fn paper_scale_in_portion_internal(
     .bind(new_average_entry_price)
     .bind(total_size)
     .bind(allocated_usd)
-    .bind(now_ts)
+    .bind(now)
     .bind(new_average_entry_price)
     .bind(portion_number)
     .bind(final_invalidation_level)
@@ -195,7 +199,7 @@ pub(crate) async fn paper_scale_in_portion_internal(
     tx.commit().await?;
 
     println!(
-        "📄 Paper Scale-In: Portion {}/3 for {} {} @ ${:.2} | New Avg: ${:.2} | Total Size: {:.4}",
+        "📄 Paper Scale-In: Slot {} for {} {} @ ${:.2} | New Avg: ${:.2} | Total Size: {:.4}",
         portion_number, symbol, direction, entry_price, new_average_entry_price, total_size
     );
     Ok(())
@@ -226,14 +230,14 @@ pub(crate) async fn paper_scale_out_portion_internal(
             .execute(&mut *tx)
             .await?;
     } else {
-        sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
-            .bind(symbol)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM active_position_portions WHERE symbol = ?1")
-            .bind(symbol)
-            .execute(&mut *tx)
-            .await?;
+    sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
+        .bind(symbol)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM position_slots WHERE symbol = ?1")
+        .bind(symbol)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM open_orders WHERE associated_position_id IS NULL AND symbol = ?1")
             .bind(symbol)
             .execute(&mut *tx)
@@ -300,12 +304,12 @@ pub(crate) async fn paper_invalidate_position_internal(
     .bind(&format!("INVALIDATION:{}", reason))
     .execute(&mut *tx)
     .await?;
-
     sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM active_position_portions WHERE symbol = ?1")
+
+    sqlx::query("DELETE FROM position_slots WHERE symbol = ?1")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
@@ -411,7 +415,7 @@ pub async fn paper_reset_account(pool: &SqlitePool, symbol: &str) -> Result<(), 
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM active_position_portions WHERE symbol = ?1")
+    sqlx::query("DELETE FROM position_slots WHERE symbol = ?1")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;

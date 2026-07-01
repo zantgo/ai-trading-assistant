@@ -29,6 +29,23 @@ pub struct ActivePaperPosition {
     pub current_portions: Option<i32>,
     pub final_invalidation_level: Option<f64>,
     pub target_profit_ratio: Option<f64>,
+    pub initial_allocated_margin: Option<f64>,
+    pub realized_pnl_accumulator: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct PositionSlotRecord {
+    pub id: i64,
+    pub position_id: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub slot_index: i32,
+    pub is_active: bool,
+    pub entry_price: f64,
+    pub size: f64,
+    pub allocated_usd: f64,
+    pub realized_pnl: f64,
+    pub timestamp: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -62,11 +79,14 @@ pub struct PaperAccountMetrics {
     pub available_trades: u32,
     pub active_position: Option<ActivePaperPosition>,
     pub scale_in_portions: Vec<ScaleInPortionRecord>,
+    pub position_slots: Vec<PositionSlotRecord>,
     pub take_profit_targets: Vec<OpenOrder>,
     pub max_risk_pct: f64,
     pub leverage: i32,
     pub auto_execute_intervals: i32,
     pub lookback_trades: i32,
+    pub initial_allocated_margin: f64,
+    pub realized_pnl_accumulator: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
@@ -154,7 +174,8 @@ pub async fn paper_get_active_position(
     use sqlx::Row;
     let row = sqlx::query(
         "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp,
-                average_entry_price, current_portions, final_invalidation_level, target_profit_ratio
+                average_entry_price, current_portions, final_invalidation_level, target_profit_ratio,
+                initial_allocated_margin, realized_pnl_accumulator
          FROM active_positions WHERE symbol = ?1",
     )
     .bind(symbol)
@@ -175,6 +196,8 @@ pub async fn paper_get_active_position(
         current_portions: r.get(8),
         final_invalidation_level: r.get(9),
         target_profit_ratio: r.get(10),
+        initial_allocated_margin: r.get(11),
+        realized_pnl_accumulator: r.get(12),
     })
 }
 
@@ -261,14 +284,36 @@ pub async fn paper_get_account_metrics(
     let active_trades = if position.is_some() { 1u32 } else { 0u32 };
     let available_trades = max_trades.saturating_sub(active_trades);
 
-    // Fetch scale-in portions
-    let portions: Vec<ScaleInPortionRecord> = sqlx::query_as(
-        "SELECT id, entry_price, size, allocated_usd, portion_number FROM active_position_portions WHERE symbol = ?1 ORDER BY portion_number ASC"
-    )
-    .bind(symbol)
-    .fetch_all(&*pool)
-    .await
-    .unwrap_or_default();
+    // Fetch position slots
+    let position_id = position.as_ref().map(|p| p.id);
+    let slots: Vec<PositionSlotRecord> = if let Some(pid) = position_id {
+        sqlx::query_as(
+            "SELECT id, position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp
+             FROM position_slots WHERE position_id = ?1 ORDER BY slot_index ASC"
+        )
+        .bind(pid)
+        .fetch_all(&*pool)
+        .await
+        .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    // Backward-compat: derive scale_in_portions from active slots
+    let portions: Vec<ScaleInPortionRecord> = slots
+        .iter()
+        .filter(|s| s.is_active)
+        .map(|s| ScaleInPortionRecord {
+            id: s.id,
+            entry_price: s.entry_price,
+            size: s.size,
+            allocated_usd: s.allocated_usd,
+            portion_number: s.slot_index,
+        })
+        .collect();
+
+    let initial_margin = position.as_ref().and_then(|p| p.initial_allocated_margin).unwrap_or(0.0);
+    let realized_accum = position.as_ref().and_then(|p| p.realized_pnl_accumulator).unwrap_or(0.0);
 
     // Fetch take-profit targets (now from open_orders where is_reduce_only = 1)
     let take_profit_targets: Vec<OpenOrder> = if let Some(ref pos) = position {
@@ -299,11 +344,14 @@ pub async fn paper_get_account_metrics(
         available_trades,
         active_position: position,
         scale_in_portions: portions,
+        position_slots: slots,
         take_profit_targets,
         max_risk_pct: balance.max_risk_pct,
         leverage: balance.leverage,
         auto_execute_intervals: balance.auto_execute_intervals,
         lookback_trades: balance.lookback_trades,
+        initial_allocated_margin: initial_margin,
+        realized_pnl_accumulator: realized_accum,
     }
 }
 
@@ -344,4 +392,112 @@ pub async fn paper_count_brackets_by_type(pool: &SqlitePool, position_id: i64) -
         Ok(r) => (r.get(0), r.get(1)),
         Err(_) => (0, 0),
     }
+}
+
+// ─── Slot Operations ──────────────────────────────────────────────
+
+pub async fn paper_get_active_slots(pool: &SqlitePool, symbol: &str) -> Vec<PositionSlotRecord> {
+    sqlx::query_as(
+        "SELECT id, position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp
+         FROM position_slots WHERE symbol = ?1 AND is_active = 1 ORDER BY slot_index ASC"
+    )
+    .bind(symbol)
+    .fetch_all(&*pool)
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn paper_get_active_slot_count(pool: &SqlitePool, symbol: &str) -> i32 {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT COUNT(*) FROM position_slots WHERE symbol = ?1 AND is_active = 1"
+    )
+    .bind(symbol)
+    .fetch_one(&*pool)
+    .await;
+    match row {
+        Ok(r) => r.get::<i64, _>(0) as i32,
+        Err(_) => 0,
+    }
+}
+
+pub async fn paper_find_vacant_slot(pool: &SqlitePool, symbol: &str) -> Option<i32> {
+    use sqlx::Row;
+    for idx in 0..4i32 {
+        let row = sqlx::query(
+            "SELECT COUNT(*) FROM position_slots WHERE symbol = ?1 AND slot_index = ?2 AND is_active = 1"
+        )
+        .bind(symbol)
+        .bind(idx)
+        .fetch_one(&*pool)
+        .await;
+        if let Ok(r) = row {
+            if r.get::<i64, _>(0) == 0 {
+                return Some(idx);
+            }
+        }
+    }
+    None
+}
+
+pub async fn paper_get_oldest_active_slot(pool: &SqlitePool, symbol: &str) -> Option<PositionSlotRecord> {
+    sqlx::query_as(
+        "SELECT id, position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp
+         FROM position_slots WHERE symbol = ?1 AND is_active = 1 ORDER BY timestamp ASC LIMIT 1"
+    )
+    .bind(symbol)
+    .fetch_optional(&*pool)
+    .await
+    .unwrap_or(None)
+}
+
+// ─── Position Equity Snapshots ────────────────────────────────────
+
+pub async fn paper_insert_equity_snapshot(
+    pool: &SqlitePool,
+    symbol: &str,
+    timestamp_ms: i64,
+    equity_value: f64,
+    cash_balance: f64,
+    unrealized_pnl: f64,
+) {
+    let _ = sqlx::query(
+        "INSERT INTO position_equity_snapshots (symbol, timestamp, equity_value, cash_balance, unrealized_pnl)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(symbol)
+    .bind(timestamp_ms)
+    .bind(equity_value)
+    .bind(cash_balance)
+    .bind(unrealized_pnl)
+    .execute(pool)
+    .await;
+}
+
+pub async fn paper_fetch_equity_history(
+    pool: &SqlitePool,
+    symbol: &str,
+    limit: i64,
+) -> Vec<(i64, f64, f64, f64)> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT timestamp, equity_value, cash_balance, unrealized_pnl
+         FROM position_equity_snapshots WHERE symbol = ?1
+         ORDER BY timestamp DESC LIMIT ?2"
+    )
+    .bind(symbol)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.iter()
+        .map(|r| {
+            let ts: i64 = r.get(0);
+            let ev: f64 = r.get(1);
+            let cb: f64 = r.get(2);
+            let up: f64 = r.get(3);
+            (ts, ev, cb, up)
+        })
+        .collect()
 }

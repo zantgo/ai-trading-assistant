@@ -46,25 +46,30 @@ async fn setup_full_schema() -> SqlitePool {
             final_invalidation_level REAL,
             target_profit_ratio REAL DEFAULT 2.0,
             current_portions INTEGER DEFAULT 1,
-            average_entry_price REAL
+            average_entry_price REAL,
+            initial_allocated_margin REAL NOT NULL DEFAULT 0.0,
+            realized_pnl_accumulator REAL NOT NULL DEFAULT 0.0
         )",
     )
     .execute(&pool)
     .await
     .unwrap();
 
-    // active_position_portions
+    // position_slots
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS active_position_portions (
+        "CREATE TABLE IF NOT EXISTS position_slots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            position_id INTEGER,
+            position_id INTEGER NOT NULL,
             symbol TEXT NOT NULL,
-            direction TEXT NOT NULL,
-            entry_price REAL NOT NULL,
-            size REAL NOT NULL,
-            allocated_usd REAL NOT NULL,
-            portion_number INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL
+            direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+            slot_index INTEGER NOT NULL CHECK (slot_index BETWEEN 0 AND 3),
+            is_active INTEGER NOT NULL DEFAULT 0,
+            entry_price REAL NOT NULL DEFAULT 0.0,
+            size REAL NOT NULL DEFAULT 0.0,
+            allocated_usd REAL NOT NULL DEFAULT 0.0,
+            realized_pnl REAL DEFAULT 0.0,
+            timestamp INTEGER NOT NULL,
+            FOREIGN KEY (position_id) REFERENCES active_positions(id) ON DELETE CASCADE
         )",
     )
     .execute(&pool)

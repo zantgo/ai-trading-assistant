@@ -1,0 +1,130 @@
+.perfContainer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.perfHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #2a2e39;
+    flex-shrink: 0;
+}
+.perfTitle {
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+.perfValue {
+    font-size: 14px;
+    font-weight: 800;
+    font-family: monospace;
+}
+.green { color: #10b981; }
+.red { color: #ef4444; }
+
+.chartRow {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 8px;
+    padding: 6px;
+}
+
+.chartArea {
+    flex: 1;
+    min-width: 0;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.donutWrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 140px;
+    flex-shrink: 0;
+    justify-content: center;
+}
+.donutSvg {
+    width: 90px;
+    height: 90px;
+}
+
+.donutLegend {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+}
+.legendItem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.legendDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.dotBlue { background: #3b82f6; }
+.dotGray { background: #64748b; }
+.legendLabel {
+    font-size: 9px;
+    color: #94a3b8;
+    font-family: monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Fullscreen */
+.fullscreenBackdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.fullscreenContent {
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    width: 95vw;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.fullscreenHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #2a2e39;
+    color: #f1f5f9;
+    font-size: 13px;
+    font-weight: 700;
+}
+.closeBtn {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+.closeBtn:hover { color: #f1f5f9; }
+.fullscreenChart {
+    flex: 1;
+    min-height: 0;
+}

@@ -10,11 +10,13 @@ pub mod seed;
 // ─── Paper re-exports ──────────────────────────────────────────────
 
 pub use paper::{
-    paper_count_brackets_by_type, paper_ensure_balance, paper_get_account_metrics,
-    paper_get_active_position, paper_get_balance, paper_get_brackets_for_position,
-    paper_get_open_orders, paper_query_trades, paper_reset_account, paper_set_advanced_config,
-    paper_set_balance_config, ActivePaperPosition, OpenOrder, PaperAccountMetrics, PaperBalance,
-    PaperTradeRecord, ScaleInPortionRecord,
+    paper_count_brackets_by_type, paper_ensure_balance, paper_fetch_equity_history,
+    paper_find_vacant_slot, paper_get_account_metrics, paper_get_active_position,
+    paper_get_active_slot_count, paper_get_active_slots, paper_get_balance,
+    paper_get_brackets_for_position, paper_get_oldest_active_slot, paper_get_open_orders,
+    paper_insert_equity_snapshot, paper_query_trades, paper_reset_account,
+    paper_set_advanced_config, paper_set_balance_config, ActivePaperPosition, OpenOrder,
+    PaperAccountMetrics, PaperBalance, PaperTradeRecord, PositionSlotRecord, ScaleInPortionRecord,
 };
 
 // ─── Logger re-exports ─────────────────────────────────────────────

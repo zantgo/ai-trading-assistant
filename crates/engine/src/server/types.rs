@@ -343,6 +343,46 @@ pub struct PlaceOrderResponse {
     pub order_id: Option<i64>,
 }
 
+// ─── Portion Slot Operations ──────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PaperPortionOpenRequest {
+    pub symbol: String,
+    pub direction: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaperPortionOpenResponse {
+    pub success: bool,
+    pub message: String,
+    pub slot_index: i32,
+    pub size: f64,
+    pub allocated_usd: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperPortionCloseRequest {
+    pub symbol: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaperPortionCloseResponse {
+    pub success: bool,
+    pub message: String,
+    pub slot_index: i32,
+    pub realized_pnl: f64,
+    pub refunded_usd: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaperEquityHistoryQuery {
+    #[serde(default)]
+    pub symbol: String,
+    #[serde(default = "default_equity_limit")]
+    pub limit: i64,
+}
+fn default_equity_limit() -> i64 { 200 }
+
 // ─── Decision Profiles ────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

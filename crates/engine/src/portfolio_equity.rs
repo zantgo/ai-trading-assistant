@@ -94,6 +94,22 @@ async fn write_snapshot(pool: &SqlitePool, workspace: &Arc<Workspace>) {
                 pos.size * (pos.entry_price - price)
             };
             total_unrealized += unrealized;
+
+            // Log per-position equity snapshot for performance charts
+            let pos_equity = pos.allocated_usd + unrealized;
+            let pos_cash: f64 = sqlx::query_scalar(
+                "SELECT current_cash FROM paper_balances WHERE symbol = ?1"
+            )
+            .bind(&symbol)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0.0);
+            crate::db::paper_insert_equity_snapshot(
+                pool, &symbol, now_ms, pos_equity, pos_cash, unrealized,
+            )
+            .await;
         }
     }
 
