@@ -10,10 +10,11 @@ pub mod seed;
 // ─── Paper re-exports ──────────────────────────────────────────────
 
 pub use paper::{
-    paper_ensure_balance, paper_get_account_metrics, paper_get_active_position, paper_get_balance,
-    paper_query_trades, paper_reset_account, paper_set_advanced_config, paper_set_balance_config,
-    ActivePaperPosition, PaperAccountMetrics, PaperBalance, PaperTradeRecord, ScaleInPortionRecord,
-    TakeProfitTargetRecord, TakeProfitTargetRow,
+    paper_count_brackets_by_type, paper_ensure_balance, paper_get_account_metrics,
+    paper_get_active_position, paper_get_balance, paper_get_brackets_for_position,
+    paper_get_open_orders, paper_query_trades, paper_reset_account, paper_set_advanced_config,
+    paper_set_balance_config, ActivePaperPosition, OpenOrder, PaperAccountMetrics, PaperBalance,
+    PaperTradeRecord, ScaleInPortionRecord,
 };
 
 // ─── Logger re-exports ─────────────────────────────────────────────

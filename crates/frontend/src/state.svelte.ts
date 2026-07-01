@@ -126,6 +126,7 @@ export class AppStore {
             'paperInvalidationLevel', 'paperFilledPortions', 'paperMaxRiskPct',
             'paperLeverage', 'paperAutoExecuteIntervals', 'paperLookbackTrades',
             'paperPositionPct', 'paperFreeBalancePct', 'paperDirection',
+            'openOrders',
         ]);
 
         this._delegate(this.settings, [
@@ -453,6 +454,9 @@ export class AppStore {
     async resetPaperAccount() { await this.paper.resetPaperAccount(this.activeTab); }
     async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) { await this.paper.savePaperConfig(this.activeTab, initialUSD, allocationPct, autoExecute); }
     async fetchPaperHistory(symbol?: string) { await this.paper.fetchPaperHistory(this.activeTab, symbol); }
+    async fetchOpenOrders() { await this.paper.fetchOpenOrders(this.activeTab); }
+    async placeOrder(order: import('./types').PlaceOrderPayload) { return await this.paper.placeOrder(this.activeTab, order); }
+    async cancelOrder(orderId: number) { return await this.paper.cancelOrder(this.activeTab, orderId); }
 
     async fetchDashboardStats() { await this.analytics.fetchDashboardStats(this.sessionCapital); }
 }

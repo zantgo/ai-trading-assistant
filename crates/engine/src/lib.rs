@@ -11,6 +11,7 @@ pub mod historical_analyst;
 pub mod instance;
 pub mod registry;
 pub mod llm;
+pub mod order_matcher;
 pub mod paper_trading;
 pub mod performance_evaluator;
 pub mod portfolio_equity;

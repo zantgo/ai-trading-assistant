@@ -1,4 +1,4 @@
-import type { ScaleInPortion, TakeProfitTarget } from '../types';
+import type { OpenOrder, PlaceOrderPayload, ScaleInPortion, TakeProfitTarget } from '../types';
 
 export class PaperTradingStore {
     paperCashBalance = $state(0);
@@ -29,6 +29,7 @@ export class PaperTradingStore {
     paperPositionPct = $state(0);
     paperFreeBalancePct = $state(100);
     paperDirection = $state<'LONG' | 'SHORT' | ''>('');
+    openOrders = $state<OpenOrder[]>([]);
 
     async fetchPaperStatus(pairKey: string) {
         try {
@@ -176,6 +177,37 @@ export class PaperTradingStore {
             const res = await fetch(url);
             if (res.ok) { this.paperHistory = (await res.json()).trades || []; }
         } catch (_) {}
+    }
+
+    async fetchOpenOrders(pairKey: string) {
+        try {
+            const res = await fetch(`/api/paper/open-orders?symbol=${encodeURIComponent(pairKey)}`);
+            if (res.ok) { this.openOrders = await res.json(); }
+        } catch (_) {}
+    }
+
+    async placeOrder(pairKey: string, order: PlaceOrderPayload) {
+        try {
+            const res = await fetch('/api/paper/order/place', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, ...order }),
+            });
+            const data = await res.json();
+            await this.fetchOpenOrders(pairKey);
+            return data;
+        } catch (_) { return { success: false, message: 'Network error' }; }
+    }
+
+    async cancelOrder(pairKey: string, orderId: number) {
+        try {
+            const res = await fetch('/api/paper/order/cancel', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol: pairKey, order_id: orderId }),
+            });
+            const data = await res.json();
+            await this.fetchOpenOrders(pairKey);
+            return data;
+        } catch (_) { return { success: false, message: 'Network error' }; }
     }
 }
 

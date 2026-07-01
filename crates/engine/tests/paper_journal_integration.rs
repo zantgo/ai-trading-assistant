@@ -71,16 +71,20 @@ async fn setup_full_schema() -> SqlitePool {
     .await
     .unwrap();
 
-    // position_take_profit_targets
+    // open_orders
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS position_take_profit_targets (
+        "CREATE TABLE IF NOT EXISTS open_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            position_id INTEGER,
             symbol TEXT NOT NULL,
-            target_price REAL NOT NULL,
-            size_fraction REAL NOT NULL,
-            is_hit INTEGER NOT NULL DEFAULT 0,
-            timestamp INTEGER NOT NULL
+            order_type TEXT NOT NULL CHECK (order_type IN ('LIMIT', 'STOP')),
+            direction TEXT NOT NULL CHECK (direction IN ('BUY', 'SELL')),
+            price REAL,
+            trigger_price REAL,
+            size REAL NOT NULL,
+            is_reduce_only INTEGER NOT NULL DEFAULT 0,
+            associated_position_id INTEGER,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (associated_position_id) REFERENCES active_positions(id)
         )",
     )
     .execute(&pool)
@@ -181,15 +185,15 @@ async fn seed_balance(pool: &SqlitePool, symbol: &str, cash: f64, alloc_pct: f64
 #[tokio::test]
 async fn test_full_paper_trade_to_journal_loop() {
     let pool = setup_full_schema().await;
-    seed_balance(&pool, "BTC", 10000.0, 30.0).await;
+    seed_balance(&pool, "BTC", 10000.0, 25.0).await;
 
     let tx = spawn_logger(pool.clone());
 
-    // ── STEP 1: Open 30% position ─────────────────────────────────────
+    // ── STEP 1: Open 25% position ─────────────────────────────────────
     let open =
-        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 30.0, 50000.0).await;
-    assert!(open.success, "30% open should succeed: {}", open.message);
-    assert!((open.position_pct - 30.0).abs() < 0.01);
+        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 25.0, 50000.0).await;
+    assert!(open.success, "25% open should succeed: {}", open.message);
+    assert!((open.position_pct - 25.0).abs() < 0.01);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
@@ -204,10 +208,10 @@ async fn test_full_paper_trade_to_journal_loop() {
     let balance_after_open = db::paper_get_balance(&pool, "BTC").await;
     assert!(balance_after_open.current_cash < 10000.0, "Cash should be deducted");
 
-    // ── STEP 2: Scale in additional 20% ────────────────────────────────
+    // ── STEP 2: Scale in additional 25% ────────────────────────────────
     let p2 =
-        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 20.0, 51000.0).await;
-    assert!(p2.success, "Scale-in 20% should succeed: {}", p2.message);
+        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 25.0, 51000.0).await;
+    assert!(p2.success, "Scale-in 25% should succeed: {}", p2.message);
     assert!((p2.position_pct - 50.0).abs() < 0.01);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
@@ -217,7 +221,7 @@ async fn test_full_paper_trade_to_journal_loop() {
 
     // ── STEP 3: Try over 100% — REJECTED ───────────────────────────────
     let p3 =
-        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 60.0, 52000.0).await;
+        engine::paper_trading::open_position_pct(&pool, &tx, "BTC", "LONG", 75.0, 52000.0).await;
     assert!(!p3.success, "Over-100% should be rejected: {}", p3.message);
     assert!(p3.message.contains("exceeds 100%"));
 
@@ -274,7 +278,7 @@ async fn test_full_paper_trade_to_journal_loop() {
 #[tokio::test]
 async fn test_close_loss_preserves_journal_with_negative_pnl() {
     let pool = setup_full_schema().await;
-    seed_balance(&pool, "ETH", 10000.0, 20.0).await;
+    seed_balance(&pool, "ETH", 10000.0, 25.0).await;
 
     let tx = spawn_logger(pool.clone());
 
@@ -285,7 +289,7 @@ async fn test_close_loss_preserves_journal_with_negative_pnl() {
         "ETH",
         "LONG",
         3000.0,
-        Some(20.0),
+        Some(25.0),
     )
     .await;
     assert!(open.success);

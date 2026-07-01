@@ -206,14 +206,14 @@ async fn test_position_invalidation() {
 #[tokio::test]
 async fn test_open_position_pct_opens_position() {
     let pool = setup_paper_db().await;
-    seed_balance(&pool, "MATIC", 10000.0, 30.0).await;
+    seed_balance(&pool, "MATIC", 10000.0, 25.0).await;
 
     let tx = spawn_logger(pool.clone());
 
-    let p1 =
-        engine::paper_trading::open_position_pct(&pool, &tx, "MATIC", "LONG", 10.0, 1.00).await;
-    assert!(p1.success, "Failed open: {}", p1.message);
-    assert_eq!(p1.position_pct as i32, 10);
+    let result =
+        engine::paper_trading::open_position_pct(&pool, &tx, "MATIC", "LONG", 25.0, 1.00).await;
+    assert!(result.success, "Failed open: {}", result.message);
+    assert_eq!(result.position_pct as i32, 25);
 
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
@@ -281,14 +281,8 @@ async fn test_trailing_stop_to_break_even() {
     let pos = db::paper_get_active_position(&pool, "BTC").await.unwrap();
     let pos_id = pos.id;
 
-    sqlx::query(
-        "INSERT INTO position_take_profit_targets (position_id, symbol, target_price, size_fraction, is_hit, timestamp)
-         VALUES (?1, 'BTC', 55000.0, 0.5, 0, 1000000)"
-    )
-    .bind(pos_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    // Set a TP bracket via public API (writes to open_orders)
+    engine::paper_trading::set_take_profit_targets(&pool, "BTC", &[(50.0, 55000.0)]).await.unwrap();
 
     let triggered = engine::paper_trading::check_break_even_trail(&pool, "BTC", 55000.0).await;
     assert!(
@@ -305,13 +299,14 @@ async fn test_trailing_stop_to_break_even() {
         pos_after.final_invalidation_level
     );
 
-    let tp_status: (i64,) =
-        sqlx::query_as("SELECT is_hit FROM position_take_profit_targets WHERE id = ?1")
+    // Verify the TP order was deleted (marked as filled)
+    let remaining: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM open_orders WHERE associated_position_id = ?1 AND order_type = 'LIMIT'")
             .bind(pos_id)
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(tp_status.0, 1, "TP1 should be marked as hit");
+    assert_eq!(remaining.0, 0, "TP1 should be deleted from open_orders after trigger");
 }
 
 #[tokio::test]

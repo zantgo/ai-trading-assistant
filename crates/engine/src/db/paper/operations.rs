@@ -97,7 +97,7 @@ pub(crate) async fn paper_close_position_internal(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM position_take_profit_targets WHERE symbol = ?1")
+    sqlx::query("DELETE FROM open_orders WHERE associated_position_id IN (SELECT id FROM active_positions WHERE symbol = ?1)")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
@@ -125,7 +125,7 @@ pub(crate) async fn paper_update_balance_internal(
     let mut tx = pool.begin().await?;
     sqlx::query(
         "INSERT OR REPLACE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades)
-         VALUES (?1, ?2, ?2, 10.0, 0, 2.0, 20, 15, 10)"
+         VALUES (?1, ?2, ?2, 25.0, 0, 2.0, 20, 15, 10)"
     )
     .bind(symbol)
     .bind(current_cash)
@@ -213,7 +213,7 @@ pub(crate) async fn paper_scale_out_portion_internal(
     let mut tx = pool.begin().await?;
 
     if target_id > 0 {
-        sqlx::query("UPDATE position_take_profit_targets SET is_hit = 1 WHERE id = ?1")
+        sqlx::query("DELETE FROM open_orders WHERE id = ?1")
             .bind(target_id)
             .execute(&mut *tx)
             .await?;
@@ -231,6 +231,10 @@ pub(crate) async fn paper_scale_out_portion_internal(
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM active_position_portions WHERE symbol = ?1")
+            .bind(symbol)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM open_orders WHERE associated_position_id IS NULL AND symbol = ?1")
             .bind(symbol)
             .execute(&mut *tx)
             .await?;
@@ -305,7 +309,7 @@ pub(crate) async fn paper_invalidate_position_internal(
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM position_take_profit_targets WHERE symbol = ?1")
+    sqlx::query("DELETE FROM open_orders WHERE associated_position_id IN (SELECT id FROM active_positions WHERE symbol = ?1)")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
@@ -412,7 +416,7 @@ pub async fn paper_reset_account(pool: &SqlitePool, symbol: &str) -> Result<(), 
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM position_take_profit_targets WHERE symbol = ?1")
+    sqlx::query("DELETE FROM open_orders WHERE symbol = ?1")
         .bind(symbol)
         .execute(&mut *tx)
         .await?;
@@ -423,5 +427,64 @@ pub async fn paper_reset_account(pool: &SqlitePool, symbol: &str) -> Result<(), 
         "📄 Paper Account: {} reset to initial balance ${:.2}",
         symbol, balance.initial_usd
     );
+    Ok(())
+}
+
+pub(crate) async fn paper_insert_open_order(
+    pool: &SqlitePool,
+    symbol: &str,
+    order_type: &str,
+    direction: &str,
+    price: Option<f64>,
+    trigger_price: Option<f64>,
+    size: f64,
+    is_reduce_only: bool,
+    associated_position_id: Option<i64>,
+) -> Result<i64, sqlx::Error> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let reduce_val: i32 = if is_reduce_only { 1 } else { 0 };
+
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO open_orders (symbol, order_type, direction, price, trigger_price, size, is_reduce_only, associated_position_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+    )
+    .bind(symbol)
+    .bind(order_type)
+    .bind(direction)
+    .bind(price)
+    .bind(trigger_price)
+    .bind(size)
+    .bind(reduce_val)
+    .bind(associated_position_id)
+    .bind(now)
+    .execute(&mut *tx)
+    .await?;
+
+    let id = sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()")
+        .fetch_one(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(id)
+}
+
+pub(crate) async fn paper_delete_open_order(pool: &SqlitePool, order_id: i64) -> Result<bool, sqlx::Error> {
+    let rows = sqlx::query("DELETE FROM open_orders WHERE id = ?1")
+        .bind(order_id)
+        .execute(&*pool)
+        .await?
+        .rows_affected();
+    Ok(rows > 0)
+}
+
+pub(crate) async fn paper_delete_orders_for_position(pool: &SqlitePool, position_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM open_orders WHERE associated_position_id = ?1")
+        .bind(position_id)
+        .execute(&*pool)
+        .await?;
     Ok(())
 }

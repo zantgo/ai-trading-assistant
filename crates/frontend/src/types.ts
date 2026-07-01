@@ -434,6 +434,26 @@ export interface TakeProfitTarget {
     is_hit: boolean;
 }
 
+export interface OpenOrder {
+    id: number;
+    symbol: string;
+    order_type: 'LIMIT' | 'STOP';
+    direction: 'BUY' | 'SELL';
+    price: number | null;
+    trigger_price: number | null;
+    size: number;
+    is_reduce_only: boolean;
+    associated_position_id: number | null;
+    created_at: number;
+}
+
+export interface PlaceOrderPayload {
+    order_type: 'LIMIT' | 'STOP';
+    direction: 'BUY' | 'SELL';
+    price?: number;
+    trigger_price?: number;
+}
+
 export interface UserTrade {
     id: number;
     timestamp: number;

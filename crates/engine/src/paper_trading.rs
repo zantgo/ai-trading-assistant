@@ -122,11 +122,11 @@ pub async fn open_position_pct(
     let balance = db::paper_get_balance(pool, symbol).await;
     let existing = db::paper_get_active_position(pool, symbol).await;
 
-    // Validate percentage
-    if pct < 10.0 || pct > 100.0 || pct % 10.0 != 0.0 {
+    // Validate percentage — 25% portions
+    if pct < 25.0 || pct > 100.0 || pct % 25.0 != 0.0 {
         return PaperPositionOpResult {
             success: false,
-            message: format!("Position percentage must be 10-100 in steps of 10, got {}", pct),
+            message: format!("Position percentage must be 25-100 in steps of 25, got {}", pct),
             direction: direction.to_string(),
             position_pct: existing.as_ref().map(|p| {
                 if p.allocated_usd > 0.0 && balance.initial_usd > 0.0 {
@@ -164,7 +164,7 @@ pub async fn open_position_pct(
                 };
             }
             // After closing, open the net remainder (new - old)
-            let net_pct = (pct - existing_pct).max(10.0);
+            let net_pct = (pct - existing_pct).max(25.0);
             let balance2 = db::paper_get_balance(pool, symbol).await;
             let (allocated, _) = calc_position_from_pct(&balance2, net_pct);
             let allocated_f64 = f64_from_dec(allocated);
@@ -442,10 +442,9 @@ pub async fn close_position_pct(
     }
 }
 
-// ─── TP/SL Management (Percentage-Based) ───────────────────────────
+// ─── TP/SL Management (25% Portion Model, via open_orders) ─────────
 
-/// Set take-profit targets as percentages of the current position.
-/// Each target is a percentage (10-100, step 10) with a price.
+/// Set take-profit targets. Max 2 brackets, sizes must be multiples of 25.
 pub async fn set_take_profit_targets(
     pool: &SqlitePool,
     symbol: &str,
@@ -453,44 +452,34 @@ pub async fn set_take_profit_targets(
 ) -> Result<String, String> {
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = position.ok_or("No active position".to_string())?;
-    let balance = db::paper_get_balance(pool, symbol).await;
-    let position_pct = if balance.initial_usd > 0.0 { (pos.allocated_usd / balance.initial_usd) * 100.0 } else { 0.0 };
+
+    let (tp_count, _) = db::paper_count_brackets_by_type(pool, pos.id).await;
+    if tp_count + targets.len() as i32 > 2 {
+        return Err("Maximum 2 Take-Profit brackets allowed".to_string());
+    }
 
     let total_tp_pct: f64 = targets.iter().map(|(p, _)| p).sum();
-    if total_tp_pct > position_pct + 0.1 {
-        return Err(format!("Total TP percentage ({:.0}%) exceeds position size ({:.0}%)", total_tp_pct, position_pct));
+    if total_tp_pct > 100.0 {
+        return Err(format!("Total TP percentage ({:.0}%) exceeds 100%", total_tp_pct));
     }
 
     for (pct, _price) in targets {
-        if *pct < 10.0 || *pct > 100.0 || *pct % 10.0 != 0.0 {
-            return Err(format!("TP percentage must be 10-100 in steps of 10, got {}", pct));
+        if *pct < 25.0 || *pct > 100.0 || *pct % 25.0 != 0.0 {
+            return Err(format!("TP percentage must be 25-100 in steps of 25, got {}", pct));
         }
     }
 
-    // Clear existing targets
-    sqlx::query("DELETE FROM position_take_profit_targets WHERE symbol = ?1")
-        .bind(symbol)
-        .execute(pool)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?;
-
-    // Insert new targets
+    let direction = if pos.direction == "LONG" { "SELL" } else { "BUY" };
     for (pct, price) in targets {
-        sqlx::query(
-            "INSERT INTO position_take_profit_targets (symbol, target_price, size_fraction) VALUES (?1, ?2, ?3)"
-        )
-        .bind(symbol)
-        .bind(price)
-        .bind(pct / 100.0)
-        .execute(pool)
-        .await
-        .map_err(|e| format!("DB error: {}", e))?;
+        crate::db::paper::operations::paper_insert_open_order(
+            pool, symbol, "LIMIT", direction, Some(*price), None, *pct, true, Some(pos.id),
+        ).await.map_err(|e| format!("DB error: {}", e))?;
     }
 
     Ok(format!("{} TP targets set", targets.len()))
 }
 
-/// Set stop-loss levels as percentages of the current position.
+/// Set stop-loss levels. Max 2 brackets, sizes must be multiples of 25.
 pub async fn set_stop_loss_levels(
     pool: &SqlitePool,
     symbol: &str,
@@ -498,45 +487,90 @@ pub async fn set_stop_loss_levels(
 ) -> Result<String, String> {
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = position.ok_or("No active position".to_string())?;
-    let balance = db::paper_get_balance(pool, symbol).await;
-    let position_pct = if balance.initial_usd > 0.0 { (pos.allocated_usd / balance.initial_usd) * 100.0 } else { 0.0 };
+    let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
+
+    let (_, sl_count) = db::paper_count_brackets_by_type(pool, pos.id).await;
+    if sl_count + stops.len() as i32 > 2 {
+        return Err("Maximum 2 Stop-Loss brackets allowed".to_string());
+    }
 
     let total_sl_pct: f64 = stops.iter().map(|(p, _)| p).sum();
-    if total_sl_pct > position_pct + 0.1 {
-        return Err(format!("Total SL percentage ({:.0}%) exceeds position size ({:.0}%)", total_sl_pct, position_pct));
+    if total_sl_pct > 100.0 {
+        return Err(format!("Total SL percentage ({:.0}%) exceeds 100%", total_sl_pct));
     }
 
     for (pct, _price) in stops {
-        if *pct < 10.0 || *pct > 100.0 || *pct % 10.0 != 0.0 {
-            return Err(format!("SL percentage must be 10-100 in steps of 10, got {}", pct));
+        if *pct < 25.0 || *pct > 100.0 || *pct % 25.0 != 0.0 {
+            return Err(format!("SL percentage must be 25-100 in steps of 25, got {}", pct));
         }
     }
 
-    let direction = &pos.direction;
-    for (_pct, price) in stops {
-        if direction == "LONG" && *price >= pos.entry_price {
-            return Err("Long SL must be below entry price".to_string());
+    if pos.direction == "LONG" {
+        for (_pct, price) in stops {
+            if *price >= entry {
+                return Err("Long SL must be below entry price".to_string());
+            }
         }
-        if direction == "SHORT" && *price <= pos.entry_price {
-            return Err("Short SL must be above entry price".to_string());
+    } else {
+        for (_pct, price) in stops {
+            if *price <= entry {
+                return Err("Short SL must be above entry price".to_string());
+            }
         }
     }
 
-    // Store SL info in final_invalidation_level (use the closest/worst stop)
-    let worst_sl = if direction == "LONG" {
+    let direction = if pos.direction == "LONG" { "SELL" } else { "BUY" };
+    for (pct, price) in stops {
+        crate::db::paper::operations::paper_insert_open_order(
+            pool, symbol, "STOP", direction, None, Some(*price), *pct, true, Some(pos.id),
+        ).await.map_err(|e| format!("DB error: {}", e))?;
+    }
+
+    // Cache worst-case SL in active_positions
+    let worst_sl = if pos.direction == "LONG" {
         stops.iter().map(|(_, p)| p).fold(f64::INFINITY, |a, &b| a.min(b))
     } else {
         stops.iter().map(|(_, p)| p).fold(f64::NEG_INFINITY, |a, &b| a.max(b))
     };
-
     sqlx::query("UPDATE active_positions SET final_invalidation_level = ?2 WHERE symbol = ?1")
-        .bind(symbol)
-        .bind(worst_sl)
-        .execute(pool)
-        .await
+        .bind(symbol).bind(worst_sl).execute(pool).await
         .map_err(|e| format!("DB error: {}", e))?;
 
     Ok(format!("{} SL levels set", stops.len()))
+}
+
+/// Place a pending limit or stop entry order (25% portion).
+pub async fn place_pending_order(
+    pool: &SqlitePool,
+    symbol: &str,
+    order_type: &str,
+    direction: &str,
+    price: Option<f64>,
+    trigger_price: Option<f64>,
+) -> Result<i64, String> {
+    if order_type != "LIMIT" && order_type != "STOP" {
+        return Err("order_type must be LIMIT or STOP".to_string());
+    }
+    if direction != "BUY" && direction != "SELL" {
+        return Err("direction must be BUY or SELL".to_string());
+    }
+    if order_type == "LIMIT" && price.is_none() {
+        return Err("LIMIT orders require a price".to_string());
+    }
+    if order_type == "STOP" && trigger_price.is_none() {
+        return Err("STOP orders require a trigger_price".to_string());
+    }
+
+    crate::db::paper::operations::paper_insert_open_order(
+        pool, symbol, order_type, direction, price, trigger_price, 25.0, false, None,
+    ).await.map_err(|e| format!("DB error: {}", e))
+}
+
+/// Cancel a pending order by ID.
+pub async fn cancel_pending_order(pool: &SqlitePool, order_id: i64) -> Result<bool, String> {
+    crate::db::paper::operations::paper_delete_open_order(pool, order_id)
+        .await
+        .map_err(|e| format!("DB error: {}", e))
 }
 
 // ─── Legacy Position Functions (Automation Compat) ─────────────────
@@ -553,7 +587,7 @@ pub async fn verify_margin_and_open(
 
 pub async fn verify_margin_and_open_with_alloc(
     pool: &SqlitePool,
-    telemetry_tx: &mpsc::Sender<db::TelemetryMsg>,
+    _telemetry_tx: &mpsc::Sender<db::TelemetryMsg>,
     symbol: &str,
     direction: &str,
     current_price: f64,
@@ -718,16 +752,17 @@ pub async fn check_break_even_trail(pool: &SqlitePool, symbol: &str, current_pri
     };
 
     let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
-    let targets = sqlx::query_as::<_, (i64, f64, f64, i64)>(
-        "SELECT id, target_price, size_fraction, is_hit FROM position_take_profit_targets
-         WHERE symbol = ?1 AND is_hit = 0 ORDER BY target_price ASC",
+    let targets = sqlx::query_as::<_, (i64, f64)>(
+        "SELECT id, COALESCE(price, trigger_price) as target_price FROM open_orders
+         WHERE associated_position_id = ?1 AND is_reduce_only = 1 AND order_type = 'LIMIT'
+         ORDER BY target_price ASC",
     )
-    .bind(symbol)
+    .bind(pos.id)
     .fetch_all(pool)
     .await
     .unwrap_or_default();
 
-    for (target_id, target_price, _size_fraction, _is_hit) in &targets {
+    for (order_id, target_price) in &targets {
         let tp_hit = if pos.direction == "LONG" {
             current_price >= *target_price
         } else {
@@ -735,19 +770,13 @@ pub async fn check_break_even_trail(pool: &SqlitePool, symbol: &str, current_pri
         };
 
         if tp_hit {
-            sqlx::query("UPDATE position_take_profit_targets SET is_hit = 1 WHERE id = ?1")
-                .bind(target_id)
-                .execute(pool)
-                .await
-                .ok();
-
-            let new_invalidation = entry;
-            sqlx::query("UPDATE active_positions SET final_invalidation_level = ?2 WHERE symbol = ?1")
-                .bind(symbol)
-                .bind(new_invalidation)
-                .execute(pool)
-                .await
-                .ok();
+            if let Ok(mut tx) = pool.begin().await {
+                sqlx::query("DELETE FROM open_orders WHERE id = ?1")
+                    .bind(order_id).execute(&mut *tx).await.ok();
+                sqlx::query("UPDATE active_positions SET final_invalidation_level = ?2 WHERE symbol = ?1")
+                    .bind(symbol).bind(entry).execute(&mut *tx).await.ok();
+                let _ = tx.commit().await;
+            }
 
             println!("📄 Break-Even Trail: {} TP1 hit at ${:.2}. SL moved to entry ${:.2}", symbol, target_price, entry);
             return true;

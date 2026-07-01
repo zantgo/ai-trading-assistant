@@ -149,9 +149,10 @@
     border: 1px solid #2a2e39; border-radius: 8px; overflow: hidden; min-height: 0;
 }
 .consoleTabBar {
-    display: flex; border-bottom: 1px solid #2a2e39;
-    padding: 0 4px; background: #0f111a; flex-shrink: 0;
+    display: flex; justify-content: space-between; align-items: stretch;
+    border-bottom: 1px solid #2a2e39; padding: 0 4px; background: #0f111a; flex-shrink: 0;
 }
+.consoleTabs { display: flex; }
 .consoleTab {
     background: none; border: none; border-bottom: 2px solid transparent; color: #64748b;
     font-size: 11px; font-weight: 600; padding: 10px 16px; cursor: pointer;
@@ -163,6 +164,85 @@
     display: inline-block; background: rgba(59,130,246,0.15); color: #3b82f6;
     font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; margin-left: 4px;
 }
+.exportBtn {
+    background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); color: #3b82f6;
+    font-size: 10px; font-weight: 600; padding: 4px 12px; border-radius: 3px; cursor: pointer;
+    margin: 6px 8px; transition: all 0.15s; white-space: nowrap; align-self: center;
+}
+.exportBtn:hover { background: rgba(59,130,246,0.2); }
+
+/* Netting warning */
+.nettingWarning {
+    font-size: 9px; color: #f59e0b; padding: 6px 8px; background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245,158,11,0.2); border-radius: 4px; line-height: 1.4;
+}
+
+/* Expand icon */
+.expandIcon {
+    background: none; border: none; color: #64748b; font-size: 12px; cursor: pointer;
+    padding: 0 4px; width: 24px; text-align: center; transition: color 0.15s;
+}
+.expandIcon:hover { color: #cbd5e1; }
+
+/* Detail row */
+.detailRow td { padding: 0 !important; background: #0d1117; }
+.cockpitGrid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 16px;
+}
+.bracketSection { display: flex; flex-direction: column; gap: 6px; }
+.bracketSectionTitle { font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.bracketItem { display: flex; align-items: center; gap: 6px; }
+.bracketChip {
+    font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 3px;
+    font-family: monospace;
+}
+.chipTp { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.chipSl { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.bracketSize { font-size: 10px; color: #64748b; font-family: monospace; }
+.cancelBracketBtn {
+    background: none; border: none; color: #ef4444; font-size: 14px; cursor: pointer;
+    padding: 0 2px; font-weight: 700;
+}
+.noBrackets { font-size: 10px; color: #475569; font-style: italic; padding: 2px 0; }
+.bracketCreator {
+    display: flex; align-items: center; gap: 6px; padding: 10px 16px 8px;
+    border-top: 1px solid #1a1f2e;
+}
+.creatorInput {
+    width: 100px; background: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+    font-size: 11px; padding: 5px 8px; border-radius: 3px; font-family: monospace; outline: none;
+}
+.creatorInput:focus { border-color: #3b82f6; }
+.creatorSelect {
+    background: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+    font-size: 11px; padding: 5px 6px; border-radius: 3px; outline: none; cursor: pointer;
+}
+.addBracketBtn {
+    background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.3); color: #3b82f6;
+    font-size: 10px; font-weight: 700; padding: 5px 12px; border-radius: 3px;
+    cursor: pointer; text-transform: uppercase; transition: all 0.15s;
+}
+.addBracketBtn:hover { background: rgba(59,130,246,0.2); }
+.addBracketBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Close button dropdown */
+.closeBtnGroup { position: relative; display: inline-flex; align-items: center; gap: 2px; }
+.closeDropdownBtn {
+    background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
+    color: #f87171; font-size: 10px; font-weight: 700; padding: 4px 6px; border-radius: 3px;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+}
+.closeDropdownBtn:hover { background: rgba(239,68,68,0.18); }
+.closeDropdown {
+    position: absolute; top: 100%; right: 0; z-index: 10; margin-top: 2px;
+    background: #131722; border: 1px solid #2a2e39; border-radius: 4px;
+    padding: 4px; display: flex; flex-direction: column; gap: 2px; min-width: 100px;
+}
+.closeDropdown button {
+    background: none; border: none; color: #cbd5e1; font-size: 10px; font-weight: 600;
+    padding: 6px 10px; cursor: pointer; text-align: left; border-radius: 2px; font-family: inherit;
+}
+.closeDropdown button:hover { background: rgba(239,68,68,0.08); color: #f87171; }
 
 /* Data tables */
 .tableWrapper { flex: 1; overflow-y: auto; overflow-x: auto; min-height: 0; }

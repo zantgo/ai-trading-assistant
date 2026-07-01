@@ -62,7 +62,7 @@ pub struct PaperAccountMetrics {
     pub available_trades: u32,
     pub active_position: Option<ActivePaperPosition>,
     pub scale_in_portions: Vec<ScaleInPortionRecord>,
-    pub take_profit_targets: Vec<TakeProfitTargetRecord>,
+    pub take_profit_targets: Vec<OpenOrder>,
     pub max_risk_pct: f64,
     pub leverage: i32,
     pub auto_execute_intervals: i32,
@@ -79,19 +79,17 @@ pub struct ScaleInPortionRecord {
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
-pub struct TakeProfitTargetRow {
+pub struct OpenOrder {
     pub id: i64,
-    pub target_price: f64,
-    pub size_fraction: f64,
-    pub is_hit: i64,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct TakeProfitTargetRecord {
-    pub id: i64,
-    pub target_price: f64,
-    pub size_fraction: f64,
-    pub is_hit: bool,
+    pub symbol: String,
+    pub order_type: String,
+    pub direction: String,
+    pub price: Option<f64>,
+    pub trigger_price: Option<f64>,
+    pub size: f64,
+    pub is_reduce_only: bool,
+    pub associated_position_id: Option<i64>,
+    pub created_at: i64,
 }
 
 // ─── Read Functions ────────────────────────────────────────────────
@@ -99,7 +97,7 @@ pub struct TakeProfitTargetRecord {
 pub async fn paper_ensure_balance(pool: &SqlitePool, symbol: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades)
-         VALUES (?1, 0.0, 0.0, 10.0, 0, 2.0, 20, 15, 10)"
+         VALUES (?1, 0.0, 0.0, 25.0, 0, 2.0, 20, 15, 10)"
     )
     .bind(symbol)
     .execute(&*pool)
@@ -139,7 +137,7 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
             symbol: symbol.to_string(),
             initial_usd: 0.0,
             current_cash: 0.0,
-            allocation_pct: 10.0,
+            allocation_pct: 25.0,
             auto_execute: false,
             max_risk_pct: 2.0,
             leverage: 20,
@@ -272,24 +270,19 @@ pub async fn paper_get_account_metrics(
     .await
     .unwrap_or_default();
 
-    // Fetch take-profit targets
-    let targets: Vec<TakeProfitTargetRow> = sqlx::query_as(
-        "SELECT id, target_price, size_fraction, is_hit FROM position_take_profit_targets WHERE symbol = ?1 ORDER BY target_price ASC"
-    )
-    .bind(symbol)
-    .fetch_all(&*pool)
-    .await
-    .unwrap_or_default();
-
-    let targets_bool: Vec<TakeProfitTargetRecord> = targets
-        .into_iter()
-        .map(|t| TakeProfitTargetRecord {
-            id: t.id,
-            target_price: t.target_price,
-            size_fraction: t.size_fraction,
-            is_hit: t.is_hit != 0,
-        })
-        .collect();
+    // Fetch take-profit targets (now from open_orders where is_reduce_only = 1)
+    let take_profit_targets: Vec<OpenOrder> = if let Some(ref pos) = position {
+        sqlx::query_as(
+            "SELECT id, symbol, order_type, direction, price, trigger_price, size, is_reduce_only, associated_position_id, created_at
+             FROM open_orders WHERE associated_position_id = ?1 AND is_reduce_only = 1 ORDER BY price ASC"
+        )
+        .bind(pos.id)
+        .fetch_all(&*pool)
+        .await
+        .unwrap_or_default()
+    } else {
+        vec![]
+    };
 
     PaperAccountMetrics {
         symbol: symbol.to_string(),
@@ -306,10 +299,49 @@ pub async fn paper_get_account_metrics(
         available_trades,
         active_position: position,
         scale_in_portions: portions,
-        take_profit_targets: targets_bool,
+        take_profit_targets,
         max_risk_pct: balance.max_risk_pct,
         leverage: balance.leverage,
         auto_execute_intervals: balance.auto_execute_intervals,
         lookback_trades: balance.lookback_trades,
+    }
+}
+
+pub async fn paper_get_open_orders(pool: &SqlitePool, symbol: &str) -> Vec<OpenOrder> {
+    sqlx::query_as(
+        "SELECT id, symbol, order_type, direction, price, trigger_price, size, is_reduce_only, associated_position_id, created_at
+         FROM open_orders WHERE symbol = ?1 AND associated_position_id IS NULL ORDER BY created_at DESC"
+    )
+    .bind(symbol)
+    .fetch_all(&*pool)
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn paper_get_brackets_for_position(pool: &SqlitePool, position_id: i64) -> Vec<OpenOrder> {
+    sqlx::query_as(
+        "SELECT id, symbol, order_type, direction, price, trigger_price, size, is_reduce_only, associated_position_id, created_at
+         FROM open_orders WHERE associated_position_id = ?1 AND is_reduce_only = 1 ORDER BY order_type, price ASC"
+    )
+    .bind(position_id)
+    .fetch_all(&*pool)
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn paper_count_brackets_by_type(pool: &SqlitePool, position_id: i64) -> (i32, i32) {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT
+            COALESCE(SUM(CASE WHEN order_type = 'LIMIT' THEN 1 ELSE 0 END), 0) as tp_count,
+            COALESCE(SUM(CASE WHEN order_type = 'STOP' THEN 1 ELSE 0 END), 0) as sl_count
+         FROM open_orders WHERE associated_position_id = ?1 AND is_reduce_only = 1"
+    )
+    .bind(position_id)
+    .fetch_one(&*pool)
+    .await;
+    match row {
+        Ok(r) => (r.get(0), r.get(1)),
+        Err(_) => (0, 0),
     }
 }

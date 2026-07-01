@@ -319,6 +319,30 @@ pub struct TpSlTarget { pub pct: f64, pub price: f64 }
 #[derive(Debug, Deserialize)]
 pub struct PaperPerformanceQuery { #[serde(default)] pub symbol: Option<String> }
 
+#[derive(Debug, Deserialize)]
+pub struct PlaceOrderRequest {
+    pub symbol: String,
+    pub order_type: String,
+    pub direction: String,
+    #[serde(default)]
+    pub price: Option<f64>,
+    #[serde(default)]
+    pub trigger_price: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CancelOrderRequest {
+    pub symbol: String,
+    pub order_id: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlaceOrderResponse {
+    pub success: bool,
+    pub message: String,
+    pub order_id: Option<i64>,
+}
+
 // ─── Decision Profiles ────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

@@ -1,7 +1,8 @@
 use crate::server::helpers::get_active_pair;
 use crate::server::types::{
-    PaperConfigRequest, PaperOrderRequest, PaperPerformanceQuery, PaperResetRequest,
-    PaperPositionPctRequest, PaperTpSlRequest, PaperStatusQuery,
+    CancelOrderRequest, PaperConfigRequest, PaperOrderRequest, PaperPerformanceQuery,
+    PaperResetRequest, PaperPositionPctRequest, PaperStatusQuery, PaperTpSlRequest,
+    PlaceOrderRequest, PlaceOrderResponse,
 };
 use crate::server::AppState;
 use axum::{
@@ -328,9 +329,12 @@ pub async fn serve_paper_unrealized(
         .map(|t| {
             serde_json::json!({
                 "id": t.id,
-                "target_price": t.target_price,
-                "size_fraction": t.size_fraction,
-                "is_hit": t.is_hit,
+                "order_type": t.order_type,
+                "direction": t.direction,
+                "price": t.price,
+                "trigger_price": t.trigger_price,
+                "size": t.size,
+                "is_reduce_only": t.is_reduce_only,
             })
         })
         .collect();
@@ -347,6 +351,59 @@ pub async fn serve_paper_unrealized(
         filled_portions: filled,
         active_take_profit_targets: targets,
     })
+}
+
+pub async fn serve_paper_open_orders(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PaperStatusQuery>,
+) -> impl IntoResponse {
+    let symbol = if query.symbol.is_empty() {
+        let cfg = state.config.read().await;
+        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        crate::server::helpers::default_pair_key(&first)
+    } else {
+        query.symbol
+    };
+    let orders = crate::db::paper_get_open_orders(&state.pool, &symbol).await;
+    Json(orders)
+}
+
+pub async fn serve_paper_place_order(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PlaceOrderRequest>,
+) -> impl IntoResponse {
+    match crate::paper_trading::place_pending_order(
+        &state.pool,
+        &payload.symbol,
+        &payload.order_type,
+        &payload.direction,
+        payload.price,
+        payload.trigger_price,
+    )
+    .await
+    {
+        Ok(id) => Json(PlaceOrderResponse {
+            success: true,
+            message: format!("{} {} order placed", payload.order_type, payload.direction),
+            order_id: Some(id),
+        }),
+        Err(e) => Json(PlaceOrderResponse {
+            success: false,
+            message: e,
+            order_id: None,
+        }),
+    }
+}
+
+pub async fn serve_paper_cancel_order(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CancelOrderRequest>,
+) -> impl IntoResponse {
+    match crate::paper_trading::cancel_pending_order(&state.pool, payload.order_id).await {
+        Ok(true) => Json(serde_json::json!({"success": true, "message": "Order cancelled"})),
+        Ok(false) => Json(serde_json::json!({"success": false, "message": "Order not found"})),
+        Err(e) => Json(serde_json::json!({"success": false, "message": e})),
+    }
 }
 
 pub async fn serve_paper_performance(

@@ -150,6 +150,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::paper::serve_paper_performance),
         )
         .route(
+            "/api/paper/open-orders",
+            get(handlers::paper::serve_paper_open_orders),
+        )
+        .route(
+            "/api/paper/order/place",
+            post(handlers::paper::serve_paper_place_order),
+        )
+        .route(
+            "/api/paper/order/cancel",
+            post(handlers::paper::serve_paper_cancel_order),
+        )
+        .route(
             "/api/instances",
             get(handlers::instances::serve_list_instances)
                 .post(handlers::instances::serve_add_instance),
