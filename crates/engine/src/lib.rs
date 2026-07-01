@@ -7,6 +7,7 @@ pub mod cli;
 pub mod commission;
 pub mod config;
 pub mod db;
+pub mod edges;
 pub mod historical_analyst;
 pub mod instance;
 pub mod registry;

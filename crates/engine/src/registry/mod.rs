@@ -190,6 +190,7 @@ pub async fn add_instance(
                 20,
                 15,
                 10,
+                false,
             )
             .await;
         }

@@ -314,6 +314,18 @@
             <span class={styles.accountItemLabel}>Leverage</span>
             <span class={styles.accountItemValue}>{app.paperLeverage}x</span>
         </div>
+        <div class={styles.accountItem}>
+            <span class={styles.accountItemLabel}>Break-Even Trail</span>
+            <button
+                class="{styles.toggleBtn} {app.paperBreakEvenTrailEnabled ? styles.active : ''}"
+                onclick={() => {
+                    app.paperBreakEvenTrailEnabled = !app.paperBreakEvenTrailEnabled;
+                    app.savePaperConfig(app.paperInitialUSD, app.paperAllocationPct, app.paperAutoExecute);
+                }}
+            >
+                {app.paperBreakEvenTrailEnabled ? 'ON' : 'OFF'}
+            </button>
+        </div>
     </div>
 </div>
 

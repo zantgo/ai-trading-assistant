@@ -5,8 +5,7 @@ use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
-use rust_decimal::prelude::*;
-use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 use crate::config::{AppConfig, AutomationConfig, IntervalsConfig};
 use crate::db;
@@ -508,27 +507,6 @@ async fn execute_automation_cycle(
         paper_trading::check_break_even_trail(&ctx.pool, &ctx.symbol, current_price).await;
     }
 
-    let mid_hist = ctx.micro_history.read().await;
-    let mid_candles: Vec<NormalizedCandle> = mid_hist.iter().cloned().collect();
-    drop(mid_hist);
-    if let Some(inval_price) =
-        check_decisive_close_invalidation(&ctx.pool, &ctx.symbol, &mid_candles).await
-    {
-        let _ = paper_trading::invalidate_position(
-            &ctx.pool,
-            &ctx.telemetry_tx,
-            &ctx.symbol,
-            inval_price,
-            "DECISIVE_CLOSE_1M",
-        )
-        .await;
-        println!(
-            "🛑 Auto Paper: {} position invalidated by 1m decisive close at ${:.2}",
-            ctx.pair_key, inval_price
-        );
-        return Ok(());
-    }
-
     let slow_trend_direction = determine_slow_trend_direction(&indicators_slow);
 
     let micro_trend = &legacy_signals
@@ -702,42 +680,6 @@ fn determine_slow_trend_direction(indicators: &crate::server::IndicatorSnapshot)
                 _ => "BEARISH",
             }
         }
-    }
-}
-
-/// Check if a 1-minute candle has closed decisively beyond the invalidation level.
-/// Returns Some(close_price) if invalidated, None otherwise.
-async fn check_decisive_close_invalidation(
-    pool: &SqlitePool,
-    symbol: &str,
-    micro_history: &[NormalizedCandle],
-) -> Option<f64> {
-    let position = db::paper_get_active_position(pool, symbol).await;
-    let pos = position.as_ref()?;
-
-    let invalidation = Decimal::from_f64(pos.final_invalidation_level?)?;
-    let last_candle = micro_history.last()?;
-    let close = last_candle.close;
-
-    let tolerance_pct = Decimal::from_f64(0.002).unwrap_or(Decimal::ZERO);
-    let buffer = close * tolerance_pct;
-
-    match pos.direction.as_str() {
-        "LONG" => {
-            if close < invalidation && (invalidation - close) > buffer {
-                close.to_f64()
-            } else {
-                None
-            }
-        }
-        "SHORT" => {
-            if close > invalidation && (close - invalidation) > buffer {
-                close.to_f64()
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
 

@@ -279,6 +279,8 @@ pub struct FeesConfig {
     pub maker_fee_pct: f64,
     #[serde(default = "default_taker_fee")]
     pub taker_fee_pct: f64,
+    #[serde(default = "default_funding_rate_8h")]
+    pub funding_rate_8h: f64,
 }
 
 impl Default for FeesConfig {
@@ -286,12 +288,14 @@ impl Default for FeesConfig {
         Self {
             maker_fee_pct: default_maker_fee(),
             taker_fee_pct: default_taker_fee(),
+            funding_rate_8h: default_funding_rate_8h(),
         }
     }
 }
 
 fn default_maker_fee() -> f64 { 0.02 }
 fn default_taker_fee() -> f64 { 0.06 }
+fn default_funding_rate_8h() -> f64 { 0.01 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AutomationConfig {

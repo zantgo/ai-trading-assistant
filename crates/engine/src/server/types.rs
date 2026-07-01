@@ -295,6 +295,7 @@ pub struct PaperConfigRequest {
     #[serde(default = "default_leverage")] pub leverage: i32,
     #[serde(default = "default_auto_execute_intervals")] pub auto_execute_intervals: i32,
     #[serde(default = "default_lookback_trades")] pub lookback_trades: i32,
+    #[serde(default)] pub break_even_trail_enabled: bool,
 }
 fn default_max_risk_pct() -> f64 { 2.0 }
 fn default_leverage() -> i32 { 20 }

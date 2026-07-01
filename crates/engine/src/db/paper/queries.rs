@@ -14,6 +14,7 @@ pub struct PaperBalance {
     pub leverage: i32,
     pub auto_execute_intervals: i32,
     pub lookback_trades: i32,
+    pub break_even_trail_enabled: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -87,6 +88,7 @@ pub struct PaperAccountMetrics {
     pub lookback_trades: i32,
     pub initial_allocated_margin: f64,
     pub realized_pnl_accumulator: f64,
+    pub break_even_trail_enabled: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
@@ -116,8 +118,8 @@ pub struct OpenOrder {
 
 pub async fn paper_ensure_balance(pool: &SqlitePool, symbol: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades)
-         VALUES (?1, 0.0, 0.0, 25.0, 0, 2.0, 20, 15, 10)"
+        "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled)
+         VALUES (?1, 0.0, 0.0, 25.0, 0, 2.0, 20, 15, 10, 0)"
     )
     .bind(symbol)
     .execute(&*pool)
@@ -130,7 +132,7 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
     let _ = paper_ensure_balance(pool, symbol).await;
     let row = sqlx::query(
         "SELECT id, symbol, initial_usd, current_cash, allocation_pct, auto_execute,
-                max_risk_pct, leverage, auto_execute_intervals, lookback_trades
+                max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled
          FROM paper_balances WHERE symbol = ?1",
     )
     .bind(symbol)
@@ -151,6 +153,7 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
             leverage: r.get::<i32, _>(7),
             auto_execute_intervals: r.get::<i32, _>(8),
             lookback_trades: r.get::<i32, _>(9),
+            break_even_trail_enabled: r.get::<i32, _>(10) != 0,
         },
         None => PaperBalance {
             id: 0,
@@ -163,6 +166,7 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
             leverage: 20,
             auto_execute_intervals: 15,
             lookback_trades: 10,
+            break_even_trail_enabled: false,
         },
     }
 }
@@ -352,6 +356,7 @@ pub async fn paper_get_account_metrics(
         lookback_trades: balance.lookback_trades,
         initial_allocated_margin: initial_margin,
         realized_pnl_accumulator: realized_accum,
+        break_even_trail_enabled: balance.break_even_trail_enabled,
     }
 }
 
@@ -392,6 +397,39 @@ pub async fn paper_count_brackets_by_type(pool: &SqlitePool, position_id: i64) -
         Ok(r) => (r.get(0), r.get(1)),
         Err(_) => (0, 0),
     }
+}
+
+// ─── All Active Positions Query ────────────────────────────────────
+
+pub async fn paper_get_all_active_positions(pool: &SqlitePool) -> Vec<ActivePaperPosition> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp,
+                average_entry_price, current_portions, final_invalidation_level, target_profit_ratio,
+                initial_allocated_margin, realized_pnl_accumulator
+         FROM active_positions"
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.iter()
+        .map(|r| ActivePaperPosition {
+            id: r.get(0),
+            symbol: r.get(1),
+            direction: r.get(2),
+            entry_price: r.get(3),
+            size: r.get(4),
+            allocated_usd: r.get(5),
+            entry_timestamp: r.get(6),
+            average_entry_price: r.get(7),
+            current_portions: r.get(8),
+            final_invalidation_level: r.get(9),
+            target_profit_ratio: r.get(10),
+            initial_allocated_margin: r.get(11),
+            realized_pnl_accumulator: r.get(12),
+        })
+        .collect()
 }
 
 // ─── Slot Operations ──────────────────────────────────────────────

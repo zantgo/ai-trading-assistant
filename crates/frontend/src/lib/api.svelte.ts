@@ -308,3 +308,45 @@ export function readDraftFromPair(pair: InstanceState): {
         fastInterval: pair.fastIntervalSecs || 300,
     };
 }
+
+// ─── Edge Builder & Analyzer API ──────────────────────────────────────────
+
+import type { EdgeSaveRequest, EdgeAnalyzeRequest, EdgeAnalysisResponse, SavedEdge } from '../types';
+
+export async function fetchEdgesCall(pairKey: string): Promise<SavedEdge[]> {
+    const res = await fetch(`/api/edges?pair_key=${encodeURIComponent(pairKey)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.edges || [];
+}
+
+export async function saveEdgeCall(payload: EdgeSaveRequest): Promise<{ success: boolean; id?: number; error?: string }> {
+    const res = await fetch('/api/edges/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+        return { success: true, id: data.id };
+    }
+    return { success: false, error: data.error || 'Failed to save edge' };
+}
+
+export async function analyzeEdgeCall(payload: EdgeAnalyzeRequest): Promise<EdgeAnalysisResponse> {
+    const res = await fetch('/api/edges/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Analysis failed');
+    }
+    return res.json();
+}
+
+export async function deleteEdgeCall(id: number): Promise<boolean> {
+    const res = await fetch(`/api/edges/${id}`, { method: 'DELETE' });
+    return res.ok;
+}

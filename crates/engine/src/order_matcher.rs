@@ -100,11 +100,15 @@ async fn handle_reduce_only_fill(
             let exit_size = pos.size * close_fraction;
             let remaining_size = pos.size - exit_size;
             let entry_avg = pos.average_entry_price.unwrap_or(pos.entry_price);
-            let realized_pnl = if pos.direction == "LONG" {
+            let gross_pnl = if pos.direction == "LONG" {
                 (current_price - entry_avg) * exit_size
             } else {
                 (entry_avg - current_price) * exit_size
             };
+            let legacy_is_maker = order.order_type == "LIMIT";
+            let legacy_fee_rate = if legacy_is_maker { 0.0002 } else { 0.0006 };
+            let legacy_fee = exit_size * current_price * legacy_fee_rate;
+            let realized_pnl = gross_pnl - legacy_fee;
             let allocated_released = pos.allocated_usd * close_fraction;
             let total_credit = allocated_released + realized_pnl;
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
@@ -136,6 +140,9 @@ async fn handle_reduce_only_fill(
                 allocated_usd: allocated_released,
                 trigger: if order.order_type == "LIMIT" { "TP".to_string() } else { "SL".to_string() },
             }).await;
+            if legacy_is_maker {
+                paper_trading::apply_break_even_trail(pool, symbol).await;
+            }
             return;
         }
     };
@@ -146,27 +153,51 @@ async fn handle_reduce_only_fill(
     } else {
         (oldest.entry_price - current_price) * oldest.size
     };
-    let refund = oldest.allocated_usd + pnl;
+    let is_maker = order.order_type == "LIMIT";
+    let fee_rate = if is_maker { 0.0002 } else { 0.0006 };
+    let commission_fee = oldest.size * current_price * fee_rate;
+    let net_pnl = pnl - commission_fee;
+    let refund = oldest.allocated_usd + net_pnl;
+    let position_id = oldest.position_id;
+    let is_tp_fill = order.order_type == "LIMIT";
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
 
     if let Ok(mut tx) = pool.begin().await {
         // Mark slot inactive with realized PnL
         sqlx::query("UPDATE position_slots SET is_active = 0, realized_pnl = ?2 WHERE id = ?1")
-            .bind(oldest.id).bind(pnl).execute(&mut *tx).await.ok();
+            .bind(oldest.id).bind(net_pnl).execute(&mut *tx).await.ok();
+
+        // FIFO bracket cleanup: delete oldest TP and SL orders for this position
+        let _ = sqlx::query(
+            "DELETE FROM open_orders WHERE id = (SELECT id FROM open_orders WHERE associated_position_id = ?1 AND order_type = 'LIMIT' AND is_reduce_only = 1 ORDER BY created_at ASC LIMIT 1)"
+        )
+        .bind(position_id)
+        .execute(&mut *tx)
+        .await;
+        let _ = sqlx::query(
+            "DELETE FROM open_orders WHERE id = (SELECT id FROM open_orders WHERE associated_position_id = ?1 AND order_type = 'STOP' AND is_reduce_only = 1 ORDER BY created_at ASC LIMIT 1)"
+        )
+        .bind(position_id)
+        .execute(&mut *tx)
+        .await;
 
         // Update realized_pnl_accumulator
         let current_accum = pos.realized_pnl_accumulator.unwrap_or(0.0);
         sqlx::query("UPDATE active_positions SET realized_pnl_accumulator = ?2 WHERE symbol = ?1")
-            .bind(symbol).bind(current_accum + pnl).execute(&mut *tx).await.ok();
+            .bind(symbol).bind(current_accum + net_pnl).execute(&mut *tx).await.ok();
 
         // Refund margin + PnL to balance
         sqlx::query("UPDATE paper_balances SET current_cash = current_cash + ?2 WHERE symbol = ?1")
             .bind(symbol).bind(refund).execute(&mut *tx).await.ok();
 
         // Record trade
-        let roi_pct = if oldest.allocated_usd > 0.0 { (pnl / oldest.allocated_usd) * 100.0 } else { 0.0 };
+        let roi_pct = if oldest.allocated_usd > 0.0 { (net_pnl / oldest.allocated_usd) * 100.0 } else { 0.0 };
+        let trigger_str = if order.order_type == "LIMIT" { "TP" } else { "SL" };
         sqlx::query("INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
-            .bind(symbol).bind(&oldest.direction).bind(oldest.entry_price).bind(current_price).bind(oldest.size).bind(pnl).bind(roi_pct).bind(oldest.timestamp).bind(now).bind(if order.order_type == "LIMIT" { "TP" } else { "SL" })
+            .bind(symbol).bind(&oldest.direction).bind(oldest.entry_price).bind(current_price).bind(oldest.size).bind(net_pnl).bind(roi_pct).bind(oldest.timestamp).bind(now).bind(trigger_str)
+            .execute(&mut *tx).await.ok();
+        sqlx::query("INSERT INTO trade_telemetry_history (exchange, symbol, direction, entry_timestamp, exit_timestamp, entry_price, exit_price, size, realized_pnl, roi_percentage, trigger_source) VALUES ('PAPER', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")
+            .bind(symbol).bind(&oldest.direction).bind(oldest.timestamp).bind(now).bind(oldest.entry_price).bind(current_price).bind(oldest.size).bind(net_pnl).bind(roi_pct).bind(trigger_str)
             .execute(&mut *tx).await.ok();
 
         // Recalculate aggregates; clean up if no active slots remain
@@ -194,12 +225,17 @@ async fn handle_reduce_only_fill(
         let _ = tx.commit().await;
     }
 
+    // After commit: invoke break-even trailing if TP fill
+    if is_tp_fill {
+        paper_trading::apply_break_even_trail(pool, symbol).await;
+    }
+
     let _ = telemetry_tx.send(db::TelemetryMsg::JournalTrade {
         symbol: symbol.to_string(), direction: oldest.direction.clone(),
         entry_price: oldest.entry_price, exit_price: current_price,
         entry_timestamp: oldest.timestamp, exit_timestamp: now,
-        size: oldest.size, realized_pnl: pnl,
-        roi_pct: if oldest.allocated_usd > 0.0 { (pnl / oldest.allocated_usd) * 100.0 } else { 0.0 },
+        size: oldest.size, realized_pnl: net_pnl,
+        roi_pct: if oldest.allocated_usd > 0.0 { (net_pnl / oldest.allocated_usd) * 100.0 } else { 0.0 },
         allocated_usd: oldest.allocated_usd,
         trigger: if order.order_type == "LIMIT" { "TP".to_string() } else { "SL".to_string() },
     }).await;

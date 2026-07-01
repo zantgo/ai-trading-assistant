@@ -101,6 +101,7 @@ async fn test_load_max_pairs_stability() {
                     m_cancel,
                     None,
                     None,
+                    None,
                 )
                 .await;
             });

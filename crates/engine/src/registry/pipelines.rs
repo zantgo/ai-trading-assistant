@@ -438,6 +438,7 @@ async fn spawn_tasks(
         let a_telemetry = workspace.telemetry_tx.clone();
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
+        let a_pool = workspace.pool.clone();
         tokio::spawn(async move {
             analyzer::run_single(
                 rx,
@@ -456,6 +457,7 @@ async fn spawn_tasks(
                 a_cancel,
                 candle_fwd,
                 warmed,
+                Some(a_pool),
             )
             .await;
         });

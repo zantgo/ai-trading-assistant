@@ -13,6 +13,7 @@ import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ExchangeKeyStore } from './stores/exchangeKeys.svelte';
+import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
 
 function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
     return {
@@ -86,6 +87,7 @@ export class AppStore {
     session = new SessionStore();
     profiles = new ProfileStore();
     exchangeKeys = new ExchangeKeyStore();
+    edges: EdgeStore;
 
     // ─── Global State ─────────────────────────────────────────────────
     instancesMap = $state<Record<string, InstanceState>>({});
@@ -93,6 +95,7 @@ export class AppStore {
     currentGlobalView = $state<string>('dashboard');
 
     constructor() {
+        this.edges = useEdgeStore();
         this.session.onSessionActivated = () => { this.currentGlobalView = 'dashboard'; };
 
         this._delegate(this.session, [
@@ -125,6 +128,7 @@ export class AppStore {
             'paperTakeProfitTargets', 'paperAvgEntryPrice',
             'paperInvalidationLevel', 'paperFilledPortions', 'paperMaxRiskPct',
             'paperLeverage', 'paperAutoExecuteIntervals', 'paperLookbackTrades',
+            'paperBreakEvenTrailEnabled',
             'paperPositionPct', 'paperFreeBalancePct', 'paperDirection',
             'openOrders',
             'activeSlots', 'positionSlots', 'equitySnapshots',
@@ -410,7 +414,7 @@ export class AppStore {
     get isChatLoading() { return this.activeInstance().isChatLoading; }
     set isChatLoading(v: boolean) { this.activeInstance().isChatLoading = v; }
     get currentView() { return this.activeInstance().currentView; }
-    set currentView(v: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings') { this.activeInstance().currentView = v; }
+    set currentView(v: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer') { this.activeInstance().currentView = v; }
 
     // Automation accessors
     get automationEnabled() { return this.activeInstance().automationEnabled; }

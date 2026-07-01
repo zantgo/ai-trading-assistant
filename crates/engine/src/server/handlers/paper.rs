@@ -52,6 +52,7 @@ pub async fn serve_paper_config(
         payload.leverage,
         payload.auto_execute_intervals,
         payload.lookback_trades,
+        payload.break_even_trail_enabled,
     )
     .await
     {
@@ -64,9 +65,10 @@ pub async fn serve_paper_config(
     }
 
     println!(
-        "Paper Config: {} initial=${:.2} allocation={:.1}% auto_execute={} risk={:.1}% leverage={}x interval={}m lookback={}",
+        "Paper Config: {} initial=${:.2} allocation={:.1}% auto_execute={} risk={:.1}% leverage={}x interval={}m lookback={} break_even_trail={}",
         payload.symbol, payload.initial_usd, allocation, payload.auto_execute,
-        payload.max_risk_pct, payload.leverage, payload.auto_execute_intervals, payload.lookback_trades
+        payload.max_risk_pct, payload.leverage, payload.auto_execute_intervals, payload.lookback_trades,
+        payload.break_even_trail_enabled
     );
     (axum::http::StatusCode::OK, "Paper trading config saved").into_response()
 }

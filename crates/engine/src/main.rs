@@ -218,6 +218,13 @@ async fn main() {
         ).await;
     }));
 
+    let funding_pool = db_pool.clone();
+    let funding_rate = app_config.read().await.fees.funding_rate_8h;
+    let funding_cancel = eval_cancel.clone();
+    handles.push(tokio::spawn(async move {
+        engine::paper_trading::run_funding_decay_tracker(funding_pool, funding_rate, funding_cancel).await;
+    }));
+
     handles.push(tokio::spawn(async move {
         strategy_optimizer::run_strategy_optimizer(strategy_optimizer::OptimizerConfig {
             pool: db_pool,

@@ -22,6 +22,8 @@
     import TimeframeSettings from './components/TimeframeSettings.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
+    import EdgeBuilder from './components/EdgeBuilder.svelte';
+    import EdgeAnalyzer from './components/EdgeAnalyzer.svelte';
     import styles from './App.module.css';
 
     // ─── Lib imports ─────────────────────────────────────────────────────────
@@ -242,6 +244,20 @@
                         </button>
                         <button
                             class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'edge_builder'}
+                            onclick={() => { pair.currentView = 'edge_builder'; }}
+                        >
+                            🔧 Edge Builder
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
+                            class:sub-tab-active={pair.currentView === 'edge_analyzer'}
+                            onclick={() => { pair.currentView = 'edge_analyzer'; }}
+                        >
+                            📐 Edge Analyzer
+                        </button>
+                        <button
+                            class={styles.subTabBtn}
                             class:sub-tab-active={pair.currentView === 'settings'}
                             onclick={() => { pair.currentView = 'settings'; }}
                         >
@@ -311,6 +327,15 @@
                 <!-- 9. Token Cost Dashboard -->
                 {:else if pair.currentView === 'costs'}
                     <CostDashboardPanel {pair} />
+
+                <!-- 9b. Edge Builder -->
+                {:else if pair.currentView === 'edge_builder'}
+                    <EdgeBuilder />
+
+                <!-- 9c. Edge Analyzer -->
+                {:else if pair.currentView === 'edge_analyzer'}
+                    <EdgeAnalyzer />
+
                 {:else if pair.currentView === 'observability'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <ObservabilityHub />

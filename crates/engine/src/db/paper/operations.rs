@@ -372,11 +372,13 @@ pub async fn paper_set_advanced_config(
     leverage: i32,
     auto_execute_intervals: i32,
     lookback_trades: i32,
+    break_even_trail_enabled: bool,
 ) -> Result<(), sqlx::Error> {
     let auto_val: i32 = if auto_execute { 1 } else { 0 };
+    let bet_val: i32 = if break_even_trail_enabled { 1 } else { 0 };
     sqlx::query(
-        "INSERT INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades)
-         VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "INSERT INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled)
+         VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(symbol) DO UPDATE SET
             initial_usd = excluded.initial_usd,
             current_cash = excluded.initial_usd,
@@ -385,7 +387,8 @@ pub async fn paper_set_advanced_config(
             max_risk_pct = excluded.max_risk_pct,
             leverage = excluded.leverage,
             auto_execute_intervals = excluded.auto_execute_intervals,
-            lookback_trades = excluded.lookback_trades"
+            lookback_trades = excluded.lookback_trades,
+            break_even_trail_enabled = excluded.break_even_trail_enabled"
     )
     .bind(symbol)
     .bind(initial_usd)
@@ -395,6 +398,7 @@ pub async fn paper_set_advanced_config(
     .bind(leverage)
     .bind(auto_execute_intervals)
     .bind(lookback_trades)
+    .bind(bet_val)
     .execute(&*pool)
     .await?;
     Ok(())
@@ -445,6 +449,30 @@ pub(crate) async fn paper_insert_open_order(
     is_reduce_only: bool,
     associated_position_id: Option<i64>,
 ) -> Result<i64, sqlx::Error> {
+    // Enforce entry order capacity constraint: E + 1 ≤ 4 - A
+    if associated_position_id.is_none() && !is_reduce_only {
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(COUNT(*), 0) FROM position_slots WHERE symbol = ?1 AND is_active = 1"
+        )
+        .bind(symbol)
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or(0);
+        let pending_count: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(COUNT(*), 0) FROM open_orders WHERE symbol = ?1 AND associated_position_id IS NULL AND is_reduce_only = 0"
+        )
+        .bind(symbol)
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or(0);
+        if pending_count + 1 > 4 - active_count {
+            return Err(sqlx::Error::Protocol(format!(
+                "Entry order cap exceeded: {} pending + 1 new > {} vacant slots (4 - {} active)",
+                pending_count, 4 - active_count, active_count
+            )));
+        }
+    }
+
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

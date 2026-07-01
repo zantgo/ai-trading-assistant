@@ -23,6 +23,13 @@ pub use paper::{
 
 pub use logger::{run_telemetry_logger, TelemetryMsg};
 
+// ─── Edge re-exports ───────────────────────────────────────────────
+
+pub use queries::edges::{
+    edge_analytics_cache_get, edge_analytics_cache_upsert, edges_delete, edges_get, edges_insert,
+    edges_list,
+};
+
 // ─── Query re-exports ──────────────────────────────────────────────
 
 pub use queries::exchange_keys::{

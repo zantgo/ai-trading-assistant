@@ -24,6 +24,7 @@ export class PaperTradingStore {
     paperLeverage = $state(20);
     paperAutoExecuteIntervals = $state(15);
     paperLookbackTrades = $state(10);
+    paperBreakEvenTrailEnabled = $state(false);
 
     // Percentage-based position tracking
     paperPositionPct = $state(0);
@@ -74,6 +75,7 @@ export class PaperTradingStore {
             this.paperLeverage = data.leverage ?? 20;
             this.paperAutoExecuteIntervals = data.auto_execute_intervals ?? 15;
             this.paperLookbackTrades = data.lookback_trades ?? 10;
+            this.paperBreakEvenTrailEnabled = data.break_even_trail_enabled ?? false;
             this.paperInitialAllocatedMargin = data.initial_allocated_margin ?? 0;
             this.paperRealizedPnlAccumulator = data.realized_pnl_accumulator ?? 0;
 
@@ -196,6 +198,7 @@ export class PaperTradingStore {
                     auto_execute: autoExecute, max_risk_pct: this.paperMaxRiskPct,
                     leverage: this.paperLeverage, auto_execute_intervals: this.paperAutoExecuteIntervals,
                     lookback_trades: this.paperLookbackTrades,
+                    break_even_trail_enabled: this.paperBreakEvenTrailEnabled,
                 })
             });
             await this.fetchPaperStatus(pairKey);

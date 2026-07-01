@@ -1,3 +1,4 @@
+pub mod edges;
 pub mod exchange_keys;
 pub mod journals;
 pub mod master;

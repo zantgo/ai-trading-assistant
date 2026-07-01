@@ -398,7 +398,7 @@ export interface InstanceState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
-    currentView: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings';
+    currentView: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer';
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
@@ -491,4 +491,145 @@ export interface UserTrade {
     outcome: 'WIN' | 'LOSS';
     risk_multiplier: number;
     reward_multiplier: number;
+}
+
+// ================================================================
+// 5. Edge Builder & Edge Analyzer
+// ================================================================
+
+export type EdgeArchetype = 'trend_following' | 'mean_reversion';
+
+export interface RegimeGates {
+    trending: boolean;
+    compression: boolean;
+    expansion: boolean;
+    range: boolean;
+}
+
+export type TriggerRule = 'crossover' | 'overbought_oversold' | 'divergence' | 'slope_direction' | 'threshold_above' | 'threshold_below' | 'release';
+
+export interface IndicatorConfig {
+    name: string;
+    weight: number;
+    trigger_rule: TriggerRule;
+    enabled: boolean;
+}
+
+export type SizingModel = 'fixed' | 'volatility_targeting';
+
+export interface SizingConfig {
+    model: SizingModel;
+    daily_vol_target_pct: number;
+    max_leverage: number;
+}
+
+export type StopLossModel = 'atr_volatility_stop' | 'structural_pivot' | 'fixed_percentage';
+
+export interface StopLossConfig {
+    model: StopLossModel;
+    atr_multiplier: number;
+}
+
+export interface TakeProfitConfig {
+    tp1_multiplier: number;
+    tp2_multiplier: number;
+    tp3_multiplier: number;
+}
+
+export type TriggerPhase = 'execute_on_trigger' | 'execute_on_confirmed_close';
+
+export interface ExecutionConfig {
+    min_rvol: number;
+    climax_rvol: number;
+    trigger_phase: TriggerPhase;
+    vwap_filter: boolean;
+}
+
+export interface EdgeConfig {
+    archetype: EdgeArchetype;
+    regime_gates: RegimeGates;
+    quorum_threshold: number;
+    mtf_quorum: string[];
+    indicators: IndicatorConfig[];
+    sizing: SizingConfig;
+    stop_loss: StopLossConfig;
+    take_profit: TakeProfitConfig;
+    execution: ExecutionConfig;
+    backtest_depth: number;
+}
+
+export interface EdgeSaveRequest {
+    name: string;
+    pair_key: string;
+    description: string;
+    config: EdgeConfig;
+}
+
+export interface EdgeAnalyzeRequest {
+    edge_id: number;
+    symbol: string;
+    timeframe_secs: number;
+}
+
+export interface SavedEdge {
+    id: number;
+    name: string;
+    pair_key: string;
+    description: string | null;
+    config: EdgeConfig;
+    created_at: string;
+}
+
+export interface HistoricalMetrics {
+    total_trades: number;
+    win_rate: number;
+    profit_factor: number;
+    net_sharpe_ratio: number;
+    max_drawdown_pct: number;
+    max_drawdown_duration: number;
+    total_return_pct: number;
+    avg_trade_return_pct: number;
+    avg_win_pct: number;
+    avg_loss_pct: number;
+}
+
+export interface EquityPoint {
+    trade_index: number;
+    cumulative_return_pct: number;
+}
+
+export interface BacktestCurveData {
+    in_sample: EquityPoint[];
+    out_of_sample: EquityPoint[];
+    combined: EquityPoint[];
+}
+
+export interface MonteCarloPath {
+    path_index: number;
+    equity_points: number[];
+    max_drawdown_pct: number;
+    final_return_pct: number;
+}
+
+export interface DrawdownBucket {
+    bucket_pct: number;
+    frequency: number;
+}
+
+export interface EdgeAnalysisResponse {
+    edge_id: number;
+    edge_name: string;
+    symbol: string;
+    timeframe_secs: number;
+    backtest_depth: number;
+    historical_metrics: HistoricalMetrics;
+    backtest_curve: BacktestCurveData;
+    bootstrap_p_value: number;
+    bootstrap_significant: boolean;
+    monte_carlo_paths: MonteCarloPath[];
+    drawdown_distribution: DrawdownBucket[];
+    probability_of_ruin_pct: number;
+    confidence_95_drawdown_pct: number;
+    skewness: number;
+    cached: boolean;
 }

@@ -97,6 +97,7 @@ micro_score_threshold = 60
 [fees]
 maker_fee_pct = 0.02
 taker_fee_pct = 0.06
+funding_rate_8h = 0.01
 
 [costs]
 price_per_1m_input_tokens = 0.27

@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{broadcast, RwLock};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
@@ -120,6 +121,7 @@ pub async fn run_single(
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
+    paper_pool: Option<sqlx::SqlitePool>,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -442,6 +444,36 @@ pub async fn run_single(
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
+
+                    // Decisive close invalidation: check at every 1-minute candle close
+                    if timeframe_secs == 60 {
+                        if let Some(ref pool) = paper_pool {
+                            if let Some(pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
+                                if let Some(inval_level) = pos.final_invalidation_level {
+                                    let tolerance = 0.002;
+                                    let close_f64 = completed.close.to_f64().unwrap_or(0.0);
+                                    let invalidated = match pos.direction.as_str() {
+                                        "LONG" => close_f64 < inval_level * (1.0 - tolerance),
+                                        "SHORT" => close_f64 > inval_level * (1.0 + tolerance),
+                                        _ => false,
+                                    };
+                                    if invalidated {
+                                        let _ = crate::paper_trading::invalidate_position(
+                                            pool,
+                                            &telemetry_tx,
+                                            &symbol,
+                                            close_f64,
+                                            "DECISIVE_CLOSE_1M",
+                                        ).await;
+                                        println!(
+                                            "🛑 Analyzer: {} position invalidated by 1m decisive close at ${:.2}",
+                                            symbol, close_f64
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     {
                         let mut snap = latest_snapshot.write().await;

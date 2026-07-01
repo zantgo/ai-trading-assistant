@@ -579,6 +579,15 @@ pub async fn place_pending_order(
         return Err("STOP orders require a trigger_price".to_string());
     }
 
+    let active_count = db::paper_get_active_slot_count(pool, symbol).await;
+    let pending_count = db::paper_get_open_orders(pool, symbol).await.len() as i32;
+    if pending_count + 1 > 4 - active_count {
+        return Err(format!(
+            "Cannot place pending entry: {} pending + 1 new exceeds {} available slots (4 max, {} active)",
+            pending_count, 4 - active_count, active_count
+        ));
+    }
+
     crate::db::paper::operations::paper_insert_open_order(
         pool, symbol, order_type, direction, price, trigger_price, 25.0, false, None,
     ).await.map_err(|e| format!("DB error: {}", e))
@@ -762,7 +771,12 @@ pub async fn invalidate_position(
 }
 
 /// Check if a break-even trailing update is needed.
+/// No-op when break_even_trail_enabled is false in paper_balances.
 pub async fn check_break_even_trail(pool: &SqlitePool, symbol: &str, current_price: f64) -> bool {
+    let balance = db::paper_get_balance(pool, symbol).await;
+    if !balance.break_even_trail_enabled {
+        return false;
+    }
     let position = db::paper_get_active_position(pool, symbol).await;
     let pos = match position {
         Some(ref p) => p,
@@ -801,6 +815,31 @@ pub async fn check_break_even_trail(pool: &SqlitePool, symbol: &str, current_pri
         }
     }
     false
+}
+
+/// Apply break-even trailing immediately after a TP fill (called from order matcher).
+/// Moves stop-loss to the weighted average entry price of remaining active slots.
+/// No-op when break_even_trail_enabled is false in paper_balances.
+pub async fn apply_break_even_trail(pool: &SqlitePool, symbol: &str) {
+    let balance = db::paper_get_balance(pool, symbol).await;
+    if !balance.break_even_trail_enabled {
+        return;
+    }
+    let position = db::paper_get_active_position(pool, symbol).await;
+    let pos = match position {
+        Some(ref p) => p,
+        None => return,
+    };
+    let entry = pos.average_entry_price.unwrap_or(pos.entry_price);
+    let _ = sqlx::query("UPDATE active_positions SET final_invalidation_level = ?2 WHERE symbol = ?1")
+        .bind(symbol)
+        .bind(entry)
+        .execute(pool)
+        .await;
+    println!(
+        "📄 Break-Even Trail: {} TP filled — SL moved to entry ${:.2} (avg entry of remaining slots)",
+        symbol, entry
+    );
 }
 
 pub fn evaluate_opposite_exit(
@@ -853,11 +892,17 @@ pub struct PaperSlotOpResult {
 
 /// Calculate the dynamic margin for a newly opened portion slot.
 /// C_cycle = initial_allocated_margin + realized_pnl_accumulator
-/// K_new = (C_cycle - sum(K_active)) / N_vacant
+/// K_new = (C_cycle - sum(K_active)) / N_vacant, capped by available_cash.
+///
+/// When N_vacant == 1 (final slot), sweeps all remaining cash to complete the cycle.
 pub fn calculate_slot_margin(
     total_cycle_capital: f64,
     active_slots: &[SlotState],
+    available_cash: f64,
 ) -> Result<f64, String> {
+    if available_cash <= 0.0 {
+        return Err("No cash available for allocation".into());
+    }
     let active_count = active_slots.iter().filter(|s| s.is_active).count();
     if active_count >= 4 {
         return Err("Position fully allocated (4/4 portions active)".into());
@@ -869,7 +914,13 @@ pub fn calculate_slot_margin(
     if unallocated_capital <= 0.0 {
         return Err("No unallocated margin remains in this position cycle".into());
     }
-    Ok(unallocated_capital / vacant_count as f64)
+
+    if vacant_count == 1 {
+        Ok(available_cash)
+    } else {
+        let required = unallocated_capital / vacant_count as f64;
+        Ok(required.min(available_cash))
+    }
 }
 
 /// Recalculate aggregate position fields from active slot data and update.
@@ -975,6 +1026,9 @@ pub async fn open_slot_internal(
         };
     }
 
+    // Fetch balance once — used for cycle capital calc and cash-capped margin
+    let balance = db::paper_get_balance(pool, symbol).await;
+
     // Determine cycle capital
     let pos = db::paper_get_active_position(pool, symbol).await;
     let cycle_capital = if let Some(ref p) = pos {
@@ -983,7 +1037,6 @@ pub async fn open_slot_internal(
         initial_margin + realized_accum
     } else {
         // Fresh cycle: use the balance's paper_initial_usd as first allocation
-        let balance = db::paper_get_balance(pool, symbol).await;
         balance.initial_usd
     };
 
@@ -995,7 +1048,7 @@ pub async fn open_slot_internal(
         allocated_usd: s.allocated_usd,
     }).collect();
 
-    let new_margin = match calculate_slot_margin(cycle_capital, &active_state) {
+    let new_margin = match calculate_slot_margin(cycle_capital, &active_state, balance.current_cash) {
         Ok(m) => m,
         Err(e) => {
             return PaperSlotOpResult {
@@ -1008,7 +1061,6 @@ pub async fn open_slot_internal(
         }
     };
 
-    let balance = db::paper_get_balance(pool, symbol).await;
     if balance.current_cash < new_margin {
         return PaperSlotOpResult {
             success: false,
@@ -1192,9 +1244,14 @@ pub async fn close_slot_internal(
         (oldest.entry_price - current_price) * oldest.size
     };
 
-    let refund = oldest.allocated_usd + pnl;
+    let is_maker = trigger.to_uppercase().contains("TP");
+    let fee_rate = if is_maker { 0.0002 } else { 0.0006 };
+    let commission_fee = oldest.size * current_price * fee_rate;
+    let net_pnl = pnl - commission_fee;
+    let refund = oldest.allocated_usd + net_pnl;
     let direction = oldest.direction.clone();
     let slot_index = oldest.slot_index;
+    let position_id = oldest.position_id;
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1217,7 +1274,7 @@ pub async fn close_slot_internal(
     // Mark slot inactive
     if let Err(e) = sqlx::query("UPDATE position_slots SET is_active = 0, realized_pnl = ?2 WHERE id = ?1")
         .bind(oldest.id)
-        .bind(pnl)
+        .bind(net_pnl)
         .execute(&mut *tx)
         .await {
         let _ = tx.rollback().await;
@@ -1225,17 +1282,31 @@ pub async fn close_slot_internal(
             success: false,
             message: format!("Failed to update slot: {}", e),
             slot_index, size: oldest.size, allocated_usd: oldest.allocated_usd,
-            realized_pnl: pnl, refunded_usd: 0.0,
+            realized_pnl: net_pnl, refunded_usd: 0.0,
             active_count, direction,
         };
     }
+
+    // FIFO bracket cleanup: delete oldest TP and SL orders for this position
+    let _ = sqlx::query(
+        "DELETE FROM open_orders WHERE id = (SELECT id FROM open_orders WHERE associated_position_id = ?1 AND order_type = 'LIMIT' AND is_reduce_only = 1 ORDER BY created_at ASC LIMIT 1)"
+    )
+    .bind(position_id)
+    .execute(&mut *tx)
+    .await;
+    let _ = sqlx::query(
+        "DELETE FROM open_orders WHERE id = (SELECT id FROM open_orders WHERE associated_position_id = ?1 AND order_type = 'STOP' AND is_reduce_only = 1 ORDER BY created_at ASC LIMIT 1)"
+    )
+    .bind(position_id)
+    .execute(&mut *tx)
+    .await;
 
     // Update realized_pnl_accumulator on active_positions
     if let Some(pos) = db::paper_get_active_position(pool, symbol).await {
         let current_accum = pos.realized_pnl_accumulator.unwrap_or(0.0);
         let _ = sqlx::query("UPDATE active_positions SET realized_pnl_accumulator = ?2 WHERE symbol = ?1")
             .bind(symbol)
-            .bind(current_accum + pnl)
+            .bind(current_accum + net_pnl)
             .execute(&mut *tx)
             .await;
     }
@@ -1259,7 +1330,7 @@ pub async fn close_slot_internal(
     // Record trade
     let _pos = db::paper_get_active_position(pool, symbol).await;
     let roi_pct = if oldest.allocated_usd > 0.0 {
-        (pnl / oldest.allocated_usd) * 100.0
+        (net_pnl / oldest.allocated_usd) * 100.0
     } else {
         0.0
     };
@@ -1272,7 +1343,7 @@ pub async fn close_slot_internal(
     .bind(oldest.entry_price)
     .bind(current_price)
     .bind(oldest.size)
-    .bind(pnl)
+    .bind(net_pnl)
     .bind(roi_pct)
     .bind(oldest.timestamp)
     .bind(now)
@@ -1292,7 +1363,7 @@ pub async fn close_slot_internal(
     .bind(oldest.entry_price)
     .bind(current_price)
     .bind(oldest.size)
-    .bind(pnl)
+    .bind(net_pnl)
     .bind(roi_pct)
     .bind(trigger)
     .execute(&mut *tx)
@@ -1313,7 +1384,7 @@ pub async fn close_slot_internal(
         entry_timestamp: oldest.timestamp,
         exit_timestamp: now,
         size: oldest.size,
-        realized_pnl: pnl,
+        realized_pnl: net_pnl,
         roi_pct,
         allocated_usd: oldest.allocated_usd,
         trigger: trigger.to_string(),
@@ -1323,11 +1394,11 @@ pub async fn close_slot_internal(
 
     PaperSlotOpResult {
         success: true,
-        message: format!("Closed {} slot {}: PnL ${:.2}, refunded ${:.2}", direction, slot_index, pnl, refund),
+        message: format!("Closed {} slot {}: PnL ${:.2}, refunded ${:.2}", direction, slot_index, net_pnl, refund),
         slot_index,
         size: oldest.size,
         allocated_usd: oldest.allocated_usd,
-        realized_pnl: pnl,
+        realized_pnl: net_pnl,
         refunded_usd: refund,
         active_count: new_active,
         direction,
@@ -1401,4 +1472,87 @@ pub async fn get_slot_states(pool: &SqlitePool, symbol: &str) -> Vec<SlotState> 
         }
     }
     states
+}
+
+/// Background funding fee decay tracker — runs every 8 hours.
+/// Deducts holding costs from active position slots to prevent capital inflation.
+pub async fn run_funding_decay_tracker(
+    pool: SqlitePool,
+    funding_rate_8h_pct: f64,
+    cancel: tokio_util::sync::CancellationToken,
+) {
+    let interval = tokio::time::Duration::from_secs(8 * 3600);
+    println!("💸 Funding Decay Tracker: started (8h interval, rate: {:.4}%)", funding_rate_8h_pct);
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                println!("🛑 Funding Decay Tracker: cancelled, shutting down.");
+                break;
+            }
+            _ = tokio::time::sleep(interval) => {}
+        }
+
+        let funding_rate = funding_rate_8h_pct / 100.0;
+        let positions = db::paper::queries::paper_get_all_active_positions(&pool).await;
+
+        for pos in &positions {
+            let current_price = get_latest_close_price(&pool, &pos.symbol).await;
+            if current_price <= 0.0 {
+                continue;
+            }
+
+            let active_slots = db::paper_get_active_slots(&pool, &pos.symbol).await;
+            let mut total_funding_cost = 0.0;
+
+            if let Ok(mut tx) = pool.begin().await {
+                for slot in &active_slots {
+                    let funding_cost = slot.size * current_price * funding_rate;
+                    if funding_cost > 0.0 {
+                        let new_allocated = (slot.allocated_usd - funding_cost).max(0.0);
+                        let _ = sqlx::query(
+                            "UPDATE position_slots SET allocated_usd = ?2 WHERE id = ?1 AND is_active = 1"
+                        )
+                        .bind(slot.id)
+                        .bind(new_allocated)
+                        .execute(&mut *tx)
+                        .await;
+                        total_funding_cost += funding_cost;
+                    }
+                }
+
+                // Update master position aggregate
+                let new_total_allocated = (pos.allocated_usd - total_funding_cost).max(0.0);
+                let _ = sqlx::query(
+                    "UPDATE active_positions SET allocated_usd = ?2 WHERE id = ?1"
+                )
+                .bind(pos.id)
+                .bind(new_total_allocated)
+                .execute(&mut *tx)
+                .await;
+
+                let _ = tx.commit().await;
+            }
+
+            if total_funding_cost > 0.01 {
+                println!(
+                    "💸 Funding Decay: {} debited ${:.4} across {} active slots (rate: {:.4}%)",
+                    pos.symbol, total_funding_cost, active_slots.len(), funding_rate_8h_pct
+                );
+            }
+        }
+    }
+}
+
+async fn get_latest_close_price(pool: &SqlitePool, symbol: &str) -> f64 {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT CAST(close AS REAL) FROM market_snapshots WHERE symbol = ?1 AND close IS NOT NULL AND timeframe_secs = 60 ORDER BY timestamp DESC LIMIT 1"
+    )
+    .bind(symbol)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    row.map(|r| r.get::<f64, _>(0)).unwrap_or(0.0)
 }

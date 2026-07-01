@@ -331,6 +331,22 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::assistant::serve_cost_estimate),
         )
         .route(
+            "/api/edges",
+            get(handlers::edges::serve_edges_list),
+        )
+        .route(
+            "/api/edges/save",
+            post(handlers::edges::serve_edges_save),
+        )
+        .route(
+            "/api/edges/analyze",
+            post(handlers::edges::serve_edges_analyze),
+        )
+        .route(
+            "/api/edges/:id",
+            delete(handlers::edges::serve_edges_delete),
+        )
+        .route(
             "/api/system/status",
             get(handlers::system::serve_system_status),
         )
