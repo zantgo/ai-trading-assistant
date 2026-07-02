@@ -1,9 +1,12 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './DecisionTrading.module.css';
+    import MomentumMeter from './MomentumMeter.svelte';
     import type { DecisionProfile, IndicatorRule } from '../types';
 
     const app = useAppStore();
+    const activePair = $derived(app.instancesMap[app.activeTab]);
+    const microInd = $derived(activePair?.microTerm?.indicators ?? {});
     let showNewIndicator = $state(false);
     let newIndicatorName = $state('');
     let newIndicatorWeight = $state(10);
@@ -175,6 +178,14 @@
                 <button class={styles.dtEvalBtn} onclick={handleEvaluate} disabled={app.decisionLoading}>
                     {app.decisionLoading ? 'Evaluating...' : 'Evaluate Decision'}
                 </button>
+            </div>
+
+            <!-- Continuous Momentum Meters (RSI / MACD / Squeeze) -->
+            <div class={styles.dtCard}>
+                <h3 class={styles.dtCardTitle}>MOMENTUM METERS</h3>
+                <MomentumMeter label="RSI" normalized={microInd['rsi']?.normalized ?? 0} stateLabel={microInd['rsi']?.state_label ?? 'UNKNOWN'} />
+                <MomentumMeter label="MACD" normalized={microInd['macd']?.normalized ?? 0} stateLabel={microInd['macd']?.state_label ?? 'UNKNOWN'} />
+                <MomentumMeter label="SQUEEZE" normalized={microInd['squeeze']?.normalized ?? 0} stateLabel={microInd['squeeze']?.state_label ?? 'UNKNOWN'} />
             </div>
 
             <!-- 8-Factor Score & Capital Allocation -->

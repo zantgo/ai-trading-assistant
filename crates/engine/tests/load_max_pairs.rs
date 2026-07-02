@@ -38,6 +38,7 @@ async fn test_load_max_pairs_stability() {
             ..Default::default()
         };
 
+        #[allow(clippy::needless_range_loop)]
         for pair_idx in 0..num_pairs {
             let symbol = format!("SYM{:02}", pair_idx);
 
@@ -114,6 +115,7 @@ async fn test_load_max_pairs_stability() {
         tokio::spawn(async move {
             let mut ts = 0u64;
             for trade_idx in 0..trades_per_pair {
+                #[allow(clippy::needless_range_loop)]
                 for pair_idx in 0..num_pairs {
                     let price =
                         50000.0 + (trade_idx as f64 * 0.5).sin() * 200.0 + pair_idx as f64 * 100.0;
@@ -143,6 +145,7 @@ async fn test_load_max_pairs_stability() {
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
         let mut total_candles = 0usize;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..num_pairs {
             let mc = mid_histories[i].read().await.len();
             assert!(

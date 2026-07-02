@@ -26,7 +26,8 @@ async fn setup_full_schema() -> SqlitePool {
             max_risk_pct REAL NOT NULL DEFAULT 2.0,
             leverage INTEGER NOT NULL DEFAULT 20,
             auto_execute_intervals INTEGER NOT NULL DEFAULT 15,
-            lookback_trades INTEGER NOT NULL DEFAULT 10
+            lookback_trades INTEGER NOT NULL DEFAULT 10,
+            break_even_trail_enabled INTEGER NOT NULL DEFAULT 0
         )",
     )
     .execute(&pool)

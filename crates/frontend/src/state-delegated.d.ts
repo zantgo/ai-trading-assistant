@@ -47,6 +47,7 @@ declare module './state.svelte' {
         equitySnapshots: EquitySnapshot[];
         paperInitialAllocatedMargin: number;
         paperRealizedPnlAccumulator: number;
+        paperBreakEvenTrailEnabled: boolean;
 
         apiKeyConfigured: boolean; rulesContent: string;
         globalCandlesConfig: { duration_seconds: number; analysis_limit: number };

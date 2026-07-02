@@ -33,13 +33,13 @@ impl CliConsole {
     }
 
     pub async fn run(&self) {
-        println!("{}", format!(
+        println!(
             "\n{}╔══════════════════════════════════════════╗{}\n\
                {}║   AI Trading Assistant — CLI Console    ║{}\n\
                {}║   Type 'help' for available commands   ║{}\n\
                {}╚══════════════════════════════════════════╝{}\n",
             CYAN, RESET, CYAN, RESET, CYAN, RESET, CYAN, RESET
-        ));
+        );
 
         let mut rl = match DefaultEditor::new() {
             Ok(editor) => editor,

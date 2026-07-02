@@ -18,24 +18,9 @@ import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
 function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
     return {
         symbol, exchange: 'Hyperliquid', barDurationSec,
-        priceText: '--', vwapText: '--', vwapBias: 'equilibrium', avgVolText: '--',
-        emaFastText: '--', emaMediumText: '--', emaSlowText: '--', emaLongText: '--',
-        emaStackState: 'tangled',
-        adxText: '--', adxPlusText: '--', adxMinusText: '--', atrText: '--',
-        rsiText: '--', macdLineText: '--', macdSigText: '--', macdHistText: '--',
-        sqzValText: '--', sqzStatusText: '--', isSqueezeOn: false, volText: '--', bbwpText: '--',
-        fibGoldenLowText: '--', fibGoldenHighText: '--', fibExt1618Text: '--', fibExt2618Text: '--',
-        lastMacdHist: 0, lastSqzMom: 0, lastBbwp: 0,
-        rsiDivergenceStatus: 'none' as const, macdDivergenceStatus: 'none' as const,
-        rsiDivergenceCoords: null, macdDivergenceCoords: null,
-        macdHistPeak: 0, macdContractionTriggered: false,
-        macdCrossoverDetected: false, macdCrossoverDirection: 'NONE',
-        adxSlope: 0, adxTrendingRegime: 'congestion', adxExhaustionReached: false,
-        adxDiCrossoverDetected: false, adxDiCrossoverDirection: 'NONE',
-        squeezeDuration: 0, squeezeReleaseTrigger: false,
-        squeezeMomentumDirection: 'Flat',
-        activePattern: 'None', patternConfidence: 0, showPatterns: true,
-        atrVolatilityRegime: 'stable', atrSlope: 0, rvol: 0,
+        indicators: {},
+        priceText: '--', volText: '--', avgVolText: '--',
+        showPatterns: true,
         isCompleted: false, latestSnapshot: null, historyPrices: [],
         showEmas: true, showBb: true, showVwap: true, showVolume: true,
         showAdx: true, showAtr: true, showRsi: true, showMacd: true,
@@ -276,49 +261,14 @@ export class AppStore {
     get isConnected() { return this.activeInstance().isConnected; }
     set isConnected(v: boolean) { this.activeInstance().isConnected = v; }
 
-    // Micro-term telemetry accessors
+    // Micro-term telemetry accessors (core market data only; indicators live
+    // in the nested `indicators` map on each timeframe).
     get priceText() { return this.micro().priceText; }
     set priceText(v: string) { this.micro().priceText = v; }
-    get vwapText() { return this.micro().vwapText; }
-    set vwapText(v: string) { this.micro().vwapText = v; }
     get avgVolText() { return this.micro().avgVolText; }
     set avgVolText(v: string) { this.micro().avgVolText = v; }
-    get emaFastText() { return this.micro().emaFastText; }
-    set emaFastText(v: string) { this.micro().emaFastText = v; }
-    get emaMediumText() { return this.micro().emaMediumText; }
-    set emaMediumText(v: string) { this.micro().emaMediumText = v; }
-    get emaSlowText() { return this.micro().emaSlowText; }
-    set emaSlowText(v: string) { this.micro().emaSlowText = v; }
-    get emaLongText() { return this.micro().emaLongText; }
-    set emaLongText(v: string) { this.micro().emaLongText = v; }
-    get adxText() { return this.micro().adxText; }
-    set adxText(v: string) { this.micro().adxText = v; }
-    get adxPlusText() { return this.micro().adxPlusText; }
-    set adxPlusText(v: string) { this.micro().adxPlusText = v; }
-    get adxMinusText() { return this.micro().adxMinusText; }
-    set adxMinusText(v: string) { this.micro().adxMinusText = v; }
-    get atrText() { return this.micro().atrText; }
-    set atrText(v: string) { this.micro().atrText = v; }
-    get rsiText() { return this.micro().rsiText; }
-    set rsiText(v: string) { this.micro().rsiText = v; }
-    get macdLineText() { return this.micro().macdLineText; }
-    set macdLineText(v: string) { this.micro().macdLineText = v; }
-    get macdSigText() { return this.micro().macdSigText; }
-    set macdSigText(v: string) { this.micro().macdSigText = v; }
-    get macdHistText() { return this.micro().macdHistText; }
-    set macdHistText(v: string) { this.micro().macdHistText = v; }
-    get sqzValText() { return this.micro().sqzValText; }
-    set sqzValText(v: string) { this.micro().sqzValText = v; }
-    get sqzStatusText() { return this.micro().sqzStatusText; }
-    set sqzStatusText(v: string) { this.micro().sqzStatusText = v; }
-    get isSqueezeOn() { return this.micro().isSqueezeOn; }
-    set isSqueezeOn(v: boolean) { this.micro().isSqueezeOn = v; }
     get volText() { return this.micro().volText; }
     set volText(v: string) { this.micro().volText = v; }
-    get lastMacdHist() { return this.micro().lastMacdHist; }
-    set lastMacdHist(v: number) { this.micro().lastMacdHist = v; }
-    get lastSqzMom() { return this.micro().lastSqzMom; }
-    set lastSqzMom(v: number) { this.micro().lastSqzMom = v; }
     get latestSnapshot() { return this.micro().latestSnapshot; }
     set latestSnapshot(v: Record<string, unknown> | null) { this.micro().latestSnapshot = v; }
     get historyPrices() { return this.micro().historyPrices; }

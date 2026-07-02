@@ -52,22 +52,34 @@
         return '#f44336';
     }
 
-    function buildEquityPath(cb: { trade_index: number; cumulative_return_pct: number }[]): string {
-        if (cb.length === 0) return '';
+    // Map a market regime to its equity-curve segment color.
+    function regimeColor(regime: string): string {
+        switch (regime) {
+            case 'expansion': return '#4caf50';   // green — volatility breakouts
+            case 'trending': return '#4fc3f7';    // blue — established trends
+            case 'range': return '#ffc107';       // yellow — range-reversion
+            case 'compression': return '#9e9e9e'; // grey — coiling
+            default: return '#607d8b';            // seed / unknown
+        }
+    }
+
+    type EquityPt = { trade_index: number; cumulative_return_pct: number; regime: string };
+
+    // Build per-segment SVG paths colored by the regime of each trade, so the
+    // equity curve visually segments across market regimes.
+    function buildEquitySegments(cb: EquityPt[]): { d: string; color: string }[] {
+        if (cb.length < 2) return [];
         const maxVal = Math.max(...cb.map(p => p.cumulative_return_pct), 1);
         const minVal = Math.min(...cb.map(p => p.cumulative_return_pct), -1);
         const range = maxVal - minVal || 1;
-        let d = '';
-        for (let i = 0; i < cb.length; i++) {
-            const x = (i / (cb.length - 1)) * 600;
-            const y = 200 - ((cb[i].cumulative_return_pct - minVal) / range) * 200;
-            if (i === 0) {
-                d += `M ${x} ${y}`;
-            } else {
-                d += ` L ${x} ${y}`;
-            }
+        const x = (i: number) => (i / (cb.length - 1)) * 600;
+        const y = (v: number) => 200 - ((v - minVal) / range) * 200;
+        const segs: { d: string; color: string }[] = [];
+        for (let i = 1; i < cb.length; i++) {
+            const d = `M ${x(i - 1)} ${y(cb[i - 1].cumulative_return_pct)} L ${x(i)} ${y(cb[i].cumulative_return_pct)}`;
+            segs.push({ d, color: regimeColor(cb[i].regime) });
         }
-        return d;
+        return segs;
     }
 
     function buildMcPaths(paths: { equity_points: number[]; path_index: number }[]): string[] {
@@ -197,12 +209,20 @@
 
                 {#if r.backtest_curve.combined.length > 0}
                     <div class={styles.chartContainer}>
-                        <div class={styles.chartLabel}>In-Sample (Green) vs Out-of-Sample (Blue) Equity Curve</div>
+                        <div class={styles.chartLabel}>Regime-Colored Equity Curve</div>
                         <div class={styles.miniChart}>
                             <svg viewBox="0 0 600 200" class={styles.equitySvg}>
                                 <line x1="0" y1={100} x2="600" y2={100} stroke="#333" stroke-dasharray="4" />
-                                <path d={buildEquityPath(r.backtest_curve.combined)} fill="none" stroke="#4fc3f7" stroke-width="1.5" opacity="0.7" />
+                                {#each buildEquitySegments(r.backtest_curve.combined) as seg}
+                                    <path d={seg.d} fill="none" stroke={seg.color} stroke-width="1.5" />
+                                {/each}
                             </svg>
+                        </div>
+                        <div class={styles.regimeLegend}>
+                            <span class={styles.legendItem}><i class={styles.legendSwatch} style="background:#4fc3f7"></i>Trending</span>
+                            <span class={styles.legendItem}><i class={styles.legendSwatch} style="background:#4caf50"></i>Expansion</span>
+                            <span class={styles.legendItem}><i class={styles.legendSwatch} style="background:#ffc107"></i>Range</span>
+                            <span class={styles.legendItem}><i class={styles.legendSwatch} style="background:#9e9e9e"></i>Compression</span>
                         </div>
                     </div>
                 {/if}

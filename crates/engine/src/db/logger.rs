@@ -448,7 +448,7 @@ async fn lookup_entry_reason(pool: &SqlitePool, symbol: &str, entry_timestamp: i
     )
     .bind(symbol)
     .bind(entry_timestamp)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten();
@@ -546,7 +546,7 @@ async fn find_trade_telemetry_id(
     .bind(symbol)
     .bind(entry_timestamp)
     .bind(exit_timestamp)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten();

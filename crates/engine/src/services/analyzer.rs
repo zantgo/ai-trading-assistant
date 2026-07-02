@@ -1,4 +1,4 @@
-use crate::profile_evaluation::{classify_market_regime, indicator_to_snapshot_values};
+use crate::profile_evaluation::{classify_market_regime, snapshot_values_from_flat};
 use crate::server::telemetry::compile_deterministic_telemetry;
 use crate::server::types::{
     IndicatorSnapshot, IndicatorSynthesisResponse, MultiAgentAnalysisResponse, PhaseTwoResponse,
@@ -100,6 +100,7 @@ impl AnalysisService {
             Some(&journal_context)
         };
 
+        let indicators_json = serde_json::to_string(&micro_snap.indicators).ok();
         let master_result = self
             .llm_client
             .run_master_orchestrator(
@@ -112,6 +113,9 @@ impl AnalysisService {
                 &telemetry.resistance_levels,
                 journal_opt,
                 Some(&symbol),
+                telemetry.total_confluence_score,
+                None,
+                indicators_json.as_deref(),
             )
             .await?;
 
@@ -178,7 +182,7 @@ impl AnalysisService {
         let mr_allocation = master_result.allocation_pct;
 
         tokio::spawn(async move {
-            let local_snap = indicator_to_snapshot_values(&db_indicators);
+            let local_snap = snapshot_values_from_flat(&db_indicators);
             let regime = classify_market_regime(&local_snap);
 
             let _ = db_telemetry

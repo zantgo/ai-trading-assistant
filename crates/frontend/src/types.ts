@@ -272,61 +272,38 @@ export interface AgentProgress {
 // 4. Instance & WebSocket Telemetry
 // ================================================================
 
+/** Dual-representation normalized indicator DTO (mirrors the Rust NormalizedIndicatorValue). */
+export interface IndicatorDto {
+    raw_value: number;
+    normalized: number;
+    state_label: string;
+    values?: Record<string, number> | null;
+}
+
+export type IndicatorMap = Record<string, IndicatorDto>;
+
+/** Safe sentinel for a missing indicator: neutral, unknown. */
+export function emptyIndicator(): IndicatorDto {
+    return { raw_value: 0, normalized: 0, state_label: 'UNKNOWN', values: null };
+}
+
 export interface TimeframeTelemetry {
     symbol: string;
     exchange: string;
     barDurationSec: number;
+    /**
+     * Authoritative nested normalized indicator map, keyed by indicator name
+     * (rsi, macd, squeeze, adx, bbwp, rvol, ema_stack, vwap, fibonacci,
+     * patterns, support_resistance, atr, bollinger, rsi_divergence,
+     * macd_divergence). The legacy flat *Text fields below are derived from
+     * this map for backwards compatibility with existing components.
+     */
+    indicators: IndicatorMap;
+    // Core (non-indicator) market data retained as flat text.
     priceText: string;
-    vwapText: string;
-    vwapBias: 'premium' | 'discount' | 'equilibrium';
-    avgVolText: string;
-    emaFastText: string;
-    emaMediumText: string;
-    emaSlowText: string;
-    emaLongText: string;
-    emaStackState: 'bullish' | 'bearish' | 'tangled';
-    adxText: string;
-    adxPlusText: string;
-    adxMinusText: string;
-    atrText: string;
-    rsiText: string;
-    macdLineText: string;
-    macdSigText: string;
-    macdHistText: string;
-    sqzValText: string;
-    sqzStatusText: string;
-    isSqueezeOn: boolean;
     volText: string;
-    bbwpText: string;
-    fibGoldenLowText: string;
-    fibGoldenHighText: string;
-    fibExt1618Text: string;
-    fibExt2618Text: string;
-    lastMacdHist: number;
-    lastSqzMom: number;
-    lastBbwp: number;
-    rsiDivergenceStatus: 'none' | 'potential' | 'confirmed';
-    macdDivergenceStatus: 'none' | 'potential' | 'confirmed';
-    rsiDivergenceCoords: string | null;
-    macdDivergenceCoords: string | null;
-    macdHistPeak: number;
-    macdContractionTriggered: boolean;
-    macdCrossoverDetected: boolean;
-    macdCrossoverDirection: 'BULLISH' | 'BEARISH' | 'NONE';
-    adxSlope: number;
-    adxTrendingRegime: 'congestion' | 'emerging' | 'strong' | 'extreme';
-    adxExhaustionReached: boolean;
-    adxDiCrossoverDetected: boolean;
-    adxDiCrossoverDirection: 'BULLISH' | 'BEARISH' | 'NONE';
-    squeezeDuration: number;
-    squeezeReleaseTrigger: boolean;
-    squeezeMomentumDirection: 'BullishAcceleration' | 'BullishDeceleration' | 'BearishAcceleration' | 'BearishDeceleration' | 'Flat';
-    activePattern: 'None' | 'BullishTriangle' | 'BearishTriangle' | 'RisingWedge' | 'FallingWedge' | 'AscendingChannel' | 'DescendingChannel';
-    patternConfidence: number;
+    avgVolText: string;
     showPatterns: boolean;
-    atrVolatilityRegime: 'expanding' | 'contracting' | 'stable';
-    atrSlope: number;
-    rvol: number;
     isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
     historyPrices: number[];
@@ -596,6 +573,8 @@ export interface HistoricalMetrics {
 export interface EquityPoint {
     trade_index: number;
     cumulative_return_pct: number;
+    /** Market regime of the trade producing this point (empty for seed point). */
+    regime: string;
 }
 
 export interface BacktestCurveData {

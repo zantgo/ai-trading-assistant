@@ -1,5 +1,22 @@
 use super::SnapshotValues;
 
+// ─── Confluence factor weights (Section 3.1) ───────────────────────
+// Continuous model: each factor contributes `normalized × weight`.
+const W_RSI: f64 = 10.0;
+const W_RSI_DIV: f64 = 20.0;
+const W_MACD: f64 = 10.0;
+const W_MACD_DIV: f64 = 10.0;
+const W_SR: f64 = 10.0;
+const W_TREND: f64 = 20.0;
+const W_EMA200: f64 = 10.0;
+const W_PATTERN: f64 = 10.0;
+
+/// Maximum possible magnitude of the confluence score (±90).
+pub const MAX_CONFLUENCE_SCORE: f64 = 90.0;
+
+/// Opposite-signal exit threshold: 60% of the maximum ±90 score.
+pub const OPPOSITE_EXIT_THRESHOLD: f64 = 54.0;
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EightFactorScore {
     pub total_score: i32,
@@ -34,237 +51,279 @@ pub struct EightFactorSignals {
     pub pattern_aligned: bool,
 }
 
-/// Calculate the 8-factor point score for a given trading bias using
-/// weighted neural-style scoring per Section 3.1.
+/// Per-factor continuous contributions, before bias projection.
+struct FactorContributions {
+    rsi: f64,
+    rsi_div: f64,
+    macd: f64,
+    macd_div: f64,
+    sr: f64,
+    trend: f64,
+    ema200: f64,
+    pattern: f64,
+}
+
+/// Derived normalized `[-1.0, 1.0]` for the 200 EMA factor: sign of the
+/// distance between price and the long EMA, softly scaled.
+fn ema200_normalized(snap: &SnapshotValues) -> f64 {
+    match snap.sub("ema_stack", "long") {
+        Some(ema) if ema > 0.0 => {
+            let rel = (snap.current_price - ema) / ema;
+            // ±0.5% band saturates to full conviction.
+            (rel / 0.005).clamp(-1.0, 1.0)
+        }
+        _ => 0.0,
+    }
+}
+
+/// Compute the continuous per-factor contributions (each `normalized × weight`)
+/// with ADX / RVOL / BBWP gating multipliers applied to the relevant factors.
+fn compute_factor_contributions(snap: &SnapshotValues) -> FactorContributions {
+    // Raw normalized inputs read directly from the map.
+    let rsi = snap.norm("rsi");
+    let rsi_div = snap.norm("rsi_divergence");
+    let macd = snap.norm("macd");
+    let macd_div = snap.norm("macd_divergence");
+    let sr = snap.norm("support_resistance");
+    let trend = snap.norm("ema_stack");
+    let ema200 = ema200_normalized(snap);
+    let pattern = snap.norm("patterns");
+
+    // ── ADX Congestion Gate ──
+    // When ADX signals congestion (< 20 → normalized 0.0 / TRENDLESS label),
+    // dampen trend-following factors toward zero.
+    let adx_congested = snap.raw("adx").is_some_and(|a| a < 20.0)
+        || snap.label("adx") == "TRENDLESS_CONGESTION";
+    let trend_gate = if adx_congested { 0.0 } else { 1.0 };
+
+    // ── RVOL Breakout Gate ──
+    // If a breakout setup is active (S/R flip or squeeze release) but volume is
+    // unconfirmed (rvol < 1.5), dampen the breakout-driven factors by 0.3.
+    let rvol = snap.raw("rvol").unwrap_or(1.0);
+    let breakout_active = snap.label("support_resistance").contains("FLIP")
+        || snap.label("squeeze").ends_with("VOLATILITY_RELEASE")
+        || snap.norm("patterns").abs() >= 1.0;
+    let breakout_gate = if breakout_active && rvol < 1.5 { 0.3 } else { 1.0 };
+
+    // ── BBWP Volatility Climax Drag ──
+    // At volatility exhaustion (BBWP > 90%), apply a counter-bias drag against
+    // trend continuation to discourage new positions in overextended markets.
+    let bbwp_climax = snap.raw("bbwp").is_some_and(|b| b > 90.0);
+    let bias = trend.signum();
+    let climax_drag = if bbwp_climax { -0.1 * bias } else { 0.0 };
+
+    FactorContributions {
+        rsi: rsi * W_RSI,
+        rsi_div: rsi_div * W_RSI_DIV,
+        macd: macd * W_MACD,
+        macd_div: macd_div * W_MACD_DIV,
+        sr: sr * breakout_gate * W_SR,
+        trend: (trend * trend_gate + climax_drag) * W_TREND,
+        ema200: (ema200 * trend_gate) * W_EMA200,
+        pattern: pattern * breakout_gate * W_PATTERN,
+    }
+}
+
+/// Calculate the continuous 8-factor confluence score for a given bias.
 ///
-/// Weights: RSI=10(±1), RSI Div=20(±2), MACD=10(±1), MACD Div=10(±1),
-///          S/R=10(±1), Trend=20(±2), 200EMA=10(±1), Patterns=10(±1).
-/// Total possible: ±90.
-///
-/// Allocation: <40→1%, 40–59→2%, ≥60→3%.
+/// Each factor contributes `normalized × weight`, gated by ADX/RVOL/BBWP
+/// multipliers, then projected onto the requested bias direction and clamped
+/// to `[-90, +90]`. Allocation: `<40 → 1%`, `40–59 → 2%`, `≥60 → 3%`.
 pub fn calculate_eight_factor_score(
     bias: &str,
     snap: &SnapshotValues,
-    support_levels: &[f64],
-    resistance_levels: &[f64],
+    _support_levels: &[f64],
+    _resistance_levels: &[f64],
     _macro_trend: &str,
 ) -> EightFactorScore {
     let is_bullish = bias == "BULLISH";
+    let c = compute_factor_contributions(snap);
 
-    // ─── 1. RSI (Overbought / Oversold) — Weight 10, ±1 ───
-    let rsi_aligned = match snap.rsi {
-        Some(r) if is_bullish && r < 30.0 => true,
-        Some(r) if !is_bullish && r > 70.0 => true,
-        _ => false,
-    };
-    let rsi_points: i32 = if rsi_aligned { if is_bullish { 10 } else { -10 } } else { 0 };
+    // Signed sum of continuous contributions (positive = bullish conviction).
+    let signed_total = c.rsi + c.rsi_div + c.macd + c.macd_div + c.sr + c.trend + c.ema200 + c.pattern;
 
-    // ─── 2. RSI Divergence — Weight 20, ±2 ───
-    let is_bullish_rsi_div = matches!(snap.rsi_divergence_status.as_deref(),
-        Some("confirmed_bullish") | Some("potential_bullish"));
-    let is_bearish_rsi_div = matches!(snap.rsi_divergence_status.as_deref(),
-        Some("confirmed_bearish") | Some("potential_bearish"));
-    let rsi_divergence_aligned = if is_bullish { is_bullish_rsi_div } else { is_bearish_rsi_div };
-    let rsi_divergence_points: i32 = if rsi_divergence_aligned { if is_bullish { 20 } else { -20 } } else { 0 };
+    // Project onto the requested bias: bullish keeps the signed value, bearish
+    // inverts it so a "BEARISH" query returns positive magnitude for bearish
+    // alignment (mirrors the legacy contract used by the opposite-exit engine).
+    let projected = if is_bullish { signed_total } else { -signed_total };
+    let clamped = projected.clamp(-MAX_CONFLUENCE_SCORE, MAX_CONFLUENCE_SCORE);
+    let total_score = clamped.round() as i32;
 
-    // ─── 3. MACD Crossover — Weight 10, ±1 ───
-    let macd_crossover = match (snap.macd_crossover_detected, snap.macd_crossover_direction.as_deref()) {
-        (Some(true), Some("BULLISH")) => {
-            let line_below_zero = snap.macd_line.map_or(false, |l| l < 0.0);
-            let rsi_support = snap.rsi_divergence_status.as_deref()
-                .map(|s| s == "confirmed_bullish" || s == "potential_bullish")
-                .unwrap_or(false)
-                || snap.rsi.map_or(false, |r| r > 30.0);
-            is_bullish && line_below_zero && rsi_support
-        }
-        (Some(true), Some("BEARISH")) => {
-            let line_above_zero = snap.macd_line.map_or(false, |l| l > 0.0);
-            let rsi_support = snap.rsi_divergence_status.as_deref()
-                .map(|s| s == "confirmed_bearish" || s == "potential_bearish")
-                .unwrap_or(false)
-                || snap.rsi.map_or(false, |r| r < 70.0);
-            !is_bullish && line_above_zero && rsi_support
-        }
-        _ => {
-            match (snap.macd_line, snap.macd_signal) {
-                (Some(line), Some(sig)) if is_bullish && line > sig => true,
-                (Some(line), Some(sig)) if !is_bullish && line < sig => true,
-                _ => false,
-            }
-        }
-    };
-    let macd_points: i32 = if macd_crossover {
-        let contracting = snap.macd_trend_state.as_deref() == Some("decelerating");
-        if contracting {
-            if is_bullish { 9 } else { -9 }
-        } else {
-            if is_bullish { 10 } else { -10 }
-        }
-    } else { 0 };
-
-    // ─── 4. MACD Divergence — Weight 10, ±1 ───
-    let is_bullish_macd_div = matches!(snap.macd_divergence_status.as_deref(),
-        Some("confirmed_bullish") | Some("potential_bullish"));
-    let is_bearish_macd_div = matches!(snap.macd_divergence_status.as_deref(),
-        Some("confirmed_bearish") | Some("potential_bearish"));
-    let macd_divergence_aligned = if is_bullish { is_bullish_macd_div } else { is_bearish_macd_div };
-    let macd_divergence_points: i32 = if macd_divergence_aligned { if is_bullish { 10 } else { -10 } } else { 0 };
-
-    // ─── 5. Support / Resistance — Weight 10, ±1 ───
-    let support_aligned = support_levels.iter().any(|&s| {
-        let dist = (snap.current_price - s).abs();
-        dist < s * 0.005
-    });
-    let resistance_aligned = resistance_levels.iter().any(|&r| {
-        let dist = (snap.current_price - r).abs();
-        dist < r * 0.005
-    });
-    let sr_aligned = if is_bullish { support_aligned } else { resistance_aligned };
-    let support_resistance_points: i32 = if sr_aligned { if is_bullish { 10 } else { -10 } } else { 0 };
-
-    // ─── 6. Trend (EMA stack check) — Weight 20, ±2 ───
-    let trend_aligned = match snap.ema_stack_state.as_deref() {
-        Some("bullish") if is_bullish => true,
-        Some("bearish") if !is_bullish => true,
-        _ => false,
-    };
-    let trend_points: i32 = if trend_aligned { if is_bullish { 20 } else { -20 } } else { 0 };
-
-    // ─── 7. 200 EMA Position — Weight 10, ±1 ───
-    let ema200_aligned = match snap.ema_long {
-        Some(e) if is_bullish && snap.current_price > e => true,
-        Some(e) if !is_bullish && snap.current_price < e => true,
-        _ => false,
-    };
-    let ema200_points: i32 = if ema200_aligned { if is_bullish { 10 } else { -10 } } else { 0 };
-
-    // ─── 8. Chart Patterns — Weight 10, ±1 ───
-    let pattern_aligned = if snap.chart_pattern.is_some() && snap.chart_pattern.as_deref() != Some("None") {
-        match snap.chart_pattern.as_deref() {
-            Some(p) if is_bullish && (p == "FallingWedge" || p == "BullishTriangle" || p == "AscendingChannel") => true,
-            Some(p) if !is_bullish && (p == "RisingWedge" || p == "BearishTriangle" || p == "DescendingChannel") => true,
-            _ => false,
-        }
-    } else {
-        match snap.squeeze_momentum_direction.as_deref() {
-            Some("BullishAcceleration") if is_bullish => true,
-            Some("BearishAcceleration") if !is_bullish => true,
-            _ => false,
-        }
-    };
-    let pattern_points: i32 = if pattern_aligned {
-        if is_bullish { 10 } else { -10 }
-    } else {
-        match snap.squeeze_momentum_direction.as_deref() {
-            Some("BullishDeceleration") if is_bullish => { -5 }
-            Some("BearishDeceleration") if !is_bullish => { 5 }
-            _ => 0,
-        }
-    };
-
-    let signals = EightFactorSignals {
-        rsi_aligned,
-        rsi_divergence_aligned,
-        macd_crossover,
-        macd_divergence_aligned,
-        support_aligned,
-        resistance_aligned,
-        trend_aligned,
-        ema200_aligned,
-        pattern_aligned,
-    };
-
-    // ─── ADX Regime Gate ───────────────────────────────────
-    let regime_penalty_pct: f64 = match snap.adx_regime.as_deref() {
-        Some("congestion") => 0.5,
-        Some("extreme") => {
-            if snap.adx_slope.map_or(false, |s| s < 0.0) {
-                0.0
-            } else {
-                0.3
-            }
-        }
-        Some("emerging") => 0.7,
-        _ => 1.0,
-    };
-
-    // ─── RVOL Volume Confirmation Gate ─────────────────────
-    let rvol = snap.rvol.unwrap_or(1.0);
-    let has_breakout_signal = pattern_aligned || macd_crossover || sr_aligned;
-    let rvol_penalty: f64 = if has_breakout_signal {
-        if rvol < 1.0 { 0.3 }
-        else if rvol < 1.5 { 0.6 }
-        else { 1.0 }
-    } else {
-        1.0
-    };
-
-    // ─── BBWP Volatility Percentile Adjustment ──────────────
-    let bbwp_multiplier: f64 = match snap.bbwp {
-        Some(b) if b < 10.0 => 1.2,
-        Some(b) if b > 90.0 => 0.5,
-        _ => 1.0,
-    };
-
-    let total_score = ((rsi_points
-        + rsi_divergence_points
-        + macd_points
-        + macd_divergence_points
-        + support_resistance_points
-        + trend_points
-        + ema200_points
-        + pattern_points) as f64 * regime_penalty_pct * rvol_penalty * bbwp_multiplier) as i32;
-
-    // ─── ATR Volatility Regime Boost ─────────────────────────
-    let atr_boost = match snap.atr_volatility_regime.as_deref() {
-        Some("expanding") => {
-            let breakout_points = pattern_points.abs() + trend_points.abs();
-            ((breakout_points as f64) * 0.1) as i32
-        }
-        Some("contracting") => {
-            let breakout_points = pattern_points.abs() + trend_points.abs();
-            -((breakout_points as f64) * 0.2) as i32
-        }
-        _ => 0,
-    };
-
-    let adjusted_score = total_score + atr_boost;
-
-    let abs_score = adjusted_score.abs() as u32;
+    let abs_score = total_score.unsigned_abs();
     let allocated_capital_pct = match abs_score {
         0..=39 => 1.0,
         40..=59 => 2.0,
         _ => 3.0,
     };
 
+    // Directional alignment flags (per-factor sign matches the query bias).
+    let aligned = |contribution: f64| -> bool {
+        if is_bullish {
+            contribution > 0.0
+        } else {
+            contribution < 0.0
+        }
+    };
+    let signals = EightFactorSignals {
+        rsi_aligned: aligned(c.rsi),
+        rsi_divergence_aligned: aligned(c.rsi_div),
+        macd_crossover: aligned(c.macd),
+        macd_divergence_aligned: aligned(c.macd_div),
+        support_aligned: aligned(c.sr),
+        resistance_aligned: aligned(c.sr),
+        trend_aligned: aligned(c.trend),
+        ema200_aligned: aligned(c.ema200),
+        pattern_aligned: aligned(c.pattern),
+    };
+
+    // Bias-projected integer contributions for telemetry/logging.
+    let proj = |v: f64| -> i32 {
+        (if is_bullish { v } else { -v }).round() as i32
+    };
+
     EightFactorScore {
-        total_score: adjusted_score,
-        max_score: 90,
+        total_score,
+        max_score: MAX_CONFLUENCE_SCORE as i32,
         signals,
         allocated_capital_pct,
         weighted_contributions: EightFactorContributions {
-            rsi_points,
-            rsi_divergence_points,
-            macd_points,
-            macd_divergence_points,
-            support_resistance_points,
-            trend_points,
-            ema200_points,
-            pattern_points,
+            rsi_points: proj(c.rsi),
+            rsi_divergence_points: proj(c.rsi_div),
+            macd_points: proj(c.macd),
+            macd_divergence_points: proj(c.macd_div),
+            support_resistance_points: proj(c.sr),
+            trend_points: proj(c.trend),
+            ema200_points: proj(c.ema200),
+            pattern_points: proj(c.pattern),
         },
     }
 }
 
-/// Calculate the opposite-signal score (signals against current position).
-/// Used to determine if an opposite-signal exit should trigger.
+/// Continuous opposite-signal score: the absolute weighted sum of all factors
+/// pointing against the active position direction.
+///
+/// `Opposite Score = |Σ (normalized_i × weight_i)|` over opposing factors.
 pub fn calculate_opposite_score(
     position_direction: &str,
     snap: &SnapshotValues,
-    support_levels: &[f64],
-    resistance_levels: &[f64],
-    macro_trend: &str,
+    _support_levels: &[f64],
+    _resistance_levels: &[f64],
+    _macro_trend: &str,
 ) -> u32 {
-    let opposite_bias = if position_direction == "LONG" { "BEARISH" } else { "BULLISH" };
-    let score = calculate_eight_factor_score(opposite_bias, snap, support_levels, resistance_levels, macro_trend);
-    score.total_score.abs() as u32
+    let c = compute_factor_contributions(snap);
+    // Positive contribution = bullish conviction. Opposing a LONG means bearish
+    // (negative) contributions; opposing a SHORT means bullish (positive) ones.
+    let holding_long = position_direction == "LONG";
+    let all = [
+        c.rsi, c.rsi_div, c.macd, c.macd_div, c.sr, c.trend, c.ema200, c.pattern,
+    ];
+    let opposing_sum: f64 = all
+        .iter()
+        .filter(|&&v| if holding_long { v < 0.0 } else { v > 0.0 })
+        .sum();
+    opposing_sum.abs().round() as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::indicators::normalized::NormalizedIndicatorValue;
+    use std::collections::HashMap;
+
+    fn niv(norm: f64, label: &str) -> NormalizedIndicatorValue {
+        NormalizedIndicatorValue::scalar(norm, norm, label)
+    }
+
+    fn snap_with(entries: &[(&str, f64, &str)], price: f64) -> SnapshotValues {
+        let mut map = HashMap::new();
+        for (k, n, l) in entries {
+            map.insert((*k).to_string(), niv(*n, l));
+        }
+        SnapshotValues::from_map(map, price)
+    }
+
+    fn niv_raw(raw: f64, norm: f64, label: &str) -> NormalizedIndicatorValue {
+        NormalizedIndicatorValue::scalar(raw, norm, label)
+    }
+
+    #[test]
+    fn continuous_bullish_alignment_scores_high() {
+        let mut map = HashMap::new();
+        map.insert("rsi".into(), niv(0.8, "OVERSOLD_ACCUMULATION"));
+        map.insert("rsi_divergence".into(), niv(1.0, "CONFIRMED_BULLISH_DIVERGENCE"));
+        map.insert("macd".into(), niv(0.9, "BULLISH_CROSSOVER_ACCELERATING"));
+        map.insert("support_resistance".into(), niv(1.0, "SUPPORT_DEMAND_ZONE"));
+        map.insert("patterns".into(), niv(1.0, "BULLISH_PATTERN_BREAKOUT"));
+        // Realistic raws: ADX 30 (not congested), RVOL 2.0 (volume-confirmed).
+        map.insert("adx".into(), niv_raw(30.0, 0.7, "STRONG_BULL_TREND"));
+        map.insert("rvol".into(), niv_raw(2.0, 0.8, "INSTITUTIONAL_BREAKOUT_VOLUME"));
+        // EMA stack with a long line below price so the 200-EMA factor is bullish.
+        let mut ema_vals = HashMap::new();
+        ema_vals.insert("long".to_string(), 49000.0);
+        map.insert(
+            "ema_stack".into(),
+            NormalizedIndicatorValue::with_values(50000.0, 1.0, "ESTABLISHED_BULLISH_STACK", ema_vals),
+        );
+        let snap = SnapshotValues::from_map(map, 50000.0);
+
+        let score = calculate_eight_factor_score("BULLISH", &snap, &[], &[], "BULLISH");
+        assert!(score.total_score >= 60, "expected >=60, got {}", score.total_score);
+        assert_eq!(score.allocated_capital_pct, 3.0);
+        assert!(score.total_score <= 90);
+    }
+
+    #[test]
+    fn continuous_score_is_gradient_not_cliff() {
+        // A mid-range RSI produces a proportional, non-binary contribution.
+        let weak = snap_with(&[("rsi", 0.3, "BULLISH_DISCOUNT")], 100.0);
+        let strong = snap_with(&[("rsi", 0.9, "OVERSOLD_ACCUMULATION")], 100.0);
+        let ws = calculate_eight_factor_score("BULLISH", &weak, &[], &[], "");
+        let ss = calculate_eight_factor_score("BULLISH", &strong, &[], &[], "");
+        assert!(ss.total_score > ws.total_score);
+    }
+
+    #[test]
+    fn adx_congestion_gate_dampens_trend() {
+        let entries = [
+            ("ema_stack", 1.0, "ESTABLISHED_BULLISH_STACK"),
+            ("adx", 0.0, "TRENDLESS_CONGESTION"),
+        ];
+        let mut map = HashMap::new();
+        for (k, n, l) in entries {
+            map.insert(k.to_string(), niv(n, l));
+        }
+        // Force raw adx below 20 to activate the congestion gate.
+        map.insert(
+            "adx".to_string(),
+            NormalizedIndicatorValue::scalar(15.0, 0.0, "TRENDLESS_CONGESTION"),
+        );
+        let snap = SnapshotValues::from_map(map, 100.0);
+        let score = calculate_eight_factor_score("BULLISH", &snap, &[], &[], "");
+        // Trend factor is gated to ~0, so score stays near zero.
+        assert_eq!(score.total_score, 0);
+    }
+
+    #[test]
+    fn opposite_score_triggers_exit_above_threshold() {
+        // Holding LONG while structure turns strongly bearish.
+        let snap = snap_with(
+            &[
+                ("rsi", -0.8, "OVERBOUGHT_DISTRIBUTION"),
+                ("rsi_divergence", -1.0, "CONFIRMED_BEARISH_DIVERGENCE"),
+                ("macd", -0.9, "BEARISH_CROSSOVER_ACCELERATING"),
+                ("ema_stack", -1.0, "ESTABLISHED_BEARISH_STACK"),
+                ("support_resistance", -1.0, "RESISTANCE_SUPPLY_ZONE"),
+            ],
+            50000.0,
+        );
+        let opp = calculate_opposite_score("LONG", &snap, &[], &[], "");
+        assert!(opp > OPPOSITE_EXIT_THRESHOLD as u32, "expected >54, got {}", opp);
+    }
+
+    #[test]
+    fn opposite_score_minor_signals_no_exit() {
+        let snap = snap_with(&[("rsi", -0.2, "BEARISH_PREMIUM")], 50000.0);
+        let opp = calculate_opposite_score("LONG", &snap, &[], &[], "");
+        assert!(opp <= OPPOSITE_EXIT_THRESHOLD as u32);
+    }
 }

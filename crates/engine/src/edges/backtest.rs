@@ -2,233 +2,142 @@ use sqlx::SqlitePool;
 
 use crate::edges::types::{
     BacktestOutput, EdgeConfig, EquityPoint, HistoricalMetrics, TradeLog,
-    TriggerRule,
 };
 
+/// Stateless historical row for the continuous confluence backtester. Queries
+/// the pre-computed, indexed `_normalized` / `_state_label` columns produced by
+/// the live normalization engine, guaranteeing backtest ↔ live parity. Only
+/// `close` and `atr_14` remain raw (needed for entry/exit prices + stop/TP
+/// distances).
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct BacktestRow {
     #[allow(dead_code)]
     timestamp: i64,
     close: f64,
-    rsi_14: Option<f64>,
-    macd_line: Option<f64>,
-    macd_signal: Option<f64>,
-    macd_crossover_detected: Option<bool>,
-    macd_crossover_direction: Option<String>,
-    rsi_divergence_status: Option<String>,
-    macd_divergence_status: Option<String>,
-    adx_14: Option<f64>,
-    #[allow(dead_code)]
-    adx_plus: Option<f64>,
-    #[allow(dead_code)]
-    adx_minus: Option<f64>,
-    #[allow(dead_code)]
-    adx_regime: Option<String>,
-    adx_slope: Option<f64>,
-    bbwp: Option<f64>,
-    squeeze_on: Option<bool>,
-    squeeze_momentum: Option<f64>,
-    squeeze_release_trigger: Option<bool>,
     atr_14: Option<f64>,
-    ema_fast: Option<f64>,
-    ema_medium: Option<f64>,
-    #[allow(dead_code)]
-    ema_slow: Option<f64>,
-    #[allow(dead_code)]
-    ema_long: Option<f64>,
-    ema_stack_state: Option<String>,
-    vwap: Option<f64>,
-    rvol: Option<f64>,
-    #[allow(dead_code)]
-    average_volume: Option<f64>,
-    #[allow(dead_code)]
-    volume: Option<f64>,
+    rsi_normalized: Option<f64>,
+    macd_normalized: Option<f64>,
+    squeeze_normalized: Option<f64>,
+    adx_normalized: Option<f64>,
+    bbwp_normalized: Option<f64>,
+    rvol_normalized: Option<f64>,
+    ema_stack_normalized: Option<f64>,
+    vwap_normalized: Option<f64>,
+    squeeze_state_label: Option<String>,
+    bbwp_state_label: Option<String>,
+    ema_stack_state_label: Option<String>,
+    rvol_state_label: Option<String>,
+    adx_state_label: Option<String>,
+}
+
+/// Fetch the normalized `[-1.0, 1.0]` value for a config indicator name.
+/// `atr` (and any unmapped indicator) has no normalized column → 0.0.
+fn normalized_for(row: &BacktestRow, name: &str) -> f64 {
+    match name {
+        "rsi" => row.rsi_normalized,
+        "macd" => row.macd_normalized,
+        "squeeze" => row.squeeze_normalized,
+        "adx" => row.adx_normalized,
+        "bbwp" => row.bbwp_normalized,
+        "rvol" => row.rvol_normalized,
+        "ema" => row.ema_stack_normalized,
+        "vwap" => row.vwap_normalized,
+        _ => None,
+    }
+    .unwrap_or(0.0)
+}
+
+/// ADX congestion (TRENDLESS / ~0 normalized) dampens trend-following factors.
+fn adx_congestion(row: &BacktestRow) -> bool {
+    row.adx_state_label.as_deref() == Some("TRENDLESS_CONGESTION")
+        || row.adx_normalized.is_none_or(|v| v.abs() < 0.05)
+}
+
+/// First-bar squeeze volatility release (breakout setup).
+fn squeeze_release(row: &BacktestRow) -> bool {
+    row.squeeze_state_label
+        .as_deref()
+        .is_some_and(|l| l.ends_with("VOLATILITY_RELEASE"))
+}
+
+/// Institutional-grade relative volume (rvol 1.5–3.0 band).
+fn rvol_institutional(row: &BacktestRow) -> bool {
+    matches!(
+        row.rvol_state_label.as_deref(),
+        Some("INSTITUTIONAL_BREAKOUT_VOLUME")
+    )
+}
+
+/// BBWP volatility-exhaustion climax (bbwp > 90%) → mean-reversion drag.
+fn bbwp_climax(row: &BacktestRow) -> bool {
+    row.bbwp_state_label.as_deref() == Some("VOLATILITY_EXHAUSTION_REVERSION_WARNING")
 }
 
 
 fn classify_regime(row: &BacktestRow) -> String {
-    let adx = row.adx_14.unwrap_or(0.0);
-    let bbwp = row.bbwp.unwrap_or(50.0);
-    let squeeze_on = row.squeeze_on.unwrap_or(false);
-    let stack = row.ema_stack_state.as_deref().unwrap_or("tangled");
+    let squeeze = row.squeeze_state_label.as_deref().unwrap_or("");
+    let bbwp = row.bbwp_state_label.as_deref().unwrap_or("");
+    let ema = row.ema_stack_state_label.as_deref().unwrap_or("");
+    let adx_norm = row.adx_normalized.unwrap_or(0.0);
+    let stacked = ema.contains("BULLISH") || ema.contains("BEARISH");
 
-    if bbwp < 10.0 && squeeze_on {
+    if squeeze == "COMPRESSION_COILING" || bbwp == "MAX_VOLATILITY_COMPRESSION" {
         "compression".to_string()
-    } else if bbwp > 90.0 {
+    } else if squeeze.ends_with("VOLATILITY_RELEASE") || bbwp == "VOLATILITY_EXHAUSTION_REVERSION_WARNING" {
         "expansion".to_string()
-    } else if adx > 25.0 && (stack == "bullish" || stack == "bearish") {
+    } else if adx_norm.abs() >= 0.5 && stacked {
         "trending".to_string()
     } else {
         "range".to_string()
     }
 }
 
-fn evaluate_indicator_trigger(row: &BacktestRow, indicator: &crate::edges::types::IndicatorConfig) -> f64 {
-    if !indicator.enabled {
-        return 0.0;
-    }
-
-    let name = indicator.name.to_lowercase();
-    let rule = &indicator.trigger_rule;
-
-    match (name.as_str(), rule) {
-        ("rsi", TriggerRule::OverboughtOversold) => {
-            if let Some(rsi) = row.rsi_14 {
-                if rsi <= 30.0 { return indicator.weight; }
-                if rsi >= 70.0 { return -indicator.weight; }
-            }
-            0.0
-        }
-        ("rsi", TriggerRule::Divergence) => {
-            match row.rsi_divergence_status.as_deref() {
-                Some("bullish") | Some("potential_bullish") => indicator.weight,
-                Some("bearish") | Some("potential_bearish") => -indicator.weight,
-                _ => 0.0,
-            }
-        }
-        ("rsi", TriggerRule::ThresholdAbove) => {
-            if let Some(rsi) = row.rsi_14 {
-                if rsi >= 50.0 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("rsi", TriggerRule::ThresholdBelow) => {
-            if let Some(rsi) = row.rsi_14 {
-                if rsi <= 50.0 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("macd", TriggerRule::Crossover) => {
-            if row.macd_crossover_detected.unwrap_or(false) {
-                match row.macd_crossover_direction.as_deref() {
-                    Some("BULLISH") => indicator.weight,
-                    Some("BEARISH") => -indicator.weight,
-                    _ => 0.0,
-                }
-            } else {
-                0.0
-            }
-        }
-        ("macd", TriggerRule::Divergence) => {
-            match row.macd_divergence_status.as_deref() {
-                Some("bullish") | Some("potential_bullish") => indicator.weight,
-                Some("bearish") | Some("potential_bearish") => -indicator.weight,
-                _ => 0.0,
-            }
-        }
-        ("macd", TriggerRule::SlopeDirection) => {
-            if let (Some(line), Some(signal)) = (row.macd_line, row.macd_signal) {
-                if line > signal { indicator.weight } else if line < signal { -indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("adx", TriggerRule::SlopeDirection) => {
-            if let Some(slope) = row.adx_slope {
-                if slope > 0.0 { indicator.weight } else { -indicator.weight }
-            } else {
-                0.0
-            }
-        }
-        ("adx", TriggerRule::ThresholdAbove) => {
-            if let Some(adx) = row.adx_14 {
-                if adx >= 25.0 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("adx", TriggerRule::ThresholdBelow) => {
-            if let Some(adx) = row.adx_14 {
-                if adx <= 20.0 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("bbwp", TriggerRule::ThresholdBelow) => {
-            if let Some(bbwp) = row.bbwp {
-                if bbwp <= 10.0 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("bbwp", TriggerRule::ThresholdAbove) => {
-            if let Some(bbwp) = row.bbwp {
-                if bbwp >= 90.0 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("squeeze", TriggerRule::Release) => {
-            if row.squeeze_release_trigger.unwrap_or(false) {
-                if let Some(mom) = row.squeeze_momentum {
-                    if mom > 0.0 { indicator.weight } else { -indicator.weight }
-                } else {
-                    0.0
-                }
-            } else {
-                0.0
-            }
-        }
-        ("atr", TriggerRule::ThresholdAbove) => {
-            0.0
-        }
-        ("atr", TriggerRule::SlopeDirection) => {
-            0.0
-        }
-        ("vwap", TriggerRule::ThresholdAbove) => {
-            if let (Some(vwap), Some(close)) = (row.vwap, Some(row.close)) {
-                if close > vwap { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("vwap", TriggerRule::ThresholdBelow) => {
-            if let (Some(vwap), Some(close)) = (row.vwap, Some(row.close)) {
-                if close < vwap { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("rvol", TriggerRule::ThresholdAbove) => {
-            if let Some(rvol) = row.rvol {
-                if rvol >= 1.5 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("rvol", TriggerRule::ThresholdBelow) => {
-            if let Some(rvol) = row.rvol {
-                if rvol <= 0.5 { indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("ema", TriggerRule::Crossover) => {
-            if let (Some(fast), Some(medium)) = (row.ema_fast, row.ema_medium) {
-                if fast > medium { indicator.weight } else if fast < medium { -indicator.weight } else { 0.0 }
-            } else {
-                0.0
-            }
-        }
-        ("ema", TriggerRule::SlopeDirection) => {
-            match row.ema_stack_state.as_deref() {
-                Some("bullish") => indicator.weight,
-                Some("bearish") => -indicator.weight,
-                _ => 0.0,
-            }
-        }
-        _ => 0.0,
-    }
-}
-
+/// Continuous confluence score matching the live Layer-2 scoring model:
+/// `Σ (normalized_i × config_weight_i)` with the same ADX / RVOL / BBWP gating
+/// multipliers, projected onto `[-90, +90]`. Weights are sourced from the
+/// active `EdgeConfig` (user-tunable in the Edge Builder), guaranteeing that a
+/// backtested strategy's entries/exits mirror live execution on identical data.
 fn compute_confluence_score(row: &BacktestRow, config: &EdgeConfig) -> f64 {
-    config
-        .indicators
-        .iter()
-        .map(|ind| evaluate_indicator_trigger(row, ind))
-        .sum()
+    let congested = adx_congestion(row);
+    let breakout_active = squeeze_release(row);
+    let rvol_confirmed = rvol_institutional(row);
+
+    let mut score = 0.0_f64;
+    let mut ema_weight = 0.0_f64;
+    let mut ema_norm = 0.0_f64;
+
+    for ind in &config.indicators {
+        if !ind.enabled {
+            continue;
+        }
+        let name = ind.name.to_lowercase();
+        let norm = normalized_for(row, &name);
+        let mut contrib = norm * ind.weight;
+
+        match name.as_str() {
+            // ADX congestion gate: dampen trend-following (EMA stack) to zero.
+            "ema" => {
+                ema_weight = ind.weight;
+                ema_norm = norm;
+                if congested {
+                    contrib = 0.0;
+                }
+            }
+            // RVOL breakout gate: unconfirmed breakout bars are dampened ×0.3.
+            "squeeze" | "macd" if breakout_active && !rvol_confirmed => {
+                contrib *= 0.3;
+            }
+            _ => {}
+        }
+        score += contrib;
+    }
+
+    // BBWP volatility-climax drag against the prevailing trend bias.
+    if bbwp_climax(row) && ema_weight > 0.0 {
+        score += -0.1 * ema_norm.signum() * ema_weight;
+    }
+
+    score.clamp(-90.0, 90.0)
 }
 
 fn regime_allowed(regime: &str, config: &EdgeConfig) -> bool {
@@ -242,22 +151,25 @@ fn regime_allowed(regime: &str, config: &EdgeConfig) -> bool {
 }
 
 fn check_execution_gates(row: &BacktestRow, config: &EdgeConfig) -> bool {
-    if config.execution.min_rvol > 0.0 {
-        if let Some(rvol) = row.rvol {
-            if rvol < config.execution.min_rvol {
-                return false;
-            }
+    // Raw RVOL is never persisted; gate against the normalized RVOL bands
+    // (CONSOLIDATION < 1.0, NORMAL 1.0–1.5, INSTITUTIONAL 1.5–3.0, CLIMAX ≥ 3.0).
+    let label = row.rvol_state_label.as_deref().unwrap_or("");
+
+    // Volume-confirmation gate.
+    if config.execution.min_rvol >= 1.5 {
+        // Require institutional-grade participation.
+        if label != "INSTITUTIONAL_BREAKOUT_VOLUME" {
+            return false;
         }
+    } else if config.execution.min_rvol >= 1.0 && label == "CONSOLIDATION_VOLUME" {
+        return false;
     }
-    if config.execution.climax_rvol > 0.0 {
-        if let Some(rvol) = row.rvol {
-            if rvol >= config.execution.climax_rvol {
-                return false;
-            }
-        }
+
+    // Exhaustion-climax block.
+    if config.execution.climax_rvol > 0.0 && label == "EXHAUSTION_CLIMAX_VOLUME" {
+        return false;
     }
-    if config.execution.vwap_filter {
-    }
+
     true
 }
 
@@ -270,14 +182,10 @@ fn check_mtf_quorum(
 
 fn clamp_config(config: &EdgeConfig) -> EdgeConfig {
     let mut cfg = config.clone();
-    if cfg.sizing.daily_vol_target_pct < 0.1 { cfg.sizing.daily_vol_target_pct = 0.1; }
-    if cfg.sizing.daily_vol_target_pct > 5.0 { cfg.sizing.daily_vol_target_pct = 5.0; }
-    if cfg.sizing.max_leverage < 1.0 { cfg.sizing.max_leverage = 1.0; }
-    if cfg.sizing.max_leverage > 20.0 { cfg.sizing.max_leverage = 20.0; }
-    if cfg.stop_loss.atr_multiplier < 0.5 { cfg.stop_loss.atr_multiplier = 0.5; }
-    if cfg.stop_loss.atr_multiplier > 5.0 { cfg.stop_loss.atr_multiplier = 5.0; }
-    if cfg.backtest_depth < 100 { cfg.backtest_depth = 100; }
-    if cfg.backtest_depth > 50000 { cfg.backtest_depth = 50000; }
+    cfg.sizing.daily_vol_target_pct = cfg.sizing.daily_vol_target_pct.clamp(0.1, 5.0);
+    cfg.sizing.max_leverage = cfg.sizing.max_leverage.clamp(1.0, 20.0);
+    cfg.stop_loss.atr_multiplier = cfg.stop_loss.atr_multiplier.clamp(0.5, 5.0);
+    cfg.backtest_depth = cfg.backtest_depth.clamp(100, 50000);
     cfg
 }
 
@@ -426,32 +334,20 @@ pub async fn run_backtest(
     let rows: Vec<BacktestRow> = sqlx::query_as(
         "SELECT timestamp,
                 CAST(close AS REAL) as close,
-                CAST(rsi_14 AS REAL) as rsi_14,
-                CAST(macd_line AS REAL) as macd_line,
-                CAST(macd_signal AS REAL) as macd_signal,
-                macd_crossover_detected,
-                macd_crossover_direction,
-                rsi_divergence_status,
-                macd_divergence_status,
-                CAST(adx_14 AS REAL) as adx_14,
-                CAST(adx_plus AS REAL) as adx_plus,
-                CAST(adx_minus AS REAL) as adx_minus,
-                adx_regime,
-                CAST(adx_slope AS REAL) as adx_slope,
-                CAST(bbwp AS REAL) as bbwp,
-                squeeze_on,
-                CAST(squeeze_momentum AS REAL) as squeeze_momentum,
-                squeeze_release_trigger,
                 CAST(atr_14 AS REAL) as atr_14,
-                CAST(ema_fast AS REAL) as ema_fast,
-                CAST(ema_medium AS REAL) as ema_medium,
-                CAST(ema_slow AS REAL) as ema_slow,
-                CAST(ema_long AS REAL) as ema_long,
-                ema_stack_state,
-                CAST(vwap AS REAL) as vwap,
-                CAST(rvol AS REAL) as rvol,
-                CAST(average_volume AS REAL) as average_volume,
-                CAST(volume AS REAL) as volume
+                rsi_normalized,
+                macd_normalized,
+                squeeze_normalized,
+                adx_normalized,
+                bbwp_normalized,
+                rvol_normalized,
+                ema_stack_normalized,
+                vwap_normalized,
+                squeeze_state_label,
+                bbwp_state_label,
+                ema_stack_state_label,
+                rvol_state_label,
+                adx_state_label
          FROM market_snapshots
          WHERE symbol = ?1
            AND timeframe_secs = ?2
@@ -462,7 +358,7 @@ pub async fn run_backtest(
     .bind(symbol)
     .bind(timeframe_secs as i64)
     .bind(config.backtest_depth as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("Failed to query snapshots: {}", e))?;
 
@@ -475,6 +371,7 @@ pub async fn run_backtest(
     let mut equity_curve: Vec<EquityPoint> = vec![EquityPoint {
         trade_index: 0,
         cumulative_return_pct: 0.0,
+        regime: String::new(),
     }];
     let mut cumulative_return = 0.0_f64;
 
@@ -591,6 +488,7 @@ pub async fn run_backtest(
                 equity_curve.push(EquityPoint {
                     trade_index: trade_logs.len(),
                     cumulative_return_pct: cumulative_return,
+                    regime: position_regime.clone(),
                 });
 
                 in_position = false;
@@ -630,21 +528,6 @@ pub async fn run_backtest(
         .cloned()
         .collect();
 
-    if !in_sample_equity.is_empty() {
-        let _last_is = in_sample_equity.last().unwrap().cumulative_return_pct;
-        let _adjusted_oos: Vec<EquityPoint> = out_of_sample_equity
-            .iter()
-            .map(|pt| EquityPoint {
-                trade_index: pt.trade_index,
-                cumulative_return_pct: if pt.trade_index == 0 {
-                    _last_is
-                } else {
-                    _last_is + (pt.cumulative_return_pct - out_of_sample_equity.first().map(|p| p.cumulative_return_pct).unwrap_or(0.0))
-                },
-            })
-            .collect();
-    }
-
     Ok(BacktestOutput {
         trade_logs,
         equity_curve: equity_curve.clone(),
@@ -658,79 +541,56 @@ pub async fn run_backtest(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edges::types::{
-        EdgeArchetype, ExecutionConfig, IndicatorConfig, RegimeGates, SizingConfig,
-        SizingModel, StopLossConfig, StopLossModel, TakeProfitConfig, TriggerPhase, TriggerRule,
-    };
+    use crate::edges::types::{IndicatorConfig, RegimeGates, TriggerRule};
+
+    /// Build a neutral row (all indicators at equilibrium / unknown).
+    fn row() -> BacktestRow {
+        BacktestRow {
+            timestamp: 1,
+            close: 100.0,
+            atr_14: Some(1.0),
+            rsi_normalized: None,
+            macd_normalized: None,
+            squeeze_normalized: None,
+            adx_normalized: None,
+            bbwp_normalized: None,
+            rvol_normalized: None,
+            ema_stack_normalized: None,
+            vwap_normalized: None,
+            squeeze_state_label: None,
+            bbwp_state_label: None,
+            ema_stack_state_label: None,
+            rvol_state_label: None,
+            adx_state_label: None,
+        }
+    }
 
     #[test]
     fn test_classify_regime_trending() {
-        let row = BacktestRow {
-            timestamp: 1,
-            close: 100.0,
-            rsi_14: Some(55.0),
-            macd_line: Some(1.0),
-            macd_signal: Some(0.5),
-            macd_crossover_detected: None,
-            macd_crossover_direction: None,
-            rsi_divergence_status: None,
-            macd_divergence_status: None,
-            adx_14: Some(30.0),
-            adx_plus: Some(25.0),
-            adx_minus: Some(15.0),
-            adx_regime: None,
-            adx_slope: None,
-            bbwp: Some(50.0),
-            squeeze_on: Some(false),
-            squeeze_momentum: None,
-            squeeze_release_trigger: None,
-            atr_14: Some(1.0),
-            ema_fast: Some(101.0),
-            ema_medium: Some(99.0),
-            ema_slow: Some(97.0),
-            ema_long: Some(95.0),
-            ema_stack_state: Some("bullish".to_string()),
-            vwap: None,
-            rvol: None,
-            average_volume: None,
-            volume: None,
+        let r = BacktestRow {
+            adx_normalized: Some(0.7),
+            ema_stack_state_label: Some("ESTABLISHED_BULLISH_STACK".to_string()),
+            ..row()
         };
-        assert_eq!(classify_regime(&row), "trending");
+        assert_eq!(classify_regime(&r), "trending");
     }
 
     #[test]
     fn test_classify_regime_compression() {
-        let row = BacktestRow {
-            timestamp: 1,
-            close: 100.0,
-            rsi_14: None,
-            macd_line: None,
-            macd_signal: None,
-            macd_crossover_detected: None,
-            macd_crossover_direction: None,
-            rsi_divergence_status: None,
-            macd_divergence_status: None,
-            adx_14: None,
-            adx_plus: None,
-            adx_minus: None,
-            adx_regime: None,
-            adx_slope: None,
-            bbwp: Some(5.0),
-            squeeze_on: Some(true),
-            squeeze_momentum: None,
-            squeeze_release_trigger: None,
-            atr_14: None,
-            ema_fast: None,
-            ema_medium: None,
-            ema_slow: None,
-            ema_long: None,
-            ema_stack_state: None,
-            vwap: None,
-            rvol: None,
-            average_volume: None,
-            volume: None,
+        let r = BacktestRow {
+            squeeze_state_label: Some("COMPRESSION_COILING".to_string()),
+            ..row()
         };
-        assert_eq!(classify_regime(&row), "compression");
+        assert_eq!(classify_regime(&r), "compression");
+    }
+
+    #[test]
+    fn test_classify_regime_expansion() {
+        let r = BacktestRow {
+            squeeze_state_label: Some("BULLISH_VOLATILITY_RELEASE".to_string()),
+            ..row()
+        };
+        assert_eq!(classify_regime(&r), "expansion");
     }
 
     #[test]
@@ -743,13 +603,18 @@ mod tests {
     #[test]
     fn test_compute_metrics_basic() {
         let returns = vec![2.0, -1.0, 3.0, -0.5, 1.0];
+        let eq = |i: usize, c: f64| EquityPoint {
+            trade_index: i,
+            cumulative_return_pct: c,
+            regime: String::new(),
+        };
         let equity = vec![
-            EquityPoint { trade_index: 0, cumulative_return_pct: 0.0 },
-            EquityPoint { trade_index: 1, cumulative_return_pct: 2.0 },
-            EquityPoint { trade_index: 2, cumulative_return_pct: 1.0 },
-            EquityPoint { trade_index: 3, cumulative_return_pct: 4.0 },
-            EquityPoint { trade_index: 4, cumulative_return_pct: 3.5 },
-            EquityPoint { trade_index: 5, cumulative_return_pct: 4.5 },
+            eq(0, 0.0),
+            eq(1, 2.0),
+            eq(2, 1.0),
+            eq(3, 4.0),
+            eq(4, 3.5),
+            eq(5, 4.5),
         ];
         let metrics = compute_metrics(&returns, &equity);
         assert_eq!(metrics.total_trades, 5);
@@ -769,56 +634,91 @@ mod tests {
         assert_eq!(clamped.backtest_depth, 100);
     }
 
-    #[test]
-    fn test_evaluate_rsi_oversold() {
-        let indicator = IndicatorConfig {
-            name: "rsi".to_string(),
-            weight: 10.0,
+    fn ind(name: &str, weight: f64) -> IndicatorConfig {
+        IndicatorConfig {
+            name: name.to_string(),
+            weight,
             trigger_rule: TriggerRule::OverboughtOversold,
             enabled: true,
-        };
-        let row = BacktestRow {
-            timestamp: 1,
-            close: 100.0,
-            rsi_14: Some(25.0),
-            macd_line: None, macd_signal: None,
-            macd_crossover_detected: None, macd_crossover_direction: None,
-            rsi_divergence_status: None, macd_divergence_status: None,
-            adx_14: None, adx_plus: None, adx_minus: None,
-            adx_regime: None, adx_slope: None,
-            bbwp: None, squeeze_on: None, squeeze_momentum: None, squeeze_release_trigger: None,
-            atr_14: None,
-            ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None,
-            ema_stack_state: None, vwap: None,
-            rvol: None, average_volume: None, volume: None,
-        };
-        assert_eq!(evaluate_indicator_trigger(&row, &indicator), 10.0);
+        }
     }
 
     #[test]
-    fn test_evaluate_macd_crossover_bullish() {
-        let indicator = IndicatorConfig {
-            name: "macd".to_string(),
-            weight: 20.0,
-            trigger_rule: TriggerRule::Crossover,
-            enabled: true,
+    fn test_continuous_confluence_weighted_sum() {
+        // Bullish alignment: rsi +0.8, macd +0.9, ema_stack +1.0.
+        let r = BacktestRow {
+            rsi_normalized: Some(0.8),
+            macd_normalized: Some(0.9),
+            ema_stack_normalized: Some(1.0),
+            ema_stack_state_label: Some("ESTABLISHED_BULLISH_STACK".to_string()),
+            adx_normalized: Some(0.7),
+            adx_state_label: Some("STRONG_BULL_TREND".to_string()),
+            ..row()
         };
-        let row = BacktestRow {
-            timestamp: 1,
-            close: 100.0,
-            rsi_14: None, macd_line: None, macd_signal: None,
-            macd_crossover_detected: Some(true),
-            macd_crossover_direction: Some("BULLISH".to_string()),
-            rsi_divergence_status: None, macd_divergence_status: None,
-            adx_14: None, adx_plus: None, adx_minus: None,
-            adx_regime: None, adx_slope: None,
-            bbwp: None, squeeze_on: None, squeeze_momentum: None, squeeze_release_trigger: None,
-            atr_14: None,
-            ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None,
-            ema_stack_state: None, vwap: None,
-            rvol: None, average_volume: None, volume: None,
+        let config = EdgeConfig {
+            indicators: vec![ind("rsi", 10.0), ind("macd", 10.0), ind("ema", 20.0)],
+            ..Default::default()
         };
-        assert_eq!(evaluate_indicator_trigger(&row, &indicator), 20.0);
+        // 0.8*10 + 0.9*10 + 1.0*20 = 37.0
+        let score = compute_confluence_score(&r, &config);
+        assert!((score - 37.0).abs() < 1e-6, "got {}", score);
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_adx_congestion_gate_zeroes_trend() {
+        let r = BacktestRow {
+            ema_stack_normalized: Some(1.0),
+            ema_stack_state_label: Some("ESTABLISHED_BULLISH_STACK".to_string()),
+            adx_normalized: Some(0.0),
+            adx_state_label: Some("TRENDLESS_CONGESTION".to_string()),
+            ..row()
+        };
+        let config = EdgeConfig {
+            indicators: vec![ind("ema", 20.0)],
+            ..Default::default()
+        };
+        // Trend contribution gated to 0 under congestion.
+        assert_eq!(compute_confluence_score(&r, &config), 0.0);
+    }
+
+    #[test]
+    fn test_rvol_gate_dampens_unconfirmed_breakout() {
+        let base = BacktestRow {
+            squeeze_normalized: Some(1.0),
+            squeeze_state_label: Some("BULLISH_VOLATILITY_RELEASE".to_string()),
+            ..row()
+        };
+        let config = EdgeConfig {
+            indicators: vec![ind("squeeze", 10.0)],
+            ..Default::default()
+        };
+        // Unconfirmed volume → ×0.3 dampening.
+        let unconfirmed = BacktestRow {
+            rvol_state_label: Some("CONSOLIDATION_VOLUME".to_string()),
+            ..base.clone()
+        };
+        assert!((compute_confluence_score(&unconfirmed, &config) - 3.0).abs() < 1e-6);
+        // Institutional volume → full weight.
+        let confirmed = BacktestRow {
+            rvol_state_label: Some("INSTITUTIONAL_BREAKOUT_VOLUME".to_string()),
+            ..base
+        };
+        assert!((compute_confluence_score(&confirmed, &config) - 10.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_confluence_clamps_to_90() {
+        let r = BacktestRow {
+            rsi_normalized: Some(1.0),
+            macd_normalized: Some(1.0),
+            ..row()
+        };
+        let config = EdgeConfig {
+            indicators: vec![ind("rsi", 60.0), ind("macd", 60.0)],
+            ..Default::default()
+        };
+        assert_eq!(compute_confluence_score(&r, &config), 90.0);
     }
 
     #[test]

@@ -407,51 +407,48 @@ mod tests {
 
     #[test]
     fn test_compile_deterministic_telemetry() {
-        let indicators = IndicatorSnapshot {
-            rsi: Some(25.0),
-            squeeze_on: Some(false),
-            squeeze_momentum: Some(-0.05),
-            squeeze_duration: Some(3),
-            squeeze_release_trigger: Some(false),
-            squeeze_momentum_direction: Some("Flat".to_string()),
-            chart_pattern: None,
-            chart_pattern_confidence: None,
-            bbwp: Some(5.0),
-            macd_line: Some(-0.5),
-            macd_signal: Some(-0.3),
-            macd_histogram: Some(-0.2),
-            macd_histogram_trend: None,
-            adx: Some(15.0),
-            adx_plus: Some(12.0),
-            adx_minus: Some(18.0),
-            bb_upper: None,
-            bb_middle: None,
-            bb_lower: None,
-            atr: Some(1.5),
-            atr_trend: None,
-            atr_volatility_regime: Some("contracting".to_string()),
-            current_price: Some(3125.0),
-            volume: None,
-            average_volume: None,
-            rvol: Some(0.8),
-            ema_fast: None,
-            ema_medium: None,
-            ema_slow: None,
-            ema_long: Some(3200.0),
-            ema_stack_state: Some("bearish".to_string()),
-            vwap: Some(3130.0),
-            vwap_bias: Some("discount".to_string()),
-            rsi_divergence_status: Some("potential".to_string()),
-            macd_divergence_status: Some("none".to_string()),
-            macd_trend_state: None,
-            macd_crossover_detected: Some(false),
-            macd_crossover_direction: None,
-            macd_histogram_peak: None,
-            adx_slope: None,
-            adx_regime: Some("congestion".to_string()),
-            adx_di_crossover_detected: None,
-            adx_di_crossover_direction: None,
-        };
+        use shared::indicators::normalized::NormalizedIndicatorValue;
+        use std::collections::HashMap;
+
+        let mut map: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
+        map.insert("rsi".into(), NormalizedIndicatorValue::scalar(25.0, 0.8, "OVERSOLD_ACCUMULATION"));
+        map.insert("bbwp".into(), NormalizedIndicatorValue::scalar(5.0, 0.0, "MAX_VOLATILITY_COMPRESSION"));
+        map.insert("rvol".into(), NormalizedIndicatorValue::scalar(0.8, -0.5, "CONSOLIDATION_VOLUME"));
+        map.insert("squeeze".into(), NormalizedIndicatorValue::scalar(-0.05, -0.2, "BEARISH_MOMENTUM_EXHAUSTING"));
+        map.insert("macd".into(), {
+            let mut v = HashMap::new();
+            v.insert("line".to_string(), -0.5);
+            v.insert("signal".to_string(), -0.3);
+            v.insert("histogram".to_string(), -0.2);
+            NormalizedIndicatorValue::with_values(-0.2, -0.5, "BEARISH_MOMENTUM_EXPANDING", v)
+        });
+        map.insert("adx".into(), {
+            let mut v = HashMap::new();
+            v.insert("adx".to_string(), 15.0);
+            v.insert("plus_di".to_string(), 12.0);
+            v.insert("minus_di".to_string(), 18.0);
+            NormalizedIndicatorValue::with_values(15.0, 0.0, "TRENDLESS_CONGESTION", v)
+        });
+        map.insert("ema_stack".into(), {
+            let mut v = HashMap::new();
+            v.insert("long".to_string(), 3200.0);
+            NormalizedIndicatorValue::with_values(3125.0, -1.0, "ESTABLISHED_BEARISH_STACK", v)
+        });
+        map.insert("vwap".into(), {
+            let mut v = HashMap::new();
+            v.insert("vwap".to_string(), 3130.0);
+            NormalizedIndicatorValue::with_values(3130.0, 0.8, "EXTREME_DISCOUNT_REVERSION_ZONE", v)
+        });
+        map.insert(
+            "rsi_divergence".into(),
+            NormalizedIndicatorValue::scalar(0.5, 0.5, "POTENTIAL_BULLISH_DIVERGENCE"),
+        );
+        map.insert("atr".into(), {
+            let mut v = HashMap::new();
+            v.insert("atr_14".to_string(), 1.5);
+            NormalizedIndicatorValue::with_values(1.5, 0.0, "ATR_RAW", v)
+        });
+        let indicators = IndicatorSnapshot::new(map, Some(3125.0));
 
         let support_levels: Vec<String> = vec!["3100.00".to_string(), "3050.00".to_string()];
         let resistance_levels: Vec<String> = vec!["3150.00".to_string(), "3200.00".to_string()];
@@ -473,7 +470,7 @@ mod tests {
         assert!((telemetry.bbwp_percentile - 5.0).abs() < 0.001);
         assert!(!telemetry.squeeze_on);
         assert_eq!(telemetry.vwap_bias, "discount");
-        assert_eq!(telemetry.rsi_divergence_state, "potential");
+        assert_eq!(telemetry.rsi_divergence_state, "potential_bullish");
         assert_eq!(telemetry.macd_divergence_state, "none");
         assert_eq!(telemetry.macd_crossover_state, "none");
         assert_eq!(telemetry.squeeze_release_state, "none");

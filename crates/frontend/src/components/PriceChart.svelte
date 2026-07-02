@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { flattenHistory } from '../lib/historyAdapter';
+    import { emaStackState, vwapBias, divStatus } from '../lib/telemetry';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
@@ -188,7 +190,7 @@
                     );
                     chart.timeScale().fitContent();
 
-                    const ind = data.indicator_history;
+                    const ind = flattenHistory(data.indicator_history);
                     if (ind) {
                         const mapIndicator = (arr: (string | null)[] | undefined) => {
                             if (!arr) return [];
@@ -373,23 +375,24 @@
         divergenceLines = [];
         if (!pair) return;
 
-        const parseCoords = (raw: string | null): { firstPrice: number; secondPrice: number; status: string } | null => {
+        const rsiDivStatus = divStatus(tf.indicators, 'rsi_divergence');
+        const parseCoords = (raw: unknown): { firstPrice: number; secondPrice: number; status: string } | null => {
             if (!raw) return null;
             try {
-                const parsed = JSON.parse(raw);
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
                 return {
                     firstPrice: parsed.first_extreme?.price ? parseFloat(parsed.first_extreme.price) : 0,
                     secondPrice: parsed.second_extreme?.price ? parseFloat(parsed.second_extreme.price) : 0,
-                    status: tf.rsiDivergenceStatus || 'none',
+                    status: rsiDivStatus,
                 };
             } catch (_) {
                 return null;
             }
         };
 
-        const rsiCoords = parseCoords(tf.rsiDivergenceCoords);
+        const rsiCoords = parseCoords((tf.latestSnapshot as Record<string, unknown> | null)?.rsi_divergence_coords ?? null);
         if (rsiCoords && rsiCoords.firstPrice > 0 && rsiCoords.secondPrice > 0) {
-            const isConfirmed = tf.rsiDivergenceStatus === 'confirmed';
+            const isConfirmed = rsiDivStatus === 'confirmed';
             const lineColor = isConfirmed ? '#22c55e' : '#f59e0b';
             const lineStyle: 0 | 1 | 2 | 3 | 4 = isConfirmed ? 1 : 2;
             divergenceLines.push(candleSeries.createPriceLine({
@@ -484,11 +487,13 @@
 
 <div class={styles.chartWrapper}>
     {#if pair}
-        <span class="{styles.emaStackLabel} {tf.emaStackState === 'bullish' ? styles.bullish : ''} {tf.emaStackState === 'bearish' ? styles.bearish : ''}">
-            {tf.emaStackState?.toUpperCase() || 'TANGLED'}
+        {@const emaStack = emaStackState(tf.indicators)}
+        {@const vBias = vwapBias(tf.indicators)}
+        <span class="{styles.emaStackLabel} {emaStack === 'bullish' ? styles.bullish : ''} {emaStack === 'bearish' ? styles.bearish : ''}">
+            {emaStack.toUpperCase()}
         </span>
-        <span class="{styles.vwapBiasLabel} {tf.vwapBias === 'premium' ? styles.premium : ''} {tf.vwapBias === 'discount' ? styles.discount : ''}">
-            VWAP: {tf.vwapBias?.toUpperCase() || '--'}
+        <span class="{styles.vwapBiasLabel} {vBias === 'premium' ? styles.premium : ''} {vBias === 'discount' ? styles.discount : ''}">
+            VWAP: {vBias.toUpperCase()}
         </span>
     {/if}
     <div class={styles.chartContainer} bind:this={container}></div>

@@ -15,50 +15,7 @@ use crate::profile_evaluation::{SnapshotValues, classify_market_regime};
 use crate::safety::SafetyManager;
 
 fn indicator_to_snapshot(snap: &crate::server::IndicatorSnapshot) -> SnapshotValues {
-    SnapshotValues {
-        rsi: snap.rsi,
-        squeeze_on: snap.squeeze_on,
-        squeeze_momentum: snap.squeeze_momentum,
-        squeeze_duration: snap.squeeze_duration,
-        squeeze_release_trigger: snap.squeeze_release_trigger,
-        squeeze_momentum_direction: snap.squeeze_momentum_direction.clone(),
-        chart_pattern: snap.chart_pattern.clone(),
-        chart_pattern_confidence: snap.chart_pattern_confidence,
-        bbwp: snap.bbwp,
-        macd_line: snap.macd_line,
-        macd_signal: snap.macd_signal,
-        macd_hist: snap.macd_histogram,
-        adx: snap.adx,
-        adx_plus: snap.adx_plus,
-        adx_minus: snap.adx_minus,
-        bb_upper: snap.bb_upper,
-        bb_middle: snap.bb_middle,
-        bb_lower: snap.bb_lower,
-        atr: snap.atr,
-        ema_fast: snap.ema_fast,
-        ema_medium: snap.ema_medium,
-        ema_slow: snap.ema_slow,
-        ema_long: snap.ema_long,
-        ema_stack_state: snap.ema_stack_state.clone(),
-        vwap: snap.vwap,
-        vwap_bias: snap.vwap_bias.clone(),
-        close: snap.current_price,
-        volume: snap.volume,
-        average_volume: snap.average_volume,
-        rvol: snap.rvol,
-        current_price: snap.current_price.unwrap_or(0.0),
-        rsi_divergence_status: None,
-        macd_divergence_status: None,
-        macd_trend_state: snap.macd_trend_state.clone(),
-        macd_crossover_detected: snap.macd_crossover_detected,
-        macd_crossover_direction: snap.macd_crossover_direction.clone(),
-        macd_histogram_peak: snap.macd_histogram_peak,
-        atr_volatility_regime: snap.atr_volatility_regime.clone(),
-        adx_slope: None,
-        adx_regime: None,
-        adx_di_crossover_detected: None,
-        adx_di_crossover_direction: None,
-    }
+    crate::profile_evaluation::snapshot_values_from_flat(snap)
 }
 use shared::models::MarketSnapshot;
 use shared::normalized::NormalizedCandle;
@@ -113,11 +70,7 @@ impl AutomationState {
         match self.last_run {
             Some(last) => {
                 let elapsed = last.elapsed().as_secs();
-                if elapsed >= self.interval_seconds {
-                    0
-                } else {
-                    self.interval_seconds - elapsed
-                }
+                self.interval_seconds.saturating_sub(elapsed)
             }
             None if self.enabled => self.interval_seconds,
             None => 0,
@@ -185,7 +138,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         if let Err(reason) = ctx.safety.check_capital_drawdown().await {
             eprintln!("🛑 Automation: {} drawdown stop triggered: {}", ctx.pair_key, reason);
             // Immediately close any open positions to protect remaining capital
-            if let Some(_) = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await {
+            if db::paper_get_active_position(&ctx.pool, &ctx.symbol).await.is_some() {
                 let price = ctx.micro_latest.read().await.as_ref()
                     .and_then(|s| s.mid_price.to_f64())
                     .unwrap_or(0.0);
@@ -337,6 +290,7 @@ async fn execute_automation_cycle(
             Some(&journal_context)
         };
 
+    let indicators_json = serde_json::to_string(&indicators_micro.indicators).ok();
     let phase_two = llm
         .run_multi_timeframe_orchestrator(
             "None",
@@ -347,6 +301,9 @@ async fn execute_automation_cycle(
             &resistance_strings,
             journal_opt,
             Some(&ctx.symbol),
+            telemetry.total_confluence_score,
+            None,
+            indicators_json.as_deref(),
         )
         .await
         .map_err(|e| format!("Orchestrator failed: {}", e))?;
@@ -671,11 +628,11 @@ async fn execute_automation_cycle(
 /// Determine the medium trend direction from the 15-minute chart (Section 3.2).
 /// Returns "BULLISH" if price > 200 EMA on medium timeframe, "BEARISH" otherwise.
 fn determine_slow_trend_direction(indicators: &crate::server::IndicatorSnapshot) -> &'static str {
-    match (indicators.ema_long, indicators.current_price) {
+    match (indicators.ema_long(), indicators.current_price) {
         (Some(ema), Some(price)) if price > ema => "BULLISH",
         (Some(_ema), Some(_price)) => "BEARISH",
         _ => {
-            match (indicators.ema_fast, indicators.ema_slow) {
+            match (indicators.ema_fast(), indicators.ema_slow()) {
                 (Some(fast), Some(slow)) if fast > slow => "BULLISH",
                 _ => "BEARISH",
             }
@@ -711,75 +668,17 @@ fn evaluate_confluence_mtf(micro_signal: &str, fast_signal: &str, slow_signal: &
 
 
 
-fn build_indicator_snapshot(snapshot: &Option<shared::models::MarketSnapshot>) -> crate::server::IndicatorSnapshot {
+fn build_indicator_snapshot(
+    snapshot: &Option<shared::models::MarketSnapshot>,
+) -> crate::server::IndicatorSnapshot {
     match snapshot {
-        Some(s) => crate::server::IndicatorSnapshot {
-            rsi: s.rsi_14.and_then(|d| d.to_string().parse::<f64>().ok()),
-            squeeze_on: s.squeeze_on,
-            squeeze_momentum: s.squeeze_momentum.and_then(|d| d.to_string().parse::<f64>().ok()),
-            squeeze_duration: s.squeeze_duration,
-            squeeze_release_trigger: s.squeeze_release_trigger,
-            squeeze_momentum_direction: s.squeeze_momentum_direction.clone(),
-            chart_pattern: s.chart_pattern.clone(),
-            chart_pattern_confidence: s.chart_pattern_confidence.map(|d| d.to_string().parse::<f64>().unwrap_or(0.0)),
-            bbwp: s.bbwp.and_then(|d| d.to_string().parse::<f64>().ok()),
-            macd_line: s.macd_line.and_then(|d| d.to_string().parse::<f64>().ok()),
-            macd_signal: s.macd_signal.and_then(|d| d.to_string().parse::<f64>().ok()),
-            macd_histogram: s.macd_hist.and_then(|d| d.to_string().parse::<f64>().ok()),
-            macd_histogram_trend: None,
-            adx: s.adx_14.and_then(|d| d.to_string().parse::<f64>().ok()),
-            adx_plus: s.adx_plus.and_then(|d| d.to_string().parse::<f64>().ok()),
-            adx_minus: s.adx_minus.and_then(|d| d.to_string().parse::<f64>().ok()),
-            bb_upper: s.bb_upper.and_then(|d| d.to_string().parse::<f64>().ok()),
-            bb_middle: s.bb_middle.and_then(|d| d.to_string().parse::<f64>().ok()),
-            bb_lower: s.bb_lower.and_then(|d| d.to_string().parse::<f64>().ok()),
-            atr: s.atr_14.and_then(|d| d.to_string().parse::<f64>().ok()),
-            atr_trend: None,
-            atr_volatility_regime: s.atr_volatility_regime.clone(),
-            current_price: Some(s.mid_price.to_string().parse::<f64>().unwrap_or(0.0)),
-            volume: s.volume.and_then(|d| d.to_string().parse::<f64>().ok()),
-            average_volume: s.average_volume.and_then(|d| d.to_string().parse::<f64>().ok()),
-            rvol: s.rvol.and_then(|d| d.to_string().parse::<f64>().ok()),
-            ema_fast: s.ema_fast.and_then(|d| d.to_string().parse::<f64>().ok()),
-            ema_medium: s.ema_medium.and_then(|d| d.to_string().parse::<f64>().ok()),
-            ema_slow: s.ema_slow.and_then(|d| d.to_string().parse::<f64>().ok()),
-            ema_long: s.ema_long.and_then(|d| d.to_string().parse::<f64>().ok()),
-            ema_stack_state: s.ema_stack_state.clone(),
-            vwap: s.vwap.and_then(|d| d.to_string().parse::<f64>().ok()),
-            vwap_bias: s.vwap_bias.clone(),
-            rsi_divergence_status: s.rsi_divergence_status.clone(),
-            macd_divergence_status: s.macd_divergence_status.clone(),
-            macd_trend_state: s.macd_trend_state.clone(),
-            macd_crossover_detected: s.macd_crossover_detected,
-            macd_crossover_direction: s.macd_crossover_direction.clone(),
-            macd_histogram_peak: s.macd_histogram_peak.and_then(|d| d.to_string().parse::<f64>().ok()),
-            adx_slope: s.adx_slope.and_then(|d| d.to_string().parse::<f64>().ok()),
-            adx_regime: s.adx_regime.clone(),
-            adx_di_crossover_detected: s.adx_di_crossover_detected,
-            adx_di_crossover_direction: s.adx_di_crossover_direction.clone(),
-        },
-        None => crate::server::IndicatorSnapshot {
-            rsi: None, squeeze_on: None, squeeze_momentum: None,
-            squeeze_duration: None,             squeeze_release_trigger: None, squeeze_momentum_direction: None,
-            chart_pattern: None, chart_pattern_confidence: None, bbwp: None,
-            macd_line: None, macd_signal: None, macd_histogram: None,
-            macd_histogram_trend: None, adx: None, adx_plus: None, adx_minus: None,
-            bb_upper: None, bb_middle: None, bb_lower: None,
-            atr: None, atr_trend: None, atr_volatility_regime: None, current_price: None,
-            volume: None, average_volume: None, rvol: None,
-            ema_fast: None, ema_medium: None, ema_slow: None, ema_long: None, ema_stack_state: None,
-            vwap: None,
-            vwap_bias: None,
-            rsi_divergence_status: None,
-            macd_divergence_status: None,
-            macd_trend_state: None,
-            macd_crossover_detected: None,
-            macd_crossover_direction: None,
-            macd_histogram_peak: None,
-            adx_slope: None,
-            adx_regime: None,
-            adx_di_crossover_detected: None,
-            adx_di_crossover_direction: None,
-        },
+        Some(s) => {
+            let current_price = s.mid_price.to_string().parse::<f64>().ok();
+            let mut snap = crate::server::IndicatorSnapshot::new(s.indicators.clone(), current_price);
+            snap.volume = s.volume.and_then(|d| d.to_string().parse::<f64>().ok());
+            snap.average_volume = s.average_volume.and_then(|d| d.to_string().parse::<f64>().ok());
+            snap
+        }
+        None => crate::server::IndicatorSnapshot::default(),
     }
 }

@@ -89,10 +89,6 @@ impl PositionRiskValidator {
         Ok(())
     }
 
-    fn validate_position_size(&self, _size: Decimal) -> Result<(), RiskError> {
-        Ok(())
-    }
-
     fn _validate_stop_loss(&self, _entry: Decimal, _stop: Decimal, _direction: &str) -> Result<(), RiskError> {
         Ok(())
     }
@@ -123,7 +119,7 @@ pub async fn open_position_pct(
     let existing = db::paper_get_active_position(pool, symbol).await;
 
     // Validate percentage — 25% portions
-    if pct < 25.0 || pct > 100.0 || pct % 25.0 != 0.0 {
+    if !(25.0..=100.0).contains(&pct) || pct % 25.0 != 0.0 {
         return PaperPositionOpResult {
             success: false,
             message: format!("Position percentage must be 25-100 in steps of 25, got {}", pct),
@@ -180,14 +176,14 @@ pub async fn open_position_pct(
                     .bind(symbol).bind(allocated_f64).execute(&mut *tx2).await.ok();
                 let _ = tx2.commit().await;
             }
-            return PaperPositionOpResult {
+            PaperPositionOpResult {
                 success: true,
                 message: format!("Netted: closed {}%, opened {}% {:.0} at ${:.2}", existing_pct, net_pct, direction, current_price),
                 direction: direction.to_string(),
                 position_pct: net_pct,
                 free_balance_pct: 100.0 - net_pct,
                 entry_price: current_price, size, allocated_usd: allocated_f64,
-            };
+            }
         }
         Some(pos) => {
             // Same direction — scale in (add more)
@@ -252,7 +248,7 @@ pub async fn open_position_pct(
             .ok();
 
             // Also create position_slots entry for backward compat
-            let slot_idx = (current_portions - 1) as i32;
+            let slot_idx = current_portions - 1 ;
             sqlx::query(
                 "INSERT OR IGNORE INTO position_slots (position_id, symbol, direction, slot_index, is_active, entry_price, size, allocated_usd, realized_pnl, timestamp)
                  VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7, 0.0, ?8)"
@@ -365,7 +361,7 @@ pub async fn close_position_pct(
         }
     };
 
-    if close_pct < 10.0 || close_pct > 100.0 || close_pct % 10.0 != 0.0 {
+    if !(10.0..=100.0).contains(&close_pct) || close_pct % 10.0 != 0.0 {
         return PaperPositionOpResult {
             success: false,
             message: format!("Close percentage must be 10-100 in steps of 10, got {}", close_pct),
@@ -623,10 +619,10 @@ pub async fn verify_margin_and_open_with_alloc(
     let balance = db::paper_get_balance(pool, symbol).await;
     let position = db::paper_get_active_position(pool, symbol).await;
 
-    if position.is_some() {
+    if let Some(pos) = &position {
         return PaperTradeResult {
             success: false,
-            message: format!("{} already has an active {} position", symbol, position.unwrap().direction),
+            message: format!("{} already has an active {} position", symbol, pos.direction),
             entry_price: None, size: None, allocated_usd: None, position_pct: None,
         };
     }
@@ -842,16 +838,29 @@ pub async fn apply_break_even_trail(pool: &SqlitePool, symbol: &str) {
     );
 }
 
+/// Evaluate whether the cumulative opposite-signal score warrants an exit.
+///
+/// Uses the continuous confluence model: exit triggers when the absolute
+/// weighted sum of opposing indicators exceeds the hard 54-point threshold
+/// (60% of the maximum ±90 score), replacing the legacy discrete-count rule.
+/// `_max_opposite` is retained for signature compatibility / logging only.
 pub fn evaluate_opposite_exit(
     position_direction: &str,
     snap: &SnapshotValues,
     support_levels: &[f64],
     resistance_levels: &[f64],
     macro_trend: &str,
-    max_opposite: u32,
+    _max_opposite: u32,
 ) -> (bool, u32) {
-    let opposite_score = calculate_opposite_score(position_direction, snap, support_levels, resistance_levels, macro_trend);
-    (opposite_score > max_opposite, opposite_score)
+    let opposite_score = calculate_opposite_score(
+        position_direction,
+        snap,
+        support_levels,
+        resistance_levels,
+        macro_trend,
+    );
+    let threshold = crate::profile_evaluation::scoring::OPPOSITE_EXIT_THRESHOLD as u32;
+    (opposite_score > threshold, opposite_score)
 }
 
 pub async fn verify_margin_and_open_with_alloc_and_pct(

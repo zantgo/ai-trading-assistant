@@ -79,8 +79,6 @@
     }
     .main-layout {
         display: flex;
-        max-width: 1800px;
-        margin: 0 auto;
         padding: 16px;
         gap: 16px;
         width: 100%;

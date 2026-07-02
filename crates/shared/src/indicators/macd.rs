@@ -44,6 +44,12 @@ pub struct Macd {
     prev_histogram: Option<Decimal>,
 }
 
+impl Default for Macd {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Macd {
     pub fn new() -> Self {
         Self {

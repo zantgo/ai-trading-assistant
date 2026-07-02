@@ -1,13 +1,21 @@
+use rust_decimal::prelude::ToPrimitive;
 use shared::models::MarketSnapshot;
 use sqlx::SqlitePool;
 
 pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
-    let sqz_on_db_val = snapshot.squeeze_on.map(|s| if s { 1 } else { 0 });
+    let sqz_on_db_val = snapshot.squeeze_on().map(|s| if s { 1 } else { 0 });
     let exchange_label = snapshot
         .exchange
         .as_ref()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "Hyperliquid".to_string());
+
+    // Normalized [-1.0,1.0] + state label for the 8 primary scored indicators.
+    let norm = |k: &str| snapshot.ind_norm(k);
+    let label = |k: &str| snapshot.ind_label(k).map(|s| s.to_string());
+
+    // Full indicator map serialized as the auxiliary catch-all JSON blob.
+    let auxiliary_json = serde_json::to_string(&snapshot.indicators).ok();
 
     if let Err(e) = sqlx::query(
         "INSERT INTO market_snapshots (
@@ -16,8 +24,14 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             bb_upper, bb_middle, bb_lower, atr_14, vwap,
             ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
             macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
-            squeeze_on, squeeze_momentum, bbwp, support_levels, resistance_levels
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)"
+            squeeze_on, squeeze_momentum, bbwp, support_levels, resistance_levels,
+            rsi_normalized, rsi_state_label, macd_normalized, macd_state_label,
+            squeeze_normalized, squeeze_state_label, adx_normalized, adx_state_label,
+            bbwp_normalized, bbwp_state_label, rvol_normalized, rvol_state_label,
+            ema_stack_normalized, ema_stack_state_label, vwap_normalized, vwap_state_label,
+            fib_GP_top, fib_GP_bottom, fib_ext_1618, fib_ext_2618,
+            auxiliary_normalized_data
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55)"
     )
     .bind(exchange_label)
     .bind(snapshot.timeframe_secs as i64)
@@ -32,28 +46,49 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     .bind(snapshot.close.map(|d| d.to_string()))
     .bind(snapshot.volume.map(|d| d.to_string()))
     .bind(snapshot.average_volume.map(|d| d.to_string()))
-    .bind(snapshot.bb_upper.map(|d| d.to_string()))
-    .bind(snapshot.bb_middle.map(|d| d.to_string()))
-    .bind(snapshot.bb_lower.map(|d| d.to_string()))
-    .bind(snapshot.atr_14.map(|d| d.to_string()))
-    .bind(snapshot.vwap.map(|d| d.to_string()))
-    .bind(snapshot.ema_fast.map(|d| d.to_string()))
-    .bind(snapshot.ema_medium.map(|d| d.to_string()))
-    .bind(snapshot.ema_slow.map(|d| d.to_string()))
-    .bind(snapshot.ema_long.map(|d| d.to_string()))
-    .bind(snapshot.rsi_14.map(|d| d.to_string()))
-    .bind(snapshot.macd_line.map(|d| d.to_string()))
-    .bind(snapshot.macd_signal.map(|d| d.to_string()))
-    .bind(snapshot.macd_hist.map(|d| d.to_string()))
-    .bind(snapshot.adx_14.map(|d| d.to_string()))
-    .bind(snapshot.adx_plus.map(|d| d.to_string()))
-    .bind(snapshot.adx_minus.map(|d| d.to_string()))
+    .bind(snapshot.bb_upper().map(|d| d.to_string()))
+    .bind(snapshot.bb_middle().map(|d| d.to_string()))
+    .bind(snapshot.bb_lower().map(|d| d.to_string()))
+    .bind(snapshot.atr_14().map(|d| d.to_string()))
+    .bind(snapshot.vwap().map(|d| d.to_string()))
+    .bind(snapshot.ema_fast().map(|d| d.to_string()))
+    .bind(snapshot.ema_medium().map(|d| d.to_string()))
+    .bind(snapshot.ema_slow().map(|d| d.to_string()))
+    .bind(snapshot.ema_long().map(|d| d.to_string()))
+    .bind(snapshot.rsi_14().map(|d| d.to_string()))
+    .bind(snapshot.macd_line().map(|d| d.to_string()))
+    .bind(snapshot.macd_signal().map(|d| d.to_string()))
+    .bind(snapshot.macd_hist().map(|d| d.to_string()))
+    .bind(snapshot.adx_14().map(|d| d.to_string()))
+    .bind(snapshot.adx_plus().map(|d| d.to_string()))
+    .bind(snapshot.adx_minus().map(|d| d.to_string()))
     .bind(sqz_on_db_val)
-    .bind(snapshot.squeeze_momentum.map(|d| d.to_string()))
-    .bind(snapshot.bbwp.map(|d| d.to_string()))
-    .bind(snapshot.support_levels.clone())
-    .bind(snapshot.resistance_levels.clone())
-    .execute(&*pool)
+    .bind(snapshot.squeeze_momentum().map(|d| d.to_string()))
+    .bind(snapshot.bbwp().map(|d| d.to_string()))
+    .bind(Option::<String>::None)
+    .bind(Option::<String>::None)
+    .bind(norm("rsi"))
+    .bind(label("rsi"))
+    .bind(norm("macd"))
+    .bind(label("macd"))
+    .bind(norm("squeeze"))
+    .bind(label("squeeze"))
+    .bind(norm("adx"))
+    .bind(label("adx"))
+    .bind(norm("bbwp"))
+    .bind(label("bbwp"))
+    .bind(norm("rvol"))
+    .bind(label("rvol"))
+    .bind(norm("ema_stack"))
+    .bind(label("ema_stack"))
+    .bind(norm("vwap"))
+    .bind(label("vwap"))
+    .bind(snapshot.fib_gp_top())
+    .bind(snapshot.fib_gp_bottom())
+    .bind(snapshot.fib_ext_1618())
+    .bind(snapshot.fib_ext_2618())
+    .bind(auxiliary_json)
+    .execute(pool)
     .await
     {
         eprintln!("Database Error: Failed to save completed snapshot: {}", e);
@@ -106,7 +141,7 @@ pub async fn query_indicator_snapshots(
     .bind(symbol)
     .bind(timeframe_secs as i64)
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_else(|e| {
         eprintln!("Database Error: Failed to query indicator snapshots: {}", e);
@@ -127,7 +162,7 @@ pub async fn query_atr_snapshots(
     )
     .bind(timeframe_secs as i64)
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await;
 
     match rows {
@@ -151,7 +186,8 @@ pub async fn query_latest_snapshot(
                 bb_upper, bb_middle, bb_lower, atr_14, vwap,
                 ema_fast, ema_medium, ema_slow, ema_long, rsi_14,
                 macd_line, macd_signal, macd_hist, adx_14, adx_plus, adx_minus,
-                squeeze_on, squeeze_momentum, bbwp, support_levels, resistance_levels
+                squeeze_on, squeeze_momentum, bbwp, support_levels, resistance_levels,
+                auxiliary_normalized_data
          FROM market_snapshots
          WHERE symbol = ?1 AND timeframe_secs = ?2 AND close IS NOT NULL
          ORDER BY id DESC
@@ -159,7 +195,7 @@ pub async fn query_latest_snapshot(
     )
     .bind(symbol)
     .bind(timeframe_secs as i64)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten();
@@ -167,6 +203,51 @@ pub async fn query_latest_snapshot(
     row.map(|r| {
         let parse_dec =
             |val: Option<String>| val.and_then(|s| rust_decimal::Decimal::from_str_exact(&s).ok());
+        let f = |i: usize| -> Option<f64> {
+            r.get::<Option<String>, _>(i).and_then(|s| s.parse::<f64>().ok())
+        };
+        let close = parse_dec(r.get::<Option<String>, _>(9));
+
+        // Prefer the authoritative auxiliary JSON map; fall back to scalar
+        // reconstruction for legacy rows predating this migration.
+        let aux_json = r.get::<Option<String>, _>(33);
+        let indicators = aux_json
+            .as_deref()
+            .and_then(|s| {
+                serde_json::from_str::<
+                    std::collections::HashMap<String, shared::indicators::NormalizedIndicatorValue>,
+                >(s)
+                .ok()
+            })
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| {
+                crate::analyzer::normalize::build_indicator_map_from_scalars(
+                    crate::analyzer::normalize::RawScalarInputs {
+                        close: close.and_then(|d| d.to_f64()).unwrap_or(0.0),
+                        rsi: f(21),
+                        macd_line: f(22),
+                        macd_signal: f(23),
+                        macd_hist: f(24),
+                        adx: f(25),
+                        adx_plus: f(26),
+                        adx_minus: f(27),
+                        bbwp: f(30),
+                        bb_upper: f(12),
+                        bb_middle: f(13),
+                        bb_lower: f(14),
+                        atr: f(15),
+                        vwap: f(16),
+                        ema_fast: f(17),
+                        ema_medium: f(18),
+                        ema_slow: f(19),
+                        ema_long: f(20),
+                        squeeze_on: r.get::<Option<i32>, _>(28).map(|v| v != 0),
+                        squeeze_momentum: f(29),
+                        rvol: None,
+                    },
+                )
+            });
+
         MarketSnapshot {
             exchange: Some(shared::normalized::Exchange::Hyperliquid),
             timeframe_secs,
@@ -185,62 +266,10 @@ pub async fn query_latest_snapshot(
             open: parse_dec(r.get::<Option<String>, _>(6)),
             high: parse_dec(r.get::<Option<String>, _>(7)),
             low: parse_dec(r.get::<Option<String>, _>(8)),
-            close: parse_dec(r.get::<Option<String>, _>(9)),
+            close,
             volume: parse_dec(r.get::<Option<String>, _>(10)),
             average_volume: parse_dec(r.get::<Option<String>, _>(11)),
-            rvol: None,
-            bb_upper: parse_dec(r.get::<Option<String>, _>(12)),
-            bb_middle: parse_dec(r.get::<Option<String>, _>(13)),
-            bb_lower: parse_dec(r.get::<Option<String>, _>(14)),
-            atr_14: parse_dec(r.get::<Option<String>, _>(15)),
-            atr_slope: None,
-            atr_volatility_regime: None,
-            atr_stop_loss_level: None,
-            atr_take_profit_level: None,
-            vwap: parse_dec(r.get::<Option<String>, _>(16)),
-            vwap_bias: None,
-            ema_fast: parse_dec(r.get::<Option<String>, _>(17)),
-            ema_medium: parse_dec(r.get::<Option<String>, _>(18)),
-            ema_slow: parse_dec(r.get::<Option<String>, _>(19)),
-            ema_long: parse_dec(r.get::<Option<String>, _>(20)),
-            ema_stack_state: None,
-            rsi_14: parse_dec(r.get::<Option<String>, _>(21)),
-            macd_line: parse_dec(r.get::<Option<String>, _>(22)),
-            macd_signal: parse_dec(r.get::<Option<String>, _>(23)),
-            macd_hist: parse_dec(r.get::<Option<String>, _>(24)),
-            adx_14: parse_dec(r.get::<Option<String>, _>(25)),
-            adx_plus: parse_dec(r.get::<Option<String>, _>(26)),
-            adx_minus: parse_dec(r.get::<Option<String>, _>(27)),
-            squeeze_on: r.get::<Option<i32>, _>(28).map(|v| v != 0),
-            squeeze_momentum: parse_dec(r.get::<Option<String>, _>(29)),
-            squeeze_duration: None,
-            squeeze_release_trigger: None,
-            squeeze_momentum_direction: None,
-            bbwp: parse_dec(r.get::<Option<String>, _>(30)),
-            support_levels: r.get::<Option<String>, _>(31),
-            resistance_levels: r.get::<Option<String>, _>(32),
-            sr_flip_events: None,
-            chart_pattern: None,
-            chart_pattern_confidence: None,
-            fib_golden_pocket_low: None,
-            fib_golden_pocket_high: None,
-            fib_extension_1618: None,
-            fib_extension_2618: None,
-            swing_high: None,
-            swing_low: None,
-            rsi_divergence_status: None,
-            rsi_divergence_coords: None,
-            macd_divergence_status: None,
-            macd_divergence_coords: None,
-            macd_histogram_peak: None,
-            macd_trend_state: None,
-            macd_crossover_detected: None,
-            macd_crossover_direction: None,
-            adx_slope: None,
-            adx_peak: None,
-            adx_regime: None,
-            adx_di_crossover_detected: None,
-            adx_di_crossover_direction: None,
+            indicators,
         }
     })
 }
@@ -260,7 +289,7 @@ pub async fn query_closest_close_price(
     .bind(symbol)
     .bind(timeframe_secs as i64)
     .bind(target_timestamp_secs as i64)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten();
@@ -279,7 +308,7 @@ pub async fn query_closest_close_price(
             .bind(symbol)
             .bind(timeframe_secs as i64)
             .bind(target_timestamp_secs as i64)
-            .fetch_optional(&*pool)
+            .fetch_optional(pool)
             .await
             .ok()
             .flatten();

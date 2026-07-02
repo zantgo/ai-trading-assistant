@@ -234,7 +234,7 @@ mod tests {
                 trade_id: format!("t_{}", i),
             };
             let (_closed, live) = generator.process_trade(&trade);
-            assert_eq!(live.trades_count, (i + 1) as u64);
+            assert_eq!(live.trades_count, i + 1);
         }
     }
 }

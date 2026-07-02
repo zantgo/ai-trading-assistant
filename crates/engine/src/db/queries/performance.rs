@@ -25,7 +25,7 @@ pub async fn insert_automated_performance_baseline(
         "INSERT INTO automated_performance_tracker (master_record_id, symbol, price_at_signal) VALUES (?1, ?2, ?3)"
     )
     .bind(master_record_id).bind(symbol).bind(price_at_signal)
-    .execute(&*pool).await
+    .execute(pool).await
     {
         eprintln!("Database Error: Failed to insert automated performance baseline: {}", e);
     }
@@ -44,7 +44,7 @@ pub async fn query_automated_performance(
          ORDER BY id DESC LIMIT ?1",
     )
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_else(|e| {
         eprintln!(
@@ -86,7 +86,7 @@ pub async fn update_performance_tracker_prices(
     .bind(corr_4h)
     .bind(price_at_24h)
     .bind(corr_24h)
-    .execute(&*pool)
+    .execute(pool)
     .await
     {
         eprintln!(
@@ -106,7 +106,7 @@ pub async fn query_pending_performance_entries(pool: &SqlitePool) -> Vec<Automat
          WHERE price_at_24h IS NULL
          ORDER BY id ASC",
     )
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_else(|e| {
         eprintln!(

@@ -4,12 +4,12 @@ pub async fn seed_default_profiles(pool: &SqlitePool) {
     sqlx::query(
         "UPDATE decision_profiles SET profile_name = 'Default' WHERE profile_name = 'Cryptobruj'",
     )
-    .execute(&*pool)
+    .execute(pool)
     .await
     .ok();
 
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM decision_profiles")
-        .fetch_one(&*pool)
+        .fetch_one(pool)
         .await
         .unwrap_or((0,));
     if count.0 > 0 {
@@ -20,7 +20,7 @@ pub async fn seed_default_profiles(pool: &SqlitePool) {
         "INSERT INTO decision_profiles (profile_name, long_threshold, short_threshold)
          VALUES ('Default', 40, -40)",
     )
-    .execute(&*pool)
+    .execute(pool)
     .await
     .ok();
 
@@ -41,13 +41,13 @@ pub async fn seed_default_profiles(pool: &SqlitePool) {
         .bind(name)
         .bind(weight)
         .bind(ovr)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .ok();
     }
 
     let risk_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM risk_profiles")
-        .fetch_one(&*pool)
+        .fetch_one(pool)
         .await
         .unwrap_or((0,));
     if risk_count.0 == 0 {
@@ -55,7 +55,7 @@ pub async fn seed_default_profiles(pool: &SqlitePool) {
             "INSERT INTO risk_profiles (profile_name, capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread)
              VALUES ('Risk Profile', 1000.0, 2.0, 20, 0.06, 0.0, 0.0)"
         )
-        .execute(&*pool)
+        .execute(pool)
         .await
         .ok();
     }

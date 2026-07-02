@@ -304,13 +304,8 @@ async fn spawn_tasks(
         tokio::sync::broadcast::channel::<NormalizedCandle>(1200);
 
     tokio::spawn(async move {
-        loop {
-            match candle_fwd_rx.recv().await {
-                Some(candle) => {
-                    let _ = candle_bcast_tx.send(candle);
-                }
-                None => break,
-            }
+        while let Some(candle) = candle_fwd_rx.recv().await {
+            let _ = candle_bcast_tx.send(candle);
         }
     });
 
@@ -363,6 +358,7 @@ async fn spawn_tasks(
         None => (None, None, None, None),
     };
 
+    #[allow(clippy::type_complexity)]
     let pipeline_specs: Vec<(
         mpsc::Receiver<NormalizedEvent>,
         TimeframeConfig,

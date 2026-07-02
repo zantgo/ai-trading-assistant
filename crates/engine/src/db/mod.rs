@@ -74,6 +74,12 @@ pub use queries::trades::{
 
 // ─── Init ──────────────────────────────────────────────────────────
 
+/// Run all embedded schema migrations against the given pool. Exposed so
+/// integration tests can build the real schema on an in-memory database.
+pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::migrate::MigrateError> {
+    sqlx::migrate!("./migrations").run(pool).await
+}
+
 pub async fn verify_encryption_or_panic(pool: &SqlitePool) {
     if crypto::master_key_available() {
         return;
@@ -116,8 +122,7 @@ pub async fn init_db() -> SqlitePool {
         eprintln!("Database: Failed to set PRAGMA synchronous=NORMAL: {}", e);
     }
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
+    run_migrations(&pool)
         .await
         .expect("Database Setup: Failed to run schema migrations");
 

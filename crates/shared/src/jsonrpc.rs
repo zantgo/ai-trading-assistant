@@ -158,11 +158,7 @@ pub fn parse_rpc_any(raw: &str) -> Option<RpcMessage> {
         Some(RpcMessage::Notification(notif))
     } else if let Some(resp) = parse_rpc_response(raw) {
         Some(RpcMessage::Response(resp))
-    } else if let Some(req) = parse_rpc_message(raw) {
-        Some(RpcMessage::Request(req))
-    } else {
-        None
-    }
+    } else { parse_rpc_message(raw).map(RpcMessage::Request) }
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────

@@ -57,33 +57,35 @@ impl CandleAggregator {
             }
         }
 
-        if self.pending_4h.is_none() {
-            self.pending_4h = Some(AggregatedCandle {
-                symbol: self.symbol.clone(),
-                timeframe_secs: self.duration_4h,
-                candle: NormalizedCandle {
+        match self.pending_4h.as_mut() {
+            Some(pending) => {
+                pending.candle.high = pending.candle.high.max(candle.high);
+                pending.candle.low = pending.candle.low.min(candle.low);
+                pending.candle.close = candle.close;
+                pending.candle.volume += candle.volume;
+                pending.candle.trades_count += candle.trades_count;
+                pending.source_count += 1;
+                self.count_4h += 1;
+            }
+            None => {
+                self.pending_4h = Some(AggregatedCandle {
                     symbol: self.symbol.clone(),
-                    start_time_ms: interval_start_4h,
-                    duration_ms: self.duration_4h * 1000,
-                    open: candle.open,
-                    high: candle.high,
-                    low: candle.low,
-                    close: candle.close,
-                    volume: candle.volume,
-                    trades_count: candle.trades_count,
-                },
-                source_count: 1,
-            });
-            self.count_4h = 1;
-        } else {
-            let pending = self.pending_4h.as_mut().unwrap();
-            pending.candle.high = pending.candle.high.max(candle.high);
-            pending.candle.low = pending.candle.low.min(candle.low);
-            pending.candle.close = candle.close;
-            pending.candle.volume += candle.volume;
-            pending.candle.trades_count += candle.trades_count;
-            pending.source_count += 1;
-            self.count_4h += 1;
+                    timeframe_secs: self.duration_4h,
+                    candle: NormalizedCandle {
+                        symbol: self.symbol.clone(),
+                        start_time_ms: interval_start_4h,
+                        duration_ms: self.duration_4h * 1000,
+                        open: candle.open,
+                        high: candle.high,
+                        low: candle.low,
+                        close: candle.close,
+                        volume: candle.volume,
+                        trades_count: candle.trades_count,
+                    },
+                    source_count: 1,
+                });
+                self.count_4h = 1;
+            }
         }
 
         // Aggregate 1d candle (1440 × 1m)
@@ -98,33 +100,35 @@ impl CandleAggregator {
             }
         }
 
-        if self.pending_1d.is_none() {
-            self.pending_1d = Some(AggregatedCandle {
-                symbol: self.symbol.clone(),
-                timeframe_secs: self.duration_1d,
-                candle: NormalizedCandle {
+        match self.pending_1d.as_mut() {
+            Some(pending) => {
+                pending.candle.high = pending.candle.high.max(candle.high);
+                pending.candle.low = pending.candle.low.min(candle.low);
+                pending.candle.close = candle.close;
+                pending.candle.volume += candle.volume;
+                pending.candle.trades_count += candle.trades_count;
+                pending.source_count += 1;
+                self.count_1d += 1;
+            }
+            None => {
+                self.pending_1d = Some(AggregatedCandle {
                     symbol: self.symbol.clone(),
-                    start_time_ms: interval_start_1d,
-                    duration_ms: self.duration_1d * 1000,
-                    open: candle.open,
-                    high: candle.high,
-                    low: candle.low,
-                    close: candle.close,
-                    volume: candle.volume,
-                    trades_count: candle.trades_count,
-                },
-                source_count: 1,
-            });
-            self.count_1d = 1;
-        } else {
-            let pending = self.pending_1d.as_mut().unwrap();
-            pending.candle.high = pending.candle.high.max(candle.high);
-            pending.candle.low = pending.candle.low.min(candle.low);
-            pending.candle.close = candle.close;
-            pending.candle.volume += candle.volume;
-            pending.candle.trades_count += candle.trades_count;
-            pending.source_count += 1;
-            self.count_1d += 1;
+                    timeframe_secs: self.duration_1d,
+                    candle: NormalizedCandle {
+                        symbol: self.symbol.clone(),
+                        start_time_ms: interval_start_1d,
+                        duration_ms: self.duration_1d * 1000,
+                        open: candle.open,
+                        high: candle.high,
+                        low: candle.low,
+                        close: candle.close,
+                        volume: candle.volume,
+                        trades_count: candle.trades_count,
+                    },
+                    source_count: 1,
+                });
+                self.count_1d = 1;
+            }
         }
 
         (completed_4h, completed_1d)

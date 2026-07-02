@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { flattenHistory } from '../lib/historyAdapter';
+    import { iRaw, iSub } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
@@ -83,7 +86,7 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
-                const indicatorHistory = data.indicator_history;
+                const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.macd_line && indicatorHistory.macd_line.length > 0) {
                     const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
                         time: t as Time,
@@ -179,39 +182,22 @@
         return '#b71c1c';                                    // Dark Red — warning
     }
 
+    let prevMacdHist = 0;
     $effect(() => {
         if (!pair) return;
         const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.macd_line != null) {
-            const mLine = parseFloat(String(snap.macd_line));
-            const mSig = parseFloat(String(snap.macd_signal));
-            const mHist = parseFloat(String(snap.macd_hist));
-
+        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const mLine = iSub(m, 'macd', 'line');
+        const mSig = iSub(m, 'macd', 'signal');
+        const mHist = iRaw(m, 'macd');
+        if (mLine != null && mSig != null && mHist != null) {
             macdLineSeries.update({ time: timeSec as Time, value: mLine });
             macdSigSeries.update({ time: timeSec as Time, value: mSig });
-
-            const color = histogramColor(mHist, tf.lastMacdHist);
-
+            const color = histogramColor(mHist, prevMacdHist);
             macdHistSeries.update({ time: timeSec as Time, value: mHist, color });
-            tf.lastMacdHist = mHist;
-        }
-
-        // Update MACD momentum state from snapshot
-        if (snap.macd_histogram_peak != null) {
-            tf.macdHistPeak = parseFloat(String(snap.macd_histogram_peak));
-        }
-        if (snap.macd_crossover_detected != null) {
-            tf.macdCrossoverDetected = !!snap.macd_crossover_detected;
-        }
-        if (snap.macd_crossover_direction != null) {
-            tf.macdCrossoverDirection = String(snap.macd_crossover_direction) as 'BULLISH' | 'BEARISH' | 'NONE';
-        }
-        if (snap.macd_trend_state === 'decelerating') {
-            tf.macdContractionTriggered = true;
-        } else {
-            tf.macdContractionTriggered = false;
+            prevMacdHist = mHist;
         }
     });
 </script>

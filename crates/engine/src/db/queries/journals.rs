@@ -38,7 +38,7 @@ pub async fn insert_trade_journal(
     .bind(trade_id).bind(entry_date).bind(exit_date)
     .bind(asset).bind(direction).bind(entry_reason)
     .bind(roe_percentage).bind(final_analysis).bind(execution_score)
-    .execute(&*pool)
+    .execute(pool)
     .await
     {
         Ok(r) => r.last_insert_rowid(),
@@ -63,7 +63,7 @@ pub async fn query_trade_journal(pool: &SqlitePool, limit: u32) -> Vec<TradeJour
          LIMIT ?1",
     )
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
@@ -80,7 +80,7 @@ pub async fn update_journal_notes(
     .bind(id)
     .bind(human_notes)
     .bind(execution_score)
-    .execute(&*pool)
+    .execute(pool)
     .await
     .map(|r| r.rows_affected() > 0)
     .unwrap_or(false)

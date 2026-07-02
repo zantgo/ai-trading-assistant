@@ -178,7 +178,7 @@ mod tests {
         let result = run_monte_carlo(&returns, 15.0, &cfg);
         assert_eq!(result.paths.len(), 500);
         assert!(result.median_max_drawdown_pct >= 0.0);
-        assert!(result.drawdown_distribution.len() > 0);
+        assert!(!result.drawdown_distribution.is_empty());
     }
 
     #[test]

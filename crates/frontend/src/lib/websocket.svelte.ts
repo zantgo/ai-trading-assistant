@@ -1,5 +1,5 @@
 import type { AppStore } from '../state.svelte';
-import type { TimeframeTelemetry } from '../types';
+import type { IndicatorMap, TimeframeTelemetry } from '../types';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
 
@@ -40,7 +40,18 @@ export function disconnectAllWs(state: WsState): void {
     closeWs(state.wsMacro); state.wsMacro = null;
 }
 
-/** Parse and apply a WebSocket message to a TimeframeTelemetry object. */
+function num(v: unknown): number | null {
+    if (v === undefined || v === null) return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * Parse a WebSocket `broadcast.market_snapshot` notification into the
+ * timeframe telemetry. The nested `indicators` map is the sole source of
+ * truth; only genuine non-indicator market data (price/volume) is stored as
+ * flat text alongside it.
+ */
 export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageEvent): void {
     try {
         const raw = JSON.parse(event.data);
@@ -48,63 +59,21 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
             ? (raw.params?.snapshot || raw)
             : raw;
         if (!snapshot || typeof snapshot !== 'object') return;
-        if (snapshot.mid_price !== undefined && snapshot.mid_price !== null) tf.priceText = parseFloat(snapshot.mid_price).toFixed(2);
-        if (snapshot.vwap !== undefined && snapshot.vwap !== null) tf.vwapText = parseFloat(snapshot.vwap).toFixed(2);
-        if (snapshot.vwap_bias != null) tf.vwapBias = String(snapshot.vwap_bias) as TimeframeTelemetry['vwapBias'];
-        if (snapshot.ema_fast !== undefined && snapshot.ema_fast !== null) tf.emaFastText = parseFloat(snapshot.ema_fast).toFixed(2);
-        if (snapshot.ema_medium !== undefined && snapshot.ema_medium !== null) tf.emaMediumText = parseFloat(snapshot.ema_medium).toFixed(2);
-        if (snapshot.ema_slow !== undefined && snapshot.ema_slow !== null) tf.emaSlowText = parseFloat(snapshot.ema_slow).toFixed(2);
-        if (snapshot.ema_long !== undefined && snapshot.ema_long !== null) tf.emaLongText = parseFloat(snapshot.ema_long).toFixed(2);
-        if (snapshot.ema_stack_state != null) tf.emaStackState = String(snapshot.ema_stack_state) as TimeframeTelemetry['emaStackState'];
-        if (snapshot.adx_14 !== undefined && snapshot.adx_14 !== null) tf.adxText = parseFloat(snapshot.adx_14).toFixed(2);
-        if (snapshot.adx_plus !== undefined && snapshot.adx_plus !== null) tf.adxPlusText = parseFloat(snapshot.adx_plus).toFixed(2);
-        if (snapshot.adx_minus !== undefined && snapshot.adx_minus !== null) tf.adxMinusText = parseFloat(snapshot.adx_minus).toFixed(2);
-        if (snapshot.atr_14 !== undefined && snapshot.atr_14 !== null) tf.atrText = parseFloat(snapshot.atr_14).toFixed(2);
-        if (snapshot.rsi_14 !== undefined && snapshot.rsi_14 !== null) tf.rsiText = parseFloat(snapshot.rsi_14).toFixed(2);
-        if (snapshot.macd_line !== undefined && snapshot.macd_line !== null) tf.macdLineText = parseFloat(snapshot.macd_line).toFixed(4);
-        if (snapshot.macd_signal !== undefined && snapshot.macd_signal !== null) tf.macdSigText = parseFloat(snapshot.macd_signal).toFixed(4);
-        if (snapshot.macd_hist !== undefined && snapshot.macd_hist !== null) tf.macdHistText = parseFloat(snapshot.macd_hist).toFixed(4);
-        if (snapshot.squeeze_momentum !== undefined && snapshot.squeeze_momentum !== null) tf.sqzValText = parseFloat(snapshot.squeeze_momentum).toFixed(4);
-        if (snapshot.bbwp != null) {
-            tf.bbwpText = parseFloat(String(snapshot.bbwp)).toFixed(1);
-            tf.lastBbwp = parseFloat(String(snapshot.bbwp));
-        }
-        if (snapshot.chart_pattern != null) tf.activePattern = String(snapshot.chart_pattern) as TimeframeTelemetry['activePattern'];
-        if (snapshot.chart_pattern_confidence != null) tf.patternConfidence = parseFloat(String(snapshot.chart_pattern_confidence));
-        tf.isSqueezeOn = snapshot.squeeze_on ?? false;
-        tf.sqzStatusText = tf.isSqueezeOn ? 'SQUEEZE ON' : 'SQUEEZE OFF';
-        if (snapshot.volume !== undefined && snapshot.volume !== null) tf.volText = parseFloat(snapshot.volume).toFixed(2);
-        if (snapshot.average_volume !== undefined && snapshot.average_volume !== null) tf.avgVolText = parseFloat(snapshot.average_volume).toFixed(2);
+
+        // Authoritative nested indicator map.
+        tf.indicators = (snapshot.indicators && typeof snapshot.indicators === 'object')
+            ? (snapshot.indicators as IndicatorMap)
+            : {};
         tf.latestSnapshot = snapshot;
-
-        tf.rsiDivergenceStatus = snapshot.rsi_divergence_status ? (snapshot.rsi_divergence_status as 'none' | 'potential' | 'confirmed') : 'none';
-        tf.macdDivergenceStatus = snapshot.macd_divergence_status ? (snapshot.macd_divergence_status as 'none' | 'potential' | 'confirmed') : 'none';
-        tf.rsiDivergenceCoords = snapshot.rsi_divergence_coords != null
-            ? (typeof snapshot.rsi_divergence_coords === 'string' ? snapshot.rsi_divergence_coords : JSON.stringify(snapshot.rsi_divergence_coords))
-            : null;
-        tf.macdDivergenceCoords = snapshot.macd_divergence_coords != null
-            ? (typeof snapshot.macd_divergence_coords === 'string' ? snapshot.macd_divergence_coords : JSON.stringify(snapshot.macd_divergence_coords))
-            : null;
-
         tf.isCompleted = snapshot.is_completed === true;
 
-        if (snapshot.macd_histogram_peak != null) tf.macdHistPeak = parseFloat(String(snapshot.macd_histogram_peak));
-        if (snapshot.macd_crossover_detected != null) tf.macdCrossoverDetected = !!snapshot.macd_crossover_detected;
-        if (snapshot.macd_crossover_direction != null) tf.macdCrossoverDirection = String(snapshot.macd_crossover_direction) as TimeframeTelemetry['macdCrossoverDirection'];
-        if (snapshot.macd_trend_state != null) tf.macdContractionTriggered = snapshot.macd_trend_state === 'decelerating';
-
-        if (snapshot.adx_regime != null) tf.adxTrendingRegime = String(snapshot.adx_regime) as TimeframeTelemetry['adxTrendingRegime'];
-        if (snapshot.adx_di_crossover_detected != null) tf.adxDiCrossoverDetected = !!snapshot.adx_di_crossover_detected;
-        if (snapshot.adx_di_crossover_direction != null) tf.adxDiCrossoverDirection = String(snapshot.adx_di_crossover_direction) as TimeframeTelemetry['adxDiCrossoverDirection'];
-        if (snapshot.adx_slope != null) tf.adxSlope = parseFloat(String(snapshot.adx_slope));
-        if (snapshot.adx_14 != null) tf.adxExhaustionReached = parseFloat(String(snapshot.adx_14)) > 40;
-
-        if (snapshot.squeeze_duration != null) tf.squeezeDuration = Number(snapshot.squeeze_duration);
-        if (snapshot.squeeze_release_trigger != null) tf.squeezeReleaseTrigger = !!snapshot.squeeze_release_trigger;
-        if (snapshot.squeeze_momentum_direction != null) tf.squeezeMomentumDirection = String(snapshot.squeeze_momentum_direction) as TimeframeTelemetry['squeezeMomentumDirection'];
-
-        if (snapshot.atr_volatility_regime != null) tf.atrVolatilityRegime = String(snapshot.atr_volatility_regime) as TimeframeTelemetry['atrVolatilityRegime'];
-        if (snapshot.rvol != null) tf.rvol = parseFloat(String(snapshot.rvol));
+        // Core (non-indicator) market data.
+        const mid = num(snapshot.mid_price);
+        if (mid != null) tf.priceText = mid.toFixed(2);
+        const vol = num(snapshot.volume);
+        if (vol != null) tf.volText = vol.toFixed(2);
+        const avgVol = num(snapshot.average_volume);
+        if (avgVol != null) tf.avgVolText = avgVol.toFixed(2);
     } catch (_) {}
 }
 

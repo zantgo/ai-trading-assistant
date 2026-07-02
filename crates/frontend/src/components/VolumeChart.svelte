@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { iRaw } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
+    import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -76,7 +79,7 @@
                     const step = tf.barDurationSec || 60;
                     const baseTime = now - (data.prices.length * step);
 
-                    const rvolHistory = data.indicator_history?.rvol ?? [];
+                    const rvolHistory = flattenHistory(data.indicator_history).rvol;
 
                     const rawCombined = source.map((item: any, idx: number) => ({
                         time: hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step)),
@@ -143,8 +146,7 @@
             const close = parseFloat(String(snap.close));
             const open = parseFloat(String(snap.open));
             const vol = parseFloat(String(snap.volume));
-            const rvol = snap.rvol != null ? parseFloat(String(snap.rvol)) : 1.0;
-            tf.rvol = rvol;
+            const rvol = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rvol') ?? 1.0;
 
             const color = volumeColor(rvol, close, open);
             volumeSeries.update({ time: timeSec as Time, value: vol, color });

@@ -263,6 +263,11 @@ async fn test_close_refunds_correct_amount() {
 async fn test_trailing_stop_to_break_even() {
     let pool = setup_paper_db().await;
     seed_balance(&pool, "BTC", 10000.0, 30.0).await;
+    // Break-even trailing is gated OFF by default; enable it for this pair.
+    sqlx::query("UPDATE paper_balances SET break_even_trail_enabled = 1 WHERE symbol = 'BTC'")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let tx = spawn_logger(pool.clone());
 

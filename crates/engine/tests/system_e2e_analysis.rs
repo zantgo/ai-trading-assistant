@@ -133,59 +133,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             close: Some(close),
             volume: Some(dec!(10.0)),
             average_volume: None,
-            rvol: None,
-            bb_upper: None,
-            bb_middle: None,
-            bb_lower: None,
-            atr_14: None,
-            atr_slope: None,
-            atr_volatility_regime: None,
-            atr_stop_loss_level: None,
-            atr_take_profit_level: None,
-            vwap: None,
-            vwap_bias: None,
-            adx_14: None,
-            adx_plus: None,
-            adx_minus: None,
-            ema_fast: None,
-            ema_medium: None,
-            ema_slow: None,
-            ema_long: None,
-            ema_stack_state: None,
-            rsi_14: None,
-            macd_line: None,
-            macd_signal: None,
-            macd_hist: None,
-            squeeze_on: None,
-            squeeze_momentum: None,
-            squeeze_duration: None,
-            squeeze_release_trigger: None,
-            squeeze_momentum_direction: None,
-            bbwp: None,
-            support_levels: None,
-            resistance_levels: None,
-            sr_flip_events: None,
-            fib_golden_pocket_low: None,
-            fib_golden_pocket_high: None,
-            fib_extension_1618: None,
-            fib_extension_2618: None,
-            swing_high: None,
-            swing_low: None,
-            chart_pattern: None,
-            chart_pattern_confidence: None,
-            rsi_divergence_status: None,
-            rsi_divergence_coords: None,
-            macd_divergence_status: None,
-            macd_divergence_coords: None,
-            macd_histogram_peak: None,
-            macd_trend_state: None,
-            macd_crossover_detected: None,
-            macd_crossover_direction: None,
-            adx_slope: None,
-            adx_peak: None,
-            adx_regime: None,
-            adx_di_crossover_detected: None,
-            adx_di_crossover_direction: None,
+            indicators: std::collections::HashMap::new(),
         });
     }
 
@@ -283,16 +231,27 @@ async fn test_e2e_analysis_master_record_created_and_error_when_no_key() {
             "entry_price": "50000.00",
             "historical_prices": (0..100).map(|i| 50000.0 + i as f64 * 10.0).collect::<Vec<f64>>(),
             "indicators": {
-                "rsi": 62.5, "squeeze_on": false, "squeeze_momentum": 0.12,
-                "macd_line": 15.0, "macd_signal": 10.0, "macd_histogram": 5.0,
-                "macd_histogram_trend": "Accelerating",
-                "adx": 28.0, "adx_plus": 30.0, "adx_minus": 18.0,
-                "bb_upper": 51000.0, "bb_middle": 50000.0, "bb_lower": 49000.0,
-                "atr": 250.0, "atr_trend": "Stable", "atr_volatility_regime": "Stable",
-                "current_price": 51000.0, "volume": 150.0, "average_volume": 120.0,
-                "rvol": 1.25, "ema_fast": 50900.0, "ema_medium": 50500.0,
-                "ema_slow": 50000.0, "ema_long": 49500.0,
-                "ema_stack_state": "Bullish", "vwap": 50950.0, "vwap_bias": "Premium"
+                "current_price": 51000.0,
+                "volume": 150.0,
+                "average_volume": 120.0,
+                "indicators": {
+                    "rsi": { "raw_value": 62.5, "normalized": -0.44, "state_label": "BEARISH_PREMIUM" },
+                    "macd": {
+                        "raw_value": 5.0, "normalized": 0.55,
+                        "state_label": "BULLISH_MOMENTUM_EXPANDING",
+                        "values": { "line": 15.0, "signal": 10.0, "histogram": 5.0, "histogram_peak": 8.0 }
+                    },
+                    "ema_stack": {
+                        "raw_value": 51000.0, "normalized": 1.0,
+                        "state_label": "ESTABLISHED_BULLISH_STACK",
+                        "values": { "fast": 50900.0, "medium": 50500.0, "slow": 50000.0, "long": 49500.0 }
+                    },
+                    "adx": {
+                        "raw_value": 28.0, "normalized": 0.6, "state_label": "STRONG_BULL_TREND",
+                        "values": { "adx": 28.0, "plus_di": 30.0, "minus_di": 18.0, "adx_slope": 1.5 }
+                    },
+                    "rvol": { "raw_value": 1.25, "normalized": 0.2, "state_label": "NORMAL_PARTICIPATION_VOLUME" }
+                }
             },
             "symbol": "BTC-USDT"
         });
@@ -367,6 +326,13 @@ async fn test_e2e_history_endpoint_with_populated_data() {
             "Should have at least 50 candles, got {}",
             candles.len()
         );
+
+        // Nested schema: indicator_history carries a map-driven `indicators`
+        // object plus core parameters (symbol, timeframe_secs, times).
+        let ih = &history_resp["indicator_history"];
+        assert!(ih["indicators"].is_object(), "indicator_history.indicators must be an object");
+        assert!(ih["times"].is_array(), "indicator_history.times must be an array");
+        assert_eq!(ih["timeframe_secs"], 60);
     })
     .await
     .expect("E2E history test timed out");

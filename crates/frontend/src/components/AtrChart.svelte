@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { iRaw, atrVolatilityRegime } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
+    import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -71,7 +74,7 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
-                const indicatorHistory = data.indicator_history;
+                const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.atr_14 && indicatorHistory.atr_14.length > 0) {
                     const rawAtrData = indicatorHistory.times.map((t: number, i: number) => {
                         const val = indicatorHistory.atr_14[i];
@@ -157,16 +160,14 @@
         const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.atr_14 != null) {
-            const val = parseFloat(String(snap.atr_14));
+        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const val = iRaw(m, 'atr');
+        if (val != null) {
             atrSeries.update({ time: timeSec as Time, value: val });
             atrVal = val;
 
-            const regime = snap.atr_volatility_regime != null
-                ? String(snap.atr_volatility_regime) as 'expanding' | 'contracting' | 'stable'
-                : 'stable';
+            const regime = atrVolatilityRegime(m);
             atrRegime = regime;
-            tf.atrVolatilityRegime = regime;
 
             const color = regimeColor(regime);
             atrSeries.applyOptions({ color });

@@ -6,7 +6,7 @@
 
     const app = useAppStore();
 
-    let chartContainer: HTMLDivElement;
+    let chartContainer = $state<HTMLDivElement>();
     let chart: IChartApi | null = null;
     let series: ISeriesApi<'Line'> | null = null;
     let isFullscreen = $state(false);
@@ -158,6 +158,7 @@
     onMount(() => {
         buildChart();
         ro = new ResizeObserver(() => {
+            if (!chartContainer) return;
             const w = chartContainer.clientWidth;
             const h = chartContainer.clientHeight;
             if (chart && w > 0 && h > 0) {
@@ -243,7 +244,15 @@
 
 {#if isFullscreen}
     <div class={styles.fullscreenBackdrop} onclick={toggleFullscreen} role="presentation">
-        <div class={styles.fullscreenContent} onclick={(e) => e.stopPropagation()} role="dialog">
+        <div
+            class={styles.fullscreenContent}
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Position performance chart"
+            tabindex="-1"
+        >
             <div class={styles.fullscreenHeader}>
                 <span>Position Performance — {app.activeTab}</span>
                 <button class={styles.closeBtn} onclick={toggleFullscreen}>✕</button>
@@ -253,7 +262,7 @@
     </div>
 {/if}
 
-<div class={styles.perfContainer} ondblclick={toggleFullscreen}>
+<div class={styles.perfContainer} ondblclick={toggleFullscreen} role="presentation">
     <div class={styles.perfHeader}>
         <div class={styles.headerLeft}>
             <span class={styles.perfTitle}>Position Value (USDT)</span>

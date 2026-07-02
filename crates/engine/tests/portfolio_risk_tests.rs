@@ -230,7 +230,7 @@ async fn test_low_correlation_allows_position() {
     // Unless the low-correlation threshold still gets caught (it's variable)
     // We just verify it doesn't panic and the validation runs
     assert!(
-        result.pairwise_correlations.len() >= 1 || result.allowed,
+        !result.pairwise_correlations.is_empty() || result.allowed,
         "Validation should complete without panic"
     );
 }

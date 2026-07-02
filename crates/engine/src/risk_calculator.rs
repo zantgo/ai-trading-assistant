@@ -89,11 +89,7 @@ pub fn compute_risk(input: &RiskCalculationInput) -> Result<RiskCalculation, Str
         position_notional
     };
 
-    let liquidation_distance = if is_long {
-        input.entry_price / (leverage_selected as f64)
-    } else {
-        input.entry_price / (leverage_selected as f64)
-    };
+    let liquidation_distance = input.entry_price / (leverage_selected as f64);
     let liquidation_price = if is_long {
         input.entry_price - liquidation_distance
     } else {

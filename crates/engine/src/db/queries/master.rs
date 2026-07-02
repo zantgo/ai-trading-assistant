@@ -30,7 +30,7 @@ pub async fn insert_master_placeholder(
     .bind("PENDING")
     .bind(symbol)
     .bind(&trigger_str)
-    .execute(&*pool)
+    .execute(pool)
     .await
     {
         Ok(result) => result.last_insert_rowid(),
@@ -65,7 +65,7 @@ pub async fn insert_individual_log_internal(
     .bind(reason)
     .bind(timeframe_secs as i64)
     .bind(now)
-    .execute(&*pool)
+    .execute(pool)
     .await
     {
         eprintln!(
@@ -107,7 +107,7 @@ pub async fn update_master_record_internal(
     .bind(indicator_synthesis_evaluation)
     .bind(recommended_action)
     .bind(recommendation_rationale)
-    .execute(&*pool)
+    .execute(pool)
     .await
     {
         eprintln!(
@@ -123,7 +123,7 @@ pub async fn update_master_record_internal(
         .bind(master_id)
         .bind(points)
         .bind(&signals)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .ok();
     }
@@ -160,7 +160,7 @@ pub async fn query_master_records(pool: &SqlitePool, limit: u32) -> Vec<MasterRe
          LIMIT ?1",
     )
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_else(|e| {
         eprintln!("Database Error: Failed to query master records: {}", e);
@@ -185,7 +185,7 @@ pub async fn query_master_records_by_trigger(
     )
     .bind(trigger_type)
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_else(|e| {
         eprintln!(
@@ -201,7 +201,7 @@ pub async fn query_master_action_by_id(pool: &SqlitePool, master_id: i64) -> Opt
         "SELECT recommended_action FROM master_assistant_records WHERE id = ?1",
     )
     .bind(master_id)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten()

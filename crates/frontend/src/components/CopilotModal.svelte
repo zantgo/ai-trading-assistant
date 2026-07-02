@@ -1,8 +1,10 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './CopilotModal.module.css';
+    import MomentumMeter from './MomentumMeter.svelte';
 
     const app = useAppStore();
+    const copilotMicroInd = $derived(app.instancesMap[app.activeTab]?.microTerm?.indicators ?? {});
     let chatContainer = $state<HTMLDivElement | null>(null);
 
     function closeModal() {
@@ -123,6 +125,13 @@
                             <span class={styles.synthCount}>{pt.indicator_synthesis.summary_count}</span>
                             <p class={styles.synthEval}>{pt.indicator_synthesis.evaluation}</p>
                         </div>
+                    </div>
+
+                    <h3 class={styles.sectionHeading}>Momentum Meters</h3>
+                    <div class={styles.momentumMeters}>
+                        <MomentumMeter label="RSI" normalized={copilotMicroInd['rsi']?.normalized ?? 0} stateLabel={copilotMicroInd['rsi']?.state_label ?? 'UNKNOWN'} />
+                        <MomentumMeter label="MACD" normalized={copilotMicroInd['macd']?.normalized ?? 0} stateLabel={copilotMicroInd['macd']?.state_label ?? 'UNKNOWN'} />
+                        <MomentumMeter label="SQUEEZE" normalized={copilotMicroInd['squeeze']?.normalized ?? 0} stateLabel={copilotMicroInd['squeeze']?.state_label ?? 'UNKNOWN'} />
                     </div>
 
                     <h3 class={styles.sectionHeading}>Phase 1 — Individual Indicator Agents</h3>

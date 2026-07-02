@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { iRaw, isSqueezeOn, squeezeDirection } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
+    import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -82,7 +85,7 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
-                const indicatorHistory = data.indicator_history;
+                const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.squeeze_momentum && indicatorHistory.squeeze_momentum.length > 0) {
                     const rawCombined = indicatorHistory.times.map((t: number, i: number) => {
                         const val = indicatorHistory.squeeze_momentum[i] != null ? parseFloat(indicatorHistory.squeeze_momentum[i]) : 0;
@@ -179,28 +182,15 @@
         const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.squeeze_momentum != null) {
-            const momVal = parseFloat(String(snap.squeeze_momentum));
-            const direction = snap.squeeze_momentum_direction != null
-                ? String(snap.squeeze_momentum_direction) as 'BullishAcceleration' | 'BullishDeceleration' | 'BearishAcceleration' | 'BearishDeceleration' | 'Flat'
-                : 'Flat';
-
+        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const momVal = iRaw(m, 'squeeze');
+        if (momVal != null) {
+            const direction = squeezeDirection(m);
             const momColor = momentumColor(momVal, direction);
-
             squeezeMomSeries.update({ time: timeSec as Time, value: momVal, color: momColor });
-            tf.lastSqzMom = momVal;
 
-            let dotColor = snap.squeeze_on ? '#ef5350' : '#4caf50';
+            const dotColor = isSqueezeOn(m) ? '#ef5350' : '#4caf50';
             squeezeDotSeries.update({ time: timeSec as Time, value: 0.1, color: dotColor });
-
-            // Update state
-            tf.squeezeMomentumDirection = direction;
-        }
-        if (snap.squeeze_duration != null) {
-            tf.squeezeDuration = Number(snap.squeeze_duration);
-        }
-        if (snap.squeeze_release_trigger != null) {
-            tf.squeezeReleaseTrigger = !!snap.squeeze_release_trigger;
         }
     });
 </script>

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './TelemetryTable.module.css';
+    import { iRaw, iSub, fmt, isSqueezeOn } from '../lib/telemetry';
     import type { TimeframeTelemetry } from '../types';
 
     const app = useAppStore();
@@ -10,6 +11,22 @@
     let expandedTfTable = $state<string | null>(null);
 
     const timeframes = ['microTerm', 'fastTerm', 'slowTerm', 'macroTerm'] as const;
+
+    // Table rows: [display label, indicator map key, raw-value accessor].
+    // Semantic state strings now come directly from the backend `state_label`.
+    const ROWS: Array<[string, string, (tf: TimeframeTelemetry) => string]> = [
+        ['PRICE ACT', 'ema_stack', (tf) => tf.priceText],
+        ['VWAP', 'vwap', (tf) => fmt(iSub(tf.indicators, 'vwap', 'vwap') ?? iRaw(tf.indicators, 'vwap'), 2)],
+        ['EMA', 'ema_stack', (tf) => fmt(iSub(tf.indicators, 'ema_stack', 'fast'), 2)],
+        ['VOLUME', 'rvol', (tf) => tf.volText],
+        ['RVOL', 'rvol', (tf) => (iRaw(tf.indicators, 'rvol') ?? 1).toFixed(2)],
+        ['MACD', 'macd', (tf) => fmt(iRaw(tf.indicators, 'macd'), 4)],
+        ['SQUEEZE', 'squeeze', (tf) => (isSqueezeOn(tf.indicators) ? 'ON' : 'OFF')],
+        ['RSI', 'rsi', (tf) => fmt(iRaw(tf.indicators, 'rsi'), 2)],
+        ['ADX', 'adx', (tf) => fmt(iSub(tf.indicators, 'adx', 'adx') ?? iRaw(tf.indicators, 'adx'), 2)],
+        ['BBWP', 'bbwp', (tf) => `${fmt(iRaw(tf.indicators, 'bbwp'), 1)}%`],
+        ['ATR', 'atr', (tf) => fmt(iRaw(tf.indicators, 'atr'), 2)],
+    ];
 
     function formatTfLabel(secs: number): string {
         if (secs >= 86400) return `${secs / 86400}d`;
@@ -25,172 +42,44 @@
         return 'MACRO';
     }
 
-    // --- State Mapping Engine ---
-
-    function getAtrState(tf: TimeframeTelemetry): string {
-        const atr = parseFloat(tf.atrText) || 0;
-        const price = parseFloat(tf.priceText) || 1;
-        if (price > 0 && (atr / price) > 0.05) return 'EXTREME';
-        if (tf.atrVolatilityRegime === 'expanding') return 'EXPANDING';
-        if (tf.atrVolatilityRegime === 'contracting') return 'CONTRACTING';
-        return 'NORMAL';
+    // --- Backend-provided semantic labels ---
+    function stateLabel(tf: TimeframeTelemetry, key: string): string {
+        return tf.indicators?.[key]?.state_label ?? 'UNKNOWN';
+    }
+    function normalized(tf: TimeframeTelemetry, key: string): number {
+        return tf.indicators?.[key]?.normalized ?? 0;
     }
 
-    function getRsiState(tf: TimeframeTelemetry): string {
-        const rsi = parseFloat(tf.rsiText) || 50;
-        if (rsi <= 30) return 'OVERSOLD';
-        if (rsi > 30 && rsi < 45) return 'WEAK_BEARISH';
-        if (rsi >= 45 && rsi <= 55) return 'NEUTRAL';
-        if (rsi > 55 && rsi < 70) return 'WEAK_BULLISH';
-        return 'OVERBOUGHT';
-    }
-
-    function getMacdState(tf: TimeframeTelemetry): string {
-        const line = parseFloat(tf.macdLineText) || 0;
-        const sig = parseFloat(tf.macdSigText) || 0;
-        const hist = parseFloat(tf.macdHistText) || 0;
-        if (hist > 0) {
-            return (line > 0 && sig > 0) ? 'STRONG_BULLISH' : 'BULLISH';
-        } else if (hist < 0) {
-            return (line < 0 && sig < 0) ? 'STRONG_BEARISH' : 'BEARISH';
-        }
-        return 'NEUTRAL';
-    }
-
-    function getSqueezeState(tf: TimeframeTelemetry): string {
-        if (tf.isSqueezeOn) return 'SQUEEZE_ON';
-        const mom = parseFloat(tf.sqzValText) || 0;
-        if (tf.squeezeReleaseTrigger) {
-            return mom >= 0 ? 'SQUEEZE_RELEASING_BULLISH' : 'SQUEEZE_RELEASING_BEARISH';
-        }
-        return mom >= 0 ? 'BULLISH_MOMENTUM' : 'BEARISH_MOMENTUM';
-    }
-
-    function getAdxState(tf: TimeframeTelemetry): string {
-        const adx = parseFloat(tf.adxText) || 0;
-        if (adx < 20) return 'RANGE';
-        if (adx >= 20 && adx < 25) return 'DEVELOPING_TREND';
-        if (adx >= 25 && adx <= 40) return 'STRONG_TREND';
-        return 'VERY_STRONG_TREND';
-    }
-
-    function getBbwpState(tf: TimeframeTelemetry): string {
-        const bbwp = parseFloat(tf.bbwpText) || 50;
-        if (bbwp < 10) return 'VOLATILITY_COMPRESSION';
-        if (bbwp >= 10 && bbwp < 30) return 'LOW_VOLATILITY';
-        if (bbwp >= 30 && bbwp <= 70) return 'NORMAL_VOLATILITY';
-        if (bbwp > 70 && bbwp <= 90) return 'HIGH_VOLATILITY';
-        return 'VOLATILITY_EXPANSION';
-    }
-
-    function getVolumeState(tf: TimeframeTelemetry): string {
-        const rvol = tf.rvol || 1.0;
-        if (rvol < 0.5) return 'VERY_LOW';
-        if (rvol >= 0.5 && rvol < 1.0) return 'LOW';
-        if (rvol >= 1.0 && rvol < 1.5) return 'NORMAL';
-        if (rvol >= 1.5 && rvol < 3.0) return 'HIGH';
-        return 'CLIMACTIC';
-    }
-
-    function getPriceActionState(tf: TimeframeTelemetry): string {
-        if (tf.emaStackState === 'bullish') return 'STRONG_UPTREND';
-        if (tf.emaStackState === 'bearish') return 'STRONG_DOWNTREND';
-        const close = parseFloat(tf.priceText) || 0;
-        const fast = parseFloat(tf.emaFastText) || 0;
-        const med = parseFloat(tf.emaMediumText) || 0;
-        if (fast > med) return 'UPTREND';
-        if (fast < med) return 'DOWNTREND';
-        return 'RANGE';
-    }
-
-    function getEmaState(tf: TimeframeTelemetry): string {
-        if (tf.emaStackState === 'bullish') {
-            const close = parseFloat(tf.priceText) || 0;
-            const long = parseFloat(tf.emaLongText) || 1;
-            return (close > long * 1.02) ? 'STRONG_BULLISH' : 'BULLISH';
-        }
-        if (tf.emaStackState === 'bearish') {
-            const close = parseFloat(tf.priceText) || 0;
-            const long = parseFloat(tf.emaLongText) || 1;
-            return (close < long * 0.98) ? 'STRONG_BEARISH' : 'BEARISH';
-        }
-        return 'NEUTRAL';
-    }
-
-    function getVwapState(tf: TimeframeTelemetry): string {
-        const close = parseFloat(tf.priceText) || 0;
-        const vwap = parseFloat(tf.vwapText) || 0;
-        if (vwap === 0) return 'AT_VWAP';
-        const pct = (close - vwap) / vwap * 100;
-        if (pct > 1.0) return 'FAR_ABOVE_VWAP';
-        if (pct > 0.1) return 'ABOVE_VWAP';
-        if (pct < -1.0) return 'FAR_BELOW_VWAP';
-        if (pct < -0.1) return 'BELOW_VWAP';
-        return 'AT_VWAP';
-    }
-
-    function getRvolState(tf: TimeframeTelemetry): string {
-        const rvol = tf.rvol || 1.0;
-        if (rvol < 0.5) return 'VERY_LOW';
-        if (rvol >= 0.5 && rvol < 1.0) return 'LOW';
-        if (rvol >= 1.0 && rvol < 1.5) return 'NORMAL';
-        if (rvol >= 1.5 && rvol < 3.0) return 'HIGH';
-        return 'EXTREME';
-    }
-
-    // --- High-Level Timeframe Market State Resolver ---
-
-    function getMarketState(tf: TimeframeTelemetry): string {
-        const adxState = getAdxState(tf);
-        const bbwp = parseFloat(tf.bbwpText) || 50;
-        const close = parseFloat(tf.priceText) || 0;
-        const vwap = parseFloat(tf.vwapText) || 0;
-        
-        if (bbwp > 90) {
-            if (close > vwap) return 'VOLATILITY_BREAKOUT';
-            if (close < vwap) return 'VOLATILITY_CRASH';
-        }
-        if (tf.emaStackState === 'bullish') {
-            return (adxState === 'STRONG_TREND' || adxState === 'VERY_STRONG_TREND') ? 'STRONG_BULL_TREND' : 'BULL_TREND';
-        }
-        if (tf.emaStackState === 'bearish') {
-            return (adxState === 'STRONG_TREND' || adxState === 'VERY_STRONG_TREND') ? 'STRONG_BEAR_TREND' : 'BEAR_TREND';
-        }
-        return 'RANGE';
-    }
-
-    // --- State Color Coordination Style Binder ---
-
-    function getStateStyle(state: string): string {
-        const str = state.toUpperCase();
-        if (
-            str.includes('BULL') || 
-            str.includes('EXPANDING') || 
-            str.includes('UPTREND') || 
-            str.includes('HIGH_VOLATILITY') || 
-            str.includes('ABOVE')
-        ) {
-            return 'color: #10b981; font-weight: 700;';
-        }
-        if (
-            str.includes('BEAR') || 
-            str.includes('CONTRACTING') || 
-            str.includes('DOWNTREND') || 
-            str.includes('LOW_VOLATILITY') || 
-            str.includes('BELOW')
-        ) {
-            return 'color: #ef4444; font-weight: 700;';
-        }
-        if (
-            str.includes('EXTREME') || 
-            str.includes('CLIMACTIC') || 
-            str.includes('BREAKOUT') || 
-            str.includes('CRASH') || 
-            str.includes('EXPANSION')
-        ) {
+    // --- Continuous color coordination driven by the normalized float ---
+    function colorForNormalized(n: number): string {
+        const mag = Math.min(Math.abs(n), 1);
+        if (mag >= 0.9) {
+            // Climactic extreme — purple glow.
             return 'color: #a855f7; font-weight: 800;';
         }
+        if (n > 0.1) {
+            const g = Math.round(120 + 135 * mag); // brighter green with conviction
+            return `color: rgb(16, ${g}, 129); font-weight: 700;`;
+        }
+        if (n < -0.1) {
+            const r = Math.round(180 + 59 * mag);
+            return `color: rgb(${r}, 68, 68); font-weight: 700;`;
+        }
         return 'color: #f59e0b; font-weight: 600;';
+    }
+
+    // --- High-level market state (continuous, from ema_stack + adx) ---
+    function getMarketState(tf: TimeframeTelemetry): string {
+        const trend = normalized(tf, 'ema_stack');
+        const adx = normalized(tf, 'adx');
+        const bbwp = tf.indicators?.['bbwp']?.raw_value ?? 50;
+        if (bbwp > 90) return trend >= 0 ? 'VOLATILITY_BREAKOUT' : 'VOLATILITY_CRASH';
+        if (trend > 0.1) return Math.abs(adx) >= 0.5 ? 'STRONG_BULL_TREND' : 'BULL_TREND';
+        if (trend < -0.1) return Math.abs(adx) >= 0.5 ? 'STRONG_BEAR_TREND' : 'BEAR_TREND';
+        return 'RANGE';
+    }
+    function marketStateStyle(tf: TimeframeTelemetry): string {
+        return colorForNormalized(normalized(tf, 'ema_stack'));
     }
 
     function toggleExpandTable(key: string) {
@@ -202,29 +91,23 @@
         const dump: Record<string, unknown> = {
             pair: `${pair.symbol}/USDT`,
             timestamp: new Date().toISOString(),
-            telemetry: {}
+            telemetry: {},
         };
-
         for (const tfKey of timeframes) {
             const tf = (pair as any)[tfKey] as TimeframeTelemetry;
             if (!tf) continue;
-            (dump.telemetry as any)[`${formatTfName(tfKey)} (${formatTfLabel(tf.barDurationSec)})`] = {
+            const entry: Record<string, unknown> = {
                 price: tf.priceText ?? '--',
                 market_state: getMarketState(tf),
-                atr: getAtrState(tf),
-                rsi: getRsiState(tf),
-                macd: getMacdState(tf),
-                squeeze: getSqueezeState(tf),
-                adx: getAdxState(tf),
-                bbwp: getBbwpState(tf),
-                volume: getVolumeState(tf),
-                price_action: getPriceActionState(tf),
-                ema: getEmaState(tf),
-                vwap: getVwapState(tf),
-                rvol: getRvolState(tf)
             };
+            for (const [label, key] of ROWS) {
+                entry[label] = {
+                    normalized: normalized(tf, key),
+                    state_label: stateLabel(tf, key),
+                };
+            }
+            (dump.telemetry as any)[`${formatTfName(tfKey)} (${formatTfLabel(tf.barDurationSec)})`] = entry;
         }
-
         try {
             await navigator.clipboard.writeText(JSON.stringify(dump, null, 2));
             copied = true;
@@ -242,7 +125,7 @@
             {copied ? 'COPIED' : 'EXPORT DATA'}
         </button>
     </div>
-    
+
     <div class={styles.ttGrid}>
         {#each timeframes as tfKey}
             {@const tf = (pair as any)[tfKey] as TimeframeTelemetry}
@@ -251,7 +134,7 @@
                     <div class={styles.tfCardHeader}>
                         <span class={styles.tfCardLabel}>{formatTfName(tfKey)} ({formatTfLabel(tf.barDurationSec)})</span>
                         <div class={styles.headerActions}>
-                            <span class={styles.tfCardMarketState} style={getStateStyle(getMarketState(tf))}>
+                            <span class={styles.tfCardMarketState} style={marketStateStyle(tf)}>
                                 {getMarketState(tf)}
                             </span>
                             <button class={styles.expandBtn} onclick={() => toggleExpandTable(tfKey)} title={expandedTfTable === tfKey ? 'Collapse' : 'Expand'}>
@@ -268,61 +151,15 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td class={styles.colLabel}>PRICE ACT</td>
-                                <td class={styles.colValue}>{tf.priceText}</td>
-                                <td class={styles.colState} style={getStateStyle(getPriceActionState(tf))}>{getPriceActionState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>VWAP</td>
-                                <td class={styles.colValue}>{tf.vwapText}</td>
-                                <td class={styles.colState} style={getStateStyle(getVwapState(tf))}>{getVwapState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>EMA</td>
-                                <td class={styles.colValue}>{tf.emaFastText}</td>
-                                <td class={styles.colState} style={getStateStyle(getEmaState(tf))}>{getEmaState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>VOLUME</td>
-                                <td class={styles.colValue}>{tf.volText}</td>
-                                <td class={styles.colState} style={getStateStyle(getVolumeState(tf))}>{getVolumeState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>RVOL</td>
-                                <td class={styles.colValue}>{tf.rvol ? tf.rvol.toFixed(2) : '1.0'}</td>
-                                <td class={styles.colState} style={getStateStyle(getRvolState(tf))}>{getRvolState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>MACD</td>
-                                <td class={styles.colValue}>{tf.macdHistText}</td>
-                                <td class={styles.colState} style={getStateStyle(getMacdState(tf))}>{getMacdState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>SQUEEZE</td>
-                                <td class={styles.colValue}>{tf.isSqueezeOn ? 'ON' : 'OFF'}</td>
-                                <td class={styles.colState} style={getStateStyle(getSqueezeState(tf))}>{getSqueezeState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>RSI</td>
-                                <td class={styles.colValue}>{tf.rsiText}</td>
-                                <td class={styles.colState} style={getStateStyle(getRsiState(tf))}>{getRsiState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>ADX</td>
-                                <td class={styles.colValue}>{tf.adxText}</td>
-                                <td class={styles.colState} style={getStateStyle(getAdxState(tf))}>{getAdxState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>BBWP</td>
-                                <td class={styles.colValue}>{tf.bbwpText}%</td>
-                                <td class={styles.colState} style={getStateStyle(getBbwpState(tf))}>{getBbwpState(tf)}</td>
-                            </tr>
-                            <tr>
-                                <td class={styles.colLabel}>ATR</td>
-                                <td class={styles.colValue}>{tf.atrText}</td>
-                                <td class={styles.colState} style={getStateStyle(getAtrState(tf))}>{getAtrState(tf)}</td>
-                            </tr>
+                            {#each ROWS as [label, key, rawFn]}
+                                <tr>
+                                    <td class={styles.colLabel}>{label}</td>
+                                    <td class={styles.colValue}>{rawFn(tf)}</td>
+                                    <td class={styles.colState} style={colorForNormalized(normalized(tf, key))}>
+                                        {stateLabel(tf, key)}
+                                    </td>
+                                </tr>
+                            {/each}
                         </tbody>
                     </table>
                 </div>

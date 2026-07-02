@@ -23,77 +23,193 @@ pub struct IndicatorResult {
     pub override_active: bool,
 }
 
+use shared::indicators::normalized::{
+    DivergenceState, NormalizationContext, NormalizationEngine, NormalizedIndicatorValue,
+};
+use std::collections::HashMap;
+
+/// Continuous-scale view of a market snapshot. The nested normalized indicator
+/// map is the single source of truth; convenience getters expose each of the
+/// indicators by string key. `current_price` is retained as non-indicator
+/// context needed for structural distance checks.
 pub struct SnapshotValues {
-    pub rsi: Option<f64>,
-    pub squeeze_on: Option<bool>,
-    pub squeeze_momentum: Option<f64>,
-    pub macd_line: Option<f64>,
-    pub macd_signal: Option<f64>,
-    pub macd_hist: Option<f64>,
-    pub adx: Option<f64>,
-    pub adx_plus: Option<f64>,
-    pub adx_minus: Option<f64>,
-    pub bb_upper: Option<f64>,
-    pub bb_middle: Option<f64>,
-    pub bb_lower: Option<f64>,
-    pub atr: Option<f64>,
-    pub ema_fast: Option<f64>,
-    pub ema_medium: Option<f64>,
-    pub ema_slow: Option<f64>,
-    pub ema_long: Option<f64>,
-    pub ema_stack_state: Option<String>,
-    pub vwap: Option<f64>,
-    pub vwap_bias: Option<String>,
-    pub close: Option<f64>,
-    pub volume: Option<f64>,
-    pub average_volume: Option<f64>,
-    pub rvol: Option<f64>,
+    pub indicators: HashMap<String, NormalizedIndicatorValue>,
     pub current_price: f64,
-    pub rsi_divergence_status: Option<String>,
-    pub macd_divergence_status: Option<String>,
-    pub macd_trend_state: Option<String>,
-    pub macd_crossover_detected: Option<bool>,
-    pub macd_crossover_direction: Option<String>,
-    pub macd_histogram_peak: Option<f64>,
-    pub squeeze_duration: Option<u32>,
-    pub squeeze_release_trigger: Option<bool>,
-    pub squeeze_momentum_direction: Option<String>,
-    pub chart_pattern: Option<String>,
-    pub chart_pattern_confidence: Option<f64>,
-    pub atr_volatility_regime: Option<String>,
-    pub bbwp: Option<f64>,
-    pub adx_slope: Option<f64>,
-    pub adx_regime: Option<String>,
-    pub adx_di_crossover_detected: Option<bool>,
-    pub adx_di_crossover_direction: Option<String>,
 }
 
+impl SnapshotValues {
+    /// Construct from an already-computed normalized indicator map.
+    pub fn from_map(indicators: HashMap<String, NormalizedIndicatorValue>, current_price: f64) -> Self {
+        Self { indicators, current_price }
+    }
+
+    /// Fetch an indicator entry, or a neutral `UNKNOWN` default when missing.
+    pub fn ind(&self, key: &str) -> NormalizedIndicatorValue {
+        self.indicators
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| NormalizedIndicatorValue::scalar(0.0, 0.0, "UNKNOWN"))
+    }
+
+    /// Normalized `[-1.0, 1.0]` score for an indicator (0.0 when missing).
+    pub fn norm(&self, key: &str) -> f64 {
+        self.indicators.get(key).map(|v| v.normalized).unwrap_or(0.0)
+    }
+
+    /// Context-aware state label for an indicator ("UNKNOWN" when missing).
+    pub fn label(&self, key: &str) -> String {
+        self.indicators
+            .get(key)
+            .map(|v| v.state_label.clone())
+            .unwrap_or_else(|| "UNKNOWN".to_string())
+    }
+
+    /// Primary raw scalar for an indicator.
+    pub fn raw(&self, key: &str) -> Option<f64> {
+        self.indicators.get(key).map(|v| v.raw_value)
+    }
+
+    /// Auxiliary raw sub-component (e.g. macd `line`, ema_stack `long`).
+    pub fn sub(&self, key: &str, sub: &str) -> Option<f64> {
+        self.indicators
+            .get(key)
+            .and_then(|v| v.values.as_ref())
+            .and_then(|m| m.get(sub))
+            .copied()
+    }
+}
+
+/// Bridge: build a [`SnapshotValues`] directly from an already-computed
+/// normalized indicator map (e.g. from a `MarketSnapshot`).
 pub fn indicator_to_snapshot_values(
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    current_price: f64,
+) -> SnapshotValues {
+    SnapshotValues::from_map(indicators.clone(), current_price)
+}
+
+/// Map a divergence status string (as carried on the flat server
+/// `IndicatorSnapshot`/`EvaluateRequest`) to a [`DivergenceState`].
+fn parse_divergence(status: Option<&str>) -> DivergenceState {
+    match status {
+        Some("confirmed_bullish") => DivergenceState::ConfirmedBullish,
+        Some("potential_bullish") => DivergenceState::PotentialBullish,
+        Some("confirmed_bearish") => DivergenceState::ConfirmedBearish,
+        Some("potential_bearish") => DivergenceState::PotentialBearish,
+        _ => DivergenceState::None,
+    }
+}
+
+/// Bridge: build a [`SnapshotValues`] from a nested server
+/// [`IndicatorSnapshot`] (which already carries the normalized map).
+pub fn snapshot_values_from_flat(
     snap: &crate::server::types::IndicatorSnapshot,
 ) -> SnapshotValues {
-    SnapshotValues {
-        rsi: snap.rsi, squeeze_on: snap.squeeze_on, squeeze_momentum: snap.squeeze_momentum,
-        squeeze_duration: snap.squeeze_duration, squeeze_release_trigger: snap.squeeze_release_trigger,
-        squeeze_momentum_direction: snap.squeeze_momentum_direction.clone(),
-        chart_pattern: snap.chart_pattern.clone(), chart_pattern_confidence: snap.chart_pattern_confidence,
-        bbwp: snap.bbwp, macd_line: snap.macd_line, macd_signal: snap.macd_signal,
-        macd_hist: snap.macd_histogram, adx: snap.adx, adx_plus: snap.adx_plus,
-        adx_minus: snap.adx_minus, bb_upper: snap.bb_upper, bb_middle: snap.bb_middle,
-        bb_lower: snap.bb_lower, atr: snap.atr,
-        ema_fast: snap.ema_fast, ema_medium: snap.ema_medium, ema_slow: snap.ema_slow,
-        ema_long: snap.ema_long, ema_stack_state: snap.ema_stack_state.clone(),
-        vwap: snap.vwap, vwap_bias: snap.vwap_bias.clone(),
-        close: snap.current_price, volume: snap.volume, average_volume: snap.average_volume,
-        rvol: snap.rvol, current_price: snap.current_price.unwrap_or(0.0),
-        rsi_divergence_status: None, macd_divergence_status: None,
-        macd_trend_state: snap.macd_trend_state.clone(),
-        macd_crossover_detected: snap.macd_crossover_detected,
-        macd_crossover_direction: snap.macd_crossover_direction.clone(),
-        macd_histogram_peak: snap.macd_histogram_peak,
-        atr_volatility_regime: snap.atr_volatility_regime.clone(),
-        adx_slope: None, adx_regime: None,
-        adx_di_crossover_detected: None, adx_di_crossover_direction: None,
+    SnapshotValues::from_map(
+        snap.indicators.clone(),
+        snap.current_price.unwrap_or(0.0),
+    )
+}
+
+/// Bridge: reconstruct a normalized indicator map from the flat
+/// [`EvaluateRequest`] payload (frontend decision-profile evaluator),
+/// preserving divergence, crossover, squeeze direction, and pattern context so
+/// the continuous scoring engine is fully fed.
+pub fn snapshot_values_from_evaluate(
+    req: &crate::server::types::EvaluateRequest,
+) -> SnapshotValues {
+    use shared::indicators::squeeze::MomentumDirection;
+    use shared::indicators::IndicatorInputs;
+
+    let current_price = req.current_price.or(req.close).unwrap_or(0.0);
+
+    let squeeze_direction = match req.squeeze_momentum_direction.as_deref() {
+        Some("BullishAcceleration") => Some(MomentumDirection::BullishAcceleration),
+        Some("BullishDeceleration") => Some(MomentumDirection::BullishDeceleration),
+        Some("BearishAcceleration") => Some(MomentumDirection::BearishAcceleration),
+        Some("BearishDeceleration") => Some(MomentumDirection::BearishDeceleration),
+        _ => Some(MomentumDirection::Flat),
+    };
+    let macd_crossover = if req.macd_crossover_detected.unwrap_or(false) {
+        match req.macd_crossover_direction.as_deref() {
+            Some("BULLISH") => Some(1i8),
+            Some("BEARISH") => Some(-1i8),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let pattern_bullish = matches!(
+        req.chart_pattern.as_deref(),
+        Some("FallingWedge") | Some("BullishTriangle") | Some("AscendingChannel") | Some("BullishPattern")
+    );
+    let pattern_bearish = matches!(
+        req.chart_pattern.as_deref(),
+        Some("RisingWedge") | Some("BearishTriangle") | Some("DescendingChannel") | Some("BearishPattern")
+    );
+
+    let inputs = IndicatorInputs {
+        rsi: req.rsi,
+        rsi_divergence: parse_divergence(req.rsi_divergence_status.as_deref()),
+        macd_divergence: parse_divergence(req.macd_divergence_status.as_deref()),
+        macd_line: req.macd_line,
+        macd_signal: req.macd_signal,
+        macd_histogram: req.macd_hist,
+        macd_histogram_peak: req.macd_histogram_peak,
+        macd_crossover,
+        squeeze_on: req.squeeze_on,
+        squeeze_release_trigger: req.squeeze_release_trigger.unwrap_or(false),
+        squeeze_momentum: req.squeeze_momentum,
+        squeeze_direction,
+        adx: req.adx,
+        adx_plus_di: req.adx_plus,
+        adx_minus_di: req.adx_minus,
+        adx_slope: req.adx_slope,
+        bbwp: req.bbwp,
+        rvol: req.rvol,
+        vwap: req.vwap,
+        pattern_bullish,
+        pattern_bearish,
+        pattern_confidence: req.chart_pattern_confidence,
+        atr_14: req.atr,
+        bb_upper: req.bb_upper,
+        bb_middle: req.bb_middle,
+        bb_lower: req.bb_lower,
+        ..Default::default()
+    };
+
+    let trend_bias = match req.ema_stack_state.as_deref() {
+        Some("bullish") => 1i8,
+        Some("bearish") => -1i8,
+        _ => 0i8,
+    };
+    let ctx = NormalizationContext {
+        trend_bias,
+        price: current_price,
+        vwap: req.vwap,
+        ema_stack_state: req.ema_stack_state.clone(),
+        ema_medium: req.ema_medium,
+        rvol: req.rvol,
+        ..Default::default()
+    };
+
+    let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);
+    if let Some(entry) = map.get_mut("ema_stack") {
+        let mut vals = entry.values.take().unwrap_or_default();
+        for (k, v) in [
+            ("fast", req.ema_fast),
+            ("medium", req.ema_medium),
+            ("slow", req.ema_slow),
+            ("long", req.ema_long),
+        ] {
+            if let Some(val) = v {
+                vals.insert(k.to_string(), val);
+            }
+        }
+        entry.values = Some(vals);
     }
+
+    SnapshotValues::from_map(map, current_price)
 }
 
 pub async fn evaluate_profile(
@@ -162,144 +278,36 @@ pub async fn evaluate_profile(
     }
 }
 
-fn evaluate_indicator_signal(name: &str, snap: &SnapshotValues) -> &'static str {
-    match name {
-        "RSI (Oversold/Overbought)" => {
-            match snap.rsi {
-                Some(r) if r < 30.0 => "BULLISH",
-                Some(r) if r > 70.0 => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "RSI (Divergence)" => {
-            match snap.rsi_divergence_status.as_deref() {
-                Some("confirmed_bullish") | Some("potential_bullish") => "BULLISH",
-                Some("confirmed_bearish") | Some("potential_bearish") => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "MACD (Crossovers)" => {
-            if snap.macd_crossover_detected.unwrap_or(false) {
-                match snap.macd_crossover_direction.as_deref() {
-                    Some("BULLISH") => {
-                        if let Some(line) = snap.macd_line {
-                            if line < 0.0 { "BULLISH" } else { "SIDEWAYS" }
-                        } else { "SIDEWAYS" }
-                    }
-                    Some("BEARISH") => {
-                        if let Some(line) = snap.macd_line {
-                            if line > 0.0 { "BEARISH" } else { "SIDEWAYS" }
-                        } else { "SIDEWAYS" }
-                    }
-                    _ => {
-                        match (snap.macd_line, snap.macd_signal) {
-                            (Some(line), Some(sig)) if line > sig => "BULLISH",
-                            (Some(line), Some(sig)) if line < sig => "BEARISH",
-                            _ => "SIDEWAYS",
-                        }
-                    }
-                }
-            } else {
-                match (snap.macd_line, snap.macd_signal) {
-                    (Some(line), Some(sig)) if line > sig => "BULLISH",
-                    (Some(line), Some(sig)) if line < sig => "BEARISH",
-                    _ => "SIDEWAYS",
-                }
-            }
-        }
-        "MACD (Divergence)" => {
-            match snap.macd_divergence_status.as_deref() {
-                Some("confirmed_bullish") | Some("potential_bullish") => "BULLISH",
-                Some("confirmed_bearish") | Some("potential_bearish") => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "Support/Resistance" => {
-            match (snap.bb_middle, snap.current_price) {
-                (Some(bb), cp) if cp > bb => "BULLISH",
-                (Some(bb), cp) if cp < bb => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "Trend" => {
-            match snap.ema_stack_state.as_deref() {
-                Some("bullish") => "BULLISH",
-                Some("bearish") => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "ATR" => {
-            match snap.atr_volatility_regime.as_deref() {
-                Some("expanding") => "BULLISH",
-                Some("contracting") => "SIDEWAYS",
-                _ => "SIDEWAYS",
-            }
-        }
-        "Patterns" => {
-            if snap.chart_pattern.is_some() && snap.chart_pattern.as_deref() != Some("None") {
-                match snap.chart_pattern.as_deref() {
-                    Some("FallingWedge") | Some("BullishTriangle") | Some("AscendingChannel") => "BULLISH",
-                    Some("RisingWedge") | Some("BearishTriangle") | Some("DescendingChannel") => "BEARISH",
-                    _ => "SIDEWAYS",
-                }
-            } else {
-                match snap.squeeze_momentum_direction.as_deref() {
-                    Some("BullishAcceleration") | Some("BullishDeceleration") => "BULLISH",
-                    Some("BearishAcceleration") | Some("BearishDeceleration") => "BEARISH",
-                    _ => "SIDEWAYS",
-                }
-            }
-        }
-        "ADX" => {
-            match snap.adx_regime.as_deref() {
-                Some("congestion") => "SIDEWAYS",
-                Some("extreme") => "SIDEWAYS",
-                _ => {
-                    if snap.adx_di_crossover_detected.unwrap_or(false) {
-                        match snap.adx_di_crossover_direction.as_deref() {
-                            Some("BULLISH") => "BULLISH",
-                            Some("BEARISH") => "BEARISH",
-                            _ => {
-                                match (snap.adx_plus, snap.adx_minus) {
-                                    (Some(p), Some(m)) if p > m => "BULLISH",
-                                    (Some(p), Some(m)) if m > p => "BEARISH",
-                                    _ => "SIDEWAYS",
-                                }
-                            }
-                        }
-                    } else {
-                        match (snap.adx_plus, snap.adx_minus) {
-                            (Some(p), Some(m)) if p > m => "BULLISH",
-                            (Some(p), Some(m)) if m > p => "BEARISH",
-                            _ => "SIDEWAYS",
-                        }
-                    }
-                }
-            }
-        }
-        "Volume" => {
-            match snap.rvol {
-                Some(r) if r >= 1.5 => "BULLISH",
-                Some(r) if r < 1.0 => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "BBWP" => {
-            match snap.bbwp {
-                Some(b) if b < 10.0 => "BULLISH",
-                Some(b) if b > 90.0 => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        "VWAP" => {
-            match snap.vwap_bias.as_deref() {
-                Some("premium") => "BULLISH",
-                Some("discount") => "BEARISH",
-                _ => "SIDEWAYS",
-            }
-        }
-        _ => "SIDEWAYS",
+/// Classify a continuous normalized value into a directional signal.
+fn sign_signal(norm: f64) -> &'static str {
+    if norm > 0.10 {
+        "BULLISH"
+    } else if norm < -0.10 {
+        "BEARISH"
+    } else {
+        "SIDEWAYS"
     }
+}
+
+fn evaluate_indicator_signal(name: &str, snap: &SnapshotValues) -> &'static str {
+    // Map each decision-profile indicator name to its normalized map key and
+    // classify by sign against the continuous `[-1.0, 1.0]` scale.
+    let key = match name {
+        "RSI (Oversold/Overbought)" => "rsi",
+        "RSI (Divergence)" => "rsi_divergence",
+        "MACD (Crossovers)" => "macd",
+        "MACD (Divergence)" => "macd_divergence",
+        "Support/Resistance" => "support_resistance",
+        "Trend" => "ema_stack",
+        "Patterns" => "patterns",
+        "ADX" => "adx",
+        "Volume" => "rvol",
+        "BBWP" => "bbwp",
+        "VWAP" => "vwap",
+        "ATR" => return "SIDEWAYS", // non-directional volatility gauge
+        _ => return "SIDEWAYS",
+    };
+    sign_signal(snap.norm(key))
 }
 
 // ─── Market Regime Classification ──────────────────────────────────
@@ -324,21 +332,22 @@ impl MarketRegime {
 }
 
 pub fn classify_market_regime(snap: &SnapshotValues) -> MarketRegime {
-    let adx = snap.adx.unwrap_or(0.0);
-    let bbwp = snap.bbwp.unwrap_or(50.0);
-    let squeeze_on = snap.squeeze_on.unwrap_or(false);
+    let adx = snap.raw("adx").unwrap_or(0.0);
+    let bbwp = snap.raw("bbwp").unwrap_or(50.0);
+    let squeeze_label = snap.label("squeeze");
+    let squeeze_on = squeeze_label == "COMPRESSION_COILING";
+    let squeeze_release = squeeze_label.ends_with("VOLATILITY_RELEASE");
+    let tangled = snap.label("ema_stack").contains("TANGLED") || snap.norm("ema_stack").abs() < 0.10;
 
     if bbwp < 10.0 || squeeze_on {
         return MarketRegime::Compression;
     }
 
-    if snap.squeeze_release_trigger.unwrap_or(false)
-        || (bbwp > 90.0 && snap.atr_volatility_regime.as_deref() == Some("expanding"))
-    {
+    if squeeze_release || bbwp > 90.0 {
         return MarketRegime::Expansion;
     }
 
-    if adx >= 25.0 && snap.ema_stack_state.as_deref() != Some("tangled") {
+    if adx >= 25.0 && !tangled {
         return MarketRegime::Trending;
     }
 
@@ -352,20 +361,32 @@ pub struct MtfTrendAlignment {
     pub structural_trend: String,
 }
 
+/// Bucket the EMA-stack normalized value into a coarse trend direction.
+fn ema_bucket(snap: &SnapshotValues) -> i8 {
+    let n = snap.norm("ema_stack");
+    if n > 0.10 {
+        1
+    } else if n < -0.10 {
+        -1
+    } else {
+        0
+    }
+}
+
 pub fn evaluate_mtf_alignment(
     micro: &SnapshotValues,
     fast: &SnapshotValues,
     slow_snap: &SnapshotValues,
     macro_snap: &SnapshotValues,
 ) -> MtfTrendAlignment {
-    let structural_trend = match (macro_snap.ema_long, macro_snap.close) {
-        (Some(ema), Some(close)) if close > ema => "BULLISH".to_string(),
-        (Some(ema), Some(close)) if close < ema => "BEARISH".to_string(),
+    let structural_trend = match (macro_snap.sub("ema_stack", "long"), macro_snap.current_price) {
+        (Some(ema), close) if close > ema => "BULLISH".to_string(),
+        (Some(ema), close) if close < ema => "BEARISH".to_string(),
         _ => "NEUTRAL".to_string(),
     };
 
-    let micro_aligned = micro.ema_stack_state == fast.ema_stack_state;
-    let slow_aligned = fast.ema_stack_state == slow_snap.ema_stack_state;
+    let micro_aligned = ema_bucket(micro) == ema_bucket(fast);
+    let slow_aligned = ema_bucket(fast) == ema_bucket(slow_snap);
 
     MtfTrendAlignment {
         micro_aligned,

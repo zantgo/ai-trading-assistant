@@ -179,84 +179,84 @@ fn build_indicator_context(indicator_name: &str, snap: &IndicatorSnapshot) -> St
     match indicator_name {
         "RSI" => format!(
             r#"{{ "rsi_value": {}, "current_price": {}, "rsi_divergence_status": "{}" }}"#,
-            snap.rsi.map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.rsi().map_or("null".to_string(), |v| format!("{:.2}", v)),
             snap.current_price
                 .map_or("null".to_string(), |v| format!("{:.2}", v)),
-            snap.rsi_divergence_status.as_deref().unwrap_or("none"),
+            snap.rsi_divergence_status().as_deref().unwrap_or("none"),
         ),
         "MACD" => format!(
             r#"{{ "macd_line": {}, "signal_line": {}, "histogram_value": {}, "histogram_trend": "{}", "histogram_peak": {}, "crossover_detected": {}, "crossover_direction": "{}", "macd_divergence_status": "{}" }}"#,
-            snap.macd_line
+            snap.macd_line()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.macd_signal
+            snap.macd_signal()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.macd_histogram
+            snap.macd_histogram()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.macd_trend_state.as_deref().unwrap_or("unknown"),
-            snap.macd_histogram_peak
+            snap.macd_trend_state().as_deref().unwrap_or("unknown"),
+            snap.macd_histogram_peak()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.macd_crossover_detected.unwrap_or(false),
-            snap.macd_crossover_direction.as_deref().unwrap_or("NONE"),
-            snap.macd_divergence_status.as_deref().unwrap_or("none"),
+            snap.macd_crossover_detected().unwrap_or(false),
+            snap.macd_crossover_direction().as_deref().unwrap_or("NONE"),
+            snap.macd_divergence_status().as_deref().unwrap_or("none"),
         ),
         "SQUEEZE" => format!(
             r#"{{ "squeeze_on": {}, "momentum_value": {}, "squeeze_duration": {}, "squeeze_release_trigger": {}, "momentum_direction": "{}" }}"#,
-            snap.squeeze_on
+            snap.squeeze_on()
                 .map_or("null".to_string(), |v| v.to_string()),
-            snap.squeeze_momentum
+            snap.squeeze_momentum()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.squeeze_duration.unwrap_or(0),
-            snap.squeeze_release_trigger.unwrap_or(false),
-            snap.squeeze_momentum_direction.as_deref().unwrap_or("Flat"),
+            snap.squeeze_duration().unwrap_or(0),
+            snap.squeeze_release_trigger().unwrap_or(false),
+            snap.squeeze_momentum_direction().as_deref().unwrap_or("Flat"),
         ),
         "ADX" => format!(
             r#"{{ "adx_line": {}, "di_plus": {}, "di_minus": {}, "adx_slope": {}, "adx_regime": "{}", "di_crossover_detected": {}, "di_crossover_direction": "{}" }}"#,
-            snap.adx.map_or("null".to_string(), |v| format!("{:.2}", v)),
-            snap.adx_plus
+            snap.adx().map_or("null".to_string(), |v| format!("{:.2}", v)),
+            snap.adx_plus()
                 .map_or("null".to_string(), |v| format!("{:.2}", v)),
-            snap.adx_minus
+            snap.adx_minus()
                 .map_or("null".to_string(), |v| format!("{:.2}", v)),
-            snap.adx_slope
+            snap.adx_slope()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.adx_regime.as_deref().unwrap_or("unknown"),
-            snap.adx_di_crossover_detected.unwrap_or(false),
-            snap.adx_di_crossover_direction.as_deref().unwrap_or("NONE"),
+            snap.adx_regime().as_deref().unwrap_or("unknown"),
+            snap.adx_di_crossover_detected().unwrap_or(false),
+            snap.adx_di_crossover_direction().as_deref().unwrap_or("NONE"),
         ),
         "BOLLINGER_ATR" => format!(
             r#"{{ "mid_price": {}, "bb_upper": {}, "bb_middle": {}, "bb_lower": {}, "atr_value": {} }}"#,
             snap.current_price
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.bb_upper
+            snap.bb_upper()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.bb_middle
+            snap.bb_middle()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.bb_lower
+            snap.bb_lower()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.atr.map_or("null".to_string(), |v| format!("{:.4}", v)),
+            snap.atr().map_or("null".to_string(), |v| format!("{:.4}", v)),
         ),
         "VOLUME_EMA" => format!(
             r#"{{ "close": {}, "ema_fast": {}, "ema_slow": {}, "volume": {}, "average_volume": {}, "rvol": {}, "ema_stack_state": "{}" }}"#,
             snap.current_price
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.ema_fast
+            snap.ema_fast()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.ema_slow
+            snap.ema_slow()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.volume
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
             snap.average_volume
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.rvol
+            snap.rvol()
                 .map_or("null".to_string(), |v| format!("{:.2}", v)),
-            snap.ema_stack_state.as_deref().unwrap_or("tangled"),
+            snap.ema_stack_state().as_deref().unwrap_or("tangled"),
         ),
         "VWAP" => format!(
             r#"{{ "close": {}, "vwap": {}, "vwap_bias": "{}" }}"#,
             snap.current_price
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.vwap
+            snap.vwap()
                 .map_or("null".to_string(), |v| format!("{:.4}", v)),
-            snap.vwap_bias.as_deref().unwrap_or("equilibrium"),
+            snap.vwap_bias().as_deref().unwrap_or("equilibrium"),
         ),
         _ => "{}".to_string(),
     }
@@ -286,34 +286,34 @@ pub async fn run_phase_one_agents(
     let rsi_context = format!(
         r#"{{ "rsi_value": {}, "recent_closes": {} }}"#,
         indicators
-            .rsi
+            .rsi()
             .map_or("null".to_string(), |v| format!("{:.2}", v)),
         recent_closes_json,
     );
 
-    let macd_hist_trend = compute_histogram_trend(prices, indicators.macd_histogram);
+    let macd_hist_trend = compute_histogram_trend(prices, indicators.macd_histogram());
     let macd_context = format!(
         r#"{{ "macd_line": {}, "signal_line": {}, "histogram_value": {}, "histogram_trend": "{}" }}"#,
         indicators
-            .macd_line
+            .macd_line()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .macd_signal
+            .macd_signal()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .macd_histogram
+            .macd_histogram()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         macd_hist_trend,
     );
 
-    let mom_trend = compute_squeeze_momentum_trend(indicators.squeeze_momentum);
+    let mom_trend = compute_squeeze_momentum_trend(indicators.squeeze_momentum());
     let squeeze_context = format!(
         r#"{{ "squeeze_on": {}, "momentum_value": {}, "momentum_trend": "{}" }}"#,
         indicators
-            .squeeze_on
+            .squeeze_on()
             .map_or("null".to_string(), |v| v.to_string()),
         indicators
-            .squeeze_momentum
+            .squeeze_momentum()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         mom_trend,
     );
@@ -321,13 +321,13 @@ pub async fn run_phase_one_agents(
     let adx_context = format!(
         r#"{{ "adx_line": {}, "di_plus": {}, "di_minus": {} }}"#,
         indicators
-            .adx
+            .adx()
             .map_or("null".to_string(), |v| format!("{:.2}", v)),
         indicators
-            .adx_plus
+            .adx_plus()
             .map_or("null".to_string(), |v| format!("{:.2}", v)),
         indicators
-            .adx_minus
+            .adx_minus()
             .map_or("null".to_string(), |v| format!("{:.2}", v)),
     );
 
@@ -337,16 +337,16 @@ pub async fn run_phase_one_agents(
             .current_price
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .bb_upper
+            .bb_upper()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .bb_middle
+            .bb_middle()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .bb_lower
+            .bb_lower()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .atr
+            .atr()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         atr_trend,
     );
@@ -357,16 +357,16 @@ pub async fn run_phase_one_agents(
             .current_price
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .ema_fast
+            .ema_fast()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .ema_medium
+            .ema_medium()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .ema_slow
+            .ema_slow()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .ema_long
+            .ema_long()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
             .volume
@@ -375,9 +375,9 @@ pub async fn run_phase_one_agents(
             .average_volume
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .rvol
+            .rvol()
             .map_or("null".to_string(), |v| format!("{:.2}", v)),
-        indicators.ema_stack_state.as_deref().unwrap_or("tangled"),
+        indicators.ema_stack_state().as_deref().unwrap_or("tangled"),
     );
 
     let vwap_context = format!(
@@ -386,9 +386,9 @@ pub async fn run_phase_one_agents(
             .current_price
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
         indicators
-            .vwap
+            .vwap()
             .map_or("null".to_string(), |v| format!("{:.4}", v)),
-        indicators.vwap_bias.as_deref().unwrap_or("equilibrium"),
+        indicators.vwap_bias().as_deref().unwrap_or("equilibrium"),
     );
 
     let agents = vec![
@@ -450,6 +450,40 @@ fn compute_squeeze_momentum_trend(momentum: Option<f64>) -> String {
     }
 }
 
+/// Serialize a single indicator from the snapshot's normalized map into the
+/// compact domain-agent DTO: `{ indicator_name, normalized, state_label, values }`.
+/// Returns `None` when the indicator is absent from the map.
+fn compact_indicator(
+    snap: &IndicatorSnapshot,
+    prefix: &str,
+    key: &str,
+) -> Option<serde_json::Value> {
+    let v = snap.indicators.get(key)?;
+    let name = if prefix.is_empty() {
+        key.to_string()
+    } else {
+        format!("{}-{}", prefix, key)
+    };
+    let mut obj = serde_json::json!({
+        "indicator_name": name,
+        "normalized": v.normalized,
+        "state_label": v.state_label,
+    });
+    if let Some(vals) = &v.values {
+        obj["values"] = serde_json::to_value(vals).unwrap_or(serde_json::json!({}));
+    }
+    Some(obj)
+}
+
+/// Build a compact JSON array of the requested indicators for one agent.
+fn compact_block(snap: &IndicatorSnapshot, prefix: &str, keys: &[&str]) -> String {
+    let arr: Vec<serde_json::Value> = keys
+        .iter()
+        .filter_map(|k| compact_indicator(snap, prefix, k))
+        .collect();
+    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+}
+
 pub async fn run_multi_agent_pipeline(
     client: Arc<LlmClient>,
     pool: SqlitePool,
@@ -465,38 +499,38 @@ pub async fn run_multi_agent_pipeline(
     let prices_json = serde_json::to_string(&prices).unwrap_or_default();
     let pair_key = symbol.to_string();
 
+    // Compact, token-efficient normalized DTO vectors per domain agent.
     let context_trend = format!(
-        r#"{{ "close": {}, "ema_stack_state": "{}", "deterministic_eight_factor_score": {}, "slow_trend_regime": "{}" }}"#,
-        micro.current_price.unwrap_or(0.0),
-        micro.ema_stack_state.as_deref().unwrap_or("tangled"),
+        r#"{{ "confluence_score": {}, "market_regime": "{}", "current_price": {}, "confluence_inputs": {} }}"#,
         telemetry.total_confluence_score,
-        telemetry.market_regime
+        telemetry.market_regime,
+        micro.current_price.unwrap_or(0.0),
+        compact_block(micro, "micro", &["ema_stack", "rsi", "macd", "adx"]),
     );
 
     let context_volatility = format!(
-        r#"{{ "market_regime": "{}", "bbwp": {}, "atr": {}, "squeeze_on": {}, "rvol": {} }}"#,
+        r#"{{ "market_regime": "{}", "confluence_inputs": {} }}"#,
         telemetry.market_regime,
-        telemetry.bbwp_percentile,
-        micro.atr.unwrap_or(0.0),
-        telemetry.squeeze_on,
-        telemetry.rvol
+        compact_block(micro, "micro", &["bbwp", "squeeze", "rvol", "atr"]),
     );
 
     let context_structure = format!(
-        r#"{{ "current_price": {}, "prices": {}, "squeeze_momentum_direction": "{}" }}"#,
+        r#"{{ "current_price": {}, "prices": {}, "confluence_inputs": {} }}"#,
         micro.current_price.unwrap_or(0.0),
         prices_json,
-        micro
-            .squeeze_momentum_direction
-            .as_deref()
-            .unwrap_or("Flat")
+        compact_block(micro, "micro", &["support_resistance", "fibonacci", "vwap", "patterns"]),
     );
 
-    let context_risk = format!(r#"{{ "leverage": 20, "max_risk_pct": 2.0 }}"#);
+    let context_risk = format!(
+        r#"{{ "leverage": 20, "max_risk_pct": 2.0, "confluence_score": {}, "confluence_inputs": {} }}"#,
+        telemetry.total_confluence_score,
+        compact_block(micro, "micro", &["rvol"]),
+    );
 
     let context_position = format!(
-        r#"{{ "current_price": {} }}"#,
-        micro.current_price.unwrap_or(0.0)
+        r#"{{ "current_price": {}, "confluence_inputs": {} }}"#,
+        micro.current_price.unwrap_or(0.0),
+        compact_block(micro, "micro", &["macd", "squeeze", "rsi"]),
     );
 
     let p_key_trend = pair_key.clone();

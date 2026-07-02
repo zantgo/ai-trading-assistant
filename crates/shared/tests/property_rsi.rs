@@ -31,7 +31,7 @@ proptest! {
         for _ in 0..20 {
             if let Some(val) = rsi.update(dec(price)) {
                 let vf = val.to_f64().unwrap_or(0.0);
-                prop_assert!(vf >= 0.0 && vf <= 100.0, "RSI on flatline {}", vf);
+                prop_assert!((0.0..=100.0).contains(&vf), "RSI on flatline {}", vf);
             }
         }
     }
@@ -44,11 +44,11 @@ proptest! {
             // After a spike up, spike down
             if let Some(v1) = rsi.update(dec(high)) {
                 let vf = v1.to_f64().unwrap_or(0.0);
-                prop_assert!(vf >= 0.0 && vf <= 100.0, "RSI spike high {}", vf);
+                prop_assert!((0.0..=100.0).contains(&vf), "RSI spike high {}", vf);
             }
             if let Some(v2) = rsi.update(dec(low)) {
                 let vf = v2.to_f64().unwrap_or(0.0);
-                prop_assert!(vf >= 0.0 && vf <= 100.0, "RSI spike low {}", vf);
+                prop_assert!((0.0..=100.0).contains(&vf), "RSI spike low {}", vf);
             }
         }
     }

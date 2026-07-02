@@ -6,6 +6,7 @@ pub mod divergence;
 pub mod ema;
 pub mod fibonacci;
 pub mod macd;
+pub mod normalized;
 pub mod patterns;
 pub mod rsi;
 pub mod sma;
@@ -23,6 +24,10 @@ pub use divergence::{
 pub use ema::Ema;
 pub use fibonacci::{FibonacciRange, PivotPoint, PivotType, SwingLegType};
 pub use macd::{CrossoverDir, Macd, MacdOutput, TrendState};
+pub use normalized::{
+    DivergenceState, IndicatorInputs, NormalizationContext, NormalizationEngine,
+    NormalizedIndicatorValue,
+};
 pub use patterns::{detect_pattern, ChartPattern, PatternResult};
 pub use rsi::Rsi;
 pub use sma::Sma;

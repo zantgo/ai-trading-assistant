@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -69,7 +70,7 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
-                const indicatorHistory = data.indicator_history;
+                const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.rsi_14 && indicatorHistory.rsi_14.length > 0) {
                     const rawRsiData = indicatorHistory.times.map((t: number, i: number) => {
                         const val = indicatorHistory.rsi_14[i];

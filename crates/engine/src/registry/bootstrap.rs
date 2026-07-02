@@ -111,6 +111,7 @@ pub async fn fetch_and_warm_bootstrap(
         None => Ok(Vec::new()),
     };
 
+    #[allow(clippy::type_complexity)]
     let bootstrap_result: Result<
         (
             Vec<NormalizedCandle>,

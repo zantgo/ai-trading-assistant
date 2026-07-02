@@ -10,34 +10,34 @@ impl CliConsole {
         println!("{}AI Trading Assistant — CLI Commands{}", BOLD, RESET);
         println!();
         println!("{}Instance Management:{}", CYAN, RESET);
-        println!("  {:<30} {}", "add <BASE> <QUOTE>", "Create a new trading instance");
-        println!("  {:<30} {}", "pause <ID>", "Pause instance (keep positions)");
-        println!("  {:<30} {}", "stop <ID>", "Stop instance (close all positions)");
-        println!("  {:<30} {}", "delete <ID>", "Delete instance permanently");
-        println!("  {:<30} {}", "list", "List all instances");
+        println!("  {:<30} Create a new trading instance", "add <BASE> <QUOTE>");
+        println!("  {:<30} Pause instance (keep positions)", "pause <ID>");
+        println!("  {:<30} Stop instance (close all positions)", "stop <ID>");
+        println!("  {:<30} Delete instance permanently", "delete <ID>");
+        println!("  {:<30} List all instances", "list");
         println!();
         println!("{}View & Analysis:{}", CYAN, RESET);
-        println!("  {:<30} {}", "show <ID>", "Detailed instance view");
-        println!("  {:<30} {}", "show <ID> charts", "Indicator summary");
-        println!("  {:<30} {}", "show <ID> dashboard", "Instance metrics");
-        println!("  {:<30} {}", "show <ID> trades", "Trade history");
-        println!("  {:<30} {}", "watch <ID> [tf_secs]", "Real-time price stream (Ctrl+C to stop)");
-        println!("  {:<30} {}", "dashboard", "General dashboard overview");
-        println!("  {:<30} {}", "status", "System heartbeat");
+        println!("  {:<30} Detailed instance view", "show <ID>");
+        println!("  {:<30} Indicator summary", "show <ID> charts");
+        println!("  {:<30} Instance metrics", "show <ID> dashboard");
+        println!("  {:<30} Trade history", "show <ID> trades");
+        println!("  {:<30} Real-time price stream (Ctrl+C to stop)", "watch <ID> [tf_secs]");
+        println!("  {:<30} General dashboard overview", "dashboard");
+        println!("  {:<30} System heartbeat", "status");
         println!();
         println!("{}Trading:{}", CYAN, RESET);
-        println!("  {:<30} {}", "manual open <ID> <LONG|SHORT>", "Manual position open");
-        println!("  {:<30} {}", "manual close <ID>", "Manual position close");
-        println!("  {:<30} {}", "safety <ID>", "Show safety status");
-        println!("  {:<30} {}", "safety reset <ID>", "Reset loss counter");
+        println!("  {:<30} Manual position open", "manual open <ID> <LONG|SHORT>");
+        println!("  {:<30} Manual position close", "manual close <ID>");
+        println!("  {:<30} Show safety status", "safety <ID>");
+        println!("  {:<30} Reset loss counter", "safety reset <ID>");
         println!();
         println!("{}Communication:{}", CYAN, RESET);
-        println!("  {:<30} {}", "chat <ID> <message>", "Chat with AI Director");
-        println!("  {:<30} {}", "config", "View global configuration");
+        println!("  {:<30} Chat with AI Director", "chat <ID> <message>");
+        println!("  {:<30} View global configuration", "config");
         println!();
         println!("{}System:{}", CYAN, RESET);
-        println!("  {:<30} {}", "help", "Show this help");
-        println!("  {:<30} {}", "quit", "Graceful shutdown");
+        println!("  {:<30} Show this help", "help");
+        println!("  {:<30} Graceful shutdown", "quit");
     }
 
     pub(crate) async fn cmd_add(&self, args: &[&str]) {
@@ -179,15 +179,15 @@ impl CliConsole {
             Some(s) => {
                 println!("{}═══ Chart Data: {} ═══{}", BOLD, inst.pair_display(), RESET);
                 println!("  Price:     {}", s.mid_price);
-                println!("  RSI(14):   {}", opt_decimal(&s.rsi_14));
-                println!("  MACD Line: {}", opt_decimal(&s.macd_line));
-                println!("  MACD Sig:  {}", opt_decimal(&s.macd_signal));
-                println!("  ADX(14):   {}", opt_decimal(&s.adx_14));
-                println!("  ATR(14):   {}", opt_decimal(&s.atr_14));
-                println!("  BBWP:      {}", opt_decimal(&s.bbwp));
+                println!("  RSI(14):   {}", opt_decimal(&s.rsi_14()));
+                println!("  MACD Line: {}", opt_decimal(&s.macd_line()));
+                println!("  MACD Sig:  {}", opt_decimal(&s.macd_signal()));
+                println!("  ADX(14):   {}", opt_decimal(&s.adx_14()));
+                println!("  ATR(14):   {}", opt_decimal(&s.atr_14()));
+                println!("  BBWP:      {}", opt_decimal(&s.bbwp()));
                 println!("  Squeeze:   {}  Mom: {}",
-                    if s.squeeze_on.unwrap_or(false) { "ON" } else { "OFF" },
-                    opt_decimal(&s.squeeze_momentum));
+                    if s.squeeze_on().unwrap_or(false) { "ON" } else { "OFF" },
+                    opt_decimal(&s.squeeze_momentum()));
             }
             None => println!("{}No market data yet.{}", YELLOW, RESET),
         }
@@ -207,7 +207,7 @@ impl CliConsole {
         let trades: Vec<(f64, String)> = sqlx::query_as(
             "SELECT realized_pnl, direction FROM trade_telemetry_history WHERE symbol = ?1 ORDER BY exit_timestamp DESC LIMIT 100"
         )
-        .bind(&inst.symbol())
+        .bind(inst.symbol())
         .fetch_all(&self.pool)
         .await
         .unwrap_or_default();
@@ -233,7 +233,7 @@ impl CliConsole {
             "SELECT id, direction, entry_price, exit_price, realized_pnl, trigger_source \
              FROM trade_telemetry_history WHERE symbol = ?1 ORDER BY exit_timestamp DESC LIMIT 20"
         )
-        .bind(&inst.symbol())
+        .bind(inst.symbol())
         .fetch_all(&self.pool)
         .await
         .unwrap_or_default();
@@ -327,7 +327,7 @@ impl CliConsole {
             return;
         }
         let id = args[0];
-        let reset = args.get(1).map(|s| *s) == Some("reset");
+        let reset = args.get(1).copied() == Some("reset");
 
         let instances = self.workspace.instances.read().await;
         let inst = instances.values().find(|i| i.id == id || i.id.starts_with(id)).cloned();
@@ -472,13 +472,13 @@ impl CliConsole {
                 result = rx.recv() => {
                     match result {
                         Ok(snap) => {
-                            let sqz = if snap.squeeze_on.unwrap_or(false) { "ON" } else { "off" };
+                            let sqz = if snap.squeeze_on().unwrap_or(false) { "ON" } else { "off" };
                             print!("\r{:<14} {:<7} {:<12} {:<12} {:<7} {:<7}",
                                 format!("{:.4}", snap.mid_price),
-                                opt_decimal_short(&snap.rsi_14),
-                                opt_decimal_short(&snap.macd_line),
-                                opt_decimal_short(&snap.macd_signal),
-                                opt_decimal_short(&snap.adx_14),
+                                opt_decimal_short(&snap.rsi_14()),
+                                opt_decimal_short(&snap.macd_line()),
+                                opt_decimal_short(&snap.macd_signal()),
+                                opt_decimal_short(&snap.adx_14()),
                                 sqz,
                             );
                         }

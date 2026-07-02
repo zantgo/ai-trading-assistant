@@ -259,6 +259,11 @@ impl DivergenceDetector {
         self.price_history.len()
     }
 
+    /// Whether no price history has been accumulated yet.
+    pub fn is_empty(&self) -> bool {
+        self.price_history.is_empty()
+    }
+
     /// Whether the detector has enough data for analysis
     pub fn is_ready(&self) -> bool {
         self.price_history.len() >= self.lookback

@@ -111,7 +111,7 @@ pub async fn trade_telemetry_insert(
     .bind(realized_pnl)
     .bind(roi_percentage)
     .bind(trigger_source)
-    .execute(&*pool)
+    .execute(pool)
     .await
     {
         Ok(r) => r.last_insert_rowid(),
@@ -149,7 +149,7 @@ pub async fn trade_telemetry_query_all(pool: &SqlitePool, limit: u32) -> Vec<Tra
          ORDER BY id DESC LIMIT ?1",
     )
     .bind(limit as i64)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default();
 
@@ -175,7 +175,7 @@ pub async fn trade_telemetry_query_all(pool: &SqlitePool, limit: u32) -> Vec<Tra
 
 pub async fn trade_telemetry_count(pool: &SqlitePool) -> i64 {
     let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM trade_telemetry_history")
-        .fetch_one(&*pool)
+        .fetch_one(pool)
         .await
         .unwrap_or((0,));
     row.0

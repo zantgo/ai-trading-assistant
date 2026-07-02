@@ -1,3 +1,9 @@
+// DB persistence, orchestrator, and pipeline layers legitimately take many
+// positional parameters (column binds, multi-timeframe context). Refactoring
+// them into parameter structs adds churn without clarity, so the lint is
+// accepted crate-wide.
+#![allow(clippy::too_many_arguments)]
+
 pub mod adapters;
 pub mod analyzer;
 pub mod api_failover;

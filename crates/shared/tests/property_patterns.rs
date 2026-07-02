@@ -162,7 +162,7 @@ proptest! {
         for i in 0..n {
             let price = 50.0 + (i as f64 * 1.7).sin() * 100.0 + (i as f64 * 0.3);
             let idx = i * 2 + (i % 5);
-            let is_high = (i + (price as usize % 3)) % 2 == 0;
+            let is_high = (i + (price as usize % 3)).is_multiple_of(2);
             pivots.push(if is_high {
                 PivotPoint {
                     index: idx,

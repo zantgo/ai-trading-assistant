@@ -332,7 +332,15 @@
 <!-- Detail Modal -->
 {#if showDetailModal}
     <div class={styles.modalBackdrop} onclick={() => showDetailModal = false} role="presentation">
-        <div class={styles.modalContent} onclick={(e) => e.stopPropagation()} role="dialog">
+        <div
+            class={styles.modalContent}
+            onclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Position details"
+            tabindex="-1"
+        >
             <div class={styles.modalHeader}>
                 <h4>Position Details — {app.activeTab} ({app.paperDirection})</h4>
                 <button class={styles.modalClose} onclick={() => showDetailModal = false}>✕</button>

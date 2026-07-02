@@ -122,7 +122,7 @@ pub async fn paper_ensure_balance(pool: &SqlitePool, symbol: &str) -> Result<(),
          VALUES (?1, 0.0, 0.0, 25.0, 0, 2.0, 20, 15, 10, 0)"
     )
     .bind(symbol)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
     Ok(())
 }
@@ -136,7 +136,7 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
          FROM paper_balances WHERE symbol = ?1",
     )
     .bind(symbol)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten();
@@ -183,7 +183,7 @@ pub async fn paper_get_active_position(
          FROM active_positions WHERE symbol = ?1",
     )
     .bind(symbol)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten();
@@ -218,7 +218,7 @@ pub async fn paper_query_trades(
         )
         .bind(sym)
         .bind(limit as i64)
-        .fetch_all(&*pool)
+        .fetch_all(pool)
         .await
     } else {
         sqlx::query(
@@ -226,7 +226,7 @@ pub async fn paper_query_trades(
              FROM paper_trades ORDER BY id DESC LIMIT ?1"
         )
         .bind(limit as i64)
-        .fetch_all(&*pool)
+        .fetch_all(pool)
         .await
     };
 
@@ -296,7 +296,7 @@ pub async fn paper_get_account_metrics(
              FROM position_slots WHERE position_id = ?1 ORDER BY slot_index ASC"
         )
         .bind(pid)
-        .fetch_all(&*pool)
+        .fetch_all(pool)
         .await
         .unwrap_or_default()
     } else {
@@ -326,7 +326,7 @@ pub async fn paper_get_account_metrics(
              FROM open_orders WHERE associated_position_id = ?1 AND is_reduce_only = 1 ORDER BY price ASC"
         )
         .bind(pos.id)
-        .fetch_all(&*pool)
+        .fetch_all(pool)
         .await
         .unwrap_or_default()
     } else {
@@ -366,7 +366,7 @@ pub async fn paper_get_open_orders(pool: &SqlitePool, symbol: &str) -> Vec<OpenO
          FROM open_orders WHERE symbol = ?1 AND associated_position_id IS NULL ORDER BY created_at DESC"
     )
     .bind(symbol)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
@@ -377,7 +377,7 @@ pub async fn paper_get_brackets_for_position(pool: &SqlitePool, position_id: i64
          FROM open_orders WHERE associated_position_id = ?1 AND is_reduce_only = 1 ORDER BY order_type, price ASC"
     )
     .bind(position_id)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
@@ -391,7 +391,7 @@ pub async fn paper_count_brackets_by_type(pool: &SqlitePool, position_id: i64) -
          FROM open_orders WHERE associated_position_id = ?1 AND is_reduce_only = 1"
     )
     .bind(position_id)
-    .fetch_one(&*pool)
+    .fetch_one(pool)
     .await;
     match row {
         Ok(r) => (r.get(0), r.get(1)),
@@ -440,7 +440,7 @@ pub async fn paper_get_active_slots(pool: &SqlitePool, symbol: &str) -> Vec<Posi
          FROM position_slots WHERE symbol = ?1 AND is_active = 1 ORDER BY slot_index ASC"
     )
     .bind(symbol)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
@@ -451,7 +451,7 @@ pub async fn paper_get_active_slot_count(pool: &SqlitePool, symbol: &str) -> i32
         "SELECT COUNT(*) FROM position_slots WHERE symbol = ?1 AND is_active = 1"
     )
     .bind(symbol)
-    .fetch_one(&*pool)
+    .fetch_one(pool)
     .await;
     match row {
         Ok(r) => r.get::<i64, _>(0) as i32,
@@ -467,7 +467,7 @@ pub async fn paper_find_vacant_slot(pool: &SqlitePool, symbol: &str) -> Option<i
         )
         .bind(symbol)
         .bind(idx)
-        .fetch_one(&*pool)
+        .fetch_one(pool)
         .await;
         if let Ok(r) = row {
             if r.get::<i64, _>(0) == 0 {
@@ -484,7 +484,7 @@ pub async fn paper_get_oldest_active_slot(pool: &SqlitePool, symbol: &str) -> Op
          FROM position_slots WHERE symbol = ?1 AND is_active = 1 ORDER BY timestamp ASC LIMIT 1"
     )
     .bind(symbol)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .unwrap_or(None)
 }

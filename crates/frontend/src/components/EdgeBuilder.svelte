@@ -124,7 +124,7 @@
             <span class={styles.sectionLabel}>Saved Strategies:</span>
             {#each edge.savedEdges as saved (saved.id)}
                 <div class={styles.savedItem} class:active={edge.activeEdgeId === saved.id}>
-                    <span class={styles.savedName} onclick={() => handleLoad(saved.id)}>{saved.name}</span>
+                    <button type="button" class={styles.savedName} onclick={() => handleLoad(saved.id)}>{saved.name}</button>
                     <button class={styles.deleteBtn} onclick={() => handleDelete(saved.id)} title="Delete">x</button>
                 </div>
             {/each}
@@ -137,7 +137,7 @@
             <h3>Alpha Matrix & Regime</h3>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Archetype</label>
+                <span class={styles.sectionLabel}>Archetype</span>
                 <div class={styles.segmentedGroup}>
                     <button
                         class={styles.segmentBtn}
@@ -153,7 +153,7 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Regime Gates</label>
+                <span class={styles.sectionLabel}>Regime Gates</span>
                 <div class={styles.regimeGrid}>
                     {#each (['trending', 'compression', 'expansion', 'range'] as const) as regime}
                         <button
@@ -171,9 +171,9 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>
+                <span class={styles.sectionLabel}>
                     Confluence Quorum Threshold: <strong>{edge.draftConfig.quorum_threshold}</strong> pts
-                </label>
+                </span>
                 <input
                     type="range" min="0" max="100" value={edge.draftConfig.quorum_threshold}
                     oninput={(e: Event) => edge.draftConfig.quorum_threshold = parseFloat((e.target as HTMLInputElement).value)}
@@ -184,7 +184,7 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Multi-Timeframe Quorum</label>
+                <span class={styles.sectionLabel}>Multi-Timeframe Quorum</span>
                 <div class={styles.checkboxRow}>
                     {#each ['micro', 'fast', 'slow', 'macro'] as tf}
                         <label>
@@ -200,7 +200,7 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Indicators</label>
+                <span class={styles.sectionLabel}>Indicators</span>
                 <div class={styles.indicatorList}>
                     {#each AVAILABLE_INDICATORS as indInfo}
                         {@const active = edge.draftConfig.indicators.find(i => i.name === indInfo.name)}
@@ -248,7 +248,7 @@
             <h3>Execution & Risk</h3>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Sizing Model</label>
+                <span class={styles.sectionLabel}>Sizing Model</span>
                 <div class={styles.segmentedGroup}>
                     <button
                         class={styles.segmentBtn}
@@ -265,9 +265,9 @@
 
             {#if edge.draftConfig.sizing.model === 'volatility_targeting'}
                 <div class={styles.section}>
-                    <label class={styles.sectionLabel}>
+                    <span class={styles.sectionLabel}>
                         Daily Vol Target: <strong>{edge.draftConfig.sizing.daily_vol_target_pct.toFixed(1)}%</strong>
-                    </label>
+                    </span>
                     <input
                         type="range" min="0.1" max="5.0" step="0.1"
                         value={edge.draftConfig.sizing.daily_vol_target_pct}
@@ -276,9 +276,9 @@
                 </div>
 
                 <div class={styles.section}>
-                    <label class={styles.sectionLabel}>
+                    <span class={styles.sectionLabel}>
                         Max Leverage: <strong>{edge.draftConfig.sizing.max_leverage}x</strong>
-                    </label>
+                    </span>
                     <input
                         type="range" min="1" max="20" step="1"
                         value={edge.draftConfig.sizing.max_leverage}
@@ -288,7 +288,7 @@
             {/if}
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Stop-Loss Model</label>
+                <span class={styles.sectionLabel}>Stop-Loss Model</span>
                 <select
                     value={edge.draftConfig.stop_loss.model}
                     onchange={(e: Event) => edge.draftConfig.stop_loss.model = (e.target as HTMLSelectElement).value as StopLossModel}
@@ -302,9 +302,9 @@
 
             {#if edge.draftConfig.stop_loss.model === 'atr_volatility_stop'}
                 <div class={styles.section}>
-                    <label class={styles.sectionLabel}>
+                    <span class={styles.sectionLabel}>
                         ATR Multiplier: <strong>{edge.draftConfig.stop_loss.atr_multiplier.toFixed(1)}x</strong>
-                    </label>
+                    </span>
                     <input
                         type="range" min="1.0" max="5.0" step="0.1"
                         value={edge.draftConfig.stop_loss.atr_multiplier}
@@ -314,7 +314,7 @@
             {/if}
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Take-Profit (ATR Multipliers)</label>
+                <span class={styles.sectionLabel}>Take-Profit (ATR Multipliers)</span>
                 <div class={styles.tpRow}>
                     <label>TP1 <input type="number" min="0" max="20" step="0.5" value={edge.draftConfig.take_profit.tp1_multiplier} oninput={(e: Event) => edge.draftConfig.take_profit.tp1_multiplier = parseFloat((e.target as HTMLInputElement).value) || 0} class={styles.numInput} /></label>
                     <label>TP2 <input type="number" min="0" max="20" step="0.5" value={edge.draftConfig.take_profit.tp2_multiplier} oninput={(e: Event) => edge.draftConfig.take_profit.tp2_multiplier = parseFloat((e.target as HTMLInputElement).value) || 0} class={styles.numInput} /></label>
@@ -323,19 +323,19 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Execution Gates</label>
+                <span class={styles.sectionLabel}>Execution Gates</span>
                 <div class={styles.gateRow}>
-                    <label>Min RVOL</label>
-                    <input type="number" min="0" max="10" step="0.1" value={edge.draftConfig.execution.min_rvol} oninput={(e: Event) => edge.draftConfig.execution.min_rvol = parseFloat((e.target as HTMLInputElement).value) || 0} class={styles.numInput} />
+                    <label for="eb-min-rvol">Min RVOL</label>
+                    <input type="number" min="0" max="10" step="0.1" id="eb-min-rvol" value={edge.draftConfig.execution.min_rvol} oninput={(e: Event) => edge.draftConfig.execution.min_rvol = parseFloat((e.target as HTMLInputElement).value) || 0} class={styles.numInput} />
                 </div>
                 <div class={styles.gateRow}>
-                    <label>Climax RVOL Block</label>
-                    <input type="number" min="0" max="10" step="0.1" value={edge.draftConfig.execution.climax_rvol} oninput={(e: Event) => edge.draftConfig.execution.climax_rvol = parseFloat((e.target as HTMLInputElement).value) || 0} class={styles.numInput} />
+                    <label for="eb-climax-rvol">Climax RVOL Block</label>
+                    <input type="number" min="0" max="10" step="0.1" id="eb-climax-rvol" value={edge.draftConfig.execution.climax_rvol} oninput={(e: Event) => edge.draftConfig.execution.climax_rvol = parseFloat((e.target as HTMLInputElement).value) || 0} class={styles.numInput} />
                 </div>
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Trigger Phase</label>
+                <span class={styles.sectionLabel}>Trigger Phase</span>
                 <div class={styles.segmentedGroup}>
                     <button class={styles.segmentBtn} class:active={edge.draftConfig.execution.trigger_phase === 'execute_on_trigger'} onclick={() => edge.draftConfig.execution.trigger_phase = 'execute_on_trigger'}>On Trigger</button>
                     <button class={styles.segmentBtn} class:active={edge.draftConfig.execution.trigger_phase === 'execute_on_confirmed_close'} onclick={() => edge.draftConfig.execution.trigger_phase = 'execute_on_confirmed_close'}>Confirmed Close</button>
@@ -343,7 +343,7 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Backtest Depth</label>
+                <span class={styles.sectionLabel}>Backtest Depth</span>
                 <select value={edge.draftConfig.backtest_depth} onchange={(e: Event) => edge.draftConfig.backtest_depth = parseInt((e.target as HTMLSelectElement).value)} class={styles.selectFull}>
                     <option value="1000">1,000 candles</option>
                     <option value="5000">5,000 candles</option>
@@ -358,7 +358,7 @@
             <h3>Strategy Meta</h3>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Strategy Name</label>
+                <span class={styles.sectionLabel}>Strategy Name</span>
                 <input
                     type="text" class={styles.textInput}
                     placeholder="e.g. GP_Reversal_V2"
@@ -368,7 +368,7 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Description</label>
+                <span class={styles.sectionLabel}>Description</span>
                 <textarea
                     class={styles.textArea}
                     placeholder="Design notes, assumptions, constraints..."
@@ -379,7 +379,7 @@
             </div>
 
             <div class={styles.section}>
-                <label class={styles.sectionLabel}>Live JSON Schema</label>
+                <span class={styles.sectionLabel}>Live JSON Schema</span>
                 <pre class={styles.jsonInspector}>{JSON.stringify(edge.draftConfig, null, 2)}</pre>
             </div>
         </div>

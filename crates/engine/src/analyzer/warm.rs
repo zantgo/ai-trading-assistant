@@ -104,13 +104,6 @@ pub fn warm_indicators_for_timeframe(
             None
         };
 
-        let vwap_bias = match (final_vwap, completed.close) {
-            (Some(v), cl) if cl > v * Decimal::new(1001, 3) => Some("premium".to_string()),
-            (Some(v), cl) if cl < v * Decimal::new(999, 3) => Some("discount".to_string()),
-            (Some(_), _) => Some("equilibrium".to_string()),
-            (None, _) => None,
-        };
-
         let final_ema_fast = ema_fast.update(completed.close);
         let final_ema_medium = ema_medium.update(completed.close);
         let final_ema_slow = ema_slow.update(completed.close);
@@ -140,11 +133,13 @@ pub fn warm_indicators_for_timeframe(
         let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
         let final_bbwp = bbwp_indicator.update(completed.close);
 
-        let _div_result = if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
+        let div_result = if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
             divergence_detector.update_full(completed.close, rsi, macd_hist)
         } else {
             shared::indicators::DivergenceResult::default_div()
         };
+        let rsi_divergence = crate::analyzer::normalize::rsi_divergence_state(&div_result);
+        let macd_divergence = crate::analyzer::normalize::macd_divergence_state(&div_result);
 
         volume_history.push_back(completed.volume);
         if volume_history.len() > 20 {
@@ -157,7 +152,7 @@ pub fn warm_indicators_for_timeframe(
             completed,
             symbol,
             timeframe_secs,
-            final_vwap, vwap_bias,
+            final_vwap,
             final_ema_fast, final_ema_medium, final_ema_slow, final_ema_long,
             ema_stack_state,
             final_rsi,
@@ -167,6 +162,8 @@ pub fn warm_indicators_for_timeframe(
             final_bb,
             final_atr.as_ref(),
             final_bbwp,
+            rsi_divergence,
+            macd_divergence,
             &volume_history,
             fib_config,
         );
@@ -218,7 +215,6 @@ fn build_historical_snapshot(
     symbol: &str,
     timeframe_secs: u64,
     final_vwap: Option<Decimal>,
-    vwap_bias: Option<String>,
     final_ema_fast: Decimal,
     final_ema_medium: Decimal,
     final_ema_slow: Decimal,
@@ -231,6 +227,8 @@ fn build_historical_snapshot(
     final_bb: Option<(Decimal, Decimal, Decimal)>,
     final_atr: Option<&shared::indicators::AtrOutput>,
     final_bbwp: Option<Decimal>,
+    rsi_divergence: shared::indicators::DivergenceState,
+    macd_divergence: shared::indicators::DivergenceState,
     volume_history: &VecDeque<Decimal>,
     fib_config: &FibonacciConfig,
 ) -> MarketSnapshot {
@@ -266,6 +264,34 @@ fn build_historical_snapshot(
     );
     let pattern_result = detect_pattern(&pivots);
 
+    let indicators = crate::analyzer::normalize::build_indicator_map(
+        crate::analyzer::normalize::NormalizeParams {
+            close: completed.close,
+            rsi: final_rsi,
+            rsi_divergence,
+            macd_divergence,
+            macd: final_macd,
+            sqz: final_sqz,
+            adx: final_adx,
+            bb: final_bb,
+            atr: final_atr,
+            bbwp: final_bbwp,
+            vwap: final_vwap,
+            ema_stack_state: ema_stack_state.as_deref(),
+            ema_fast: Some(final_ema_fast),
+            ema_medium: Some(final_ema_medium),
+            ema_slow: Some(final_ema_slow),
+            ema_long: Some(final_ema_long),
+            rvol,
+            fib: Some(&fib),
+            pattern: Some(&pattern_result),
+            support_levels: &[],
+            resistance_levels: &[],
+            active_position: None,
+            adx_consecutive_deceleration: false,
+        },
+    );
+
     MarketSnapshot {
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs,
@@ -284,72 +310,6 @@ fn build_historical_snapshot(
         close: Some(completed.close),
         volume: Some(completed.volume),
         average_volume: avg_vol,
-        rvol,
-        bb_upper: final_bb.map(|b| b.0),
-        bb_middle: final_bb.map(|b| b.1),
-        bb_lower: final_bb.map(|b| b.2),
-        atr_14: final_atr.map(|a| a.atr_value),
-        atr_slope: final_atr.map(|a| a.atr_slope),
-        atr_volatility_regime: final_atr.map(|a| format!("{:?}", a.volatility_regime).to_lowercase()),
-        atr_stop_loss_level: None,
-        atr_take_profit_level: None,
-        vwap: final_vwap,
-        vwap_bias,
-        adx_14: final_adx.map(|a| a.adx),
-        adx_plus: final_adx.map(|a| a.plus_di),
-        adx_minus: final_adx.map(|a| a.minus_di),
-        ema_fast: Some(final_ema_fast),
-        ema_medium: Some(final_ema_medium),
-        ema_slow: Some(final_ema_slow),
-        ema_long: Some(final_ema_long),
-        ema_stack_state,
-        rsi_14: final_rsi,
-        macd_line: Some(final_macd.macd_line),
-        macd_signal: Some(final_macd.signal_line),
-        macd_hist: Some(final_macd.histogram),
-        squeeze_on: final_sqz.map(|s| s.squeeze_on),
-        squeeze_momentum: final_sqz.map(|s| s.momentum_value),
-        squeeze_duration: final_sqz.map(|s| s.squeeze_duration),
-        squeeze_release_trigger: final_sqz.map(|s| s.squeeze_release_trigger),
-        squeeze_momentum_direction: final_sqz.map(|s| format!("{:?}", s.momentum_direction)),
-        bbwp: final_bbwp,
-        support_levels: None,
-        resistance_levels: None,
-        sr_flip_events: None,
-        fib_golden_pocket_low: fib.golden_pocket_low,
-        fib_golden_pocket_high: fib.golden_pocket_high,
-        fib_extension_1618: fib.ext_1618,
-        fib_extension_2618: fib.ext_2618,
-        swing_high: fib.swing_high,
-        swing_low: fib.swing_low,
-        chart_pattern: if pattern_result.pattern != shared::indicators::ChartPattern::None {
-            Some(format!("{:?}", pattern_result.pattern))
-        } else {
-            None
-        },
-        chart_pattern_confidence: if pattern_result.confidence > 0.0 {
-            Some(Decimal::from_f64_retain(pattern_result.confidence).unwrap_or(Decimal::ZERO))
-        } else {
-            None
-        },
-        rsi_divergence_status: None,
-        rsi_divergence_coords: None,
-        macd_divergence_status: None,
-        macd_divergence_coords: None,
-        macd_histogram_peak: Some(final_macd.histogram_peak),
-        macd_trend_state: Some(format!("{:?}", final_macd.trend_state).to_lowercase()),
-        macd_crossover_detected: Some(final_macd.crossover.is_some()),
-        macd_crossover_direction: final_macd.crossover.map(|c| match c {
-            shared::indicators::CrossoverDir::Bullish => "BULLISH",
-            shared::indicators::CrossoverDir::Bearish => "BEARISH",
-        }.to_string()),
-        adx_slope: final_adx.map(|a| a.adx_slope),
-        adx_peak: final_adx.map(|a| a.adx_peak),
-        adx_regime: final_adx.map(|a| format!("{:?}", a.trending_regime).to_lowercase()),
-        adx_di_crossover_detected: final_adx.map(|a| a.di_crossover.is_some()),
-        adx_di_crossover_direction: final_adx.and_then(|a| a.di_crossover.map(|c| match c {
-            shared::indicators::DiCrossoverDir::Bullish => "BULLISH",
-            shared::indicators::DiCrossoverDir::Bearish => "BEARISH",
-        }.to_string())),
+        indicators,
     }
 }

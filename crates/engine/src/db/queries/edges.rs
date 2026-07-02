@@ -10,7 +10,7 @@ pub async fn edges_list(pool: &SqlitePool, pair_key: &str) -> Vec<SavedEdge> {
          ORDER BY created_at DESC",
     )
     .bind(pair_key)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default();
 
@@ -44,7 +44,7 @@ pub async fn edges_insert(
     .bind(pair_key)
     .bind(if description.is_empty() { None } else { Some(description) })
     .bind(config_json)
-    .execute(&*pool)
+    .execute(pool)
     .await;
 
     match result {
@@ -62,7 +62,7 @@ pub async fn edges_get(pool: &SqlitePool, id: i64) -> Result<SavedEdgeRow, Strin
          FROM saved_edges WHERE id = ?1",
     )
     .bind(id)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .map_err(|e| format!("Failed to query edge: {}", e))?;
 
@@ -72,7 +72,7 @@ pub async fn edges_get(pool: &SqlitePool, id: i64) -> Result<SavedEdgeRow, Strin
 pub async fn edges_delete(pool: &SqlitePool, id: i64) -> bool {
     let result = sqlx::query("DELETE FROM saved_edges WHERE id = ?1")
         .bind(id)
-        .execute(&*pool)
+        .execute(pool)
         .await;
 
     match result {
@@ -94,7 +94,7 @@ pub async fn edge_analytics_cache_get(
          WHERE edge_id = ?1",
     )
     .bind(edge_id)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten()
@@ -120,7 +120,7 @@ pub async fn edge_analytics_cache_upsert(
     .bind(historical_metrics)
     .bind(monte_carlo_paths)
     .bind(bootstrap_results)
-    .execute(&*pool)
+    .execute(pool)
     .await
     .map_err(|e| format!("Failed to upsert analytics cache: {}", e))?;
 

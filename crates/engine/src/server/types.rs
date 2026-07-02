@@ -1,6 +1,8 @@
 use crate::db::{CompletedTradesBufferRow, DecisionMemoryBufferRow};
 use crate::llm::{ChatMessage, IndividualIndicatorResult};
 use serde::{Deserialize, Serialize};
+use shared::indicators::normalized::NormalizedIndicatorValue;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, Deserialize)]
 pub struct AnalyzeRequest {
@@ -71,52 +73,154 @@ pub struct WsQuery {
     pub timeframe_secs: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[allow(dead_code)]
+/// Nested dual-representation indicator DTO (v2.0). Carries the normalized
+/// indicator map plus non-indicator market context. Legacy flat accessor
+/// methods reconstruct scalar values from the map for existing consumers.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct IndicatorSnapshot {
-    pub rsi: Option<f64>,
-    pub squeeze_on: Option<bool>,
-    pub squeeze_momentum: Option<f64>,
-    pub macd_line: Option<f64>,
-    pub macd_signal: Option<f64>,
-    pub macd_histogram: Option<f64>,
-    pub macd_histogram_trend: Option<String>,
-    pub adx: Option<f64>,
-    pub adx_plus: Option<f64>,
-    pub adx_minus: Option<f64>,
-    pub bb_upper: Option<f64>,
-    pub bb_middle: Option<f64>,
-    pub bb_lower: Option<f64>,
-    pub atr: Option<f64>,
-    pub atr_trend: Option<String>,
-    pub atr_volatility_regime: Option<String>,
+    #[serde(default)]
+    pub indicators: HashMap<String, NormalizedIndicatorValue>,
+    #[serde(default)]
     pub current_price: Option<f64>,
+    #[serde(default)]
     pub volume: Option<f64>,
+    #[serde(default)]
     pub average_volume: Option<f64>,
-    pub rvol: Option<f64>,
-    pub ema_fast: Option<f64>,
-    pub ema_medium: Option<f64>,
-    pub ema_slow: Option<f64>,
-    pub ema_long: Option<f64>,
-    pub ema_stack_state: Option<String>,
-    pub vwap: Option<f64>,
-    pub vwap_bias: Option<String>,
-    pub rsi_divergence_status: Option<String>,
-    pub macd_divergence_status: Option<String>,
-    pub macd_trend_state: Option<String>,
-    pub macd_crossover_detected: Option<bool>,
-    pub macd_crossover_direction: Option<String>,
-    pub macd_histogram_peak: Option<f64>,
-    pub squeeze_duration: Option<u32>,
-    pub squeeze_release_trigger: Option<bool>,
-    pub squeeze_momentum_direction: Option<String>,
-    pub chart_pattern: Option<String>,
-    pub chart_pattern_confidence: Option<f64>,
-    pub bbwp: Option<f64>,
-    pub adx_slope: Option<f64>,
-    pub adx_regime: Option<String>,
-    pub adx_di_crossover_detected: Option<bool>,
-    pub adx_di_crossover_direction: Option<String>,
+}
+
+impl IndicatorSnapshot {
+    pub fn new(indicators: HashMap<String, NormalizedIndicatorValue>, current_price: Option<f64>) -> Self {
+        Self { indicators, current_price, volume: None, average_volume: None }
+    }
+
+    fn raw(&self, k: &str) -> Option<f64> {
+        self.indicators.get(k).map(|v| v.raw_value)
+    }
+    fn sub(&self, k: &str, s: &str) -> Option<f64> {
+        self.indicators
+            .get(k)
+            .and_then(|v| v.values.as_ref())
+            .and_then(|m| m.get(s))
+            .copied()
+    }
+    fn lbl(&self, k: &str) -> Option<&str> {
+        self.indicators.get(k).map(|v| v.state_label.as_str())
+    }
+    fn norm(&self, k: &str) -> Option<f64> {
+        self.indicators.get(k).map(|v| v.normalized)
+    }
+
+    // ── Scalar accessors (flat-equivalent) ──
+    pub fn rsi(&self) -> Option<f64> { self.raw("rsi") }
+    pub fn macd_line(&self) -> Option<f64> { self.sub("macd", "line") }
+    pub fn macd_signal(&self) -> Option<f64> { self.sub("macd", "signal") }
+    pub fn macd_histogram(&self) -> Option<f64> { self.sub("macd", "histogram") }
+    pub fn macd_histogram_peak(&self) -> Option<f64> { self.sub("macd", "histogram_peak") }
+    pub fn adx(&self) -> Option<f64> { self.sub("adx", "adx") }
+    pub fn adx_plus(&self) -> Option<f64> { self.sub("adx", "plus_di") }
+    pub fn adx_minus(&self) -> Option<f64> { self.sub("adx", "minus_di") }
+    pub fn adx_slope(&self) -> Option<f64> { self.sub("adx", "adx_slope") }
+    pub fn atr(&self) -> Option<f64> { self.sub("atr", "atr_14") }
+    pub fn bb_upper(&self) -> Option<f64> { self.sub("bollinger", "upper") }
+    pub fn bb_middle(&self) -> Option<f64> { self.sub("bollinger", "middle") }
+    pub fn bb_lower(&self) -> Option<f64> { self.sub("bollinger", "lower") }
+    pub fn bbwp(&self) -> Option<f64> { self.raw("bbwp") }
+    pub fn rvol(&self) -> Option<f64> { self.raw("rvol") }
+    pub fn vwap(&self) -> Option<f64> { self.sub("vwap", "vwap") }
+    pub fn squeeze_momentum(&self) -> Option<f64> { self.raw("squeeze") }
+    pub fn ema_fast(&self) -> Option<f64> { self.sub("ema_stack", "fast") }
+    pub fn ema_medium(&self) -> Option<f64> { self.sub("ema_stack", "medium") }
+    pub fn ema_slow(&self) -> Option<f64> { self.sub("ema_stack", "slow") }
+    pub fn ema_long(&self) -> Option<f64> { self.sub("ema_stack", "long") }
+    pub fn chart_pattern_confidence(&self) -> Option<f64> { self.raw("patterns") }
+
+    // ── Boolean accessors ──
+    pub fn squeeze_on(&self) -> Option<bool> {
+        self.lbl("squeeze").map(|l| l == "COMPRESSION_COILING")
+    }
+    pub fn squeeze_release_trigger(&self) -> Option<bool> {
+        self.lbl("squeeze").map(|l| l.ends_with("VOLATILITY_RELEASE"))
+    }
+    pub fn macd_crossover_detected(&self) -> Option<bool> {
+        self.lbl("macd").map(|l| l.contains("CROSSOVER"))
+    }
+
+    // ── State-string accessors (legacy vocabulary) ──
+    pub fn ema_stack_state(&self) -> Option<String> {
+        self.lbl("ema_stack").map(|l| {
+            if l.contains("BULLISH") { "bullish".into() }
+            else if l.contains("BEARISH") { "bearish".into() }
+            else { "tangled".into() }
+        })
+    }
+    pub fn vwap_bias(&self) -> Option<String> {
+        self.lbl("vwap").map(|l| {
+            if l.contains("PREMIUM") { "premium".into() }
+            else if l.contains("DISCOUNT") { "discount".into() }
+            else { "equilibrium".into() }
+        })
+    }
+    pub fn adx_regime(&self) -> Option<String> {
+        self.lbl("adx").map(|l| {
+            if l.contains("CONGESTION") { "congestion".into() }
+            else if l.contains("EMERGING") { "emerging".into() }
+            else if l.contains("CLIMACTIC") { "extreme".into() }
+            else if l.contains("STRONG") { "strong".into() }
+            else { "congestion".into() }
+        })
+    }
+    pub fn macd_crossover_direction(&self) -> Option<String> {
+        let v = self.indicators.get("macd")?;
+        if !v.state_label.contains("CROSSOVER") { return None; }
+        Some(if v.normalized >= 0.0 { "BULLISH" } else { "BEARISH" }.to_string())
+    }
+    pub fn macd_trend_state(&self) -> Option<String> {
+        let hist = self.sub("macd", "histogram")?.abs();
+        let peak = self.sub("macd", "histogram_peak")?.abs();
+        Some(if peak > 0.0 && hist < peak { "decelerating".into() } else { "accelerating".into() })
+    }
+    pub fn squeeze_momentum_direction(&self) -> Option<String> {
+        self.indicators.get("squeeze").map(|v| {
+            let l = v.state_label.as_str();
+            if l.contains("BULLISH") && v.normalized >= 0.5 { "BullishAcceleration".into() }
+            else if l.contains("BULLISH") { "BullishDeceleration".into() }
+            else if l.contains("BEARISH") && v.normalized <= -0.5 { "BearishAcceleration".into() }
+            else if l.contains("BEARISH") { "BearishDeceleration".into() }
+            else { "Flat".into() }
+        })
+    }
+    pub fn chart_pattern(&self) -> Option<String> {
+        self.indicators.get("patterns").and_then(|v| {
+            if v.normalized > 0.0 { Some("BullishPattern".to_string()) }
+            else if v.normalized < 0.0 { Some("BearishPattern".to_string()) }
+            else { None }
+        })
+    }
+    pub fn rsi_divergence_status(&self) -> Option<String> {
+        divergence_status(self.lbl("rsi_divergence"))
+    }
+    pub fn macd_divergence_status(&self) -> Option<String> {
+        divergence_status(self.lbl("macd_divergence"))
+    }
+    pub fn norm_of(&self, key: &str) -> f64 { self.norm(key).unwrap_or(0.0) }
+
+    // ── Fields not preserved in the normalized map (return None) ──
+    pub fn squeeze_duration(&self) -> Option<u32> { None }
+    pub fn atr_trend(&self) -> Option<String> { None }
+    pub fn atr_volatility_regime(&self) -> Option<String> { None }
+    pub fn macd_histogram_trend(&self) -> Option<String> { None }
+    pub fn adx_di_crossover_detected(&self) -> Option<bool> { None }
+    pub fn adx_di_crossover_direction(&self) -> Option<String> { None }
+}
+
+fn divergence_status(label: Option<&str>) -> Option<String> {
+    match label {
+        Some("CONFIRMED_BULLISH_DIVERGENCE") => Some("confirmed_bullish".into()),
+        Some("POTENTIAL_BULLISH_DIVERGENCE") => Some("potential_bullish".into()),
+        Some("CONFIRMED_BEARISH_DIVERGENCE") => Some("confirmed_bearish".into()),
+        Some("POTENTIAL_BEARISH_DIVERGENCE") => Some("potential_bearish".into()),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -162,31 +266,61 @@ pub struct HistoryCandle {
     pub volume: String,
 }
 
+/// Parallel time-series arrays for a single indicator (aligned to `times`).
+/// `values` carries multi-line sub-series (e.g. macd line/signal, bollinger
+/// bands, ema ribbon) each aligned to `times`.
+#[derive(Debug, Default, Serialize)]
+pub struct HistoricalIndicatorArrays {
+    pub raw: Vec<Option<f64>>,
+    pub normalized: Vec<Option<f64>>,
+    pub state_label: Vec<Option<String>>,
+    pub values: HashMap<String, Vec<Option<f64>>>,
+}
+
+impl HistoricalIndicatorArrays {
+    /// Initialize with pre-known multi-line sub-keys so `values` sub-series
+    /// stay aligned even when some snapshots omit them.
+    pub fn with_value_keys(value_keys: &BTreeSet<String>) -> Self {
+        let mut values = HashMap::new();
+        for k in value_keys {
+            values.insert(k.clone(), Vec::new());
+        }
+        Self {
+            raw: Vec::new(),
+            normalized: Vec::new(),
+            state_label: Vec::new(),
+            values,
+        }
+    }
+
+    /// Append a present indicator value (raw/normalized/label + each sub-value).
+    pub fn push_value(&mut self, v: &NormalizedIndicatorValue) {
+        self.raw.push(Some(v.raw_value));
+        self.normalized.push(Some(v.normalized));
+        self.state_label.push(Some(v.state_label.clone()));
+        for (k, series) in self.values.iter_mut() {
+            let sv = v.values.as_ref().and_then(|m| m.get(k)).copied();
+            series.push(sv);
+        }
+    }
+
+    /// Append a null (missing) slot, preserving parallel alignment.
+    pub fn push_none(&mut self) {
+        self.raw.push(None);
+        self.normalized.push(None);
+        self.state_label.push(None);
+        for series in self.values.values_mut() {
+            series.push(None);
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct IndicatorHistoryArrays {
     pub symbol: String,
     pub timeframe_secs: u64,
     pub times: Vec<u64>,
-    pub rsi_14: Vec<Option<String>>,
-    pub squeeze_on: Vec<Option<bool>>,
-    pub squeeze_momentum: Vec<Option<String>>,
-    pub macd_line: Vec<Option<String>>,
-    pub macd_signal: Vec<Option<String>>,
-    pub macd_hist: Vec<Option<String>>,
-    pub adx_14: Vec<Option<String>>,
-    pub adx_plus: Vec<Option<String>>,
-    pub adx_minus: Vec<Option<String>>,
-    pub atr_14: Vec<Option<String>>,
-    pub ema_fast: Vec<Option<String>>,
-    pub ema_medium: Vec<Option<String>>,
-    pub ema_slow: Vec<Option<String>>,
-    pub ema_long: Vec<Option<String>>,
-    pub bbwp: Vec<Option<String>>,
-    pub vwap: Vec<Option<String>>,
-    pub bb_upper: Vec<Option<String>>,
-    pub bb_middle: Vec<Option<String>>,
-    pub bb_lower: Vec<Option<String>>,
-    pub rvol: Vec<Option<String>>,
+    pub indicators: HashMap<String, HistoricalIndicatorArrays>,
 }
 
 #[derive(Debug, Serialize)]

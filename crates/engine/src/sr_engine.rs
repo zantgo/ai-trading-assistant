@@ -72,8 +72,8 @@ impl SrRoleTracker {
         // Merge with existing: keep tracked flip state
         for existing in &self.levels {
             let key = (existing.price * 100.0) as i64;
-            if !new_levels.contains_key(&key) {
-                new_levels.insert(key, existing.clone());
+            if let std::collections::hash_map::Entry::Vacant(e) = new_levels.entry(key) {
+                e.insert(existing.clone());
             } else if let Some(entry) = new_levels.get_mut(&key) {
                 entry.last_flip_timestamp = existing.last_flip_timestamp;
                 entry.flip_count = existing.flip_count;

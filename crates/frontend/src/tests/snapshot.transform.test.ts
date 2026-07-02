@@ -1,8 +1,64 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '../state.svelte';
+import { applySnapshotToTimeframe } from '../lib/websocket.svelte';
+import { iRaw, iSub, emaStackState, vwapBias, adxRegime, divStatus, isSqueezeOn } from '../lib/telemetry';
+import type { TimeframeTelemetry } from '../types';
 
-describe('TEST-UI: Snapshot Data Transform', () => {
+/** Wrap a nested snapshot into a JSON-RPC broadcast MessageEvent. */
+function wsEvent(snapshot: Record<string, unknown>): MessageEvent {
+    return {
+        data: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'broadcast.market_snapshot',
+            params: { symbol: 'BTC', timeframe_secs: 60, snapshot },
+        }),
+    } as MessageEvent;
+}
+
+function nestedSnapshot(): Record<string, unknown> {
+    return {
+        symbol: 'BTC',
+        timeframe_secs: 60,
+        is_completed: true,
+        mid_price: '65000.00',
+        volume: 150.0,
+        average_volume: 120.0,
+        indicators: {
+            rsi: { raw_value: 28.5, normalized: 0.75, state_label: 'OVERSOLD_ACCUMULATION' },
+            macd: {
+                raw_value: 5.2,
+                normalized: 0.85,
+                state_label: 'BULLISH_CROSSOVER_ACCELERATING',
+                values: { line: -12.4, signal: -17.6, histogram: 5.2, histogram_peak: 8.0 },
+            },
+            squeeze: { raw_value: 0.12, normalized: 0.65, state_label: 'BULLISH_EXPANSION_ACCELERATING' },
+            ema_stack: {
+                raw_value: 65000,
+                normalized: 1.0,
+                state_label: 'ESTABLISHED_BULLISH_STACK',
+                values: { fast: 64900, medium: 64800, slow: 64500, long: 64000 },
+            },
+            bbwp: { raw_value: 45.0, normalized: 0.5, state_label: 'NORMAL_VOLATILITY_BULL_CYCLE' },
+            rvol: { raw_value: 1.25, normalized: 0.2, state_label: 'NORMAL_PARTICIPATION_VOLUME' },
+            adx: {
+                raw_value: 28.0,
+                normalized: 0.6,
+                state_label: 'STRONG_BULL_TREND',
+                values: { adx: 28.0, plus_di: 30.0, minus_di: 18.0, adx_slope: 1.5 },
+            },
+            vwap: {
+                raw_value: 65010,
+                normalized: 0.0,
+                state_label: 'INTRA_DAY_VALUE_EQUILIBRIUM',
+                values: { vwap: 65010, price: 65000 },
+            },
+            rsi_divergence: { raw_value: 0.5, normalized: 0.5, state_label: 'POTENTIAL_BULLISH_DIVERGENCE' },
+        },
+    };
+}
+
+describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
     let app: ReturnType<typeof useAppStore>;
 
     beforeEach(() => {
@@ -11,173 +67,82 @@ describe('TEST-UI: Snapshot Data Transform', () => {
         app.apiKeyConfigured = true;
     });
 
-    it('should map raw MarketSnapshot JSON to InstanceState fields', () => {
-        const pair = app.instancesMap['BTC-USDT'];
+    it('parses the nested indicators map into the state rune', () => {
+        const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
+        applySnapshotToTimeframe(tf, wsEvent(nestedSnapshot()));
 
-        // Simulate a complete MarketSnapshot from the Rust backend
-        const rawSnapshot: Record<string, unknown> = {
-            exchange: 'Hyperliquid',
-            symbol: 'BTC',
-            timeframe_secs: 60,
-            timestamp: 1718000000,
-            is_completed: true,
-            mid_price: '65000.00',
-            bid_price: '64999.50',
-            ask_price: '65000.50',
-            rsi_14: 62.5,
-            macd_line: 15.0,
-            macd_signal: 10.0,
-            macd_hist: 5.0,
-            macd_histogram_peak: 18.0,
-            macd_trend_state: 'Accelerating',
-            macd_crossover_detected: false,
-            squeeze_on: false,
-            squeeze_momentum: 0.12,
-            squeeze_duration: 0,
-            squeeze_release_trigger: true,
-            squeeze_momentum_direction: 'BullishAcceleration',
-            bbwp: 45.0,
-            ema_fast: 64900.0,
-            ema_medium: 64800.0,
-            ema_slow: 64500.0,
-            ema_long: 64000.0,
-            ema_stack_state: 'Bullish',
-            atr_14: 250.0,
-            atr_slope: 5.0,
-            atr_volatility_regime: 'Stable',
-            adx_14: 28.0,
-            adx_plus: 30.0,
-            adx_minus: 18.0,
-            adx_slope: 1.5,
-            adx_regime: 'Emerging',
-            rsi_divergence_status: 'Potential',
-            rsi_divergence_coords: '[[49500,55,5],[49000,60,10]]',
-            macd_divergence_status: 'None',
-            fib_golden_pocket_low: 49800.0,
-            fib_golden_pocket_high: 49900.0,
-            fib_extension_1618: 52000.0,
-            fib_extension_2618: 54000.0,
-            chart_pattern: 'BullishTriangle',
-            chart_pattern_confidence: 35.0,
-            open: 64800.0,
-            high: 65200.0,
-            low: 64750.0,
-            close: 65000.0,
-            volume: 150.0,
-            vwap: 65010.0,
-            vwap_bias: 'Equilibrium',
-            average_volume: 120.0,
-            rvol: 1.25,
-        };
-
-        pair.microTerm.latestSnapshot = rawSnapshot;
-
-        const snap = pair.microTerm.latestSnapshot!;
-        expect(snap.mid_price).toBe('65000.00');
-        expect(snap.exchange).toBe('Hyperliquid');
-        expect(snap.symbol).toBe('BTC');
-        expect(snap.rsi_14).toBe(62.5);
-        expect(snap.macd_line).toBe(15.0);
-        expect(snap.macd_signal).toBe(10.0);
-        expect(snap.macd_hist).toBe(5.0);
-        expect(snap.squeeze_on).toBe(false);
-        expect(snap.squeeze_momentum).toBe(0.12);
-        expect(snap.bbwp).toBe(45.0);
-        expect(snap.ema_fast).toBe(64900.0);
-        expect(snap.atr_14).toBe(250.0);
-        expect(snap.adx_14).toBe(28.0);
-        expect(snap.fib_golden_pocket_low).toBe(49800.0);
-        expect(snap.fib_extension_1618).toBe(52000.0);
-        expect(snap.chart_pattern).toBe('BullishTriangle');
-        expect(snap.chart_pattern_confidence).toBe(35.0);
-        expect(snap.is_completed).toBe(true);
+        // Nested map is the source of truth.
+        expect(tf.indicators['rsi'].normalized).toBe(0.75);
+        expect(tf.indicators['rsi'].state_label).toBe('OVERSOLD_ACCUMULATION');
+        expect(tf.indicators['macd'].state_label).toBe('BULLISH_CROSSOVER_ACCELERATING');
+        expect(tf.indicators['macd'].values!.line).toBe(-12.4);
+        expect(tf.isCompleted).toBe(true);
     });
 
-    it('should handle null optional fields with sentinel defaults', () => {
-        const pair = app.instancesMap['BTC-USDT'];
+    it('exposes indicator values via the shared telemetry accessors', () => {
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        applySnapshotToTimeframe(tf, wsEvent(nestedSnapshot()));
 
-        // Snapshot with minimal fields and null Option values
-        const sparseSnapshot: Record<string, unknown> = {
-            exchange: 'Hyperliquid',
-            symbol: 'BTC',
-            timeframe_secs: 60,
-            timestamp: 1000000,
-            is_completed: false,
-            mid_price: '30000.00',
-            bid_price: '29999.50',
-            ask_price: '30000.50',
-            // All optional fields omitted or null
-        };
+        // Core (non-indicator) market data stays as flat text.
+        expect(tf.priceText).toBe('65000.00');
 
-        pair.microTerm.latestSnapshot = sparseSnapshot;
-
-        // Core fields should be present
-        const snap = pair.microTerm.latestSnapshot!;
-        expect(snap.mid_price).toBe('30000.00');
-        expect(snap.is_completed).toBe(false);
-
-        // Optional fields should be null/undefined when not present
-        expect(snap.rsi_14).toBeUndefined();
-        expect(snap.macd_line).toBeUndefined();
-        expect(snap.squeeze_on).toBeUndefined();
-        expect(snap.bbwp).toBeUndefined();
+        // All indicator-derived values come from the nested map (single source
+        // of truth) — no legacy flat fields remain on TimeframeTelemetry.
+        const m = tf.indicators;
+        expect(iRaw(m, 'rsi')).toBe(28.5);
+        expect(iSub(m, 'macd', 'line')).toBe(-12.4);
+        expect(emaStackState(m)).toBe('bullish');
+        expect(iSub(m, 'ema_stack', 'fast')).toBe(64900);
+        expect(vwapBias(m)).toBe('equilibrium');
+        expect(adxRegime(m)).toBe('strong');
+        expect(divStatus(m, 'rsi_divergence')).toBe('potential');
+        expect(isSqueezeOn(m)).toBe(false);
+        expect(iRaw(m, 'rvol')).toBe(1.25);
     });
 
-    it('should distinguish completed candle from live shadow tick', () => {
-        const pair = app.instancesMap['BTC-USDT'];
-
-        // Completed candle
-        pair.microTerm.latestSnapshot = {
-            exchange: 'Hyperliquid',
-            symbol: 'BTC',
-            is_completed: true,
-            mid_price: '50000.00',
-            rsi_14: 65.0,
-            squeeze_on: false,
-        };
-        expect(pair.microTerm.latestSnapshot!.is_completed).toBe(true);
-
-        // Live/shadow tick (incomplete candle)
-        pair.microTerm.latestSnapshot = {
-            exchange: 'Hyperliquid',
-            symbol: 'BTC',
-            is_completed: false,
-            mid_price: '50100.00',
-            rsi_14: 66.0,
-            squeeze_on: true,
-        };
-        expect(pair.microTerm.latestSnapshot!.is_completed).toBe(false);
-        // Both states are recorded but is_completed flag distinguishes them
-        expect(pair.microTerm.latestSnapshot!.mid_price).toBe('50100.00');
+    it('renders the backend state_label verbatim (no client re-derivation)', () => {
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        applySnapshotToTimeframe(tf, wsEvent(nestedSnapshot()));
+        // The TelemetryTable binds directly to these labels.
+        expect(tf.indicators['squeeze'].state_label).toBe('BULLISH_EXPANSION_ACCELERATING');
+        expect(tf.indicators['bbwp'].state_label).toBe('NORMAL_VOLATILITY_BULL_CYCLE');
+        expect(tf.indicators['rvol'].state_label).toBe('NORMAL_PARTICIPATION_VOLUME');
     });
 
-    it('should handle multi-pair snapshot routing by exchange key', () => {
+    it('falls back to safe sentinels when indicators are absent', () => {
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        applySnapshotToTimeframe(
+            tf,
+            wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '30000.00' }),
+        );
+        expect(tf.indicators).toEqual({});
+        expect(tf.priceText).toBe('30000.00');
+        expect(tf.isCompleted).toBe(false);
+        // Accessing a missing indicator is safe via optional chaining.
+        expect(tf.indicators['rsi']?.state_label ?? 'UNKNOWN').toBe('UNKNOWN');
+        expect(tf.indicators['rsi']?.normalized ?? 0).toBe(0);
+    });
+
+    it('routes nested snapshots independently per pair', () => {
         app.initInstance('ETH');
+        const btc = app.instancesMap['BTC-USDT'].microTerm;
+        const eth = app.instancesMap['ETH-USDT'].microTerm;
 
-        const btcData = {
-            exchange: 'Hyperliquid',
-            symbol: 'BTC',
-            mid_price: '65000.00',
-            rsi_14: 62.0,
-            is_completed: true,
-        };
+        applySnapshotToTimeframe(btc, wsEvent(nestedSnapshot()));
+        applySnapshotToTimeframe(
+            eth,
+            wsEvent({
+                symbol: 'ETH',
+                is_completed: true,
+                mid_price: '3200.00',
+                indicators: {
+                    rsi: { raw_value: 72.0, normalized: -0.75, state_label: 'OVERBOUGHT_DISTRIBUTION' },
+                },
+            }),
+        );
 
-        const ethData = {
-            exchange: 'Hyperliquid',
-            symbol: 'ETH',
-            mid_price: '3200.00',
-            rsi_14: 48.0,
-            is_completed: true,
-        };
-
-        app.instancesMap['BTC-USDT'].microTerm.latestSnapshot = btcData;
-        app.instancesMap['ETH-USDT'].microTerm.latestSnapshot = ethData;
-
-        // Each pair independently stores its own snapshot
-        expect(app.instancesMap['BTC-USDT'].microTerm.latestSnapshot!.symbol).toBe('BTC');
-        expect(app.instancesMap['BTC-USDT'].microTerm.latestSnapshot!.mid_price).toBe('65000.00');
-
-        expect(app.instancesMap['ETH-USDT'].microTerm.latestSnapshot!.symbol).toBe('ETH');
-        expect(app.instancesMap['ETH-USDT'].microTerm.latestSnapshot!.mid_price).toBe('3200.00');
+        expect(btc.indicators['rsi'].state_label).toBe('OVERSOLD_ACCUMULATION');
+        expect(eth.indicators['rsi'].state_label).toBe('OVERBOUGHT_DISTRIBUTION');
+        expect(eth.priceText).toBe('3200.00');
     });
 });

@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { iRaw, iSub, adxRegime } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
+    import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
@@ -95,7 +98,7 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
-                const indicatorHistory = data.indicator_history;
+                const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.adx_14 && indicatorHistory.adx_14.length > 0) {
                     const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
                         time: t as Time,
@@ -188,29 +191,21 @@
         const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.adx_14 != null) {
-            const adxVal = parseFloat(String(snap.adx_14));
-            const slope = snap.adx_slope != null ? parseFloat(String(snap.adx_slope)) : 0;
-            const regime = snap.adx_regime != null ? String(snap.adx_regime) as 'congestion' | 'emerging' | 'strong' | 'extreme' : 'congestion';
+        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const adxVal = iSub(m, 'adx', 'adx') ?? iRaw(m, 'adx');
+        if (adxVal != null) {
+            const slope = iSub(m, 'adx', 'adx_slope') ?? 0;
+            const regime = adxRegime(m);
+            const plus = iSub(m, 'adx', 'plus_di');
+            const minus = iSub(m, 'adx', 'minus_di');
 
             adxSeries.update({ time: timeSec as Time, value: adxVal });
-            if (snap.adx_plus !== undefined && snap.adx_plus !== null) adxPlusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_plus)) });
-            if (snap.adx_minus !== undefined && snap.adx_minus !== null) adxMinusSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.adx_minus)) });
+            if (plus != null) adxPlusSeries.update({ time: timeSec as Time, value: plus });
+            if (minus != null) adxMinusSeries.update({ time: timeSec as Time, value: minus });
 
             // Dynamic ADX line coloring
             const color = adxLineColor(adxVal, slope, regime);
             adxSeries.applyOptions({ color });
-
-            // Update state
-            tf.adxSlope = slope;
-            tf.adxTrendingRegime = regime;
-            tf.adxExhaustionReached = adxVal > 40;
-        }
-        if (snap.adx_di_crossover_detected != null) {
-            tf.adxDiCrossoverDetected = !!snap.adx_di_crossover_detected;
-        }
-        if (snap.adx_di_crossover_direction != null) {
-            tf.adxDiCrossoverDirection = String(snap.adx_di_crossover_direction) as 'BULLISH' | 'BEARISH' | 'NONE';
         }
     });
 </script>

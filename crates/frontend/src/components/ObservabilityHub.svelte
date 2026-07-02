@@ -1,10 +1,17 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './ObservabilityHub.module.css';
+    import { iRaw, emaStackState, atrVolatilityRegime } from '../lib/telemetry';
     const app = useAppStore();
 
     const pairKey = $derived(app.activeTab);
     const pair = $derived(app.instancesMap[pairKey]);
+    const microMap = $derived(pair?.microTerm?.indicators ?? {});
+    const atrRegime = $derived(atrVolatilityRegime(microMap));
+    const emaStack = $derived(emaStackState(microMap));
+    const bbwpVal = $derived(iRaw(microMap, 'bbwp'));
+    const bbwpText = $derived(bbwpVal == null ? '--' : bbwpVal.toFixed(1));
+    const rvolVal = $derived(iRaw(microMap, 'rvol'));
 
     let interval: ReturnType<typeof setInterval> | undefined;
 
@@ -71,13 +78,13 @@
         </div>
 
         <!-- Middle Row: Market Regime Classification -->
-        <div class="{styles.regimeBanner} {pair.microTerm.atrVolatilityRegime === 'expanding' ? styles.regimeTrending : pair.microTerm.atrVolatilityRegime === 'contracting' ? styles.regimeCompression : styles.regimeStable}">
+        <div class="{styles.regimeBanner} {atrRegime === 'expanding' ? styles.regimeTrending : atrRegime === 'contracting' ? styles.regimeCompression : styles.regimeStable}">
             <div class={styles.regimeTitle}>
-                ACTIVE VOLATILITY REGIME: {pair.microTerm.atrVolatilityRegime?.toUpperCase() || 'STABLE'}
+                ACTIVE VOLATILITY REGIME: {atrRegime.toUpperCase()}
             </div>
             <div class={styles.regimeMetrics + ' font-mono'}>
-                <span>BBWP Percentile: {pair.microTerm.bbwpText || '--'}%</span>
-                <span>Relative Volume (RVOL): {pair.microTerm.rvol ? pair.microTerm.rvol.toFixed(2) : '--'}</span>
+                <span>BBWP Percentile: {bbwpText}%</span>
+                <span>Relative Volume (RVOL): {rvolVal != null ? rvolVal.toFixed(2) : '--'}</span>
             </div>
         </div>
 
@@ -86,26 +93,26 @@
             <h3 class={styles.cardTitle}>Parallel Agent Matrix</h3>
             <div class={styles.agentGrid}>
                 <!-- Trend Agent -->
-                <div class="{styles.agentNode} {pair.microTerm.emaStackState !== 'tangled' ? styles.complete : ''}">
+                <div class="{styles.agentNode} {emaStack !== 'tangled' ? styles.complete : ''}">
                     <div class={styles.agentNodeHeader}>
                         <span class={styles.agentNodeName}>TREND AGENT</span>
-                        <span class={styles.agentNodeStatus}>{pair.microTerm.emaStackState?.toUpperCase() || 'OFF'}</span>
+                        <span class={styles.agentNodeStatus}>{emaStack.toUpperCase()}</span>
                     </div>
                     <p class={styles.agentNodeThought}>
-                        Evaluating trend fanning order. Stacking order is: {pair.microTerm.emaStackState?.toUpperCase() || 'Tangled'}.
+                        Evaluating trend fanning order. Stacking order is: {emaStack.toUpperCase()}.
                         Price relative to long EMA: {pair.microTerm.priceText}.
                     </p>
                 </div>
 
                 <!-- Volatility Agent -->
-                <div class="{styles.agentNode} {pair.microTerm.bbwpText !== '--' ? styles.complete : ''}">
+                <div class="{styles.agentNode} {bbwpText !== '--' ? styles.complete : ''}">
                     <div class={styles.agentNodeHeader}>
                         <span class={styles.agentNodeName}>VOLATILITY AGENT</span>
-                        <span class={styles.agentNodeStatus}>{pair.microTerm.atrVolatilityRegime?.toUpperCase() || 'STABLE'}</span>
+                        <span class={styles.agentNodeStatus}>{atrRegime.toUpperCase()}</span>
                     </div>
                     <p class={styles.agentNodeThought}>
                         Monitoring Bollinger Band compression limits and ATR average true range lines.
-                        BBWP Percentile currently evaluating at {pair.microTerm.bbwpText || '--'}%.
+                        BBWP Percentile currently evaluating at {bbwpText}%.
                     </p>
                 </div>
 

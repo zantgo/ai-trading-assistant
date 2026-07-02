@@ -31,7 +31,7 @@ pub async fn decision_profiles_list(pool: &SqlitePool) -> Vec<DecisionProfile> {
     let rows: Vec<DecisionProfileRow> = sqlx::query_as(
         "SELECT id, profile_name, long_threshold, short_threshold FROM decision_profiles ORDER BY id ASC",
     )
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default();
 
@@ -58,7 +58,7 @@ async fn get_profile_indicators_internal(
          FROM profile_indicators WHERE profile_id = ?1 ORDER BY id ASC",
     )
     .bind(profile_id)
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
@@ -73,7 +73,7 @@ pub async fn decision_profile_insert(
         "INSERT INTO decision_profiles (profile_name, long_threshold, short_threshold) VALUES (?1, ?2, ?3)"
     )
     .bind(profile_name).bind(long_threshold).bind(short_threshold)
-    .execute(&*pool).await
+    .execute(pool).await
     {
         Ok(r) => r.last_insert_rowid(),
         Err(e) => { eprintln!("DB: Failed to insert decision profile: {}", e); 0 }
@@ -91,7 +91,7 @@ pub async fn decision_profile_update(
         "UPDATE decision_profiles SET profile_name = ?2, long_threshold = ?3, short_threshold = ?4 WHERE id = ?1"
     )
     .bind(id).bind(profile_name).bind(long_threshold).bind(short_threshold)
-    .execute(&*pool).await
+    .execute(pool).await
     .map(|r| r.rows_affected() > 0)
     .unwrap_or(false)
 }
@@ -99,12 +99,12 @@ pub async fn decision_profile_update(
 pub async fn decision_profile_delete(pool: &SqlitePool, id: i64) -> bool {
     sqlx::query("DELETE FROM profile_indicators WHERE profile_id = ?1")
         .bind(id)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .ok();
     sqlx::query("DELETE FROM decision_profiles WHERE id = ?1")
         .bind(id)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .map(|r| r.rows_affected() > 0)
         .unwrap_or(false)
@@ -121,7 +121,7 @@ pub async fn profile_indicator_insert(
         "INSERT INTO profile_indicators (profile_id, indicator_name, weight, override_status) VALUES (?1, ?2, ?3, ?4)"
     )
     .bind(profile_id).bind(indicator_name).bind(weight).bind(override_status)
-    .execute(&*pool).await
+    .execute(pool).await
     {
         Ok(r) => r.last_insert_rowid(),
         Err(e) => { eprintln!("DB: Failed to insert profile indicator: {}", e); 0 }
@@ -138,7 +138,7 @@ pub async fn profile_indicator_update(
         .bind(indicator_id)
         .bind(weight)
         .bind(override_status)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .map(|r| r.rows_affected() > 0)
         .unwrap_or(false)
@@ -147,7 +147,7 @@ pub async fn profile_indicator_update(
 pub async fn profile_indicator_delete(pool: &SqlitePool, indicator_id: i64) -> bool {
     sqlx::query("DELETE FROM profile_indicators WHERE id = ?1")
         .bind(indicator_id)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .map(|r| r.rows_affected() > 0)
         .unwrap_or(false)
@@ -171,7 +171,7 @@ pub async fn risk_profiles_list(pool: &SqlitePool) -> Vec<RiskProfile> {
     sqlx::query_as::<_, RiskProfile>(
         "SELECT id, profile_name, capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread FROM risk_profiles ORDER BY id ASC"
     )
-    .fetch_all(&*pool)
+    .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
@@ -181,7 +181,7 @@ pub async fn risk_profile_by_id(pool: &SqlitePool, id: i64) -> Option<RiskProfil
         "SELECT id, profile_name, capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread FROM risk_profiles WHERE id = ?1"
     )
     .bind(id)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await
     .ok()
     .flatten()
@@ -202,7 +202,7 @@ pub async fn risk_profile_insert(
     )
     .bind(profile_name).bind(capital).bind(max_risk_pct).bind(leverage)
     .bind(commission_pct).bind(funding_rate_8h).bind(spread)
-    .execute(&*pool).await
+    .execute(pool).await
     {
         Ok(r) => r.last_insert_rowid(),
         Err(e) => { eprintln!("DB: Failed to insert risk profile: {}", e); 0 }
@@ -225,7 +225,7 @@ pub async fn risk_profile_update(
     )
     .bind(id).bind(profile_name).bind(capital).bind(max_risk_pct).bind(leverage)
     .bind(commission_pct).bind(funding_rate_8h).bind(spread)
-    .execute(&*pool).await
+    .execute(pool).await
     .map(|r| r.rows_affected() > 0)
     .unwrap_or(false)
 }
@@ -233,7 +233,7 @@ pub async fn risk_profile_update(
 pub async fn risk_profile_delete(pool: &SqlitePool, id: i64) -> bool {
     sqlx::query("DELETE FROM risk_profiles WHERE id = ?1")
         .bind(id)
-        .execute(&*pool)
+        .execute(pool)
         .await
         .map(|r| r.rows_affected() > 0)
         .unwrap_or(false)

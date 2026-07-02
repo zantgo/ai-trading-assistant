@@ -24,13 +24,15 @@ pub fn compile_deterministic_telemetry(
     support_levels: &[String],
     resistance_levels: &[String],
 ) -> DeterministicTelemetry {
-    let adx = mid.adx.unwrap_or(0.0);
-    let bbwp = mid.bbwp.unwrap_or(50.0);
-    let squeeze_on = mid.squeeze_on.unwrap_or(false);
-    let rvol = mid.rvol.unwrap_or(1.0);
-    let atr_regime = mid.atr_volatility_regime.as_deref();
-    let ema_stack = mid.ema_stack_state.as_deref();
-    let squeeze_released = mid.squeeze_release_trigger.unwrap_or(false);
+    let adx = mid.adx().unwrap_or(0.0);
+    let bbwp = mid.bbwp().unwrap_or(50.0);
+    let squeeze_on = mid.squeeze_on().unwrap_or(false);
+    let rvol = mid.rvol().unwrap_or(1.0);
+    let atr_regime_owned = mid.atr_volatility_regime();
+    let atr_regime = atr_regime_owned.as_deref();
+    let ema_stack_owned = mid.ema_stack_state();
+    let ema_stack = ema_stack_owned.as_deref();
+    let squeeze_released = mid.squeeze_release_trigger().unwrap_or(false);
 
     // 1. Regime Classification
     let regime = if bbwp < 10.0 || squeeze_on {
@@ -46,7 +48,7 @@ pub fn compile_deterministic_telemetry(
     // 2. Resolve Trigger vs Confirmation States
     let is_completed = mid.current_price.is_some();
 
-    let macd_crossover_state = if mid.macd_crossover_detected.unwrap_or(false) {
+    let macd_crossover_state = if mid.macd_crossover_detected().unwrap_or(false) {
         if is_completed {
             "confirmed".to_string()
         } else {
@@ -67,11 +69,11 @@ pub fn compile_deterministic_telemetry(
     };
 
     let rsi_div_state = mid
-        .rsi_divergence_status
+        .rsi_divergence_status()
         .clone()
         .unwrap_or_else(|| "none".to_string());
     let macd_div_state = mid
-        .macd_divergence_status
+        .macd_divergence_status()
         .clone()
         .unwrap_or_else(|| "none".to_string());
 
@@ -79,30 +81,30 @@ pub fn compile_deterministic_telemetry(
     let mut score = 0;
 
     // A. RSI Alignment (10 pts)
-    if mid.rsi.map_or(false, |r| r < 30.0) {
+    if mid.rsi().is_some_and(|r| r < 30.0) {
         score += 10;
-    } else if mid.rsi.map_or(false, |r| r > 70.0) {
+    } else if mid.rsi().is_some_and(|r| r > 70.0) {
         score -= 10;
     }
 
     // B. RSI Divergence (20 pts)
-    if rsi_div_state == "confirmed" {
+    if rsi_div_state.contains("confirmed") {
         score += 20;
-    } else if rsi_div_state == "potential" {
+    } else if rsi_div_state.contains("potential") {
         score += 10;
     }
 
     // C. MACD Crossover (10 pts)
     if macd_crossover_state == "confirmed" {
-        if mid.macd_crossover_direction.as_deref() == Some("BULLISH") {
+        if mid.macd_crossover_direction().as_deref() == Some("BULLISH") {
             score += 10;
-        } else if mid.macd_crossover_direction.as_deref() == Some("BEARISH") {
+        } else if mid.macd_crossover_direction().as_deref() == Some("BEARISH") {
             score -= 10;
         }
     }
 
     // D. MACD Divergence (10 pts)
-    if macd_div_state == "confirmed" {
+    if macd_div_state.contains("confirmed") {
         score += 10;
     }
 
@@ -124,7 +126,7 @@ pub fn compile_deterministic_telemetry(
     }
 
     // F. Macro Trend Alignment (20 pts)
-    if let (Some(ema), Some(px)) = (mid.ema_long, mid.current_price) {
+    if let (Some(ema), Some(px)) = (mid.ema_long(), mid.current_price) {
         if px > ema {
             score += 20;
         } else {
@@ -150,13 +152,13 @@ pub fn compile_deterministic_telemetry(
         rvol,
         adx_value: adx,
         adx_regime: mid
-            .adx_regime
+            .adx_regime()
             .clone()
             .unwrap_or_else(|| "congestion".to_string()),
         bbwp_percentile: bbwp,
         squeeze_on,
         vwap_bias: mid
-            .vwap_bias
+            .vwap_bias()
             .clone()
             .unwrap_or_else(|| "equilibrium".to_string()),
         support_levels: support_levels.to_vec(),

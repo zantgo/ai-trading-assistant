@@ -32,9 +32,9 @@ proptest! {
                 let adx_v = out.adx.to_f64().unwrap_or(0.0);
                 let plus = out.plus_di.to_f64().unwrap_or(0.0);
                 let minus = out.minus_di.to_f64().unwrap_or(0.0);
-                prop_assert!(adx_v >= 0.0 && adx_v <= 100.0, "ADX out of [0,100]: {}", adx_v);
-                prop_assert!(plus >= 0.0 && plus <= 100.0, "+DI out of [0,100]: {}", plus);
-                prop_assert!(minus >= 0.0 && minus <= 100.0, "-DI out of [0,100]: {}", minus);
+                prop_assert!((0.0..=100.0).contains(&adx_v), "ADX out of [0,100]: {}", adx_v);
+                prop_assert!((0.0..=100.0).contains(&plus), "+DI out of [0,100]: {}", plus);
+                prop_assert!((0.0..=100.0).contains(&minus), "-DI out of [0,100]: {}", minus);
             }
         }
     }

@@ -120,7 +120,7 @@ impl FibonacciRange {
         }
 
         let mut retracement_levels = calculate_fib_levels(swing_low, swing_high, retracement_coeffs);
-        retracement_levels.sort_by(|a, b| a.cmp(b));
+        retracement_levels.sort();
 
         let extension_levels = calculate_fib_levels(swing_high, swing_low, extension_coeffs);
 
@@ -313,6 +313,7 @@ impl FibonacciRange {
         for i in (lookback..end).rev() {
             let (_, candidate_high) = prices[i];
             let mut is_peak = true;
+            #[allow(clippy::needless_range_loop)]
             for j in i - lookback..=i + lookback {
                 if j == i {
                     continue;
@@ -339,6 +340,7 @@ impl FibonacciRange {
         for i in (lookback..end).rev() {
             let (candidate_low, _) = prices[i];
             let mut is_trough = true;
+            #[allow(clippy::needless_range_loop)]
             for j in i - lookback..=i + lookback {
                 if j == i {
                     continue;

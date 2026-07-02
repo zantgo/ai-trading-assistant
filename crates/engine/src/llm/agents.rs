@@ -77,6 +77,7 @@ RULES:
         Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_master_orchestrator(
         &self,
         position: &str,
@@ -88,6 +89,9 @@ RULES:
         resistance_levels: &[String],
         journal_context: Option<&str>,
         pair_key: Option<&str>,
+        confluence_score: i32,
+        slot_config: Option<&str>,
+        indicators_json: Option<&str>,
     ) -> Result<MasterOrchestratorResult, String> {
         let prices_str = serde_json::to_string(prices)
             .map_err(|e| format!("Failed to serialize prices: {}", e))?;
@@ -107,10 +111,22 @@ RULES:
             _ => String::new(),
         };
 
+        let slot_section = match slot_config {
+            Some(s) if !s.is_empty() => format!("\nACTIVE 4-PORTION SLOT CONFIG: {}", s),
+            _ => String::new(),
+        };
+        let indicators_section = match indicators_json {
+            Some(s) if !s.is_empty() => {
+                format!("\nCONTINUOUS NORMALIZED INDICATOR VECTORS [-1.0,1.0]: {}", s)
+            }
+            _ => String::new(),
+        };
+
         let user_message = format!(
             "CURRENT MARKET ASSET: {}\n\
              USER'S OPEN POSITION: {}\n\
              USER'S ENTRY PRICE: {}\n\
+             GROUND-TRUTH CONTINUOUS CONFLUENCE SCORE (Rust engine, -90..+90): {}{}{}\n\
              RAW PRICE HISTORY (last {} closes): {}\n\
              COMPUTED SUPPORT LEVELS: {}\n\
              COMPUTED RESISTANCE LEVELS: {}\n\
@@ -118,6 +134,9 @@ RULES:
             symbol,
             position,
             entry_info,
+            confluence_score,
+            slot_section,
+            indicators_section,
             prices.len(),
             prices_str,
             supports_str,
@@ -177,6 +196,7 @@ RULES:
         Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_multi_timeframe_orchestrator(
         &self,
         position: &str,
@@ -187,6 +207,9 @@ RULES:
         resistance_levels: &[String],
         journal_context: Option<&str>,
         pair_key: Option<&str>,
+        confluence_score: i32,
+        slot_config: Option<&str>,
+        indicators_json: Option<&str>,
     ) -> Result<MasterOrchestratorResult, String> {
         let supports_str = serde_json::to_string(support_levels).unwrap_or_else(|_| "[]".into());
         let resistances_str =
@@ -203,14 +226,29 @@ RULES:
             _ => String::new(),
         };
 
+        let slot_section = match slot_config {
+            Some(s) if !s.is_empty() => format!("\nACTIVE 4-PORTION SLOT CONFIG: {}", s),
+            _ => String::new(),
+        };
+        let indicators_section = match indicators_json {
+            Some(s) if !s.is_empty() => {
+                format!("\nCONTINUOUS NORMALIZED INDICATOR VECTORS [-1.0,1.0]: {}", s)
+            }
+            _ => String::new(),
+        };
+
         let user_message = format!(
             "CURRENT MARKET ASSET: {}\n\
              USER'S OPEN POSITION: {}\n\
              USER'S ENTRY PRICE: {}\n\
+             GROUND-TRUTH CONTINUOUS CONFLUENCE SCORE (Rust engine, -90..+90): {}{}{}\n\
              COMPUTED SUPPORT LEVELS: {}\n\
              COMPUTED RESISTANCE LEVELS: {}\n\
              PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (micro/fast/slow/macro prefix):\n{}{}",
             symbol, position, entry_info,
+            confluence_score,
+            slot_section,
+            indicators_section,
             supports_str, resistances_str,
             phase_one_results_json,
             journal_section,
@@ -340,12 +378,14 @@ RULES:
             if line.starts_with(&format!("## {}", section_number)) {
                 start_idx = Some(i);
             }
-            if start_idx.is_some() && end_idx.is_none() && i > start_idx.unwrap() {
-                if line.starts_with("## ") && !line.starts_with(&format!("## {}", section_number)) {
-                    end_idx = Some(i);
-                }
-                if line.starts_with("---") && i > start_idx.unwrap() + 5 {
-                    end_idx = Some(i);
+            if let Some(s) = start_idx {
+                if end_idx.is_none() && i > s {
+                    if line.starts_with("## ") && !line.starts_with(&format!("## {}", section_number)) {
+                        end_idx = Some(i);
+                    }
+                    if line.starts_with("---") && i > s + 5 {
+                        end_idx = Some(i);
+                    }
                 }
             }
         }

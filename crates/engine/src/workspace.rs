@@ -58,6 +58,12 @@ pub struct SessionState {
     pub initial_capital: RwLock<Option<f64>>,
 }
 
+impl Default for SessionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionState {
     pub fn new() -> Self {
         Self {

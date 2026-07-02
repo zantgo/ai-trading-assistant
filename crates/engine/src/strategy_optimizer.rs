@@ -69,7 +69,7 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
                 .iter()
                 .filter(|t| t.realized_pnl < 0.0)
                 .count();
-            let win_rate = if regime_trades.len() > 0 {
+            let win_rate = if !regime_trades.is_empty() {
                 wins as f64 / regime_trades.len() as f64 * 100.0
             } else {
                 0.0

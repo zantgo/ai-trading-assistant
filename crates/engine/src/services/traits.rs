@@ -22,6 +22,7 @@ pub trait LlmService: Send + Sync {
         telemetry: &DeterministicTelemetry,
     ) -> Result<crate::llm::MultiAgentResults, String>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_master_orchestrator(
         &self,
         position: &str,
@@ -33,6 +34,9 @@ pub trait LlmService: Send + Sync {
         resistance_levels: &[String],
         journal_context: Option<&str>,
         pair_key: Option<&str>,
+        confluence_score: i32,
+        slot_config: Option<&str>,
+        indicators_json: Option<&str>,
     ) -> Result<MasterOrchestratorResult, String>;
 
     async fn has_api_key(&self) -> bool;
@@ -67,6 +71,7 @@ impl LlmService for LlmClient {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_master_orchestrator(
         &self,
         position: &str,
@@ -78,6 +83,9 @@ impl LlmService for LlmClient {
         resistance_levels: &[String],
         journal_context: Option<&str>,
         pair_key: Option<&str>,
+        confluence_score: i32,
+        slot_config: Option<&str>,
+        indicators_json: Option<&str>,
     ) -> Result<MasterOrchestratorResult, String> {
         LlmClient::run_master_orchestrator(
             self,
@@ -90,6 +98,9 @@ impl LlmService for LlmClient {
             resistance_levels,
             journal_context,
             pair_key,
+            confluence_score,
+            slot_config,
+            indicators_json,
         )
         .await
     }
@@ -128,6 +139,7 @@ impl LlmService for Arc<LlmClient> {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_master_orchestrator(
         &self,
         position: &str,
@@ -139,6 +151,9 @@ impl LlmService for Arc<LlmClient> {
         resistance_levels: &[String],
         journal_context: Option<&str>,
         pair_key: Option<&str>,
+        confluence_score: i32,
+        slot_config: Option<&str>,
+        indicators_json: Option<&str>,
     ) -> Result<MasterOrchestratorResult, String> {
         LlmClient::run_master_orchestrator(
             self,
@@ -151,6 +166,9 @@ impl LlmService for Arc<LlmClient> {
             resistance_levels,
             journal_context,
             pair_key,
+            confluence_score,
+            slot_config,
+            indicators_json,
         )
         .await
     }

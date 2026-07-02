@@ -224,6 +224,10 @@ pub struct HistoricalMetrics {
 pub struct EquityPoint {
     pub trade_index: usize,
     pub cumulative_return_pct: f64,
+    /// Market regime of the trade that produced this point ("trending",
+    /// "expansion", "range", "compression"); empty for the seed point.
+    #[serde(default)]
+    pub regime: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

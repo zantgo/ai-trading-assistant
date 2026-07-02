@@ -23,7 +23,7 @@ pub async fn run_analysis(
 
     if let Some(cached) = db::edge_analytics_cache_get(pool, edge_id).await {
         let metrics: HistoricalMetrics =
-            serde_json::from_str(&cached.historical_metrics).unwrap_or_else(|_| {
+            serde_json::from_str(&cached.historical_metrics).unwrap_or({
                 HistoricalMetrics {
                     total_trades: 0,
                     win_rate: 0.0,
@@ -50,7 +50,7 @@ pub async fn run_analysis(
                 }
             });
         let bs: BootstrapResult =
-            serde_json::from_str(&cached.bootstrap_results).unwrap_or_else(|_| {
+            serde_json::from_str(&cached.bootstrap_results).unwrap_or({
                 BootstrapResult {
                     p_value: 1.0,
                     is_significant: false,
@@ -92,7 +92,7 @@ pub async fn run_analysis(
         bootstrap::run_bootstrap(&backtest_output.trade_returns, &bootstrap_cfg);
 
     let mc_cfg = monte_carlo::MonteCarloConfig::default();
-    let ruin_threshold = config.sizing.max_leverage.max(1.0).min(20.0);
+    let ruin_threshold = config.sizing.max_leverage.clamp(1.0, 20.0);
     let monte_carlo_result = monte_carlo::run_monte_carlo(
         &backtest_output.trade_returns,
         ruin_threshold * 5.0,

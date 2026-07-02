@@ -1,4 +1,4 @@
-    .adb-layout { max-width: 1400px; margin: 0 auto; width: 100%; padding: 16px; box-sizing: border-box; }
+    .adb-layout { width: 100%; padding: 16px; box-sizing: border-box; }
     .adb-ribbon {
         display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px;
         padding: 10px 16px; background: #131722; border: 1px solid #2a2e39; border-radius: 8px; flex-wrap: wrap;

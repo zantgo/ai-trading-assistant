@@ -15,8 +15,7 @@ proptest! {
         let mut sqz = SqueezeMomentum::new(20);
         let mut prev_on_known: Option<bool> = None;
 
-        for i in 0..prices.len() {
-            let p = prices[i];
+        for (i, &p) in prices.iter().enumerate() {
             let high = p + (i as f64 * 0.1);
             let low = p - (i as f64 * 0.1);
             if let Some(out) = sqz.update(dec(high), dec(low), dec(p)) {
@@ -39,8 +38,7 @@ proptest! {
         prices in proptest::collection::vec(50.0f64..200.0, 40..100)
     ) {
         let mut sqz = SqueezeMomentum::new(20);
-        for i in 0..prices.len() {
-            let p = prices[i];
+        for &p in prices.iter() {
             let high = p + 1.0;
             let low = p - 1.0;
             if let Some(out) = sqz.update(dec(high), dec(low), dec(p)) {
@@ -66,8 +64,7 @@ proptest! {
         prices in proptest::collection::vec(50.0f64..200.0, 40..100)
     ) {
         let mut sqz = SqueezeMomentum::new(20);
-        for i in 0..prices.len() {
-            let p = prices[i];
+        for (i, &p) in prices.iter().enumerate() {
             let high = p + (i as f64 * 0.5).sin() * 10.0;
             let low = p - (i as f64 * 0.5).cos() * 10.0;
             if let Some(out) = sqz.update(dec(high), dec(low), dec(p)) {

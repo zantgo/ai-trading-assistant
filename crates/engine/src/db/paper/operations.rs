@@ -47,7 +47,7 @@ pub(crate) async fn paper_close_position_internal(
          FROM active_positions WHERE symbol = ?1",
     )
     .bind(symbol)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await?;
 
     let (_id, sym, direction, entry_price, size, allocated_usd, entry_ts) = match position {
@@ -154,7 +154,7 @@ pub(crate) async fn paper_scale_in_portion_internal(
 
     let position = sqlx::query_as::<_, (i64,)>("SELECT id FROM active_positions WHERE symbol = ?1")
         .bind(symbol)
-        .fetch_optional(&*pool)
+        .fetch_optional(pool)
         .await?;
 
     let mut tx = pool.begin().await?;
@@ -272,7 +272,7 @@ pub(crate) async fn paper_invalidate_position_internal(
          FROM active_positions WHERE symbol = ?1",
     )
     .bind(symbol)
-    .fetch_optional(&*pool)
+    .fetch_optional(pool)
     .await?;
 
     let (direction, entry_price_avg, size, allocated_usd, entry_ts) = match position {
@@ -301,7 +301,7 @@ pub(crate) async fn paper_invalidate_position_internal(
     .bind(roi_pct)
     .bind(entry_ts)
     .bind(exit_timestamp)
-    .bind(&format!("INVALIDATION:{}", reason))
+    .bind(format!("INVALIDATION:{}", reason))
     .execute(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM active_positions WHERE symbol = ?1")
@@ -357,7 +357,7 @@ pub async fn paper_set_balance_config(
     .bind(initial_usd)
     .bind(allocation_pct)
     .bind(auto_val)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
     Ok(())
 }
@@ -399,7 +399,7 @@ pub async fn paper_set_advanced_config(
     .bind(auto_execute_intervals)
     .bind(lookback_trades)
     .bind(bet_val)
-    .execute(&*pool)
+    .execute(pool)
     .await?;
     Ok(())
 }
@@ -455,14 +455,14 @@ pub(crate) async fn paper_insert_open_order(
             "SELECT COALESCE(COUNT(*), 0) FROM position_slots WHERE symbol = ?1 AND is_active = 1"
         )
         .bind(symbol)
-        .fetch_one(&*pool)
+        .fetch_one(pool)
         .await
         .unwrap_or(0);
         let pending_count: i64 = sqlx::query_scalar(
             "SELECT COALESCE(COUNT(*), 0) FROM open_orders WHERE symbol = ?1 AND associated_position_id IS NULL AND is_reduce_only = 0"
         )
         .bind(symbol)
-        .fetch_one(&*pool)
+        .fetch_one(pool)
         .await
         .unwrap_or(0);
         if pending_count + 1 > 4 - active_count {
@@ -507,16 +507,8 @@ pub(crate) async fn paper_insert_open_order(
 pub(crate) async fn paper_delete_open_order(pool: &SqlitePool, order_id: i64) -> Result<bool, sqlx::Error> {
     let rows = sqlx::query("DELETE FROM open_orders WHERE id = ?1")
         .bind(order_id)
-        .execute(&*pool)
+        .execute(pool)
         .await?
         .rows_affected();
     Ok(rows > 0)
-}
-
-pub(crate) async fn paper_delete_orders_for_position(pool: &SqlitePool, position_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM open_orders WHERE associated_position_id = ?1")
-        .bind(position_id)
-        .execute(&*pool)
-        .await?;
-    Ok(())
 }

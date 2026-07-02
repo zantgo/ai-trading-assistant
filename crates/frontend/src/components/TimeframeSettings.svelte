@@ -143,7 +143,7 @@
         tf.analysisLimit = term.analysisLimit;
         tf.latestSnapshot = null;
         tf.priceText = '--';
-        tf.vwapText = '--';
+        tf.indicators = {};
     }
 
     function fieldId(term: string, label: string): string {

@@ -1,4 +1,7 @@
 <script lang="ts">
+    import { iRaw } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
+    import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -94,10 +97,10 @@
             try {
                 const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
                 const data = await res.json();
-                const ih = data.indicator_history;
+                const ih = flattenHistory(data.indicator_history);
                 if (ih && ih.bbwp && ih.bbwp.length > 0) {
                     const rawBbwpData = ih.times.map((t: number, i: number) => {
-                        const val = parseFloat(ih.bbwp[i]) || 0;
+                        const val = parseFloat(ih.bbwp[i] ?? "0") || 0;
                         return {
                             time: t as Time,
                             value: val,
@@ -151,14 +154,13 @@
         const snap = tf?.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.bbwp != null) {
-            const val = parseFloat(String(snap.bbwp));
+        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'bbwp');
+        if (val != null) {
             bbwpSeries.update({
                 time: timeSec as Time,
                 value: val,
                 color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa'
             });
-            tf.lastBbwp = val;
         }
     });
 </script>
