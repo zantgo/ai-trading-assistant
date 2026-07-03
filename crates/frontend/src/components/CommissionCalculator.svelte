@@ -1,6 +1,6 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import type { RiskProfile, FeeTableRow, CommissionProjection } from '../types';
+    import type { RiskProfile, CommissionProjection } from '../types';
     import styles from './CommissionCalculator.module.css';
 
     const app = useAppStore();
@@ -12,6 +12,15 @@
     $effect(() => {
         app.fetchFeeTable();
     });
+
+    // ── Fee reference calculator (client-side) ──
+    let calcLeverage = $state(10);
+    let calcCapital = $state(1000);
+    let calcFeePct = $state(0.06);
+
+    const calcNotional = $derived(calcCapital * calcLeverage);
+    const calcFees = $derived((calcFeePct / 100) * calcNotional * 2);
+    const calcMinProfitPct = $derived(calcCapital > 0 ? (calcFees / calcCapital) * 100 : 0);
 
     function getActiveProfile(): RiskProfile | undefined {
         return app.riskProfiles.find(p => p.id === app.activeRiskProfileId);
@@ -48,31 +57,39 @@
 <div class={styles.ccLayout}>
     <div class={styles.ccTop}>
         <div class="{styles.ccCard} {styles.ccWide}">
-            <h3 class={styles.ccCardTitle}>FEE REFERENCE TABLE</h3>
-            <p class={styles.ccCardSub}>Minimum profit % needed to cover round-trip fees at different leverage × capital combinations</p>
-            <div class={styles.ccTableWrap}>
-                <table class={styles.ccFeeTable}>
-                    <thead>
-                        <tr>
-                            <th>Exchange Fee</th>
-                            <th>Leverage</th>
-                            <th>Capital</th>
-                            <th>Min % Profit</th>
-                            <th>Fees ($)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {#each app.feeTable as row (row.leverage + '-' + row.capital)}
-                            <tr>
-                                <td>{row.exchange_fee_pct}%</td>
-                                <td>{row.leverage}x</td>
-                                <td>${row.capital}</td>
-                                <td class={row.min_profit_pct_to_cover_fees > 3 ? styles.ccFeeWarn : ''}>{formatPct(row.min_profit_pct_to_cover_fees)}</td>
-                                <td>{formatUsd(row.fees_in_dollars)}</td>
-                            </tr>
-                        {/each}
-                    </tbody>
-                </table>
+            <h3 class={styles.ccCardTitle}>FEE REFERENCE CALCULATOR</h3>
+            <p class={styles.ccCardSub}>Calculate round-trip fees and minimum profit needed to break even</p>
+            <div class={styles.ccCalcRow}>
+                <div class={styles.ccCalcField}>
+                    <label class={styles.ccCalcLabel}>Leverage</label>
+                    <input type="number" min="1" max="150" step="1" bind:value={calcLeverage} class={styles.ccCalcInput} />
+                </div>
+                <div class={styles.ccCalcField}>
+                    <label class={styles.ccCalcLabel}>Capital ($)</label>
+                    <input type="number" min="1" step="100" bind:value={calcCapital} class={styles.ccCalcInput} />
+                </div>
+                <div class={styles.ccCalcField}>
+                    <label class={styles.ccCalcLabel}>Exchange Fee (%)</label>
+                    <input type="number" min="0" max="10" step="0.01" bind:value={calcFeePct} class={styles.ccCalcInput} />
+                </div>
+            </div>
+            <div class={styles.ccCalcResults}>
+                <div class={styles.ccCalcResultItem}>
+                    <span class={styles.ccCalcResultLabel}>Notional Value</span>
+                    <span class={styles.ccCalcResultValue}>{formatUsd(calcNotional)}</span>
+                </div>
+                <div class={styles.ccCalcResultItem}>
+                    <span class={styles.ccCalcResultLabel}>Round-Trip Fees</span>
+                    <span class="{styles.ccCalcResultValue} {calcMinProfitPct > 3 ? styles.ccFeeWarn : ''}">{formatUsd(calcFees)}</span>
+                </div>
+                <div class={styles.ccCalcResultItem}>
+                    <span class={styles.ccCalcResultLabel}>Min Profit to Cover</span>
+                    <span class={styles.ccCalcResultValue}>{formatUsd(calcFees)} <span class={styles.ccCalcResultSub}>(open + close)</span></span>
+                </div>
+                <div class={styles.ccCalcResultItem}>
+                    <span class={styles.ccCalcResultLabel}>Min Profit %</span>
+                    <span class="{styles.ccCalcResultValue} {calcMinProfitPct > 3 ? styles.ccFeeWarn : ''}">{formatPct(calcMinProfitPct)}</span>
+                </div>
             </div>
         </div>
     </div>

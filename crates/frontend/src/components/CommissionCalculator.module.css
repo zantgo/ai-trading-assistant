@@ -78,3 +78,20 @@
     .cc-two-col { grid-template-columns: 1fr; }
     .cc-result-grid-3 { grid-template-columns: 1fr 1fr; }
 }
+
+/* Fee reference calculator */
+.cc-calc-row { display: flex; gap: 12px; margin-bottom: 14px; }
+.cc-calc-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.cc-calc-label { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
+.cc-calc-input {
+    width: 100%; background: #0f131c; border: 1px solid #2a2e39; color: #e2e8f0;
+    padding: 6px 10px; border-radius: 4px; font-size: 13px; font-weight: 600; text-align: right;
+    outline: none; font-family: monospace; box-sizing: border-box;
+}
+.cc-calc-input:focus { border-color: #3b82f6; }
+.cc-calc-results { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+.cc-calc-result-item { display: flex; flex-direction: column; gap: 2px; }
+.cc-calc-result-label { font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase; }
+.cc-calc-result-value { font-size: 14px; color: #e2e8f0; font-weight: 700; font-family: monospace; }
+.cc-calc-result-sub { font-size: 9px; color: #64748b; font-weight: 400; font-style: italic; }
+
