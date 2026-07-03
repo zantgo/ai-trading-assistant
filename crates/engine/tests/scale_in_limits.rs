@@ -18,8 +18,8 @@ async fn setup_paper_db() -> SqlitePool {
 
 async fn seed_balance(pool: &SqlitePool, symbol: &str, cash: f64, alloc_pct: f64) {
     sqlx::query(
-        "INSERT OR REPLACE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades)
-         VALUES (?1, ?2, ?2, ?3, 0, 2.0, 20, 15, 10)",
+        "INSERT OR REPLACE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled, leverage_mode, leverage_cap, atr_leverage_multiplier)
+         VALUES (?1, ?2, ?2, ?3, 0, 2.0, 20, 15, 10, 0, 'Fixed', 20, 0.0)",
     )
     .bind(symbol)
     .bind(cash)

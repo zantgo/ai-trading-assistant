@@ -59,13 +59,15 @@ impl TradingState {
 pub struct ConfigState {
     pub status: InstanceStatus,
     pub intervals: IntervalsConfig,
+    pub operational_mode: crate::config::OperationalMode,
 }
 
 impl ConfigState {
-    pub fn new(intervals: IntervalsConfig) -> Self {
+    pub fn new(intervals: IntervalsConfig, operational_mode: crate::config::OperationalMode) -> Self {
         Self {
             status: InstanceStatus::Running,
             intervals,
+            operational_mode,
         }
     }
 }
@@ -119,6 +121,7 @@ impl Instance {
         fast: TimeframeBuffers,
         slow: TimeframeBuffers,
         r#macro: TimeframeBuffers,
+        operational_mode: crate::config::OperationalMode,
     ) -> Self {
         let safety = Arc::new(SafetyManager::new(
             safe_config.consecutive_loss_caution,
@@ -132,7 +135,7 @@ impl Instance {
             pair,
             cancel: active_pair.cancel.clone(),
             trading: RwLock::new(TradingState::default()),
-            config_state: RwLock::new(ConfigState::new(inter_config)),
+            config_state: RwLock::new(ConfigState::new(inter_config, operational_mode)),
             safety_config: safe_config,
             api_key: RwLock::new(None),
             api_key_valid: AtomicBool::new(false),

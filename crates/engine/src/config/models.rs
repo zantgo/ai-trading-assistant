@@ -323,6 +323,150 @@ impl Default for AutomationConfig {
 fn default_max_opposite_exit_signals() -> usize { 5 }
 fn default_automation_interval() -> u64 { 900 }
 
+// ─── Operational Mode ──────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum OperationalMode {
+    ManualOnly,
+    DeterministicHeuristics,
+    HybridAiCopilot,
+}
+
+impl Default for OperationalMode {
+    fn default() -> Self {
+        OperationalMode::HybridAiCopilot
+    }
+}
+
+impl OperationalMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OperationalMode::ManualOnly => "ManualOnly",
+            OperationalMode::DeterministicHeuristics => "DeterministicHeuristics",
+            OperationalMode::HybridAiCopilot => "HybridAiCopilot",
+        }
+    }
+}
+
+// ─── AI Trigger Configuration ──────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode")]
+pub enum TriggerMode {
+    /// Fixed time interval between AI runs (legacy behaviour).
+    #[serde(rename = "interval")]
+    Interval { seconds: u64 },
+    /// Trigger after N closed candles of a specific timeframe.
+    #[serde(rename = "candle_close")]
+    CandleClose {
+        /// Timeframe label: "micro", "fast", "slow", or "macro".
+        timeframe: String,
+        count: u32,
+    },
+    /// Trigger only when specific deterministic events fire.
+    #[serde(rename = "event_driven")]
+    EventDriven {
+        events: Vec<String>,
+    },
+}
+
+impl Default for TriggerMode {
+    fn default() -> Self {
+        TriggerMode::Interval { seconds: 900 }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiTriggerConfig {
+    #[serde(default)]
+    pub trigger: TriggerMode,
+}
+
+impl Default for AiTriggerConfig {
+    fn default() -> Self {
+        Self {
+            trigger: TriggerMode::default(),
+        }
+    }
+}
+
+// ─── Position Sizing & Leverage Scaling ────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AllocationCurveModel {
+    /// Legacy stepped: <40→base, 40–59→mid, ≥60→max
+    Stepped,
+    /// Linear interpolation between base and max pct.
+    Linear,
+    /// Exponential curve concentrating allocation at high scores.
+    Exponential { exponent: f64 },
+}
+
+impl Default for AllocationCurveModel {
+    fn default() -> Self {
+        AllocationCurveModel::Stepped
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllocationCurve {
+    #[serde(default)]
+    pub model: AllocationCurveModel,
+    #[serde(default = "default_base_allocation_pct")]
+    pub base_allocation_pct: f64,
+    #[serde(default = "default_max_allocation_pct")]
+    pub max_allocation_pct: f64,
+    #[serde(default = "default_base_score_threshold")]
+    pub base_score_threshold: u32,
+    #[serde(default = "default_micro_score_threshold")]
+    pub micro_score_threshold: u32,
+}
+
+impl Default for AllocationCurve {
+    fn default() -> Self {
+        Self {
+            model: AllocationCurveModel::default(),
+            base_allocation_pct: default_base_allocation_pct(),
+            max_allocation_pct: default_max_allocation_pct(),
+            base_score_threshold: default_base_score_threshold(),
+            micro_score_threshold: default_micro_score_threshold(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionScalingConfig {
+    #[serde(default)]
+    pub allocation_curve: AllocationCurve,
+    #[serde(default = "default_leverage_mode")]
+    pub leverage_mode: String,
+    #[serde(default = "default_cross_leverage")]
+    pub leverage_cap: u32,
+    /// Margin target as fraction of capital for volatility-scaled leverage.
+    /// Only used when leverage_mode is "VolatilityScaled".
+    #[serde(default = "default_target_margin")]
+    pub target_margin: f64,
+}
+
+impl Default for PositionScalingConfig {
+    fn default() -> Self {
+        Self {
+            allocation_curve: AllocationCurve::default(),
+            leverage_mode: default_leverage_mode(),
+            leverage_cap: default_cross_leverage(),
+            target_margin: default_target_margin(),
+        }
+    }
+}
+
+fn default_leverage_mode() -> String {
+    "Fixed".to_string()
+}
+
+fn default_target_margin() -> f64 {
+    0.02
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TimeframeConfig {
     pub candles: CandlesConfig,
@@ -351,6 +495,14 @@ pub struct InstanceSpecificConfig {
     pub macro_term: Option<TimeframeConfig>,
     #[serde(default)]
     pub automation: AutomationConfig,
+    #[serde(default)]
+    pub operational_mode: OperationalMode,
+    #[serde(default)]
+    pub ai_trigger: AiTriggerConfig,
+    #[serde(default)]
+    pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
+    #[serde(default)]
+    pub position_scaling: Option<PositionScalingConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

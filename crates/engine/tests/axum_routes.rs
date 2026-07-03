@@ -291,6 +291,7 @@ async fn test_websocket_stream_with_active_pair() {
         TimeframeBuffers { history: pair.fast.history.clone(), latest: pair.fast.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
         TimeframeBuffers { history: pair.slow.history.clone(), latest: pair.slow.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
         TimeframeBuffers { history: pair.r#macro.history.clone(), latest: pair.r#macro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        Default::default(),
     ));
     workspace
         .instances

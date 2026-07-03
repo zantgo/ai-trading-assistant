@@ -15,6 +15,9 @@ pub struct PaperBalance {
     pub auto_execute_intervals: i32,
     pub lookback_trades: i32,
     pub break_even_trail_enabled: bool,
+    pub leverage_mode: String,
+    pub leverage_cap: i32,
+    pub atr_leverage_multiplier: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -118,8 +121,8 @@ pub struct OpenOrder {
 
 pub async fn paper_ensure_balance(pool: &SqlitePool, symbol: &str) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled)
-         VALUES (?1, 0.0, 0.0, 25.0, 0, 2.0, 20, 15, 10, 0)"
+        "INSERT OR IGNORE INTO paper_balances (symbol, initial_usd, current_cash, allocation_pct, auto_execute, max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled, leverage_mode, leverage_cap, atr_leverage_multiplier)
+         VALUES (?1, 0.0, 0.0, 25.0, 0, 2.0, 20, 15, 10, 0, 'Fixed', 20, 0.0)"
     )
     .bind(symbol)
     .execute(pool)
@@ -132,7 +135,10 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
     let _ = paper_ensure_balance(pool, symbol).await;
     let row = sqlx::query(
         "SELECT id, symbol, initial_usd, current_cash, allocation_pct, auto_execute,
-                max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled
+                max_risk_pct, leverage, auto_execute_intervals, lookback_trades, break_even_trail_enabled,
+                COALESCE(leverage_mode, 'Fixed') as leverage_mode,
+                COALESCE(leverage_cap, 20) as leverage_cap,
+                COALESCE(atr_leverage_multiplier, 0.0) as atr_leverage_multiplier
          FROM paper_balances WHERE symbol = ?1",
     )
     .bind(symbol)
@@ -154,6 +160,9 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
             auto_execute_intervals: r.get::<i32, _>(8),
             lookback_trades: r.get::<i32, _>(9),
             break_even_trail_enabled: r.get::<i32, _>(10) != 0,
+            leverage_mode: r.get::<String, _>(11),
+            leverage_cap: r.get::<i32, _>(12),
+            atr_leverage_multiplier: r.get::<f64, _>(13),
         },
         None => PaperBalance {
             id: 0,
@@ -167,6 +176,9 @@ pub async fn paper_get_balance(pool: &SqlitePool, symbol: &str) -> PaperBalance 
             auto_execute_intervals: 15,
             lookback_trades: 10,
             break_even_trail_enabled: false,
+            leverage_mode: "Fixed".to_string(),
+            leverage_cap: 20,
+            atr_leverage_multiplier: 0.0,
         },
     }
 }

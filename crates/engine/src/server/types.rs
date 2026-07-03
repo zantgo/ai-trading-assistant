@@ -659,7 +659,26 @@ pub struct InstanceListResponse { pub instances: Vec<crate::registry::InstanceSu
 pub struct InstanceDetailQuery { #[serde(default)] pub id: String, #[serde(default)] pub pair_key: Option<String> }
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceConfigPayload { pub micro_term: crate::config::TimeframeConfig, pub fast_term: crate::config::TimeframeConfig, pub slow_term: Option<crate::config::TimeframeConfig>, pub macro_term: Option<crate::config::TimeframeConfig>, pub automation: crate::config::AutomationConfig }
+pub struct InstanceConfigPayload {
+    #[serde(default)]
+    pub micro_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub fast_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub slow_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub macro_term: Option<crate::config::TimeframeConfig>,
+    #[serde(default)]
+    pub automation: Option<crate::config::AutomationConfig>,
+    #[serde(default)]
+    pub operational_mode: Option<String>,
+    #[serde(default)]
+    pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
+    #[serde(default)]
+    pub position_scaling: Option<crate::config::PositionScalingConfig>,
+    #[serde(default)]
+    pub ai_trigger: Option<crate::config::AiTriggerConfig>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct InstanceManualRequest { pub action: String, pub direction: Option<String>, #[serde(default)] pub price: Option<f64> }

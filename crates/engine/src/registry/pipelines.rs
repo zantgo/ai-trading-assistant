@@ -4,7 +4,10 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::analyzer;
 use crate::automation;
-use crate::config::{FibonacciConfig, IntervalsConfig, SafetyConfig, TimeframeConfig};
+use crate::config::{
+    AiTriggerConfig, FibonacciConfig, IntervalsConfig, OperationalMode, PositionScalingConfig,
+    SafetyConfig, TimeframeConfig,
+};
 use crate::db;
 use crate::instance::{Instance, TimeframeBuffers};
 use crate::llm::LlmClient;
@@ -27,6 +30,10 @@ pub struct PipelineContext {
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
     pub cancel: CancellationToken,
+    pub operational_mode: OperationalMode,
+    pub ai_trigger: AiTriggerConfig,
+    pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
+    pub position_scaling: Option<PositionScalingConfig>,
 }
 
 pub struct PipelineArtifacts {
@@ -202,7 +209,10 @@ pub async fn build_pipelines(
         fast_buf.clone(),
         slow_buf.clone(),
         macro_buf.clone(),
+        ctx.operational_mode.clone(),
     ));
+
+    let (trigger_tx, trigger_rx) = mpsc::channel::<automation::TriggerMessage>(32);
 
     let auto_ctx = automation::AutomationContext {
         pair_key: ctx.pair_key.clone(),
@@ -230,6 +240,13 @@ pub async fn build_pipelines(
         safety: instance.safety.clone(),
         intervals: instance.config_state.read().await.intervals.clone(),
         next_interval_override: Arc::new(RwLock::new(None)),
+        operational_mode: ctx.operational_mode.clone(),
+        weight_overrides: Arc::new(RwLock::new(ctx.weight_overrides.clone())),
+        position_scaling: Arc::new(RwLock::new(ctx.position_scaling.clone())),
+        candle_counters: Arc::new(RwLock::new(HashMap::new())),
+        prev_indicators: Arc::new(RwLock::new(None)),
+        trigger_tx,
+        trigger_rx: Arc::new(tokio::sync::Mutex::new(Some(trigger_rx))),
     };
     *instance.automation_ctx.write().await = Some(auto_ctx);
 

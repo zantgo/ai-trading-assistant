@@ -151,12 +151,41 @@ pub async fn serve_update_instance_config(
     match pair_key {
         Some(pk) => {
             let mut config = state.config.write().await;
+
+            let existing = config.instances.get(&pk).cloned().unwrap_or_else(|| {
+                let default_indicators = crate::config::IndicatorsConfig::default();
+                crate::config::InstanceSpecificConfig {
+                    micro_term: crate::config::TimeframeConfig::new(60, default_indicators.clone()),
+                    fast_term: crate::config::TimeframeConfig::new(180, default_indicators.clone()),
+                    slow_term: None,
+                    macro_term: None,
+                    automation: Default::default(),
+                    operational_mode: Default::default(),
+                    ai_trigger: Default::default(),
+                    weight_overrides: None,
+                    position_scaling: None,
+                }
+            });
+
             let specific_config = crate::config::InstanceSpecificConfig {
-                micro_term: payload.micro_term,
-                fast_term: payload.fast_term,
-                slow_term: payload.slow_term,
-                macro_term: payload.macro_term,
-                automation: payload.automation,
+                micro_term: payload.micro_term.unwrap_or(existing.micro_term),
+                fast_term: payload.fast_term.unwrap_or(existing.fast_term),
+                slow_term: payload.slow_term.or(existing.slow_term),
+                macro_term: payload.macro_term.or(existing.macro_term),
+                automation: payload.automation.unwrap_or(existing.automation),
+                operational_mode: payload
+                    .operational_mode
+                    .as_deref()
+                    .and_then(|s| match s {
+                        "ManualOnly" => Some(crate::config::OperationalMode::ManualOnly),
+                        "DeterministicHeuristics" => Some(crate::config::OperationalMode::DeterministicHeuristics),
+                        "HybridAiCopilot" => Some(crate::config::OperationalMode::HybridAiCopilot),
+                        _ => None,
+                    })
+                    .unwrap_or(existing.operational_mode),
+                ai_trigger: payload.ai_trigger.unwrap_or(existing.ai_trigger),
+                weight_overrides: payload.weight_overrides.or(existing.weight_overrides),
+                position_scaling: payload.position_scaling.or(existing.position_scaling),
             };
             config.instances.insert(pk.clone(), specific_config);
             crate::config::save_instances(&config.instances).await;

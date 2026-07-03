@@ -1,7 +1,10 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import type { InstanceState } from '../types';
+    import type { InstanceState, PositionScalingConfig } from '../types';
     import ExchangeSettings from './ExchangeSettings.svelte';
+    import IndicatorWeightPanel from './settings/IndicatorWeightPanel.svelte';
+    import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
+    import TriggerConfigPanel from './settings/TriggerConfigPanel.svelte';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -33,6 +36,10 @@
     let draftCostInputPrice = $state(app.costPriceInput);
     let draftCostOutputPrice = $state(app.costPriceOutput);
     let costSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+
+    let weightOverrides = $state<Record<string, number>>({});
+    let positionScaling = $state<PositionScalingConfig | null>(null);
+    let aiTriggerConfig = $state<{ trigger: import('../types').TriggerModeConfig } | null>(null);
 
     $effect(() => {
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
@@ -189,6 +196,30 @@
         target.automationIntervalValue = auto.intervalValue;
         target.automationIntervalUnit = auto.intervalUnit;
     }
+
+    let aiConfigSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+
+    async function saveAiConfig() {
+        aiConfigSaveStatus = 'saving';
+        try {
+            const payload: Record<string, unknown> = {
+                weight_overrides: weightOverrides && Object.keys(weightOverrides).length > 0 ? weightOverrides : null,
+                position_scaling: positionScaling,
+                ai_trigger: aiTriggerConfig,
+            };
+            const res = await fetch(`/api/instances/${encodeURIComponent(tabKey)}/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            aiConfigSaveStatus = res.ok ? 'success' : 'error';
+            if (res.ok) {
+                setTimeout(() => { aiConfigSaveStatus = 'idle'; }, 2000);
+            }
+        } catch (_) {
+            aiConfigSaveStatus = 'error';
+        }
+    }
 </script>
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
@@ -293,6 +324,29 @@
                     <input id="wsAnalysisLimit" type="number" bind:value={draft.analysisLimit} min="10" max="500" step="5" />
                 </div>
             </div>
+
+            <!-- Indicator Weight Overrides -->
+            <div style="margin-top: 12px;">
+                <IndicatorWeightPanel initial={weightOverrides} onchange={(w) => { weightOverrides = w; }} />
+            </div>
+
+            <!-- Position Sizing & Leverage -->
+            <div style="margin-top: 12px;">
+                <PositionScalingPanel initial={positionScaling} onchange={(c) => { positionScaling = c; }} />
+            </div>
+
+            <!-- AI Trigger Configuration -->
+            <div style="margin-top: 12px;">
+                <TriggerConfigPanel initial={aiTriggerConfig} onchange={(c) => { aiTriggerConfig = c; }} />
+            </div>
+
+            <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
+                    disabled={aiConfigSaveStatus === 'saving'} onclick={saveAiConfig}>
+                {aiConfigSaveStatus === 'saving' ? 'Saving...' : 'Save AI Configuration'}
+            </button>
+            {#if aiConfigSaveStatus === 'success'}
+                <div class="{styles.statusMsg} {styles.successMsg}">AI config saved.</div>
+            {/if}
 
             <!-- Rules Editor -->
             <div class={styles.settingGroupBox} style="margin-top: 12px;">

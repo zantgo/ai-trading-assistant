@@ -87,6 +87,14 @@ pub async fn add_instance(
         });
     let rest_url = config_guard.hyperliquid.rest_url();
     let drop_fib = fib_config.clone();
+    let operational_mode = pair_cfg
+        .map(|p| p.operational_mode.clone())
+        .unwrap_or_default();
+    let ai_trigger = pair_cfg
+        .map(|p| p.ai_trigger.clone())
+        .unwrap_or_default();
+    let weight_overrides = pair_cfg.and_then(|p| p.weight_overrides.clone());
+    let position_scaling = pair_cfg.and_then(|p| p.position_scaling.clone());
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -134,6 +142,10 @@ pub async fn add_instance(
         safety_config,
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
+        operational_mode,
+        ai_trigger,
+        weight_overrides,
+        position_scaling,
     };
 
     let artifacts = pipelines::build_pipelines(
@@ -360,6 +372,10 @@ pub async fn recharge_instance(
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
     let rest_url = config_guard.hyperliquid.rest_url();
+    let operational_mode = pair_cfg.operational_mode.clone();
+    let ai_trigger = pair_cfg.ai_trigger.clone();
+    let weight_overrides = pair_cfg.weight_overrides.clone();
+    let position_scaling = pair_cfg.position_scaling.clone();
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
@@ -415,6 +431,10 @@ pub async fn recharge_instance(
         safety_config: safety_config.clone(),
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
+        operational_mode,
+        ai_trigger,
+        weight_overrides,
+        position_scaling,
     };
 
     let artifacts = pipelines::build_pipelines(
@@ -457,7 +477,7 @@ pub async fn recharge_instance(
             let old_trading = old_instance.trading.read().await;
             tokio::sync::RwLock::new(old_trading.clone())
         },
-        config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config)),
+        config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config, pair_cfg.operational_mode.clone())),
         safety_config,
         api_key: {
             let old_key = old_instance.api_key.read().await;

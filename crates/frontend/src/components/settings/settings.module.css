@@ -1,0 +1,131 @@
+.panel {
+    background-color: #0e111a;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.panelTitle {
+    font-size: 12px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid #1e293b;
+    padding-bottom: 6px;
+}
+.panelDesc {
+    font-size: 9px;
+    color: #64748b;
+    margin: 0;
+    line-height: 1.4;
+}
+.fieldGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.fieldRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.fieldLabel {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #64748b;
+}
+.input,
+.select {
+    background-color: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 6px 8px;
+    font-size: 11px;
+    font-family: monospace;
+    width: 100%;
+    box-sizing: border-box;
+}
+.select {
+    cursor: pointer;
+}
+.input:focus,
+.select:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+.weightGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.weightRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.weightLabel {
+    font-size: 10px;
+    color: #94a3b8;
+    white-space: nowrap;
+    min-width: 120px;
+}
+.weightControl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+.weightSlider {
+    flex: 1;
+    height: 4px;
+    accent-color: #3b82f6;
+}
+.weightInput {
+    width: 48px;
+    background-color: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 3px 4px;
+    font-size: 10px;
+    font-family: monospace;
+    text-align: center;
+}
+.weightInput:focus {
+    outline: 1px solid #3b82f6;
+}
+.totalRow {
+    font-size: 10px;
+    font-weight: 600;
+    color: #64748b;
+    text-align: right;
+    padding-top: 4px;
+    border-top: 1px solid #1e293b;
+}
+.totalWarn {
+    color: #f59e0b;
+}
+.eventGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.eventCheck {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: #94a3b8;
+    cursor: pointer;
+}
+.eventCheck input {
+    accent-color: #3b82f6;
+    cursor: pointer;
+}

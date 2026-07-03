@@ -612,3 +612,55 @@ export interface EdgeAnalysisResponse {
     skewness: number;
     cached: boolean;
 }
+
+// ================================================================
+// 6. Operational Modes, Triggers & Positioning
+// ================================================================
+
+export type OperationalMode = 'ManualOnly' | 'DeterministicHeuristics' | 'HybridAiCopilot';
+
+export type TriggerModeUnion = 'interval' | 'candle_close' | 'event_driven';
+
+export interface TriggerConfigBase {
+    mode: TriggerModeUnion;
+}
+
+export interface TriggerConfigInterval extends TriggerConfigBase {
+    mode: 'interval';
+    seconds: number;
+}
+
+export interface TriggerConfigCandleClose extends TriggerConfigBase {
+    mode: 'candle_close';
+    timeframe: string;
+    count: number;
+}
+
+export interface TriggerConfigEventDriven extends TriggerConfigBase {
+    mode: 'event_driven';
+    events: string[];
+}
+
+export type TriggerModeConfig = TriggerConfigInterval | TriggerConfigCandleClose | TriggerConfigEventDriven;
+
+export interface AiTriggerConfig {
+    trigger: TriggerModeConfig;
+}
+
+export type AllocationCurveModel = 'Stepped' | 'Linear' | 'Exponential';
+
+export interface AllocationCurve {
+    model: AllocationCurveModel;
+    base_allocation_pct: number;
+    max_allocation_pct: number;
+    base_score_threshold: number;
+    micro_score_threshold: number;
+    exponent?: number;
+}
+
+export interface PositionScalingConfig {
+    allocation_curve: AllocationCurve;
+    leverage_mode: 'Fixed' | 'VolatilityScaled';
+    leverage_cap: number;
+    target_margin: number;
+}

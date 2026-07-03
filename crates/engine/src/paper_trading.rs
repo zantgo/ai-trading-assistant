@@ -641,7 +641,38 @@ pub async fn verify_margin_and_open_with_alloc(
     let alloc_pct_dec = dec(alloc_pct);
     let total_allocation = init_dec * alloc_pct_dec / dec(100.0);
 
-    let validator = PositionRiskValidator::new(balance.current_cash, balance.max_risk_pct, balance.leverage);
+    let effective_leverage = if balance.leverage_mode == "VolatilityScaled" && balance.leverage_cap > 0 {
+        let atr = db::query_latest_snapshot(pool, symbol, 60)
+            .await
+            .and_then(|s| {
+                s.indicators
+                    .get("atr")
+                    .and_then(|v| v.values.as_ref())
+                    .and_then(|m| m.get("atr_14"))
+                    .copied()
+            })
+            .unwrap_or(0.0);
+        if atr > 0.0 && current_price > 0.0 {
+            let vol_ratio = atr / current_price;
+            let optimal = if vol_ratio > 0.0 {
+                let target_margin = if balance.atr_leverage_multiplier > 0.0 {
+                    balance.atr_leverage_multiplier
+                } else {
+                    0.02
+                };
+                (target_margin / vol_ratio).clamp(1.0, balance.leverage_cap as f64)
+            } else {
+                balance.leverage as f64
+            };
+            optimal as i32
+        } else {
+            balance.leverage
+        }
+    } else {
+        balance.leverage
+    };
+
+    let validator = PositionRiskValidator::new(balance.current_cash, balance.max_risk_pct, effective_leverage);
     if let Err(e) = validator.validate_trade_cost(total_allocation) {
         return PaperTradeResult {
             success: false,

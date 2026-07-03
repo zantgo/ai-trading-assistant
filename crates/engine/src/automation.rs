@@ -7,8 +7,12 @@ use tokio_util::sync::CancellationToken;
 
 use rust_decimal::prelude::ToPrimitive;
 
-use crate::config::{AppConfig, AutomationConfig, IntervalsConfig};
+use crate::config::{
+    AppConfig, AutomationConfig, IntervalsConfig, OperationalMode, TriggerMode,
+    PositionScalingConfig,
+};
 use crate::db;
+use crate::event_detector;
 use crate::llm::LlmClient;
 use crate::paper_trading;
 use crate::profile_evaluation::{SnapshotValues, classify_market_regime};
@@ -21,6 +25,12 @@ use shared::models::MarketSnapshot;
 use shared::normalized::NormalizedCandle;
 use shared::TriggerType;
 use crate::portfolio_risk::PortfolioRiskState;
+
+#[derive(Debug, Clone)]
+pub struct TriggerMessage {
+    pub reason: String,
+    pub trigger_type_detail: String,
+}
 
 pub struct AutomationContext {
     pub pair_key: String,
@@ -48,6 +58,13 @@ pub struct AutomationContext {
     pub safety: Arc<SafetyManager>,
     pub intervals: IntervalsConfig,
     pub next_interval_override: Arc<RwLock<Option<u64>>>,
+    pub operational_mode: OperationalMode,
+    pub weight_overrides: Arc<RwLock<Option<HashMap<String, i32>>>>,
+    pub position_scaling: Arc<RwLock<Option<PositionScalingConfig>>>,
+    pub candle_counters: Arc<RwLock<HashMap<String, u32>>>,
+    pub prev_indicators: Arc<RwLock<Option<crate::server::IndicatorSnapshot>>>,
+    pub trigger_tx: mpsc::Sender<TriggerMessage>,
+    pub trigger_rx: Arc<tokio::sync::Mutex<Option<mpsc::Receiver<TriggerMessage>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +107,16 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         }
     };
 
+    let (trigger_listener_tx, mut trigger_listener_rx) = mpsc::channel::<TriggerMessage>(32);
+
+    let trigger_ctx = TriggerListenerCtx {
+        automation_ctx: ctx_to_clone(&ctx),
+        cancel: ctx.cancel.clone(),
+    };
+    tokio::spawn(async move {
+        trigger_listener_loop(trigger_ctx, &mut trigger_listener_rx).await;
+    });
+
     loop {
         tokio::select! {
             biased;
@@ -101,12 +128,17 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         }
 
         let fresh_config = ctx.config.read().await.clone();
-        let auto_cfg = fresh_config
-            .instances
-            .get(&ctx.pair_key)
+        let pair_cfg = fresh_config.instances.get(&ctx.pair_key);
+        let auto_cfg = pair_cfg
             .map(|p| &p.automation)
             .cloned()
             .unwrap_or_default();
+        let op_mode = pair_cfg
+            .map(|p| p.operational_mode.clone())
+            .unwrap_or(OperationalMode::HybridAiCopilot);
+        let trigger_cfg = pair_cfg
+            .map(|p| p.ai_trigger.trigger.clone())
+            .unwrap_or(TriggerMode::Interval { seconds: 900 });
 
         if auto_cfg.enabled != state.enabled {
             state.enabled = auto_cfg.enabled;
@@ -130,6 +162,18 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
+        match op_mode {
+            OperationalMode::ManualOnly => {
+                update_heuristics_state(&ctx).await;
+                continue;
+            }
+            OperationalMode::DeterministicHeuristics => {
+                update_heuristics_state(&ctx).await;
+                continue;
+            }
+            OperationalMode::HybridAiCopilot => {}
+        }
+
         // ─── Safety Check ────────────────────────────────────────────
         if let Err(reason) = ctx.safety.check_allow_trade().await {
             println!("🛑 Automation: {} safety block: {}", ctx.pair_key, reason);
@@ -137,7 +181,6 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         }
         if let Err(reason) = ctx.safety.check_capital_drawdown().await {
             eprintln!("🛑 Automation: {} drawdown stop triggered: {}", ctx.pair_key, reason);
-            // Immediately close any open positions to protect remaining capital
             if db::paper_get_active_position(&ctx.pool, &ctx.symbol).await.is_some() {
                 let price = ctx.micro_latest.read().await.as_ref()
                     .and_then(|s| s.mid_price.to_f64())
@@ -168,8 +211,41 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             *ctx.next_interval_override.write().await = None;
         }
 
-        let remaining = state.next_remaining_secs();
-        if remaining > 0 {
+        let should_trigger = match &trigger_cfg {
+            TriggerMode::Interval { seconds: _ } => {
+                state.next_remaining_secs() == 0
+            }
+            TriggerMode::CandleClose { timeframe, count } => {
+                let counters = ctx.candle_counters.read().await;
+                let current = counters.get(timeframe).copied().unwrap_or(0);
+                current >= *count
+            }
+            TriggerMode::EventDriven { events } => {
+                if events.is_empty() {
+                    false
+                } else {
+                    let curr = build_indicator_snapshot_from_latest(&ctx.micro_latest).await;
+                    let prev_guard = ctx.prev_indicators.read().await;
+                    let triggered = event_detector::evaluate_trigger_events(
+                        prev_guard.as_ref(),
+                        &curr,
+                        events,
+                    );
+                    if !triggered.is_empty() {
+                        println!(
+                            "🎯 Event Trigger: {} fired events: {:?}",
+                            ctx.pair_key, triggered
+                        );
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        };
+
+        if !should_trigger {
+            update_heuristics_state(&ctx).await;
             continue;
         }
 
@@ -184,7 +260,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
         }).collect();
         drop(history_guard);
 
-        let last_close = prices.last().copied().unwrap_or(0.0);
+        let last_close_rate = prices.last().copied().unwrap_or(0.0);
 
         {
             let mut hist_map = ctx.pair_close_histories.write().await;
@@ -196,11 +272,12 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
+        let trigger_detail = format_trigger_detail(&trigger_cfg);
         let master_id = db::insert_master_placeholder(
             &ctx.pool,
             "None",
             "",
-            &format!("{}", last_close),
+            &format!("{}", last_close_rate),
             &ctx.symbol,
             TriggerType::Automated,
         )
@@ -210,22 +287,182 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             &ctx.pool,
             master_id,
             &ctx.symbol,
-            &format!("{}", last_close),
+            &format!("{}", last_close_rate),
         )
+        .await;
+
+        // Log trigger detail
+        let _ = sqlx::query(
+            "UPDATE master_assistant_records SET trigger_type_detail = ?2, operational_mode = ?3 WHERE id = ?1",
+        )
+        .bind(master_id)
+        .bind(&trigger_detail)
+        .bind(ctx.operational_mode.as_str())
+        .execute(&ctx.pool)
         .await;
 
         state.last_run = Some(std::time::Instant::now());
 
-        if let Err(e) = execute_automation_cycle(&ctx, master_id, &prices).await {
-            eprintln!("Automation cycle error for {}: {}", ctx.pair_key, e);
+        // Reset candle counters on any trigger dispatch
+        if let TriggerMode::CandleClose { timeframe, .. } = &trigger_cfg {
+            ctx.candle_counters.write().await.insert(timeframe.clone(), 0);
         }
+
+        let trigger_msg = TriggerMessage {
+            reason: trigger_detail.clone(),
+            trigger_type_detail: trigger_detail,
+        };
+        let _ = trigger_listener_tx.send(trigger_msg).await;
     }
 
     println!("🛑 Automation Task: {} scheduler terminated.", ctx.pair_key);
 }
 
-async fn execute_automation_cycle(
-    ctx: &AutomationContext,
+struct TriggerListenerCtx {
+    automation_ctx: AutomationContextLight,
+    cancel: CancellationToken,
+}
+
+#[derive(Clone)]
+struct AutomationContextLight {
+    pair_key: String,
+    symbol: String,
+    micro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
+    micro_latest: Arc<RwLock<Option<MarketSnapshot>>>,
+    config: Arc<RwLock<AppConfig>>,
+    pool: SqlitePool,
+    llm_client: Arc<LlmClient>,
+    telemetry_tx: mpsc::Sender<db::TelemetryMsg>,
+    portfolio_risk: Arc<PortfolioRiskState>,
+    pair_close_histories: Arc<RwLock<HashMap<String, Vec<f64>>>>,
+    safety: Arc<SafetyManager>,
+    intervals: IntervalsConfig,
+    next_interval_override: Arc<RwLock<Option<u64>>>,
+    operational_mode: OperationalMode,
+    weight_overrides: Arc<RwLock<Option<HashMap<String, i32>>>>,
+}
+
+fn ctx_to_clone(ctx: &AutomationContext) -> AutomationContextLight {
+    AutomationContextLight {
+        pair_key: ctx.pair_key.clone(),
+        symbol: ctx.symbol.clone(),
+        micro_history: ctx.micro_history.clone(),
+        micro_latest: ctx.micro_latest.clone(),
+        config: ctx.config.clone(),
+        pool: ctx.pool.clone(),
+        llm_client: ctx.llm_client.clone(),
+        telemetry_tx: ctx.telemetry_tx.clone(),
+        portfolio_risk: ctx.portfolio_risk.clone(),
+        pair_close_histories: ctx.pair_close_histories.clone(),
+        safety: ctx.safety.clone(),
+        intervals: ctx.intervals.clone(),
+        next_interval_override: ctx.next_interval_override.clone(),
+        operational_mode: ctx.operational_mode.clone(),
+        weight_overrides: ctx.weight_overrides.clone(),
+    }
+}
+
+async fn trigger_listener_loop(
+    ctx: TriggerListenerCtx,
+    rx: &mut mpsc::Receiver<TriggerMessage>,
+) {
+    while let Some(msg) = rx.recv().await {
+        if ctx.cancel.is_cancelled() {
+            break;
+        }
+        if ctx.automation_ctx.operational_mode != OperationalMode::HybridAiCopilot {
+            continue;
+        }
+        println!(
+            "🎯 Trigger Listener: {} executing AI cycle (reason: {})",
+            ctx.automation_ctx.pair_key, msg.reason
+        );
+
+        let history_guard = ctx.automation_ctx.micro_history.read().await;
+        let prices: Vec<f64> = history_guard.iter().map(|c| c.close.to_f64().unwrap_or(0.0)).collect();
+        drop(history_guard);
+
+        let last_close = prices.last().copied().unwrap_or(0.0);
+
+        {
+            let mut hist_map = ctx.automation_ctx.pair_close_histories.write().await;
+            let entry = hist_map.entry(ctx.automation_ctx.symbol.clone()).or_default();
+            *entry = prices.clone();
+        }
+
+        let master_id = db::insert_master_placeholder(
+            &ctx.automation_ctx.pool,
+            "None",
+            "",
+            &format!("{}", last_close),
+            &ctx.automation_ctx.symbol,
+            TriggerType::Automated,
+        )
+        .await;
+
+        db::insert_automated_performance_baseline(
+            &ctx.automation_ctx.pool,
+            master_id,
+            &ctx.automation_ctx.symbol,
+            &format!("{}", last_close),
+        )
+        .await;
+
+        let _ = sqlx::query(
+            "UPDATE master_assistant_records SET trigger_type_detail = ?2, operational_mode = ?3 WHERE id = ?1",
+        )
+        .bind(master_id)
+        .bind(&msg.trigger_type_detail)
+        .bind(ctx.automation_ctx.operational_mode.as_str())
+        .execute(&ctx.automation_ctx.pool)
+        .await;
+
+        if let Err(e) = execute_automation_cycle_light(&ctx.automation_ctx, master_id, &prices).await {
+            eprintln!(
+                "Automation cycle error for {}: {}",
+                ctx.automation_ctx.pair_key, e
+            );
+        }
+    }
+}
+
+/// Update the heuristics state (prev indicators, candle counters) on each tick.
+async fn update_heuristics_state(ctx: &AutomationContext) {
+    let curr = build_indicator_snapshot_from_latest(&ctx.micro_latest).await;
+    *ctx.prev_indicators.write().await = Some(curr);
+}
+
+async fn build_indicator_snapshot_from_latest(
+    latest: &Arc<RwLock<Option<MarketSnapshot>>>,
+) -> crate::server::IndicatorSnapshot {
+    let guard = latest.read().await;
+    match guard.as_ref() {
+        Some(s) => {
+            let current_price = s.mid_price.to_string().parse::<f64>().ok();
+            let mut snap =
+                crate::server::IndicatorSnapshot::new(s.indicators.clone(), current_price);
+            snap.volume = s.volume.and_then(|d| d.to_string().parse::<f64>().ok());
+            snap.average_volume = s.average_volume.and_then(|d| d.to_string().parse::<f64>().ok());
+            snap
+        }
+        None => crate::server::IndicatorSnapshot::default(),
+    }
+}
+
+fn format_trigger_detail(cfg: &TriggerMode) -> String {
+    match cfg {
+        TriggerMode::Interval { seconds } => format!("interval:{}s", seconds),
+        TriggerMode::CandleClose { timeframe, count } => {
+            format!("candle:{}:{}", timeframe, count)
+        }
+        TriggerMode::EventDriven { events } => {
+            format!("event:{}", events.join(","))
+        }
+    }
+}
+
+async fn execute_automation_cycle_light(
+    ctx: &AutomationContextLight,
     master_id: i64,
     prices: &[f64],
 ) -> Result<(), String> {
@@ -236,10 +473,10 @@ async fn execute_automation_cycle(
 
     let last_close = prices.last().copied().unwrap_or(0.0);
 
-    // Gather snapshots from all 4 timeframes
     let config_guard = ctx.config.read().await;
     let slow_tf_secs = config_guard.slow_timeframe.duration_seconds;
     let macro_tf_secs = config_guard.macro_timeframe.duration_seconds;
+    let _scoring_cfg = config_guard.scoring.clone();
     drop(config_guard);
 
     let snapshot_micro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
@@ -262,6 +499,9 @@ async fn execute_automation_cycle(
         &support_strings,
         &resistance_strings,
     );
+
+    let weight_overrides_guard = ctx.weight_overrides.read().await;
+    let weight_map = weight_overrides_guard.as_ref();
 
     let multi_agent_results = crate::server::run_multi_agent_pipeline(
         llm.clone(),
@@ -330,6 +570,18 @@ async fn execute_automation_cycle(
         })
         .await;
 
+    if let Some(wm) = weight_map {
+        if let Ok(json) = serde_json::to_string(wm) {
+            let _ = sqlx::query(
+                "UPDATE master_assistant_records SET indicator_weights_json = ?2 WHERE id = ?1",
+            )
+            .bind(master_id)
+            .bind(&json)
+            .execute(&ctx.pool)
+            .await;
+        }
+    }
+
     println!(
         "🤖 Automation: {} analysis complete. Action: {} | Trend: {} | Interval: {}",
         ctx.pair_key,
@@ -338,7 +590,6 @@ async fn execute_automation_cycle(
         phase_two.position_recommendation.next_interval.as_deref().unwrap_or("normal"),
     );
 
-    // ─── Dynamic Interval Selection ─────────────────────────
     if let Some(ref next) = phase_two.position_recommendation.next_interval {
         let new_secs = match next.as_str() {
             "slow" => ctx.intervals.slow_seconds,
@@ -376,7 +627,6 @@ async fn execute_automation_cycle(
     )
     .await;
 
-    // Paper trading evaluation
     let balance = db::paper_get_balance(&ctx.pool, &ctx.symbol).await;
     if !balance.auto_execute {
         return Ok(());
@@ -391,17 +641,16 @@ async fn execute_automation_cycle(
         (supports, resistances)
     };
 
-    let auto_cfg = {
+    let auto_cfg_light = {
         let cfg = ctx.config.read().await;
         cfg.instances
             .get(&ctx.pair_key)
             .map(|p| p.automation.clone())
             .unwrap_or_default()
     };
-    let use_scoring = auto_cfg.use_scoring_allocation;
-    let max_opposite = auto_cfg.max_opposite_exit_signals as u32;
+    let use_scoring = auto_cfg_light.use_scoring_allocation;
+    let max_opposite = auto_cfg_light.max_opposite_exit_signals as u32;
 
-    // Portfolio risk validation
     let existing_positions = crate::portfolio_risk::query_all_active_positions(&ctx.pool).await;
     let validation = crate::portfolio_risk::validate_new_position(
         &ctx.portfolio_risk,
