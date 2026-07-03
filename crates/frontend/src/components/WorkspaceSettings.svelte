@@ -40,6 +40,7 @@
     let weightOverrides = $state<Record<string, number>>({});
     let positionScaling = $state<PositionScalingConfig | null>(null);
     let aiTriggerConfig = $state<{ trigger: import('../types').TriggerModeConfig } | null>(null);
+    let operationalMode = $state<import('../types').OperationalMode>('HybridAiCopilot');
 
     $effect(() => {
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
@@ -203,6 +204,7 @@
         aiConfigSaveStatus = 'saving';
         try {
             const payload: Record<string, unknown> = {
+                operational_mode: operationalMode,
                 weight_overrides: weightOverrides && Object.keys(weightOverrides).length > 0 ? weightOverrides : null,
                 position_scaling: positionScaling,
                 ai_trigger: aiTriggerConfig,
@@ -261,6 +263,17 @@
                         {draft.automation.enabled ? 'ON' : 'OFF'}
                     </button>
                 </div>
+                <div class={styles.inputRow} style="margin-top: 8px;">
+                    <label for="opMode">Operational Mode:</label>
+                    <select id="opMode" bind:value={operationalMode} class={styles.tfUnitSelect}>
+                        <option value="HybridAiCopilot">AI Copilot</option>
+                        <option value="DeterministicHeuristics">Heuristics Only</option>
+                        <option value="ManualOnly">Manual Only</option>
+                    </select>
+                </div>
+                <p style="font-size: 8px; color: #64748b; margin: 4px 0 0 0;">
+                    AI Copilot: full LLM pipeline. Heuristics Only: local indicators, no AI calls. Manual Only: local indicators + on-demand AI via sidebar.
+                </p>
                 {#if draft.automation.enabled}
                     <div class={styles.inputRow} style="margin-top: 8px;">
                         <label for="autoInterval">Interval:</label>
