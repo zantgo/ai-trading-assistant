@@ -1,6 +1,7 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { emaStackState, vwapBias, divStatus } from '../lib/telemetry';
+    import { emaStackState, vwapBias, divStatus, iSub } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
@@ -194,17 +195,33 @@
                     if (ind) {
                         const mapIndicator = (arr: (string | null)[] | undefined) => {
                             if (!arr) return [];
-                            return arr
+                            // Align each indicator value to its own timestamp in
+                            // `ind.times` (NOT the de-duplicated candle array,
+                            // whose length differs and causes index drift), then
+                            // de-duplicate + sort so lightweight-charts accepts it.
+                            const raw = arr
                                 .map((val, i) => {
-                                    if (val != null && historicalCandles[i]) {
+                                    if (val != null && ind.times[i] != null) {
                                         return {
-                                            time: historicalCandles[i].time,
+                                            time: ind.times[i] as Time,
                                             value: parseFloat(val)
                                         };
                                     }
                                     return null;
                                 })
                                 .filter((item): item is { time: Time; value: number } => item !== null);
+
+                            const seen = new Set<number>();
+                            const cleaned: { time: Time; value: number }[] = [];
+                            for (const item of raw) {
+                                const t = item.time as number;
+                                if (!seen.has(t)) {
+                                    seen.add(t);
+                                    cleaned.push(item);
+                                }
+                            }
+                            cleaned.sort((a, b) => (a.time as number) - (b.time as number));
+                            return cleaned;
                         };
                         ema10Series.setData(mapIndicator(ind.ema_fast));
                         ema50Series.setData(mapIndicator(ind.ema_medium));
@@ -268,6 +285,7 @@
         const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
+        const m = (snap.indicators ?? {}) as IndicatorMap;
 
         if (snap.open != null && snap.high != null && snap.low != null && snap.close != null) {
             candleSeries.update({
@@ -283,14 +301,24 @@
             });
         }
 
-        if (snap.ema_fast !== undefined && snap.ema_fast !== null) ema10Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_fast)) });
-        if (snap.ema_medium !== undefined && snap.ema_medium !== null) ema50Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_medium)) });
-        if (snap.ema_slow !== undefined && snap.ema_slow !== null) ema100Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_slow)) });
-        if (snap.ema_long !== undefined && snap.ema_long !== null) ema200Series.update({ time: timeSec as Time, value: parseFloat(String(snap.ema_long)) });
-        if (snap.bb_upper !== undefined && snap.bb_upper !== null) bbUpperSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_upper)) });
-        if (snap.bb_middle !== undefined && snap.bb_middle !== null) bbMiddleSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_middle)) });
-        if (snap.bb_lower !== undefined && snap.bb_lower !== null) bbLowerSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.bb_lower)) });
-        if (snap.vwap !== undefined && snap.vwap !== null) vwapSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.vwap)) });
+        // v2.0 nested indicator map — the flat top-level fields no longer exist.
+        const emaFast = iSub(m, 'ema_stack', 'fast');
+        const emaMedium = iSub(m, 'ema_stack', 'medium');
+        const emaSlow = iSub(m, 'ema_stack', 'slow');
+        const emaLong = iSub(m, 'ema_stack', 'long');
+        const bbUpper = iSub(m, 'bollinger', 'upper');
+        const bbMiddle = iSub(m, 'bollinger', 'middle');
+        const bbLower = iSub(m, 'bollinger', 'lower');
+        const vwapVal = iSub(m, 'vwap', 'vwap');
+
+        if (emaFast != null) ema10Series.update({ time: timeSec as Time, value: emaFast });
+        if (emaMedium != null) ema50Series.update({ time: timeSec as Time, value: emaMedium });
+        if (emaSlow != null) ema100Series.update({ time: timeSec as Time, value: emaSlow });
+        if (emaLong != null) ema200Series.update({ time: timeSec as Time, value: emaLong });
+        if (bbUpper != null) bbUpperSeries.update({ time: timeSec as Time, value: bbUpper });
+        if (bbMiddle != null) bbMiddleSeries.update({ time: timeSec as Time, value: bbMiddle });
+        if (bbLower != null) bbLowerSeries.update({ time: timeSec as Time, value: bbLower });
+        if (vwapVal != null) vwapSeries.update({ time: timeSec as Time, value: vwapVal });
     });
 
     // Support level price lines
@@ -426,10 +454,11 @@
         const snap = tf.latestSnapshot;
         if (!snap) return;
 
-        const gpLow = snap.fib_golden_pocket_low != null ? parseFloat(String(snap.fib_golden_pocket_low)) : null;
-        const gpHigh = snap.fib_golden_pocket_high != null ? parseFloat(String(snap.fib_golden_pocket_high)) : null;
-        const ext1618 = snap.fib_extension_1618 != null ? parseFloat(String(snap.fib_extension_1618)) : null;
-        const ext2618 = snap.fib_extension_2618 != null ? parseFloat(String(snap.fib_extension_2618)) : null;
+        const fm = (snap.indicators ?? {}) as IndicatorMap;
+        const gpLow = iSub(fm, 'fibonacci', 'gp_bottom');
+        const gpHigh = iSub(fm, 'fibonacci', 'gp_top');
+        const ext1618 = iSub(fm, 'fibonacci', 'ext_1618');
+        const ext2618 = iSub(fm, 'fibonacci', 'ext_2618');
 
         if (gpHigh != null && gpHigh > 0) {
             fibGpTopLine = candleSeries.createPriceLine({

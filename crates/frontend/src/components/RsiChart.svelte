@@ -1,5 +1,7 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
+    import { iRaw } from '../lib/telemetry';
+    import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -142,9 +144,10 @@
         const snap = tf.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        if (snap.rsi_14 != null) {
-                rsiSeries.update({ time: timeSec as Time, value: parseFloat(String(snap.rsi_14)) });
-            }
+        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rsi');
+        if (val != null) {
+            rsiSeries.update({ time: timeSec as Time, value: val });
+        }
     });
 </script>
 

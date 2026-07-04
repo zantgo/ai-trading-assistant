@@ -169,6 +169,7 @@ pub fn evaluate_allocation_curve(
     base_threshold: u32,
     micro_threshold: u32,
     model: &crate::config::AllocationCurveModel,
+    exponent: f64,
 ) -> f64 {
     match model {
         crate::config::AllocationCurveModel::Stepped => {
@@ -188,12 +189,12 @@ pub fn evaluate_allocation_curve(
             let ratio = (abs_score as f64) / (micro_threshold as f64).max(1.0);
             base_pct + (max_pct - base_pct) * ratio.min(1.0)
         }
-        crate::config::AllocationCurveModel::Exponential { exponent } => {
+        crate::config::AllocationCurveModel::Exponential => {
             if abs_score <= 0 {
                 return base_pct;
             }
             let ratio = (abs_score as f64) / (micro_threshold as f64).max(1.0);
-            base_pct + (max_pct - base_pct) * ratio.min(1.0).powf(*exponent)
+            base_pct + (max_pct - base_pct) * ratio.min(1.0).powf(exponent)
         }
     }
 }
@@ -241,7 +242,7 @@ pub fn calculate_eight_factor_score_with_weights(
     } else {
         (1.0, 3.0, 40u32, 60u32, &crate::config::AllocationCurveModel::Stepped)
     };
-    let allocated_capital_pct = evaluate_allocation_curve(abs_score, base_pct, max_pct, base_th, micro_th, model);
+    let allocated_capital_pct = evaluate_allocation_curve(abs_score, base_pct, max_pct, base_th, micro_th, model, 2.0);
 
     let aligned = |contribution: f64| -> bool {
         if is_bullish { contribution > 0.0 } else { contribution < 0.0 }
@@ -449,24 +450,24 @@ mod tests {
     #[test]
     fn allocation_stepped_is_backward_compatible() {
         use crate::config::AllocationCurveModel;
-        assert_eq!(evaluate_allocation_curve(20, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped), 1.0);
-        assert_eq!(evaluate_allocation_curve(40, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped), 2.0);
-        assert_eq!(evaluate_allocation_curve(55, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped), 2.0);
-        assert_eq!(evaluate_allocation_curve(60, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped), 3.0);
+        assert_eq!(evaluate_allocation_curve(20, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 1.0);
+        assert_eq!(evaluate_allocation_curve(40, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 2.0);
+        assert_eq!(evaluate_allocation_curve(55, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 2.0);
+        assert_eq!(evaluate_allocation_curve(60, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 3.0);
     }
 
     #[test]
     fn allocation_linear_interpolates() {
         use crate::config::AllocationCurveModel;
-        let pct = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear);
+        let pct = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
         assert!((pct - 2.0).abs() < 0.01, "linear at 50% of max score should give midpoint; got {}", pct);
     }
 
     #[test]
     fn allocation_exponential_front_loads() {
         use crate::config::AllocationCurveModel;
-        let pct_linear = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear);
-        let pct_exp = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Exponential { exponent: 3.0 });
+        let pct_linear = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
+        let pct_exp = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Exponential, 3.0);
         assert!(pct_exp <= pct_linear, "exponential (exp=3) at 50% score should be <= linear; exp={} linear={}", pct_exp, pct_linear);
     }
 }

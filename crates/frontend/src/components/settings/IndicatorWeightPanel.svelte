@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from 'svelte';
     import styles from './settings.module.css';
 
     const INDICATORS = [
@@ -18,7 +19,7 @@
     }: { onchange?: (w: Record<string, number>) => void; initial?: Record<string, number> | null } = $props();
 
     let weights = $state<Record<string, number>>(
-        initial ? { ...initial } : Object.fromEntries(INDICATORS.map((i) => [i.key, i.defaultWeight])),
+        untrack(() => initial ? { ...initial } : Object.fromEntries(INDICATORS.map((i) => [i.key, i.defaultWeight]))),
     );
 
     let totalWeight = $derived(Object.values(weights).reduce((s, w) => s + w, 0));
@@ -37,9 +38,10 @@
     <div class={styles.weightGrid}>
         {#each INDICATORS as ind}
             <div class={styles.weightRow}>
-                <label class={styles.weightLabel}>{ind.label}</label>
+                <label class={styles.weightLabel} for="weight-{ind.key}">{ind.label}</label>
                 <div class={styles.weightControl}>
                     <input
+                        id="weight-{ind.key}"
                         type="range"
                         min="0"
                         max="100"

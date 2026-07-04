@@ -172,15 +172,15 @@
                 candles: { duration_seconds: draft.micro.durationSeconds, analysis_limit: draft.micro.analysisLimit },
                 indicators: buildIndicators(draft.micro),
             },
-            short_term: {
+            fast_term: {
                 candles: { duration_seconds: draft.fast.durationSeconds, analysis_limit: draft.fast.analysisLimit },
                 indicators: buildIndicators(draft.fast),
             },
-            medium_term: {
+            slow_term: {
                 candles: { duration_seconds: draft.slow.durationSeconds, analysis_limit: draft.slow.analysisLimit },
                 indicators: buildIndicators(draft.slow),
             },
-            large_term: {
+            macro_term: {
                 candles: { duration_seconds: draft.macro.durationSeconds, analysis_limit: draft.macro.analysisLimit },
                 indicators: buildIndicators(draft.macro),
             },

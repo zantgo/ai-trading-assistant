@@ -90,9 +90,6 @@ pub async fn add_instance(
     let operational_mode = pair_cfg
         .map(|p| p.operational_mode.clone())
         .unwrap_or_default();
-    let ai_trigger = pair_cfg
-        .map(|p| p.ai_trigger.clone())
-        .unwrap_or_default();
     let weight_overrides = pair_cfg.and_then(|p| p.weight_overrides.clone());
     let position_scaling = pair_cfg.and_then(|p| p.position_scaling.clone());
     drop(config_guard);
@@ -143,7 +140,6 @@ pub async fn add_instance(
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
         operational_mode,
-        ai_trigger,
         weight_overrides,
         position_scaling,
     };
@@ -373,7 +369,6 @@ pub async fn recharge_instance(
     let intervals_config = config_guard.intervals.clone();
     let rest_url = config_guard.hyperliquid.rest_url();
     let operational_mode = pair_cfg.operational_mode.clone();
-    let ai_trigger = pair_cfg.ai_trigger.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
     let position_scaling = pair_cfg.position_scaling.clone();
     drop(config_guard);
@@ -432,7 +427,6 @@ pub async fn recharge_instance(
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
         operational_mode,
-        ai_trigger,
         weight_overrides,
         position_scaling,
     };

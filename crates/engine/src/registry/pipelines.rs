@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, RwLock};
 use crate::analyzer;
 use crate::automation;
 use crate::config::{
-    AiTriggerConfig, FibonacciConfig, IntervalsConfig, OperationalMode, PositionScalingConfig,
+    FibonacciConfig, IntervalsConfig, OperationalMode, PositionScalingConfig,
     SafetyConfig, TimeframeConfig,
 };
 use crate::db;
@@ -31,7 +31,6 @@ pub struct PipelineContext {
     pub intervals_config: IntervalsConfig,
     pub cancel: CancellationToken,
     pub operational_mode: OperationalMode,
-    pub ai_trigger: AiTriggerConfig,
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     pub position_scaling: Option<PositionScalingConfig>,
 }

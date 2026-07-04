@@ -61,16 +61,16 @@
             <p class={styles.ccCardSub}>Calculate round-trip fees and minimum profit needed to break even</p>
             <div class={styles.ccCalcRow}>
                 <div class={styles.ccCalcField}>
-                    <label class={styles.ccCalcLabel}>Leverage</label>
-                    <input type="number" min="1" max="150" step="1" bind:value={calcLeverage} class={styles.ccCalcInput} />
+                    <label class={styles.ccCalcLabel} for="cc-calc-leverage">Leverage</label>
+                    <input id="cc-calc-leverage" type="number" min="1" max="150" step="1" bind:value={calcLeverage} class={styles.ccCalcInput} />
                 </div>
                 <div class={styles.ccCalcField}>
-                    <label class={styles.ccCalcLabel}>Capital ($)</label>
-                    <input type="number" min="1" step="100" bind:value={calcCapital} class={styles.ccCalcInput} />
+                    <label class={styles.ccCalcLabel} for="cc-calc-capital">Capital ($)</label>
+                    <input id="cc-calc-capital" type="number" min="1" step="100" bind:value={calcCapital} class={styles.ccCalcInput} />
                 </div>
                 <div class={styles.ccCalcField}>
-                    <label class={styles.ccCalcLabel}>Exchange Fee (%)</label>
-                    <input type="number" min="0" max="10" step="0.01" bind:value={calcFeePct} class={styles.ccCalcInput} />
+                    <label class={styles.ccCalcLabel} for="cc-calc-fee">Exchange Fee (%)</label>
+                    <input id="cc-calc-fee" type="number" min="0" max="10" step="0.01" bind:value={calcFeePct} class={styles.ccCalcInput} />
                 </div>
             </div>
             <div class={styles.ccCalcResults}>

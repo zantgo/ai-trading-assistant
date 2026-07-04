@@ -399,7 +399,7 @@ pub enum AllocationCurveModel {
     /// Linear interpolation between base and max pct.
     Linear,
     /// Exponential curve concentrating allocation at high scores.
-    Exponential { exponent: f64 },
+    Exponential,
 }
 
 impl Default for AllocationCurveModel {
@@ -420,6 +420,8 @@ pub struct AllocationCurve {
     pub base_score_threshold: u32,
     #[serde(default = "default_micro_score_threshold")]
     pub micro_score_threshold: u32,
+    #[serde(default = "default_exponent")]
+    pub exponent: f64,
 }
 
 impl Default for AllocationCurve {
@@ -430,9 +432,12 @@ impl Default for AllocationCurve {
             max_allocation_pct: default_max_allocation_pct(),
             base_score_threshold: default_base_score_threshold(),
             micro_score_threshold: default_micro_score_threshold(),
+            exponent: default_exponent(),
         }
     }
 }
+
+fn default_exponent() -> f64 { 2.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PositionScalingConfig {

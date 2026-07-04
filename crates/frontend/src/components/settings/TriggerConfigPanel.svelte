@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from 'svelte';
     import type { TriggerModeConfig, TriggerModeUnion } from '../../types';
     import styles from './settings.module.css';
 
@@ -14,18 +15,18 @@
         initial,
     }: { onchange?: (c: { trigger: TriggerModeConfig }) => void; initial?: { trigger: TriggerModeConfig } | null } = $props();
 
-    let triggerMode = $state<TriggerModeUnion>(initial?.trigger?.mode ?? 'interval');
+    let triggerMode = $state<TriggerModeUnion>(untrack(() => initial?.trigger?.mode ?? 'interval'));
     let intervalSeconds = $state<number>(
-        initial?.trigger?.mode === 'interval' ? (initial.trigger as any).seconds : 900,
+        untrack(() => initial?.trigger?.mode === 'interval' ? (initial.trigger as any).seconds : 900),
     );
     let candleTimeframe = $state<string>(
-        initial?.trigger?.mode === 'candle_close' ? (initial.trigger as any).timeframe : 'slow',
+        untrack(() => initial?.trigger?.mode === 'candle_close' ? (initial.trigger as any).timeframe : 'slow'),
     );
     let candleCount = $state<number>(
-        initial?.trigger?.mode === 'candle_close' ? (initial.trigger as any).count : 3,
+        untrack(() => initial?.trigger?.mode === 'candle_close' ? (initial.trigger as any).count : 3),
     );
     let selectedEvents = $state<string[]>(
-        initial?.trigger?.mode === 'event_driven' ? [...(initial.trigger as any).events] : [],
+        untrack(() => initial?.trigger?.mode === 'event_driven' ? [...(initial.trigger as any).events] : []),
     );
 
     function toggleEvent(eventKey: string) {
@@ -55,8 +56,8 @@
     <p class={styles.panelDesc}>Configure when the AI orchestrator is automatically invoked.</p>
 
     <div class={styles.fieldGroup}>
-        <label class={styles.fieldLabel}>Trigger Mode</label>
-        <select class={styles.select} value={triggerMode} onchange={(e) => { triggerMode = e.currentTarget.value as TriggerModeUnion; emit(); }}>
+        <label class={styles.fieldLabel} for="tc-trigger-mode">Trigger Mode</label>
+        <select id="tc-trigger-mode" class={styles.select} value={triggerMode} onchange={(e) => { triggerMode = e.currentTarget.value as TriggerModeUnion; emit(); }}>
             <option value="interval">Time Interval</option>
             <option value="candle_close">Candle Close</option>
             <option value="event_driven">Event Driven</option>
@@ -65,16 +66,16 @@
 
     {#if triggerMode === 'interval'}
         <div class={styles.fieldGroup}>
-            <label class={styles.fieldLabel}>Interval (seconds)</label>
-            <input type="number" min="30" max="86400" step="30" value={intervalSeconds} oninput={(e) => { intervalSeconds = parseInt(e.currentTarget.value) || 900; emit(); }} class={styles.input} />
+            <label class={styles.fieldLabel} for="tc-interval-seconds">Interval (seconds)</label>
+            <input id="tc-interval-seconds" type="number" min="30" max="86400" step="30" value={intervalSeconds} oninput={(e) => { intervalSeconds = parseInt(e.currentTarget.value) || 900; emit(); }} class={styles.input} />
         </div>
     {/if}
 
     {#if triggerMode === 'candle_close'}
         <div class={styles.fieldRow}>
             <div class={styles.fieldGroup}>
-                <label class={styles.fieldLabel}>Timeframe</label>
-                <select class={styles.select} value={candleTimeframe} onchange={(e) => { candleTimeframe = e.currentTarget.value; emit(); }}>
+                <label class={styles.fieldLabel} for="tc-candle-timeframe">Timeframe</label>
+                <select id="tc-candle-timeframe" class={styles.select} value={candleTimeframe} onchange={(e) => { candleTimeframe = e.currentTarget.value; emit(); }}>
                     <option value="micro">Micro</option>
                     <option value="fast">Fast</option>
                     <option value="slow">Slow</option>
@@ -82,8 +83,8 @@
                 </select>
             </div>
             <div class={styles.fieldGroup}>
-                <label class={styles.fieldLabel}>Candle Count</label>
-                <input type="number" min="1" max="100" step="1" value={candleCount} oninput={(e) => { candleCount = parseInt(e.currentTarget.value) || 3; emit(); }} class={styles.input} />
+                <label class={styles.fieldLabel} for="tc-candle-count">Candle Count</label>
+                <input id="tc-candle-count" type="number" min="1" max="100" step="1" value={candleCount} oninput={(e) => { candleCount = parseInt(e.currentTarget.value) || 3; emit(); }} class={styles.input} />
             </div>
         </div>
     {/if}

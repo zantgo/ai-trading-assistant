@@ -659,6 +659,7 @@ pub struct InstanceListResponse { pub instances: Vec<crate::registry::InstanceSu
 pub struct InstanceDetailQuery { #[serde(default)] pub id: String, #[serde(default)] pub pair_key: Option<String> }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InstanceConfigPayload {
     #[serde(default)]
     pub micro_term: Option<crate::config::TimeframeConfig>,
