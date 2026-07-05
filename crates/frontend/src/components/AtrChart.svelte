@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { iRaw, atrVolatilityRegime } from '../lib/telemetry';
+    import { iRaw, atrVolatilityRegime, getPriceFormat, getDecimalCount } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
@@ -24,6 +24,17 @@
     let atrSeries: ISeriesApi<'Line'>;
     let atrVal = $state(0);
     let atrRegime = $state('stable');
+
+    // Reconfigure the ATR price scale only when the asset's price crosses a
+    // decimal tier so axis/crosshair labels match the active pricing scale.
+    let lastAtrDecimals = -1;
+    function applyAtrScale(refPrice: number): void {
+        if (!atrSeries || refPrice <= 0) return;
+        const decimals = getDecimalCount(refPrice);
+        if (decimals === lastAtrDecimals) return;
+        lastAtrDecimals = decimals;
+        atrSeries.applyOptions({ priceFormat: getPriceFormat(refPrice) });
+    }
 
     onMount(() => {
         chart = createChart(container, {
@@ -165,6 +176,9 @@
         if (val != null) {
             atrSeries.update({ time: timeSec as Time, value: val });
             atrVal = val;
+
+            const refPrice = parseFloat(tf.priceText) || 0;
+            applyAtrScale(refPrice);
 
             const regime = atrVolatilityRegime(m);
             atrRegime = regime;

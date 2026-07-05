@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { calcLiqPrice, calcSizeUnits, calcEstFees } from '../stores/paperTrading.svelte';
+    import { getDecimalCount } from '../lib/telemetry';
     import styles from './OrderTicket.module.css';
 
     const app = useAppStore();
@@ -36,6 +37,12 @@
     function fmt(n: number, decimals = 2): string {
         if (!isFinite(n)) return '—';
         return n.toFixed(decimals);
+    }
+
+    // Price-scaled formatter keyed off the active tab's current mark price.
+    function fmtPx(n: number): string {
+        if (!isFinite(n)) return '—';
+        return n.toFixed(getDecimalCount(markPrice));
     }
 
     async function handleLeverageApply() {
@@ -188,7 +195,7 @@
         <div class={styles.summaryRow}>
             <span class={styles.summaryLabel}>Est. Liq Price</span>
             <span class="{styles.summaryValue} {markPrice > 0 && liqPrice > 0 ? styles.summaryDanger : ''}">
-                {markPrice > 0 ? '$' + fmt(liqPrice) : '—'}
+                {markPrice > 0 ? '$' + fmtPx(liqPrice) : '—'}
             </span>
         </div>
         <div class={styles.summaryRow}>

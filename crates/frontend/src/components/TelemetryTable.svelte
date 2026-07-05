@@ -1,7 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './TelemetryTable.module.css';
-    import { iRaw, iSub, fmt, isSqueezeOn } from '../lib/telemetry';
+    import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn } from '../lib/telemetry';
     import type { TimeframeTelemetry } from '../types';
 
     const app = useAppStore();
@@ -12,12 +12,17 @@
 
     const timeframes = ['microTerm', 'fastTerm', 'slowTerm', 'macroTerm'] as const;
 
+    // Price-scaled formatter keyed off each timeframe's own price text.
+    function pxf(tf: TimeframeTelemetry, v: number | null): string {
+        return fmtPrice(v, parseFloat(tf.priceText) || 0);
+    }
+
     // Table rows: [display label, indicator map key, raw-value accessor].
     // Semantic state strings now come directly from the backend `state_label`.
     const ROWS: Array<[string, string, (tf: TimeframeTelemetry) => string]> = [
         ['PRICE ACT', 'ema_stack', (tf) => tf.priceText],
-        ['VWAP', 'vwap', (tf) => fmt(iSub(tf.indicators, 'vwap', 'vwap') ?? iRaw(tf.indicators, 'vwap'), 2)],
-        ['EMA', 'ema_stack', (tf) => fmt(iSub(tf.indicators, 'ema_stack', 'fast'), 2)],
+        ['VWAP', 'vwap', (tf) => pxf(tf, iSub(tf.indicators, 'vwap', 'vwap') ?? iRaw(tf.indicators, 'vwap'))],
+        ['EMA', 'ema_stack', (tf) => pxf(tf, iSub(tf.indicators, 'ema_stack', 'fast'))],
         ['VOLUME', 'rvol', (tf) => tf.volText],
         ['RVOL', 'rvol', (tf) => (iRaw(tf.indicators, 'rvol') ?? 1).toFixed(2)],
         ['MACD', 'macd', (tf) => fmt(iRaw(tf.indicators, 'macd'), 4)],
@@ -25,7 +30,7 @@
         ['RSI', 'rsi', (tf) => fmt(iRaw(tf.indicators, 'rsi'), 2)],
         ['ADX', 'adx', (tf) => fmt(iSub(tf.indicators, 'adx', 'adx') ?? iRaw(tf.indicators, 'adx'), 2)],
         ['BBWP', 'bbwp', (tf) => `${fmt(iRaw(tf.indicators, 'bbwp'), 1)}%`],
-        ['ATR', 'atr', (tf) => fmt(iRaw(tf.indicators, 'atr'), 2)],
+        ['ATR', 'atr', (tf) => pxf(tf, iRaw(tf.indicators, 'atr'))],
     ];
 
     function formatTfLabel(secs: number): string {

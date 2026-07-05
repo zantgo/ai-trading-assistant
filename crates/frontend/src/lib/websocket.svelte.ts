@@ -1,5 +1,6 @@
 import type { AppStore } from '../state.svelte';
 import type { IndicatorMap, TimeframeTelemetry } from '../types';
+import { getDecimalCount } from './telemetry';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
 
@@ -69,7 +70,7 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
 
         // Core (non-indicator) market data.
         const mid = num(snapshot.mid_price);
-        if (mid != null) tf.priceText = mid.toFixed(2);
+        if (mid != null) tf.priceText = mid.toFixed(getDecimalCount(mid));
         const vol = num(snapshot.volume);
         if (vol != null) tf.volText = vol.toFixed(2);
         const avgVol = num(snapshot.average_volume);

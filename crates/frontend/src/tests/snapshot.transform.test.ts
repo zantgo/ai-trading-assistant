@@ -83,8 +83,8 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         const tf = app.instancesMap['BTC-USDT'].microTerm;
         applySnapshotToTimeframe(tf, wsEvent(nestedSnapshot()));
 
-        // Core (non-indicator) market data stays as flat text.
-        expect(tf.priceText).toBe('65000.00');
+        // Core (non-indicator) market data stays as flat text, price-scaled.
+        expect(tf.priceText).toBe('65000.0');
 
         // All indicator-derived values come from the nested map (single source
         // of truth) — no legacy flat fields remain on TimeframeTelemetry.
@@ -116,7 +116,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
             wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '30000.00' }),
         );
         expect(tf.indicators).toEqual({});
-        expect(tf.priceText).toBe('30000.00');
+        expect(tf.priceText).toBe('30000.0');
         expect(tf.isCompleted).toBe(false);
         // Accessing a missing indicator is safe via optional chaining.
         expect(tf.indicators['rsi']?.state_label ?? 'UNKNOWN').toBe('UNKNOWN');

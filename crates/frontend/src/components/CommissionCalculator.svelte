@@ -1,9 +1,13 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import type { RiskProfile, CommissionProjection } from '../types';
+    import { fmtPrice } from '../lib/telemetry';
     import styles from './CommissionCalculator.module.css';
 
     const app = useAppStore();
+
+    // Reference price for the panel's decimal resolution: the Entry 1 price.
+    const refPrice = $derived(parseFloat(app.commissionEntry1) || 0);
 
     $effect(() => {
         app.fetchRiskProfiles();
@@ -41,6 +45,12 @@
     function formatUsd(v: number | undefined | null): string {
         if (v == null || isNaN(v)) return '$0.00';
         return '$' + v.toFixed(2);
+    }
+
+    // Price-scaled USD formatter for price-level fields (weighted entry, SL/TP).
+    function formatPx(v: number | undefined | null): string {
+        if (v == null || isNaN(v)) return '$0.00';
+        return '$' + fmtPrice(v, refPrice);
     }
 
     function formatPct(v: number | undefined | null): string {
@@ -222,15 +232,15 @@
                 <div class="{styles.ccResultGrid} {styles.ccResultGrid3}">
                     <div class={styles.ccResultItem}>
                         <span class={styles.ccResultLabel}>Weighted Avg Entry</span>
-                        <span class={styles.ccResultValue}>{formatUsd(proj.weighted_avg_entry)}</span>
+                        <span class={styles.ccResultValue}>{formatPx(proj.weighted_avg_entry)}</span>
                     </div>
                     <div class={styles.ccResultItem}>
                         <span class={styles.ccResultLabel}>Effective Stop Loss</span>
-                        <span class="{styles.ccResultValue} {styles.ccResultSl}">{formatUsd(proj.effective_stop_loss)}</span>
+                        <span class="{styles.ccResultValue} {styles.ccResultSl}">{formatPx(proj.effective_stop_loss)}</span>
                     </div>
                     <div class={styles.ccResultItem}>
                         <span class={styles.ccResultLabel}>Effective Take Profit</span>
-                        <span class="{styles.ccResultValue} {styles.ccResultTp}">{formatUsd(proj.effective_take_profit)}</span>
+                        <span class="{styles.ccResultValue} {styles.ccResultTp}">{formatPx(proj.effective_take_profit)}</span>
                     </div>
                     <div class={styles.ccResultItem}>
                         <span class={styles.ccResultLabel}>Total Notional</span>

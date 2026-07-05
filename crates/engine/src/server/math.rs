@@ -25,12 +25,18 @@ pub fn compute_support_resistance(
     local_mins.sort_by(|a, b| a.partial_cmp(b).unwrap());
     local_maxs.sort_by(|a, b| b.partial_cmp(a).unwrap());
 
-    let step_size = if current_price >= 1000.0 {
+    let step_size = if current_price >= 10000.0 {
+        0.1
+    } else if current_price >= 1000.0 {
         0.01
-    } else if current_price >= 1.0 {
+    } else if current_price >= 100.0 {
+        0.001
+    } else if current_price >= 10.0 {
         0.0001
-    } else {
+    } else if current_price >= 1.0 {
         0.000001
+    } else {
+        0.00000001
     };
 
     let dedup_threshold = current_price * 0.002;
@@ -74,12 +80,18 @@ fn filter_levels(
             continue;
         }
 
-        let formatted = if step_size >= 0.01 {
+        let formatted = if step_size >= 0.1 {
+            format!("{:.1}", rounded)
+        } else if step_size >= 0.01 {
             format!("{:.2}", rounded)
+        } else if step_size >= 0.001 {
+            format!("{:.3}", rounded)
         } else if step_size >= 0.0001 {
             format!("{:.4}", rounded)
-        } else {
+        } else if step_size >= 0.000001 {
             format!("{:.6}", rounded)
+        } else {
+            format!("{:.8}", rounded)
         };
 
         filtered.push(formatted);

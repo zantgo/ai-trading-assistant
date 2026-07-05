@@ -25,6 +25,38 @@ export function fmt(v: number | null, digits: number): string {
     return v == null ? '--' : v.toFixed(digits);
 }
 
+// ── Price-adaptive decimal formatting ──
+// Resolve the target decimal count for a given reference price based on the
+// unified 6-tier scale. Higher-value assets render coarser; sub-dollar assets
+// retain micro-scale definition.
+export function getDecimalCount(price: number | null | undefined): number {
+    const p = Math.abs(price ?? 0);
+    if (p >= 10000) return 1;
+    if (p >= 1000) return 2;
+    if (p >= 100) return 3;
+    if (p >= 10) return 4;
+    if (p >= 1) return 6;
+    return 8;
+}
+
+// Format a price-scaled value using the decimal resolution of a reference
+// price. Nullish/non-finite values collapse to a placeholder dash.
+export function fmtPrice(value: number | null | undefined, refPrice: number | null | undefined): string {
+    if (value == null || !isFinite(value)) return '--';
+    return value.toFixed(getDecimalCount(refPrice));
+}
+
+// Build a Lightweight-Charts `priceFormat` object. `precision` alone is not
+// enough — `minMove` must match (10^-precision) or sub-cent digits won't render.
+export function getPriceFormat(refPrice: number | null | undefined): {
+    type: 'price';
+    precision: number;
+    minMove: number;
+} {
+    const d = getDecimalCount(refPrice);
+    return { type: 'price', precision: d, minMove: Math.pow(10, -d) };
+}
+
 // ── Derived categorical states (from backend state_label / normalized) ──
 export type StackState = 'bullish' | 'bearish' | 'tangled';
 export function emaStackState(m: IndicatorMap | undefined | null): StackState {

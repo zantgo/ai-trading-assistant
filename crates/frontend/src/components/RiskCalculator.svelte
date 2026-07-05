@@ -1,9 +1,13 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import type { RiskProfile } from '../types';
+    import { fmtPrice } from '../lib/telemetry';
     import styles from './RiskCalculator.module.css';
 
     const app = useAppStore();
+
+    // Reference price for the panel's decimal resolution: the typed entry price.
+    const refPrice = $derived(parseFloat(app.riskEntryPrice) || 0);
 
     $effect(() => {
         app.fetchRiskProfiles();
@@ -32,6 +36,12 @@
     function formatUsd(v: number | undefined | null): string {
         if (v == null || isNaN(v)) return '$0.00';
         return '$' + v.toFixed(2);
+    }
+
+    // Price-scaled USD formatter for price-level fields (entry/SL/TP/liq).
+    function formatPx(v: number | undefined | null): string {
+        if (v == null || isNaN(v)) return '$0.00';
+        return '$' + fmtPrice(v, refPrice);
     }
 </script>
 
@@ -197,7 +207,7 @@
                         </div>
                         <div class="{styles.rcResultItem} {styles.rcResultFull}">
                             <span class={styles.rcResultLabel}>Liquidation Price</span>
-                            <span class="{styles.rcResultValue} {styles.rcLiqPrice}">{formatUsd(app.riskCalculation.liquidation_price)}</span>
+                            <span class="{styles.rcResultValue} {styles.rcLiqPrice}">{formatPx(app.riskCalculation.liquidation_price)}</span>
                         </div>
                         <div class={styles.rcResultItem}>
                             <span class={styles.rcResultLabel}>Total Costs</span>

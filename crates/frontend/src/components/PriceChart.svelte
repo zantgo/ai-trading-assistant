@@ -1,6 +1,6 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { emaStackState, vwapBias, divStatus, iSub } from '../lib/telemetry';
+    import { emaStackState, vwapBias, divStatus, iSub, getPriceFormat, getDecimalCount } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
@@ -49,6 +49,24 @@
     let entryLine: IPriceLine | null = null;
     let stopLossLine: IPriceLine | null = null;
     let markersApi: any = null;
+
+    // Track the active price-scale precision so we only reconfigure the chart
+    // series when the asset crosses a decimal tier (not on every tick).
+    let lastPriceDecimals = -1;
+    function applyPriceScale(refPrice: number): void {
+        if (!candleSeries || refPrice <= 0) return;
+        const decimals = getDecimalCount(refPrice);
+        if (decimals === lastPriceDecimals) return;
+        lastPriceDecimals = decimals;
+        const priceFormat = getPriceFormat(refPrice);
+        for (const s of [
+            candleSeries, priceLineSeries,
+            ema10Series, ema50Series, ema100Series, ema200Series,
+            bbUpperSeries, bbMiddleSeries, bbLowerSeries, vwapSeries,
+        ]) {
+            s?.applyOptions({ priceFormat });
+        }
+    }
 
     async function updateMarkers() {
         if (!candleSeries || !markersApi || !pair) return;
@@ -191,6 +209,9 @@
                     );
                     chart.timeScale().fitContent();
 
+                    const lastClose = historicalCandles[historicalCandles.length - 1]?.close;
+                    if (lastClose != null) applyPriceScale(lastClose);
+
                     const ind = flattenHistory(data.indicator_history);
                     if (ind) {
                         const mapIndicator = (arr: (string | null)[] | undefined) => {
@@ -299,6 +320,7 @@
                 time: timeSec as Time,
                 value: parseFloat(String(snap.close))
             });
+            applyPriceScale(parseFloat(String(snap.close)));
         }
 
         // v2.0 nested indicator map — the flat top-level fields no longer exist.

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { requestAssistantAnalysis, openAssistantChat } from '../lib/analysis.svelte';
+    import { fmtPrice } from '../lib/telemetry';
     import styles from '../App.module.css';
 
     const app = useAppStore();
@@ -150,7 +151,7 @@
                                         <td class={styles.colAction} class:action-text-green={rec.recommended_action === 'Hold' || rec.recommended_action === 'Open Long'} class:action-text-red={rec.recommended_action === 'Close'} class:action-text-amber={rec.recommended_action === 'Wait' || rec.recommended_action === 'Open Short'}>
                                             {rec.recommended_action.substring(0, 4)}
                                         </td>
-                                        <td class={styles.colPrice}>{rec.price_at_analysis.substring(0, 8)}</td>
+                                        <td class={styles.colPrice}>{fmtPrice(recPrice, recPrice)}</td>
                                         <td class={styles.colDelta} class:delta-positive={delta > 0} class:delta-negative={delta < 0}>{delta.toFixed(2)}%</td>
                                     </tr>
                                 {/each}

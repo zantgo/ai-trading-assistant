@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { calcLiqPrice } from '../stores/paperTrading.svelte';
+    import { getDecimalCount } from '../lib/telemetry';
     import styles from './BottomTable.module.css';
 
     const app = useAppStore();
@@ -23,6 +24,12 @@
     function fmt(n: number, decimals = 2): string {
         if (!isFinite(n)) return '—';
         return n.toFixed(decimals);
+    }
+
+    // Price-scaled formatter keyed off the active tab's current price.
+    function fmtPx(n: number): string {
+        if (!isFinite(n)) return '—';
+        return n.toFixed(getDecimalCount(markPrice));
     }
 
     function fmtTs(ts: number): string {
@@ -152,9 +159,9 @@
                                 {app.paperDirection}
                             </td>
                             <td class={styles.numRight}>{fmt(posSize, 5)}</td>
-                            <td class={styles.numRight}>{entryPx > 0 ? '$' + fmt(entryPx) : '—'}</td>
-                            <td class={styles.numRight}>{markPrice > 0 ? '$' + fmt(markPrice) : '—'}</td>
-                            <td class={styles.numRight}>{posLiq > 0 ? '$' + fmt(posLiq) : '—'}</td>
+                            <td class={styles.numRight}>{entryPx > 0 ? '$' + fmtPx(entryPx) : '—'}</td>
+                            <td class={styles.numRight}>{markPrice > 0 ? '$' + fmtPx(markPrice) : '—'}</td>
+                            <td class={styles.numRight}>{posLiq > 0 ? '$' + fmtPx(posLiq) : '—'}</td>
                             <td class={styles.numRight}>${app.paperMarginUsed.toFixed(2)}</td>
                             <td class="{styles.numRight} {app.paperUnrealizedPnl >= 0 ? styles.pnlPositive : styles.pnlNegative}">
                                 {fmtPnl(app.paperUnrealizedPnl)}
@@ -189,14 +196,14 @@
                     <div class={styles.bracketsRow}>
                         {#each tps as b}
                             <div class={styles.bracketChip + ' ' + styles.chipTp}>
-                                TP ${(b as { price: number | null }).price?.toFixed(2) ?? '—'}
+                                TP ${(b as { price: number | null }).price != null ? fmtPx((b as { price: number }).price) : '—'}
                                 <button class={styles.cancelBracketBtn}
                                     onclick={() => handleCancelBracket((b as { id: number }).id)}>×</button>
                             </div>
                         {/each}
                         {#each sls as b}
                             <div class={styles.bracketChip + ' ' + styles.chipSl}>
-                                SL ${(b as { trigger_price: number | null }).trigger_price?.toFixed(2) ?? '—'}
+                                SL ${(b as { trigger_price: number | null }).trigger_price != null ? fmtPx((b as { trigger_price: number }).trigger_price) : '—'}
                                 <button class={styles.cancelBracketBtn}
                                     onclick={() => handleCancelBracket((b as { id: number }).id)}>×</button>
                             </div>
@@ -231,7 +238,7 @@
                                 <td class="{styles.directionCell} {(order as { direction: string }).direction === 'BUY' ? styles.directionLong : styles.directionShort}">
                                     {(order as { direction: string }).direction}</td>
                                 <td class={styles.numRight}>
-                                    {(order as { price: number | null; trigger_price: number | null }).price ? '$' + fmt((order as { price: number | null }).price!) : ((order as { trigger_price: number | null }).trigger_price ? 'Trig $' + fmt((order as { trigger_price: number | null }).trigger_price!) : '—')}
+                                    {(order as { price: number | null; trigger_price: number | null }).price ? '$' + fmtPx((order as { price: number | null }).price!) : ((order as { trigger_price: number | null }).trigger_price ? 'Trig $' + fmtPx((order as { trigger_price: number | null }).trigger_price!) : '—')}
                                 </td>
                                 <td class={styles.numRight}>{(order as { size: number }).size}%</td>
                                 <td class={styles.numRight}>{fmtTs((order as { created_at: number }).created_at)}</td>
@@ -274,10 +281,10 @@
                                     {t.direction as string}
                                 </td>
                                 <td class={styles.numRight}>
-                                    {(t.entry_price as number) > 0 ? '$' + fmt(t.entry_price as number) : '—'}
+                                    {(t.entry_price as number) > 0 ? '$' + fmtPx(t.entry_price as number) : '—'}
                                 </td>
                                 <td class={styles.numRight}>
-                                    {(t.exit_price as number) > 0 ? '$' + fmt(t.exit_price as number) : '—'}
+                                    {(t.exit_price as number) > 0 ? '$' + fmtPx(t.exit_price as number) : '—'}
                                 </td>
                                 <td class="{styles.numRight} {(t.realized_pnl as number) >= 0 ? styles.pnlPositive : styles.pnlNegative}">
                                     {fmtPnl((t.realized_pnl as number) ?? 0)}
@@ -360,7 +367,7 @@
                     {#each app.activeSlots as slot, idx (slot.slot_index)}
                         <tr>
                             <td class={styles.marketCell}>#{slot.slot_index}</td>
-                            <td class={styles.numRight}>${fmt(slot.entry_price)}</td>
+                            <td class={styles.numRight}>${fmtPx(slot.entry_price)}</td>
                             <td class={styles.numRight}>{fmt(slot.size, 5)}</td>
                             <td class={styles.numRight}>${fmt(slot.allocated_usd)}</td>
                             <td class="{styles.numRight} {slot.is_active ? (app.paperDirection === 'LONG' ? (markPrice - slot.entry_price > 0 ? styles.pnlPositive : styles.pnlNegative) : (slot.entry_price - markPrice > 0 ? styles.pnlPositive : styles.pnlNegative)) : ''}">
