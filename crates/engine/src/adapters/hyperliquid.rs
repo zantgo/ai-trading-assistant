@@ -217,6 +217,7 @@ impl ExchangeAdapter for HyperliquidAdapter {
 
 pub async fn run_for_symbol(
     symbol: String,
+    internal_symbol: String,
     event_tx: Sender<NormalizedEvent>,
     cancel: CancellationToken,
     ws_url: &str,
@@ -271,8 +272,6 @@ pub async fn run_for_symbol(
             return;
         }
     }
-
-    let internal_symbol = to_internal_symbol(&symbol);
 
     loop {
         let msg = tokio::select! {

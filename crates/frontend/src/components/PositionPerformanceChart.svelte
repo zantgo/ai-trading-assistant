@@ -265,7 +265,7 @@
 <div class={styles.perfContainer} ondblclick={toggleFullscreen} role="presentation">
     <div class={styles.perfHeader}>
         <div class={styles.headerLeft}>
-            <span class={styles.perfTitle}>Position Value (USDT)</span>
+            <span class={styles.perfTitle}>Position Value ({app.quote})</span>
             <span class="{styles.perfValue} {isPositive ? styles.green : styles.red}">
                 {fmt(latestEquity)}
             </span>

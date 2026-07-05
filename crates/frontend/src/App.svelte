@@ -113,7 +113,7 @@
         try {
             const config = await fetchConfigFromServer();
             const { firstSymbol } = applyConfigToStore(app, config);
-            if (firstSymbol) app.activeTab = `${firstSymbol}-USDT`;
+            if (firstSymbol) app.activeTab = app.pairKeyFor(firstSymbol);
             configReady = true;
             connectWs(app, wsState);
         } catch (e) {
@@ -263,7 +263,7 @@
                 </div>
 
                 <div class={styles.instancePairBanner}>
-                    <span class={styles.pairBannerTitle}>{pair.symbol} / USDT</span>
+                    <span class={styles.pairBannerTitle}>{app.pairDisplayFor(pair.symbol)}</span>
                 </div>
 
                 <!-- 1. Live Terminal Inner View -->

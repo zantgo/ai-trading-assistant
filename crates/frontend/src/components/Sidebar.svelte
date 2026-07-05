@@ -17,7 +17,7 @@
         if (raw.length < 2 || raw.length > 10) return;
 
         const symbol = raw;
-        const pairKey = `${symbol}-USDT`;
+        const pairKey = app.pairKeyFor(symbol);
 
         app.initInstance(symbol);
 
@@ -25,7 +25,7 @@
         fetch('/api/instances', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base: symbol, quote: 'USDT' }),
+            body: JSON.stringify({ base: symbol, quote: app.quote }),
         }).then(() => {
             app.activeTab = pairKey;
         }).catch(console.error);

@@ -55,6 +55,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         },
         indicators: Default::default(),
         hyperliquid: Default::default(),
+        bitget: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
         slow_timeframe: Default::default(),
@@ -92,6 +93,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         symbol_mapper.clone(),
         telemetry_tx.clone(),
         api_key_configured.clone(),
+        ws_url.clone(),
         ws_url.clone(),
     ));
 
@@ -184,7 +186,8 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         api_key_configured,
         symbol_mapper,
         telemetry_tx,
-        ws_url: "ws://127.0.0.1:1".to_string(),
+        ws_url: ws_url.clone(),
+        bitget_ws_url: ws_url,
     });
 
     (state, pool)

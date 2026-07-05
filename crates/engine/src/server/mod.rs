@@ -37,6 +37,7 @@ pub struct AppState {
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
     pub ws_url: String,
+    pub bitget_ws_url: String,
 }
 
 // ── Stratified state types for Axum FromRef ──────────────────────

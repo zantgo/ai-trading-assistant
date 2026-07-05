@@ -72,9 +72,9 @@
     }
 
     async function handleSave() {
-        const ok = await edge.saveEdge(pair.symbol + '-USDT');
+        const ok = await edge.saveEdge(app.pairKeyFor(pair.symbol));
         if (ok) {
-            await edge.fetchEdges(pair.symbol + '-USDT');
+            await edge.fetchEdges(app.pairKeyFor(pair.symbol));
         }
     }
 
@@ -89,7 +89,7 @@
 
     async function handleDelete(id: number) {
         if (confirm('Delete this strategy?')) {
-            await edge.deleteEdge(id, pair.symbol + '-USDT');
+            await edge.deleteEdge(id, app.pairKeyFor(pair.symbol));
         }
     }
 
@@ -100,7 +100,7 @@
     }
 
     onMount(() => {
-        edge.fetchEdges(pair.symbol + '-USDT');
+        edge.fetchEdges(app.pairKeyFor(pair.symbol));
     });
 </script>
 

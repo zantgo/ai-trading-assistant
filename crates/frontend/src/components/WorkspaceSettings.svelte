@@ -172,11 +172,11 @@
 
         try {
             if (isIdentityChanged) {
-                const newPairKey = `${draft.exchange}-${cleanedSymbol}`;
+                const newPairKey = app.pairKeyFor(cleanedSymbol);
                 await fetch(`/api/instances`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ base: cleanedSymbol, quote: 'USDT' }),
+                    body: JSON.stringify({ base: cleanedSymbol, quote: app.quote }),
                 });
                 app.initInstance(cleanedSymbol, draft.exchange);
                 target = app.instancesMap[newPairKey] || pair;

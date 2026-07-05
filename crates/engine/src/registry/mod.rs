@@ -7,7 +7,8 @@ use tokio_util::sync::CancellationToken;
 use crate::config::TimeframeConfig;
 use crate::db;
 use crate::instance::{ConfigState, Instance, InstanceStatus};
-use crate::workspace::Workspace;
+use crate::workspace::{Currency, ExchangeChoice, Workspace};
+use shared::normalized::Exchange;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct InstanceSummary {
@@ -27,6 +28,18 @@ pub async fn add_instance(
     pair: (String, String),
     llm_client: Arc<crate::llm::LlmClient>,
 ) -> Result<Arc<Instance>, String> {
+    // Session-first gate: no pipelines may be spawned until the user has
+    // initialized a session (exchange + capital) via the Welcome Gate.
+    if !workspace
+        .session
+        .active
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(
+            "No active session. Initialize a session (select exchange and capital) before adding pairs.".to_string(),
+        );
+    }
+
     let current_count = workspace.instance_count().await;
     let max_count = workspace.max_instances().await;
     if current_count >= max_count {
@@ -36,9 +49,35 @@ pub async fn add_instance(
         ));
     }
 
-    let (base, quote) = (pair.0.clone(), pair.1.clone());
-    let pair_key = format!("{}-{}", base, quote);
-    let normalized = format!("{}-{}", base, quote);
+    // Resolve the active exchange and its settlement/quote currency from the
+    // session. The quote is forced to the session currency so that frontend and
+    // backend pair keys / native symbols always agree.
+    let exchange_choice = workspace
+        .session
+        .exchange
+        .read()
+        .await
+        .clone()
+        .unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = workspace
+        .session
+        .base_currency
+        .read()
+        .await
+        .clone()
+        .unwrap_or(Currency::USDC);
+
+    if !exchange_choice.supports_currency(&quote) {
+        return Err(format!(
+            "{} does not support {} settlement.",
+            exchange_choice.as_str(),
+            quote.as_str()
+        ));
+    }
+
+    let base = pair.0.clone();
+    let pair_key = exchange_choice.internal_symbol(&base, &quote);
+    let normalized = pair_key.clone();
 
     // Check for duplicate
     {
@@ -48,11 +87,15 @@ pub async fn add_instance(
         }
     }
 
-    // Register symbol mapping
-    let exchange_enum = shared::normalized::Exchange::Hyperliquid;
+    // Register symbol mapping (native <-> unified)
+    let exchange_enum = match exchange_choice {
+        ExchangeChoice::Bitget => Exchange::Bitget,
+        ExchangeChoice::Hyperliquid => Exchange::Hyperliquid,
+    };
+    let raw_symbol = exchange_choice.raw_symbol(&base, &quote);
     workspace
         .symbol_mapper
-        .register(exchange_enum, &base, &normalized)
+        .register(exchange_enum, &raw_symbol, &normalized)
         .await;
 
     // Build pipeline configs
@@ -85,7 +128,10 @@ pub async fn add_instance(
                 default_indicators.clone(),
             )
         });
-    let rest_url = config_guard.hyperliquid.rest_url();
+    let rest_url = match exchange_choice {
+        ExchangeChoice::Bitget => config_guard.bitget.rest_url(),
+        _ => config_guard.hyperliquid.rest_url(),
+    };
     let drop_fib = fib_config.clone();
     let operational_mode = pair_cfg
         .map(|p| p.operational_mode.clone())
@@ -109,7 +155,11 @@ pub async fn add_instance(
     // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
+        internal_symbol: normalized.clone(),
+        quote: quote.clone(),
         rest_url,
+        exchange_choice: exchange_choice.clone(),
+        pool: workspace.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -130,7 +180,10 @@ pub async fn add_instance(
     // ── Build pipelines (creates channels, buffers, ActivePair) ──
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
+        internal_symbol: normalized.clone(),
+        quote: quote.clone(),
         pair_key: pair_key.clone(),
+        exchange_choice: exchange_choice.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -367,7 +420,18 @@ pub async fn recharge_instance(
     let fib_config = config_guard.fibonacci.clone();
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
-    let rest_url = config_guard.hyperliquid.rest_url();
+    let exchange_choice = workspace.session.exchange.read().await.clone().unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = workspace
+        .session
+        .base_currency
+        .read()
+        .await
+        .clone()
+        .unwrap_or(Currency::USDC);
+    let rest_url = match exchange_choice {
+        ExchangeChoice::Bitget => config_guard.bitget.rest_url(),
+        _ => config_guard.hyperliquid.rest_url(),
+    };
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
     let position_scaling = pair_cfg.position_scaling.clone();
@@ -395,7 +459,11 @@ pub async fn recharge_instance(
     // Fresh historical bootstrap
     let bootstrap_input = bootstrap::BootstrapInput {
         base: base.clone(),
+        internal_symbol: pair_key.to_string(),
+        quote: quote.clone(),
         rest_url,
+        exchange_choice: exchange_choice.clone(),
+        pool: workspace.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -417,7 +485,10 @@ pub async fn recharge_instance(
     let cancel = CancellationToken::new();
     let pipeline_ctx = pipelines::PipelineContext {
         base: base.clone(),
+        internal_symbol: pair_key.to_string(),
+        quote: quote.clone(),
         pair_key: pair_key.to_string(),
+        exchange_choice: exchange_choice.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),

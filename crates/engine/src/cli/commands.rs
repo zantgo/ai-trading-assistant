@@ -48,6 +48,31 @@ impl CliConsole {
         let base = args[0].to_uppercase();
         let quote = args[1].to_uppercase();
 
+        // Session-first model: ensure a session is active before spawning pipelines.
+        // In CLI mode we auto-initialize a default paper session on first `add`.
+        // Hyperliquid perpetuals settle in USDC, so the default uses USDC.
+        if !self.workspace.session.active.load(Ordering::Relaxed) {
+            match self
+                .workspace
+                .init_session(
+                    crate::workspace::TradingMode::Paper,
+                    crate::workspace::Currency::USDC,
+                    crate::workspace::ExchangeChoice::Hyperliquid,
+                    10000.0,
+                )
+                .await
+            {
+                Ok(()) => println!(
+                    "{}🚪 Auto-initialized default session (Paper, 10000 USDC, Hyperliquid).{}",
+                    CYAN, RESET
+                ),
+                Err(e) => {
+                    println!("{}❌ Failed to initialize session: {}{}", RED, e, RESET);
+                    return;
+                }
+            }
+        }
+
         match registry::add_instance(
             &self.workspace,
             (base.clone(), quote.clone()),

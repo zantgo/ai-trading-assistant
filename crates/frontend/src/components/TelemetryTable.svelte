@@ -94,7 +94,7 @@
     async function copyJson() {
         if (!pair) return;
         const dump: Record<string, unknown> = {
-            pair: `${pair.symbol}/USDT`,
+            pair: app.pairDisplayFor(pair.symbol),
             timestamp: new Date().toISOString(),
             telemetry: {},
         };
@@ -125,7 +125,7 @@
 <div class={styles.telemetryTable}>
     <div class={styles.ttHeader}>
         <span class={styles.ttTitle}>TELEMETRY MONITOR</span>
-        <span class={styles.ttSymbol}>{pair.symbol}/USDT</span>
+        <span class={styles.ttSymbol}>{app.pairDisplayFor(pair.symbol)}</span>
         <button class={styles.ttCopyBtn} onclick={copyJson}>
             {copied ? 'COPIED' : 'EXPORT DATA'}
         </button>

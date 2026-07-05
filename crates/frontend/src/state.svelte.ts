@@ -198,8 +198,15 @@ export class AppStore {
 
     micro(): TimeframeTelemetry { return this.activeInstance().microTerm; }
 
+    // ─── Quote-asset abstraction ─────────────────────────────────────
+    // The settlement/quote currency is decided at the Welcome Gate and drives
+    // every pair key ("BASE-<quote>") and display label ("BASE/<quote>").
+    get quote(): string { return this.sessionCurrency || 'USDT'; }
+    pairKeyFor(symbol: string): string { return `${symbol}-${this.quote}`; }
+    pairDisplayFor(symbol: string): string { return `${symbol}/${this.quote}`; }
+
     initInstance(symbol: string, _exchange?: string) {
-        const key = `${symbol}-USDT`;
+        const key = this.pairKeyFor(symbol);
         if (!this.instancesMap[key]) {
             this.instancesMap[key] = createInstanceState(symbol);
         } else {

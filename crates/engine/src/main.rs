@@ -4,7 +4,7 @@ use tokio::sync::{mpsc::channel, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use engine::{
-    cli, config, db, llm, order_matcher, performance_evaluator, portfolio_equity, registry, server,
+    cli, config, db, llm, order_matcher, performance_evaluator, portfolio_equity, server,
     strategy_optimizer, workspace,
 };
 use shared::normalized::SymbolMapper;
@@ -35,10 +35,9 @@ async fn main() {
         app_config.instances.len()
     );
     let app_config = Arc::new(RwLock::new(app_config));
-    let initial_symbols = app_config.read().await.symbols.clone();
+
     println!(
-        "✅ Configuration Loaded: Initial pairs: {:?}",
-        initial_symbols
+        "🚪 Session-first boot: workspace starts empty and inactive. Awaiting Welcome Gate session initialization before any pipelines spawn."
     );
 
     let (llm_client, key_present) = {
@@ -101,7 +100,9 @@ async fn main() {
     let symbol_mapper = Arc::new(SymbolMapper::new());
 
     let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
+    let bg_ws_url = app_config.read().await.bitget.ws_url.clone();
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
+    println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
     let workspace = Arc::new(workspace::Workspace::new(
         app_config.clone(),
@@ -110,6 +111,7 @@ async fn main() {
         telemetry_tx.clone(),
         api_key_configured.clone(),
         hl_ws_url.clone(),
+        bg_ws_url.clone(),
     ));
 
     let app_state = Arc::new(server::AppState {
@@ -121,6 +123,7 @@ async fn main() {
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
         ws_url: hl_ws_url.clone(),
+        bitget_ws_url: bg_ws_url.clone(),
     });
 
     let app = server::build_router(app_state.clone());
@@ -161,29 +164,6 @@ async fn main() {
             "🖥️  CLI Mode: Running as headless daemon — Web server disabled (use --web to enable)."
         );
         drop(app);
-    }
-
-    for item in &initial_symbols {
-        let (_exchange, raw_symbol) = item.split_once(':').unwrap_or(("Hyperliquid", item));
-        let base = raw_symbol.to_uppercase();
-        let quote = "USDT".to_string();
-
-        println!("🚀 Bootstrapping instance for {}-{}...", base, quote);
-
-        match registry::add_instance(&workspace, (base.clone(), quote), llm_client.clone())
-            .await
-        {
-            Ok(instance) => {
-                println!(
-                    "✅ Instance bootstrapped: {} ({})",
-                    instance.pair_display(),
-                    instance.id
-                );
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to bootstrap instance for {}: {}", raw_symbol, e);
-            }
-        }
     }
 
     let eval_cancel = CancellationToken::new();

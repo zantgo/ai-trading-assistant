@@ -25,7 +25,7 @@
     }
 
     onMount(() => {
-        edge.fetchEdges(pair.symbol + '-USDT');
+        edge.fetchEdges(app.pairKeyFor(pair.symbol));
     });
 
     function formatPct(v: number): string {

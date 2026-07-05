@@ -40,12 +40,58 @@ impl Currency {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExchangeChoice {
     Hyperliquid,
+    Bitget,
 }
 
 impl ExchangeChoice {
     pub fn as_str(&self) -> &'static str {
         match self {
             ExchangeChoice::Hyperliquid => "Hyperliquid",
+            ExchangeChoice::Bitget => "Bitget",
+        }
+    }
+
+    /// Native exchange symbol for REST/WS requests (perpetual futures).
+    ///
+    /// - Hyperliquid: the bare coin (e.g. `BTC`); collateral is always USDC.
+    /// - Bitget USDT-M futures: `BASEUSDT` (e.g. `BTCUSDT`).
+    /// - Bitget USDC-M futures: `BASEUSD` (e.g. `BTCUSD`).
+    pub fn raw_symbol(&self, base: &str, quote: &Currency) -> String {
+        match self {
+            ExchangeChoice::Hyperliquid => base.to_string(),
+            ExchangeChoice::Bitget => match quote {
+                Currency::USDT => format!("{}USDT", base),
+                Currency::USDC => format!("{}USD", base),
+            },
+        }
+    }
+
+    /// Unified internal symbol used across the workspace (e.g. `BTC-USDT`,
+    /// `BTC-USDC`). Independent of exchange-native dialects.
+    pub fn internal_symbol(&self, base: &str, quote: &Currency) -> String {
+        format!("{}-{}", base, quote.as_str())
+    }
+
+    /// Bitget V2 mix (perpetual futures) `productType` for the given quote.
+    /// Not applicable to Hyperliquid (returns `None`).
+    pub fn bitget_product_type(&self, quote: &Currency) -> Option<&'static str> {
+        match self {
+            ExchangeChoice::Bitget => Some(match quote {
+                Currency::USDT => "USDT-FUTURES",
+                Currency::USDC => "USDC-FUTURES",
+            }),
+            ExchangeChoice::Hyperliquid => None,
+        }
+    }
+
+    /// Whether the given settlement/quote currency is supported for this
+    /// exchange's perpetual futures.
+    pub fn supports_currency(&self, quote: &Currency) -> bool {
+        match self {
+            // Hyperliquid perpetuals settle exclusively in USDC.
+            ExchangeChoice::Hyperliquid => *quote == Currency::USDC,
+            // Bitget offers both USDT-M and USDC-M futures.
+            ExchangeChoice::Bitget => matches!(quote, Currency::USDT | Currency::USDC),
         }
     }
 }
@@ -85,6 +131,7 @@ pub struct Workspace {
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
     pub api_key_configured: Arc<AtomicBool>,
     pub ws_url: String,
+    pub bitget_ws_url: String,
 }
 
 impl Workspace {
@@ -95,6 +142,7 @@ impl Workspace {
         telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
         api_key_configured: Arc<AtomicBool>,
         ws_url: String,
+        bitget_ws_url: String,
     ) -> Self {
         Self {
             instances: Arc::new(RwLock::new(HashMap::new())),
@@ -105,6 +153,7 @@ impl Workspace {
             telemetry_tx,
             api_key_configured,
             ws_url,
+            bitget_ws_url,
         }
     }
 
@@ -149,22 +198,34 @@ impl Workspace {
     ) -> Result<(), String> {
         if trading_mode == TradingMode::Live {
             return Err(
-                "Live trading is not yet available. Please select Paper Trading.".to_string(),
+                "Live trading is not available. Please select Paper Trading.".to_string(),
             );
         }
         if initial_capital <= 0.0 {
             return Err("Initial capital must be greater than 0.".to_string());
         }
-        if currency != Currency::USDT {
-            return Err("Only USDT is currently supported as base currency.".to_string());
+        if exchange != ExchangeChoice::Hyperliquid && exchange != ExchangeChoice::Bitget {
+            return Err("Unsupported exchange selected.".to_string());
         }
-        if exchange != ExchangeChoice::Hyperliquid {
-            return Err("Only Hyperliquid is currently available.".to_string());
+        // Enforce the exchange <-> settlement-currency rules for perpetual
+        // futures. Hyperliquid settles only in USDC; Bitget supports USDT-M and
+        // USDC-M futures.
+        if !exchange.supports_currency(&currency) {
+            return Err(format!(
+                "{} does not support {} settlement. {}",
+                exchange.as_str(),
+                currency.as_str(),
+                match exchange {
+                    ExchangeChoice::Hyperliquid =>
+                        "Hyperliquid perpetuals settle in USDC only.",
+                    ExchangeChoice::Bitget => "Select USDT or USDC.",
+                }
+            ));
         }
 
         *self.session.trading_mode.write().await = Some(trading_mode);
-        *self.session.base_currency.write().await = Some(currency);
-        *self.session.exchange.write().await = Some(exchange);
+        *self.session.base_currency.write().await = Some(currency.clone());
+        *self.session.exchange.write().await = Some(exchange.clone());
         *self.session.initial_capital.write().await = Some(initial_capital);
         self.session
             .active
@@ -190,8 +251,10 @@ impl Workspace {
         }
 
         println!(
-            "✅ Session initialized: Paper Trading, {:.2} USDT on Hyperliquid",
-            initial_capital
+            "✅ Session initialized: Paper Trading, {:.2} {} on {}",
+            initial_capital,
+            currency.as_str(),
+            exchange.as_str(),
         );
         Ok(())
     }

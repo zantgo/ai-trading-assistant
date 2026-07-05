@@ -57,10 +57,11 @@ pub async fn serve_session_init(
 
     let exchange = match payload.exchange.to_lowercase().as_str() {
         "hyperliquid" => crate::workspace::ExchangeChoice::Hyperliquid,
+        "bitget" => crate::workspace::ExchangeChoice::Bitget,
         _ => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
-                "Invalid exchange. Only 'Hyperliquid' is supported.",
+                "Invalid exchange. Use 'Hyperliquid' or 'Bitget'.",
             )
                 .into_response()
         }

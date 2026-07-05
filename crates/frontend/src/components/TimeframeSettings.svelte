@@ -1,28 +1,11 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import type { InstanceState, TimeframeTelemetry } from '../types';
+    import { TIMEFRAME_OPTIONS } from '../types';
     import styles from './TimeframeSettings.module.css';
 
     let { pair, tabKey, onApplied }: { pair: InstanceState; tabKey: string; onApplied?: () => void } = $props();
     const app = useAppStore();
-
-    const TIMEFRAME_OPTIONS: { label: string; seconds: number }[] = [
-        { label: '1 sec', seconds: 1 },
-        { label: '5 sec', seconds: 5 },
-        { label: '15 sec', seconds: 15 },
-        { label: '30 sec', seconds: 30 },
-        { label: '1 min', seconds: 60 },
-        { label: '3 min', seconds: 180 },
-        { label: '5 min', seconds: 300 },
-        { label: '15 min', seconds: 900 },
-        { label: '30 min', seconds: 1800 },
-        { label: '1 h', seconds: 3600 },
-        { label: '2 h', seconds: 7200 },
-        { label: '4 h', seconds: 14400 },
-        { label: '8 h', seconds: 28800 },
-        { label: '12 h', seconds: 43200 },
-        { label: '1 day', seconds: 86400 },
-    ];
 
     interface TermDraft {
         durationSeconds: number;

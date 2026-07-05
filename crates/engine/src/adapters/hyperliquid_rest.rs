@@ -42,6 +42,7 @@ fn parse_decimal(s: &str) -> Result<Decimal, String> {
 /// `start_time_ms` and `end_time_ms` bound the candle range.
 pub async fn fetch_historical_candles(
     symbol: &str,
+    internal_symbol: &str,
     interval: &str,
     start_time_ms: u64,
     end_time_ms: u64,
@@ -91,7 +92,7 @@ pub async fn fetch_historical_candles(
             let start = cs.start_time_ms;
             let duration = cs.end_time_ms.saturating_sub(cs.start_time_ms);
             Ok(NormalizedCandle {
-                symbol: format!("{}-USD", cs.coin),
+                symbol: internal_symbol.to_string(),
                 start_time_ms: start,
                 duration_ms: duration,
                 open: parse_decimal(&cs.open)?,

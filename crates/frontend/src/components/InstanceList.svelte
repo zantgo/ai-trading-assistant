@@ -17,7 +17,6 @@
     let actionLoading = $state<Record<string, string>>({});
 
     let newBase = $state('');
-    let newQuote = $state('USDT');
     let addLoading = $state(false);
 
     async function fetchInstances() {
@@ -42,7 +41,7 @@
 
     async function handleCreate() {
         const base = newBase.trim().toUpperCase();
-        const quote = newQuote.trim().toUpperCase();
+        const quote = app.quote;
         if (!base) return;
 
         addLoading = true;
@@ -69,7 +68,9 @@
 
     function navigateToInstance(pair: string, symbol: string) {
         if (!app.instancesMap[pair]) {
-            app.initInstance(symbol);
+            // `symbol` may be the full pair key; derive the base for initInstance.
+            const base = symbol.includes('-') ? symbol.split('-')[0] : symbol;
+            app.initInstance(base);
         }
         app.activeTab = pair;
         app.currentGlobalView = 'workspace';
@@ -130,9 +131,9 @@
             type="text"
             class="{styles.addInput} {styles.short}"
             placeholder="Quote"
-            bind:value={newQuote}
-            maxlength="10"
-            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') handleCreate(); }}
+            value={app.quote}
+            readonly
+            title="Settlement currency is set by your session"
         />
         <button class={styles.addBtn} onclick={handleCreate} disabled={addLoading || !newBase.trim()}>
             {addLoading ? '...' : '+ Create'}

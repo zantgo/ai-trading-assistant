@@ -31,6 +31,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         },
         indicators: Default::default(),
         hyperliquid: Default::default(),
+        bitget: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
         slow_timeframe: Default::default(),
@@ -69,6 +70,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         telemetry_tx.clone(),
         api_key_configured.clone(),
         ws_url.clone(),
+        ws_url.clone(),
     ));
 
     let state = Arc::new(AppState {
@@ -79,7 +81,8 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         api_key_configured,
         symbol_mapper,
         telemetry_tx,
-        ws_url,
+        ws_url: ws_url.clone(),
+        bitget_ws_url: ws_url,
     });
 
     (state, pool)
@@ -177,6 +180,7 @@ async fn test_websocket_stream_with_active_pair() {
         },
         indicators: Default::default(),
         hyperliquid: Default::default(),
+        bitget: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
         slow_timeframe: Default::default(),
@@ -214,6 +218,7 @@ async fn test_websocket_stream_with_active_pair() {
         symbol_mapper.clone(),
         telemetry_tx.clone(),
         api_key_configured.clone(),
+        ws_url.clone(),
         ws_url.clone(),
     ));
 
@@ -308,6 +313,7 @@ async fn test_websocket_stream_with_active_pair() {
         symbol_mapper,
         telemetry_tx,
         ws_url: "ws://127.0.0.1:1".to_string(),
+        bitget_ws_url: "".to_string(),
     });
 
     let router = server::build_router(state.clone());

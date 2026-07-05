@@ -34,6 +34,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             },
             indicators: Default::default(),
             hyperliquid: Default::default(),
+            bitget: Default::default(),
             fibonacci: Default::default(),
             pivots: Default::default(),
             slow_timeframe: Default::default(),
@@ -86,8 +87,9 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let ws_cancel = cancel.clone();
         let ws_tx = snapshot_tx.clone();
         let ws_symbol = symbol.clone();
+        let ws_internal = format!("{}-USDT", symbol);
         let ws_handle = tokio::spawn(async move {
-            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, "ws://127.0.0.1:1")
+            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, "ws://127.0.0.1:1")
                 .await;
         });
 

@@ -1,5 +1,7 @@
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use shared::models::MarketSnapshot;
+use shared::normalized::NormalizedCandle;
 use sqlx::SqlitePool;
 
 pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
@@ -147,6 +149,64 @@ pub async fn query_indicator_snapshots(
         eprintln!("Database Error: Failed to query indicator snapshots: {}", e);
         vec![]
     })
+}
+
+/// Reconstruct recent completed OHLCV candles for a pair + timeframe from the
+/// persisted `market_snapshots` table. Returns candles in ascending timestamp
+/// order (oldest first). Used to pre-warm indicator pipelines from local data
+/// before falling back to REST for the remaining "gap" up to the present.
+pub async fn query_recent_candles(
+    pool: &SqlitePool,
+    symbol: &str,
+    timeframe_secs: u64,
+    limit: u32,
+) -> Vec<NormalizedCandle> {
+    let rows = sqlx::query_as::<_, (i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT timestamp, open, high, low, close, volume
+         FROM market_snapshots
+         WHERE symbol = ?1
+           AND timeframe_secs = ?2
+           AND close IS NOT NULL
+         ORDER BY timestamp DESC
+         LIMIT ?3",
+    )
+    .bind(symbol)
+    .bind(timeframe_secs as i64)
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_else(|e| {
+        eprintln!("Database Error: Failed to query recent candles: {}", e);
+        vec![]
+    });
+
+    let parse = |s: Option<String>| {
+        s.and_then(|v| Decimal::from_str_exact(&v).ok())
+            .unwrap_or(Decimal::ZERO)
+    };
+
+    let mut candles: Vec<NormalizedCandle> = rows
+        .into_iter()
+        .map(|(ts, open, high, low, close, volume)| {
+            let close_dec = parse(close);
+            let non_zero = |d: Decimal| if d.is_zero() { close_dec } else { d };
+            NormalizedCandle {
+                symbol: symbol.to_string(),
+                start_time_ms: (ts.max(0) as u64) * 1000,
+                duration_ms: timeframe_secs * 1000,
+                open: non_zero(parse(open)),
+                high: non_zero(parse(high)),
+                low: non_zero(parse(low)),
+                close: close_dec,
+                volume: parse(volume),
+                trades_count: 0,
+            }
+        })
+        .collect();
+
+    // Query returned newest-first; reverse to ascending (oldest-first).
+    candles.reverse();
+    candles
 }
 
 pub async fn query_atr_snapshots(

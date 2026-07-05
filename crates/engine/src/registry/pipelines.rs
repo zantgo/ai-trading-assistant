@@ -13,7 +13,7 @@ use crate::instance::{Instance, TimeframeBuffers};
 use crate::llm::LlmClient;
 use crate::portfolio_risk::PortfolioRiskState;
 use crate::sr_engine::SrRoleTracker;
-use crate::workspace::Workspace;
+use crate::workspace::{Currency, ExchangeChoice, Workspace};
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, NormalizedEvent};
@@ -21,7 +21,12 @@ use tokio_util::sync::CancellationToken;
 
 pub struct PipelineContext {
     pub base: String,
+    /// Unified internal symbol (e.g. "BTC-USDT") used across the workspace.
+    pub internal_symbol: String,
+    /// Settlement/quote currency for this session.
+    pub quote: Currency,
     pub pair_key: String,
+    pub exchange_choice: ExchangeChoice,
     pub micro_cfg: TimeframeConfig,
     pub fast_cfg: TimeframeConfig,
     pub slow_cfg: TimeframeConfig,
@@ -94,7 +99,7 @@ pub async fn build_pipelines(
     )));
 
     let active_pair = Arc::new(analyzer::ActivePair {
-        symbol: ctx.base.clone(),
+        symbol: ctx.internal_symbol.clone(),
         micro: analyzer::TimeframePipeline {
             history: micro_history.clone(),
             broadcast_tx: micro_broadcast_tx.clone(),
@@ -146,6 +151,7 @@ pub async fn build_pipelines(
     spawn_tasks(
         snapshot_rx,
         &ctx.base,
+        &ctx.internal_symbol,
         &ctx.pair_key,
         &ctx.micro_cfg,
         &ctx.fast_cfg,
@@ -172,6 +178,8 @@ pub async fn build_pipelines(
         &active_pair,
         workspace,
         warmed_states,
+        ctx.exchange_choice.clone(),
+        ctx.quote.clone(),
     )
     .await;
 
@@ -198,7 +206,7 @@ pub async fn build_pipelines(
 
     let instance = Arc::new(Instance::new(
         format!("inst_{}", uuid_v4_simple()),
-        (ctx.base.clone(), "USDT".to_string()),
+        (ctx.base.clone(), ctx.quote.as_str().to_string()),
         active_pair.clone(),
         workspace.pool.clone(),
         workspace.config.clone(),
@@ -215,7 +223,7 @@ pub async fn build_pipelines(
 
     let auto_ctx = automation::AutomationContext {
         pair_key: ctx.pair_key.clone(),
-        symbol: ctx.base.clone(),
+        symbol: ctx.internal_symbol.clone(),
         micro_history: micro_history.clone(),
         fast_history: fast_history.clone(),
         slow_history: slow_history.clone(),
@@ -262,6 +270,7 @@ pub async fn build_pipelines(
 async fn spawn_tasks(
     snapshot_rx: mpsc::Receiver<NormalizedEvent>,
     base: &str,
+    internal_symbol: &str,
     pair_key: &str,
     micro_cfg: &TimeframeConfig,
     fast_cfg: &TimeframeConfig,
@@ -293,13 +302,15 @@ async fn spawn_tasks(
         analyzer::WarmedPipelineState,
         analyzer::WarmedPipelineState,
     )>,
+    exchange_choice: ExchangeChoice,
+    quote: Currency,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (slow_chan_tx, slow_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (macro_chan_tx, macro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
 
-    let router_symbol = base.to_string();
+    let router_symbol = internal_symbol.to_string();
     let router_cancel = cancel.clone();
     tokio::spawn(async move {
         analyzer::run_event_router(
@@ -329,7 +340,7 @@ async fn spawn_tasks(
         tokio::sync::mpsc::channel::<crate::candle_aggregator::AggregatedCandle>(200);
     let (agg_1d_tx, mut agg_1d_rx) =
         tokio::sync::mpsc::channel::<crate::candle_aggregator::AggregatedCandle>(200);
-    let agg_symbol = base.to_string();
+    let agg_symbol = internal_symbol.to_string();
     tokio::spawn(crate::candle_aggregator::spawn_candle_aggregator(
         agg_symbol.clone(),
         candle_bcast_rx,
@@ -445,7 +456,7 @@ async fn spawn_tasks(
     for (rx, tf_cfg, hist, snap, snap_hist, label, tf_secs, bcast, div_det, candle_fwd, warmed) in
         pipeline_specs
     {
-        let a_symbol = base.to_string();
+        let a_symbol = internal_symbol.to_string();
         let a_pair_key = pair_key.to_string();
         let a_telemetry = workspace.telemetry_tx.clone();
         let a_cancel = cancel.clone();
@@ -475,13 +486,26 @@ async fn spawn_tasks(
         });
     }
 
-    // WebSocket adapter
-    let ws_symbol = base.to_string();
+    // WebSocket adapter (perpetual futures on all exchanges)
+    let ws_symbol = exchange_choice.raw_symbol(base, &quote);
+    let ws_product_type = exchange_choice
+        .bitget_product_type(&quote)
+        .unwrap_or("")
+        .to_string();
+    let ws_internal = internal_symbol.to_string();
     let ws_tx = active_pair.snapshot_tx.clone();
     let ws_cancel = cancel.clone();
-    let ws_url = workspace.ws_url.clone();
+    let ws_url = if exchange_choice == ExchangeChoice::Bitget {
+        workspace.bitget_ws_url.clone()
+    } else {
+        workspace.ws_url.clone()
+    };
     tokio::spawn(async move {
-        crate::adapters::hyperliquid::run_for_symbol(ws_symbol, ws_tx, ws_cancel, &ws_url).await;
+        if exchange_choice == ExchangeChoice::Bitget {
+            crate::adapters::bitget::run_for_symbol(ws_symbol, ws_internal, ws_product_type, ws_tx, ws_cancel, &ws_url).await;
+        } else {
+            crate::adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, &ws_url).await;
+        }
     });
 }
 

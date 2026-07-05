@@ -24,7 +24,11 @@ export function tradeToMarkers(
     currentSymbol: string
 ): ChartMarker[] {
     const tSymbol = String(trade.symbol);
-    if (tSymbol !== currentSymbol && tSymbol !== `${currentSymbol}-USDT`) {
+    // Match either the exact symbol or the base token (quote-agnostic), so a
+    // trade keyed "BTC-USDC"/"BTC-USDT" still maps to the "BTC" chart.
+    const tBase = tSymbol.split('-')[0];
+    const curBase = currentSymbol.split('-')[0];
+    if (tSymbol !== currentSymbol && tBase !== curBase) {
         return [];
     }
 

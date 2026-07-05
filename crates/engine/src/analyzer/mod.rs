@@ -138,6 +138,16 @@ pub async fn run_single(
          mut vwap_sum_tp_vol, mut vwap_sum_vol,
          mut last_day_index, mut volume_history);
 
+    // Strict chronological handover boundary: the start time of the newest
+    // historical (REST/DB) candle used for pre-warming. Live candles at or
+    // before this timestamp are discarded so partially-filled live wicks cannot
+    // overwrite complete historical data or corrupt stateful indicators.
+    // Defaults to 0 (no gate) for cold / sub-minute / non-warmed pipelines.
+    let t_last_hist: u64 = warmed
+        .as_ref()
+        .and_then(|w| w.history.last().map(|c| c.start_time_ms))
+        .unwrap_or(0);
+
     if let Some(w) = warmed {
         ema_fast = w.ema_fast;
         ema_medium = w.ema_medium;
@@ -243,7 +253,7 @@ pub async fn run_single(
                 shadow_exchange = Some(trade.exchange);
 
                 let (completed_opt, live_candle) = candle_gen.process_trade(trade);
-                if let Some(completed) = completed_opt {
+                if let Some(completed) = completed_opt.filter(|c| c.start_time_ms > t_last_hist) {
                     let candle_close_sec = completed.start_time_ms / 1000;
                     let day_index = candle_close_sec / 86400;
                     if let Some(prev_day) = last_day_index {
@@ -467,29 +477,10 @@ pub async fn run_single(
                         *snap = Some(completed_snapshot.clone());
                     }
 
-                    // Dedup: if the most recent history entry has the same timestamp as this
-                    // completed candle (REST bootstrap/live WebSocket overlap), replace it
-                    // and skip forwarding to the aggregator (already sent during bootstrap).
-                    let is_duplicate = {
-                        let hist = history.read().await;
-                        hist.back().is_some_and(|c| c.start_time_ms == completed.start_time_ms)
-                    };
-
-                    if is_duplicate {
-                        let mut hist = history.write().await;
-                        hist.pop_back();
-                        hist.push_back(completed.clone());
-                        while hist.len() > HIST_BUFFER_MAX {
-                            hist.pop_front();
-                        }
-                        let mut snap_hist = snapshot_history.write().await;
-                        snap_hist.pop_back();
-                        snap_hist.push_back(completed_snapshot.clone());
-                        while snap_hist.len() > HIST_BUFFER_MAX {
-                            snap_hist.pop_front();
-                        }
-                        // Skip candle_forward — aggregator already received the bootstrap candle
-                    } else {
+                    // The strict handover gate above guarantees this candle is
+                    // strictly newer than any historical candle, so it is always
+                    // a fresh append — no dedup/overwrite of historical data.
+                    {
                         let mut hist = history.write().await;
                         hist.push_back(completed.clone());
                         while hist.len() > HIST_BUFFER_MAX {
@@ -500,9 +491,9 @@ pub async fn run_single(
                         while snap_hist.len() > HIST_BUFFER_MAX {
                             snap_hist.pop_front();
                         }
-                        if let Some(ref tx) = candle_forward {
-                            let _ = tx.send(completed.clone()).await;
-                        }
+                    }
+                    if let Some(ref tx) = candle_forward {
+                        let _ = tx.send(completed.clone()).await;
                     }
                 }
 

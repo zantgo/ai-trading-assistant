@@ -1,8 +1,7 @@
 symbols = [
     "Hyperliquid:BTC",
     "BTC",
-    "XRP",
-    "FARTCOIN",
+    "LAB",
 ]
 
 [candles]
@@ -42,6 +41,9 @@ rvol_threshold_climax = 3.0
 
 [hyperliquid]
 ws_url = "wss://api.hyperliquid.xyz/ws"
+
+[bitget]
+ws_url = "wss://ws.bitget.com/v2/ws/public"
 
 [fibonacci]
 swing_lookback = 10

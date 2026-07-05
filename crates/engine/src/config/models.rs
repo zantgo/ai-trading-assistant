@@ -28,6 +28,30 @@ fn default_hyperliquid_ws_url() -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BitgetConfig {
+    #[serde(default = "default_bitget_ws_url")]
+    pub ws_url: String,
+}
+
+impl Default for BitgetConfig {
+    fn default() -> Self {
+        Self {
+            ws_url: default_bitget_ws_url(),
+        }
+    }
+}
+
+impl BitgetConfig {
+    pub fn rest_url(&self) -> String {
+        "https://api.bitget.com/api/v2/mix/market/candles".to_string()
+    }
+}
+
+fn default_bitget_ws_url() -> String {
+    "wss://ws.bitget.com/v2/ws/public".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandlesConfig {
     pub duration_seconds: u64,
     #[serde(default = "default_analysis_limit")]
@@ -325,17 +349,12 @@ fn default_automation_interval() -> u64 { 900 }
 
 // ─── Operational Mode ──────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum OperationalMode {
     ManualOnly,
     DeterministicHeuristics,
+    #[default]
     HybridAiCopilot,
-}
-
-impl Default for OperationalMode {
-    fn default() -> Self {
-        OperationalMode::HybridAiCopilot
-    }
 }
 
 impl OperationalMode {
@@ -376,36 +395,23 @@ impl Default for TriggerMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AiTriggerConfig {
     #[serde(default)]
     pub trigger: TriggerMode,
 }
 
-impl Default for AiTriggerConfig {
-    fn default() -> Self {
-        Self {
-            trigger: TriggerMode::default(),
-        }
-    }
-}
-
 // ─── Position Sizing & Leverage Scaling ────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum AllocationCurveModel {
     /// Legacy stepped: <40→base, 40–59→mid, ≥60→max
+    #[default]
     Stepped,
     /// Linear interpolation between base and max pct.
     Linear,
     /// Exponential curve concentrating allocation at high scores.
     Exponential,
-}
-
-impl Default for AllocationCurveModel {
-    fn default() -> Self {
-        AllocationCurveModel::Stepped
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

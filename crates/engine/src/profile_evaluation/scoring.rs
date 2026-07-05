@@ -176,21 +176,20 @@ pub fn evaluate_allocation_curve(
             if abs_score < base_threshold {
                 base_pct
             } else if abs_score < micro_threshold {
-                let mid = (base_pct + max_pct) / 2.0;
-                mid
+                (base_pct + max_pct) / 2.0
             } else {
                 max_pct
             }
         }
         crate::config::AllocationCurveModel::Linear => {
-            if abs_score <= 0 {
+            if abs_score == 0 {
                 return base_pct;
             }
             let ratio = (abs_score as f64) / (micro_threshold as f64).max(1.0);
             base_pct + (max_pct - base_pct) * ratio.min(1.0)
         }
         crate::config::AllocationCurveModel::Exponential => {
-            if abs_score <= 0 {
+            if abs_score == 0 {
                 return base_pct;
             }
             let ratio = (abs_score as f64) / (micro_threshold as f64).max(1.0);

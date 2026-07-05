@@ -80,7 +80,7 @@
                 const positions: PaperPosition[] = [];
                 const paperResults = await Promise.allSettled(
                     instances.map((inst: InstanceSummary) =>
-                        fetch(`/api/paper/status?symbol=${encodeURIComponent(inst.symbol)}-USDT`)
+                        fetch(`/api/paper/status?symbol=${encodeURIComponent(inst.symbol)}`)
                             .then(r => r.ok ? r.json() : null)
                     )
                 );
@@ -334,7 +334,7 @@
         <div class={styles.portfolioHeaderPanel}>
             <div class={styles.portfolioSummaryDetails}>
                 <div class={styles.hudHeader}>
-                    <span class={styles.hudLabel}>Total Account Value (USDT)</span>
+                    <span class={styles.hudLabel}>Total Account Value ({app.quote})</span>
                 </div>
                 <div class={styles.hudValue}>
                     ${totalPortfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
