@@ -6,6 +6,7 @@ import type {
     MultiAgentAnalysis, AgentProgress, InstanceState, TimeframeTelemetry,
     ScaleInPortion, TakeProfitTarget, UserTrade,
     SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
+    CurrentView, Level2Mode, OperationalMode,
 } from './types';
 import { PaperTradingStore } from './stores/paperTrading.svelte';
 import { SettingsStore } from './stores/settings.svelte';
@@ -14,6 +15,14 @@ import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 import { ExchangeKeyStore } from './stores/exchangeKeys.svelte';
 import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
+
+/** Maps a Level 2 paradigm to its backend operational_mode (general leaves it unchanged). */
+const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
+    general: null,
+    user: 'ManualOnly',
+    rule: 'DeterministicHeuristics',
+    ai: 'HybridAiCopilot',
+};
 
 function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
     return {
@@ -53,6 +62,9 @@ function createInstanceState(symbol: string): InstanceState {
         historyLatestClose: '0',
         isAssistantModalOpen: false, chatInputText: '', isChatLoading: false,
         currentView: 'terminal',
+        currentLevel2Mode: 'user',
+        modeViews: { general: 'timeframe_settings', user: 'terminal', rule: 'decision', ai: 'assistant' },
+        activeExecutionMode: 'HybridAiCopilot',
         automationEnabled: false, automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
         slowIntervalSecs: 3600, normalIntervalSecs: 900, fastIntervalSecs: 300,
@@ -364,7 +376,47 @@ export class AppStore {
     get isChatLoading() { return this.activeInstance().isChatLoading; }
     set isChatLoading(v: boolean) { this.activeInstance().isChatLoading = v; }
     get currentView() { return this.activeInstance().currentView; }
-    set currentView(v: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer') { this.activeInstance().currentView = v; }
+    set currentView(v: CurrentView) {
+        const pair = this.activeInstance();
+        pair.currentView = v;
+        pair.modeViews[pair.currentLevel2Mode] = v;
+    }
+
+    // ─── Level 2 operational-mode navigation (UI-only) ────────────────
+    get currentLevel2Mode() { return this.activeInstance().currentLevel2Mode; }
+    set currentLevel2Mode(m: Level2Mode) { this.switchMode(m); }
+
+    /** Switch the Level 2 paradigm and restore that mode's last active Level 3 view. */
+    switchMode(mode: Level2Mode) {
+        const pair = this.activeInstance();
+        pair.currentLevel2Mode = mode;
+        pair.currentView = pair.modeViews[mode];
+    }
+
+    get activeExecutionMode() { return this.activeInstance().activeExecutionMode; }
+
+    /** operational_mode that the currently selected paradigm maps to (null = leave unchanged). */
+    get pendingOperationalMode(): OperationalMode | null {
+        return MODE_TO_OP[this.activeInstance().currentLevel2Mode];
+    }
+
+    /** Explicitly apply the selected paradigm's operational_mode to the backend. */
+    async applyMode(): Promise<boolean> {
+        const target = this.pendingOperationalMode;
+        if (!target) return false;
+        try {
+            const res = await fetch(`/api/instances/${encodeURIComponent(this.activeTab)}/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ operational_mode: target }),
+            });
+            if (res.ok) { this.activeInstance().activeExecutionMode = target; return true; }
+            return false;
+        } catch (e) {
+            console.error('Failed to apply operational mode:', e);
+            return false;
+        }
+    }
 
     // Automation accessors
     get automationEnabled() { return this.activeInstance().automationEnabled; }

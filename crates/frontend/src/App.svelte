@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { useAppStore } from './state.svelte';
-    // types inferred from store, no explicit type imports needed
+    import type { CurrentView, Level2Mode, OperationalMode, InstanceState } from './types';
 
     import LiveTerminal from './components/LiveTerminal.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
@@ -40,6 +40,71 @@
     const wsState: WsState = createWsState();
     let showQuitDialog = $state(false);
     let showProfileMenu = $state(false);
+    let applyBusy = $state(false);
+
+    // ─── 3-Tier navigation config ───────────────────────────────────────────
+    const MODE_DEFS: { key: Level2Mode; label: string }[] = [
+        { key: 'general', label: 'GENERAL' },
+        { key: 'user', label: 'USER-CONTROLLED' },
+        { key: 'rule', label: 'RULE-BASED' },
+        { key: 'ai', label: 'AI-DRIVEN' },
+    ];
+
+    const MODE_TABS: Record<Level2Mode, { view: CurrentView; label: string }[]> = {
+        general: [
+            { view: 'timeframe_settings', label: '🕐 Timeframe Settings' },
+            { view: 'settings', label: '⚙️ Workspace Settings' },
+            { view: 'risk', label: '🛡️ Risk Management' },
+        ],
+        user: [
+            { view: 'terminal', label: '📈 Live Terminal' },
+            { view: 'positions', label: '💰 Positions' },
+            { view: 'commission', label: '💸 Fee Projection' },
+            { view: 'costs', label: '💰 Token Costs' },
+        ],
+        rule: [
+            { view: 'decision', label: '🎯 Decision Trading' },
+            { view: 'edge_builder', label: '🔧 Edge Builder' },
+            { view: 'edge_analyzer', label: '📐 Edge Analyzer' },
+        ],
+        ai: [
+            { view: 'assistant', label: '🤖 AI Assistant' },
+            { view: 'observability', label: '🎯 DECISION HUD' },
+            { view: 'performance', label: '📊 Performance Metrics' },
+            { view: 'analytics', label: '📊 Trade Audit' },
+            { view: 'ledger', label: '📋 Trade Ledger' },
+            { view: 'edge_builder', label: '🔧 Edge Builder' },
+            { view: 'edge_analyzer', label: '📐 Edge Analyzer' },
+        ],
+    };
+
+    const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
+        general: null, user: 'ManualOnly', rule: 'DeterministicHeuristics', ai: 'HybridAiCopilot',
+    };
+
+    function execLabel(mode: OperationalMode): string {
+        if (mode === 'ManualOnly') return 'User-Controlled';
+        if (mode === 'DeterministicHeuristics') return 'Rule-Based';
+        return 'AI-Driven';
+    }
+
+    function selectView(pair: InstanceState, view: CurrentView) {
+        pair.currentView = view;
+        pair.modeViews[pair.currentLevel2Mode] = view;
+        if (view === 'positions') app.fetchPaperStatus();
+        else if (view === 'costs') app.fetchCostEstimate();
+    }
+
+    function selectMode(pair: InstanceState, mode: Level2Mode) {
+        pair.currentLevel2Mode = mode;
+        selectView(pair, pair.modeViews[mode]);
+    }
+
+    async function applyMode() {
+        applyBusy = true;
+        await app.applyMode();
+        applyBusy = false;
+    }
 
     // ─── Config & lifecycle ─────────────────────────────────────────────
     let configReady = false;
@@ -155,114 +220,45 @@
             {@const pair = app.instancesMap[tabKey]}
             <div class="{styles.workspaceWindow} {tabKey !== app.activeTab ? styles.hiddenPane : ''}">
 
-                <!-- Secondary navigation bar within each pair's self-contained layout -->
+                <!-- Level 2: Operational Mode navbar -->
+                <div class={styles.modeNavbar}>
+                    <div class={styles.modeTabsContainer}>
+                        {#each MODE_DEFS as mode (mode.key)}
+                            <button
+                                class={styles.modeBtn}
+                                class:mode-active={pair.currentLevel2Mode === mode.key}
+                                onclick={() => selectMode(pair, mode.key)}
+                            >
+                                {mode.label}
+                            </button>
+                        {/each}
+                    </div>
+                    <div class={styles.modeStatusGroup}>
+                        <span class={styles.execBadge}>ACTIVE: {execLabel(pair.activeExecutionMode)}</span>
+                        {#if MODE_TO_OP[pair.currentLevel2Mode]}
+                            <button
+                                class={styles.applyConfigBtn}
+                                disabled={applyBusy || MODE_TO_OP[pair.currentLevel2Mode] === pair.activeExecutionMode}
+                                onclick={applyMode}
+                            >
+                                {applyBusy ? 'Applying…' : 'Apply Workspace Configuration'}
+                            </button>
+                        {/if}
+                    </div>
+                </div>
+
+                <!-- Level 3: Feature Panel navbar (subset for the active mode) -->
                 <div class={styles.workspaceSubHeader}>
                     <div class={styles.subTabsContainer}>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'terminal'}
-                            onclick={() => pair.currentView = 'terminal'}
-                        >
-                            📈 Live Terminal
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'timeframe_settings'}
-                            onclick={() => { pair.currentView = 'timeframe_settings'; }}
-                        >
-                            🕐 Timeframe Settings
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'positions'}
-                            onclick={() => { pair.currentView = 'positions'; app.fetchPaperStatus(); }}
-                        >
-                            💰 Positions
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'performance'}
-                            onclick={() => pair.currentView = 'performance'}
-                        >
-                            📊 Performance Metrics
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'risk'}
-                            onclick={() => { pair.currentView = 'risk'; }}
-                        >
-                            🛡️ Risk Management
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'analytics'}
-                            onclick={() => { pair.currentView = 'analytics'; }}
-                        >
-                            📊 Trade Audit
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'ledger'}
-                            onclick={() => { pair.currentView = 'ledger'; }}
-                        >
-                            📋 Trade Ledger
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'decision'}
-                            onclick={() => { pair.currentView = 'decision'; }}
-                        >
-                            🎯 Decision Trading
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'observability'}
-                            onclick={() => { pair.currentView = 'observability'; }}
-                        >
-                            🎯 DECISION HUD
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'assistant'}
-                            onclick={() => pair.currentView = 'assistant'}
-                        >
-                            🤖 AI Assistant
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'commission'}
-                            onclick={() => { pair.currentView = 'commission'; }}
-                        >
-                            💸 Fee Projection
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'costs'}
-                            onclick={() => { pair.currentView = 'costs'; app.fetchCostEstimate(); }}
-                        >
-                            💰 Token Costs
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'edge_builder'}
-                            onclick={() => { pair.currentView = 'edge_builder'; }}
-                        >
-                            🔧 Edge Builder
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'edge_analyzer'}
-                            onclick={() => { pair.currentView = 'edge_analyzer'; }}
-                        >
-                            📐 Edge Analyzer
-                        </button>
-                        <button
-                            class={styles.subTabBtn}
-                            class:sub-tab-active={pair.currentView === 'settings'}
-                            onclick={() => { pair.currentView = 'settings'; }}
-                        >
-                            ⚙️ Workspace Settings
-                        </button>
+                        {#each MODE_TABS[pair.currentLevel2Mode] as tab (tab.view)}
+                            <button
+                                class={styles.subTabBtn}
+                                class:sub-tab-active={pair.currentView === tab.view}
+                                onclick={() => selectView(pair, tab.view)}
+                            >
+                                {tab.label}
+                            </button>
+                        {/each}
                     </div>
                 </div>
 
@@ -330,11 +326,11 @@
 
                 <!-- 9b. Edge Builder -->
                 {:else if pair.currentView === 'edge_builder'}
-                    <EdgeBuilder />
+                    <EdgeBuilder paradigm={pair.currentLevel2Mode === 'ai' ? 'ai' : 'rule'} />
 
                 <!-- 9c. Edge Analyzer -->
                 {:else if pair.currentView === 'edge_analyzer'}
-                    <EdgeAnalyzer />
+                    <EdgeAnalyzer paradigm={pair.currentLevel2Mode === 'ai' ? 'ai' : 'rule'} />
 
                 {:else if pair.currentView === 'observability'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>

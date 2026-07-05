@@ -98,7 +98,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     const costInputPrice = costs?.price_per_1m_input_tokens ?? 0.27;
     const costOutputPrice = costs?.price_per_1m_output_tokens ?? 1.10;
 
-    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number } }>;
+    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number }; operational_mode?: string }>;
     const symbols: string[] = (config.symbols as string[]) || ['BTC'];
 
     for (const item of symbols) {
@@ -133,6 +133,10 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         }
 
         if (specific && targetState) {
+            const opMode = specific.operational_mode;
+            if (opMode === 'ManualOnly' || opMode === 'DeterministicHeuristics' || opMode === 'HybridAiCopilot') {
+                targetState.activeExecutionMode = opMode;
+            }
             if (specific.micro_term) {
                 targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
                 Object.assign(targetState.microTerm, {

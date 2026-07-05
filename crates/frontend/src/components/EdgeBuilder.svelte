@@ -5,6 +5,8 @@
     import type { SizingModel, StopLossModel, TriggerPhase, EdgeArchetype, TriggerRule } from '../types';
     import styles from './EdgeBuilder.module.css';
 
+    let { paradigm = 'rule' }: { paradigm?: 'rule' | 'ai' } = $props();
+
     const app = useAppStore();
     const edge = useEdgeStore();
 
@@ -104,13 +106,23 @@
 
 <div class={styles.edgeBuilder}>
     <div class={styles.header}>
-        <h2>Edge Builder</h2>
+        <h2>Edge Builder <span class={styles.paradigmBadge}>{paradigm === 'ai' ? 'AI-Driven' : 'Rule-Based'}</span></h2>
         <div class={styles.headerActions}>
             <button class={styles.btnOutline} onclick={handleNew}>+ New</button>
             <button class={styles.btnPrimary} onclick={handleSave}>{edge.saveStatus === 'saving' ? 'Saving...' : 'Save Strategy'}</button>
             <button class={styles.btnOutline} onclick={() => edge.exportConfig()}>Export JSON</button>
         </div>
     </div>
+
+    {#if paradigm === 'ai'}
+        <div class={styles.paradigmNote}>
+            🤖 AI-Driven configuration: evaluator prompts, agent confidence weights, and context-memory depth augment the indicator thresholds below.
+        </div>
+    {:else}
+        <div class={styles.paradigmNote}>
+            🔧 Rule-Based configuration: strategy executes on deterministic indicator thresholds and regime gates below.
+        </div>
+    {/if}
 
     {#if edge.error}
         <div class={styles.errorBanner}>{edge.error}</div>

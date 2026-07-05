@@ -351,6 +351,12 @@ export interface TimeframeTelemetry {
     rvolClimaxVal: number;
 }
 
+/** All Level 3 feature-panel view keys mountable inside an instance workspace. */
+export type CurrentView = 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer';
+
+/** Level 2 operational-mode paradigm groupings. */
+export type Level2Mode = 'general' | 'user' | 'rule' | 'ai';
+
 export interface InstanceState {
     symbol: string;
     exchange: string;
@@ -375,7 +381,10 @@ export interface InstanceState {
     isAssistantModalOpen: boolean;
     chatInputText: string;
     isChatLoading: boolean;
-    currentView: 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer';
+    currentView: CurrentView;
+    currentLevel2Mode: Level2Mode;
+    modeViews: Record<Level2Mode, CurrentView>;
+    activeExecutionMode: OperationalMode;
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';

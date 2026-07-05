@@ -38,6 +38,78 @@
         align-items: center;
         justify-content: space-between;
     }
+    .mode-navbar {
+        background-color: #0a0d14;
+        border-bottom: 1px solid #1e293b;
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .mode-tabs-container {
+        display: flex;
+        gap: 8px;
+    }
+    .mode-btn {
+        background: transparent;
+        border: 1px solid #1e293b;
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        cursor: pointer;
+        padding: 6px 14px;
+        border-radius: 6px;
+        transition: all 0.2s;
+    }
+    .mode-btn:hover {
+        color: #cbd5e1;
+        border-color: #334155;
+        background-color: rgba(255, 255, 255, 0.02);
+    }
+    :global(.mode-active) {
+        background: rgba(59, 130, 246, 0.15);
+        border-color: rgba(59, 130, 246, 0.5);
+        color: #93c5fd;
+        box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2);
+    }
+    .mode-status-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .exec-badge {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #34d399;
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.35);
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        text-transform: uppercase;
+    }
+    .apply-config-btn {
+        background: rgba(59, 130, 246, 0.15);
+        border: 1px solid rgba(59, 130, 246, 0.5);
+        color: #93c5fd;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 5px 12px;
+        border-radius: 6px;
+        transition: all 0.2s;
+    }
+    .apply-config-btn:hover:not(:disabled) {
+        background: rgba(59, 130, 246, 0.25);
+    }
+    .apply-config-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
     .instance-pair-banner {
         display: flex;
         align-items: center;

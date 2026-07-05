@@ -73,4 +73,40 @@ describe('TEST-UI: Global State Runes', () => {
         app.apiKeyConfigured = true;
         expect(app.apiKeyConfigured).toBe(true);
     });
+
+    it('should restore per-mode Level 3 view when switching Level 2 modes', () => {
+        app.initInstance('BTC');
+        app.activeTab = 'BTC-USDT';
+
+        app.switchMode('user');
+        expect(app.currentLevel2Mode).toBe('user');
+        expect(app.currentView).toBe('terminal');
+
+        app.currentView = 'costs';
+        expect(app.currentView).toBe('costs');
+
+        app.switchMode('ai');
+        expect(app.currentView).toBe('assistant');
+        app.currentView = 'ledger';
+
+        app.switchMode('user');
+        expect(app.currentView).toBe('costs');
+
+        app.switchMode('ai');
+        expect(app.currentView).toBe('ledger');
+    });
+
+    it('should map Level 2 paradigms to backend operational modes', () => {
+        app.initInstance('BTC');
+        app.activeTab = 'BTC-USDT';
+
+        app.switchMode('general');
+        expect(app.pendingOperationalMode).toBe(null);
+        app.switchMode('user');
+        expect(app.pendingOperationalMode).toBe('ManualOnly');
+        app.switchMode('rule');
+        expect(app.pendingOperationalMode).toBe('DeterministicHeuristics');
+        app.switchMode('ai');
+        expect(app.pendingOperationalMode).toBe('HybridAiCopilot');
+    });
 });
