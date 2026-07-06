@@ -38,6 +38,7 @@ fn sample_snapshot() -> MarketSnapshot {
         volume: Some(dec!(120.0)),
         average_volume: Some(dec!(100.0)),
         indicators,
+        context: None,
     }
 }
 

@@ -42,12 +42,16 @@ pub async fn serve_add_instance(
     if base.is_empty() || quote.is_empty() {
         return (
             axum::http::StatusCode::BAD_REQUEST,
-            "Base and quote currency required",
+            Json(serde_json::json!({ "error": "Base and quote currency required" })),
         )
             .into_response();
     }
     if base.len() > 10 || quote.len() > 10 {
-        return (axum::http::StatusCode::BAD_REQUEST, "Symbol too long").into_response();
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Symbol too long" })),
+        )
+            .into_response();
     }
 
     match registry::add_instance(&state.workspace, (base, quote), state.llm_client.clone())
@@ -62,7 +66,11 @@ pub async fn serve_add_instance(
             })),
         )
             .into_response(),
-        Err(e) => (axum::http::StatusCode::BAD_REQUEST, e).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 

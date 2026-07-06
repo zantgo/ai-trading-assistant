@@ -2,11 +2,19 @@ export class SettingsStore {
     apiKeyConfigured = $state(true);
     rulesContent = $state('');
 
+    /** Authoritative indicator manifest fetched from /api/config (source of truth). */
+    indicatorRegistry = $state<import('../types').IndicatorMeta[]>([]);
+
     globalCandlesConfig = $state({ duration_seconds: 60, analysis_limit: 100 });
     globalIndicatorsConfig = $state({
         ema_fast: 10, ema_medium: 50, ema_slow: 100, ema_long: 200,
         rsi_period: 14, macd_fast: 12, macd_slow: 26, macd_signal: 9,
         adx_period: 14, atr_period: 14, squeeze_period: 20,
+        stoch_k_period: 18, stoch_d_period: 5, stoch_s_period: 9, chandemo_period: 12,
+        supertrend_period: 10, supertrend_multiplier: 3.0,
+        keltner_ema_period: 20, keltner_atr_period: 10, keltner_multiplier: 2.0,
+        donchian_period: 20, obv_smoothing: 20, cmf_period: 20, mfi_period: 14, hv_period: 20,
+        aroon_period: 25, chop_period: 14, linreg_period: 20, zscore_period: 20,
     });
 
     emaFastLabel = $state('EMA-10'); emaMediumLabel = $state('EMA-50');

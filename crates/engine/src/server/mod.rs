@@ -97,11 +97,13 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::config::serve_config).post(handlers::config::update_config),
         )
         .route("/api/config/key", post(handlers::config::serve_set_key))
+        .route("/api/config/scoring-weights", post(handlers::config::serve_set_scoring_weights))
         .route(
             "/api/rules",
             get(handlers::config::serve_get_rules).post(handlers::config::serve_set_rules),
         )
         .route("/api/history", get(handlers::history::serve_history))
+        .route("/api/monitor", get(handlers::monitor::serve_monitor))
         .route("/api/analyze", post(handlers::analyze::serve_analyze))
         .route("/api/chat", post(handlers::chat::serve_chat))
         .route(

@@ -210,6 +210,7 @@ RULES:
         confluence_score: i32,
         slot_config: Option<&str>,
         indicators_json: Option<&str>,
+        market_context_json: Option<&str>,
     ) -> Result<MasterOrchestratorResult, String> {
         let supports_str = serde_json::to_string(support_levels).unwrap_or_else(|_| "[]".into());
         let resistances_str =
@@ -236,12 +237,18 @@ RULES:
             }
             _ => String::new(),
         };
+        let context_section = match market_context_json {
+            Some(s) if !s.is_empty() => {
+                format!("\nMARKET CONTEXT SYNTHESIS (trend/momentum/volatility/volume/liquidity/regime + overall): {}", s)
+            }
+            _ => String::new(),
+        };
 
         let user_message = format!(
             "CURRENT MARKET ASSET: {}\n\
              USER'S OPEN POSITION: {}\n\
              USER'S ENTRY PRICE: {}\n\
-             GROUND-TRUTH CONTINUOUS CONFLUENCE SCORE (Rust engine, -90..+90): {}{}{}\n\
+             GROUND-TRUTH CONTINUOUS CONFLUENCE SCORE (Rust engine, -90..+90): {}{}{}{}\n\
              COMPUTED SUPPORT LEVELS: {}\n\
              COMPUTED RESISTANCE LEVELS: {}\n\
              PHASE 1 MULTI-TIMEFRAME INDICATOR AGENT SIGNALS (micro/fast/slow/macro prefix):\n{}{}",
@@ -249,6 +256,7 @@ RULES:
             confluence_score,
             slot_section,
             indicators_section,
+            context_section,
             supports_str, resistances_str,
             phase_one_results_json,
             journal_section,
@@ -366,6 +374,22 @@ RULES:
             "BOLLINGER_ATR" => "5.",
             "VOLUME_EMA" => "6.",
             "VWAP" => "7.",
+            "FIBONACCI" => "8.",
+            "BBWP" => "9.",
+            "PATTERNS" => "10.",
+            "STOCHASTIC" => "12.",
+            "CHANDEMO" => "13.",
+            "SUPERTREND" => "14.",
+            "KELTNER" => "15.",
+            "DONCHIAN" => "16.",
+            "OBV" => "17.",
+            "CMF" => "18.",
+            "MFI" => "19.",
+            "HV" => "20.",
+            "AROON" => "21.",
+            "CHOPPINESS" => "22.",
+            "LINREG_SLOPE" => "23.",
+            "ZSCORE" => "24.",
             _ => return "No rules found.".to_string(),
         };
 

@@ -4,6 +4,7 @@
     import type { CurrentView, Level2Mode, OperationalMode, InstanceState } from './types';
 
     import LiveTerminal from './components/LiveTerminal.svelte';
+    import TerminalMonitor from './components/TerminalMonitor.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
     import RiskCalculator from './components/RiskCalculator.svelte';
@@ -58,6 +59,7 @@
         ],
         user: [
             { view: 'terminal', label: '📈 Live Terminal' },
+            { view: 'monitor', label: '🖥️ Terminal Monitor' },
             { view: 'positions', label: '💰 Positions' },
             { view: 'commission', label: '💸 Fee Projection' },
             { view: 'costs', label: '💰 Token Costs' },
@@ -271,6 +273,10 @@
                     <div class={styles.mainLayout + " " + 'animate-fade'}>
                         <LiveTerminal pairKey={tabKey} />
                     </div>
+
+                <!-- 1.2 Terminal Monitor View -->
+                {:else if pair.currentView === 'monitor'}
+                    <TerminalMonitor pairKey={tabKey} />
 
                 <!-- 1.5 AI Assistant View -->
                 {:else if pair.currentView === 'assistant'}

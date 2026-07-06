@@ -16,6 +16,9 @@ impl Sma {
     }
 
     pub fn update(&mut self, val: Decimal) -> Option<Decimal> {
+        if self.period == 0 {
+            return None;
+        }
         self.values.push(val);
         if self.values.len() > self.period {
             self.values.remove(0);

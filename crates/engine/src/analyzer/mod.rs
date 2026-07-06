@@ -12,7 +12,7 @@ use crate::db;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, FibonacciRange, Bbwp, detect_pattern};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
 use crate::sr_engine::SrRoleTracker;
 
 pub mod normalize;
@@ -66,6 +66,24 @@ impl ActivePair {
     pub async fn snapshot_history_vec(&self, timeframe_secs: u64) -> Vec<MarketSnapshot> {
         let hist = self.pipeline_for(timeframe_secs).snapshot_history.read().await;
         hist.iter().cloned().collect()
+    }
+
+    /// Latest completed snapshot for each of the four timeframes
+    /// (micro, fast, slow, macro), for cross-timeframe synthesis.
+    pub async fn latest_snapshots_all_tf(
+        &self,
+    ) -> (
+        Option<MarketSnapshot>,
+        Option<MarketSnapshot>,
+        Option<MarketSnapshot>,
+        Option<MarketSnapshot>,
+    ) {
+        (
+            self.micro.latest_snapshot.read().await.clone(),
+            self.fast.latest_snapshot.read().await.clone(),
+            self.slow.latest_snapshot.read().await.clone(),
+            self.r#macro.latest_snapshot.read().await.clone(),
+        )
     }
 }
 
@@ -135,6 +153,11 @@ pub async fn run_single(
     let (mut ema_fast, mut ema_medium, mut ema_slow, mut ema_long,
          mut rsi_14, mut macd, mut adx_14, mut sqz_mom,
          mut bollinger, mut atr_standalone, mut bbwp_indicator,
+         mut stochastic_indicator, mut chandemo_indicator,
+         mut supertrend_indicator, mut keltner_indicator, mut donchian_indicator,
+         mut obv_indicator, mut cmf_indicator, mut mfi_indicator, mut hv_indicator,
+         mut aroon_indicator, mut choppiness_indicator, mut linreg_indicator, mut zscore_indicator,
+         mut stoch_div, mut chandemo_div, mut mfi_div, mut cmf_div, mut obv_div, mut squeeze_div,
          mut vwap_sum_tp_vol, mut vwap_sum_vol,
          mut last_day_index, mut volume_history);
 
@@ -160,6 +183,25 @@ pub async fn run_single(
         bollinger = w.bollinger;
         atr_standalone = w.atr_standalone;
         bbwp_indicator = w.bbwp_indicator;
+        stochastic_indicator = w.stochastic_indicator;
+        chandemo_indicator = w.chandemo_indicator;
+        supertrend_indicator = w.supertrend_indicator;
+        keltner_indicator = w.keltner_indicator;
+        donchian_indicator = w.donchian_indicator;
+        obv_indicator = w.obv_indicator;
+        cmf_indicator = w.cmf_indicator;
+        mfi_indicator = w.mfi_indicator;
+        hv_indicator = w.hv_indicator;
+        aroon_indicator = w.aroon_indicator;
+        choppiness_indicator = w.choppiness_indicator;
+        linreg_indicator = w.linreg_indicator;
+        zscore_indicator = w.zscore_indicator;
+        stoch_div = w.stoch_div;
+        chandemo_div = w.chandemo_div;
+        mfi_div = w.mfi_div;
+        cmf_div = w.cmf_div;
+        obv_div = w.obv_div;
+        squeeze_div = w.squeeze_div;
         vwap_sum_tp_vol = w.vwap_sum_tp_vol;
         vwap_sum_vol = w.vwap_sum_vol;
         last_day_index = w.last_day_index;
@@ -206,6 +248,36 @@ pub async fn run_single(
         bollinger = BollingerBands::new(20);
         atr_standalone = Atr::new(active_indicators.atr_period);
         bbwp_indicator = Bbwp::new(active_indicators.bbwp_lookback, active_indicators.bbwp_period);
+        stochastic_indicator = Stochastic::new(
+            active_indicators.stoch_k_period,
+            active_indicators.stoch_d_period,
+            active_indicators.stoch_s_period,
+        );
+        chandemo_indicator = ChandeMO::new(active_indicators.chandemo_period);
+        supertrend_indicator = Supertrend::new(
+            active_indicators.supertrend_period,
+            active_indicators.supertrend_multiplier,
+        );
+        keltner_indicator = Keltner::new(
+            active_indicators.keltner_ema_period,
+            active_indicators.keltner_atr_period,
+            active_indicators.keltner_multiplier,
+        );
+        donchian_indicator = Donchian::new(active_indicators.donchian_period);
+        obv_indicator = Obv::new(active_indicators.obv_smoothing);
+        cmf_indicator = Cmf::new(active_indicators.cmf_period);
+        mfi_indicator = Mfi::new(active_indicators.mfi_period);
+        hv_indicator = HistoricalVolatility::new(active_indicators.hv_period);
+        aroon_indicator = Aroon::new(active_indicators.aroon_period);
+        choppiness_indicator = Choppiness::new(active_indicators.chop_period);
+        linreg_indicator = LinRegSlope::new(active_indicators.linreg_period);
+        zscore_indicator = ZScore::new(active_indicators.zscore_period);
+        stoch_div = SeriesDivergence::new(20);
+        chandemo_div = SeriesDivergence::new(20);
+        mfi_div = SeriesDivergence::new(20);
+        cmf_div = SeriesDivergence::new(20);
+        obv_div = SeriesDivergence::new(20);
+        squeeze_div = SeriesDivergence::new(20);
         vwap_sum_tp_vol = Decimal::ZERO;
         vwap_sum_vol = Decimal::ZERO;
         last_day_index = None;
@@ -214,6 +286,13 @@ pub async fn run_single(
 
     // ADX slope history for the 2-bar consecutive-deceleration hook exit.
     let mut adx_slope_history: VecDeque<Decimal> = VecDeque::with_capacity(3);
+
+    // Signal-age tracker: maps "<indicator>:<kind>" → (first-seen bar, direction).
+    // Stamps `age_bars` on each completed snapshot's signals. Live-only (resets
+    // on warm handover, which is acceptable — historical bars aren't decisions).
+    let mut signal_age_tracker: std::collections::HashMap<String, (u32, shared::indicators::SignalDirection)> =
+        std::collections::HashMap::new();
+    let mut live_bar: u32 = 0;
 
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
 
@@ -302,6 +381,28 @@ pub async fn run_single(
                     let final_bb = bollinger.update(completed.close);
                     let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
                     let final_bbwp = bbwp_indicator.update(completed.close);
+                    let final_stoch = stochastic_indicator.update(completed.high, completed.low, completed.close);
+                    let final_cmo = chandemo_indicator.update(completed.close);
+                    let final_supertrend = supertrend_indicator.update(completed.high, completed.low, completed.close);
+                    let final_keltner = keltner_indicator.update(completed.high, completed.low, completed.close);
+                    let final_donchian = donchian_indicator.update(completed.high, completed.low);
+                    let final_obv = obv_indicator.update(completed.close, completed.volume);
+                    let final_cmf = cmf_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+                    let final_mfi = mfi_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+                    let final_hv = hv_indicator.update(completed.close);
+                    let final_aroon = aroon_indicator.update(completed.high, completed.low);
+                    let final_chop = choppiness_indicator.update(completed.high, completed.low, completed.close);
+                    let final_linreg = linreg_indicator.update(completed.close);
+                    let final_zscore = zscore_indicator.update(completed.close);
+
+                    let extra_div = normalize::ExtraDivergence {
+                        stochastic: final_stoch.as_ref().map(|s| normalize::series_divergence_state(&stoch_div.update(completed.close, s.k_value))).unwrap_or_default(),
+                        chandemo: final_cmo.map(|v| normalize::series_divergence_state(&chandemo_div.update(completed.close, v))).unwrap_or_default(),
+                        mfi: final_mfi.map(|v| normalize::series_divergence_state(&mfi_div.update(completed.close, v))).unwrap_or_default(),
+                        cmf: final_cmf.map(|v| normalize::series_divergence_state(&cmf_div.update(completed.close, v))).unwrap_or_default(),
+                        obv: final_obv.as_ref().map(|o| normalize::series_divergence_state(&obv_div.update(completed.close, o.obv))).unwrap_or_default(),
+                        squeeze: final_sqz.as_ref().map(|s| normalize::series_divergence_state(&squeeze_div.update(completed.close, s.momentum_value))).unwrap_or_default(),
+                    };
 
                     // Divergence detection (live — potential status)
                     let div_result = {
@@ -398,6 +499,24 @@ pub async fn run_single(
                         rsi: final_rsi,
                         rsi_divergence: normalize::rsi_divergence_state(&div_result),
                         macd_divergence: normalize::macd_divergence_state(&div_result),
+                        stoch_k: final_stoch.as_ref().map(|s| s.k_value),
+                        stoch_d: final_stoch.as_ref().map(|s| s.d_value),
+                        chandemo: final_cmo,
+                        supertrend_line: final_supertrend.as_ref().map(|s| s.line),
+                        supertrend_dir: final_supertrend.as_ref().map(|s| s.direction),
+                        keltner: final_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
+                        donchian: final_donchian.as_ref().map(|d| (d.upper, d.middle, d.lower)),
+                        obv: final_obv.as_ref().map(|o| o.obv),
+                        obv_sma: final_obv.as_ref().map(|o| o.obv_sma),
+                        cmf: final_cmf,
+                        mfi: final_mfi,
+                        hv: final_hv,
+                        aroon_up: final_aroon.as_ref().map(|a| a.up),
+                        aroon_down: final_aroon.as_ref().map(|a| a.down),
+                        choppiness: final_chop,
+                        linreg_slope: final_linreg,
+                        zscore: final_zscore,
+                        extra_div,
                         macd: &final_macd,
                         sqz: final_sqz.as_ref(),
                         adx: final_adx.as_ref(),
@@ -411,6 +530,8 @@ pub async fn run_single(
                         ema_slow: Some(final_ema_slow),
                         ema_long: Some(final_ema_long),
                         rvol,
+                        volume: Some(completed.volume),
+                        average_volume: avg_vol,
                         fib: Some(&fib),
                         pattern: Some(&pattern_result),
                         support_levels: &[],
@@ -418,6 +539,11 @@ pub async fn run_single(
                         active_position,
                         adx_consecutive_deceleration,
                     });
+
+                    // Stamp signal freshness (age in completed bars).
+                    let mut indicators = indicators;
+                    live_bar = live_bar.wrapping_add(1);
+                    stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
 
                     let completed_snapshot = MarketSnapshot {
                         exchange: shadow_exchange,
@@ -437,6 +563,7 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
+                        context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
                         indicators,
                     };
 
@@ -504,6 +631,10 @@ pub async fn run_single(
                     &ema_fast, &ema_medium, &ema_slow, &ema_long,
                     &rsi_14, &macd, &adx_14, &sqz_mom,
                     &bollinger, &atr_standalone, &bbwp_indicator,
+                    &stochastic_indicator, &chandemo_indicator,
+                    &supertrend_indicator, &keltner_indicator, &donchian_indicator,
+                    &obv_indicator, &cmf_indicator, &mfi_indicator, &hv_indicator,
+                    &aroon_indicator, &choppiness_indicator, &linreg_indicator, &zscore_indicator,
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
                     timeframe_secs,
@@ -537,6 +668,10 @@ pub async fn run_single(
                         &ema_fast, &ema_medium, &ema_slow, &ema_long,
                         &rsi_14, &macd, &adx_14, &sqz_mom,
                         &bollinger, &atr_standalone, &bbwp_indicator,
+                        &stochastic_indicator, &chandemo_indicator,
+                        &supertrend_indicator, &keltner_indicator, &donchian_indicator,
+                        &obv_indicator, &cmf_indicator, &mfi_indicator, &hv_indicator,
+                        &aroon_indicator, &choppiness_indicator, &linreg_indicator, &zscore_indicator,
                         &vwap_sum_tp_vol, &vwap_sum_vol,
                         &volume_history,
                         timeframe_secs,
@@ -549,6 +684,34 @@ pub async fn run_single(
             }
         }
     }
+}
+
+/// Stamp `age_bars` on every signal using a persistent tracker keyed by
+/// `<indicator>:<kind>`. A signal resets to age 0 when it first appears or flips
+/// direction; otherwise its age is the number of completed bars since first seen.
+fn stamp_signal_ages(
+    map: &mut std::collections::HashMap<String, shared::indicators::NormalizedIndicatorValue>,
+    tracker: &mut std::collections::HashMap<String, (u32, shared::indicators::SignalDirection)>,
+    bar: u32,
+) {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (key, entry) in map.iter_mut() {
+        for sig in entry.signals.iter_mut() {
+            let tk = format!("{}:{:?}", key, sig.kind);
+            seen.insert(tk.clone());
+            match tracker.get(&tk) {
+                Some((first, dir)) if *dir == sig.direction => {
+                    sig.age_bars = bar.saturating_sub(*first);
+                }
+                _ => {
+                    tracker.insert(tk, (bar, sig.direction));
+                    sig.age_bars = 0;
+                }
+            }
+        }
+    }
+    // Evict trackers whose signal no longer fires so a re-appearance is "fresh".
+    tracker.retain(|k, _| seen.contains(k));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -570,6 +733,19 @@ fn broadcast_live_snapshot(
     bollinger: &BollingerBands,
     atr_standalone: &Atr,
     bbwp_indicator: &Bbwp,
+    stochastic_indicator: &Stochastic,
+    chandemo_indicator: &ChandeMO,
+    supertrend_indicator: &Supertrend,
+    keltner_indicator: &Keltner,
+    donchian_indicator: &Donchian,
+    obv_indicator: &Obv,
+    cmf_indicator: &Cmf,
+    mfi_indicator: &Mfi,
+    hv_indicator: &HistoricalVolatility,
+    aroon_indicator: &Aroon,
+    choppiness_indicator: &Choppiness,
+    linreg_indicator: &LinRegSlope,
+    zscore_indicator: &ZScore,
     vwap_sum_tp_vol: &Decimal,
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
@@ -586,6 +762,19 @@ fn broadcast_live_snapshot(
     let val_bb = bollinger.clone().update(candle.close);
     let val_atr = atr_standalone.clone().update(candle.high, candle.low, candle.close);
     let val_bbwp = bbwp_indicator.clone().update(candle.close);
+    let val_stoch = stochastic_indicator.clone().update(candle.high, candle.low, candle.close);
+    let val_cmo = chandemo_indicator.clone().update(candle.close);
+    let val_supertrend = supertrend_indicator.clone().update(candle.high, candle.low, candle.close);
+    let val_keltner = keltner_indicator.clone().update(candle.high, candle.low, candle.close);
+    let val_donchian = donchian_indicator.clone().update(candle.high, candle.low);
+    let val_obv = obv_indicator.clone().update(candle.close, candle.volume);
+    let val_cmf = cmf_indicator.clone().update(candle.high, candle.low, candle.close, candle.volume);
+    let val_mfi = mfi_indicator.clone().update(candle.high, candle.low, candle.close, candle.volume);
+    let val_hv = hv_indicator.clone().update(candle.close);
+    let val_aroon = aroon_indicator.clone().update(candle.high, candle.low);
+    let val_chop = choppiness_indicator.clone().update(candle.high, candle.low, candle.close);
+    let val_linreg = linreg_indicator.clone().update(candle.close);
+    let val_zscore = zscore_indicator.clone().update(candle.close);
 
     let typical_price = (candle.high + candle.low + candle.close) / Decimal::from(3);
     let temp_sum_tp_vol = *vwap_sum_tp_vol + typical_price * candle.volume;
@@ -629,6 +818,24 @@ fn broadcast_live_snapshot(
         rsi: val_rsi,
         rsi_divergence: shared::indicators::DivergenceState::None,
         macd_divergence: shared::indicators::DivergenceState::None,
+        stoch_k: val_stoch.as_ref().map(|s| s.k_value),
+        stoch_d: val_stoch.as_ref().map(|s| s.d_value),
+        chandemo: val_cmo,
+        supertrend_line: val_supertrend.as_ref().map(|s| s.line),
+        supertrend_dir: val_supertrend.as_ref().map(|s| s.direction),
+        keltner: val_keltner.as_ref().map(|k| (k.upper, k.middle, k.lower)),
+        donchian: val_donchian.as_ref().map(|d| (d.upper, d.middle, d.lower)),
+        obv: val_obv.as_ref().map(|o| o.obv),
+        obv_sma: val_obv.as_ref().map(|o| o.obv_sma),
+        cmf: val_cmf,
+        mfi: val_mfi,
+        hv: val_hv,
+        aroon_up: val_aroon.as_ref().map(|a| a.up),
+        aroon_down: val_aroon.as_ref().map(|a| a.down),
+        choppiness: val_chop,
+        linreg_slope: val_linreg,
+        zscore: val_zscore,
+        extra_div: normalize::ExtraDivergence::default(),
         macd: &val_macd,
         sqz: val_sqz.as_ref(),
         adx: val_adx.as_ref(),
@@ -642,6 +849,8 @@ fn broadcast_live_snapshot(
         ema_slow: Some(val_ema_slow),
         ema_long: Some(val_ema_long),
         rvol,
+        volume: Some(candle.volume),
+        average_volume: avg_vol,
         fib: None,
         pattern: None,
         support_levels: &[],
@@ -668,8 +877,54 @@ fn broadcast_live_snapshot(
         close: Some(candle.close),
         volume: Some(candle.volume),
         average_volume: avg_vol,
+        context: None,
         indicators,
     };
 
     let _ = broadcast_tx.send(snapshot);
+}
+
+#[cfg(test)]
+mod age_tests {
+    use super::stamp_signal_ages;
+    use shared::indicators::{
+        IndicatorSignal, NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
+    };
+    use std::collections::HashMap;
+
+    fn entry_with_signal(dir: SignalDirection) -> NormalizedIndicatorValue {
+        NormalizedIndicatorValue::scalar(0.0, 0.5, "X").push_signal(IndicatorSignal::new(
+            SignalKind::Divergence,
+            dir,
+            SignalStatus::Potential,
+            "DIV",
+        ))
+    }
+
+    #[test]
+    fn age_increments_while_signal_persists() {
+        let mut tracker = HashMap::new();
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), entry_with_signal(SignalDirection::Bullish));
+        stamp_signal_ages(&mut m, &mut tracker, 1);
+        assert_eq!(m["rsi"].signals[0].age_bars, 0, "fresh signal age 0");
+
+        let mut m2 = HashMap::new();
+        m2.insert("rsi".to_string(), entry_with_signal(SignalDirection::Bullish));
+        stamp_signal_ages(&mut m2, &mut tracker, 4);
+        assert_eq!(m2["rsi"].signals[0].age_bars, 3, "3 bars since first seen");
+    }
+
+    #[test]
+    fn age_resets_on_direction_flip() {
+        let mut tracker = HashMap::new();
+        let mut m = HashMap::new();
+        m.insert("rsi".to_string(), entry_with_signal(SignalDirection::Bullish));
+        stamp_signal_ages(&mut m, &mut tracker, 1);
+
+        let mut m2 = HashMap::new();
+        m2.insert("rsi".to_string(), entry_with_signal(SignalDirection::Bearish));
+        stamp_signal_ages(&mut m2, &mut tracker, 5);
+        assert_eq!(m2["rsi"].signals[0].age_bars, 0, "flip resets age");
+    }
 }

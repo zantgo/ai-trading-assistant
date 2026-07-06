@@ -1,8 +1,10 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import { createInstance } from '../lib/api.svelte';
     import type { InstanceState, PositionScalingConfig } from '../types';
     import ExchangeSettings from './ExchangeSettings.svelte';
     import IndicatorWeightPanel from './settings/IndicatorWeightPanel.svelte';
+    import ScoringWeightsPanel from './settings/ScoringWeightsPanel.svelte';
     import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
     import TriggerConfigPanel from './settings/TriggerConfigPanel.svelte';
     import styles from './WorkspaceSettings.module.css';
@@ -10,6 +12,18 @@
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
 
     const app = useAppStore();
+
+    let identityError = $state<string | null>(null);
+
+    // Indicator-panel visibility toggles rendered as a grid.
+    const panelToggles: Array<[string, string]> = [
+        ['showVolume', 'Volume'], ['showAdx', 'ADX'], ['showAtr', 'ATR'], ['showRsi', 'RSI'],
+        ['showMacd', 'MACD'], ['showSqueeze', 'Squeeze'], ['showBbwp', 'BBWP'], ['showRvol', 'RVOL'],
+        ['showFib', 'Fibonacci'], ['showStochastic', 'STOCH'], ['showChandeMo', 'CHANDE MO'],
+        ['showSupertrend', 'SUPERTREND'], ['showKeltner', 'KELTNER'], ['showDonchian', 'DONCHIAN'],
+        ['showObv', 'OBV'], ['showCmf', 'CMF'], ['showMfi', 'MFI'], ['showHv', 'HIST VOL'],
+        ['showAroon', 'AROON'], ['showChoppiness', 'CHOP'], ['showLinregSlope', 'LINREG'], ['showZscore', 'Z-SCORE'],
+    ];
 
     let draft = $state({
         symbol: '',
@@ -19,7 +33,10 @@
             showEmas: true, showBb: true, showVwap: true, showVolume: true,
             showAdx: true, showAtr: true, showRsi: true, showMacd: true,
             showSqueeze: true, showBbwp: true, showFib: true,
-            showRvol: true,
+            showRvol: true, showStochastic: true, showChandeMo: true,
+            showSupertrend: true, showKeltner: true, showDonchian: true,
+            showObv: true, showCmf: true, showMfi: true, showHv: true,
+            showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
         },
         automation: {
             enabled: false as boolean,
@@ -45,7 +62,7 @@
     $effect(() => {
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
         draft.analysisLimit = pair.microTerm.analysisLimit;
-        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol']) {
+        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
             (draft.visuals as any)[f] = (pair.microTerm as any)[f];
         }
         draft.automation.enabled = pair.automationEnabled;
@@ -156,13 +173,18 @@
             showRsi: vis.showRsi, showMacd: vis.showMacd, showSqueeze: vis.showSqueeze,
             showBbwp: vis.showBbwp, showFib: vis.showFib,
             showRvol: vis.showRvol,
+            showStochastic: vis.showStochastic, showChandeMo: vis.showChandeMo,
+            showSupertrend: vis.showSupertrend, showKeltner: vis.showKeltner, showDonchian: vis.showDonchian,
+            showObv: vis.showObv, showCmf: vis.showCmf, showMfi: vis.showMfi, showHv: vis.showHv,
+            showAroon: vis.showAroon, showChoppiness: vis.showChoppiness, showLinregSlope: vis.showLinregSlope, showZscore: vis.showZscore,
         });
     }
 
     async function applySettings() {
         const cleanedSymbol = draft.symbol.trim().toUpperCase();
+        identityError = null;
         if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
-            alert("Invalid Ticker. Must be 2-10 characters (alphanumeric).");
+            identityError = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
             return;
         }
 
@@ -170,22 +192,17 @@
         const isIdentityChanged = cleanedSymbol !== pair.symbol || draft.exchange !== pair.exchange;
         let target = pair;
 
-        try {
-            if (isIdentityChanged) {
-                const newPairKey = app.pairKeyFor(cleanedSymbol);
-                await fetch(`/api/instances`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ base: cleanedSymbol, quote: app.quote }),
-                });
-                app.initInstance(cleanedSymbol, draft.exchange);
-                target = app.instancesMap[newPairKey] || pair;
-                app.removeInstance(tabKey);
-                app.activeTab = newPairKey;
+        if (isIdentityChanged) {
+            const newPairKey = app.pairKeyFor(cleanedSymbol);
+            const result = await createInstance(cleanedSymbol, app.quote);
+            if (!result.ok) {
+                identityError = result.error || 'Failed to update instance.';
+                return;
             }
-        } catch (e) {
-            console.error("Instance change exception:", e);
-            return;
+            app.initInstance(cleanedSymbol, draft.exchange);
+            target = app.instancesMap[newPairKey] || pair;
+            app.removeInstance(tabKey);
+            app.activeTab = newPairKey;
         }
 
         for (const tf of [target.microTerm, target.fastTerm, target.slowTerm, target.macroTerm]) {
@@ -242,16 +259,14 @@
             <div class={styles.settingGroupBox} style="margin-top: 12px;">
                 <span class={styles.selectorsLabel}>Indicator Panels</span>
                 <div class={styles.toggleGrid}>
-                    <button class="{styles.selectorBtn} {draft.visuals.showVolume ? styles.active : ''}" onclick={() => draft.visuals.showVolume = !draft.visuals.showVolume}>Volume</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showAdx ? styles.active : ''}" onclick={() => draft.visuals.showAdx = !draft.visuals.showAdx}>ADX</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showAtr ? styles.active : ''}" onclick={() => draft.visuals.showAtr = !draft.visuals.showAtr}>ATR</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showRsi ? styles.active : ''}" onclick={() => draft.visuals.showRsi = !draft.visuals.showRsi}>RSI</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showMacd ? styles.active : ''}" onclick={() => draft.visuals.showMacd = !draft.visuals.showMacd}>MACD</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showSqueeze ? styles.active : ''}" onclick={() => draft.visuals.showSqueeze = !draft.visuals.showSqueeze}>Squeeze</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showBbwp ? styles.active : ''}" onclick={() => draft.visuals.showBbwp = !draft.visuals.showBbwp}>BBWP</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showRvol ? styles.active : ''}" onclick={() => draft.visuals.showRvol = !draft.visuals.showRvol}>RVOL</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showFib ? styles.active : ''}" onclick={() => draft.visuals.showFib = !draft.visuals.showFib}>Fibonacci</button>
+                    {#each panelToggles as [key, lbl]}
+                        <button class="{styles.selectorBtn} {(draft.visuals as any)[key] ? styles.active : ''}" onclick={() => (draft.visuals as any)[key] = !(draft.visuals as any)[key]}>{lbl}</button>
+                    {/each}
                 </div>
+            </div>
+
+            <div style="margin-top: 12px;">
+                <ScoringWeightsPanel />
             </div>
 
             <div class={styles.settingGroupBox} style="margin-top: 12px;">
@@ -311,6 +326,9 @@
                     Apply Workspace Configuration
                 </button>
             </div>
+            {#if identityError}
+                <div class={styles.identityError} role="alert">⚠ {identityError}</div>
+            {/if}
         </div>
 
         <!-- Backend Secrets & Prompts Guide Column -->

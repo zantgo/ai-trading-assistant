@@ -1,5 +1,6 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import { createInstance } from '../lib/api.svelte';
     import type { InstanceSummary } from '../types';
     import styles from './InstanceList.module.css';
 
@@ -18,6 +19,7 @@
 
     let newBase = $state('');
     let addLoading = $state(false);
+    let addError = $state<string | null>(null);
 
     async function fetchInstances() {
         loading = true;
@@ -41,29 +43,19 @@
 
     async function handleCreate() {
         const base = newBase.trim().toUpperCase();
-        const quote = app.quote;
         if (!base) return;
 
         addLoading = true;
-        try {
-            const res = await fetch('/api/instances', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ base, quote }),
-            });
-            const data = await res.json();
-            if (res.ok) {
-                app.initInstance(base);
-                newBase = '';
-                await fetchInstances();
-            } else {
-                alert(data.error || data || 'Failed to create instance');
-            }
-        } catch (e: any) {
-            alert(e.message || 'Network error');
-        } finally {
-            addLoading = false;
+        addError = null;
+        const result = await createInstance(base, app.quote);
+        if (result.ok) {
+            app.initInstance(base);
+            newBase = '';
+            await fetchInstances();
+        } else {
+            addError = result.error || 'Failed to create instance.';
         }
+        addLoading = false;
     }
 
     function navigateToInstance(pair: string, symbol: string) {
@@ -125,20 +117,19 @@
             placeholder="Base (e.g. BTC)"
             bind:value={newBase}
             maxlength="10"
+            oninput={() => { if (addError) addError = null; }}
             onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') handleCreate(); }}
         />
-        <input
-            type="text"
-            class="{styles.addInput} {styles.short}"
-            placeholder="Quote"
-            value={app.quote}
-            readonly
-            title="Settlement currency is set by your session"
-        />
+        <span class={styles.quoteChip} title="Settlement currency is set by your session">
+            {app.quote}
+        </span>
         <button class={styles.addBtn} onclick={handleCreate} disabled={addLoading || !newBase.trim()}>
             {addLoading ? '...' : '+ Create'}
         </button>
     </div>
+    {#if addError}
+        <div class={styles.addError} role="alert">⚠ {addError}</div>
+    {/if}
 
     {#if loading}
         <div class={styles.loadingRow}>Loading instances...</div>

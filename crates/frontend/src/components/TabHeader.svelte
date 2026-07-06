@@ -1,34 +1,45 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import { createInstance } from '../lib/api.svelte';
     import styles from './TabHeader.module.css';
     const app = useAppStore();
 
     let newPairInput = $state('');
     let showAddInput = $state(false);
+    let addError = $state<string | null>(null);
+    let addLoading = $state(false);
 
     function selectTab(pairKey: string) {
         app.activeTab = pairKey;
     }
 
-    function confirmAdd() {
-        const raw = newPairInput.trim().toUpperCase();
-        if (raw.length < 2 || raw.length > 10) return;
+    async function confirmAdd() {
+        const symbol = newPairInput.trim().toUpperCase();
+        if (symbol.length < 2 || symbol.length > 10) {
+            addError = 'Enter a symbol between 2 and 10 characters.';
+            return;
+        }
 
-        // Create instance
-        const symbol = raw;
-        const pairKey = app.pairKeyFor(symbol);
+        addLoading = true;
+        addError = null;
+        const result = await createInstance(symbol, app.quote);
+        addLoading = false;
+
+        if (!result.ok) {
+            addError = result.error || 'Failed to add instance.';
+            return;
+        }
 
         app.initInstance(symbol);
-        fetch(`/api/instances`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base: symbol, quote: app.quote }),
-        }).then(() => {
-            app.activeTab = pairKey;
-        }).catch(console.error);
-
+        app.activeTab = app.pairKeyFor(symbol);
         newPairInput = '';
         showAddInput = false;
+    }
+
+    function cancelAdd() {
+        showAddInput = false;
+        newPairInput = '';
+        addError = null;
     }
 
     function removeInstance(pairKey: string) {
@@ -65,10 +76,15 @@
                         placeholder="SYMBOL"
                         maxlength="10"
                         bind:value={newPairInput}
-                        onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') { showAddInput = false; newPairInput = ''; } }}
+                        oninput={() => { if (addError) addError = null; }}
+                        onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') cancelAdd(); }}
                     />
-                    <button class={styles.addConfirmBtn} onclick={confirmAdd}>+</button>
-                    <button class={styles.addCancelBtn} onclick={() => { showAddInput = false; newPairInput = ''; }}>&times;</button>
+                    <span class={styles.pairQuote} title="Settlement currency is set by your session">-{app.quote}</span>
+                    <button class={styles.addConfirmBtn} onclick={confirmAdd} disabled={addLoading}>{addLoading ? '…' : '+'}</button>
+                    <button class={styles.addCancelBtn} onclick={cancelAdd}>&times;</button>
+                    {#if addError}
+                        <span class={styles.addPairError} role="alert">⚠ {addError}</span>
+                    {/if}
                 </div>
             {:else}
                 <button class="{styles.tabBtn} {styles.addTabBtn}" onclick={() => showAddInput = true}>[ + Add Instance ]</button>

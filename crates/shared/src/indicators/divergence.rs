@@ -357,6 +357,74 @@ impl DivergenceDetector {
 
 }
 
+/// Generic single-oscillator divergence detector (reused across Stochastic,
+/// ChandeMO, MFI, CMF, OBV, Squeeze momentum). Tracks price + one oscillator
+/// series and reports bullish/bearish regular divergence with pivot coords.
+#[derive(Debug, Clone)]
+pub struct SeriesDivergence {
+    price_history: Vec<Decimal>,
+    ind_history: Vec<Decimal>,
+    lookback: usize,
+}
+
+/// Result of a generic series divergence check.
+#[derive(Debug, Clone, Default)]
+pub struct SeriesDivergenceResult {
+    /// +1 bullish, -1 bearish, 0 none.
+    pub direction: i8,
+    pub coords: Option<DivergenceCoords>,
+}
+
+impl SeriesDivergence {
+    pub fn new(lookback: usize) -> Self {
+        Self {
+            price_history: Vec::with_capacity(lookback),
+            ind_history: Vec::with_capacity(lookback),
+            lookback: lookback.max(4),
+        }
+    }
+
+    pub fn update(&mut self, price: Decimal, value: Decimal) -> SeriesDivergenceResult {
+        self.price_history.push(price);
+        self.ind_history.push(value);
+        if self.price_history.len() > self.lookback {
+            self.price_history.remove(0);
+            self.ind_history.remove(0);
+        }
+        if self.price_history.len() < self.lookback {
+            return SeriesDivergenceResult::default();
+        }
+        let half = self.lookback / 2;
+        let len = self.price_history.len();
+
+        // Bullish: price lower low, oscillator higher low.
+        if let (Some(first), Some(last)) = (
+            find_extrema(&self.price_history, &self.ind_history, 0..half, false),
+            find_extrema(&self.price_history, &self.ind_history, half..len, false),
+        ) {
+            if last.price < first.price && last.indicator_value > first.indicator_value {
+                return SeriesDivergenceResult {
+                    direction: 1,
+                    coords: Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                };
+            }
+        }
+        // Bearish: price higher high, oscillator lower high.
+        if let (Some(first), Some(last)) = (
+            find_extrema(&self.price_history, &self.ind_history, 0..half, true),
+            find_extrema(&self.price_history, &self.ind_history, half..len, true),
+        ) {
+            if last.price > first.price && last.indicator_value < first.indicator_value {
+                return SeriesDivergenceResult {
+                    direction: -1,
+                    coords: Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                };
+            }
+        }
+        SeriesDivergenceResult::default()
+    }
+}
+
 fn find_extrema(
     prices: &[Decimal],
     values: &[Decimal],

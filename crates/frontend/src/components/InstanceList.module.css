@@ -34,6 +34,29 @@
 }
 .add-input:focus { border-color: #5b7fff; }
 .add-input.short { flex: 0 0 100px; }
+.quote-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.45rem 0.75rem;
+    background: #22224a;
+    border: 1px solid #333355;
+    border-radius: 6px;
+    color: #9fb0ff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    user-select: none;
+}
+.add-error {
+    margin: -0.5rem 0 1rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 102, 102, 0.1);
+    border: 1px solid rgba(255, 102, 102, 0.4);
+    border-radius: 6px;
+    color: #ff8888;
+    font-size: 0.82rem;
+}
 .add-btn {
     padding: 0.45rem 1rem;
     background: #5b7fff;

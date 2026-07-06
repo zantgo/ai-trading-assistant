@@ -40,6 +40,7 @@ fn test_market_snapshot_json_roundtrip() {
         volume: Some(dec!(150.0)),
         average_volume: Some(dec!(120.0)),
         indicators: sample_indicators(),
+        context: None,
     };
 
     let json = serde_json::to_string(&snap).expect("serialization should succeed");
@@ -84,6 +85,7 @@ fn test_market_snapshot_empty_indicators() {
         volume: None,
         average_volume: None,
         indicators: HashMap::new(),
+        context: None,
     };
 
     let json = serde_json::to_string(&snap).expect("serialization of empty snap should succeed");

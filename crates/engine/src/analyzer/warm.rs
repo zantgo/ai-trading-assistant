@@ -6,7 +6,8 @@ use crate::config::FibonacciConfig;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, Exchange};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, FibonacciRange, Bbwp, detect_pattern};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
+use crate::analyzer::normalize::{series_divergence_state, ExtraDivergence};
 
 /// Maximum number of candles/snapshots retained in live memory buffers.
 /// Bootstrap fetches up to `analysis_limit` (default 500); live buffers grow
@@ -28,7 +29,26 @@ pub struct WarmedPipelineState {
     pub bollinger: BollingerBands,
     pub atr_standalone: Atr,
     pub bbwp_indicator: Bbwp,
+    pub stochastic_indicator: Stochastic,
+    pub chandemo_indicator: ChandeMO,
+    pub supertrend_indicator: Supertrend,
+    pub keltner_indicator: Keltner,
+    pub donchian_indicator: Donchian,
+    pub obv_indicator: Obv,
+    pub cmf_indicator: Cmf,
+    pub mfi_indicator: Mfi,
+    pub hv_indicator: HistoricalVolatility,
+    pub aroon_indicator: Aroon,
+    pub choppiness_indicator: Choppiness,
+    pub linreg_indicator: LinRegSlope,
+    pub zscore_indicator: ZScore,
     pub divergence_detector: DivergenceDetector,
+    pub stoch_div: SeriesDivergence,
+    pub chandemo_div: SeriesDivergence,
+    pub mfi_div: SeriesDivergence,
+    pub cmf_div: SeriesDivergence,
+    pub obv_div: SeriesDivergence,
+    pub squeeze_div: SeriesDivergence,
     pub vwap_sum_tp_vol: Decimal,
     pub vwap_sum_vol: Decimal,
     pub volume_history: VecDeque<Decimal>,
@@ -67,7 +87,37 @@ pub fn warm_indicators_for_timeframe(
     let mut bollinger = BollingerBands::new(20);
     let mut atr_standalone = Atr::new(active_indicators.atr_period);
     let mut bbwp_indicator = Bbwp::new(active_indicators.bbwp_lookback, active_indicators.bbwp_period);
+    let mut stochastic_indicator = Stochastic::new(
+        active_indicators.stoch_k_period,
+        active_indicators.stoch_d_period,
+        active_indicators.stoch_s_period,
+    );
+    let mut chandemo_indicator = ChandeMO::new(active_indicators.chandemo_period);
+    let mut supertrend_indicator = Supertrend::new(
+        active_indicators.supertrend_period,
+        active_indicators.supertrend_multiplier,
+    );
+    let mut keltner_indicator = Keltner::new(
+        active_indicators.keltner_ema_period,
+        active_indicators.keltner_atr_period,
+        active_indicators.keltner_multiplier,
+    );
+    let mut donchian_indicator = Donchian::new(active_indicators.donchian_period);
+    let mut obv_indicator = Obv::new(active_indicators.obv_smoothing);
+    let mut cmf_indicator = Cmf::new(active_indicators.cmf_period);
+    let mut mfi_indicator = Mfi::new(active_indicators.mfi_period);
+    let mut hv_indicator = HistoricalVolatility::new(active_indicators.hv_period);
+    let mut aroon_indicator = Aroon::new(active_indicators.aroon_period);
+    let mut choppiness_indicator = Choppiness::new(active_indicators.chop_period);
+    let mut linreg_indicator = LinRegSlope::new(active_indicators.linreg_period);
+    let mut zscore_indicator = ZScore::new(active_indicators.zscore_period);
     let mut divergence_detector = DivergenceDetector::new(20);
+    let mut stoch_div = SeriesDivergence::new(20);
+    let mut chandemo_div = SeriesDivergence::new(20);
+    let mut mfi_div = SeriesDivergence::new(20);
+    let mut cmf_div = SeriesDivergence::new(20);
+    let mut obv_div = SeriesDivergence::new(20);
+    let mut squeeze_div = SeriesDivergence::new(20);
 
     let mut vwap_sum_tp_vol = Decimal::ZERO;
     let mut vwap_sum_vol = Decimal::ZERO;
@@ -132,6 +182,28 @@ pub fn warm_indicators_for_timeframe(
         let final_bb = bollinger.update(completed.close);
         let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
         let final_bbwp = bbwp_indicator.update(completed.close);
+        let final_stoch = stochastic_indicator.update(completed.high, completed.low, completed.close);
+        let final_cmo = chandemo_indicator.update(completed.close);
+        let final_supertrend = supertrend_indicator.update(completed.high, completed.low, completed.close);
+        let final_keltner = keltner_indicator.update(completed.high, completed.low, completed.close);
+        let final_donchian = donchian_indicator.update(completed.high, completed.low);
+        let final_obv = obv_indicator.update(completed.close, completed.volume);
+        let final_cmf = cmf_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+        let final_mfi = mfi_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+        let final_hv = hv_indicator.update(completed.close);
+        let final_aroon = aroon_indicator.update(completed.high, completed.low);
+        let final_chop = choppiness_indicator.update(completed.high, completed.low, completed.close);
+        let final_linreg = linreg_indicator.update(completed.close);
+        let final_zscore = zscore_indicator.update(completed.close);
+
+        let extra_div = ExtraDivergence {
+            stochastic: final_stoch.as_ref().map(|s| series_divergence_state(&stoch_div.update(completed.close, s.k_value))).unwrap_or_default(),
+            chandemo: final_cmo.map(|v| series_divergence_state(&chandemo_div.update(completed.close, v))).unwrap_or_default(),
+            mfi: final_mfi.map(|v| series_divergence_state(&mfi_div.update(completed.close, v))).unwrap_or_default(),
+            cmf: final_cmf.map(|v| series_divergence_state(&cmf_div.update(completed.close, v))).unwrap_or_default(),
+            obv: final_obv.as_ref().map(|o| series_divergence_state(&obv_div.update(completed.close, o.obv))).unwrap_or_default(),
+            squeeze: final_sqz.as_ref().map(|s| series_divergence_state(&squeeze_div.update(completed.close, s.momentum_value))).unwrap_or_default(),
+        };
 
         let div_result = if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
             divergence_detector.update_full(completed.close, rsi, macd_hist)
@@ -162,6 +234,20 @@ pub fn warm_indicators_for_timeframe(
             final_bb,
             final_atr.as_ref(),
             final_bbwp,
+            final_stoch.as_ref(),
+            final_cmo,
+            final_supertrend.as_ref(),
+            final_keltner.as_ref(),
+            final_donchian.as_ref(),
+            final_obv.as_ref(),
+            final_cmf,
+            final_mfi,
+            final_hv,
+            final_aroon.as_ref(),
+            final_chop,
+            final_linreg,
+            final_zscore,
+            extra_div,
             rsi_divergence,
             macd_divergence,
             &volume_history,
@@ -196,7 +282,26 @@ pub fn warm_indicators_for_timeframe(
         bollinger,
         atr_standalone,
         bbwp_indicator,
+        stochastic_indicator,
+        chandemo_indicator,
+        supertrend_indicator,
+        keltner_indicator,
+        donchian_indicator,
+        obv_indicator,
+        cmf_indicator,
+        mfi_indicator,
+        hv_indicator,
+        aroon_indicator,
+        choppiness_indicator,
+        linreg_indicator,
+        zscore_indicator,
         divergence_detector,
+        stoch_div,
+        chandemo_div,
+        mfi_div,
+        cmf_div,
+        obv_div,
+        squeeze_div,
         vwap_sum_tp_vol,
         vwap_sum_vol,
         volume_history,
@@ -227,6 +332,20 @@ fn build_historical_snapshot(
     final_bb: Option<(Decimal, Decimal, Decimal)>,
     final_atr: Option<&shared::indicators::AtrOutput>,
     final_bbwp: Option<Decimal>,
+    final_stoch: Option<&shared::indicators::StochasticOutput>,
+    final_cmo: Option<Decimal>,
+    final_supertrend: Option<&shared::indicators::SupertrendOutput>,
+    final_keltner: Option<&shared::indicators::KeltnerOutput>,
+    final_donchian: Option<&shared::indicators::DonchianOutput>,
+    final_obv: Option<&shared::indicators::ObvOutput>,
+    final_cmf: Option<Decimal>,
+    final_mfi: Option<Decimal>,
+    final_hv: Option<Decimal>,
+    final_aroon: Option<&shared::indicators::AroonOutput>,
+    final_chop: Option<Decimal>,
+    final_linreg: Option<Decimal>,
+    final_zscore: Option<Decimal>,
+    extra_div: ExtraDivergence,
     rsi_divergence: shared::indicators::DivergenceState,
     macd_divergence: shared::indicators::DivergenceState,
     volume_history: &VecDeque<Decimal>,
@@ -270,6 +389,24 @@ fn build_historical_snapshot(
             rsi: final_rsi,
             rsi_divergence,
             macd_divergence,
+            stoch_k: final_stoch.map(|s| s.k_value),
+            stoch_d: final_stoch.map(|s| s.d_value),
+            chandemo: final_cmo,
+            supertrend_line: final_supertrend.map(|s| s.line),
+            supertrend_dir: final_supertrend.map(|s| s.direction),
+            keltner: final_keltner.map(|k| (k.upper, k.middle, k.lower)),
+            donchian: final_donchian.map(|d| (d.upper, d.middle, d.lower)),
+            obv: final_obv.map(|o| o.obv),
+            obv_sma: final_obv.map(|o| o.obv_sma),
+            cmf: final_cmf,
+            mfi: final_mfi,
+            hv: final_hv,
+            aroon_up: final_aroon.map(|a| a.up),
+            aroon_down: final_aroon.map(|a| a.down),
+            choppiness: final_chop,
+            linreg_slope: final_linreg,
+            zscore: final_zscore,
+            extra_div,
             macd: final_macd,
             sqz: final_sqz,
             adx: final_adx,
@@ -283,6 +420,8 @@ fn build_historical_snapshot(
             ema_slow: Some(final_ema_slow),
             ema_long: Some(final_ema_long),
             rvol,
+            volume: Some(completed.volume),
+            average_volume: avg_vol,
             fib: Some(&fib),
             pattern: Some(&pattern_result),
             support_levels: &[],
@@ -310,6 +449,7 @@ fn build_historical_snapshot(
         close: Some(completed.close),
         volume: Some(completed.volume),
         average_volume: avg_vol,
+        context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
         indicators,
     }
 }

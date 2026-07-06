@@ -104,6 +104,16 @@
 .panel-box.pane-squeeze { height: 110px; }
 .panel-box.pane-bbwp { height: 110px; }
 .panel-box.pane-rvol { height: 110px; }
+.panel-box.pane-stochastic { height: 110px; }
+.panel-box.pane-chandemo { height: 110px; }
+.panel-box.pane-obv { height: 110px; }
+.panel-box.pane-cmf { height: 110px; }
+.panel-box.pane-mfi { height: 110px; }
+.panel-box.pane-hv { height: 110px; }
+.panel-box.pane-aroon { height: 110px; }
+.panel-box.pane-choppiness { height: 110px; }
+.panel-box.pane-linreg { height: 110px; }
+.panel-box.pane-zscore { height: 110px; }
 .hidden-pane { display: none; }
 
 @media (max-width: 1600px) {

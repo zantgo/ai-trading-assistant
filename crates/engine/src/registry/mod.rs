@@ -87,12 +87,58 @@ pub async fn add_instance(
         }
     }
 
+    let raw_symbol = exchange_choice.raw_symbol(&base, &quote);
+
+    // Verify the symbol is actually tradeable on the selected exchange's
+    // perpetual futures market before spawning any pipelines.
+    {
+        let (bitget_ticker_url, hl_info_url) = {
+            let cfg = workspace.config.read().await;
+            (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
+        };
+        let availability = match exchange_choice {
+            ExchangeChoice::Bitget => {
+                let pt = exchange_choice
+                    .bitget_product_type(&quote)
+                    .unwrap_or("USDT-FUTURES");
+                crate::adapters::bitget_rest::symbol_exists(&raw_symbol, pt, &bitget_ticker_url)
+                    .await
+            }
+            ExchangeChoice::Hyperliquid => {
+                crate::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url).await
+            }
+        };
+        match availability {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "'{}' isn't available on {} ({} perpetual futures). Check the symbol (e.g. BTC, ETH) and try again.",
+                    base,
+                    exchange_choice.as_str(),
+                    quote.as_str()
+                ));
+            }
+            Err(e) => {
+                eprintln!(
+                    "⚠️  Symbol availability check failed for {} on {}: {}",
+                    base,
+                    exchange_choice.as_str(),
+                    e
+                );
+                return Err(format!(
+                    "Couldn't verify '{}' on {} right now (network issue). Please try again.",
+                    base,
+                    exchange_choice.as_str()
+                ));
+            }
+        }
+    }
+
     // Register symbol mapping (native <-> unified)
     let exchange_enum = match exchange_choice {
         ExchangeChoice::Bitget => Exchange::Bitget,
         ExchangeChoice::Hyperliquid => Exchange::Hyperliquid,
     };
-    let raw_symbol = exchange_choice.raw_symbol(&base, &quote);
     workspace
         .symbol_mapper
         .register(exchange_enum, &raw_symbol, &normalized)

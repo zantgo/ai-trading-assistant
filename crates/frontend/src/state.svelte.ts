@@ -34,10 +34,19 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         showEmas: true, showBb: true, showVwap: true, showVolume: true,
         showAdx: true, showAtr: true, showRsi: true, showMacd: true,
         showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
+        showStochastic: true, showChandeMo: true,
+        showSupertrend: true, showKeltner: true, showDonchian: true,
+        showObv: true, showCmf: true, showMfi: true, showHv: true,
+        showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,
         bbwpPeriodVal: 20, bbwpLookbackVal: 252, analysisLimit: 100,
+        stochKPeriodVal: 18, stochDPeriodVal: 5, stochSPeriodVal: 9, chandemoPeriodVal: 12,
+        supertrendPeriodVal: 10, supertrendMultiplierVal: 3.0,
+        keltnerEmaPeriodVal: 20, keltnerAtrPeriodVal: 10, keltnerMultiplierVal: 2.0,
+        donchianPeriodVal: 20, obvSmoothingVal: 20, cmfPeriodVal: 20, mfiPeriodVal: 14, hvPeriodVal: 20,
+        aroonPeriodVal: 25, chopPeriodVal: 14, linregPeriodVal: 20, zscorePeriodVal: 20,
         macdExtremeHighVal: 1000, macdExtremeLowVal: -1000, macdContractionVal: 0.30,
         adxTrendThresholdVal: 20, adxExhaustionThresholdVal: 40, adxSlopeLookbackVal: 3,
         squeezeMinDurationVal: 5, squeezeBbPeriodVal: 20, squeezeBbStdDevVal: 2.0,
@@ -134,7 +143,7 @@ export class AppStore {
 
         this._delegate(this.settings, [
             'apiKeyConfigured', 'rulesContent', 'globalCandlesConfig',
-            'globalIndicatorsConfig', 'emaFastLabel', 'emaMediumLabel',
+            'globalIndicatorsConfig', 'indicatorRegistry', 'emaFastLabel', 'emaMediumLabel',
             'emaSlowLabel', 'emaLongLabel', 'rsiLabel', 'adxLabel', 'atrLabel',
             'macdLabel',
             'costPriceInput', 'costPriceOutput', 'costIntervalSecs',
@@ -223,6 +232,10 @@ export class AppStore {
                 tf.adxPeriodVal = this.settings.globalIndicatorsConfig.adx_period;
                 tf.atrPeriodVal = this.settings.globalIndicatorsConfig.atr_period;
                 tf.squeezePeriodVal = this.settings.globalIndicatorsConfig.squeeze_period;
+                tf.stochKPeriodVal = this.settings.globalIndicatorsConfig.stoch_k_period ?? 18;
+                tf.stochDPeriodVal = this.settings.globalIndicatorsConfig.stoch_d_period ?? 5;
+                tf.stochSPeriodVal = this.settings.globalIndicatorsConfig.stoch_s_period ?? 9;
+                tf.chandemoPeriodVal = this.settings.globalIndicatorsConfig.chandemo_period ?? 12;
                 tf.analysisLimit = this.settings.globalCandlesConfig.analysis_limit ?? 100;
             }
             pair.microTerm.barDurationSec = 60;

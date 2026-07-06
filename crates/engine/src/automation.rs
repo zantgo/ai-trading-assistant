@@ -527,6 +527,10 @@ async fn execute_automation_cycle_light(
         };
 
     let indicators_json = serde_json::to_string(&indicators_micro.indicators).ok();
+    let market_context_json = serde_json::to_string(
+        &shared::market_context::MarketContext::synthesize(&indicators_micro.indicators),
+    )
+    .ok();
     let phase_two = llm
         .run_multi_timeframe_orchestrator(
             "None",
@@ -540,6 +544,7 @@ async fn execute_automation_cycle_light(
             telemetry.total_confluence_score,
             None,
             indicators_json.as_deref(),
+            market_context_json.as_deref(),
         )
         .await
         .map_err(|e| format!("Orchestrator failed: {}", e))?;

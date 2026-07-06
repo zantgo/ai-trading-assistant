@@ -51,7 +51,8 @@ declare module './state.svelte' {
 
         apiKeyConfigured: boolean; rulesContent: string;
         globalCandlesConfig: { duration_seconds: number; analysis_limit: number };
-        globalIndicatorsConfig: { ema_fast: number; ema_medium: number; ema_slow: number; ema_long: number; rsi_period: number; macd_fast: number; macd_slow: number; macd_signal: number; adx_period: number; atr_period: number; squeeze_period: number };
+        globalIndicatorsConfig: Record<string, number>;
+        indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
 

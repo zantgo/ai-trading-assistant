@@ -1,6 +1,7 @@
 pub mod scoring;
 
 pub use scoring::{calculate_eight_factor_score, calculate_opposite_score, EightFactorScore};
+pub use scoring::{calculate_registry_confluence, RegistryConfluence};
 
 use sqlx::SqlitePool;
 use crate::db;
@@ -304,7 +305,20 @@ fn evaluate_indicator_signal(name: &str, snap: &SnapshotValues) -> &'static str 
         "Volume" => "rvol",
         "BBWP" => "bbwp",
         "VWAP" => "vwap",
+        "Stochastic" => "stochastic",
+        "Chande MO" => "chandemo",
+        "Supertrend" => "supertrend",
+        "Keltner" => "keltner",
+        "Donchian" => "donchian",
+        "OBV" => "obv",
+        "Chaikin MF" => "cmf",
+        "Money Flow Index" => "mfi",
+        "Aroon" => "aroon",
+        "LinReg Slope" => "linreg_slope",
+        "Z-Score" => "zscore",
         "ATR" => return "SIDEWAYS", // non-directional volatility gauge
+        "Hist. Volatility" => return "SIDEWAYS",
+        "Choppiness" => return "SIDEWAYS", // non-directional regime gate
         _ => return "SIDEWAYS",
     };
     sign_signal(snap.norm(key))

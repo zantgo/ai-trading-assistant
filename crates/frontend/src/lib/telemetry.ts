@@ -93,6 +93,18 @@ export function adxExhaustionReached(m: IndicatorMap | undefined | null): boolea
 export function isSqueezeOn(m: IndicatorMap | undefined | null): boolean {
     return iLabel(m, 'squeeze') === 'COMPRESSION_COILING';
 }
+
+// ── Stochastic / ChandeMO derived states ──
+export function isStochOverbought(m: IndicatorMap | undefined | null): boolean {
+    return (iSub(m, 'stochastic', 'k_line') ?? 50) >= 80;
+}
+export function isStochOversold(m: IndicatorMap | undefined | null): boolean {
+    return (iSub(m, 'stochastic', 'k_line') ?? 50) <= 20;
+}
+export function isChandeMoExtreme(m: IndicatorMap | undefined | null): boolean {
+    return Math.abs(iRaw(m, 'chandemo') ?? 0) >= 50;
+}
+
 export function squeezeReleaseTrigger(m: IndicatorMap | undefined | null): boolean {
     return iLabel(m, 'squeeze').endsWith('VOLATILITY_RELEASE');
 }

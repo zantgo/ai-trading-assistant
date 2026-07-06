@@ -136,6 +136,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             volume: Some(dec!(10.0)),
             average_volume: None,
             indicators: std::collections::HashMap::new(),
+            context: None,
         });
     }
 

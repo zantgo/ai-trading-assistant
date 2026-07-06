@@ -128,6 +128,50 @@ pub async fn fetch_historical_candles(
         .collect()
 }
 
+#[derive(Debug, Deserialize)]
+struct BitgetTickerResponse {
+    code: String,
+    data: Option<Vec<serde_json::Value>>,
+}
+
+/// Verify that a Bitget mix (perpetual futures) contract symbol exists for the
+/// given product type by querying the ticker endpoint.
+///
+/// Returns `Ok(true)` if the contract is tradeable, `Ok(false)` if the exchange
+/// reports it as unknown, and `Err(..)` only on transport/parse failures so the
+/// caller can distinguish "not available" from "couldn't check".
+pub async fn symbol_exists(
+    symbol: &str,
+    product_type: &str,
+    ticker_url: &str,
+) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let response = client
+        .get(ticker_url)
+        .query(&[("symbol", symbol), ("productType", product_type)])
+        .send()
+        .await
+        .map_err(|e| format!("Symbol check request failed for {}: {}", symbol, e))?;
+
+    if !response.status().is_success() {
+        // A 400 here typically means the symbol/productType pair is invalid.
+        return Ok(false);
+    }
+
+    let parsed: BitgetTickerResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse ticker JSON for {}: {}", symbol, e))?;
+
+    // "00000" with a non-empty data array => the contract exists.
+    let ok = parsed.code == "00000" && parsed.data.as_ref().is_some_and(|d| !d.is_empty());
+    Ok(ok)
+}
+
 /// Map an internal timeframe duration in seconds to the Bitget V2 **mix**
 /// K-line granularity string. Mix uses lowercase minutes (`1m`) and uppercase
 /// hours/days/weeks (`1H`, `1D`, `1W`) — distinct from the spot format.

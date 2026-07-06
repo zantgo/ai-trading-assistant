@@ -7,6 +7,7 @@ pub mod edges;
 pub mod exchange_keys;
 pub mod history;
 pub mod instances;
+pub mod monitor;
 pub mod paper;
 pub mod profiles;
 pub mod session;

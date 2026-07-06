@@ -480,3 +480,227 @@ The system evaluates eight distinct indicator and structural dimensions, assigni
 - **Stop Loss:** Exit the position immediately if the stop-loss is hit.
 - **Opposite Signals Exit:** Close the entire position immediately via a market order if **more than 5 opposite signals** are detected (e.g., if holding a Long trade and 6 bearish signals are registered).
 - **Break-Even Protection:** The moment Take-Profit 1 ($TP_1$) is hit, the stop-loss for the remaining position is moved to your entry price.
+
+---
+
+## 12. Stochastic Oscillator (%K / %D)
+
+### Description
+Momentum oscillator ranking the close within its recent high-low range. Slowed %K
+with a %D signal line. **Leading** — identifies overbought/oversold pivots before price
+confirms. Class: Leading · Group: Momentum · Directional · Divergence-capable.
+
+### AI Input Schema
+- `stochastic.k_line`, `stochastic.d_line` (0–100), `stochastic.normalized` ([-1,1], `(k-50)/50`).
+
+### Signal Threshold Matrix
+- `%K >= 80` → OVERBOUGHT_DISTRIBUTION (bearish reversion watch).
+- `%K <= 20` → OVERSOLD_ACCUMULATION (bullish reversion watch).
+- `%K > %D` → BULLISH_MOMENTUM_ALIGNMENT; `%K < %D` → BEARISH_MOMENTUM_ALIGNMENT.
+- Signals: Crossover (%K/%D), Threshold (OB/OS), Divergence.
+
+## 13. Chande Momentum Oscillator (CMO)
+
+### Description
+Raw momentum ratio of summed gains vs losses over the lookback, natively bounded
+`[-100, 100]`, with no intermediate smoothing. Class: Leading · Group: Momentum ·
+Directional · Divergence-capable.
+
+### AI Input Schema
+- `chandemo.raw_value` (-100..100), `chandemo.normalized` (`cmo/100`).
+
+### Signal Threshold Matrix
+- `>= +50` → CLIMACTIC_BULL_EXHAUSTION; `<= -50` → CLIMACTIC_BEAR_EXHAUSTION.
+- `> 0` → EMERGING_BULL_MOMENTUM; `< 0` → EMERGING_BEAR_MOMENTUM.
+- Signals: ZeroLineCross, Threshold, Divergence.
+
+## 14. Supertrend
+
+### Description
+ATR-based trailing-stop / trend-direction indicator. The line flips sides as trend
+reverses. Class: Lagging · Group: Trend · Directional · Render: price overlay.
+
+### AI Input Schema
+- `supertrend.line` (price), `supertrend.direction` (+1 up / -1 down), `supertrend.normalized` (dir × distance conviction).
+
+### Signal Threshold Matrix
+- `direction = +1` → SUPERTREND_BULLISH (line is trailing support).
+- `direction = -1` → SUPERTREND_BEARISH (line is trailing resistance).
+- Signals: TrendFlip (on direction change), Crossover (price vs line). Use the line as a dynamic stop.
+
+## 15. Keltner Channels
+
+### Description
+EMA middle band ± (multiplier × ATR). Volatility envelope; complements TTM Squeeze
+(BB-inside-KC). Class: Lagging · Group: Trend · Directional · Render: price overlay.
+
+### AI Input Schema
+- `keltner.upper`, `keltner.middle`, `keltner.lower` (prices), `keltner.normalized` (price position within/beyond channel).
+
+### Signal Threshold Matrix
+- `price >= upper` → KELTNER_UPPER_BREAKOUT (+1). `price <= lower` → KELTNER_LOWER_BREAKOUT (-1).
+- Between bands → scaled position (KELTNER_UPPER_HALF / KELTNER_LOWER_HALF).
+- Signals: Breakout, BandTouch.
+
+## 16. Donchian Channels
+
+### Description
+Highest-high / lowest-low over N bars (Turtle breakout system). Class: Lagging ·
+Group: Trend · Directional · Render: price overlay.
+
+### AI Input Schema
+- `donchian.upper`, `donchian.middle`, `donchian.lower` (prices), `donchian.normalized`.
+
+### Signal Threshold Matrix
+- `price >= upper` → DONCHIAN_UPPER_BREAKOUT (+1). `price <= lower` → DONCHIAN_LOWER_BREAKOUT (-1).
+- Signals: Breakout, BandTouch. Breakouts require RVOL confirmation before acting.
+
+## 17. On-Balance Volume (OBV)
+
+### Description
+Running cumulative volume signed by close direction; detects accumulation/distribution
+before price. Normalized off its slope vs a smoothed baseline (unbounded raw). Class:
+Lagging · Group: Volume · Directional · Divergence-capable.
+
+### AI Input Schema
+- `obv.raw_value` (cumulative), `obv.values.obv_sma` (smoothed), `obv.normalized` (slope, tanh-scaled).
+
+### Signal Threshold Matrix
+- `obv > obv_sma` → OBV_ACCUMULATION; `obv < obv_sma` → OBV_DISTRIBUTION.
+- Signals: Divergence (price/OBV), TrendFlip (slope). OBV divergence is a strong early reversal cue.
+
+## 18. Chaikin Money Flow (CMF)
+
+### Description
+Volume-weighted accumulation/distribution over N bars, natively `[-1, 1]`. Class:
+Hybrid · Group: Volume · Directional · Divergence-capable.
+
+### AI Input Schema
+- `cmf.raw_value` (-1..1), `cmf.normalized` (amplified ×3, clamped).
+
+### Signal Threshold Matrix
+- `>= +0.20` → CMF_STRONG_BUYING; `+0.05..0.20` → CMF_BUYING_PRESSURE.
+- `<= -0.20` → CMF_STRONG_SELLING; `-0.20..-0.05` → CMF_SELLING_PRESSURE; else NEUTRAL_FLOW.
+- Signals: ZeroLineCross, Divergence.
+
+## 19. Money Flow Index (MFI)
+
+### Description
+Volume-weighted RSI over N bars, bounded `[0, 100]`. Class: Hybrid · Group: Volume ·
+Directional · Divergence-capable.
+
+### AI Input Schema
+- `mfi.raw_value` (0..100), `mfi.normalized` (RSI-style mapping).
+
+### Signal Threshold Matrix
+- `>= 80` → MFI_OVERBOUGHT_DISTRIBUTION; `<= 20` → MFI_OVERSOLD_ACCUMULATION.
+- `>= 50` → MFI_BULLISH_FLOW; `< 50` → MFI_BEARISH_FLOW.
+- Signals: Threshold (OB/OS), Divergence.
+
+## 20. Historical Volatility (HV)
+
+### Description
+Annualized standard deviation of log returns over N bars (statistical volatility,
+distinct from ATR's average range). **Non-directional** — used as a volatility gate,
+never a directional score. Class: Lagging · Group: Volatility · Gate.
+
+### AI Input Schema
+- `hv.raw_value` (annualized %), `hv.normalized` (0.0 — non-directional).
+
+### Signal Threshold Matrix
+- `>= 100%` → EXTREME_VOLATILITY; `>= 60%` → HIGH_VOLATILITY; `<= 20%` → LOW_VOLATILITY; else NORMAL_VOLATILITY.
+- Use to widen stops / down-size in high-HV regimes; no directional bias.
+
+## 21. Aroon
+
+### Description
+Measures the number of periods since the highest high / lowest low over the window,
+signalling trend emergence vs consolidation. Aroon Oscillator = Up − Down ∈ [-100, 100].
+Class: Hybrid · Group: Market Regime · Directional.
+
+### AI Input Schema
+- `aroon.values.up`, `aroon.values.down` (0–100), `aroon.raw_value` (oscillator), `aroon.normalized` (`osc/100`).
+
+### Signal Threshold Matrix
+- `Up >= 70 & Down <= 30` → AROON_STRONG_UPTREND; mirror → AROON_STRONG_DOWNTREND.
+- `osc > 0` → AROON_BULLISH_BIAS; `< 0` → AROON_BEARISH_BIAS; else CONSOLIDATION.
+- Signals: Crossover (Up/Down), Threshold (>70 strong), TrendFlip.
+
+## 22. Choppiness Index
+
+### Description
+Quantifies whether the market is trending (low) or ranging/choppy (high) over N bars.
+Bounded `[0, 100]`. **Non-directional** — a regime gate that dampens directional
+conviction when high. Class: Hybrid · Group: Market Regime · Gate.
+
+### AI Input Schema
+- `choppiness.raw_value` (0–100), `choppiness.normalized` (0.0 — non-directional).
+
+### Signal Threshold Matrix
+- `>= 61.8` → CHOP_CONSOLIDATION_RANGE (avoid trend entries, expect chop/mean-reversion).
+- `<= 38.2` → CHOP_STRONG_TREND (trend-following favored). Else CHOP_TRANSITIONAL.
+- Use as a confidence multiplier on the directional score.
+
+## 23. Linear Regression Slope
+
+### Description
+Slope of the least-squares regression line over the last N closes, scaled by price into
+a per-bar percentage. Positive = uptrend, negative = downtrend. Class: Lagging · Group:
+Market Regime · Directional.
+
+### AI Input Schema
+- `linreg_slope.raw_value` (slope, price/bar), `linreg_slope.normalized` (tanh of %/bar).
+
+### Signal Threshold Matrix
+- `normalized > 0.1` → LINREG_RISING_TREND; `< -0.1` → LINREG_FALLING_TREND; else FLAT.
+- Signals: ZeroLineCross (trend flip), Threshold (steep slope).
+
+## 24. Z-Score
+
+### Description
+Number of standard deviations the close sits from its N-bar mean. **Mean-reversion**
+oriented — a stretched-high reading is bearish (distribution), stretched-low is bullish
+(accumulation). Class: Leading · Group: Market Regime · Directional.
+
+### AI Input Schema
+- `zscore.raw_value` (σ from mean), `zscore.normalized` (`clamp(-z/3)`, mean-reversion sign).
+
+### Signal Threshold Matrix
+- `>= +2` → ZSCORE_OVEREXTENDED_HIGH (fade / expect pullback).
+- `<= -2` → ZSCORE_OVEREXTENDED_LOW (expect bounce). Else ABOVE/BELOW/AT mean.
+- Signals: Threshold (±2/±3 extremes), ZeroLineCross (mean).
+
+---
+
+## 25. Meta-Intelligence Layer
+
+Built on top of the 29 indicators (not additional indicators). All are backend-authoritative
+and surfaced in the **Terminal Monitor** tab.
+
+### Indicator Confidence
+Every `NormalizedIndicatorValue` carries `confidence ∈ [0,1]`: base = `|normalized|`, boosted
+by confirmed/active discrete signals. Displayed as `N%` in the telemetry matrix.
+
+### Signal Age / Freshness
+Every `IndicatorSignal` carries `age_bars` (completed bars since first appearance; 0 = fresh).
+Resets on first appearance or direction flip. Fresher signals are stronger.
+
+### Market Context (`MarketContext`)
+Per-snapshot synthesis attached as `MarketSnapshot.context`: `trend`, `momentum`, `volatility`,
+`volume`, `liquidity` (each `{score, confidence, label}`) + `regime`
+(TRENDING | RANGE | EXPANSION | COMPRESSION) + `overall_score` [-100,100] + `overall_label`.
+
+### Multi-Timeframe Confirmation
+`GET /api/monitor?symbol=` returns a per-indicator agreement matrix across
+micro/fast/slow/macro plus a trend-agreement %, structural trend, and per-timeframe
+confluence + market context.
+
+### Regime-Aware Weighting
+`calculate_registry_confluence` multiplies each indicator's weight by the active regime's
+multiplier (`ScoringConfig.regime_weight_multipliers`): trending regimes favor
+trend/breakout indicators; ranging regimes favor mean-reversion oscillators.
+
+### Cross-Indicator Confluence
+`Σ(weight × normalized)` over enabled directional indicators ÷ active weight, dampened by
+non-directional gates (Choppiness/ADX) — configurable per-indicator weight/enable via the
+Scoring Weights settings panel and `POST /api/config/scoring-weights`.

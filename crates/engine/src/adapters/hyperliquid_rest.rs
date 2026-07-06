@@ -106,6 +106,51 @@ pub async fn fetch_historical_candles(
         .collect()
 }
 
+#[derive(Debug, Deserialize)]
+struct HlAsset {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct HlMeta {
+    universe: Vec<HlAsset>,
+}
+
+/// Verify that a Hyperliquid perpetual coin exists by querying the `meta`
+/// endpoint and checking the asset universe.
+///
+/// Returns `Ok(true)` if the coin is listed, `Ok(false)` if not, and `Err(..)`
+/// only on transport/parse failures.
+pub async fn symbol_exists(coin: &str, info_url: &str) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let response = client
+        .post(info_url)
+        .json(&serde_json::json!({ "type": "meta" }))
+        .send()
+        .await
+        .map_err(|e| format!("Symbol check request failed for {}: {}", coin, e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Hyperliquid meta endpoint returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    let meta: HlMeta = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Hyperliquid meta JSON: {}", e))?;
+
+    let target = coin.to_uppercase();
+    let ok = meta.universe.iter().any(|a| a.name.to_uppercase() == target);
+    Ok(ok)
+}
+
 /// Map an internal timeframe duration in seconds to the Hyperliquid REST interval string.
 pub fn timeframe_secs_to_interval(secs: u64) -> &'static str {
     match secs {

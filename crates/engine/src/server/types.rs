@@ -49,6 +49,9 @@ pub struct ConfigResponse {
     pub candles: crate::config::CandlesConfig,
     pub indicators: crate::config::IndicatorsConfig,
     pub instances: std::collections::HashMap<String, crate::config::InstanceSpecificConfig>,
+    /// Authoritative indicator manifest (single source of truth) consumed by the
+    /// frontend to drive the telemetry matrix, toggles, and scoring UI.
+    pub indicator_registry: Vec<shared::indicators::IndicatorMeta>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +115,16 @@ impl IndicatorSnapshot {
 
     // ── Scalar accessors (flat-equivalent) ──
     pub fn rsi(&self) -> Option<f64> { self.raw("rsi") }
+    pub fn stoch_k(&self) -> Option<f64> { self.sub("stochastic", "k_line") }
+    pub fn stoch_d(&self) -> Option<f64> { self.sub("stochastic", "d_line") }
+    pub fn chandemo(&self) -> Option<f64> { self.raw("chandemo") }
+    pub fn supertrend(&self) -> Option<f64> { self.sub("supertrend", "line") }
+    pub fn keltner_middle(&self) -> Option<f64> { self.sub("keltner", "middle") }
+    pub fn donchian_upper(&self) -> Option<f64> { self.sub("donchian", "upper") }
+    pub fn obv(&self) -> Option<f64> { self.raw("obv") }
+    pub fn cmf(&self) -> Option<f64> { self.raw("cmf") }
+    pub fn mfi(&self) -> Option<f64> { self.raw("mfi") }
+    pub fn hv(&self) -> Option<f64> { self.raw("hv") }
     pub fn macd_line(&self) -> Option<f64> { self.sub("macd", "line") }
     pub fn macd_signal(&self) -> Option<f64> { self.sub("macd", "signal") }
     pub fn macd_histogram(&self) -> Option<f64> { self.sub("macd", "histogram") }
@@ -328,6 +341,47 @@ pub struct HistoryResponse {
     pub prices: Vec<String>,
     pub candles: Vec<HistoryCandle>,
     pub indicator_history: IndicatorHistoryArrays,
+}
+
+// ─── Terminal Monitor (cross-timeframe meta-intelligence) ──────
+
+#[derive(Debug, Serialize)]
+pub struct MonitorTimeframe {
+    pub label: String,
+    pub timeframe_secs: u64,
+    pub regime: String,
+    pub overall_score: i32,
+    pub overall_label: String,
+    /// Registry confluence score in [-100,100] for this timeframe (bull bias).
+    pub confluence_score: i32,
+}
+
+/// Per-indicator agreement across the four timeframes.
+#[derive(Debug, Serialize)]
+pub struct MtfIndicatorRow {
+    pub key: String,
+    pub display_name: String,
+    /// Signed direction (+1/0/-1) per timeframe: [micro, fast, slow, macro].
+    pub per_tf: Vec<i8>,
+    /// Fraction of timeframes agreeing with the dominant direction (0-1).
+    pub agreement: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MtfConfirmation {
+    /// Overall trend-agreement across indicators & timeframes (0-100%).
+    pub trend_agreement_pct: f64,
+    pub structural_trend: String,
+    pub rows: Vec<MtfIndicatorRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MonitorResponse {
+    pub symbol: String,
+    pub timeframes: Vec<MonitorTimeframe>,
+    pub mtf: MtfConfirmation,
+    /// Macro-timeframe market-context synthesis (falls back to micro).
+    pub market_context: Option<shared::market_context::MarketContext>,
 }
 
 #[derive(Debug, Serialize)]

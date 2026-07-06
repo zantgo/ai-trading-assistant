@@ -71,6 +71,7 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     volume: None,
                     average_volume: None,
                     indicators: std::collections::HashMap::new(),
+                    context: None,
                 };
 
                 let result = sqlx::query(

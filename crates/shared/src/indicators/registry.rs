@@ -1,0 +1,363 @@
+//! # Indicator Registry — Single Source of Truth
+//!
+//! Every indicator in the system is declared exactly once here. The backend
+//! (normalization, persistence, scoring, AI agents) and the frontend (telemetry
+//! matrix, chart toggles, scoring UI) all derive their behavior from this
+//! manifest, which is serialized to the frontend via `/api/config`.
+//!
+//! Adding an indicator = one entry here + its calculator + its normalize mapper
+//! + (its chart component). No scattered hardcoded lists.
+
+use super::normalized::SignalKind;
+use serde::Serialize;
+
+/// Functional category (blueprint grouping).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IndicatorGroup {
+    Trend,
+    Momentum,
+    Volume,
+    Volatility,
+    Structure,
+    Regime,
+    Advanced,
+}
+
+/// Predictive class (leading vs confirming).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IndicatorClass {
+    Leading,
+    Hybrid,
+    Lagging,
+}
+
+/// Where the indicator renders in the frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum RenderKind {
+    /// Its own oscillator/volume pane chart.
+    Pane,
+    /// A line/series drawn on the main price chart.
+    PriceOverlay,
+    /// Horizontal price-level lines on the main price chart.
+    PriceLevels,
+    /// Event markers only (no dedicated series).
+    Marker,
+}
+
+/// Static metadata describing one indicator end-to-end.
+#[derive(Debug, Clone, Serialize)]
+pub struct IndicatorMeta {
+    pub key: &'static str,
+    pub display_name: &'static str,
+    pub group: IndicatorGroup,
+    pub class: IndicatorClass,
+    pub render: RenderKind,
+    /// `true` = signed [-1,1] scoring contributor; `false` = non-directional gate/multiplier.
+    pub directional: bool,
+    pub supports_divergence: bool,
+    pub signal_types: &'static [SignalKind],
+    pub default_weight: f64,
+    pub default_enabled: bool,
+    pub config_params: &'static [&'static str],
+    /// Frontend raw-cell render hint: "decimals1|decimals2|decimals4|percent1|price|ratio2|onoff".
+    pub value_format: &'static str,
+    /// Where the raw cell reads from: "raw" | "sub:<key>" | "state".
+    pub value_source: &'static str,
+    /// Primary chart color (hex).
+    pub color: &'static str,
+    /// Documentation section id in docs/indicators-guide.md.
+    pub guide_section: &'static str,
+}
+
+use IndicatorClass::*;
+use IndicatorGroup::*;
+use RenderKind::*;
+use SignalKind::*;
+
+/// The authoritative indicator manifest (Ichimoku + Pivot Points are the
+/// deferred Advanced tier and intentionally omitted from the current build).
+pub const INDICATORS: &[IndicatorMeta] = &[
+    // ─────────── TREND ───────────
+    IndicatorMeta {
+        key: "ema_stack", display_name: "EMA Ribbon", group: Trend, class: Lagging,
+        render: PriceOverlay, directional: true, supports_divergence: false,
+        signal_types: &[StackChange, Crossover], default_weight: 1.0, default_enabled: true,
+        config_params: &["ema_fast", "ema_medium", "ema_slow", "ema_long"],
+        value_format: "price", value_source: "sub:fast", color: "#fdd835", guide_section: "6",
+    },
+    IndicatorMeta {
+        key: "supertrend", display_name: "Supertrend", group: Trend, class: Lagging,
+        render: PriceOverlay, directional: true, supports_divergence: false,
+        signal_types: &[TrendFlip, Crossover], default_weight: 1.0, default_enabled: true,
+        config_params: &["supertrend_period", "supertrend_multiplier"],
+        value_format: "price", value_source: "sub:line", color: "#26a69a", guide_section: "14",
+    },
+    IndicatorMeta {
+        key: "donchian", display_name: "Donchian", group: Trend, class: Lagging,
+        render: PriceOverlay, directional: true, supports_divergence: false,
+        signal_types: &[Breakout, BandTouch], default_weight: 1.0, default_enabled: true,
+        config_params: &["donchian_period"],
+        value_format: "price", value_source: "sub:upper", color: "#ec407a", guide_section: "16",
+    },
+    IndicatorMeta {
+        key: "keltner", display_name: "Keltner", group: Trend, class: Lagging,
+        render: PriceOverlay, directional: true, supports_divergence: false,
+        signal_types: &[Breakout, BandTouch], default_weight: 1.0, default_enabled: true,
+        config_params: &["keltner_ema_period", "keltner_atr_period", "keltner_multiplier"],
+        value_format: "price", value_source: "sub:middle", color: "#78909c", guide_section: "15",
+    },
+    IndicatorMeta {
+        key: "adx", display_name: "ADX", group: Trend, class: Lagging,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[TrendFlip, Threshold], default_weight: 1.0, default_enabled: true,
+        config_params: &["adx_period"],
+        value_format: "decimals2", value_source: "sub:adx", color: "#ff9800", guide_section: "4",
+    },
+    IndicatorMeta {
+        key: "vwap", display_name: "VWAP", group: Trend, class: Lagging,
+        render: PriceOverlay, directional: true, supports_divergence: false,
+        signal_types: &[LevelTest], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "price", value_source: "sub:vwap", color: "#2962ff", guide_section: "7",
+    },
+    // ─────────── MOMENTUM ───────────
+    IndicatorMeta {
+        key: "rsi", display_name: "RSI", group: Momentum, class: Leading,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[Divergence, Threshold, ZeroLineCross], default_weight: 1.0, default_enabled: true,
+        config_params: &["rsi_period"],
+        value_format: "decimals2", value_source: "raw", color: "#7e57c2", guide_section: "1",
+    },
+    IndicatorMeta {
+        key: "rsi_divergence", display_name: "RSI Divergence", group: Momentum, class: Leading,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "decimals2", value_source: "raw", color: "#7e57c2", guide_section: "1",
+    },
+    IndicatorMeta {
+        key: "stochastic", display_name: "Stochastic", group: Momentum, class: Leading,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[Crossover, Threshold, Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &["stoch_k_period", "stoch_d_period", "stoch_s_period"],
+        value_format: "percent1", value_source: "sub:k_line", color: "#2962ff", guide_section: "12",
+    },
+    IndicatorMeta {
+        key: "chandemo", display_name: "Chande MO", group: Momentum, class: Leading,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[ZeroLineCross, Threshold, Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &["chandemo_period"],
+        value_format: "decimals1", value_source: "raw", color: "#e040fb", guide_section: "13",
+    },
+    IndicatorMeta {
+        key: "macd", display_name: "MACD", group: Momentum, class: Lagging,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[Crossover, ZeroLineCross, Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &["macd_fast", "macd_slow", "macd_signal"],
+        value_format: "decimals4", value_source: "raw", color: "#26a69a", guide_section: "2",
+    },
+    IndicatorMeta {
+        key: "macd_divergence", display_name: "MACD Divergence", group: Momentum, class: Lagging,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "decimals2", value_source: "raw", color: "#26a69a", guide_section: "2",
+    },
+    // ─────────── VOLUME ───────────
+    IndicatorMeta {
+        key: "volume", display_name: "Volume", group: Volume, class: Hybrid,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[VolumeClimax], default_weight: 1.0, default_enabled: true,
+        config_params: &["volume_average_period"],
+        value_format: "decimals2", value_source: "raw", color: "#26a69a", guide_section: "6",
+    },
+    IndicatorMeta {
+        key: "rvol", display_name: "RVOL", group: Volume, class: Hybrid,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[VolumeClimax], default_weight: 1.0, default_enabled: true,
+        config_params: &["rvol_threshold_institutional", "rvol_threshold_climax"],
+        value_format: "ratio2", value_source: "raw", color: "#ffa726", guide_section: "6",
+    },
+    IndicatorMeta {
+        key: "obv", display_name: "OBV", group: Volume, class: Lagging,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[Divergence, TrendFlip], default_weight: 1.0, default_enabled: true,
+        config_params: &["obv_smoothing"],
+        value_format: "decimals2", value_source: "raw", color: "#29b6f6", guide_section: "17",
+    },
+    IndicatorMeta {
+        key: "cmf", display_name: "Chaikin MF", group: Volume, class: Hybrid,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[ZeroLineCross, Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &["cmf_period"],
+        value_format: "decimals2", value_source: "raw", color: "#26c6da", guide_section: "18",
+    },
+    IndicatorMeta {
+        key: "mfi", display_name: "Money Flow Idx", group: Volume, class: Hybrid,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[Threshold, Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &["mfi_period"],
+        value_format: "decimals1", value_source: "raw", color: "#ab47bc", guide_section: "19",
+    },
+    // ─────────── VOLATILITY ───────────
+    IndicatorMeta {
+        key: "atr", display_name: "ATR", group: Volatility, class: Lagging,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[], default_weight: 1.0, default_enabled: true,
+        config_params: &["atr_period"],
+        value_format: "price", value_source: "raw", color: "#ef5350", guide_section: "5",
+    },
+    IndicatorMeta {
+        key: "bollinger", display_name: "Bollinger", group: Volatility, class: Hybrid,
+        render: PriceOverlay, directional: true, supports_divergence: false,
+        signal_types: &[Breakout, BandTouch], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "price", value_source: "sub:middle", color: "#00e5ff", guide_section: "5",
+    },
+    IndicatorMeta {
+        key: "bbwp", display_name: "BBWP", group: Volatility, class: Leading,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[CompressionRelease], default_weight: 1.0, default_enabled: true,
+        config_params: &["bbwp_period", "bbwp_lookback"],
+        value_format: "percent1", value_source: "raw", color: "#ffca28", guide_section: "9",
+    },
+    IndicatorMeta {
+        key: "squeeze", display_name: "TTM Squeeze", group: Volatility, class: Hybrid,
+        render: Pane, directional: true, supports_divergence: true,
+        signal_types: &[CompressionRelease, Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &["squeeze_period"],
+        value_format: "onoff", value_source: "state", color: "#b2ff59", guide_section: "3",
+    },
+    IndicatorMeta {
+        key: "hv", display_name: "Hist. Volatility", group: Volatility, class: Lagging,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[], default_weight: 1.0, default_enabled: true,
+        config_params: &["hv_period"],
+        value_format: "percent1", value_source: "raw", color: "#ff7043", guide_section: "20",
+    },
+    // ─────────── MARKET STRUCTURE ───────────
+    IndicatorMeta {
+        key: "fibonacci", display_name: "Fibonacci", group: Structure, class: Leading,
+        render: PriceLevels, directional: true, supports_divergence: false,
+        signal_types: &[LevelTest], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "price", value_source: "sub:gp_top", color: "#ffd54f", guide_section: "8",
+    },
+    IndicatorMeta {
+        key: "support_resistance", display_name: "Support/Resistance", group: Structure, class: Leading,
+        render: PriceLevels, directional: true, supports_divergence: false,
+        signal_types: &[LevelTest, Breakout], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "price", value_source: "raw", color: "#90a4ae", guide_section: "8",
+    },
+    IndicatorMeta {
+        key: "patterns", display_name: "Patterns", group: Structure, class: Leading,
+        render: Marker, directional: true, supports_divergence: false,
+        signal_types: &[PatternForming], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "percent1", value_source: "raw", color: "#ba68c8", guide_section: "10",
+    },
+    // ─────────── MARKET REGIME ───────────
+    IndicatorMeta {
+        key: "aroon", display_name: "Aroon", group: Regime, class: Hybrid,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[Crossover, Threshold, TrendFlip], default_weight: 1.0, default_enabled: true,
+        config_params: &["aroon_period"],
+        value_format: "decimals1", value_source: "raw", color: "#26a69a", guide_section: "21",
+    },
+    IndicatorMeta {
+        key: "choppiness", display_name: "Choppiness", group: Regime, class: Hybrid,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[Threshold, CompressionRelease], default_weight: 1.0, default_enabled: true,
+        config_params: &["chop_period"],
+        value_format: "decimals1", value_source: "raw", color: "#ffa726", guide_section: "22",
+    },
+    IndicatorMeta {
+        key: "linreg_slope", display_name: "LinReg Slope", group: Regime, class: Lagging,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[ZeroLineCross, Threshold], default_weight: 1.0, default_enabled: true,
+        config_params: &["linreg_period"],
+        value_format: "decimals4", value_source: "raw", color: "#42a5f5", guide_section: "23",
+    },
+    IndicatorMeta {
+        key: "zscore", display_name: "Z-Score", group: Regime, class: Leading,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[Threshold, ZeroLineCross], default_weight: 1.0, default_enabled: true,
+        config_params: &["zscore_period"],
+        value_format: "decimals2", value_source: "raw", color: "#ec407a", guide_section: "24",
+    },
+    // ─────────── DIVERGENCE SCORED KEYS (Phase 2) ───────────
+    IndicatorMeta {
+        key: "stochastic_divergence", display_name: "Stoch Divergence", group: Momentum, class: Leading,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#2962ff", guide_section: "12",
+    },
+    IndicatorMeta {
+        key: "chandemo_divergence", display_name: "CMO Divergence", group: Momentum, class: Leading,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#e040fb", guide_section: "13",
+    },
+    IndicatorMeta {
+        key: "mfi_divergence", display_name: "MFI Divergence", group: Volume, class: Hybrid,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#ab47bc", guide_section: "19",
+    },
+    IndicatorMeta {
+        key: "cmf_divergence", display_name: "CMF Divergence", group: Volume, class: Hybrid,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#26c6da", guide_section: "18",
+    },
+    IndicatorMeta {
+        key: "obv_divergence", display_name: "OBV Divergence", group: Volume, class: Lagging,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#29b6f6", guide_section: "17",
+    },
+    IndicatorMeta {
+        key: "squeeze_divergence", display_name: "Squeeze Divergence", group: Volatility, class: Hybrid,
+        render: Marker, directional: true, supports_divergence: true,
+        signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
+        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#b2ff59", guide_section: "3",
+    },
+];
+
+/// Return the full manifest as an owned vector (for API serialization).
+pub fn all() -> Vec<IndicatorMeta> {
+    INDICATORS.to_vec()
+}
+
+/// Look up an indicator's metadata by key.
+pub fn get(key: &str) -> Option<&'static IndicatorMeta> {
+    INDICATORS.iter().find(|m| m.key == key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registry_keys_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for m in INDICATORS {
+            assert!(seen.insert(m.key), "duplicate registry key: {}", m.key);
+        }
+    }
+
+    #[test]
+    fn test_registry_serializes() {
+        let json = serde_json::to_string(&all()).expect("registry serializes");
+        assert!(json.contains("supertrend"));
+        assert!(json.contains("choppiness"));
+    }
+
+    #[test]
+    fn test_directional_and_gate_counts() {
+        let gates = INDICATORS.iter().filter(|m| !m.directional).count();
+        // adx, atr, bbwp, hv, volume, rvol, choppiness
+        assert_eq!(gates, 7, "expected 7 non-directional gate indicators");
+    }
+}

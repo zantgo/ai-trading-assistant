@@ -6,6 +6,9 @@
 export interface FlatIndicatorHistory {
     times: number[];
     rsi_14: Array<string | null>;
+    stoch_k: Array<string | null>;
+    stoch_d: Array<string | null>;
+    chandemo: Array<string | null>;
     macd_line: Array<string | null>;
     macd_signal: Array<string | null>;
     macd_hist: Array<string | null>;
@@ -25,6 +28,21 @@ export interface FlatIndicatorHistory {
     bb_middle: Array<string | null>;
     bb_lower: Array<string | null>;
     vwap: Array<string | null>;
+    supertrend: Array<string | null>;
+    keltner_upper: Array<string | null>;
+    keltner_middle: Array<string | null>;
+    keltner_lower: Array<string | null>;
+    donchian_upper: Array<string | null>;
+    donchian_middle: Array<string | null>;
+    donchian_lower: Array<string | null>;
+    obv: Array<string | null>;
+    cmf: Array<string | null>;
+    mfi: Array<string | null>;
+    hv: Array<string | null>;
+    aroon: Array<string | null>;
+    choppiness: Array<string | null>;
+    linreg_slope: Array<string | null>;
+    zscore: Array<string | null>;
 }
 
 type NestedHistory = {
@@ -53,6 +71,9 @@ export function flattenHistory(ih: NestedHistory | undefined | null): FlatIndica
     return {
         times: ih?.times ?? [],
         rsi_14: raw('rsi'),
+        stoch_k: val('stochastic', 'k_line'),
+        stoch_d: val('stochastic', 'd_line'),
+        chandemo: raw('chandemo'),
         macd_line: val('macd', 'line'),
         macd_signal: val('macd', 'signal'),
         macd_hist: val('macd', 'histogram'),
@@ -72,5 +93,20 @@ export function flattenHistory(ih: NestedHistory | undefined | null): FlatIndica
         bb_middle: val('bollinger', 'middle'),
         bb_lower: val('bollinger', 'lower'),
         vwap: val('vwap', 'vwap'),
+        supertrend: val('supertrend', 'line'),
+        keltner_upper: val('keltner', 'upper'),
+        keltner_middle: val('keltner', 'middle'),
+        keltner_lower: val('keltner', 'lower'),
+        donchian_upper: val('donchian', 'upper'),
+        donchian_middle: val('donchian', 'middle'),
+        donchian_lower: val('donchian', 'lower'),
+        obv: raw('obv'),
+        cmf: raw('cmf'),
+        mfi: raw('mfi'),
+        hv: raw('hv'),
+        aroon: raw('aroon'),
+        choppiness: raw('choppiness'),
+        linreg_slope: raw('linreg_slope'),
+        zscore: raw('zscore'),
     };
 }

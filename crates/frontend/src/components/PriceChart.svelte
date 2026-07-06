@@ -8,7 +8,7 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import styles from './PriceChart.module.css';
-    import { tradeToMarkers } from '../lib/tradeMarkerHelper';
+    import { buildTradeMarkers } from '../lib/tradeMarkerHelper';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: {
@@ -38,6 +38,13 @@
     let bbLowerSeries: ISeriesApi<'Line'>;
     let vwapSeries: ISeriesApi<'Line'>;
     let priceLineSeries: ISeriesApi<'Line'>;
+    let supertrendSeries: ISeriesApi<'Line'>;
+    let keltnerUpperSeries: ISeriesApi<'Line'>;
+    let keltnerMiddleSeries: ISeriesApi<'Line'>;
+    let keltnerLowerSeries: ISeriesApi<'Line'>;
+    let donchianUpperSeries: ISeriesApi<'Line'>;
+    let donchianMiddleSeries: ISeriesApi<'Line'>;
+    let donchianLowerSeries: ISeriesApi<'Line'>;
 
     let supportLines: IPriceLine[] = [];
     let resistanceLines: IPriceLine[] = [];
@@ -63,6 +70,9 @@
             candleSeries, priceLineSeries,
             ema10Series, ema50Series, ema100Series, ema200Series,
             bbUpperSeries, bbMiddleSeries, bbLowerSeries, vwapSeries,
+            supertrendSeries,
+            keltnerUpperSeries, keltnerMiddleSeries, keltnerLowerSeries,
+            donchianUpperSeries, donchianMiddleSeries, donchianLowerSeries,
         ]) {
             s?.applyOptions({ priceFormat });
         }
@@ -70,45 +80,8 @@
 
     async function updateMarkers() {
         if (!candleSeries || !markersApi || !pair) return;
-
-        const markersList: any[] = [];
-        const currentSymbol = pair.symbol;
-        const barDurationSec = tf?.barDurationSec || 60;
-
-        try {
-            const perfRes = await fetch(`/api/paper/performance?symbol=${encodeURIComponent(pairKey)}`);
-            if (perfRes.ok) {
-                const data = await perfRes.json();
-                const trades = data.trades || [];
-                for (const t of trades) {
-                    markersList.push(...tradeToMarkers(t, barDurationSec, currentSymbol));
-                }
-            }
-
-            const statusRes = await fetch(`/api/paper/status?symbol=${encodeURIComponent(pairKey)}`);
-            if (statusRes.ok) {
-                const statusData = await statusRes.json();
-                if (statusData.active_position) {
-                    markersList.push(...tradeToMarkers(statusData.active_position, barDurationSec, currentSymbol));
-                }
-            }
-        } catch (err) {
-            console.error("Error loading trade markers:", err);
-        }
-
-        markersList.sort((a, b) => (a.time as number) - (b.time as number));
-
-        const seenKeys = new Set<string>();
-        const uniqueMarkers = [];
-        for (const m of markersList) {
-            const key = `${m.time}-${m.shape}`;
-            if (!seenKeys.has(key)) {
-                seenKeys.add(key);
-                uniqueMarkers.push(m);
-            }
-        }
-
-        markersApi.setMarkers(uniqueMarkers);
+        const markers = await buildTradeMarkers(pairKey, pair.symbol, tf?.barDurationSec || 60);
+        markersApi.setMarkers(markers);
     }
 
     onMount(() => {
@@ -138,6 +111,13 @@
         bbMiddleSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         bbLowerSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         vwapSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+        supertrendSeries = chart.addSeries(LineSeries, { color: '#26a69a', lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        keltnerUpperSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        keltnerMiddleSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        keltnerLowerSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        donchianUpperSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        donchianMiddleSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+        donchianLowerSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
@@ -252,6 +232,13 @@
                         bbMiddleSeries.setData(mapIndicator(ind.bb_middle));
                         bbLowerSeries.setData(mapIndicator(ind.bb_lower));
                         vwapSeries.setData(mapIndicator(ind.vwap));
+                        supertrendSeries.setData(mapIndicator(ind.supertrend));
+                        keltnerUpperSeries.setData(mapIndicator(ind.keltner_upper));
+                        keltnerMiddleSeries.setData(mapIndicator(ind.keltner_middle));
+                        keltnerLowerSeries.setData(mapIndicator(ind.keltner_lower));
+                        donchianUpperSeries.setData(mapIndicator(ind.donchian_upper));
+                        donchianMiddleSeries.setData(mapIndicator(ind.donchian_middle));
+                        donchianLowerSeries.setData(mapIndicator(ind.donchian_lower));
                     }
                 }
             } catch (err) {
@@ -302,6 +289,25 @@
     });
 
     $effect(() => {
+        if (!supertrendSeries || !pair || !tf) return;
+        supertrendSeries.applyOptions({ visible: tf.showSupertrend });
+    });
+
+    $effect(() => {
+        if (!keltnerUpperSeries || !keltnerMiddleSeries || !keltnerLowerSeries || !pair || !tf) return;
+        keltnerUpperSeries.applyOptions({ visible: tf.showKeltner });
+        keltnerMiddleSeries.applyOptions({ visible: tf.showKeltner });
+        keltnerLowerSeries.applyOptions({ visible: tf.showKeltner });
+    });
+
+    $effect(() => {
+        if (!donchianUpperSeries || !donchianMiddleSeries || !donchianLowerSeries || !pair || !tf) return;
+        donchianUpperSeries.applyOptions({ visible: tf.showDonchian });
+        donchianMiddleSeries.applyOptions({ visible: tf.showDonchian });
+        donchianLowerSeries.applyOptions({ visible: tf.showDonchian });
+    });
+
+    $effect(() => {
         if (!pair) return;
         const snap = tf.latestSnapshot;
         if (!snap) return;
@@ -341,6 +347,25 @@
         if (bbMiddle != null) bbMiddleSeries.update({ time: timeSec as Time, value: bbMiddle });
         if (bbLower != null) bbLowerSeries.update({ time: timeSec as Time, value: bbLower });
         if (vwapVal != null) vwapSeries.update({ time: timeSec as Time, value: vwapVal });
+
+        const stLine = iSub(m, 'supertrend', 'line');
+        const stDir = iSub(m, 'supertrend', 'direction');
+        if (stLine != null) {
+            supertrendSeries.update({ time: timeSec as Time, value: stLine });
+            supertrendSeries.applyOptions({ color: (stDir ?? 1) >= 0 ? '#26a69a' : '#ef5350' });
+        }
+        const kU = iSub(m, 'keltner', 'upper');
+        const kM = iSub(m, 'keltner', 'middle');
+        const kL = iSub(m, 'keltner', 'lower');
+        if (kU != null) keltnerUpperSeries.update({ time: timeSec as Time, value: kU });
+        if (kM != null) keltnerMiddleSeries.update({ time: timeSec as Time, value: kM });
+        if (kL != null) keltnerLowerSeries.update({ time: timeSec as Time, value: kL });
+        const dU = iSub(m, 'donchian', 'upper');
+        const dM = iSub(m, 'donchian', 'middle');
+        const dL = iSub(m, 'donchian', 'lower');
+        if (dU != null) donchianUpperSeries.update({ time: timeSec as Time, value: dU });
+        if (dM != null) donchianMiddleSeries.update({ time: timeSec as Time, value: dM });
+        if (dL != null) donchianLowerSeries.update({ time: timeSec as Time, value: dL });
     });
 
     // Support level price lines

@@ -7,6 +7,7 @@
 pub mod indicators;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
+pub mod market_context;
 pub mod models;
 pub mod normalized;
 

@@ -55,3 +55,6 @@
 .toggle-pill.ema-long.active { border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.1); }
 .toggle-pill.vwap-pill.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }
 .toggle-pill.bb-pill.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0, 229, 255, 0.1); }
+.toggle-pill.supertrend-pill.active { border-color: #26a69a; color: #26a69a; background: rgba(38, 166, 154, 0.1); }
+.toggle-pill.keltner-pill.active { border-color: #78909c; color: #78909c; background: rgba(120, 144, 156, 0.1); }
+.toggle-pill.donchian-pill.active { border-color: #ec407a; color: #ec407a; background: rgba(236, 64, 122, 0.1); }

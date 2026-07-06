@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use shared::indicators::{
     AdxOutput, AtrOutput, CrossoverDir, DivergenceResult, DivergenceState, DivergenceStatus,
     DivergenceType, FibonacciRange, IndicatorInputs, MacdOutput, NormalizationContext,
-    NormalizationEngine, NormalizedIndicatorValue, PatternResult, SqueezeOutput,
+    NormalizationEngine, NormalizedIndicatorValue, PatternResult, SeriesDivergenceResult,
+    SqueezeOutput,
 };
 
 #[inline]
@@ -48,12 +49,42 @@ pub fn macd_divergence_state(div: &DivergenceResult) -> DivergenceState {
     }
 }
 
+/// Bundle of generalized divergence states for the extra oscillators, mapped
+/// into the normalization inputs. `None` when not computed (e.g. live ticks).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExtraDivergence {
+    pub stochastic: DivergenceState,
+    pub chandemo: DivergenceState,
+    pub mfi: DivergenceState,
+    pub cmf: DivergenceState,
+    pub obv: DivergenceState,
+    pub squeeze: DivergenceState,
+}
+
 /// Raw indicator outputs + stateful context needed to normalize a snapshot.
 pub struct NormalizeParams<'a> {
     pub close: Decimal,
     pub rsi: Option<Decimal>,
     pub rsi_divergence: DivergenceState,
     pub macd_divergence: DivergenceState,
+    pub stoch_k: Option<Decimal>,
+    pub stoch_d: Option<Decimal>,
+    pub chandemo: Option<Decimal>,
+    pub supertrend_line: Option<Decimal>,
+    pub supertrend_dir: Option<i8>,
+    pub keltner: Option<(Decimal, Decimal, Decimal)>,
+    pub donchian: Option<(Decimal, Decimal, Decimal)>,
+    pub obv: Option<Decimal>,
+    pub obv_sma: Option<Decimal>,
+    pub cmf: Option<Decimal>,
+    pub mfi: Option<Decimal>,
+    pub hv: Option<Decimal>,
+    pub aroon_up: Option<Decimal>,
+    pub aroon_down: Option<Decimal>,
+    pub choppiness: Option<Decimal>,
+    pub linreg_slope: Option<Decimal>,
+    pub zscore: Option<Decimal>,
+    pub extra_div: ExtraDivergence,
     pub macd: &'a MacdOutput,
     pub sqz: Option<&'a SqueezeOutput>,
     pub adx: Option<&'a AdxOutput>,
@@ -67,12 +98,25 @@ pub struct NormalizeParams<'a> {
     pub ema_slow: Option<Decimal>,
     pub ema_long: Option<Decimal>,
     pub rvol: Option<Decimal>,
+    pub volume: Option<Decimal>,
+    pub average_volume: Option<Decimal>,
     pub fib: Option<&'a FibonacciRange>,
     pub pattern: Option<&'a PatternResult>,
     pub support_levels: &'a [f64],
     pub resistance_levels: &'a [f64],
     pub active_position: Option<i8>,
     pub adx_consecutive_deceleration: bool,
+}
+
+/// Convert a generic series-divergence direction into a (potential) engine
+/// [`DivergenceState`]. Confirmation upgrades are handled by the RSI/MACD
+/// detector; the generalized oscillators surface potential divergences.
+pub fn series_divergence_state(res: &SeriesDivergenceResult) -> DivergenceState {
+    match res.direction {
+        1 => DivergenceState::PotentialBullish,
+        -1 => DivergenceState::PotentialBearish,
+        _ => DivergenceState::None,
+    }
 }
 
 /// Consolidate raw indicator outputs into the unified normalized map.
@@ -99,6 +143,33 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         rsi: od2f(p.rsi),
         rsi_divergence: p.rsi_divergence,
         macd_divergence: p.macd_divergence,
+        stoch_k: od2f(p.stoch_k),
+        stoch_d: od2f(p.stoch_d),
+        chandemo: od2f(p.chandemo),
+        supertrend_line: od2f(p.supertrend_line),
+        supertrend_dir: p.supertrend_dir,
+        keltner_upper: p.keltner.map(|k| d2f(k.0)),
+        keltner_middle: p.keltner.map(|k| d2f(k.1)),
+        keltner_lower: p.keltner.map(|k| d2f(k.2)),
+        donchian_upper: p.donchian.map(|d| d2f(d.0)),
+        donchian_middle: p.donchian.map(|d| d2f(d.1)),
+        donchian_lower: p.donchian.map(|d| d2f(d.2)),
+        obv: od2f(p.obv),
+        obv_sma: od2f(p.obv_sma),
+        cmf: od2f(p.cmf),
+        mfi: od2f(p.mfi),
+        hv: od2f(p.hv),
+        aroon_up: od2f(p.aroon_up),
+        aroon_down: od2f(p.aroon_down),
+        choppiness: od2f(p.choppiness),
+        linreg_slope: od2f(p.linreg_slope),
+        zscore: od2f(p.zscore),
+        stochastic_divergence: p.extra_div.stochastic,
+        chandemo_divergence: p.extra_div.chandemo,
+        mfi_divergence: p.extra_div.mfi,
+        cmf_divergence: p.extra_div.cmf,
+        obv_divergence: p.extra_div.obv,
+        squeeze_divergence: p.extra_div.squeeze,
         macd_line: Some(d2f(p.macd.macd_line)),
         macd_signal: Some(d2f(p.macd.signal_line)),
         macd_histogram: Some(d2f(p.macd.histogram)),
@@ -150,6 +221,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         od2f(p.ema_slow),
         od2f(p.ema_long),
     );
+    inject_volume(&mut map, od2f(p.volume), od2f(p.average_volume));
 
     // Preserve the raw Fibonacci resting levels on the fibonacci entry so they
     // can be persisted to dedicated DB columns and rendered on charts.
@@ -197,6 +269,32 @@ fn inject_ema_values(
             vals.insert("long".to_string(), l);
         }
         entry.values = Some(vals);
+    }
+}
+
+/// Inject a raw-only `volume` entry (non-directional participation gate). The
+/// normalized score stays 0.0; the state label reflects participation vs the
+/// rolling average.
+fn inject_volume(
+    map: &mut HashMap<String, NormalizedIndicatorValue>,
+    volume: Option<f64>,
+    avg_volume: Option<f64>,
+) {
+    if let Some(vol) = volume {
+        let label = match avg_volume {
+            Some(avg) if avg > 0.0 && vol >= avg * 2.0 => "VOLUME_CLIMAX",
+            Some(avg) if avg > 0.0 && vol >= avg * 1.5 => "HIGH_PARTICIPATION",
+            Some(avg) if avg > 0.0 && vol < avg * 0.5 => "LOW_PARTICIPATION",
+            _ => "NORMAL_PARTICIPATION",
+        };
+        let mut values = HashMap::new();
+        if let Some(avg) = avg_volume {
+            values.insert("average".to_string(), avg);
+        }
+        map.insert(
+            "volume".into(),
+            NormalizedIndicatorValue::with_values(vol, 0.0, label, values),
+        );
     }
 }
 

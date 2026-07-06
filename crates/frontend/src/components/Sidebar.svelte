@@ -1,37 +1,47 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import { createInstance } from '../lib/api.svelte';
     import styles from './Sidebar.module.css';
     const app = useAppStore();
 
     let collapsed = $state(false);
     let newPairInput = $state('');
     let showAddInput = $state(false);
+    let addError = $state<string | null>(null);
+    let addLoading = $state(false);
 
     function selectInstance(pairKey: string) {
         app.activeTab = pairKey;
         app.currentGlobalView = 'workspace';
     }
 
-    function confirmAdd() {
-        const raw = newPairInput.trim().toUpperCase();
-        if (raw.length < 2 || raw.length > 10) return;
+    async function confirmAdd() {
+        const symbol = newPairInput.trim().toUpperCase();
+        if (symbol.length < 2 || symbol.length > 10) {
+            addError = 'Enter a symbol between 2 and 10 characters.';
+            return;
+        }
 
-        const symbol = raw;
-        const pairKey = app.pairKeyFor(symbol);
+        addLoading = true;
+        addError = null;
+        const result = await createInstance(symbol, app.quote);
+        addLoading = false;
+
+        if (!result.ok) {
+            addError = result.error || 'Failed to add instance.';
+            return;
+        }
 
         app.initInstance(symbol);
-
-        // Create via instance API
-        fetch('/api/instances', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base: symbol, quote: app.quote }),
-        }).then(() => {
-            app.activeTab = pairKey;
-        }).catch(console.error);
-
+        app.activeTab = app.pairKeyFor(symbol);
         newPairInput = '';
         showAddInput = false;
+    }
+
+    function cancelAdd() {
+        showAddInput = false;
+        newPairInput = '';
+        addError = null;
     }
 
     async function removeInstance(pairKey: string) {
@@ -97,13 +107,18 @@
                         type="text"
                         placeholder="e.g. ETH"
                         bind:value={newPairInput}
-                        onkeydown={(e) => { if (e.key === 'Enter') confirmAdd(); }}
+                        oninput={() => { if (addError) addError = null; }}
+                        onkeydown={(e) => { if (e.key === 'Enter') confirmAdd(); if (e.key === 'Escape') cancelAdd(); }}
                         class={styles.addPairInput}
                         autofocus
                     />
-                    <button class={styles.addPairConfirm} onclick={confirmAdd}>+</button>
-                    <button class={styles.addPairCancel} onclick={() => { showAddInput = false; newPairInput = ''; }}>×</button>
+                    <span class={styles.addPairQuote} title="Settlement currency is set by your session">-{app.quote}</span>
+                    <button class={styles.addPairConfirm} onclick={confirmAdd} disabled={addLoading}>{addLoading ? '…' : '+'}</button>
+                    <button class={styles.addPairCancel} onclick={cancelAdd}>×</button>
                 </div>
+                {#if addError}
+                    <div class={styles.addPairError} role="alert">⚠ {addError}</div>
+                {/if}
             {:else}
                 <button class={styles.addPairBtn} onclick={() => showAddInput = true}>
                     + Add Instance

@@ -31,6 +31,24 @@
         syncAll(tf => { tf.showBb = v; });
     }
 
+    function toggleSupertrend() {
+        if (!pair) return;
+        const v = !pair.microTerm.showSupertrend;
+        syncAll(tf => { tf.showSupertrend = v; });
+    }
+
+    function toggleKeltner() {
+        if (!pair) return;
+        const v = !pair.microTerm.showKeltner;
+        syncAll(tf => { tf.showKeltner = v; });
+    }
+
+    function toggleDonchian() {
+        if (!pair) return;
+        const v = !pair.microTerm.showDonchian;
+        syncAll(tf => { tf.showDonchian = v; });
+    }
+
     function toggleEma(label: 'Fast' | 'Medium' | 'Slow' | 'Long') {
         if (!pair) return;
         const key = `showEma${label}` as keyof typeof pair;
@@ -69,6 +87,12 @@
             onclick={toggleVwap}>VWAP</button>
         <button class="{styles.togglePill} {styles.bbPill} {pair.microTerm.showBb ? styles.active : ''}"
             onclick={toggleBb}>BOLLINGER</button>
+        <button class="{styles.togglePill} {styles.supertrendPill} {pair.microTerm.showSupertrend ? styles.active : ''}"
+            onclick={toggleSupertrend}>SUPERTREND</button>
+        <button class="{styles.togglePill} {styles.keltnerPill} {pair.microTerm.showKeltner ? styles.active : ''}"
+            onclick={toggleKeltner}>KELTNER</button>
+        <button class="{styles.togglePill} {styles.donchianPill} {pair.microTerm.showDonchian ? styles.active : ''}"
+            onclick={toggleDonchian}>DONCHIAN</button>
     </div>
 </div>
 {/if}

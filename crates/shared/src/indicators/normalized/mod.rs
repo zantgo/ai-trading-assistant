@@ -15,12 +15,103 @@
 
 mod all;
 mod context;
+mod extended;
+mod signals;
 
 pub use all::IndicatorInputs;
 
 use super::squeeze::MomentumDirection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Discrete signal kind an indicator can emit. Capabilities are declared in the
+/// registry (`signal_types`); occurrences are recorded per snapshot in
+/// [`NormalizedIndicatorValue::signals`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignalKind {
+    Divergence,
+    Crossover,
+    Threshold,
+    Breakout,
+    BandTouch,
+    ZeroLineCross,
+    CompressionRelease,
+    LevelTest,
+    TrendFlip,
+    VolumeClimax,
+    StackChange,
+    PatternForming,
+}
+
+/// Directional bias of a signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignalDirection {
+    Bullish,
+    Bearish,
+    Neutral,
+}
+
+/// Confirmation status of a signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignalStatus {
+    Potential,
+    Confirmed,
+    Active,
+}
+
+/// A coordinate on the indicator/price series (used for divergence line points).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SignalPoint {
+    pub time: u64,
+    pub value: f64,
+}
+
+/// A single discrete signal fired by an indicator on a given snapshot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndicatorSignal {
+    pub kind: SignalKind,
+    pub direction: SignalDirection,
+    pub status: SignalStatus,
+    pub label: String,
+    #[serde(default)]
+    pub strength: f64,
+    /// Number of completed bars since this signal first appeared (0 = fresh
+    /// this bar). Stamped by the analyzer's stateful tracker.
+    #[serde(default)]
+    pub age_bars: u32,
+    /// Pivot coordinates for divergence line drawing (future). Empty otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points: Option<Vec<SignalPoint>>,
+}
+
+impl IndicatorSignal {
+    pub fn new(
+        kind: SignalKind,
+        direction: SignalDirection,
+        status: SignalStatus,
+        label: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            direction,
+            status,
+            label: label.into(),
+            strength: 0.0,
+            age_bars: 0,
+            points: None,
+        }
+    }
+
+    pub fn with_strength(mut self, strength: f64) -> Self {
+        self.strength = strength;
+        self
+    }
+
+    pub fn with_points(mut self, points: Vec<SignalPoint>) -> Self {
+        self.points = Some(points);
+        self
+    }
+}
 
 /// Unified dual-representation indicator value.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,16 +126,27 @@ pub struct NormalizedIndicatorValue {
     /// bollinger bands, adx/di). `None` for single-line indicators.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<HashMap<String, f64>>,
+    /// Discrete signals fired on this snapshot (divergence, crossover, breakout,
+    /// threshold, etc.). Empty for most snapshots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signals: Vec<IndicatorSignal>,
+    /// Conviction of this reading in `[0.0, 1.0]`. Base = `|normalized|`, later
+    /// boosted by confirmed signals in the finalization pass.
+    #[serde(default)]
+    pub confidence: f64,
 }
 
 impl NormalizedIndicatorValue {
     /// Build a single-line normalized value.
     pub fn scalar(raw_value: f64, normalized: f64, state_label: impl Into<String>) -> Self {
+        let n = clamp_unit(normalized);
         Self {
             raw_value,
-            normalized: clamp_unit(normalized),
+            normalized: n,
             state_label: state_label.into(),
             values: None,
+            signals: Vec::new(),
+            confidence: n.abs(),
         }
     }
 
@@ -55,17 +157,38 @@ impl NormalizedIndicatorValue {
         state_label: impl Into<String>,
         values: HashMap<String, f64>,
     ) -> Self {
+        let n = clamp_unit(normalized);
         Self {
             raw_value,
-            normalized: clamp_unit(normalized),
+            normalized: n,
             state_label: state_label.into(),
             values: Some(values),
+            signals: Vec::new(),
+            confidence: n.abs(),
         }
     }
 
     /// Neutral/equilibrium value used for missing data or defaults.
     pub fn neutral(label: impl Into<String>) -> Self {
         Self::scalar(0.0, 0.0, label)
+    }
+
+    /// Attach discrete signals (chained builder).
+    pub fn with_signals(mut self, signals: Vec<IndicatorSignal>) -> Self {
+        self.signals = signals;
+        self
+    }
+
+    /// Append a single signal (chained builder).
+    pub fn push_signal(mut self, signal: IndicatorSignal) -> Self {
+        self.signals.push(signal);
+        self
+    }
+
+    /// Override the computed confidence (chained builder).
+    pub fn with_confidence(mut self, confidence: f64) -> Self {
+        self.confidence = confidence.clamp(0.0, 1.0);
+        self
     }
 }
 
@@ -278,5 +401,50 @@ fn rsi_label(norm: f64) -> &'static str {
         "BEARISH_PREMIUM"
     } else {
         "OVERBOUGHT_DISTRIBUTION"
+    }
+}
+
+#[cfg(test)]
+mod meta_tests {
+    use super::*;
+
+    #[test]
+    fn confidence_defaults_to_abs_normalized() {
+        let v = NormalizedIndicatorValue::scalar(0.0, -0.8, "X");
+        assert!((v.confidence - 0.8).abs() < 1e-9);
+        let n = NormalizedIndicatorValue::neutral("N");
+        assert_eq!(n.confidence, 0.0);
+    }
+
+    #[test]
+    fn confidence_override_clamps() {
+        let v = NormalizedIndicatorValue::scalar(0.0, 0.2, "X").with_confidence(1.5);
+        assert_eq!(v.confidence, 1.0);
+    }
+
+    #[test]
+    fn signal_carries_age_and_builders() {
+        let s = IndicatorSignal::new(
+            SignalKind::Divergence,
+            SignalDirection::Bullish,
+            SignalStatus::Confirmed,
+            "CONFIRMED_BULLISH_DIVERGENCE",
+        )
+        .with_strength(0.9);
+        assert_eq!(s.age_bars, 0);
+        assert!((s.strength - 0.9).abs() < 1e-9);
+        assert_eq!(s.direction, SignalDirection::Bullish);
+    }
+
+    #[test]
+    fn derive_signals_boosts_confidence() {
+        use std::collections::HashMap;
+        let mut inputs = IndicatorInputs::default();
+        inputs.rsi = Some(15.0); // deep oversold → strong normalized + OB/OS threshold signal
+        let ctx = NormalizationContext::default();
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        let rsi = map.get("rsi").expect("rsi present");
+        assert!(!rsi.signals.is_empty(), "oversold RSI should emit a threshold signal");
+        assert!(rsi.confidence >= rsi.normalized.abs(), "signals should not lower confidence");
     }
 }

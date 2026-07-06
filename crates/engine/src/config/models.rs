@@ -42,8 +42,18 @@ impl Default for BitgetConfig {
 }
 
 impl BitgetConfig {
+    /// Base path for Bitget V2 mix (perpetual futures) market endpoints.
+    pub fn mix_base_url(&self) -> String {
+        "https://api.bitget.com/api/v2/mix/market".to_string()
+    }
+
     pub fn rest_url(&self) -> String {
-        "https://api.bitget.com/api/v2/mix/market/candles".to_string()
+        format!("{}/candles", self.mix_base_url())
+    }
+
+    /// Ticker endpoint used to verify a contract symbol exists.
+    pub fn ticker_url(&self) -> String {
+        format!("{}/ticker", self.mix_base_url())
     }
 }
 
@@ -75,6 +85,42 @@ pub struct IndicatorsConfig {
     pub adx_period: usize,
     pub atr_period: usize,
     pub squeeze_period: usize,
+    #[serde(default = "default_stoch_k")]
+    pub stoch_k_period: usize,
+    #[serde(default = "default_stoch_d")]
+    pub stoch_d_period: usize,
+    #[serde(default = "default_stoch_s")]
+    pub stoch_s_period: usize,
+    #[serde(default = "default_chandemo")]
+    pub chandemo_period: usize,
+    #[serde(default = "default_supertrend_period")]
+    pub supertrend_period: usize,
+    #[serde(default = "default_supertrend_multiplier")]
+    pub supertrend_multiplier: f64,
+    #[serde(default = "default_keltner_ema")]
+    pub keltner_ema_period: usize,
+    #[serde(default = "default_keltner_atr")]
+    pub keltner_atr_period: usize,
+    #[serde(default = "default_keltner_multiplier")]
+    pub keltner_multiplier: f64,
+    #[serde(default = "default_donchian_period")]
+    pub donchian_period: usize,
+    #[serde(default = "default_obv_smoothing")]
+    pub obv_smoothing: usize,
+    #[serde(default = "default_cmf_period")]
+    pub cmf_period: usize,
+    #[serde(default = "default_mfi_period")]
+    pub mfi_period: usize,
+    #[serde(default = "default_hv_period")]
+    pub hv_period: usize,
+    #[serde(default = "default_aroon_period")]
+    pub aroon_period: usize,
+    #[serde(default = "default_chop_period")]
+    pub chop_period: usize,
+    #[serde(default = "default_linreg_period")]
+    pub linreg_period: usize,
+    #[serde(default = "default_zscore_period")]
+    pub zscore_period: usize,
     #[serde(default = "default_bbwp_lookback")]
     pub bbwp_lookback: usize,
     #[serde(default = "default_bbwp_period")]
@@ -115,6 +161,24 @@ pub struct IndicatorsConfig {
 
 fn default_bbwp_lookback() -> usize { 252 }
 fn default_bbwp_period() -> usize { 20 }
+fn default_stoch_k() -> usize { 18 }
+fn default_stoch_d() -> usize { 5 }
+fn default_stoch_s() -> usize { 9 }
+fn default_chandemo() -> usize { 12 }
+fn default_supertrend_period() -> usize { 10 }
+fn default_supertrend_multiplier() -> f64 { 3.0 }
+fn default_keltner_ema() -> usize { 20 }
+fn default_keltner_atr() -> usize { 10 }
+fn default_keltner_multiplier() -> f64 { 2.0 }
+fn default_donchian_period() -> usize { 20 }
+fn default_obv_smoothing() -> usize { 20 }
+fn default_cmf_period() -> usize { 20 }
+fn default_mfi_period() -> usize { 14 }
+fn default_hv_period() -> usize { 20 }
+fn default_aroon_period() -> usize { 25 }
+fn default_chop_period() -> usize { 14 }
+fn default_linreg_period() -> usize { 20 }
+fn default_zscore_period() -> usize { 20 }
 fn default_macd_extreme_high() -> f64 { 1000.0 }
 fn default_macd_extreme_low() -> f64 { -1000.0 }
 fn default_macd_contraction_threshold() -> f64 { 0.30 }
@@ -261,6 +325,17 @@ pub struct ScoringConfig {
     pub base_score_threshold: u32,
     #[serde(default = "default_micro_score_threshold")]
     pub micro_score_threshold: u32,
+    /// Registry-driven per-indicator weights (default 1.0 each). Keyed by
+    /// indicator registry key; overrides the registry `default_weight`.
+    #[serde(default)]
+    pub indicator_weights: std::collections::HashMap<String, f64>,
+    /// Registry-driven per-indicator enable flags. Absent = registry default.
+    #[serde(default)]
+    pub indicator_enabled: std::collections::HashMap<String, bool>,
+    /// Regime-aware weight multipliers: regime label ("TRENDING"|"RANGE"|
+    /// "EXPANSION"|"COMPRESSION") → { indicator_key → multiplier }. Absent = 1.0.
+    #[serde(default = "default_regime_weight_multipliers")]
+    pub regime_weight_multipliers: std::collections::HashMap<String, std::collections::HashMap<String, f64>>,
 }
 
 impl Default for ScoringConfig {
@@ -279,8 +354,51 @@ impl Default for ScoringConfig {
             max_allocation_pct: default_max_allocation_pct(),
             base_score_threshold: default_base_score_threshold(),
             micro_score_threshold: default_micro_score_threshold(),
+            indicator_weights: std::collections::HashMap::new(),
+            indicator_enabled: std::collections::HashMap::new(),
+            regime_weight_multipliers: default_regime_weight_multipliers(),
         }
     }
+}
+
+/// Sensible default regime-aware weight multipliers. Trending regimes favor
+/// trend/breakout indicators; ranging regimes favor mean-reversion oscillators.
+fn default_regime_weight_multipliers(
+) -> std::collections::HashMap<String, std::collections::HashMap<String, f64>> {
+    use std::collections::HashMap;
+    let mk = |pairs: &[(&str, f64)]| -> HashMap<String, f64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    };
+    let mut m = HashMap::new();
+    m.insert(
+        "TRENDING".to_string(),
+        mk(&[
+            ("ema_stack", 1.5), ("supertrend", 1.5), ("donchian", 1.4), ("adx", 1.3),
+            ("macd", 1.2), ("rsi", 0.7), ("stochastic", 0.6), ("zscore", 0.5),
+        ]),
+    );
+    m.insert(
+        "RANGE".to_string(),
+        mk(&[
+            ("rsi", 1.5), ("stochastic", 1.5), ("zscore", 1.5), ("bollinger", 1.4),
+            ("mfi", 1.2), ("supertrend", 0.6), ("donchian", 0.5), ("ema_stack", 0.7),
+        ]),
+    );
+    m.insert(
+        "EXPANSION".to_string(),
+        mk(&[
+            ("supertrend", 1.4), ("donchian", 1.4), ("keltner", 1.3), ("macd", 1.2),
+            ("patterns", 1.2),
+        ]),
+    );
+    m.insert(
+        "COMPRESSION".to_string(),
+        mk(&[
+            ("squeeze", 1.5), ("bbwp", 1.3), ("rsi", 1.1), ("stochastic", 1.1),
+            ("supertrend", 0.7), ("donchian", 0.7),
+        ]),
+    );
+    m
 }
 
 fn default_rsi_weight() -> i32 { 10 }

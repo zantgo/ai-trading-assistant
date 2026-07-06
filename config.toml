@@ -1,7 +1,6 @@
 symbols = [
     "Hyperliquid:BTC",
     "BTC",
-    "LAB",
 ]
 
 [candles]
@@ -20,6 +19,24 @@ macd_signal = 9
 adx_period = 14
 atr_period = 14
 squeeze_period = 20
+stoch_k_period = 18
+stoch_d_period = 5
+stoch_s_period = 9
+chandemo_period = 12
+supertrend_period = 10
+supertrend_multiplier = 3.0
+keltner_ema_period = 20
+keltner_atr_period = 10
+keltner_multiplier = 2.0
+donchian_period = 20
+obv_smoothing = 20
+cmf_period = 20
+mfi_period = 14
+hv_period = 20
+aroon_period = 25
+chop_period = 14
+linreg_period = 20
+zscore_period = 20
 bbwp_lookback = 252
 bbwp_period = 20
 macd_extreme_high_threshold = 1000.0
@@ -97,6 +114,45 @@ micro_allocation_pct = 2.0
 max_allocation_pct = 3.0
 base_score_threshold = 40
 micro_score_threshold = 60
+
+[scoring.indicator_weights]
+
+[scoring.indicator_enabled]
+
+[scoring.regime_weight_multipliers.RANGE]
+stochastic = 1.5
+rsi = 1.5
+zscore = 1.5
+bollinger = 1.4
+mfi = 1.2
+supertrend = 0.6
+donchian = 0.5
+ema_stack = 0.7
+
+[scoring.regime_weight_multipliers.TRENDING]
+adx = 1.3
+macd = 1.2
+zscore = 0.5
+ema_stack = 1.5
+supertrend = 1.5
+rsi = 0.7
+donchian = 1.4
+stochastic = 0.6
+
+[scoring.regime_weight_multipliers.COMPRESSION]
+squeeze = 1.5
+bbwp = 1.3
+stochastic = 1.1
+supertrend = 0.7
+rsi = 1.1
+donchian = 0.7
+
+[scoring.regime_weight_multipliers.EXPANSION]
+supertrend = 1.4
+macd = 1.2
+keltner = 1.3
+patterns = 1.2
+donchian = 1.4
 
 [fees]
 maker_fee_pct = 0.02

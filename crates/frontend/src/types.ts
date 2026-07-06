@@ -278,6 +278,91 @@ export interface IndicatorDto {
     normalized: number;
     state_label: string;
     values?: Record<string, number> | null;
+    signals?: IndicatorSignal[];
+    confidence?: number;
+}
+
+// ── Signals (mirror Rust shared::indicators::normalized signal model) ──
+export type SignalKind =
+    | 'Divergence' | 'Crossover' | 'Threshold' | 'Breakout' | 'BandTouch'
+    | 'ZeroLineCross' | 'CompressionRelease' | 'LevelTest' | 'TrendFlip'
+    | 'VolumeClimax' | 'StackChange' | 'PatternForming';
+export type SignalDirection = 'Bullish' | 'Bearish' | 'Neutral';
+export type SignalStatus = 'Potential' | 'Confirmed' | 'Active';
+export interface SignalPoint { time: number; value: number; }
+export interface IndicatorSignal {
+    kind: SignalKind;
+    direction: SignalDirection;
+    status: SignalStatus;
+    label: string;
+    strength: number;
+    age_bars?: number;
+    points?: SignalPoint[] | null;
+}
+
+// ── Market context + Terminal Monitor (meta-intelligence) ──
+export interface ContextDimension {
+    score: number;
+    confidence: number;
+    label: string;
+}
+export interface MarketContext {
+    trend: ContextDimension;
+    momentum: ContextDimension;
+    volatility: ContextDimension;
+    volume: ContextDimension;
+    liquidity: ContextDimension;
+    regime: string;
+    overall_score: number;
+    overall_label: string;
+}
+export interface MonitorTimeframe {
+    label: string;
+    timeframe_secs: number;
+    regime: string;
+    overall_score: number;
+    overall_label: string;
+    confluence_score: number;
+}
+export interface MtfIndicatorRow {
+    key: string;
+    display_name: string;
+    per_tf: number[];
+    agreement: number;
+}
+export interface MtfConfirmation {
+    trend_agreement_pct: number;
+    structural_trend: string;
+    rows: MtfIndicatorRow[];
+}
+export interface MonitorResponse {
+    symbol: string;
+    timeframes: MonitorTimeframe[];
+    mtf: MtfConfirmation;
+    market_context: MarketContext | null;
+}
+
+// ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
+export type IndicatorGroup =
+    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Advanced';
+export type IndicatorClass = 'Leading' | 'Hybrid' | 'Lagging';
+export type RenderKind = 'Pane' | 'PriceOverlay' | 'PriceLevels' | 'Marker';
+export interface IndicatorMeta {
+    key: string;
+    display_name: string;
+    group: IndicatorGroup;
+    class: IndicatorClass;
+    render: RenderKind;
+    directional: boolean;
+    supports_divergence: boolean;
+    signal_types: SignalKind[];
+    default_weight: number;
+    default_enabled: boolean;
+    config_params: string[];
+    value_format: string;
+    value_source: string;
+    color: string;
+    guide_section: string;
 }
 
 export type IndicatorMap = Record<string, IndicatorDto>;
@@ -319,6 +404,19 @@ export interface TimeframeTelemetry {
     showBbwp: boolean;
     showFib: boolean;
     showRvol: boolean;
+    showStochastic: boolean;
+    showChandeMo: boolean;
+    showSupertrend: boolean;
+    showKeltner: boolean;
+    showDonchian: boolean;
+    showObv: boolean;
+    showCmf: boolean;
+    showMfi: boolean;
+    showHv: boolean;
+    showAroon: boolean;
+    showChoppiness: boolean;
+    showLinregSlope: boolean;
+    showZscore: boolean;
     emaFastVal: number;
     emaMediumVal: number;
     emaSlowVal: number;
@@ -332,6 +430,24 @@ export interface TimeframeTelemetry {
     squeezePeriodVal: number;
     bbwpPeriodVal: number;
     bbwpLookbackVal: number;
+    stochKPeriodVal: number;
+    stochDPeriodVal: number;
+    stochSPeriodVal: number;
+    chandemoPeriodVal: number;
+    supertrendPeriodVal: number;
+    supertrendMultiplierVal: number;
+    keltnerEmaPeriodVal: number;
+    keltnerAtrPeriodVal: number;
+    keltnerMultiplierVal: number;
+    donchianPeriodVal: number;
+    obvSmoothingVal: number;
+    cmfPeriodVal: number;
+    mfiPeriodVal: number;
+    hvPeriodVal: number;
+    aroonPeriodVal: number;
+    chopPeriodVal: number;
+    linregPeriodVal: number;
+    zscorePeriodVal: number;
     analysisLimit: number;
     macdExtremeHighVal: number;
     macdExtremeLowVal: number;
@@ -352,7 +468,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All Level 3 feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer';
+export type CurrentView = 'terminal' | 'monitor' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer';
 
 /** Level 2 operational-mode paradigm groupings. */
 export type Level2Mode = 'general' | 'user' | 'rule' | 'ai';

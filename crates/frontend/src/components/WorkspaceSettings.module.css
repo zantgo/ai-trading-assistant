@@ -115,6 +115,16 @@
         transition: opacity 0.2s;
     }
     .apply-workspace-btn:hover { background: linear-gradient(135deg, #1e3a8a, #2563eb); }
+    .identity-error {
+        margin-top: 8px;
+        padding: 6px 10px;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        border-radius: 4px;
+        color: #f87171;
+        font-size: 11px;
+        line-height: 1.3;
+    }
     .key-input-row { display: flex; gap: 6px; }
     .key-field {
         flex: 1; background-color: #171b26; border: 1px solid #2a2e39;

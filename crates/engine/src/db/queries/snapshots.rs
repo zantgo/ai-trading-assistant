@@ -32,8 +32,16 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
             bbwp_normalized, bbwp_state_label, rvol_normalized, rvol_state_label,
             ema_stack_normalized, ema_stack_state_label, vwap_normalized, vwap_state_label,
             fib_GP_top, fib_GP_bottom, fib_ext_1618, fib_ext_2618,
+            stoch_k_normalized, stoch_k_state_label, stoch_d_normalized, stoch_d_state_label,
+            chandemo_normalized, chandemo_state_label,
+            supertrend_normalized, supertrend_state_label, keltner_normalized, keltner_state_label,
+            donchian_normalized, donchian_state_label, obv_normalized, obv_state_label,
+            cmf_normalized, cmf_state_label, mfi_normalized, mfi_state_label,
+            hv_normalized, hv_state_label,
+            aroon_normalized, aroon_state_label, choppiness_normalized, choppiness_state_label,
+            linreg_slope_normalized, linreg_slope_state_label, zscore_normalized, zscore_state_label,
             auxiliary_normalized_data
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55)"
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, ?51, ?52, ?53, ?54, ?55, ?56, ?57, ?58, ?59, ?60, ?61, ?62, ?63, ?64, ?65, ?66, ?67, ?68, ?69, ?70, ?71, ?72, ?73, ?74, ?75, ?76, ?77, ?78, ?79, ?80, ?81, ?82, ?83)"
     )
     .bind(exchange_label)
     .bind(snapshot.timeframe_secs as i64)
@@ -89,6 +97,34 @@ pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapsh
     .bind(snapshot.fib_gp_bottom())
     .bind(snapshot.fib_ext_1618())
     .bind(snapshot.fib_ext_2618())
+    .bind(norm("stochastic"))
+    .bind(label("stochastic"))
+    .bind(norm("stochastic"))
+    .bind(label("stochastic"))
+    .bind(norm("chandemo"))
+    .bind(label("chandemo"))
+    .bind(norm("supertrend"))
+    .bind(label("supertrend"))
+    .bind(norm("keltner"))
+    .bind(label("keltner"))
+    .bind(norm("donchian"))
+    .bind(label("donchian"))
+    .bind(norm("obv"))
+    .bind(label("obv"))
+    .bind(norm("cmf"))
+    .bind(label("cmf"))
+    .bind(norm("mfi"))
+    .bind(label("mfi"))
+    .bind(norm("hv"))
+    .bind(label("hv"))
+    .bind(norm("aroon"))
+    .bind(label("aroon"))
+    .bind(norm("choppiness"))
+    .bind(label("choppiness"))
+    .bind(norm("linreg_slope"))
+    .bind(label("linreg_slope"))
+    .bind(norm("zscore"))
+    .bind(label("zscore"))
     .bind(auxiliary_json)
     .execute(pool)
     .await
@@ -329,6 +365,7 @@ pub async fn query_latest_snapshot(
             close,
             volume: parse_dec(r.get::<Option<String>, _>(10)),
             average_volume: parse_dec(r.get::<Option<String>, _>(11)),
+            context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
             indicators,
         }
     })

@@ -1,4 +1,4 @@
-//! Consolidation of the 11 normalization mappers into a unified map.
+//! Consolidation of the normalization mappers into a unified map.
 
 use super::super::squeeze::MomentumDirection;
 use super::{DivergenceState, NormalizationContext, NormalizationEngine, NormalizedIndicatorValue};
@@ -13,6 +13,44 @@ pub struct IndicatorInputs {
     // RSI
     pub rsi: Option<f64>,
     pub rsi_divergence: DivergenceState,
+    // Stochastic Oscillator (%K slowed, %D signal)
+    pub stoch_k: Option<f64>,
+    pub stoch_d: Option<f64>,
+    // Chande Momentum Oscillator
+    pub chandemo: Option<f64>,
+    // Supertrend
+    pub supertrend_line: Option<f64>,
+    pub supertrend_dir: Option<i8>,
+    // Keltner Channels
+    pub keltner_upper: Option<f64>,
+    pub keltner_middle: Option<f64>,
+    pub keltner_lower: Option<f64>,
+    // Donchian Channels
+    pub donchian_upper: Option<f64>,
+    pub donchian_middle: Option<f64>,
+    pub donchian_lower: Option<f64>,
+    // On-Balance Volume
+    pub obv: Option<f64>,
+    pub obv_sma: Option<f64>,
+    // Chaikin Money Flow
+    pub cmf: Option<f64>,
+    // Money Flow Index
+    pub mfi: Option<f64>,
+    // Historical Volatility
+    pub hv: Option<f64>,
+    // Market Regime
+    pub aroon_up: Option<f64>,
+    pub aroon_down: Option<f64>,
+    pub choppiness: Option<f64>,
+    pub linreg_slope: Option<f64>,
+    pub zscore: Option<f64>,
+    // Generalized divergence states (Phase 2) for the extra oscillators.
+    pub stochastic_divergence: DivergenceState,
+    pub chandemo_divergence: DivergenceState,
+    pub mfi_divergence: DivergenceState,
+    pub cmf_divergence: DivergenceState,
+    pub obv_divergence: DivergenceState,
+    pub squeeze_divergence: DivergenceState,
     // MACD
     pub macd_line: Option<f64>,
     pub macd_signal: Option<f64>,
@@ -57,8 +95,9 @@ pub struct IndicatorInputs {
 impl NormalizationEngine {
     /// Consolidate all available indicators into the unified normalized map.
     ///
-    /// Keys: `rsi`, `macd`, `squeeze`, `adx`, `bbwp`, `rvol`, `ema_stack`,
-    /// `vwap`, `fibonacci`, `patterns`, `support_resistance`.
+    /// Keys: `rsi`, `stochastic`, `chandemo`, `macd`, `squeeze`, `adx`, `bbwp`,
+    /// `rvol`, `ema_stack`, `vwap`, `fibonacci`, `patterns`,
+    /// `support_resistance`.
     pub fn normalize_all(
         inputs: &IndicatorInputs,
         ctx: &NormalizationContext,
@@ -70,6 +109,68 @@ impl NormalizationEngine {
                 "rsi".into(),
                 Self::normalize_rsi(rsi, inputs.rsi_divergence),
             );
+        }
+
+        if let (Some(k), Some(d)) = (inputs.stoch_k, inputs.stoch_d) {
+            out.insert("stochastic".into(), Self::normalize_stochastic(k, d));
+        }
+
+        if let Some(cmo) = inputs.chandemo {
+            out.insert("chandemo".into(), Self::normalize_chandemo(cmo));
+        }
+
+        if let (Some(line), Some(dir)) = (inputs.supertrend_line, inputs.supertrend_dir) {
+            out.insert(
+                "supertrend".into(),
+                Self::normalize_supertrend(ctx.price, line, dir),
+            );
+        }
+
+        if let (Some(u), Some(m), Some(l)) =
+            (inputs.keltner_upper, inputs.keltner_middle, inputs.keltner_lower)
+        {
+            out.insert("keltner".into(), Self::normalize_keltner(ctx.price, u, m, l));
+        }
+
+        if let (Some(u), Some(m), Some(l)) =
+            (inputs.donchian_upper, inputs.donchian_middle, inputs.donchian_lower)
+        {
+            out.insert("donchian".into(), Self::normalize_donchian(ctx.price, u, m, l));
+        }
+
+        if let (Some(obv), Some(sma)) = (inputs.obv, inputs.obv_sma) {
+            out.insert("obv".into(), Self::normalize_obv(obv, sma));
+        }
+
+        if let Some(cmf) = inputs.cmf {
+            out.insert("cmf".into(), Self::normalize_cmf(cmf));
+        }
+
+        if let Some(mfi) = inputs.mfi {
+            out.insert("mfi".into(), Self::normalize_mfi(mfi));
+        }
+
+        if let Some(hv) = inputs.hv {
+            out.insert("hv".into(), Self::normalize_hv(hv));
+        }
+
+        if let (Some(up), Some(down)) = (inputs.aroon_up, inputs.aroon_down) {
+            out.insert("aroon".into(), Self::normalize_aroon(up, down));
+        }
+
+        if let Some(chop) = inputs.choppiness {
+            out.insert("choppiness".into(), Self::normalize_choppiness(chop));
+        }
+
+        if let Some(slope) = inputs.linreg_slope {
+            out.insert(
+                "linreg_slope".into(),
+                Self::normalize_linreg_slope(slope, ctx.price),
+            );
+        }
+
+        if let Some(z) = inputs.zscore {
+            out.insert("zscore".into(), Self::normalize_zscore(z));
         }
 
         // Dedicated divergence confluence factors (distinct from the RSI/MACD
@@ -224,6 +325,32 @@ impl NormalizationEngine {
                 ),
             );
         }
+
+        // Generalized divergence scored entries (Phase 2). Each also pushes a
+        // Divergence signal onto its parent oscillator.
+        for (parent, key, state) in [
+            ("stochastic", "stochastic_divergence", inputs.stochastic_divergence),
+            ("chandemo", "chandemo_divergence", inputs.chandemo_divergence),
+            ("mfi", "mfi_divergence", inputs.mfi_divergence),
+            ("cmf", "cmf_divergence", inputs.cmf_divergence),
+            ("obv", "obv_divergence", inputs.obv_divergence),
+            ("squeeze", "squeeze_divergence", inputs.squeeze_divergence),
+        ] {
+            if let Some(v) = super::signals::divergence_entry(&mut out, parent, state) {
+                out.insert(key.into(), v);
+            }
+        }
+
+        // Derive state-based discrete signals (threshold/breakout/etc.) from
+        // each indicator's current label. Also surface the primary RSI/MACD
+        // divergence as a signal on their parent oscillators.
+        if let Some(v) = super::signals::divergence_entry(&mut out, "rsi", inputs.rsi_divergence) {
+            let _ = v; // rsi_divergence scored entry already added above.
+        }
+        if let Some(v) = super::signals::divergence_entry(&mut out, "macd", inputs.macd_divergence) {
+            let _ = v;
+        }
+        super::signals::derive_signals(&mut out);
 
         out
     }

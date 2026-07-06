@@ -92,7 +92,8 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
     app.apiKeyConfigured = (config.api_key_configured as boolean) ?? true;
 
     if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number; analysis_limit: number };
-    if (config.indicators) app.globalIndicatorsConfig = config.indicators as { ema_fast: number; ema_medium: number; ema_slow: number; ema_long: number; rsi_period: number; macd_fast: number; macd_slow: number; macd_signal: number; adx_period: number; atr_period: number; squeeze_period: number };
+    if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
+    if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 
     const costs = config.costs as Record<string, number> | undefined;
     const costInputPrice = costs?.price_per_1m_input_tokens ?? 0.27;
@@ -113,6 +114,24 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
             return {
                 bbwpLookbackVal: (ind.bbwp_lookback as number) ?? 252,
                 bbwpPeriodVal: (ind.bbwp_period as number) ?? 20,
+                stochKPeriodVal: (ind.stoch_k_period as number) ?? 18,
+                stochDPeriodVal: (ind.stoch_d_period as number) ?? 5,
+                stochSPeriodVal: (ind.stoch_s_period as number) ?? 9,
+                chandemoPeriodVal: (ind.chandemo_period as number) ?? 12,
+                supertrendPeriodVal: (ind.supertrend_period as number) ?? 10,
+                supertrendMultiplierVal: (ind.supertrend_multiplier as number) ?? 3.0,
+                keltnerEmaPeriodVal: (ind.keltner_ema_period as number) ?? 20,
+                keltnerAtrPeriodVal: (ind.keltner_atr_period as number) ?? 10,
+                keltnerMultiplierVal: (ind.keltner_multiplier as number) ?? 2.0,
+                donchianPeriodVal: (ind.donchian_period as number) ?? 20,
+                obvSmoothingVal: (ind.obv_smoothing as number) ?? 20,
+                cmfPeriodVal: (ind.cmf_period as number) ?? 20,
+                mfiPeriodVal: (ind.mfi_period as number) ?? 14,
+                hvPeriodVal: (ind.hv_period as number) ?? 20,
+                aroonPeriodVal: (ind.aroon_period as number) ?? 25,
+                chopPeriodVal: (ind.chop_period as number) ?? 14,
+                linregPeriodVal: (ind.linreg_period as number) ?? 20,
+                zscorePeriodVal: (ind.zscore_period as number) ?? 20,
                 macdExtremeHighVal: (ind.macd_extreme_high_threshold as number) ?? 1000,
                 macdExtremeLowVal: (ind.macd_extreme_low_threshold as number) ?? -1000,
                 macdContractionVal: (ind.macd_histogram_contraction_threshold as number) ?? 0.30,
@@ -230,6 +249,36 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
 // ─── Apply settings API ────────────────────────────────────────────────────
 
 export interface ApplySettingsBody { [key: string]: unknown }
+
+/** Extract a human-friendly error message from a failed Response body. */
+export async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+    try {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+            const data = await res.json();
+            return (data && (data.error || data.message)) || fallback;
+        }
+        const text = await res.text();
+        return text.trim() || fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+/** Create an instance; returns success plus a friendly error message on failure. */
+export async function createInstance(base: string, quote: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const res = await fetch('/api/instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base, quote }),
+        });
+        if (res.ok) return { ok: true };
+        return { ok: false, error: await readErrorMessage(res, 'Failed to add instance.') };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || 'Network error. Please try again.' };
+    }
+}
 
 export async function postInstanceCreation(baseSymbol: string, quote: string): Promise<boolean> {
     const res = await fetch('/api/instances', {

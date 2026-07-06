@@ -41,6 +41,11 @@ pub struct MarketSnapshot {
     /// `support_resistance` (plus auxiliary chart series carried in `values`).
     #[serde(default)]
     pub indicators: HashMap<String, NormalizedIndicatorValue>,
+
+    /// Synthesized higher-level market context (trend/momentum/volatility/
+    /// volume/liquidity/regime + overall). Populated for completed snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<crate::market_context::MarketContext>,
 }
 
 /// Legacy-compatible read accessors that reconstruct flat indicator values
@@ -84,6 +89,48 @@ impl MarketSnapshot {
     // ── Raw scalar accessors (Option<Decimal>) ──
     pub fn rsi_14(&self) -> Option<Decimal> {
         Self::dec(self.ind_raw("rsi"))
+    }
+    pub fn stoch_k(&self) -> Option<Decimal> {
+        Self::dec(self.ind_sub("stochastic", "k_line"))
+    }
+    pub fn stoch_d(&self) -> Option<Decimal> {
+        Self::dec(self.ind_sub("stochastic", "d_line"))
+    }
+    pub fn chandemo(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("chandemo"))
+    }
+    pub fn supertrend_line(&self) -> Option<Decimal> {
+        Self::dec(self.ind_sub("supertrend", "line"))
+    }
+    pub fn keltner_middle(&self) -> Option<Decimal> {
+        Self::dec(self.ind_sub("keltner", "middle"))
+    }
+    pub fn donchian_upper(&self) -> Option<Decimal> {
+        Self::dec(self.ind_sub("donchian", "upper"))
+    }
+    pub fn obv(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("obv"))
+    }
+    pub fn cmf(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("cmf"))
+    }
+    pub fn mfi(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("mfi"))
+    }
+    pub fn hv(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("hv"))
+    }
+    pub fn aroon_oscillator(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("aroon"))
+    }
+    pub fn choppiness(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("choppiness"))
+    }
+    pub fn linreg_slope(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("linreg_slope"))
+    }
+    pub fn zscore(&self) -> Option<Decimal> {
+        Self::dec(self.ind_raw("zscore"))
     }
     pub fn macd_line(&self) -> Option<Decimal> {
         Self::dec(self.ind_sub("macd", "line"))
