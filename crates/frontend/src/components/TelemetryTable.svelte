@@ -32,18 +32,16 @@
         return order.filter((b) => (map.get(b)?.length ?? 0) > 0).map((b) => [b, map.get(b)!]);
     });
 
+    // ── Pure formatting/label helpers (no reactivity concerns) ──
     function pxf(tf: TimeframeTelemetry, v: number | null): string {
         return fmtPrice(v, parseFloat(tf.priceText) || 0);
     }
-
     function rawVal(meta: IndicatorMeta, tf: TimeframeTelemetry): number | null {
         if (meta.value_source.startsWith('sub:')) {
             return iSub(tf.indicators, meta.key, meta.value_source.slice(4));
         }
         return iRaw(tf.indicators, meta.key);
     }
-
-    // Registry `value_format` → display string for the Raw cell.
     function formatRaw(meta: IndicatorMeta, tf: TimeframeTelemetry): string {
         if (meta.value_format === 'onoff') {
             return meta.key === 'squeeze'
@@ -61,7 +59,6 @@
             default: return fmt(v, 2);
         }
     }
-
     function stateLabel(tf: TimeframeTelemetry, key: string): string {
         return tf.indicators?.[key]?.state_label ?? 'UNKNOWN';
     }
@@ -90,6 +87,9 @@
         if (s.direction === 'Bearish') return 'color:#ef4444;border-color:#ef4444;';
         return 'color:#f59e0b;border-color:#f59e0b;';
     }
+    function signalText(s: IndicatorSignal): string {
+        return `${SIGNAL_ABBR[s.kind] ?? s.kind}${(s.age_bars ?? 0) === 0 ? '' : `·${s.age_bars}`}`;
+    }
 
     function colorForNormalized(n: number): string {
         const mag = Math.min(Math.abs(n), 1);
@@ -104,7 +104,6 @@
         }
         return 'color: #f59e0b; font-weight: 600;';
     }
-
     function bucketHeaderClass(bucket: string): string {
         const map: Record<string, string> = {
             Leading: styles.sectionHeaderLeading,
@@ -113,7 +112,6 @@
         };
         return map[bucket] ?? '';
     }
-
     function formatTfLabel(secs: number): string {
         if (secs >= 86400) return `${secs / 86400}d`;
         if (secs >= 3600) return `${secs / 3600}h`;
@@ -126,7 +124,6 @@
         if (key === 'slowTerm') return 'SLOW';
         return 'MACRO';
     }
-
     function getMarketState(tf: TimeframeTelemetry): string {
         const trend = normalized(tf, 'ema_stack');
         const adx = normalized(tf, 'adx');
@@ -136,9 +133,74 @@
         if (trend < -0.1) return Math.abs(adx) >= 0.5 ? 'STRONG_BEAR_TREND' : 'BEAR_TREND';
         return 'RANGE';
     }
-    function marketStateStyle(tf: TimeframeTelemetry): string {
-        return colorForNormalized(normalized(tf, 'ema_stack'));
-    }
+
+    // ── Reactive materialization ──────────────────────────────────────────
+    // Every deep read of `tf.indicators[...]` happens INSIDE this derivation,
+    // so Svelte 5 subscribes to the nested proxy signals. When the WebSocket
+    // reassigns `tf.indicators`, this recomputes and the (primitive-only)
+    // template re-renders — fixing the previously frozen cells.
+    type CellRow = {
+        key: string;
+        displayName: string;
+        directional: boolean;
+        raw: string;
+        state: string;
+        stateStyle: string;
+        confidencePct: number;
+        signals: Array<{ text: string; style: string; title: string }>;
+    };
+    type CardBucket = { bucket: string; headerClass: string; rows: CellRow[] };
+    type Card = {
+        tfKey: string;
+        tfName: string;
+        tfLabel: string;
+        priceText: string;
+        volText: string;
+        marketState: string;
+        marketStateStyle: string;
+        sections: CardBucket[];
+    };
+
+    const cards = $derived.by<Card[]>(() => {
+        if (!pair) return [];
+        const out: Card[] = [];
+        for (const tfKey of timeframes) {
+            const tf = (pair as any)[tfKey] as TimeframeTelemetry;
+            if (!tf) continue;
+            const sections: CardBucket[] = buckets.map(([bucket, metas]) => ({
+                bucket,
+                headerClass: bucketHeaderClass(bucket),
+                rows: metas.map((meta): CellRow => {
+                    const n = normalized(tf, meta.key);
+                    return {
+                        key: meta.key,
+                        displayName: meta.display_name,
+                        directional: meta.directional,
+                        raw: formatRaw(meta, tf),
+                        state: stateLabel(tf, meta.key),
+                        stateStyle: colorForNormalized(n),
+                        confidencePct: confidence(tf, meta.key),
+                        signals: signalsFor(tf, meta.key).map((s) => ({
+                            text: signalText(s),
+                            style: signalStyle(s),
+                            title: signalTitle(s),
+                        })),
+                    };
+                }),
+            }));
+            out.push({
+                tfKey,
+                tfName: formatTfName(tfKey),
+                tfLabel: formatTfLabel(tf.barDurationSec),
+                priceText: tf.priceText,
+                volText: tf.volText,
+                marketState: getMarketState(tf),
+                marketStateStyle: colorForNormalized(normalized(tf, 'ema_stack')),
+                sections,
+            });
+        }
+        return out;
+    });
 
     function toggleExpandTable(key: string) {
         expandedTfTable = expandedTfTable === key ? null : key;
@@ -169,8 +231,9 @@
                     class: meta.class,
                     directional: meta.directional,
                     normalized: normalized(tf, meta.key),
+                    confidence: confidence(tf, meta.key),
                     state_label: stateLabel(tf, meta.key),
-                    signals: signalsFor(tf, meta.key).map((s) => `${s.kind}:${s.direction}:${s.status}`),
+                    signals: signalsFor(tf, meta.key).map((s) => `${s.kind}:${s.direction}:${s.status}:${s.age_bars ?? 0}`),
                 };
             }
             (dump.telemetry as any)[`${formatTfName(tfKey)} (${formatTfLabel(tf.barDurationSec)})`] = entry;
@@ -197,57 +260,53 @@
     </div>
 
     <div class={styles.ttGrid}>
-        {#each timeframes as tfKey}
-            {@const tf = (pair as any)[tfKey] as TimeframeTelemetry}
-            {#if tf}
-                <div class="{styles.tfTableCard} {expandedTfTable === tfKey ? styles.expandedTableCard : ''}">
-                    <div class={styles.tfCardHeader}>
-                        <span class={styles.tfCardLabel}>{formatTfName(tfKey)} ({formatTfLabel(tf.barDurationSec)})</span>
-                        <div class={styles.headerActions}>
-                            <span class={styles.tfCardMarketState} style={marketStateStyle(tf)}>{getMarketState(tf)}</span>
-                            <button class={styles.expandBtn} onclick={() => toggleExpandTable(tfKey)} title={expandedTfTable === tfKey ? 'Collapse' : 'Expand'}>
-                                {expandedTfTable === tfKey ? '✕' : '⛶'}
-                            </button>
-                        </div>
-                    </div>
-                    <div class={styles.tfCardTableWrapper}>
-                        <table class={styles.tfCardTable}>
-                            <thead>
-                                <tr><th colspan="3" class="{styles.sectionHeader}">Market</th></tr>
-                            </thead>
-                            <tbody>
-                                <tr><td class={styles.colLabel}>PRICE</td><td class={styles.colValue} colspan="2">{tf.priceText}</td></tr>
-                                <tr><td class={styles.colLabel}>VOLUME</td><td class={styles.colValue} colspan="2">{tf.volText}</td></tr>
-                            </tbody>
-                            {#each buckets as [bucket, metas]}
-                                <thead>
-                                    <tr><th colspan="3" class="{styles.sectionHeader} {bucketHeaderClass(bucket)}">{bucket} Indicators</th></tr>
-                                    <tr><th>Indicator</th><th>Raw</th><th>State</th></tr>
-                                </thead>
-                                <tbody>
-                                    {#each metas as meta}
-                                        <tr>
-                                            <td class={styles.colLabel}>
-                                                {meta.display_name}
-                                                {#if !meta.directional}<span class={styles.gateTag} title="Non-directional gate">◐</span>{/if}
-                                            </td>
-                                            <td class={styles.colValue}>{formatRaw(meta, tf)}</td>
-                                            <td class={styles.colState} style={colorForNormalized(normalized(tf, meta.key))}>
-                                                {stateLabel(tf, meta.key)}
-                                                {#if meta.directional}<span class={styles.confTag} title="Confidence">{confidence(tf, meta.key)}%</span>{/if}
-                                                {#each signalsFor(tf, meta.key) as sig}
-                                                    <span class={styles.signalBadge} style={signalStyle(sig)} title={signalTitle(sig)}>
-                                                        {SIGNAL_ABBR[sig.kind] ?? sig.kind}{(sig.age_bars ?? 0) === 0 ? '' : `·${sig.age_bars}`}</span>
-                                                {/each}
-                                            </td>
-                                        </tr>
-                                    {/each}
-                                </tbody>
-                            {/each}
-                        </table>
+        {#each cards as card (card.tfKey)}
+            <div class="{styles.tfTableCard} {expandedTfTable === card.tfKey ? styles.expandedTableCard : ''}">
+                <div class={styles.tfCardHeader}>
+                    <span class={styles.tfCardLabel}>{card.tfName} ({card.tfLabel})</span>
+                    <div class={styles.headerActions}>
+                        <span class={styles.tfCardMarketState} style={card.marketStateStyle}>{card.marketState}</span>
+                        <button class={styles.expandBtn} onclick={() => toggleExpandTable(card.tfKey)} title={expandedTfTable === card.tfKey ? 'Collapse' : 'Expand'}>
+                            {expandedTfTable === card.tfKey ? '✕' : '⛶'}
+                        </button>
                     </div>
                 </div>
-            {/if}
+                <div class={styles.tfCardTableWrapper}>
+                    <table class={styles.tfCardTable}>
+                        <thead>
+                            <tr><th colspan="3" class="{styles.sectionHeader}">Market</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td class={styles.colLabel}>PRICE</td><td class={styles.colValue} colspan="2">{card.priceText}</td></tr>
+                            <tr><td class={styles.colLabel}>VOLUME</td><td class={styles.colValue} colspan="2">{card.volText}</td></tr>
+                        </tbody>
+                        {#each card.sections as section (section.bucket)}
+                            <thead>
+                                <tr><th colspan="3" class="{styles.sectionHeader} {section.headerClass}">{section.bucket} Indicators</th></tr>
+                                <tr><th>Indicator</th><th>Raw</th><th>State</th></tr>
+                            </thead>
+                            <tbody>
+                                {#each section.rows as row (row.key)}
+                                    <tr>
+                                        <td class={styles.colLabel}>
+                                            {row.displayName}
+                                            {#if !row.directional}<span class={styles.gateTag} title="Non-directional gate">◐</span>{/if}
+                                        </td>
+                                        <td class={styles.colValue}>{row.raw}</td>
+                                        <td class={styles.colState} style={row.stateStyle}>
+                                            {row.state}
+                                            {#if row.directional}<span class={styles.confTag} title="Confidence">{row.confidencePct}%</span>{/if}
+                                            {#each row.signals as sig}
+                                                <span class={styles.signalBadge} style={sig.style} title={sig.title}>{sig.text}</span>
+                                            {/each}
+                                        </td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        {/each}
+                    </table>
+                </div>
+            </div>
         {/each}
     </div>
 </div>
