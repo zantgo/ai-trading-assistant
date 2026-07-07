@@ -170,7 +170,7 @@
             <div class={styles.adbChartBox}>
                 <div class={styles.adbMiniChart}>
                     {#each stats.win_rate_by_hour as h, i}
-                        <div class={styles.adbBarLine} style="left: {(i / 23) * 100}%; bottom: 0; height: {h.win_rate * 100}%; background: #3b82f6; width: 3px;">
+                        <div class={styles.adbBarLine} style="left: {(i / 23) * 100}%; bottom: 0; height: {h.win_rate * 100}%; background: #94a3b8; width: 3px;">
                         </div>
                     {/each}
                 </div>
@@ -184,7 +184,7 @@
             <div class={styles.adbChartBox}>
                 <div class={styles.adbMiniChart}>
                     {#each stats.win_rate_by_weekday as day, i}
-                        <div class={styles.adbBarLine} style="left: {(i / 6) * 100}%; bottom: 0; height: {day.win_rate * 100}%; background: #8b5cf6; width: 12px;">
+                        <div class={styles.adbBarLine} style="left: {(i / 6) * 100}%; bottom: 0; height: {day.win_rate * 100}%; background: #94a3b8; width: 12px;">
                         </div>
                     {/each}
                 </div>
@@ -372,7 +372,7 @@
                 <div class={styles.adbMiniChart}>
                     {#each stats.daily_commissions.slice(-30) as day, i}
                         {@const maxFee = Math.max(...stats.daily_commissions.map(d => d.fees), 0.01)}
-                        <div class={styles.adbBarLine} style="left: {(i / Math.max(stats.daily_commissions.length - 1, 1)) * 100}%; height: {day.fees / maxFee * 100}%; background: #f59e0b; bottom: 0;">
+                        <div class={styles.adbBarLine} style="left: {(i / Math.max(stats.daily_commissions.length - 1, 1)) * 100}%; height: {day.fees / maxFee * 100}%; background: #64748b; bottom: 0;">
                         </div>
                     {/each}
                 </div>
@@ -383,7 +383,7 @@
                 <div class={styles.adbMiniChart}>
                     {#each stats.cumulative_commissions.slice(-50) as [ts, val], i}
                         {@const maxCum = stats.cumulative_commissions.length > 0 ? Math.max(...stats.cumulative_commissions.map(c => c[1]), 0.01) : 1}
-                        <div class={styles.adbBarLine} style="left: {(i / Math.max(stats.cumulative_commissions.length - 1, 1)) * 100}%; height: {val / maxCum * 100}%; background: #f59e0b; bottom: 0; width: 2px;">
+                        <div class={styles.adbBarLine} style="left: {(i / Math.max(stats.cumulative_commissions.length - 1, 1)) * 100}%; height: {val / maxCum * 100}%; background: #64748b; bottom: 0; width: 2px;">
                         </div>
                     {/each}
                 </div>

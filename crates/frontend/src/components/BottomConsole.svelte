@@ -3,6 +3,7 @@
     import { calcLiqPrice } from '../stores/paperTrading.svelte';
     import { getDecimalCount } from '../lib/telemetry';
     import styles from './PaperTradingPanel.module.css';
+    import panel from './BottomConsole.module.css';
 
     const app = useAppStore();
 
@@ -144,7 +145,7 @@
                 <table class={styles.table}>
                     <thead>
                         <tr>
-                            <th style="width:24px"></th>
+                            <th class={panel.expandCol}></th>
                             <th>Market</th>
                             <th>Side</th>
                             <th class={styles.tableColRight}>Size</th>

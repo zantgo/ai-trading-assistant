@@ -24,11 +24,11 @@
         <input id="entryPrice" type="number" step="any"
                bind:value={entryPriceVal} placeholder="0.00" />
     </div>
-    <div class={styles.entryPriceInput} style="margin-top: 8px;">
+    <div class="{styles.entryPriceInput} {styles.entryPriceOffset}">
         <label for="stopLoss">Stop Loss ($):</label>
         <input id="stopLoss" type="number" step="any"
                bind:value={stopLossVal} placeholder="0.00" />
-        <small style="font-size: 9px; color: #64748b; margin-top: 2px; display: block;">
+        <small class={styles.entryHint}>
             Left blank? Defaults to 1% risk distance.
         </small>
     </div>

@@ -85,7 +85,7 @@
     function signalStyle(s: IndicatorSignal): string {
         if (s.direction === 'Bullish') return 'color:#10b981;border-color:#10b981;';
         if (s.direction === 'Bearish') return 'color:#ef4444;border-color:#ef4444;';
-        return 'color:#f59e0b;border-color:#f59e0b;';
+        return 'color:#94a3b8;border-color:#475569;';
     }
     function signalText(s: IndicatorSignal): string {
         return `${SIGNAL_ABBR[s.kind] ?? s.kind}${(s.age_bars ?? 0) === 0 ? '' : `·${s.age_bars}`}`;
@@ -102,7 +102,17 @@
             const r = Math.round(180 + 59 * mag);
             return `color: rgb(${r}, 68, 68); font-weight: 700;`;
         }
-        return 'color: #f59e0b; font-weight: 600;';
+        return 'color: #94a3b8; font-weight: 600;';
+    }
+
+    // State-driven container tone: each indicator row gets a colored left-border
+    // + subtle background tint based on its normalized directional strength.
+    function rowToneClass(n: number): string {
+        const mag = Math.min(Math.abs(n), 1);
+        if (mag >= 0.9) return styles.rowStrong;
+        if (n > 0.1) return styles.rowBullish;
+        if (n < -0.1) return styles.rowBearish;
+        return styles.rowNeutral;
     }
     function bucketHeaderClass(bucket: string): string {
         const map: Record<string, string> = {
@@ -146,6 +156,7 @@
         raw: string;
         state: string;
         stateStyle: string;
+        toneClass: string;
         confidencePct: number;
         signals: Array<{ text: string; style: string; title: string }>;
     };
@@ -179,6 +190,7 @@
                         raw: formatRaw(meta, tf),
                         state: stateLabel(tf, meta.key),
                         stateStyle: colorForNormalized(n),
+                        toneClass: rowToneClass(n),
                         confidencePct: confidence(tf, meta.key),
                         signals: signalsFor(tf, meta.key).map((s) => ({
                             text: signalText(s),
@@ -287,7 +299,7 @@
                             </thead>
                             <tbody>
                                 {#each section.rows as row (row.key)}
-                                    <tr>
+                                    <tr class={row.toneClass}>
                                         <td class={styles.colLabel}>
                                             {row.displayName}
                                             {#if !row.directional}<span class={styles.gateTag} title="Non-directional gate">◐</span>{/if}

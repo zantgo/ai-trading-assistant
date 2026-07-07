@@ -3,6 +3,7 @@
     import { requestAssistantAnalysis, openAssistantChat } from '../lib/analysis.svelte';
     import { fmtPrice } from '../lib/telemetry';
     import styles from '../App.module.css';
+    import panel from './AiAssistantPanel.module.css';
 
     const app = useAppStore();
 
@@ -39,11 +40,11 @@
                         <input id="entryPrice" type="number" step="any"
                                bind:value={app.entryPriceVal} placeholder="0.00" />
                     </div>
-                    <div class={styles.entryPriceInput} style="margin-top: 8px;">
+                    <div class="{styles.entryPriceInput} {panel.entryPriceInputOffset}">
                         <label for="stopLoss">Stop Loss ($):</label>
                         <input id="stopLoss" type="number" step="any"
                                bind:value={app.stopLossVal} placeholder="0.00" />
-                        <small style="font-size: 9px; color: #64748b; margin-top: 2px; display: block;">
+                        <small class={panel.entryHint}>
                             Left blank? Defaults to 1% risk distance.
                         </small>
                     </div>
@@ -93,20 +94,20 @@
                     {@const resp = app.multiAgentResponse}
                     {@const pt = resp.phase_two}
                     <div class={styles.analysisResult + " " + styles.clickableResult} onclick={openAssistantModal} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') openAssistantModal() }}>
-                        <div class={styles.resultBlock + " " + styles.reveal} style="animation-delay: 0ms">
+                        <div class="{styles.resultBlock} {styles.reveal} {panel.revealDelay0}">
                             <h4 class={styles.resultStageTitle}>Phase 1 — MTF Consensus</h4>
                             <span class={styles.consensusBadge} class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
                                 {pt.indicator_synthesis.summary_count}
                             </span>
                         </div>
-                        <div class={styles.resultBlock + " " + styles.reveal} style="animation-delay: 150ms">
+                        <div class="{styles.resultBlock} {styles.reveal} {panel.revealDelay150}">
                             <h4 class={styles.resultStageTitle}>Phase 2 — Trend & Structure</h4>
                             <span class={styles.resultBadge} class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
                                 {pt.general_trend}
                             </span>
                             <p class={styles.resultReasoning}>{pt.indicator_synthesis.evaluation.substring(0, 120)}...</p>
                         </div>
-                        <div class={styles.resultBlock + " " + styles.resultAction + " " + styles.reveal} style="animation-delay: 300ms">
+                        <div class="{styles.resultBlock} {styles.resultAction} {styles.reveal} {panel.revealDelay300}">
                             <h4 class={styles.resultStageTitle}>3. Position Recommendation</h4>
                             <span class={styles.actionCall} class:action-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'} class:action-red={pt.position_recommendation.action === 'Close'} class:action-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}>
                                 {pt.position_recommendation.action}

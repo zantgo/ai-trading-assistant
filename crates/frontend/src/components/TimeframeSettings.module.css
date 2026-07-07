@@ -24,8 +24,8 @@
     }
 }
 .term-card {
-    background-color: #131722;
-    border: 1px solid #2a2e39;
+    background-color: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 12px;
     display: flex;
@@ -36,11 +36,11 @@
 .card-title {
     font-size: 12px;
     font-weight: 700;
-    color: #f1f5f9;
+    color: #f8fafc;
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     padding-bottom: 6px;
     text-align: center;
 }
@@ -49,9 +49,9 @@
     justify-content: center;
 }
 .tf-select {
-    background-color: #171b26;
-    border: 1px solid #3b82f6;
-    color: #cbd5e1;
+    background-color: #161a24;
+    border: 1px solid #94a3b8;
+    color: #94a3b8;
     font-size: 11px;
     font-weight: 700;
     padding: 4px 8px;
@@ -62,12 +62,12 @@
     width: 140px;
 }
 .tf-select option {
-    background-color: #131722;
-    color: #cbd5e1;
+    background-color: #11131a;
+    color: #94a3b8;
 }
 .indicator-inputs-scroll {
-    background-color: #0e111a;
-    border: 1px solid #1e293b;
+    background-color: #0b0c10;
+    border: 1px solid #1c212e;
     border-radius: 6px;
     padding: 10px;
     display: flex;
@@ -90,9 +90,9 @@
     white-space: nowrap;
 }
 .input-row input {
-    background-color: #171b26;
-    border: 1px solid #2a2e39;
-    color: #cbd5e1;
+    background-color: #161a24;
+    border: 1px solid #2d3448;
+    color: #94a3b8;
     font-family: ui-monospace, monospace;
     font-size: 10px;
     padding: 3px 6px;
@@ -102,11 +102,11 @@
     outline: none;
 }
 .input-row input:focus {
-    border-color: #3b82f6;
+    border-color: #94a3b8;
 }
 .section-divider {
     border: 0;
-    border-top: 1px solid #1e293b;
+    border-top: 1px solid #1c212e;
     margin: 2px 0;
 }
 .apply-row {
@@ -116,9 +116,9 @@
     gap: 12px;
 }
 .apply-workspace-btn {
-    background: linear-gradient(135deg, #1e40af, #3b82f6);
-    border: 1px solid #3b82f6;
-    color: #f1f5f9;
+    background: #334155;
+    border: 1px solid #475569;
+    color: #fff;
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
@@ -128,7 +128,7 @@
     transition: opacity 0.2s;
 }
 .apply-workspace-btn:hover {
-    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    opacity: 0.85;
 }
 .apply-workspace-btn:disabled {
     opacity: 0.6;

@@ -134,7 +134,7 @@
                 <table class={styles.table}>
                     <thead>
                         <tr>
-                            <th style="width:70px">Portions</th>
+                            <th class={styles.colPortions}>Portions</th>
                             <th>Market</th>
                             <th>Side</th>
                             <th class={styles.tableColRight}>Size</th>

@@ -1,8 +1,8 @@
 .consoleWorkspace {
     display: flex;
     flex-direction: column;
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     overflow: hidden;
     min-height: 0;
@@ -13,9 +13,9 @@
     display: flex;
     justify-content: space-between;
     align-items: stretch;
-    border-bottom: 1px solid #2a2e39;
+    border-bottom: 1px solid #2d3448;
     padding: 0 4px;
-    background: #0f111a;
+    background: #0b0c10;
     flex-shrink: 0;
 }
 .consoleTabs { display: flex; }
@@ -32,12 +32,12 @@
     text-transform: uppercase;
     white-space: nowrap;
 }
-.consoleTab:hover { color: #cbd5e1; }
-.consoleTabActive { color: #f1f5f9; border-bottom-color: #3b82f6; }
+.consoleTab:hover { color: #94a3b8; }
+.consoleTabActive { color: #f8fafc; border-bottom-color: #94a3b8; }
 .consoleTabCount {
     display: inline-block;
-    background: rgba(59,130,246,0.15);
-    color: #3b82f6;
+    background: rgba(255,255,255,0.1);
+    color: #f8fafc;
     font-size: 10px;
     font-weight: 700;
     padding: 1px 6px;
@@ -47,7 +47,7 @@
 .exportBtn {
     background: rgba(59,130,246,0.1);
     border: 1px solid rgba(59,130,246,0.2);
-    color: #3b82f6;
+    color: #f8fafc;
     font-size: 10px;
     font-weight: 600;
     padding: 4px 12px;
@@ -85,14 +85,14 @@
     font-size: 11px;
 }
 .table thead th {
-    background: #0f111a;
+    background: #0b0c10;
     color: #64748b;
     font-size: 9px;
     font-weight: 700;
     text-transform: uppercase;
     padding: 9px 10px;
     text-align: left;
-    border-bottom: 1px solid #2a2e39;
+    border-bottom: 1px solid #2d3448;
     position: sticky;
     top: 0;
     z-index: 1;
@@ -100,14 +100,14 @@
 .tableColRight { text-align: right; }
 .table tbody td {
     padding: 9px 10px;
-    color: #cbd5e1;
+    color: #94a3b8;
     font-family: monospace;
     font-size: 11px;
-    border-bottom: 1px solid #1a1f2e;
+    border-bottom: 1px solid #1e2330;
     white-space: nowrap;
 }
 .numRight { text-align: right; }
-.marketCell { font-weight: 700; color: #f1f5f9; font-family: inherit !important; }
+.marketCell { font-weight: 700; color: #f8fafc; font-family: inherit !important; }
 .directionCell { font-size: 10px; font-weight: 800; text-transform: uppercase; font-family: inherit !important; }
 .directionLong, .pnlPositive { color: #10b981; }
 .directionShort, .pnlNegative { color: #ef4444; }
@@ -147,26 +147,26 @@
     align-items: center;
     gap: 6px;
     padding: 8px 10px;
-    border-top: 1px solid #1a1f2e;
+    border-top: 1px solid #1e2330;
     background: #0d1117;
     flex-shrink: 0;
 }
 .creatorInput {
     width: 100px;
-    background: #171b26;
-    border: 1px solid #2a2e39;
-    color: #cbd5e1;
+    background: #161a24;
+    border: 1px solid #2d3448;
+    color: #94a3b8;
     font-size: 11px;
     padding: 5px 8px;
     border-radius: 3px;
     font-family: monospace;
     outline: none;
 }
-.creatorInput:focus { border-color: #3b82f6; }
+.creatorInput:focus { border-color: #94a3b8; }
 .creatorSelect {
-    background: #171b26;
-    border: 1px solid #2a2e39;
-    color: #cbd5e1;
+    background: #161a24;
+    border: 1px solid #2d3448;
+    color: #94a3b8;
     font-size: 11px;
     padding: 5px 6px;
     border-radius: 3px;
@@ -176,7 +176,7 @@
 .addBracketBtn {
     background: rgba(59,130,246,0.12);
     border: 1px solid rgba(59,130,246,0.3);
-    color: #3b82f6;
+    color: #f8fafc;
     font-size: 10px;
     font-weight: 700;
     padding: 5px 12px;
@@ -195,7 +195,7 @@
     gap: 6px;
     padding: 6px 10px;
     background: #0d1117;
-    border-top: 1px solid #1a1f2e;
+    border-top: 1px solid #1e2330;
     flex-shrink: 0;
 }
 .bracketChip {
@@ -226,17 +226,17 @@
     display: flex;
     gap: 12px;
     padding: 8px 14px;
-    background: #0f111a;
-    border-top: 1px solid #2a2e39;
+    background: #0b0c10;
+    border-top: 1px solid #2d3448;
     flex-shrink: 0;
 }
 .accountItem { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .accountItemLabel { font-size: 8px; color: #64748b; text-transform: uppercase; font-weight: 600; }
-.accountItemValue { font-size: 12px; font-weight: 700; color: #f1f5f9; font-family: monospace; }
+.accountItemValue { font-size: 12px; font-weight: 700; color: #f8fafc; font-family: monospace; }
 
 .toggleBtn {
-    background: #171b26;
-    border: 1px solid #2a2e39;
+    background: #161a24;
+    border: 1px solid #2d3448;
     color: #64748b;
     font-size: 9px;
     font-weight: 800;
@@ -247,10 +247,10 @@
     transition: all 0.15s;
 }
 .toggleBtn.active {
-    background: rgba(59, 130, 246, 0.12);
-    border-color: #3b82f6;
-    color: #3b82f6;
-    box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: #94a3b8;
+    color: #f8fafc;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.1);
 }
 
 /* Modal */
@@ -264,8 +264,8 @@
     justify-content: center;
 }
 .modalContent {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 0;
     width: 560px;
@@ -277,9 +277,9 @@
     justify-content: space-between;
     align-items: center;
     padding: 14px 16px;
-    border-bottom: 1px solid #2a2e39;
+    border-bottom: 1px solid #2d3448;
 }
-.modalHeader h4 { margin: 0; color: #f1f5f9; font-size: 13px; }
+.modalHeader h4 { margin: 0; color: #f8fafc; font-size: 13px; }
 .modalClose {
     background: none;
     border: none;
@@ -287,4 +287,5 @@
     font-size: 16px;
     cursor: pointer;
 }
-.modalClose:hover { color: #f1f5f9; }
+.modalClose:hover { color: #f8fafc; }
+.colPortions { width: 70px; }

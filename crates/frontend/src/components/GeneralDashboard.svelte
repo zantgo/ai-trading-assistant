@@ -189,16 +189,16 @@
         if (!compoundedChart) {
             compoundedChart = createChart(compoundedContainer, {
                 autoSize: true,
-                layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 10 },
-                grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-                rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
-                timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
+                layout: { background: { color: 'transparent' }, textColor: '#94a3b8', fontSize: 10 },
+                grid: { vertLines: { color: '#1c212e' }, horzLines: { color: '#1c212e' } },
+                rightPriceScale: { borderColor: '#2d3448', scaleMargins: { top: 0.15, bottom: 0.15 } },
+                timeScale: { borderColor: '#2d3448', visible: true, timeVisible: true, secondsVisible: false },
                 handleScale: true,
                 handleScroll: true,
             });
 
             compoundedSeries = compoundedChart.addSeries(LineSeries, {
-                color: '#3b82f6',
+                color: '#e2e8f0',
                 lineWidth: 3,
                 priceLineVisible: false,
                 crosshairMarkerVisible: true,
@@ -272,16 +272,16 @@
                 if (!modalChartContainer || modalChart) return;
                 modalChart = createChart(modalChartContainer, {
                     autoSize: true,
-                    layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 11 },
-                    grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-                    rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
-                    timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
+                    layout: { background: { color: 'transparent' }, textColor: '#94a3b8', fontSize: 11 },
+                    grid: { vertLines: { color: '#1c212e' }, horzLines: { color: '#1c212e' } },
+                    rightPriceScale: { borderColor: '#2d3448', scaleMargins: { top: 0.15, bottom: 0.15 } },
+                    timeScale: { borderColor: '#2d3448', visible: true, timeVisible: true, secondsVisible: false },
                     handleScale: true,
                     handleScroll: true,
                 });
 
                 modalSeries = modalChart.addSeries(LineSeries, {
-                    color: '#3b82f6',
+                    color: '#e2e8f0',
                     lineWidth: 3,
                     priceLineVisible: false,
                     crosshairMarkerVisible: true,
@@ -459,7 +459,7 @@
 
             <!-- Open Positions -->
             {#if paperPositions.length > 0}
-                <div class={styles.sectionHeader} style="margin-top: 1.5rem;">
+                <div class="{styles.sectionHeader} {styles.sectionHeaderSpacer}">
                     <h3>Open Positions</h3>
                 </div>
                 <div class={styles.instancesTableWrapper}>

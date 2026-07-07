@@ -1,16 +1,16 @@
     .terminal-body {
-        background-color: #0b0e14;
-        color: #f1f5f9;
-        font-family: ui-sans-serif, system-ui, sans-serif;
+        background-color: #060608;
+        color: #f8fafc;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
         min-height: 100vh;
         display: flex;
         flex-direction: column;
     }
 
-    /* Divergence status styles */
+    /* Divergence status styles — monochrome potential indicator */
     .phase-one-card.div-potential {
-        border-color: #f59e0b;
-        box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
+        border-color: #94a3b8;
+        box-shadow: 0 0 6px rgba(255, 255, 255, 0.08);
         animation: div-pulse 2s ease-in-out infinite;
     }
     .phase-one-card.div-confirmed {
@@ -32,9 +32,9 @@
         margin-bottom: 3px;
     }
     .div-badge-potential {
-        background: rgba(245, 158, 11, 0.15);
-        color: #f59e0b;
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: rgba(255, 255, 255, 0.08);
+        color: #94a3b8;
+        border: 1px solid rgba(255, 255, 255, 0.15);
     }
     .div-badge-confirmed {
         background: rgba(34, 197, 94, 0.15);
@@ -48,8 +48,8 @@
     }
 
     @keyframes div-pulse {
-        0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.2); }
-        50% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.45); }
+        0%, 100% { box-shadow: 0 0 4px rgba(255, 255, 255, 0.06); }
+        50% { box-shadow: 0 0 10px rgba(255, 255, 255, 0.15); }
     }
     .session-loading {
         display: flex;
@@ -57,18 +57,18 @@
         align-items: center;
         justify-content: center;
         min-height: 100vh;
-        background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+        background: linear-gradient(135deg, #060608 0%, #0b0c10 100%);
         gap: 1rem;
     }
     .session-loading p {
-        color: #aaaacc;
+        color: #64748b;
         font-size: 0.9rem;
     }
     .loading-spinner {
         width: 40px;
         height: 40px;
-        border: 3px solid rgba(91, 127, 255, 0.2);
-        border-top-color: #5b7fff;
+        border: 3px solid rgba(255, 255, 255, 0.12);
+        border-top-color: #94a3b8;
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }

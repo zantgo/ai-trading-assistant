@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
+    import Icon from '../lib/Icon.svelte';
     import type { InstanceSummary } from '../types';
     import styles from './InstanceList.module.css';
 
@@ -128,7 +129,7 @@
         </button>
     </div>
     {#if addError}
-        <div class={styles.addError} role="alert">⚠ {addError}</div>
+        <div class={styles.addError} role="alert"><Icon name="alert" size={12} /> {addError}</div>
     {/if}
 
     {#if loading}
@@ -166,27 +167,27 @@
                             class="{styles.actionBtnSm} {styles.viewBtn}"
                             onclick={() => navigateToInstance(inst.pair, inst.symbol)}
                             title="View cockpit"
-                        >📈</button>
+                        ><Icon name="trending-up" size={14} /></button>
                         {#if inst.status !== 'stopped'}
                             <button
                                 class="{styles.actionBtnSm} {styles.pauseBtn}"
                                 onclick={() => handleAction(inst.id, 'pause')}
                                 disabled={actionLoading[inst.id] !== undefined || inst.status === 'paused'}
                                 title="Pause"
-                            >⏸</button>
+                            ><Icon name="pause" size={14} /></button>
                             <button
                                 class="{styles.actionBtnSm} {styles.stopBtn}"
                                 onclick={() => handleAction(inst.id, 'stop')}
                                 disabled={actionLoading[inst.id] !== undefined}
                                 title="Stop"
-                            >⏹</button>
+                            ><Icon name="stop" size={14} /></button>
                         {/if}
                         <button
                             class="{styles.actionBtnSm} {styles.deleteBtn}"
                             onclick={() => handleAction(inst.id, 'delete', inst.pair)}
                             disabled={actionLoading[inst.id] !== undefined}
                             title="Delete"
-                        >🗑</button>
+                        ><Icon name="trash" size={14} /></button>
                     </span>
                 </div>
             {/each}

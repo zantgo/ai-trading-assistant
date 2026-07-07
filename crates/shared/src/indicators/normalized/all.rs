@@ -352,6 +352,22 @@ impl NormalizationEngine {
         }
         super::signals::derive_signals(&mut out);
 
+        // ── INACTIVE fill (backend as single source of truth) ──
+        // Event-driven directional indicators (divergences, Fibonacci, S/R,
+        // Patterns) are omitted above when no trigger/level/pattern exists. Fill
+        // any absent *directional* registry key with an explicit `INACTIVE`
+        // placeholder (normalized 0.0, confidence 0) so the frontend always
+        // renders a definitive state. The confluence engine skips `INACTIVE`
+        // labels so these placeholders never dilute the weighted average.
+        for meta in crate::indicators::registry::INDICATORS {
+            if meta.directional && !out.contains_key(meta.key) {
+                out.insert(
+                    meta.key.into(),
+                    NormalizedIndicatorValue::scalar(0.0, 0.0, "INACTIVE"),
+                );
+            }
+        }
+
         out
     }
 }

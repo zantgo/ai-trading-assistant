@@ -4,7 +4,7 @@ use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 
 use crate::db;
-use crate::profile_evaluation::{calculate_opposite_score, SnapshotValues};
+use crate::profile_evaluation::SnapshotValues;
 
 #[inline]
 fn dec(v: f64) -> Decimal {
@@ -871,26 +871,25 @@ pub async fn apply_break_even_trail(pool: &SqlitePool, symbol: &str) {
 
 /// Evaluate whether the cumulative opposite-signal score warrants an exit.
 ///
-/// Uses the continuous confluence model: exit triggers when the absolute
-/// weighted sum of opposing indicators exceeds the hard 54-point threshold
-/// (60% of the maximum ±90 score), replacing the legacy discrete-count rule.
-/// `_max_opposite` is retained for signature compatibility / logging only.
+/// Uses the registry-driven confluence model: exit triggers when the opposing-
+/// indicator weighted contribution sum exceeds the calibrated threshold on the
+/// unified ±100 scale (60% conviction bar).
 pub fn evaluate_opposite_exit(
     position_direction: &str,
     snap: &SnapshotValues,
-    support_levels: &[f64],
-    resistance_levels: &[f64],
-    macro_trend: &str,
+    _support_levels: &[f64],
+    _resistance_levels: &[f64],
+    _macro_trend: &str,
     _max_opposite: u32,
 ) -> (bool, u32) {
-    let opposite_score = calculate_opposite_score(
+    let opposite_score = crate::profile_evaluation::calculate_registry_opposite_score(
         position_direction,
         snap,
-        support_levels,
-        resistance_levels,
-        macro_trend,
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+        None,
     );
-    let threshold = crate::profile_evaluation::scoring::OPPOSITE_EXIT_THRESHOLD as u32;
+    let threshold = crate::profile_evaluation::scoring::REGISTRY_OPPOSITE_EXIT_THRESHOLD as u32;
     (opposite_score > threshold, opposite_score)
 }
 

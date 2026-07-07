@@ -165,7 +165,7 @@
 
             <div class={styles.ccTwoCol}>
                 <div class={styles.ccCard}>
-                    <h3 class={styles.ccCardTitle} style="color: #60a5fa;">ENTRY 1</h3>
+                    <h3 class={styles.ccCardTitle} style="color: #f8fafc;">ENTRY 1</h3>
                     <div class={styles.ccFieldRow}>
                         <label class={styles.ccLabel} for="cc-entry1">ENTRY PRICE</label>
                         <div class={styles.ccInputWrap}>
@@ -190,7 +190,7 @@
                 </div>
 
                 <div class={styles.ccCard}>
-                    <h3 class={styles.ccCardTitle} style="color: #a78bfa;">ENTRY 2</h3>
+                    <h3 class={styles.ccCardTitle} style="color: #f8fafc;">ENTRY 2</h3>
                     <div class={styles.ccFieldRow}>
                         <label class={styles.ccLabel} for="cc-entry2">ENTRY PRICE</label>
                         <div class={styles.ccInputWrap}>
@@ -259,7 +259,7 @@
 
             <div class={styles.ccTwoCol}>
                 <div class={styles.ccCard}>
-                    <h3 class={styles.ccCardTitle} style="color: #60a5fa;">ENTRY 1 METRICS</h3>
+                    <h3 class={styles.ccCardTitle} style="color: #f8fafc;">ENTRY 1 METRICS</h3>
                     <div class={styles.ccResultGrid}>
                         <div class={styles.ccResultItem}>
                             <span class={styles.ccResultLabel}>Capital Allocated</span>
@@ -299,7 +299,7 @@
                 </div>
 
                 <div class={styles.ccCard}>
-                    <h3 class={styles.ccCardTitle} style="color: #a78bfa;">ENTRY 2 METRICS</h3>
+                    <h3 class={styles.ccCardTitle} style="color: #f8fafc;">ENTRY 2 METRICS</h3>
                     <div class={styles.ccResultGrid}>
                         <div class={styles.ccResultItem}>
                             <span class={styles.ccResultLabel}>Capital Allocated</span>

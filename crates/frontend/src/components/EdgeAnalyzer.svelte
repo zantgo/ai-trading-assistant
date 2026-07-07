@@ -59,7 +59,7 @@
         switch (regime) {
             case 'expansion': return '#4caf50';   // green — volatility breakouts
             case 'trending': return '#4fc3f7';    // blue — established trends
-            case 'range': return '#ffc107';       // yellow — range-reversion
+            case 'range': return '#94a3b8';       // range-reversion
             case 'compression': return '#9e9e9e'; // grey — coiling
             default: return '#607d8b';            // seed / unknown
         }

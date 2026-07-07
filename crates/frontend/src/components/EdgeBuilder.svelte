@@ -2,6 +2,8 @@
     import { onMount } from 'svelte';
     import { useAppStore } from '../state.svelte';
     import { useEdgeStore, AVAILABLE_INDICATORS } from '../stores/edges.svelte';
+    import Icon from '../lib/Icon.svelte';
+    import type { IconName } from '../lib/icons';
     import type { SizingModel, StopLossModel, TriggerPhase, EdgeArchetype, TriggerRule } from '../types';
     import styles from './EdgeBuilder.module.css';
 
@@ -31,6 +33,13 @@
 
     function toggleRegime(key: keyof typeof edge.draftConfig.regime_gates) {
         edge.draftConfig.regime_gates[key] = !edge.draftConfig.regime_gates[key];
+    }
+
+    function regimeIcon(r: string): IconName {
+        if (r === 'trending') return 'trending-up';
+        if (r === 'compression') return 'refresh';
+        if (r === 'expansion') return 'zap';
+        return 'minus';
     }
 
     function addIndicator(indName: string) {
@@ -116,11 +125,11 @@
 
     {#if paradigm === 'ai'}
         <div class={styles.paradigmNote}>
-            🤖 AI-Driven configuration: evaluator prompts, agent confidence weights, and context-memory depth augment the indicator thresholds below.
+            <Icon name="bot" size={14} /> AI-Driven configuration: evaluator prompts, agent confidence weights, and context-memory depth augment the indicator thresholds below.
         </div>
     {:else}
         <div class={styles.paradigmNote}>
-            🔧 Rule-Based configuration: strategy executes on deterministic indicator thresholds and regime gates below.
+            <Icon name="tool" size={14} /> Rule-Based configuration: strategy executes on deterministic indicator thresholds and regime gates below.
         </div>
     {/if}
 
@@ -174,7 +183,7 @@
                             onclick={() => toggleRegime(regime)}
                         >
                             <span class={styles.regimeIcon}>
-                                {regime === 'trending' ? '📈' : regime === 'compression' ? '🔄' : regime === 'expansion' ? '💥' : '↔️'}
+                                <Icon name={regimeIcon(regime)} size={16} />
                             </span>
                             <span>{regime.charAt(0).toUpperCase() + regime.slice(1)}</span>
                         </button>

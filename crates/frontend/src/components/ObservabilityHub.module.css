@@ -12,8 +12,8 @@
     gap: 12px;
 }
 .vital-card {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 12px;
     display: flex;
@@ -30,18 +30,18 @@
 .vital-value {
     font-size: 14px;
     font-weight: 800;
-    color: #cbd5e1;
+    color: #94a3b8;
     font-family: ui-monospace, monospace;
 }
 .text-green { color: #10b981; }
 .text-red { color: #ef4444; }
-.text-blue { color: #3b82f6; }
+.text-blue { color: #f8fafc; }
 .text-emerald { color: #059669; }
-.text-amber { color: #f59e0b; }
+.text-amber { color: #94a3b8; }
 
 .regime-banner {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 12px 16px;
     display: flex;
@@ -49,12 +49,12 @@
     align-items: center;
 }
 .regime-trending { border-color: #10b981; background: rgba(16, 185, 129, 0.04); }
-.regime-compression { border-color: #f59e0b; background: rgba(245, 158, 11, 0.04); }
+.regime-compression { border-color: #94a3b8; background: rgba(148, 163, 184, 0.04); }
 .regime-stable { border-color: #475569; }
 .regime-title {
     font-size: 11px;
     font-weight: 800;
-    color: #f1f5f9;
+    color: #f8fafc;
     letter-spacing: 0.05em;
 }
 .regime-metrics {
@@ -65,20 +65,20 @@
 }
 
 .agent-matrix-card {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 16px;
 }
 .card-title {
     font-size: 12px;
     font-weight: 700;
-    color: #f1f5f9;
+    color: #f8fafc;
     margin-top: 0;
     margin-bottom: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     padding-bottom: 6px;
 }
 .agent-grid {
@@ -87,8 +87,8 @@
     gap: 12px;
 }
 .agent-node {
-    background: #0f111a;
-    border: 1px solid #1e293b;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
     border-radius: 6px;
     padding: 12px;
     min-height: 110px;
@@ -104,13 +104,13 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px dashed #1e293b;
+    border-bottom: 1px dashed #1c212e;
     padding-bottom: 4px;
 }
 .agent-node-name {
     font-size: 10px;
     font-weight: 800;
-    color: #e2e8f0;
+    color: #f8fafc;
     font-family: 'Courier New', monospace;
 }
 .agent-node-status {
@@ -140,8 +140,8 @@
     gap: 8px;
 }
 .card {
-    background-color: #131722;
-    border: 1px solid #2a2e39;
+    background-color: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 16px;
 }
@@ -155,9 +155,9 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: #0f111a;
+    background: #0b0c10;
     border-radius: 4px;
-    border: 1px solid #1e293b;
+    border: 1px solid #1c212e;
     font-size: 11px;
 }
 .buffer-time {
@@ -166,11 +166,11 @@
 }
 .buffer-action {
     font-weight: 700;
-    color: #cbd5e1;
+    color: #94a3b8;
 }
 .buffer-empty {
     font-size: 11px;
-    color: #4c525e;
+    color: #475569;
     text-align: center;
     padding: 12px 0;
     font-style: italic;

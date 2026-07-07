@@ -238,10 +238,6 @@ export class AppStore {
                 tf.chandemoPeriodVal = this.settings.globalIndicatorsConfig.chandemo_period ?? 12;
                 tf.analysisLimit = this.settings.globalCandlesConfig.analysis_limit ?? 100;
             }
-            pair.microTerm.barDurationSec = 60;
-        pair.fastTerm.barDurationSec = 180;
-        pair.slowTerm.barDurationSec = 300;
-        pair.macroTerm.barDurationSec = 900;
         }
     }
 

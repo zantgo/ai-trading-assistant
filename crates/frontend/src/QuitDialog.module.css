@@ -10,7 +10,7 @@
 }
 .quit-dialog {
     background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    border: 1px solid #2d3448;
     border-radius: 12px;
     padding: 2rem;
     width: 100%;
@@ -28,7 +28,7 @@
     margin: 0 0 0.75rem 0;
 }
 .quit-message {
-    color: #aaaacc;
+    color: #64748b;
     font-size: 0.85rem;
     line-height: 1.5;
     margin: 0 0 1.5rem 0;
@@ -43,10 +43,10 @@
 }
 .quit-cancel {
     padding: 0.6rem 1.5rem;
-    background: #333355;
+    background: #2d3448;
     border: 1px solid #444466;
     border-radius: 8px;
-    color: #aaaacc;
+    color: #64748b;
     font-size: 0.9rem;
     cursor: pointer;
     transition: background 0.2s;

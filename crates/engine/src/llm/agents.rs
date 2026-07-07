@@ -126,7 +126,7 @@ RULES:
             "CURRENT MARKET ASSET: {}\n\
              USER'S OPEN POSITION: {}\n\
              USER'S ENTRY PRICE: {}\n\
-             GROUND-TRUTH CONTINUOUS CONFLUENCE SCORE (Rust engine, -90..+90): {}{}{}\n\
+             GROUND-TRUTH CONTINUOUS CONFLUENCE SCORE (Rust engine, -100..+100): {}{}{}\n\
              RAW PRICE HISTORY (last {} closes): {}\n\
              COMPUTED SUPPORT LEVELS: {}\n\
              COMPUTED RESISTANCE LEVELS: {}\n\

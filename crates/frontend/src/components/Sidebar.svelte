@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
+    import Icon from '../lib/Icon.svelte';
     import styles from './Sidebar.module.css';
     const app = useAppStore();
 
@@ -66,7 +67,7 @@
 
 <div class="{styles.sidebarContainer} {collapsed ? styles.collapsed : ''}">
     <button class={styles.sidebarToggleBtn} onclick={() => collapsed = !collapsed} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-        {collapsed ? '▶' : '◀'}
+        <Icon name={collapsed ? 'chevron-right' : 'chevron-left'} size={12} />
     </button>
 
     {#if !collapsed}
@@ -92,7 +93,7 @@
                 {:else}
                     <span class={styles.pairName}>{@html pairLabel(pairKey)}</span>
                     <span class="{styles.pairStatusDot} {app.instancesMap[pairKey].isConnected ? styles.connected : ''}"></span>
-                    <span class={styles.pairRemoveBtn} role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removeInstance(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeInstance(pairKey); } }} title="Remove instance">×</span>
+                    <span class={styles.pairRemoveBtn} role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removeInstance(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeInstance(pairKey); } }} title="Remove instance"><Icon name="x" size={12} /></span>
                 {/if}
             </button>
         {/each}
@@ -113,15 +114,15 @@
                         autofocus
                     />
                     <span class={styles.addPairQuote} title="Settlement currency is set by your session">-{app.quote}</span>
-                    <button class={styles.addPairConfirm} onclick={confirmAdd} disabled={addLoading}>{addLoading ? '…' : '+'}</button>
-                    <button class={styles.addPairCancel} onclick={cancelAdd}>×</button>
+                    <button class={styles.addPairConfirm} onclick={confirmAdd} disabled={addLoading}>{#if addLoading}…{:else}<Icon name="plus" size={14} />{/if}</button>
+                    <button class={styles.addPairCancel} onclick={cancelAdd}><Icon name="x" size={14} /></button>
                 </div>
                 {#if addError}
-                    <div class={styles.addPairError} role="alert">⚠ {addError}</div>
+                    <div class={styles.addPairError} role="alert"><Icon name="alert" size={12} /> {addError}</div>
                 {/if}
             {:else}
                 <button class={styles.addPairBtn} onclick={() => showAddInput = true}>
-                    + Add Instance
+                    <Icon name="plus" size={14} /> Add Instance
                 </button>
             {/if}
         </div>

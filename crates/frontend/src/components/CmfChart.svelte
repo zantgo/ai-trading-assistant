@@ -28,15 +28,15 @@
     onMount(() => {
         chart = createChart(container, {
             autoSize: true,
-            layout: { background: { color: '#131722' }, textColor: '#8f929d', fontSize: 10 },
-            grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
-            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
-            rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: false },
+            layout: { background: { color: '#0b0c10' }, textColor: '#94a3b8', fontSize: 10 },
+            grid: { vertLines: { color: '#1c212e' }, horzLines: { color: '#1c212e' } },
+            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#334155', width: 1, style: 3 }, horzLine: { color: '#334155', width: 1, style: 3 } },
+            rightPriceScale: { borderColor: '#2d3448', scaleMargins: { top: 0.15, bottom: 0.1 } },
+            timeScale: { borderColor: '#2d3448', visible: false },
         });
         cmfSeries = chart.addSeries(LineSeries, { color: '#26c6da', lineWidth: 1, priceLineVisible: false });
         cmfSeries.createPriceLine({ price: 0.2, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '+.2' });
-        cmfSeries.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
+        cmfSeries.createPriceLine({ price: 0, color: '#334155', lineWidth: 1, lineStyle: LineStyle.Solid });
         cmfSeries.createPriceLine({ price: -0.2, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '-.2' });
         registerChart(chart);
         markers = createSignalMarkers(cmfSeries);

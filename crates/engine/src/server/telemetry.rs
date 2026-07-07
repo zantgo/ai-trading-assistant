@@ -77,78 +77,24 @@ pub fn compile_deterministic_telemetry(
         .clone()
         .unwrap_or_else(|| "none".to_string());
 
-    // 3. Full 100-Point Scoring Protocol
-    let mut score = 0;
-
-    // A. RSI Alignment (10 pts)
-    if mid.rsi().is_some_and(|r| r < 30.0) {
-        score += 10;
-    } else if mid.rsi().is_some_and(|r| r > 70.0) {
-        score -= 10;
-    }
-
-    // B. RSI Divergence (20 pts)
-    if rsi_div_state.contains("confirmed") {
-        score += 20;
-    } else if rsi_div_state.contains("potential") {
-        score += 10;
-    }
-
-    // C. MACD Crossover (10 pts)
-    if macd_crossover_state == "confirmed" {
-        if mid.macd_crossover_direction().as_deref() == Some("BULLISH") {
-            score += 10;
-        } else if mid.macd_crossover_direction().as_deref() == Some("BEARISH") {
-            score -= 10;
-        }
-    }
-
-    // D. MACD Divergence (10 pts)
-    if macd_div_state.contains("confirmed") {
-        score += 10;
-    }
-
-    // E. Support/Resistance Alignment (10 pts)
-    let cp = mid.current_price.unwrap_or(0.0);
-    let s_f64: Vec<f64> = support_levels
-        .iter()
-        .filter_map(|s| s.parse::<f64>().ok())
-        .collect();
-    let r_f64: Vec<f64> = resistance_levels
-        .iter()
-        .filter_map(|r| r.parse::<f64>().ok())
-        .collect();
-    if s_f64.iter().any(|&s| (cp - s).abs() < s * 0.005) {
-        score += 10;
-    }
-    if r_f64.iter().any(|&r| (cp - r).abs() < r * 0.005) {
-        score -= 10;
-    }
-
-    // F. Macro Trend Alignment (20 pts)
-    if let (Some(ema), Some(px)) = (mid.ema_long(), mid.current_price) {
-        if px > ema {
-            score += 20;
-        } else {
-            score -= 20;
-        }
-    }
-
-    // G. EMA Stacking (10 pts)
-    if ema_stack == Some("bullish") {
-        score += 10;
-    } else if ema_stack == Some("bearish") {
-        score -= 10;
-    }
-
-    // H. Chart Patterns / Volatility Breakout (10 pts)
-    if squeeze_release_state == "confirmed" {
-        score += 10;
-    }
+    // 3. Unified Registry-Driven Confluence (replaces legacy 100-point heuristic).
+    // All 29 active directional indicators contribute continuously with
+    // configurable weights, regime-aware multipliers, and the INACTIVE protocol.
+    let snap = crate::profile_evaluation::indicator_to_snapshot_values(
+        &mid.indicators,
+        mid.current_price.unwrap_or(0.0),
+    );
+    let confluence = crate::profile_evaluation::calculate_registry_confluence(
+        "BULLISH",
+        &snap,
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+        None,
+    );
 
     DeterministicTelemetry {
         market_regime: regime.to_string(),
-        total_confluence_score: score,
+        total_confluence_score: confluence.score,
         rvol,
         adx_value: adx,
         adx_regime: mid

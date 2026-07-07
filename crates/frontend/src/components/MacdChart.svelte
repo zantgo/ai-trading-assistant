@@ -29,12 +29,12 @@
     onMount(() => {
         chart = createChart(container, {
             autoSize: true,
-            layout: { background: { color: '#131722' }, textColor: '#8f929d', fontSize: 10 },
-            grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
-            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
-            rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
+            layout: { background: { color: '#0b0c10' }, textColor: '#94a3b8', fontSize: 10 },
+            grid: { vertLines: { color: '#1c212e' }, horzLines: { color: '#1c212e' } },
+            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#334155', width: 1, style: 3 }, horzLine: { color: '#334155', width: 1, style: 3 } },
+            rightPriceScale: { borderColor: '#2d3448', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: '#2a2e39',
+                borderColor: '#2d3448',
                 visible: false,
                 timeVisible: true,
                 secondsVisible: true,
@@ -56,7 +56,7 @@
         // Zero-line reference
         zeroLine = macdHistSeries.createPriceLine({
             price: 0,
-            color: '#4c525e',
+            color: '#94a3b8',
             lineWidth: 1,
             lineStyle: 1,
             axisLabelVisible: false,
@@ -143,7 +143,7 @@
                         if (!seenTimes.has(tVal)) {
                             seenTimes.add(tVal);
                             placeholderLine.push({ time: tVal as Time, value: 0 });
-                            placeholderHist.push({ time: tVal as Time, value: 0, color: '#131722' });
+                            placeholderHist.push({ time: tVal as Time, value: 0, color: '#0b0c10' });
                         }
                     }
                     placeholderLine.sort((a, b) => (a.time as number) - (b.time as number));

@@ -27,18 +27,18 @@
         if (rvol >= 3.0) return '#e040fb';
         if (rvol >= 1.5) return '#26c6da';
         if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)';
-        return '#3b82f6';
+        return '#94a3b8';
     }
 
     onMount(() => {
         chart = createChart(container, {
             autoSize: true,
-            layout: { background: { color: '#131722' }, textColor: '#8f929d', fontSize: 10 },
-            grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
-            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
-            rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
+            layout: { background: { color: '#0b0c10' }, textColor: '#94a3b8', fontSize: 10 },
+            grid: { vertLines: { color: '#1c212e' }, horzLines: { color: '#1c212e' } },
+            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#334155', width: 1, style: 3 }, horzLine: { color: '#334155', width: 1, style: 3 } },
+            rightPriceScale: { borderColor: '#2d3448', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: '#2a2e39',
+                borderColor: '#2d3448',
                 visible: false,
                 timeVisible: false,
                 secondsVisible: false,
@@ -57,14 +57,14 @@
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         rvolSeries = chart.addSeries(HistogramSeries, {
-            color: '#3b82f6',
+            color: '#94a3b8',
             base: 0,
             priceLineVisible: false
         });
 
         rvolSeries.createPriceLine({
             price: 1.0,
-            color: '#4c525e',
+            color: '#334155',
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,

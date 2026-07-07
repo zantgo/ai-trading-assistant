@@ -11,7 +11,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    border-bottom: 1px solid #2a2e39;
+    border-bottom: 1px solid #2d3448;
     flex-shrink: 0;
 }
 .headerLeft {
@@ -36,8 +36,8 @@
 /* Timeframe Selection Tabs */
 .timeframeTabs {
     display: flex;
-    background: #0f111a;
-    border: 1px solid #1e293b;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
     border-radius: 6px;
     padding: 2px;
     align-self: center;
@@ -54,10 +54,10 @@
     transition: all 0.15s;
 }
 .timeframeBtn:hover {
-    color: #cbd5e1;
+    color: #94a3b8;
 }
 .timeframeBtn.active {
-    background: #3b82f6;
+    background: #94a3b8;
     color: #ffffff;
 }
 
@@ -107,7 +107,7 @@
     border-radius: 50%;
     flex-shrink: 0;
 }
-.dotBlue { background: #3b82f6; }
+.dotBlue { background: #94a3b8; }
 .dotGray { background: #64748b; }
 .legendLabel {
     font-size: 9px;
@@ -129,8 +129,8 @@
     justify-content: center;
 }
 .fullscreenContent {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     width: 95vw;
     height: 90vh;
@@ -143,8 +143,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    border-bottom: 1px solid #2a2e39;
-    color: #f1f5f9;
+    border-bottom: 1px solid #2d3448;
+    color: #f8fafc;
     font-size: 13px;
     font-weight: 700;
 }
@@ -156,7 +156,7 @@
     cursor: pointer;
     padding: 4px 8px;
 }
-.closeBtn:hover { color: #f1f5f9; }
+.closeBtn:hover { color: #f8fafc; }
 .fullscreenChart {
     flex: 1;
     min-height: 0;

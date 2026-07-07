@@ -13,26 +13,26 @@
     grid-template-columns: 40% 60%;
     height: 100%;
     min-height: 0;
-    border-bottom: 1px solid #2a2e39;
+    border-bottom: 1px solid #2d3448;
     gap: 0;
 }
 
 .orderTicketPanel {
-    background: #131722;
-    border-right: 1px solid #2a2e39;
+    background: #11131a;
+    border-right: 1px solid #2d3448;
     overflow-y: auto;
     height: 100%;
 }
 
 .performanceChartPanel {
-    background: #131722;
+    background: #11131a;
     overflow: hidden;
     height: 100%;
 }
 
 .bottomTableRow {
     height: 320px;
-    background: #0f111a;
+    background: #0b0c10;
     overflow: hidden;
     display: flex;
     flex-direction: column;

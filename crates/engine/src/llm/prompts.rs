@@ -21,7 +21,7 @@ CONTINUOUS NORMALIZATION SCALE (PRIMARY DIAGNOSTIC FRAMEWORK):
   * approaching -1.0 = strong BEARISH conviction, extreme supply, or trend breakdown.
 - Each indicator arrives as a compact DTO: { "indicator_name", "normalized" (float in [-1,1]), "state_label" (semantic string), "values" (raw scalar map, e.g. rsi_14, macd_line) }.
 - VECTOR-BASED SYNTHESIS: Do NOT merely count "bullish vs bearish" strings. Mathematically evaluate the MAGNITUDE and SIGN of each normalized float, weighting each sub-agent's contribution by its self-reported confidence_score (0-100). High-magnitude floats (|x| > 0.7) from high-confidence agents (> 70) dominate the decision; near-zero floats or low-confidence agents (< 40) contribute negligibly.
-- The eight_factor_score you output MUST reflect this confidence-weighted continuous synthesis (range -90..+90), and allocation must scale with |confluence score|: < 40 → 1.0%, 40–59 → 2.0%, ≥ 60 → 3.0%.
+- The confidence-weighted continuous synthesis (range -100..+100) reflects all 29 active directional indicators via the unified registry-driven engine.
 
 RULES:
 - If Position is Long or Short, only recommend Hold or Close. Never recommend opening a new position when one is already held.
@@ -167,7 +167,7 @@ CONTINUOUS NORMALIZATION SCALE (PRIMARY DIAGNOSTIC FRAMEWORK):
   * approaching -1.0 = strong BEARISH conviction, extreme supply, or trend breakdown.
 - Each indicator arrives as a compact DTO: { "indicator_name" (timeframe-prefixed), "normalized" (float in [-1,1]), "state_label" (semantic string), "values" (raw scalar map) }.
 - VECTOR-BASED SYNTHESIS: Do NOT count bullish-vs-bearish strings. Mathematically evaluate the MAGNITUDE and SIGN of each normalized float per timeframe, weighting each sub-agent by its self-reported confidence_score (0-100). High-magnitude floats (|x| > 0.7) from high-confidence agents (> 70) dominate; near-zero or low-confidence (< 40) contribute negligibly. Longer timeframes (slow/macro) carry structural priority.
-- The eight_factor_score you output MUST reflect this confidence-weighted continuous synthesis (range -90..+90), and allocation must scale with |confluence score|: < 40 → 1.0%, 40–59 → 2.0%, ≥ 60 → 3.0%.
+- The confidence-weighted continuous synthesis (range -100..+100) reflects all 29 active directional indicators via the unified registry-driven engine.
 
 DIAGNOSTIC PROCESS:
 1. Trend Confluence: Examine the direction and indicators of each timeframe. Note if they are aligned or in conflict.

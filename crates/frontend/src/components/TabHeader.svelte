@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
+    import Icon from '../lib/Icon.svelte';
     import styles from './TabHeader.module.css';
     const app = useAppStore();
 
@@ -83,7 +84,7 @@
                     <button class={styles.addConfirmBtn} onclick={confirmAdd} disabled={addLoading}>{addLoading ? '…' : '+'}</button>
                     <button class={styles.addCancelBtn} onclick={cancelAdd}>&times;</button>
                     {#if addError}
-                        <span class={styles.addPairError} role="alert">⚠ {addError}</span>
+                        <span class={styles.addPairError} role="alert"><Icon name="alert" size={12} /> {addError}</span>
                     {/if}
                 </div>
             {:else}

@@ -1,6 +1,6 @@
 .tab-bar {
-    background-color: #131722;
-    border-bottom: 1px solid #1e293b;
+    background-color: #11131a;
+    border-bottom: 1px solid #1c212e;
     padding: 6px 16px;
     display: flex;
     align-items: center;
@@ -20,7 +20,7 @@
 .tab-btn {
     background: #1a2030;
     border: 1px solid #2a3040;
-    color: #8892b0;
+    color: #94a3b8;
     font-family: 'Courier New', monospace;
     font-size: 13px;
     padding: 4px 10px;
@@ -69,7 +69,7 @@
     flex-wrap: wrap;
 }
 .pair-quote {
-    color: #7f8fbf;
+    color: #64748b;
     font-family: 'Courier New', monospace;
     font-size: 12px;
     font-weight: 700;

@@ -51,14 +51,14 @@
         if (mag >= 0.9) return '#a855f7';
         if (score > 0.1) return `rgb(16, ${Math.round(120 + 135 * mag)}, 129)`;
         if (score < -0.1) return `rgb(${Math.round(180 + 59 * mag)}, 68, 68)`;
-        return '#f59e0b';
+        return '#94a3b8';
     }
     function overallColor(score: number): string { return scoreColor(score / 100); }
     function pct(v: number): string { return `${Math.round(v)}%`; }
 
     function agreementColor(a: number): string {
         if (a >= 0.75) return '#10b981';
-        if (a >= 0.5) return '#f59e0b';
+        if (a >= 0.5) return '#94a3b8';
         return '#ef4444';
     }
     function dirGlyph(d: number): string { return d > 0 ? '▲' : d < 0 ? '▼' : '·'; }
@@ -84,7 +84,7 @@
         return out.sort((a, b) => (a.sig.age_bars ?? 0) - (b.sig.age_bars ?? 0)).slice(0, 24);
     });
     function sigColor(s: IndicatorSignal): string {
-        return s.direction === 'Bullish' ? '#10b981' : s.direction === 'Bearish' ? '#ef4444' : '#f59e0b';
+        return s.direction === 'Bullish' ? '#10b981' : s.direction === 'Bearish' ? '#ef4444' : '#94a3b8';
     }
 </script>
 
@@ -176,7 +176,7 @@
                 {/each}
             {/if}
 
-            <div class={styles.panelTitle} style="margin-top:12px">LIVE SIGNALS (freshest)</div>
+            <div class="{styles.panelTitle} {styles.panelTitleSpacer}">LIVE SIGNALS (freshest)</div>
             <div class={styles.feed}>
                 {#each signalsFeed as f}
                     <div class={styles.feedRow}>

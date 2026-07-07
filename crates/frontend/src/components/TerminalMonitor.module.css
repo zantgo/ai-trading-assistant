@@ -4,7 +4,7 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
-    background: #0f111a;
+    background: #0b0c10;
     gap: 12px;
     padding: 12px;
     box-sizing: border-box;
@@ -25,7 +25,7 @@
 }
 .symbol {
     font-size: 11px;
-    color: #cbd5e1;
+    color: #94a3b8;
     font-family: 'Courier New', monospace;
     flex: 1;
 }
@@ -34,14 +34,14 @@
     font-weight: 700;
     font-family: 'Courier New', monospace;
     padding: 2px 8px;
-    border: 1px solid #1e293b;
+    border: 1px solid #1c212e;
     border-radius: 4px;
-    color: #8f929d;
+    color: #94a3b8;
 }
 .refresh-btn {
     background: transparent;
-    border: 1px solid #1e293b;
-    color: #8f929d;
+    border: 1px solid #1c212e;
+    color: #94a3b8;
     border-radius: 4px;
     padding: 2px 8px;
     cursor: pointer;
@@ -58,8 +58,8 @@
 }
 @media (max-width: 1100px) { .context-grid { grid-template-columns: repeat(3, 1fr); } }
 .ctx-card {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 6px;
     padding: 8px 10px;
     display: flex;
@@ -106,15 +106,15 @@
 }
 @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
 .panel {
-    background: #131722;
-    border: 1px solid #2a2e39;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 6px;
     padding: 10px;
 }
 .panel-title {
     font-size: 9px;
     font-weight: 800;
-    color: #3b82f6;
+    color: #94a3b8;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin-bottom: 6px;
@@ -132,14 +132,14 @@
     color: #64748b;
     font-size: 8px;
     padding: 3px 4px;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
 }
 .mtf-table th:first-child { text-align: left; }
 .mtf-table td {
     padding: 3px 4px;
     border-bottom: 1px solid #1c202d;
 }
-.mtf-label { color: #cbd5e1; font-weight: 700; }
+.mtf-label { color: #94a3b8; font-weight: 700; }
 
 .conf-row {
     display: flex;
@@ -149,7 +149,7 @@
     font-family: 'Courier New', monospace;
     font-size: 10px;
 }
-.conf-tf { color: #cbd5e1; width: 44px; font-weight: 700; }
+.conf-tf { color: #94a3b8; width: 44px; font-weight: 700; }
 .conf-bar-track {
     position: relative;
     flex: 1;
@@ -186,9 +186,9 @@
     border-bottom: 1px solid #1c202d;
 }
 .feed-tf { color: #64748b; width: 40px; }
-.feed-ind { color: #cbd5e1; width: 90px; }
+.feed-ind { color: #94a3b8; width: 90px; }
 .feed-kind { flex: 1; font-weight: 700; }
-.feed-age { color: #8f929d; width: 40px; text-align: right; }
+.feed-age { color: #94a3b8; width: 40px; text-align: right; }
 
 .empty {
     color: #64748b;
@@ -197,3 +197,4 @@
     padding: 12px;
     text-align: center;
 }
+.panelTitleSpacer { margin-top: 12px; }

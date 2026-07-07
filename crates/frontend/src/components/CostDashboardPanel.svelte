@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from '../App.module.css';
+    import panel from './CostDashboardPanel.module.css';
 
     const app = useAppStore();
     let { pair }: { pair: { symbol: string } } = $props();
@@ -74,9 +75,9 @@
                     <span>Output Tokens Used</span>
                     <span class={styles.mono}>{app.costActualOutputTokens.toLocaleString()}</span>
                 </div>
-                <div class={styles.costDetailRow} style="border-top: 1px solid #2a2e39; padding-top: 8px; margin-top: 4px;">
-                    <span style="font-weight: 700; color: #e2e8f0;">Actual Spend</span>
-                    <span class={styles.mono} style="color: #f59e0b; font-weight: 700;">${app.costActualTotal.toFixed(6)}</span>
+                <div class="{styles.costDetailRow} {panel.actualSpendRow}">
+                    <span class={panel.actualSpendLabel}>Actual Spend</span>
+                    <span class="{styles.mono} {panel.actualSpendValue}">${app.costActualTotal.toFixed(6)}</span>
                 </div>
             </div>
         </div>

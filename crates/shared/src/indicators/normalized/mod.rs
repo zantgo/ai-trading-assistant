@@ -447,4 +447,37 @@ mod meta_tests {
         assert!(!rsi.signals.is_empty(), "oversold RSI should emit a threshold signal");
         assert!(rsi.confidence >= rsi.normalized.abs(), "signals should not lower confidence");
     }
+
+    #[test]
+    fn inactive_fill_populates_absent_directional_indicators() {
+        // With no divergence/fibonacci/pattern/S-R inputs, those event-driven
+        // directional keys must be present with an explicit INACTIVE placeholder.
+        let inputs = IndicatorInputs::default();
+        let ctx = NormalizationContext::default();
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        for key in [
+            "rsi_divergence", "macd_divergence", "stochastic_divergence",
+            "chandemo_divergence", "mfi_divergence", "cmf_divergence",
+            "obv_divergence", "squeeze_divergence", "fibonacci",
+            "support_resistance", "patterns",
+        ] {
+            let v = map.get(key).unwrap_or_else(|| panic!("{key} must be present"));
+            assert_eq!(v.state_label, "INACTIVE", "{key} should be INACTIVE");
+            assert_eq!(v.normalized, 0.0);
+            assert_eq!(v.confidence, 0.0);
+            assert!(v.signals.is_empty());
+        }
+    }
+
+    #[test]
+    fn inactive_fill_skips_non_directional_gates() {
+        // Non-directional gates (adx/atr/bbwp/hv/volume/rvol/choppiness) must NOT
+        // be INACTIVE-filled (they are read by value by gate logic / context).
+        let inputs = IndicatorInputs::default();
+        let ctx = NormalizationContext::default();
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        for key in ["adx", "atr", "bbwp", "hv", "rvol", "choppiness"] {
+            assert!(!map.contains_key(key), "{key} gate must remain absent, not INACTIVE-filled");
+        }
+    }
 }

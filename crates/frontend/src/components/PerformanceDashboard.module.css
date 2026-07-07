@@ -14,7 +14,7 @@
 }
 .perf-tab-btn {
     background: transparent;
-    border: 1px solid #2a2e39;
+    border: 1px solid #2d3448;
     color: #64748b;
     font-size: 11px;
     font-weight: 700;
@@ -24,28 +24,28 @@
     transition: all 0.2s;
     text-transform: uppercase;
 }
-.perf-tab-btn:hover { color: #cbd5e1; background-color: rgba(255, 255, 255, 0.02); }
-.perf-tab-active { background: #1a2030; border-color: #3b82f6; color: #f8fafc; }
+.perf-tab-btn:hover { color: #94a3b8; background-color: rgba(255, 255, 255, 0.02); }
+.perf-tab-active { background: #1a2030; border-color: #94a3b8; color: #f8fafc; }
 .perf-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 16px;
 }
 .card {
-    background-color: #131722;
-    border: 1px solid #2a2e39;
+    background-color: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 16px;
 }
 .card-title {
     font-size: 13px;
     font-weight: 700;
-    color: #f1f5f9;
+    color: #f8fafc;
     margin-top: 0;
     margin-bottom: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     padding-bottom: 6px;
 }
 .score-card {
@@ -62,7 +62,7 @@
 .score-value {
     font-size: 56px;
     font-weight: 900;
-    color: #3b82f6;
+    color: #94a3b8;
 }
 .score-max {
     font-size: 18px;
@@ -95,11 +95,11 @@
 }
 .compare-val {
     flex: 1;
-    background: #0f111a;
+    background: #0b0c10;
     padding: 8px;
     border-radius: 6px;
     text-align: center;
-    border: 1px solid #1e293b;
+    border: 1px solid #1c212e;
 }
 .border-highlight {
     border-color: #ea580c;
@@ -125,7 +125,7 @@
     color: #64748b;
     font-size: 10px;
     padding-bottom: 6px;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
 }
 .matrix-table td {
     padding: 6px 0;
@@ -159,7 +159,7 @@
     gap: 10px;
 }
 .auto-steps li::marker {
-    color: #3b82f6;
+    color: #94a3b8;
     font-weight: bold;
 }
 .logs-card {
@@ -179,22 +179,22 @@
     color: #64748b;
     position: sticky;
     top: 0;
-    background-color: #131722;
+    background-color: #11131a;
     padding: 6px 4px;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
 }
 .logs-table td {
     padding: 6px 4px;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     color: #94a3b8;
 }
 .text-green { color: #10b981; }
 .text-red { color: #ef4444; }
-.text-amber { color: #f59e0b; }
+.text-amber { color: #94a3b8; }
 .mono { font-family: ui-monospace, monospace; }
 .empty-msg {
     font-size: 11px;
-    color: #4c525e;
+    color: #475569;
     text-align: center;
     padding: 20px 0;
 }
@@ -209,21 +209,24 @@
     align-items: baseline;
     justify-content: space-between;
     padding: 8px 12px;
-    background: #0f111a;
+    background: #0b0c10;
     border-radius: 6px;
-    border: 1px solid #1e293b;
+    border: 1px solid #1c212e;
 }
 .hit-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-.hit-value { font-size: 22px; font-weight: 900; color: #3b82f6; }
-.hit-sub { font-size: 9px; color: #4c525e; }
+.hit-value { font-size: 22px; font-weight: 900; color: #94a3b8; }
+.hit-sub { font-size: 9px; color: #475569; }
 .consensus-bars { display: flex; flex-direction: column; gap: 10px; }
 .consensus-row { display: flex; align-items: center; gap: 8px; }
 .consensus-label { width: 70px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; }
-.consensus-bar-track { flex: 1; height: 10px; background: #0f111a; border-radius: 4px; overflow: hidden; }
+.consensus-bar-track { flex: 1; height: 10px; background: #0b0c10; border-radius: 4px; overflow: hidden; }
 .consensus-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .bullish-fill { background: linear-gradient(90deg, #10b981, #34d399); }
 .bearish-fill { background: linear-gradient(90deg, #ef4444, #f87171); }
-.sideways-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-.consensus-count { width: 30px; text-align: right; font-size: 11px; font-weight: 700; color: #e2e8f0; }
+.sideways-fill { background: linear-gradient(90deg, #94a3b8, #64748b); }
+.consensus-count { width: 30px; text-align: right; font-size: 11px; font-weight: 700; color: #f8fafc; }
 .delta-positive { color: #10b981; }
 .delta-negative { color: #ef4444; }
+.matrixInfoSpacer { margin-top: 10px; }
+.comparisonCol { flex-direction: column; gap: 6px; }
+.compareFlexRow { display: flex; justify-content: space-between; }

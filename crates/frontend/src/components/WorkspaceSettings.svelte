@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
+    import Icon from '../lib/Icon.svelte';
     import type { InstanceState, PositionScalingConfig } from '../types';
     import ExchangeSettings from './ExchangeSettings.svelte';
     import IndicatorWeightPanel from './settings/IndicatorWeightPanel.svelte';
@@ -256,7 +257,7 @@
                 </div>
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>Indicator Panels</span>
                 <div class={styles.toggleGrid}>
                     {#each panelToggles as [key, lbl]}
@@ -265,11 +266,11 @@
                 </div>
             </div>
 
-            <div style="margin-top: 12px;">
+            <div class={styles.spacer12}>
                 <ScoringWeightsPanel />
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>AI & Automation</span>
                 <div class={styles.toggleRow}>
                     <span class={styles.toggleLabel}>Status</span>
@@ -278,7 +279,7 @@
                         {draft.automation.enabled ? 'ON' : 'OFF'}
                     </button>
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="opMode">Operational Mode:</label>
                     <select id="opMode" bind:value={operationalMode} class={styles.tfUnitSelect}>
                         <option value="HybridAiCopilot">AI Copilot</option>
@@ -286,11 +287,11 @@
                         <option value="ManualOnly">Manual Only</option>
                     </select>
                 </div>
-                <p style="font-size: 8px; color: #64748b; margin: 4px 0 0 0;">
+                <p class={styles.helpText}>
                     AI Copilot: full LLM pipeline. Heuristics Only: local indicators, no AI calls. Manual Only: local indicators + on-demand AI via sidebar.
                 </p>
                 {#if draft.automation.enabled}
-                    <div class={styles.inputRow} style="margin-top: 8px;">
+                    <div class="{styles.inputRow} {styles.spacer8}">
                         <label for="autoInterval">Interval:</label>
                         <div class={styles.tfSplitGroup}>
                             <input id="autoInterval" type="number" bind:value={draft.automation.intervalValue} min="1" class={styles.tfNumberInput} />
@@ -301,33 +302,33 @@
                             </select>
                         </div>
                     </div>
-                    <div class={styles.liveCounter} style="margin-top: 8px; font-size: 10px; color: #3b82f6;">
+                    <div class="{styles.liveCounter} {styles.liveCountValue}">
                         Next evaluation in: {pair.nextEvaluationIn}
                     </div>
                 {/if}
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>Identity</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
+                <div class="{styles.inputRow} {styles.spacer4}">
                     <label for="exchange">Exchange Source:</label>
                     <select id="exchange" bind:value={draft.exchange} class={styles.tfUnitSelect}>
                         <option value="Hyperliquid">Hyperliquid</option>
                     </select>
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="symbol">Market Pair:</label>
                     <input id="symbol" type="text" bind:value={draft.symbol} />
                 </div>
             </div>
 
-            <div class="settings-footer-row" style="margin-top: 16px;">
+            <div class={styles.spacer16}>
                 <button class={styles.applyWorkspaceBtn} onclick={applySettings}>
                     Apply Workspace Configuration
                 </button>
             </div>
             {#if identityError}
-                <div class={styles.identityError} role="alert">⚠ {identityError}</div>
+                <div class={styles.identityError} role="alert"><Icon name="alert" size={12} /> {identityError}</div>
             {/if}
         </div>
 
@@ -349,7 +350,7 @@
                 {/if}
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <div class={styles.inputRow}>
                     <label for="wsAnalysisLimit">AI Analysis Lookback (Candles):</label>
                     <input id="wsAnalysisLimit" type="number" bind:value={draft.analysisLimit} min="10" max="500" step="5" />
@@ -357,21 +358,21 @@
             </div>
 
             <!-- Indicator Weight Overrides -->
-            <div style="margin-top: 12px;">
+            <div class={styles.spacer12}>
                 <IndicatorWeightPanel initial={weightOverrides} onchange={(w) => { weightOverrides = w; }} />
             </div>
 
             <!-- Position Sizing & Leverage -->
-            <div style="margin-top: 12px;">
+            <div class={styles.spacer12}>
                 <PositionScalingPanel initial={positionScaling} onchange={(c) => { positionScaling = c; }} />
             </div>
 
             <!-- AI Trigger Configuration -->
-            <div style="margin-top: 12px;">
+            <div class={styles.spacer12}>
                 <TriggerConfigPanel initial={aiTriggerConfig} onchange={(c) => { aiTriggerConfig = c; }} />
             </div>
 
-            <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
+            <button class="{styles.keySaveBtn} {styles.spacer8} {styles.fullWidth}"
                     disabled={aiConfigSaveStatus === 'saving'} onclick={saveAiConfig}>
                 {aiConfigSaveStatus === 'saving' ? 'Saving...' : 'Save AI Configuration'}
             </button>
@@ -380,10 +381,10 @@
             {/if}
 
             <!-- Rules Editor -->
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>Technical rules guide handbook (Markdown)</span>
                 <textarea class={styles.rulesEditor} rows="6" bind:value={draft.rules}></textarea>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                <div class={styles.rulesActionBar}>
                     <button class={styles.keySaveBtn} onclick={fetchRules}>Fetch</button>
                     <button class={styles.keySaveBtn} disabled={rulesStatus === 'saving'} onclick={saveRules}>
                         {rulesStatus === 'saving' ? '...' : 'Update Rules'}
@@ -398,23 +399,23 @@
 
             <div class={styles.settingGroupBox}>
                 <span class={styles.selectorsLabel}>Account Configuration</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
+                <div class="{styles.inputRow} {styles.spacer4}">
                     <label for="paperUSD">Initial USD:</label>
                     <input id="paperUSD" type="number" bind:value={app.paperInitialUSD} min="100" step="100" />
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="paperAlloc">Allocation %:</label>
                     <input id="paperAlloc" type="number" bind:value={app.paperAllocationPct} min="1" max="100" step="1" />
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="paperMaxRisk">Max Risk %:</label>
                     <input id="paperMaxRisk" type="number" bind:value={app.paperMaxRiskPct} min="0.5" max="10" step="0.1" />
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="paperLeverage">Leverage:</label>
                     <input id="paperLeverage" type="number" bind:value={app.paperLeverage} min="1" max="20" step="1" />
                 </div>
-                <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
+                <button class="{styles.keySaveBtn} {styles.spacer8} {styles.fullWidth}"
                         onclick={() => app.savePaperConfig(
                             app.paperInitialUSD,
                             app.paperAllocationPct,
@@ -424,22 +425,22 @@
                 </button>
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>AI Orchestrator Settings</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
+                <div class="{styles.inputRow} {styles.spacer4}">
                     <label for="paperInterval">Eval Interval (min):</label>
                     <input id="paperInterval" type="number" bind:value={app.paperAutoExecuteIntervals} min="1" max="1440" step="1" />
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="paperLookback">Lookback Trades:</label>
                     <input id="paperLookback" type="number" bind:value={app.paperLookbackTrades} min="1" max="50" step="1" />
                 </div>
-                <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
+                <p class={styles.helpTextSm}>
                     Number of past trades fed to the Master Orchestrator for context.
                 </p>
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>Auto-Execution</span>
                 <div class={styles.toggleRow}>
                     <span class={styles.toggleLabel}>Auto-Place Orders</span>
@@ -455,22 +456,22 @@
                         {app.paperAutoExecute ? 'ON' : 'OFF'}
                     </button>
                 </div>
-                <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
+                <p class={styles.helpTextSm}>
                     When enabled, automated AI signals will automatically place paper orders.
                 </p>
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>AI Token Cost Calculator (per 1M tokens)</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
+                <div class="{styles.inputRow} {styles.spacer4}">
                     <label for="costInput">Input Price $/1M:</label>
                     <input id="costInput" type="number" bind:value={draftCostInputPrice} min="0" step="0.01" />
                 </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
+                <div class="{styles.inputRow} {styles.spacer8}">
                     <label for="costOutput">Output Price $/1M:</label>
                     <input id="costOutput" type="number" bind:value={draftCostOutputPrice} min="0" step="0.01" />
                 </div>
-                <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
+                <button class="{styles.keySaveBtn} {styles.spacer8} {styles.fullWidth}"
                         disabled={costSaveStatus === 'saving'} onclick={saveCostConfig}>
                     {costSaveStatus === 'saving' ? 'Saving...' : 'Save Cost Config'}
                 </button>
@@ -479,7 +480,7 @@
                 {/if}
             </div>
 
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
+            <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <button class={styles.paperResetBtn} onclick={() => {
                     if (confirm('Reset paper account? This will close any active position and restore initial balance.')) {
                         app.resetPaperAccount();

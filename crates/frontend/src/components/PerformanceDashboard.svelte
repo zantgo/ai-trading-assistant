@@ -302,7 +302,7 @@
                         <span class={styles.consensusCount}>{aiSidewaysRuns}</span>
                     </div>
                 </div>
-                <p class={styles.matrixInfo} style="margin-top: 10px;">Total automated evaluations: {aiTotalRuns}</p>
+                <p class="{styles.matrixInfo} {styles.matrixInfoSpacer}">Total automated evaluations: {aiTotalRuns}</p>
             </div>
 
             <div class="{styles.card} {styles.autoInfoCard}">
@@ -385,18 +385,18 @@
 
             <div class="{styles.card} {styles.matrixCard}">
                 <h3 class={styles.cardTitle}>Cumulative Metrics</h3>
-                <div class={styles.comparisonRow} style="flex-direction: column; gap: 6px;">
-                    <div class={styles.compareVal} style="display: flex; justify-content: space-between;">
+                <div class="{styles.comparisonRow} {styles.comparisonCol}">
+                    <div class="{styles.compareVal} {styles.compareFlexRow}">
                         <span class={styles.label}>Total P&L</span>
                         <span class={styles.value} class:pnl-positive={paperPerfData.total_pnl >= 0} class:pnl-negative={paperPerfData.total_pnl < 0}>
                             {paperPerfData.total_pnl >= 0 ? '+' : ''}${paperPerfData.total_pnl.toFixed(2)}
                         </span>
                     </div>
-                    <div class={styles.compareVal} style="display: flex; justify-content: space-between;">
+                    <div class="{styles.compareVal} {styles.compareFlexRow}">
                         <span class={styles.label}>Avg ROI / Trade</span>
                         <span class={styles.value}>{paperPerfData.avg_roi.toFixed(2)}%</span>
                     </div>
-                    <div class={styles.compareVal} style="display: flex; justify-content: space-between;">
+                    <div class="{styles.compareVal} {styles.compareFlexRow}">
                         <span class={styles.label}>Total Trades</span>
                         <span class={styles.value}>{paperPerfData.total_trades}</span>
                     </div>

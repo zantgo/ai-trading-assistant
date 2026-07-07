@@ -87,11 +87,11 @@
     onMount(() => {
         chart = createChart(container, {
             autoSize: true,
-            layout: { background: { color: '#131722' }, textColor: '#8f929d', fontSize: 10 },
-            grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
-            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
-            rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: { borderColor: '#2a2e39', visible: true, timeVisible: true, secondsVisible: true },
+            layout: { background: { color: '#0b0c10' }, textColor: '#94a3b8', fontSize: 10 },
+            grid: { vertLines: { color: '#1c212e' }, horzLines: { color: '#1c212e' } },
+            crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#334155', width: 1, style: 3 }, horzLine: { color: '#334155', width: 1, style: 3 } },
+            rightPriceScale: { borderColor: '#2d3448', scaleMargins: { top: 0.15, bottom: 0.1 } },
+            timeScale: { borderColor: '#2d3448', visible: true, timeVisible: true, secondsVisible: true },
             handleScale: true,
             handleScroll: true,
         });
@@ -416,7 +416,7 @@
             if (price > 0) {
                 entryLine = candleSeries.createPriceLine({
                     price,
-                    color: '#60a5fa',
+                    color: '#94a3b8',
                     lineWidth: 1,
                     lineStyle: 1,
                     axisLabelVisible: true,
@@ -434,7 +434,7 @@
         if (level > 0) {
             stopLossLine = candleSeries.createPriceLine({
                 price: level,
-                color: '#f59e0b',
+                color: '#94a3b8',
                 lineWidth: 1,
                 lineStyle: 3,
                 axisLabelVisible: true,
@@ -468,7 +468,7 @@
         const rsiCoords = parseCoords((tf.latestSnapshot as Record<string, unknown> | null)?.rsi_divergence_coords ?? null);
         if (rsiCoords && rsiCoords.firstPrice > 0 && rsiCoords.secondPrice > 0) {
             const isConfirmed = rsiDivStatus === 'confirmed';
-            const lineColor = isConfirmed ? '#22c55e' : '#f59e0b';
+            const lineColor = isConfirmed ? '#22c55e' : '#94a3b8';
             const lineStyle: 0 | 1 | 2 | 3 | 4 = isConfirmed ? 1 : 2;
             divergenceLines.push(candleSeries.createPriceLine({
                 price: rsiCoords.firstPrice,

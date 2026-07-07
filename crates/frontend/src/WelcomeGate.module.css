@@ -3,17 +3,17 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+    background: linear-gradient(135deg, #060608 0%, #0b0c10 100%);
     padding: 1rem;
 }
 .welcome-card {
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    background: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 16px;
     padding: 2.5rem;
     width: 100%;
     max-width: 480px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
 }
 .welcome-header {
     text-align: center;
@@ -22,11 +22,11 @@
 .welcome-title {
     font-size: 1.6rem;
     font-weight: 700;
-    color: #e0e0ff;
+    color: #f8fafc;
     margin: 0 0 0.5rem 0;
 }
 .welcome-subtitle {
-    color: #8888aa;
+    color: #64748b;
     font-size: 0.9rem;
     margin: 0;
 }
@@ -41,7 +41,7 @@
     gap: 0.4rem;
 }
 .form-label {
-    color: #aaaacc;
+    color: #64748b;
     font-size: 0.8rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -57,26 +57,26 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.65rem 0.8rem;
-    background: #252540;
-    border: 1px solid #333355;
-    border-radius: 8px;
+    background: #060608;
+    border: 1px solid #1c212e;
+    border-radius: 10px;
     cursor: pointer;
     transition: all 0.2s;
 }
 .radio-option.active {
-    border-color: #5b7fff;
-    background: #2a2a50;
+    border-color: #94a3b8;
+    background: rgba(255, 255, 255, 0.06);
 }
 .radio-option.disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 .radio-option input[type="radio"] {
-    accent-color: #5b7fff;
+    accent-color: #94a3b8;
     margin: 0;
 }
 .radio-label {
-    color: #d0d0ee;
+    color: #94a3b8;
     font-size: 0.85rem;
     font-weight: 500;
 }
@@ -93,14 +93,14 @@
 }
 .radio-badge.disabled {
     background: #3a2a1a;
-    color: #ff9800;
+    color: #64748b;
 }
 .form-select {
     padding: 0.65rem 0.8rem;
-    background: #252540;
-    border: 1px solid #333355;
+    background: #161a24;
+    border: 1px solid #2d3448;
     border-radius: 8px;
-    color: #d0d0ee;
+    color: #94a3b8;
     font-size: 0.9rem;
     cursor: pointer;
 }
@@ -110,19 +110,19 @@
 }
 .form-input {
     padding: 0.65rem 0.8rem;
-    background: #252540;
-    border: 1px solid #333355;
+    background: #161a24;
+    border: 1px solid #2d3448;
     border-radius: 8px;
-    color: #e0e0ff;
+    color: #f8fafc;
     font-size: 1rem;
     outline: none;
     transition: border-color 0.2s;
 }
 .form-input:focus {
-    border-color: #5b7fff;
+    border-color: #94a3b8;
 }
 .form-hint {
-    color: #666688;
+    color: #475569;
     font-size: 0.7rem;
 }
 .form-error {
@@ -135,10 +135,10 @@
 }
 .enter-button {
     padding: 0.8rem;
-    background: linear-gradient(135deg, #5b7fff, #7b5fff);
+    background: #f8fafc;
     border: none;
-    border-radius: 8px;
-    color: white;
+    border-radius: 10px;
+    color: #0b0c10;
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
@@ -147,9 +147,10 @@
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
+    box-shadow: 0 4px 14px rgba(255, 255, 255, 0.08);
 }
 .enter-button:hover:not(:disabled) {
-    opacity: 0.9;
+    opacity: 0.85;
     transform: translateY(-1px);
 }
 .enter-button:disabled {

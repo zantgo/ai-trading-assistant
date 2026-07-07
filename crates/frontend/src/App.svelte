@@ -26,6 +26,8 @@
     import EdgeBuilder from './components/EdgeBuilder.svelte';
     import EdgeAnalyzer from './components/EdgeAnalyzer.svelte';
     import styles from './App.module.css';
+    import Icon from './lib/Icon.svelte';
+    import type { IconName } from './lib/icons';
 
     // ─── Lib imports ─────────────────────────────────────────────────────────
     import { fetchConfigFromServer, applyConfigToStore } from './lib/api.svelte';
@@ -51,32 +53,32 @@
         { key: 'ai', label: 'AI-DRIVEN' },
     ];
 
-    const MODE_TABS: Record<Level2Mode, { view: CurrentView; label: string }[]> = {
+    const MODE_TABS: Record<Level2Mode, { view: CurrentView; label: string; icon: IconName }[]> = {
         general: [
-            { view: 'timeframe_settings', label: '🕐 Timeframe Settings' },
-            { view: 'settings', label: '⚙️ Workspace Settings' },
-            { view: 'risk', label: '🛡️ Risk Management' },
+            { view: 'timeframe_settings', label: 'Timeframe Settings', icon: 'clock' },
+            { view: 'settings', label: 'Workspace Settings', icon: 'monitor' },
+            { view: 'risk', label: 'Risk Management', icon: 'shield' },
         ],
         user: [
-            { view: 'terminal', label: '📈 Live Terminal' },
-            { view: 'monitor', label: '🖥️ Terminal Monitor' },
-            { view: 'positions', label: '💰 Positions' },
-            { view: 'commission', label: '💸 Fee Projection' },
-            { view: 'costs', label: '💰 Token Costs' },
+            { view: 'terminal', label: 'Live Terminal', icon: 'trending-up' },
+            { view: 'monitor', label: 'Terminal Monitor', icon: 'monitor' },
+            { view: 'positions', label: 'Positions', icon: 'dollar' },
+            { view: 'commission', label: 'Fee Projection', icon: 'percent' },
+            { view: 'costs', label: 'Token Costs', icon: 'dollar' },
         ],
         rule: [
-            { view: 'decision', label: '🎯 Decision Trading' },
-            { view: 'edge_builder', label: '🔧 Edge Builder' },
-            { view: 'edge_analyzer', label: '📐 Edge Analyzer' },
+            { view: 'decision', label: 'Decision Trading', icon: 'target' },
+            { view: 'edge_builder', label: 'Edge Builder', icon: 'tool' },
+            { view: 'edge_analyzer', label: 'Edge Analyzer', icon: 'compass' },
         ],
         ai: [
-            { view: 'assistant', label: '🤖 AI Assistant' },
-            { view: 'observability', label: '🎯 DECISION HUD' },
-            { view: 'performance', label: '📊 Performance Metrics' },
-            { view: 'analytics', label: '📊 Trade Audit' },
-            { view: 'ledger', label: '📋 Trade Ledger' },
-            { view: 'edge_builder', label: '🔧 Edge Builder' },
-            { view: 'edge_analyzer', label: '📐 Edge Analyzer' },
+            { view: 'assistant', label: 'AI Assistant', icon: 'bot' },
+            { view: 'observability', label: 'Decision HUD', icon: 'target' },
+            { view: 'performance', label: 'Performance Metrics', icon: 'bar-chart' },
+            { view: 'analytics', label: 'Trade Audit', icon: 'bar-chart' },
+            { view: 'ledger', label: 'Trade Ledger', icon: 'book' },
+            { view: 'edge_builder', label: 'Edge Builder', icon: 'tool' },
+            { view: 'edge_analyzer', label: 'Edge Analyzer', icon: 'compass' },
         ],
     };
 
@@ -151,27 +153,13 @@
     <WelcomeGate />
 {:else}
 <div class={styles.terminalBody}>
-    <!-- Global Top Navbar -->
-    <nav class={styles.globalNavbar}>
-        <div class={styles.navbarBrand}>
-            <span class={styles.navbarLogo}>AI Trading Assistant</span>
-            <span class={styles.navbarSessionBadge}>{app.sessionMode?.toUpperCase()} — {app.sessionCurrency} on {app.sessionExchange}</span>
-        </div>
-        <div class={styles.navbarTabs}>
-            <button class={styles.navbarTab} class:active={app.currentGlobalView === 'dashboard'} onclick={() => { app.currentGlobalView = 'dashboard'; }}>
-                <span>📊</span> Dashboard
-            </button>
-            <button class={styles.navbarTab} class:active={app.currentGlobalView === 'instances'} onclick={() => { app.currentGlobalView = 'instances'; }}>
-                <span>📋</span> Instances
-            </button>
-            <button class={styles.navbarTab} class:active={app.currentGlobalView === 'settings'} onclick={() => { app.currentGlobalView = 'settings'; }}>
-                <span>⚙️</span> Settings
-            </button>
-        </div>
-        <div class={styles.navbarActions}>
+    <!-- Nav Header Stack (Rows 1 & 2) -->
+    <div class={styles.navHeaderStack}>
+        <!-- Row 1: Brand Header Bar -->
+        <div class={styles.brandHeaderBar}>
             <div class={styles.profileMenuWrapper}>
                 <button class={styles.navbarProfileBtn} onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
-                    <span>👤</span>
+                    <Icon name="user" size={18} />
                 </button>
                 {#if showProfileMenu}
                     <div class={styles.profileDropdown} role="menu">
@@ -181,23 +169,42 @@
                         </div>
                         <div class={styles.profileDropdownDivider}></div>
                         <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'dashboard'; }}>
-                            📊 General Dashboard
+                            <Icon name="dashboard" /> General Dashboard
                         </button>
                         <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'instances'; }}>
-                            📋 All Instances
+                            <Icon name="list" /> All Instances
                         </button>
                         <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'settings'; }}>
-                            ⚙️ Settings
+                            <Icon name="settings" /> Settings
                         </button>
                         <div class={styles.profileDropdownDivider}></div>
                         <button class={styles.profileDropdownItem + " " + styles.danger} onclick={() => { showProfileMenu = false; showQuitDialog = true; }}>
-                            🚪 Quit
+                            <Icon name="quit" /> Quit
                         </button>
                     </div>
                 {/if}
             </div>
+            <span class={styles.brandHeaderTitle}>AI Trading Assistant</span>
         </div>
-    </nav>
+        <!-- Row 2: Global Application Navigation -->
+        <div class={styles.globalNavCard}>
+            <div class={styles.navbarTabs}>
+                <button class={styles.navbarTab} class:active={app.currentGlobalView === 'dashboard'} onclick={() => { app.currentGlobalView = 'dashboard'; }}>
+                    <Icon name="dashboard" /> Dashboard
+                </button>
+                <button class={styles.navbarTab} class:active={app.currentGlobalView === 'instances'} onclick={() => { app.currentGlobalView = 'instances'; }}>
+                    <Icon name="list" /> Instances
+                </button>
+                <button class={styles.navbarTab} class:active={app.currentGlobalView === 'settings'} onclick={() => { app.currentGlobalView = 'settings'; }}>
+                    <Icon name="settings" /> Settings
+                </button>
+            </div>
+            <div class={styles.navSessionGroup}>
+                <span class={styles.navSessionText}>{app.sessionCurrency} on {app.sessionExchange}</span>
+                <span class={styles.navbarPillBadge}>{app.sessionMode?.toUpperCase()}</span>
+            </div>
+        </div>
+    </div>
     <!-- Click-outside handler for profile menu -->
     {#if showProfileMenu}
         <div class={styles.profileBackdrop} role="presentation" onclick={() => showProfileMenu = false} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') showProfileMenu = false; }}></div>
@@ -212,7 +219,7 @@
     {:else}
     {#if !app.apiKeyConfigured}
         <div class={styles.apiKeyBanner}>
-            ⚠️ DeepSeek AI API Key is not configured. Falling back to local heuristic mode.
+            <Icon name="alert" size={14} /> DeepSeek AI API Key is not configured. Falling back to local heuristic mode.
         </div>
     {/if}
 
@@ -252,13 +259,13 @@
                 <!-- Level 3: Feature Panel navbar (subset for the active mode) -->
                 <div class={styles.workspaceSubHeader}>
                     <div class={styles.subTabsContainer}>
-                        {#each MODE_TABS[pair.currentLevel2Mode] as tab (tab.view)}
+                         {#each MODE_TABS[pair.currentLevel2Mode] as tab (tab.view)}
                             <button
                                 class={styles.subTabBtn}
                                 class:sub-tab-active={pair.currentView === tab.view}
                                 onclick={() => selectView(pair, tab.view)}
                             >
-                                {tab.label}
+                                <Icon name={tab.icon} size={14} /> {tab.label}
                             </button>
                         {/each}
                     </div>

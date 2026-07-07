@@ -1,7 +1,6 @@
 pub mod scoring;
 
-pub use scoring::{calculate_eight_factor_score, calculate_opposite_score, EightFactorScore};
-pub use scoring::{calculate_registry_confluence, RegistryConfluence};
+pub use scoring::{calculate_registry_confluence, calculate_registry_opposite_score, RegistryConfluence};
 
 use sqlx::SqlitePool;
 use crate::db;

@@ -10,8 +10,8 @@
         gap: 16px;
     }
     .settings-col {
-        background-color: #131722;
-        border: 1px solid #2a2e39;
+        background-color: #11131a;
+        border: 1px solid #2d3448;
         border-radius: 8px;
         padding: 16px;
         display: flex;
@@ -20,17 +20,17 @@
     .card-title {
         font-size: 13px;
         font-weight: 700;
-        color: #f1f5f9;
+        color: #f8fafc;
         margin-top: 0;
         margin-bottom: 12px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        border-bottom: 1px solid #1e293b;
+        border-bottom: 1px solid #1c212e;
         padding-bottom: 6px;
     }
     .setting-group-box {
-        background-color: #0e111a;
-        border: 1px solid #1e293b;
+        background-color: #0b0c10;
+        border: 1px solid #1c212e;
         border-radius: 6px;
         padding: 12px;
         display: flex;
@@ -49,9 +49,9 @@
         gap: 6px;
     }
     .selector-btn {
-        background-color: #171b26;
-        border: 1px solid #2a2e39;
-        color: #8f929d;
+        background-color: #161a24;
+        border: 1px solid #2d3448;
+        color: #94a3b8;
         font-size: 9px;
         font-weight: 800;
         padding: 6px 0;
@@ -61,16 +61,15 @@
         text-transform: uppercase;
         text-align: center;
     }
-    .selector-btn:hover { border-color: #4c526e; color: #cbd5e1; }
+    .selector-btn:hover { border-color: #4c526e; color: #94a3b8; }
     .selector-btn.active {
-        background-color: rgba(59, 130, 246, 0.12);
-        border-color: #3b82f6;
-        color: #3b82f6;
-        box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+        background-color: rgba(255, 255, 255, 0.08);
+        border-color: #94a3b8;
+        color: #f8fafc;
     }
     .parameter-inputs-scroll {
-        background-color: #0e111a;
-        border: 1px solid #1e293b;
+        background-color: #0b0c10;
+        border: 1px solid #1c212e;
         border-radius: 6px;
         padding: 12px;
         display: flex;
@@ -82,24 +81,24 @@
     .input-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .input-row label { font-size: 10px; color: #94a3b8; font-weight: 600; }
     .input-row input {
-        background-color: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+        background-color: #161a24; border: 1px solid #2d3448; color: #94a3b8;
         font-family: ui-monospace, monospace; font-size: 11px; padding: 4px 8px;
         border-radius: 4px; width: 80px; text-align: right; outline: none;
     }
-    .input-row input:focus { border-color: #3b82f6; }
-    .section-divider { border: 0; border-top: 1px solid #1e293b; margin: 6px 0; }
+    .input-row input:focus { border-color: #94a3b8; }
+    .section-divider { border: 0; border-top: 1px solid #1c212e; margin: 6px 0; }
     .tf-split-group { display: flex; gap: 4px; width: 140px; }
     .tf-number-input { width: 50px !important; }
     .tf-unit-select {
-        background-color: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+        background-color: #161a24; border: 1px solid #2d3448; color: #94a3b8;
         font-size: 10px; font-weight: bold; padding: 2px 4px; border-radius: 4px;
         flex: 1; outline: none; cursor: pointer;
     }
     .apply-workspace-btn {
         width: 100%;
-        background: linear-gradient(135deg, #1e40af, #3b82f6);
-        border: 1px solid #3b82f6;
-        color: #f1f5f9;
+        background: #f8fafc;
+        border: 1px solid #334155;
+        color: #0b0c10;
         font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
@@ -108,23 +107,23 @@
         cursor: pointer;
         transition: opacity 0.2s;
     }
-    .apply-workspace-btn:hover { background: linear-gradient(135deg, #1e3a8a, #2563eb); }
+    .apply-workspace-btn:hover { opacity: 0.85; }
     .key-input-row { display: flex; gap: 6px; }
     .key-field {
-        flex: 1; background-color: #171b26; border: 1px solid #2a2e39;
-        color: #f1f5f9; font-family: 'Courier New', monospace; font-size: 11px;
+        flex: 1; background-color: #161a24; border: 1px solid #2d3448;
+        color: #f8fafc; font-family: 'Courier New', monospace; font-size: 11px;
         padding: 6px 8px; border-radius: 4px; outline: none;
     }
     .key-save-btn {
-        background-color: #1e40af; border: 1px solid #3b82f6; color: #f1f5f9;
+        background-color: #334155; border: 1px solid #475569; color: #f8fafc;
         font-size: 10px; font-weight: 700; padding: 6px 12px; border-radius: 4px;
         cursor: pointer; text-transform: uppercase;
     }
     .status-msg { font-size: 10px; padding: 4px 0; }
     .success-msg { color: #10b981; }
     .rules-editor {
-        width: 100%; background-color: #0a0d14; border: 1px solid #2a2e39;
-        color: #cbd5e1; font-family: 'Courier New', monospace; font-size: 10px;
+        width: 100%; background-color: #0b0c10; border: 1px solid #2d3448;
+        color: #94a3b8; font-family: 'Courier New', monospace; font-size: 10px;
         line-height: 1.5; padding: 8px; border-radius: 4px; resize: vertical; outline: none;
     }
     .workspace-inner-content {
@@ -160,8 +159,8 @@
         gap: 12px;
     }
     .paper-position-card {
-        background: #0f131c;
-        border: 1px solid #2a2e39;
+        background: #11131a;
+        border: 1px solid #2d3448;
         border-radius: 8px;
         padding: 16px;
     }
@@ -193,7 +192,7 @@
     .pp-pnl-section {
         margin-top: 10px;
         padding-top: 10px;
-        border-top: 1px solid #1e293b;
+        border-top: 1px solid #1c212e;
     }
     .pp-row {
         display: flex;
@@ -217,8 +216,8 @@
     .paper-close-btn:hover { background: rgba(239, 68, 68, 0.25); }
     .paper-close-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .paper-empty-state {
-        background: #0f131c;
-        border: 1px solid #2a2e39;
+        background: #11131a;
+        border: 1px solid #2d3448;
         border-radius: 8px;
         padding: 24px;
         text-align: center;
@@ -253,8 +252,8 @@
     .paper-open-btn.direction-short:hover { background: rgba(239, 68, 68, 0.1); }
     .paper-open-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .paper-ledger-card {
-        background: #0f131c;
-        border: 1px solid #2a2e39;
+        background: #11131a;
+        border: 1px solid #2d3448;
         border-radius: 8px;
         padding: 16px;
         display: flex;
@@ -268,7 +267,7 @@
         color: #94a3b8;
     }
     .ledger-divider {
-        border-top: 1px solid #1e293b;
+        border-top: 1px solid #1c212e;
         margin: 2px 0;
     }
     .capacity-bar-container {
@@ -278,13 +277,13 @@
     }
     .capacity-bar-track {
         height: 6px;
-        background: #1a1f2e;
+        background: #1e2330;
         border-radius: 3px;
         overflow: hidden;
     }
     .capacity-bar-fill {
         height: 100%;
-        background: linear-gradient(90deg, #3b82f6, #60a5fa);
+        background: #94a3b8;
         border-radius: 3px;
         transition: width 0.3s ease;
     }
@@ -311,8 +310,8 @@
     .scale-in-cockpit {
         margin-top: 10px;
         padding: 10px;
-        background: rgba(59, 130, 246, 0.05);
-        border: 1px solid rgba(59, 130, 246, 0.15);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 6px;
         display: flex;
         flex-direction: column;
@@ -320,13 +319,13 @@
     }
     .scale-progress-bar {
         height: 4px;
-        background: #1a1f2e;
+        background: #1e2330;
         border-radius: 2px;
         overflow: hidden;
     }
     .scale-progress-fill {
         height: 100%;
-        background: linear-gradient(90deg, #3b82f6, #64ffda);
+        background: #94a3b8;
         border-radius: 2px;
         transition: width 0.3s ease;
     }
@@ -348,4 +347,3 @@
     @media (max-width: 768px) {
         .paper-layout { grid-template-columns: 1fr; }
     }
-

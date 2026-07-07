@@ -1,8 +1,8 @@
 .telemetry-table {
     width: 100%;
     flex-shrink: 0;
-    background: #0f111a;
-    border-top: 1px solid #1e293b;
+    background: #0b0c10;
+    border-top: 1px solid #1c212e;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -10,7 +10,7 @@
 .tt-header {
     flex-shrink: 0;
     padding: 8px 12px;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -31,10 +31,10 @@
 }
 .tt-copy-btn {
     padding: 3px 10px;
-    border: 1px solid #1e293b;
+    border: 1px solid #1c212e;
     border-radius: 4px;
     background: transparent;
-    color: #8f929d;
+    color: #94a3b8;
     font-size: 9px;
     font-weight: 700;
     font-family: 'Courier New', monospace;
@@ -71,8 +71,8 @@
 }
 
 .tf-table-card {
-    background-color: #131722;
-    border: 1px solid #2a2e39;
+    background-color: #11131a;
+    border: 1px solid #2d3448;
     border-radius: 6px;
     padding: 10px;
     display: flex;
@@ -84,14 +84,14 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     padding-bottom: 6px;
     flex-shrink: 0;
 }
 .tf-card-label {
     font-size: 10px;
     font-weight: 800;
-    color: #cbd5e1;
+    color: #94a3b8;
     font-family: 'Courier New', monospace;
 }
 .tf-card-market-state {
@@ -110,7 +110,7 @@
     background: transparent;
 }
 .tf-card-table-wrapper::-webkit-scrollbar-thumb {
-    background: #1e293b;
+    background: #1c212e;
     border-radius: 2px;
 }
 .tf-card-table {
@@ -121,20 +121,20 @@
 }
 .section-header {
     text-align: left;
-    color: #3b82f6;
+    color: #94a3b8;
     font-size: 9px;
     font-weight: 800;
     text-transform: uppercase;
     padding: 8px 4px 4px 4px;
-    border-bottom: 1px solid #1e293b;
-    background-color: #131722;
+    border-bottom: 1px solid #1c212e;
+    background-color: #11131a;
     position: sticky;
     top: 0;
     z-index: 1;
 }
 .section-header-leading { color: #10b981; }
-.section-header-hybrid { color: #f59e0b; }
-.section-header-lagging { color: #60a5fa; }
+.section-header-hybrid { color: #94a3b8; }
+.section-header-lagging { color: #94a3b8; }
 .gate-tag {
     color: #64748b;
     font-size: 8px;
@@ -165,7 +165,7 @@
     color: #64748b;
     font-size: 8px;
     padding: 2px 4px;
-    border-bottom: 1px solid #1e293b;
+    border-bottom: 1px solid #1c212e;
     text-transform: uppercase;
     font-weight: 700;
 }
@@ -178,12 +178,12 @@
     border-bottom: none;
 }
 .col-label {
-    color: #cbd5e1;
+    color: #94a3b8;
     font-weight: 700;
     width: 35%;
 }
 .col-value {
-    color: #8f929d;
+    color: #94a3b8;
     width: 25%;
 }
 .col-state {
@@ -200,8 +200,8 @@
 
 .expand-btn {
     background: transparent;
-    border: 1px solid #1e293b;
-    color: #8f929d;
+    border: 1px solid #1c212e;
+    color: #94a3b8;
     font-size: 10px;
     padding: 2px 6px;
     border-radius: 4px;
@@ -211,10 +211,19 @@
 }
 
 .expand-btn:hover {
-    border-color: #64ffda;
-    color: #64ffda;
-    background: rgba(100, 255, 218, 0.08);
+    border-color: #94a3b8;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.06);
 }
+
+/* ── Indicator row state tone — coloured left-border + subtle bg ── */
+.row-bullish { background: rgba(16, 185, 129, 0.04); }
+.row-bullish td:first-child { border-left: 2px solid #10b981; padding-left: 5px; }
+.row-bearish { background: rgba(239, 68, 68, 0.04); }
+.row-bearish td:first-child { border-left: 2px solid #ef4444; padding-left: 5px; }
+.row-strong { background: rgba(168, 85, 247, 0.04); }
+.row-strong td:first-child { border-left: 2px solid #a855f7; padding-left: 5px; }
+.row-neutral td:first-child { border-left: 2px solid transparent; padding-left: 5px; }
 
 .expanded-table-card {
     position: fixed !important;
@@ -225,7 +234,7 @@
     width: 100vw !important;
     height: 100vh !important;
     z-index: 99999 !important;
-    background-color: #131722 !important;
+    background-color: #11131a !important;
     margin: 0 !important;
     border-radius: 0 !important;
     padding: 32px !important;
@@ -236,7 +245,7 @@
 }
 
 .expanded-table-card .tf-card-header {
-    border-bottom: 2px solid #1e293b;
+    border-bottom: 2px solid #1c212e;
     padding-bottom: 12px;
     margin-bottom: 16px;
     flex-shrink: 0;
@@ -260,7 +269,7 @@
 }
 
 .expanded-table-card .tf-card-table-wrapper::-webkit-scrollbar-thumb {
-    background: #2a2e39;
+    background: #2d3448;
     border-radius: 4px;
 }
 
@@ -277,10 +286,10 @@
 .expanded-table-card .tf-card-table th {
     font-size: 11px !important;
     padding-bottom: 12px !important;
-    border-bottom: 2px solid #1e293b !important;
+    border-bottom: 2px solid #1c212e !important;
 }
 
 .expanded-table-card .tf-card-table td {
     padding: 8px 12px !important;
-    border-bottom: 1px solid #1e293b !important;
+    border-bottom: 1px solid #1c212e !important;
 }

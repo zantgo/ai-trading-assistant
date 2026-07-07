@@ -1,6 +1,6 @@
 .settings-view {
     padding: 1.5rem;
-    color: #cbd5e1;
+    color: #94a3b8;
     max-width: 900px;
     margin: 0 auto;
 }
@@ -13,7 +13,7 @@
 .full-width { grid-column: span 2; }
 .settings-card {
     background: #14142a;
-    border: 1px solid #2a2a4a;
+    border: 1px solid #2d3448;
     border-radius: 8px;
     padding: 1rem;
 }
@@ -27,20 +27,20 @@
 }
 .input-row label {
     font-size: 0.78rem;
-    color: #8888aa;
+    color: #64748b;
     min-width: 160px;
 }
 .input-row input {
     width: 100px;
     padding: 0.35rem 0.5rem;
     background: #1e1e3a;
-    border: 1px solid #333355;
+    border: 1px solid #2d3448;
     border-radius: 4px;
     color: #e0e0ff;
     font-size: 0.82rem;
     outline: none;
 }
-.input-row input:focus { border-color: #5b7fff; }
+.input-row input:focus { border-color: #facc15; }
 .hint {
     font-size: 0.68rem;
     color: #556;
@@ -51,7 +51,7 @@
     margin-top: 0.5rem;
     padding: 0.6rem;
     background: #1e1e3a;
-    border: 1px solid #333355;
+    border: 1px solid #2d3448;
     border-radius: 4px;
     color: #e0e0ff;
     font-family: monospace;
@@ -60,11 +60,11 @@
     outline: none;
     box-sizing: border-box;
 }
-.prompt-editor:focus { border-color: #5b7fff; }
+.prompt-editor:focus { border-color: #facc15; }
 .save-btn {
     margin-top: 0.75rem;
     padding: 0.45rem 1rem;
-    background: #5b7fff;
+    background: #facc15;
     border: none;
     border-radius: 6px;
     color: white;

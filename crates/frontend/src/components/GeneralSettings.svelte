@@ -1,5 +1,6 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
+    import Icon from '../lib/Icon.svelte';
     import styles from './GeneralSettings.module.css';
 
     const app = useAppStore();
@@ -134,7 +135,7 @@
         <div class={styles.settingsGrid}>
             <!-- Safety Dropdowns -->
             <div class={styles.settingsCard}>
-                <h3>🛡️ Safety Dropdowns</h3>
+                <h3><Icon name="shield" size={15} /> Safety Dropdowns</h3>
                 <div class={styles.inputRow}>
                     <label for="loss-caution">Consecutive Loss Caution:</label>
                     <input id="loss-caution" type="number" bind:value={draftLossCaution} min="1" max="100" />
@@ -159,7 +160,7 @@
 
             <!-- API Failover -->
             <div class={styles.settingsCard}>
-                <h3>🔄 API Failover</h3>
+                <h3><Icon name="refresh" size={15} /> API Failover</h3>
                 <div class={styles.inputRow}>
                     <label for="failover-retries">Max Retries Per Call:</label>
                     <input id="failover-retries" type="number" bind:value={draftFailoverRetries} min="1" max="20" />

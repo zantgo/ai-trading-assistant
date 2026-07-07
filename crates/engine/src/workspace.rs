@@ -55,13 +55,13 @@ impl ExchangeChoice {
     ///
     /// - Hyperliquid: the bare coin (e.g. `BTC`); collateral is always USDC.
     /// - Bitget USDT-M futures: `BASEUSDT` (e.g. `BTCUSDT`).
-    /// - Bitget USDC-M futures: `BASEUSD` (e.g. `BTCUSD`).
+    /// - Bitget USDC-M futures: `BASEUSDC` (e.g. `BTCUSDC`).
     pub fn raw_symbol(&self, base: &str, quote: &Currency) -> String {
         match self {
             ExchangeChoice::Hyperliquid => base.to_string(),
             ExchangeChoice::Bitget => match quote {
                 Currency::USDT => format!("{}USDT", base),
-                Currency::USDC => format!("{}USD", base),
+                Currency::USDC => format!("{}USDC", base),
             },
         }
     }

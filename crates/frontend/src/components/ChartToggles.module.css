@@ -3,8 +3,8 @@
     align-items: center;
     gap: 10px;
     padding: 4px 8px;
-    background: #0a0d14;
-    border-bottom: 1px solid #1e293b;
+    background: #0b0c10;
+    border-bottom: 1px solid #1c212e;
     flex-wrap: wrap;
 }
 .toggles-group {
@@ -15,7 +15,7 @@
 .toggles-label {
     font-size: 8px;
     font-weight: 700;
-    color: #4a5568;
+    color: #475569;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-family: 'Courier New', monospace;
@@ -24,14 +24,14 @@
 .toggles-separator {
     width: 1px;
     height: 18px;
-    background: #1e293b;
+    background: #1c212e;
 }
 .toggle-pill {
     padding: 2px 8px;
-    border: 1px solid #1e293b;
+    border: 1px solid #1c212e;
     border-radius: 3px;
     background: transparent;
-    color: #4a5568;
+    color: #475569;
     font-size: 8px;
     font-weight: 700;
     font-family: 'Courier New', monospace;
@@ -41,7 +41,7 @@
     transition: all 0.15s;
 }
 .toggle-pill:hover {
-    border-color: #334155;
+    border-color: #2d3448;
     color: #94a3b8;
 }
 .toggle-pill.active {
@@ -49,8 +49,8 @@
     color: #64ffda;
     background: rgba(100, 255, 218, 0.08);
 }
-.toggle-pill.ema-fast.active { border-color: #fdd835; color: #fdd835; background: rgba(253, 216, 53, 0.1); }
-.toggle-pill.ema-medium.active { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.1); }
+.toggle-pill.ema-fast.active { border-color: #94a3b8; color: #94a3b8; background: rgba(148, 163, 184, 0.1); }
+.toggle-pill.ema-medium.active { border-color: #64748b; color: #64748b; background: rgba(100, 116, 139, 0.1); }
 .toggle-pill.ema-slow.active { border-color: #e91e63; color: #e91e63; background: rgba(233, 30, 99, 0.1); }
 .toggle-pill.ema-long.active { border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.1); }
 .toggle-pill.vwap-pill.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }

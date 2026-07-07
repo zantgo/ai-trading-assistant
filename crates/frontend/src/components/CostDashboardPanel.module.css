@@ -1,0 +1,13 @@
+.actualSpendRow {
+    border-top: 1px solid #2d3448;
+    padding-top: 8px;
+    margin-top: 4px;
+}
+.actualSpendLabel {
+    font-weight: 700;
+    color: #f8fafc;
+}
+.actualSpendValue {
+    color: #f59e0b;
+    font-weight: 700;
+}

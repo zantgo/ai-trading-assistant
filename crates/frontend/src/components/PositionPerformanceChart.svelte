@@ -109,26 +109,26 @@
             autoSize: true,
             layout: {
                 background: { color: 'transparent' },
-                textColor: '#8f929d',
+                textColor: '#94a3b8',
                 fontSize: 10
             },
             grid: {
-                vertLines: { color: '#1e1e3a' },
-                horzLines: { color: '#1e1e3a' },
+                vertLines: { color: '#1c212e' },
+                horzLines: { color: '#1c212e' },
             },
             timeScale: {
-                borderColor: '#2a2a4a',
+                borderColor: '#2d3448',
                 visible: true,
                 timeVisible: true,
                 secondsVisible: false,
             },
             rightPriceScale: {
-                borderColor: '#2a2a4a',
+                borderColor: '#2d3448',
                 scaleMargins: { top: 0.15, bottom: 0.15 },
             },
             crosshair: {
-                vertLine: { color: '#3b82f6', labelBackgroundColor: '#3b82f6' },
-                horzLine: { color: '#3b82f6', labelBackgroundColor: '#3b82f6' },
+                vertLine: { color: '#334155', labelBackgroundColor: '#334155' },
+                horzLine: { color: '#334155', labelBackgroundColor: '#334155' },
             },
             handleScale: true,
             handleScroll: true,
@@ -137,7 +137,7 @@
         });
 
         series = chart.addSeries(LineSeries, {
-            color: '#3b82f6',
+            color: '#e2e8f0',
             lineWidth: 3,
             priceLineVisible: false,
             crosshairMarkerVisible: true,
@@ -212,7 +212,7 @@
         if (margin > 0) {
             marginLine = series.createPriceLine({
                 price: margin,
-                color: '#3b82f6',
+                color: '#94a3b8',
                 lineWidth: 1,
                 lineStyle: 2,
                 axisLabelVisible: true,

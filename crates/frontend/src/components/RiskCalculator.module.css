@@ -1,42 +1,43 @@
 .rc-layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; max-width: 1100px; margin: 0 auto; width: 100%; padding: 16px; box-sizing: border-box; }
 .rc-sidebar { display: flex; flex-direction: column; }
 .rc-main { display: flex; flex-direction: column; gap: 16px; }
-.rc-card { background: #131722; border: 1px solid #2a2e39; border-radius: 8px; padding: 16px; }
+.rc-card { background: #11131a; border: 1px solid #2d3448; border-radius: 8px; padding: 16px; }
 .rc-card-title { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px 0; }
 
 .rc-profile-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .rc-profile-btn {
-    background: #0f131c; border: 1px solid #1e293b; color: #94a3b8; padding: 8px 10px; border-radius: 4px;
+    background: #11131a; border: 1px solid #1c212e; color: #94a3b8; padding: 8px 10px; border-radius: 4px;
     font-size: 11px; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center;
 }
-.rc-profile-btn.active { border-color: #3b82f6; color: #3b82f6; background: rgba(59,130,246,0.08); }
+.rc-profile-btn.active { border-color: #94a3b8; color: #f8fafc; background: rgba(59,130,246,0.08); }
 .rc-delete-icon { color: #ef4444; font-weight: bold; font-size: 14px; padding: 0 4px; }
 .rc-add-profile { display: flex; gap: 4px; }
 .rc-input {
-    flex: 1; background: #0f131c; border: 1px solid #2a2e39; color: #e2e8f0; padding: 6px 8px;
+    flex: 1; background: #11131a; border: 1px solid #2d3448; color: #f8fafc; padding: 6px 8px;
     border-radius: 4px; font-size: 11px; outline: none;
 }
-.rc-input:focus { border-color: #3b82f6; }
+.rc-input:focus { border-color: #94a3b8; }
 .rc-add-btn {
-    background: #1e40af; border: 1px solid #3b82f6; color: #f1f5f9; padding: 6px 12px;
+    background: #334155; border: 1px solid #475569; color: #fff; padding: 6px 12px;
     border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;
 }
+.rc-add-btn:hover { opacity: 0.85; }
 
 .rc-field-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .rc-label { font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase; }
 .rc-input-wrap { display: flex; align-items: center; gap: 4px; }
 .rc-input-prefix, .rc-input-suffix { font-size: 11px; color: #64748b; font-weight: 600; }
 .rc-field-input {
-    width: 120px; background: #0f131c; border: 1px solid #2a2e39; color: #e2e8f0;
+    width: 120px; background: #11131a; border: 1px solid #2d3448; color: #f8fafc;
     padding: 5px 8px; border-radius: 4px; font-size: 11px; text-align: right; outline: none; font-family: monospace;
 }
-.rc-field-input:focus { border-color: #3b82f6; }
-.rc-static-val { font-size: 11px; color: #cbd5e1; font-weight: 700; font-family: monospace; }
+.rc-field-input:focus { border-color: #94a3b8; }
+.rc-static-val { font-size: 11px; color: #94a3b8; font-weight: 700; font-family: monospace; }
 .rc-profit-val { font-size: 13px; color: #10b981; font-weight: 700; font-family: monospace; }
 
 .rc-toggle { display: flex; gap: 0; border-radius: 4px; overflow: hidden; }
 .rc-toggle-btn {
-    padding: 5px 16px; border: 1px solid #2a2e39; background: #0f131c; color: #64748b;
+    padding: 5px 16px; border: 1px solid #2d3448; background: #11131a; color: #64748b;
     font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;
 }
 .rc-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
@@ -49,9 +50,9 @@
 .rc-result-item { display: flex; flex-direction: column; gap: 2px; }
 .rc-result-full { grid-column: span 2; }
 .rc-result-label { font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase; }
-.rc-result-value { font-size: 13px; color: #e2e8f0; font-weight: 700; font-family: monospace; }
+.rc-result-value { font-size: 13px; color: #f8fafc; font-weight: 700; font-family: monospace; }
 .rc-liq-price { color: #ef4444; }
-.rc-cost { color: #f59e0b; }
+.rc-cost { color: #94a3b8; }
 .rc-pnl-pos { color: #10b981; }
 .rc-pnl-neg { color: #ef4444; }
 .rc-placeholder { font-size: 11px; color: #64748b; text-align: center; padding: 20px; font-style: italic; }
