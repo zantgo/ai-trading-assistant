@@ -12,6 +12,7 @@ use shared::indicators::{
     NormalizationEngine, NormalizedIndicatorValue, PatternResult, SeriesDivergenceResult,
     SqueezeOutput,
 };
+use shared::indicators::normalized::PreviousBarState;
 
 #[inline]
 fn d2f(d: Decimal) -> f64 {
@@ -106,6 +107,9 @@ pub struct NormalizeParams<'a> {
     pub resistance_levels: &'a [f64],
     pub active_position: Option<i8>,
     pub adx_consecutive_deceleration: bool,
+    pub supertrend_flipped: bool,
+    pub adx_di_crossover: Option<i8>,
+    pub prev: PreviousBarState,
 }
 
 /// Convert a generic series-divergence direction into a (potential) engine
@@ -148,6 +152,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         chandemo: od2f(p.chandemo),
         supertrend_line: od2f(p.supertrend_line),
         supertrend_dir: p.supertrend_dir,
+        supertrend_flipped: p.supertrend_flipped,
         keltner_upper: p.keltner.map(|k| d2f(k.0)),
         keltner_middle: p.keltner.map(|k| d2f(k.1)),
         keltner_lower: p.keltner.map(|k| d2f(k.2)),
@@ -183,6 +188,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         adx_plus_di: p.adx.map(|a| d2f(a.plus_di)),
         adx_minus_di: p.adx.map(|a| d2f(a.minus_di)),
         adx_slope: p.adx.map(|a| d2f(a.adx_slope)),
+        adx_di_crossover: p.adx_di_crossover,
         bbwp: od2f(p.bbwp),
         rvol: od2f(p.rvol),
         vwap: od2f(p.vwap),
@@ -198,6 +204,8 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         bb_upper: p.bb.map(|b| d2f(b.0)),
         bb_middle: p.bb.map(|b| d2f(b.1)),
         bb_lower: p.bb.map(|b| d2f(b.2)),
+        ema_fast: od2f(p.ema_fast),
+        ema_medium: od2f(p.ema_medium),
     };
 
     let ctx = NormalizationContext {
@@ -211,6 +219,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         resistance_levels: p.resistance_levels.to_vec(),
         rvol: od2f(p.rvol),
         adx_consecutive_deceleration: p.adx_consecutive_deceleration,
+        prev: p.prev,
     };
 
     let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);

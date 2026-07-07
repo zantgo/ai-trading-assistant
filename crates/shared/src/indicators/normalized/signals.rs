@@ -105,6 +105,141 @@ pub(super) fn derive_signals(map: &mut Map) {
             sigs.push(IndicatorSignal::new(SignalKind::VolumeClimax, SignalDirection::Neutral, SignalStatus::Active, l));
         }
 
+        // ── Extended patterns (indicators whose labels never matched before) ──
+
+        // MACD crossover + momentum exhaustion (primary signal for this indicator).
+        if key == "macd" {
+            if l.contains("CROSSOVER") {
+                let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+                sigs.push(IndicatorSignal::new(SignalKind::Crossover, d, SignalStatus::Active, l));
+            }
+            if l.contains("FLATLINE") || l.contains("EXHAUSTION_WARNING") {
+                sigs.push(threshold(SignalDirection::Neutral, l));
+            }
+        }
+
+        // EMA ribbon stack alignment / retest (ribbon flip or retest trigger).
+        if key == "ema_stack" && l.contains("STACK") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish }
+                else if l.contains("BEARISH") { SignalDirection::Bearish }
+                else { SignalDirection::Neutral };
+            sigs.push(IndicatorSignal::new(SignalKind::StackChange, d, SignalStatus::Active, l));
+        }
+
+        // OBV accumulation/distribution (smart-money flow).
+        if key == "obv" {
+            if l.contains("ACCUMULATION") { sigs.push(threshold(SignalDirection::Bullish, l)); }
+            else if l.contains("DISTRIBUTION") { sigs.push(threshold(SignalDirection::Bearish, l)); }
+        }
+
+        // CMF money-flow direction (zero-line proxy).
+        if key == "cmf" && (l.contains("BUYING") || l.contains("SELLING")) {
+            let d = if l.contains("BUYING") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(threshold(d, l));
+        }
+
+        // Aroon trend strength (primary directional signal).
+        if key == "aroon" {
+            if l.contains("UPTREND") { sigs.push(threshold(SignalDirection::Bullish, l)); }
+            else if l.contains("DOWNTREND") { sigs.push(threshold(SignalDirection::Bearish, l)); }
+        }
+
+        // Choppiness regime classification (trending vs range).
+        if key == "choppiness" && (l.contains("CONSOLIDATION") || l.contains("STRONG_TREND") || l.contains("TRANSITIONAL")) {
+            sigs.push(threshold(SignalDirection::Neutral, l));
+        }
+
+        // LinReg slope direction (rising/falling trend).
+        if key == "linreg_slope" {
+            if l.contains("RISING") { sigs.push(threshold(SignalDirection::Bullish, l)); }
+            else if l.contains("FALLING") { sigs.push(threshold(SignalDirection::Bearish, l)); }
+        }
+
+        // BBWP volatility exhaustion (mean-reversion warning).
+        if l.contains("EXHAUSTION_REVERSION") {
+            sigs.push(threshold(SignalDirection::Neutral, l));
+        }
+
+        // HV extreme volatility (regime outlier warning).
+        if key == "hv" && l.contains("EXTREME") {
+            sigs.push(threshold(SignalDirection::Neutral, l));
+        }
+
+        // Squeeze momentum acceleration / deceleration phases.
+        if key == "squeeze" {
+            if l.contains("ACCELERATING") {
+                let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+                sigs.push(threshold(d, l));
+            } else if l.contains("DECELERATING") {
+                sigs.push(threshold(SignalDirection::Neutral, l));
+            }
+        }
+
+        // RSI / Stochastic / MFI / ChandeMO directional momentum bias (non-extreme).
+        const MOM_KEYS: &[&str] = &["rsi", "stochastic", "chandemo", "mfi"];
+        if MOM_KEYS.contains(&key.as_str()) {
+            if l.contains("BULLISH_MOMENTUM") || (l.contains("_BULLISH_") && l.contains("BIAS")) {
+                sigs.push(threshold(SignalDirection::Bullish, l));
+            } else if l.contains("BEARISH_MOMENTUM") || (l.contains("_BEARISH_") && l.contains("BIAS")) {
+                sigs.push(threshold(SignalDirection::Bearish, l));
+            }
+        }
+
+        // ── ZeroLineCross across oscillators ──
+        const ZERO_CROSS_KEYS: &[&str] = &["cmf", "chandemo", "rsi", "macd", "linreg_slope", "zscore"];
+        if ZERO_CROSS_KEYS.contains(&key.as_str()) && l.contains("ZERO_CROSS") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish }
+                else if l.contains("BEARISH") { SignalDirection::Bearish }
+                else { SignalDirection::Neutral };
+            sigs.push(IndicatorSignal::new(SignalKind::ZeroLineCross, d, SignalStatus::Active, l));
+        }
+
+        // ── BandTouch for channel indicators ──
+        const BAND_KEYS: &[&str] = &["donchian", "keltner", "bollinger"];
+        if BAND_KEYS.contains(&key.as_str()) && l.contains("BAND_TOUCH") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish }
+                else if l.contains("BEARISH") { SignalDirection::Bearish }
+                else { SignalDirection::Neutral };
+            sigs.push(IndicatorSignal::new(SignalKind::BandTouch, d, SignalStatus::Active, l));
+        }
+
+        // ── Supertrend TrendFlip (from structured flipped field, surfaced via label) ──
+        if key == "supertrend" && l.contains("FLIP") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, l));
+        }
+
+        // ── ADX DI Crossover TrendFlip ──
+        if key == "adx" && l.contains("DI_CROSSOVER") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, l));
+        }
+
+        // ── Aroon Crossover ──
+        if key == "aroon" && l.contains("CROSSOVER") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::Crossover, d, SignalStatus::Active, l));
+        }
+
+        // ── Stochastic K/D Crossover ──
+        if key == "stochastic" && l.contains("CROSSOVER") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::Crossover, d, SignalStatus::Active, l));
+        }
+
+        // ── OBV TrendFlip ──
+        if key == "obv" && l.contains("TREND_FLIP") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, l));
+        }
+
+        // ── Choppiness CompressionRelease (distinct from Threshold): a tight
+        // consolidation range is coiled energy that precedes a volatility
+        // release, so it emits CompressionRelease in addition to Threshold. ──
+        if key == "choppiness" && (l.contains("COIL") || l.contains("CONSOLIDATION_RANGE")) {
+            sigs.push(IndicatorSignal::new(SignalKind::CompressionRelease, SignalDirection::Neutral, SignalStatus::Active, l));
+        }
+
         if !sigs.is_empty() {
             if let Some(entry) = map.get_mut(&key) {
                 entry.signals.extend(sigs);

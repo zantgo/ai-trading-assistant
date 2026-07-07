@@ -203,6 +203,32 @@ pub enum DivergenceState {
     ConfirmedBearish,
 }
 
+/// Previous completed-bar indicator values, used to detect crossovers and
+/// zero-line crosses (state transitions require the prior value as reference).
+/// All fields optional so partially-warmed pipelines degrade gracefully.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PreviousBarState {
+    pub rsi: Option<f64>,
+    pub stoch_k: Option<f64>,
+    pub stoch_d: Option<f64>,
+    pub cmf: Option<f64>,
+    pub chandemo: Option<f64>,
+    pub aroon_up: Option<f64>,
+    pub aroon_down: Option<f64>,
+    pub macd_line: Option<f64>,
+    pub linreg_slope: Option<f64>,
+    pub zscore: Option<f64>,
+    pub obv: Option<f64>,
+    pub obv_sma: Option<f64>,
+    pub mfi: Option<f64>,
+    pub adx_plus_di: Option<f64>,
+    pub adx_minus_di: Option<f64>,
+    pub price: Option<f64>,
+    pub ema_fast: Option<f64>,
+    pub ema_medium: Option<f64>,
+    pub supertrend_line: Option<f64>,
+}
+
 /// Stateful context bridging the pure calculators to signed normalization.
 #[derive(Debug, Clone, Default)]
 pub struct NormalizationContext {
@@ -228,6 +254,8 @@ pub struct NormalizationContext {
     /// bars while in the extreme regime — triggers the hard hook exit. Tracked
     /// statefully by the analyzer from the historical ADX buffer.
     pub adx_consecutive_deceleration: bool,
+    /// Previous completed-bar indicator values for crossover/zero-line detection.
+    pub prev: PreviousBarState,
 }
 
 /// Clamp a value into the `[-1.0, 1.0]` unit interval.

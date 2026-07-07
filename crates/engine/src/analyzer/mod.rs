@@ -13,6 +13,7 @@ use crate::db;
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
+use shared::indicators::normalized::PreviousBarState;
 use crate::sr_engine::SrRoleTracker;
 
 pub mod normalize;
@@ -293,6 +294,7 @@ pub async fn run_single(
     let mut signal_age_tracker: std::collections::HashMap<String, (u32, shared::indicators::SignalDirection)> =
         std::collections::HashMap::new();
     let mut live_bar: u32 = 0;
+    let mut prev_bar_state = PreviousBarState::default();
 
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
 
@@ -538,7 +540,33 @@ pub async fn run_single(
                         resistance_levels: &[],
                         active_position,
                         adx_consecutive_deceleration,
+                        supertrend_flipped: final_supertrend.as_ref().map(|s| s.flipped).unwrap_or(false),
+                        adx_di_crossover: final_adx.as_ref().and_then(|a| a.di_crossover.map(|c| match c { shared::indicators::DiCrossoverDir::Bullish => 1i8, shared::indicators::DiCrossoverDir::Bearish => -1i8 })),
+                        prev: prev_bar_state,
                     });
+
+                    // ── Save current bar's indicator values for next bar's cross-over detection ──
+                    prev_bar_state = PreviousBarState {
+                        rsi: final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
+                        stoch_k: final_stoch.as_ref().map(|s| s.k_value.to_f64().unwrap_or(0.0)),
+                        stoch_d: final_stoch.as_ref().map(|s| s.d_value.to_f64().unwrap_or(0.0)),
+                        cmf: final_cmf.map(|d| d.to_f64().unwrap_or(0.0)),
+                        chandemo: final_cmo.map(|d| d.to_f64().unwrap_or(0.0)),
+                        aroon_up: final_aroon.as_ref().map(|a| a.up.to_f64().unwrap_or(0.0)),
+                        aroon_down: final_aroon.as_ref().map(|a| a.down.to_f64().unwrap_or(0.0)),
+                        macd_line: Some(final_macd.macd_line.to_f64().unwrap_or(0.0)),
+                        linreg_slope: final_linreg.map(|d| d.to_f64().unwrap_or(0.0)),
+                        zscore: final_zscore.map(|d| d.to_f64().unwrap_or(0.0)),
+                        obv: final_obv.as_ref().map(|o| o.obv.to_f64().unwrap_or(0.0)),
+                        obv_sma: final_obv.as_ref().map(|o| o.obv_sma.to_f64().unwrap_or(0.0)),
+                        mfi: final_mfi.map(|d| d.to_f64().unwrap_or(0.0)),
+                        adx_plus_di: final_adx.as_ref().map(|a| a.plus_di.to_f64().unwrap_or(0.0)),
+                        adx_minus_di: final_adx.as_ref().map(|a| a.minus_di.to_f64().unwrap_or(0.0)),
+                        price: Some(completed.close.to_f64().unwrap_or(0.0)),
+                        ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
+                        ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
+                        supertrend_line: final_supertrend.as_ref().map(|s| s.line.to_f64().unwrap_or(0.0)),
+                    };
 
                     // Stamp signal freshness (age in completed bars).
                     let mut indicators = indicators;
@@ -857,6 +885,9 @@ fn broadcast_live_snapshot(
         resistance_levels: &[],
         active_position: None,
         adx_consecutive_deceleration: false,
+        supertrend_flipped: false,
+        adx_di_crossover: None,
+        prev: PreviousBarState::default(),
     });
 
     let snapshot = MarketSnapshot {

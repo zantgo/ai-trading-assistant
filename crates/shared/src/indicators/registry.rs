@@ -203,7 +203,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "atr", display_name: "ATR", group: Volatility, class: Lagging,
         render: Pane, directional: false, supports_divergence: false,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
+        signal_types: &[Threshold, CompressionRelease], default_weight: 1.0, default_enabled: true,
         config_params: &["atr_period"],
         value_format: "price", value_source: "raw", color: "#ef5350", guide_section: "5",
     },
@@ -231,7 +231,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "hv", display_name: "Hist. Volatility", group: Volatility, class: Lagging,
         render: Pane, directional: false, supports_divergence: false,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
+        signal_types: &[Threshold], default_weight: 1.0, default_enabled: true,
         config_params: &["hv_period"],
         value_format: "percent1", value_source: "raw", color: "#ff7043", guide_section: "20",
     },

@@ -1,7 +1,10 @@
 //! Consolidation of the normalization mappers into a unified map.
 
 use super::super::squeeze::MomentumDirection;
-use super::{DivergenceState, NormalizationContext, NormalizationEngine, NormalizedIndicatorValue};
+use super::{
+    DivergenceState, IndicatorSignal, NormalizationContext, NormalizationEngine,
+    NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
+};
 use std::collections::HashMap;
 
 /// Raw indicator inputs bundle consumed by [`NormalizationEngine::normalize_all`].
@@ -21,6 +24,8 @@ pub struct IndicatorInputs {
     // Supertrend
     pub supertrend_line: Option<f64>,
     pub supertrend_dir: Option<i8>,
+    /// True when Supertrend direction flipped this bar.
+    pub supertrend_flipped: bool,
     // Keltner Channels
     pub keltner_upper: Option<f64>,
     pub keltner_middle: Option<f64>,
@@ -69,6 +74,9 @@ pub struct IndicatorInputs {
     pub adx_plus_di: Option<f64>,
     pub adx_minus_di: Option<f64>,
     pub adx_slope: Option<f64>,
+    /// DI crossover this bar: Some(1) +DI crossed above -DI (bullish),
+    /// Some(-1) -DI crossed above +DI (bearish), None no cross.
+    pub adx_di_crossover: Option<i8>,
     // BBWP
     pub bbwp: Option<f64>,
     // RVOL
@@ -90,6 +98,9 @@ pub struct IndicatorInputs {
     pub bb_upper: Option<f64>,
     pub bb_middle: Option<f64>,
     pub bb_lower: Option<f64>,
+    // EMA ribbon values for fast/medium crossover detection.
+    pub ema_fast: Option<f64>,
+    pub ema_medium: Option<f64>,
 }
 
 impl NormalizationEngine {
@@ -196,6 +207,21 @@ impl NormalizationEngine {
                     inputs.macd_crossover,
                 ),
             );
+            // Structured Crossover signal: the MACD normalizer computes the state
+            // label, but the crossover event itself is a structured boolean that
+            // `derive_signals()` cannot detect from the label string alone.
+            if let Some(cross_dir) = inputs.macd_crossover {
+                if let Some(entry) = out.get_mut("macd") {
+                    let (d, label) = if cross_dir > 0 {
+                        (SignalDirection::Bullish, "BULLISH_CROSSOVER")
+                    } else {
+                        (SignalDirection::Bearish, "BEARISH_CROSSOVER")
+                    };
+                    entry.signals.push(IndicatorSignal::new(
+                        SignalKind::Crossover, d, SignalStatus::Active, label,
+                    ));
+                }
+            }
         }
 
         if let (Some(on), Some(mom)) = (inputs.squeeze_on, inputs.squeeze_momentum) {
@@ -338,6 +364,257 @@ impl NormalizationEngine {
         ] {
             if let Some(v) = super::signals::divergence_entry(&mut out, parent, state) {
                 out.insert(key.into(), v);
+            }
+        }
+
+        // ── Structured cross-over / zero-cross detection ──
+        // Every detector below compares current indicator values against the
+        // previous completed bar (ctx.prev) and emits discrete signals when a
+        // state transition is detected.
+
+        // Supertrend flip (TrendFlip).
+        if inputs.supertrend_flipped {
+            if let Some(entry) = out.get_mut("supertrend") {
+                let d = if inputs.supertrend_dir == Some(1) { SignalDirection::Bullish } else { SignalDirection::Bearish };
+                entry.signals.push(IndicatorSignal::new(
+                    SignalKind::TrendFlip, d, SignalStatus::Active,
+                    if d == SignalDirection::Bullish { "SUPERTREND_BULLISH_FLIP" } else { "SUPERTREND_BEARISH_FLIP" },
+                ));
+            }
+        }
+
+        // ADX DI crossover (TrendFlip).
+        if let Some(cross) = inputs.adx_di_crossover {
+            if let Some(entry) = out.get_mut("adx") {
+                let (d, label) = if cross > 0 {
+                    (SignalDirection::Bullish, "ADX_DI_CROSSOVER_BULLISH")
+                } else {
+                    (SignalDirection::Bearish, "ADX_DI_CROSSOVER_BEARISH")
+                };
+                entry.signals.push(IndicatorSignal::new(
+                    SignalKind::TrendFlip, d, SignalStatus::Active, label,
+                ));
+            }
+        }
+
+        // RSI midline cross (ZeroLineCross = RSI crosses 50).
+        if let (Some(rsi), Some(prev_rsi)) = (inputs.rsi, ctx.prev.rsi) {
+            if (prev_rsi <= 50.0 && rsi > 50.0) || (prev_rsi >= 50.0 && rsi < 50.0) {
+                if let Some(entry) = out.get_mut("rsi") {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross,
+                        if rsi > 50.0 { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                        SignalStatus::Active,
+                        if rsi > 50.0 { "RSI_ZERO_CROSS_BULLISH" } else { "RSI_ZERO_CROSS_BEARISH" }));
+                }
+            }
+        }
+
+        // Stochastic K/D crossover.
+        if let (Some(k), Some(d), Some(pk), Some(pd)) = (inputs.stoch_k, inputs.stoch_d, ctx.prev.stoch_k, ctx.prev.stoch_d) {
+            if (pk <= pd && k > d) || (pk >= pd && k < d) {
+                if let Some(entry) = out.get_mut("stochastic") {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::Crossover,
+                        if k > d { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                        SignalStatus::Active,
+                        if k > d { "STOCH_BULLISH_CROSSOVER" } else { "STOCH_BEARISH_CROSSOVER" }));
+                }
+            }
+        }
+
+        // ChandeMO / CMF / LinReg / Z-Score zero cross.
+        for (key, current, prev_opt) in &[
+            ("chandemo", inputs.chandemo, ctx.prev.chandemo),
+            ("cmf", inputs.cmf, ctx.prev.cmf),
+            ("linreg_slope", inputs.linreg_slope, ctx.prev.linreg_slope),
+            ("zscore", inputs.zscore, ctx.prev.zscore),
+        ] {
+            if let (Some(cur), Some(prev)) = (*current, *prev_opt) {
+                if (prev <= 0.0 && cur > 0.0) || (prev >= 0.0 && cur < 0.0) {
+                    if let Some(entry) = out.get_mut(*key) {
+                        entry.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross,
+                            if cur > 0.0 { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                            SignalStatus::Active,
+                            &format!("{}_ZERO_CROSS_{}", key.to_uppercase(), if cur > 0.0 { "BULLISH" } else { "BEARISH" })));
+                    }
+                }
+            }
+        }
+
+        // OBV trend-flip: accumulation ↔ distribution transition.
+        if let (Some(obv), Some(prev_obv), Some(sma), Some(prev_sma)) = (inputs.obv, ctx.prev.obv, inputs.obv_sma, ctx.prev.obv_sma) {
+            let cur_above = obv > sma;
+            let prev_above = prev_obv > prev_sma;
+            if cur_above != prev_above {
+                if let Some(entry) = out.get_mut("obv") {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::TrendFlip,
+                        if cur_above { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                        SignalStatus::Active,
+                        if cur_above { "OBV_TREND_FLIP_BULLISH" } else { "OBV_TREND_FLIP_BEARISH" }));
+                }
+            }
+        }
+
+        // Aroon crossover: Up crosses Down.
+        if let (Some(up), Some(down), Some(pu), Some(pd)) = (inputs.aroon_up, inputs.aroon_down, ctx.prev.aroon_up, ctx.prev.aroon_down) {
+            if (pu <= pd && up > down) || (pu >= pd && down > up) {
+                if let Some(entry) = out.get_mut("aroon") {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::Crossover,
+                        if up > down { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                        SignalStatus::Active,
+                        if up > down { "AROON_BULLISH_CROSS" } else { "AROON_BEARISH_CROSS" }));
+                }
+            }
+        }
+
+        // MFI midline cross (50).
+        if let (Some(mfi), Some(prev_mfi)) = (inputs.mfi, ctx.prev.mfi) {
+            if (prev_mfi <= 50.0 && mfi > 50.0) || (prev_mfi >= 50.0 && mfi < 50.0) {
+                if let Some(entry) = out.get_mut("mfi") {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross,
+                        if mfi > 50.0 { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                        SignalStatus::Active,
+                        if mfi > 50.0 { "MFI_CROSSOVER_BULLISH" } else { "MFI_CROSSOVER_BEARISH" }));
+                }
+            }
+        }
+
+        // Bollinger Band Touch (price at band edge).
+        if let (Some(upper), Some(middle), Some(lower)) = (inputs.bb_upper, inputs.bb_middle, inputs.bb_lower) {
+            let price = ctx.price;
+            let inside = price >= lower && price <= upper;
+            if !inside {
+                if let Some(entry) = out.get_mut("bollinger") {
+                    if price > upper {
+                        entry.signals.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bullish, SignalStatus::Active, "BOLLINGER_UPPER_BREAKOUT"));
+                    } else {
+                        entry.signals.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bearish, SignalStatus::Active, "BOLLINGER_LOWER_BREAKOUT"));
+                    }
+                }
+            } else {
+                // Band touch (near band edge but inside)
+                let band_w = upper - middle;
+                if band_w > 0.0 {
+                    let pct = (price - lower) / (upper - lower);
+                    if pct > 0.90 {
+                        if let Some(entry) = out.get_mut("bollinger") {
+                            entry.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bearish, SignalStatus::Active, "BOLLINGER_UPPER_BAND_TOUCH"));
+                        }
+                    } else if pct < 0.10 {
+                        if let Some(entry) = out.get_mut("bollinger") {
+                            entry.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bullish, SignalStatus::Active, "BOLLINGER_LOWER_BAND_TOUCH"));
+                        }
+                    }
+                }
+            }
+            // Normalize Bollinger: how far price is within bands (-1 bottom to +1 top)
+            let norm = if upper > lower { ((price - middle) / (upper - middle)).clamp(-1.0, 1.0) } else { 0.0 };
+            if let Some(entry) = out.get_mut("bollinger") {
+                entry.normalized = norm;
+                entry.state_label = if price > upper { "BOLLINGER_UPPER_BREAKOUT".into() }
+                    else if price < lower { "BOLLINGER_LOWER_BREAKOUT".into() }
+                    else if (price - lower) / (upper - lower).max(f64::EPSILON) > 0.90 { "BOLLINGER_UPPER_BAND_TOUCH".into() }
+                    else if (price - lower) / (upper - lower).max(f64::EPSILON) < 0.10 { "BOLLINGER_LOWER_BAND_TOUCH".into() }
+                    else { "BOLLINGER_INSIDE_BANDS".into() };
+            }
+        }
+
+        // ATR expansion / contraction.
+        if inputs.atr_14.is_some() {
+            if let Some(slope) = inputs.atr_slope {
+                let label = if slope > 0.01 { "ATR_EXPANDING" }
+                    else if slope < -0.01 { "ATR_CONTRACTING" }
+                    else { "ATR_STABLE" };
+                if let Some(entry) = out.get_mut("atr") {
+                    entry.state_label = label.into();
+                    if slope > 0.01 {
+                        entry.signals.push(IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Neutral, SignalStatus::Active, "ATR_EXPANDING"));
+                    } else if slope < -0.01 {
+                        entry.signals.push(IndicatorSignal::new(SignalKind::CompressionRelease, SignalDirection::Neutral, SignalStatus::Active, "ATR_CONTRACTING"));
+                    }
+                }
+            }
+        }
+
+        // ── Donchian BandTouch (distinct from Breakout): price near a band
+        // edge but still inside the channel (mean-reversion proximity). ──
+        if let (Some(u), Some(l)) = (inputs.donchian_upper, inputs.donchian_lower) {
+            let price = ctx.price;
+            if price < u && price > l && u > l {
+                let pos = (price - l) / (u - l);
+                if pos > 0.85 {
+                    if let Some(e) = out.get_mut("donchian") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bearish, SignalStatus::Active, "DONCHIAN_UPPER_BAND_TOUCH"));
+                    }
+                } else if pos < 0.15 {
+                    if let Some(e) = out.get_mut("donchian") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bullish, SignalStatus::Active, "DONCHIAN_LOWER_BAND_TOUCH"));
+                    }
+                }
+            }
+        }
+
+        // ── Keltner BandTouch (distinct from Breakout). ──
+        if let (Some(u), Some(l)) = (inputs.keltner_upper, inputs.keltner_lower) {
+            let price = ctx.price;
+            if price < u && price > l && u > l {
+                let pos = (price - l) / (u - l);
+                if pos > 0.85 {
+                    if let Some(e) = out.get_mut("keltner") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bearish, SignalStatus::Active, "KELTNER_UPPER_BAND_TOUCH"));
+                    }
+                } else if pos < 0.15 {
+                    if let Some(e) = out.get_mut("keltner") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bullish, SignalStatus::Active, "KELTNER_LOWER_BAND_TOUCH"));
+                    }
+                }
+            }
+        }
+
+        // ── EMA fast/medium Crossover (distinct from StackChange). ──
+        if let (Some(f), Some(m), Some(pf), Some(pm)) =
+            (inputs.ema_fast, inputs.ema_medium, ctx.prev.ema_fast, ctx.prev.ema_medium)
+        {
+            if pf <= pm && f > m {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "EMA_FAST_MEDIUM_BULLISH_CROSS"));
+                }
+            } else if pf >= pm && f < m {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "EMA_FAST_MEDIUM_BEARISH_CROSS"));
+                }
+            }
+        }
+
+        // ── Supertrend price/line Crossover (distinct from TrendFlip). ──
+        if let (Some(line), Some(pline), Some(pprice)) =
+            (inputs.supertrend_line, ctx.prev.supertrend_line, ctx.prev.price)
+        {
+            let price = ctx.price;
+            if pprice <= pline && price > line {
+                if let Some(e) = out.get_mut("supertrend") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "SUPERTREND_PRICE_CROSS_BULLISH"));
+                }
+            } else if pprice >= pline && price < line {
+                if let Some(e) = out.get_mut("supertrend") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "SUPERTREND_PRICE_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── Aroon TrendFlip (transition-only, distinct from Crossover). ──
+        // Fires ONLY on the bar where Up/Down leadership crosses — a discrete
+        // point-in-time flip event, then goes quiet until the next crossing.
+        if let (Some(up), Some(down), Some(pu), Some(pd)) =
+            (inputs.aroon_up, inputs.aroon_down, ctx.prev.aroon_up, ctx.prev.aroon_down)
+        {
+            if pu <= pd && up > down {
+                if let Some(e) = out.get_mut("aroon") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bullish, SignalStatus::Active, "AROON_BULLISH_TREND_FLIP"));
+                }
+            } else if pu >= pd && up < down {
+                if let Some(e) = out.get_mut("aroon") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bearish, SignalStatus::Active, "AROON_BEARISH_TREND_FLIP"));
+                }
             }
         }
 

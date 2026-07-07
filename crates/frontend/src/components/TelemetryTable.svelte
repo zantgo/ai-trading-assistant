@@ -2,7 +2,7 @@
     import { useAppStore } from '../state.svelte';
     import styles from './TelemetryTable.module.css';
     import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn } from '../lib/telemetry';
-    import type { TimeframeTelemetry, IndicatorMeta, IndicatorSignal } from '../types';
+    import type { TimeframeTelemetry, IndicatorMeta, IndicatorSignal, SignalDirection } from '../types';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -105,14 +105,26 @@
         return 'color: #94a3b8; font-weight: 600;';
     }
 
-    // State-driven container tone: each indicator row gets a colored left-border
-    // + subtle background tint based on its normalized directional strength.
-    function rowToneClass(n: number): string {
+    // Confidence-weighted container tone. Each indicator row gets a coloured
+    // left-border + subtle background tint whose HUE encodes direction
+    // (green bullish / red bearish / purple extreme / gray neutral) and whose
+    // OPACITY scales with the backend confidence score — so weak, low-conviction
+    // readings fade toward invisible while high-conviction signals stand out.
+    function rowVisualStyle(n: number, confPct: number): string {
+        const conf = confPct / 100;
+        // Suppress visual noise: near-flat OR near-zero-confidence readings.
+        if (conf < 0.08 || Math.abs(n) < 0.02) return '';
+
         const mag = Math.min(Math.abs(n), 1);
-        if (mag >= 0.9) return styles.rowStrong;
-        if (n > 0.1) return styles.rowBullish;
-        if (n < -0.1) return styles.rowBearish;
-        return styles.rowNeutral;
+        let r: number, g: number, b: number;
+        if (mag >= 0.9) { r = 168; g = 85; b = 247; }   // purple — extreme conviction
+        else if (n > 0) { r = 16; g = 185; b = 129; }    // green — bullish
+        else if (n < 0) { r = 239; g = 68; b = 68; }     // red — bearish
+        else { r = 148; g = 163; b = 184; }              // gray — neutral
+
+        const borderAlpha = (0.2 + conf * 0.8).toFixed(2);
+        const bgAlpha = (0.015 + conf * 0.065).toFixed(3);
+        return `border-left:2px solid rgba(${r},${g},${b},${borderAlpha});background:rgba(${r},${g},${b},${bgAlpha});`;
     }
     function bucketHeaderClass(bucket: string): string {
         const map: Record<string, string> = {
@@ -128,6 +140,54 @@
         if (secs >= 60) return `${secs / 60}m`;
         return `${secs}s`;
     }
+    // Quick lookup from registry key → meta (color, render, signal_types).
+    const metaMap = $derived.by(() => {
+        const m = new Map<string, IndicatorMeta>();
+        for (const meta of registry) m.set(meta.key, meta);
+        return m;
+    });
+
+    const RENDER_LABELS: Record<string, string> = {
+        Pane: 'PANE', PriceOverlay: 'OVERLAY', PriceLevels: 'LEVELS', Marker: 'MARKER',
+    };
+
+    // Compact chips for sub-values (e.g. MACD: L:-12.40 S:-17.60 H:5.20).
+    const SUB_ABBR: Record<string, string> = {
+        line: 'L', signal: 'S', histogram: 'H', histogram_peak: 'PK',
+        fast: 'F', medium: 'M', slow: 'S', long: 'L',
+        k_line: 'K', d_line: 'D', s_line: 'S',
+        plus_di: '+DI', minus_di: '-DI', adx: 'ADX', adx_slope: 'SLP',
+        vwap: 'VWAP',
+        upper: 'UP', middle: 'MID', lower: 'LO',
+        gp_top: 'GP', bb_mid: 'BB',
+    };
+    function subLabel(k: string): string { return SUB_ABBR[k] ?? k.slice(0, 4).toUpperCase(); }
+
+    function formatSubValues(values: Record<string, number> | null | undefined): Array<{ label: string; text: string }> {
+        if (!values) return [];
+        const chips: Array<{ label: string; text: string }> = [];
+        for (const [k, v] of Object.entries(values)) {
+            chips.push({ label: subLabel(k), text: Number.isFinite(v) ? (Math.abs(v) < 0.0001 && v !== 0 ? v.toExponential(2) : (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(2))) : '--' });
+        }
+        return chips.length > 1 ? chips : [];
+    }
+
+    // Capability badges: every signal_type from the registry, with active ones
+    // coloured per direction and inactive ones in low-opacity gray.
+    function buildCapabilityBadges(meta: IndicatorMeta | undefined, activeSignals: IndicatorSignal[]): Array<{ text: string; style: string; title: string }> {
+        if (!meta || meta.signal_types.length === 0) return [];
+        const active = new Map<string, SignalDirection>();
+        for (const s of activeSignals) active.set(s.kind, s.direction);
+        return meta.signal_types.map((st) => {
+            const abbr = SIGNAL_ABBR[st] ?? st.slice(0, 3);
+            const dir = active.get(st);
+            if (dir === 'Bullish') return { text: abbr, style: 'color:#10b981;border-color:#10b981;opacity:1;', title: `${st} active (${dir})` };
+            if (dir === 'Bearish') return { text: abbr, style: 'color:#ef4444;border-color:#ef4444;opacity:1;', title: `${st} active (${dir})` };
+            if (dir === 'Neutral') return { text: abbr, style: 'color:#94a3b8;border-color:#475569;opacity:1;', title: `${st} active (${dir})` };
+            return { text: abbr, style: 'color:#64748b;border-color:#475569;opacity:0.25;', title: `${st} (inactive)` };
+        });
+    }
+
     function formatTfName(key: string): string {
         if (key === 'microTerm') return 'MICRO';
         if (key === 'fastTerm') return 'FAST';
@@ -156,7 +216,11 @@
         raw: string;
         state: string;
         stateStyle: string;
-        toneClass: string;
+        rowStyle: string;
+        indicatorColor: string;
+        renderKind: string;
+        subValues: Array<{ label: string; text: string }>;
+        capabilityBadges: Array<{ text: string; style: string; title: string }>;
         confidencePct: number;
         signals: Array<{ text: string; style: string; title: string }>;
     };
@@ -183,6 +247,10 @@
                 headerClass: bucketHeaderClass(bucket),
                 rows: metas.map((meta): CellRow => {
                     const n = normalized(tf, meta.key);
+                    const c = confidence(tf, meta.key);
+                    const sigs = signalsFor(tf, meta.key);
+                    const values = (tf.indicators?.[meta.key] as any)?.values as Record<string, number> | null;
+                    const m = metaMap.get(meta.key);
                     return {
                         key: meta.key,
                         displayName: meta.display_name,
@@ -190,9 +258,13 @@
                         raw: formatRaw(meta, tf),
                         state: stateLabel(tf, meta.key),
                         stateStyle: colorForNormalized(n),
-                        toneClass: rowToneClass(n),
-                        confidencePct: confidence(tf, meta.key),
-                        signals: signalsFor(tf, meta.key).map((s) => ({
+                        rowStyle: rowVisualStyle(n, c),
+                        indicatorColor: m?.color ?? '#94a3b8',
+                        renderKind: RENDER_LABELS[m?.render ?? ''] ?? '',
+                        subValues: formatSubValues(values),
+                        capabilityBadges: buildCapabilityBadges(m, sigs),
+                        confidencePct: c,
+                        signals: sigs.map((s) => ({
                             text: signalText(s),
                             style: signalStyle(s),
                             title: signalTitle(s),
@@ -299,9 +371,11 @@
                             </thead>
                             <tbody>
                                 {#each section.rows as row (row.key)}
-                                    <tr class={row.toneClass}>
+                                    <tr style={row.rowStyle}>
                                         <td class={styles.colLabel}>
+                                            <span class={styles.indicatorDot} style="background:{row.indicatorColor}"></span>
                                             {row.displayName}
+                                            {#if row.renderKind}<span class={styles.renderKind} title="Render type">{row.renderKind}</span>{/if}
                                             {#if !row.directional}<span class={styles.gateTag} title="Non-directional gate">◐</span>{/if}
                                         </td>
                                         <td class={styles.colValue}>{row.raw}</td>
@@ -313,6 +387,18 @@
                                             {/each}
                                         </td>
                                     </tr>
+                                    {#if row.subValues.length > 0 || row.capabilityBadges.length > 0}
+                                        <tr class={styles.detailsRow} style={row.rowStyle}>
+                                            <td colspan="3">
+                                                {#each row.subValues as sv}
+                                                    <span class={styles.subValueChip} title={sv.label}><span class={styles.subValueKey}>{sv.label}</span>{sv.text}</span>
+                                                {/each}
+                                                {#each row.capabilityBadges as cap}
+                                                    <span class={styles.capabilityBadge} style={cap.style} title={cap.title}>{cap.text}</span>
+                                                {/each}
+                                            </td>
+                                        </tr>
+                                    {/if}
                                 {/each}
                             </tbody>
                         {/each}

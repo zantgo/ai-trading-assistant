@@ -7,6 +7,7 @@ use crate::config::FibonacciConfig;
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, Exchange};
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
+use shared::indicators::normalized::PreviousBarState;
 use crate::analyzer::normalize::{series_divergence_state, ExtraDivergence};
 
 /// Maximum number of candles/snapshots retained in live memory buffers.
@@ -428,6 +429,9 @@ fn build_historical_snapshot(
             resistance_levels: &[],
             active_position: None,
             adx_consecutive_deceleration: false,
+            supertrend_flipped: false,
+            adx_di_crossover: None,
+            prev: PreviousBarState::default(),
         },
     );
 
