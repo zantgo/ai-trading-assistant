@@ -302,6 +302,7 @@ pub async fn run_single(
     let mut shadow_ask = Decimal::ZERO;
     #[allow(unused_assignments)]
     let mut shadow_exchange: Option<Exchange> = None;
+    let mut shadow_prev_day_px: Option<Decimal> = None;
 
     loop {
         let event = tokio::select! {
@@ -585,6 +586,7 @@ pub async fn run_single(
                         bid_size: Some(completed.volume),
                         ask_size: Some(completed.volume),
                         funding_rate: None,
+                        prev_day_px: shadow_prev_day_px,
                         open: Some(completed.open),
                         high: Some(completed.high),
                         low: Some(completed.low),
@@ -666,6 +668,7 @@ pub async fn run_single(
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
                     timeframe_secs,
+                    shadow_prev_day_px,
                 );
             }
 
@@ -703,8 +706,13 @@ pub async fn run_single(
                         &vwap_sum_tp_vol, &vwap_sum_vol,
                         &volume_history,
                         timeframe_secs,
+                        shadow_prev_day_px,
                     );
                 }
+            }
+
+            NormalizedEvent::AssetContext(ref ctx) => {
+                shadow_prev_day_px = Some(ctx.prev_day_px);
             }
 
             NormalizedEvent::Status { exchange, status, message } => {
@@ -778,6 +786,7 @@ fn broadcast_live_snapshot(
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
     timeframe_secs: u64,
+    prev_day_px: Option<Decimal>,
 ) {
     let val_ema_fast = ema_fast.clone().update(candle.close);
     let val_ema_medium = ema_medium.clone().update(candle.close);
@@ -902,6 +911,7 @@ fn broadcast_live_snapshot(
         bid_size: Some(candle.volume),
         ask_size: Some(candle.volume),
         funding_rate: None,
+        prev_day_px,
         open: Some(candle.open),
         high: Some(candle.high),
         low: Some(candle.low),

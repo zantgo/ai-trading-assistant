@@ -119,18 +119,45 @@
     }
     .instance-pair-banner {
         display: flex;
+        flex-direction: column;
         align-items: center;
-        padding: 8px 16px;
+        justify-content: center;
+        gap: 6px;
+        padding: 18px 16px;
         background-color: #0b0c10;
         border-bottom: 1px solid #1c212e;
         flex-shrink: 0;
     }
     .pair-banner-title {
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 26px;
+        font-weight: 800;
         color: #f8fafc;
         font-family: 'Courier New', monospace;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.08em;
+        line-height: 1.1;
+    }
+    .pair-banner-price-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 10px;
+    }
+    .pair-banner-price {
+        font-size: 18px;
+        font-weight: 700;
+        color: #cbd5e1;
+        font-family: ui-monospace, 'Courier New', monospace;
+    }
+    .pair-banner-change {
+        font-size: 14px;
+        font-weight: 700;
+        font-family: ui-monospace, 'Courier New', monospace;
+    }
+    .pair-banner-change.up {
+        color: #10b981;
+    }
+    .pair-banner-change.down {
+        color: #ef4444;
     }
     .sub-tabs-container {
         display: flex;

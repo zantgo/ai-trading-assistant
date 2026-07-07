@@ -153,55 +153,56 @@
     <WelcomeGate />
 {:else}
 <div class={styles.terminalBody}>
-    <!-- Nav Header Stack (Rows 1 & 2) -->
+    <!-- Unified Global Header -->
     <div class={styles.navHeaderStack}>
-        <!-- Row 1: Brand Header Bar -->
-        <div class={styles.brandHeaderBar}>
-            <div class={styles.profileMenuWrapper}>
-                <button class={styles.navbarProfileBtn} onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
-                    <Icon name="user" size={18} />
-                </button>
-                {#if showProfileMenu}
-                    <div class={styles.profileDropdown} role="menu">
-                        <div class={styles.profileDropdownHeader}>
-                            <span class={styles.profileCapital}>{app.sessionCurrency} {app.sessionCapital?.toLocaleString() || '0'}</span>
-                            <span class={styles.profileMode}>{app.sessionMode} Trading</span>
-                        </div>
-                        <div class={styles.profileDropdownDivider}></div>
-                        <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'dashboard'; }}>
-                            <Icon name="dashboard" /> General Dashboard
-                        </button>
-                        <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'instances'; }}>
-                            <Icon name="list" /> All Instances
-                        </button>
-                        <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'settings'; }}>
-                            <Icon name="settings" /> Settings
-                        </button>
-                        <div class={styles.profileDropdownDivider}></div>
-                        <button class={styles.profileDropdownItem + " " + styles.danger} onclick={() => { showProfileMenu = false; showQuitDialog = true; }}>
-                            <Icon name="quit" /> Quit
-                        </button>
-                    </div>
-                {/if}
-            </div>
-            <span class={styles.brandHeaderTitle}>AI Trading Assistant</span>
-        </div>
-        <!-- Row 2: Global Application Navigation -->
         <div class={styles.globalNavCard}>
-            <div class={styles.navbarTabs}>
-                <button class={styles.navbarTab} class:active={app.currentGlobalView === 'dashboard'} onclick={() => { app.currentGlobalView = 'dashboard'; }}>
-                    <Icon name="dashboard" /> Dashboard
-                </button>
-                <button class={styles.navbarTab} class:active={app.currentGlobalView === 'instances'} onclick={() => { app.currentGlobalView = 'instances'; }}>
-                    <Icon name="list" /> Instances
-                </button>
-                <button class={styles.navbarTab} class:active={app.currentGlobalView === 'settings'} onclick={() => { app.currentGlobalView = 'settings'; }}>
-                    <Icon name="settings" /> Settings
-                </button>
-            </div>
-            <div class={styles.navSessionGroup}>
-                <span class={styles.navSessionText}>{app.sessionCurrency} on {app.sessionExchange}</span>
+            <!-- Left: brand + session badges -->
+            <div class={styles.brandLeftGroup}>
+                <span class={styles.brandHeaderTitle}>AI Trading Assistant</span>
+                <span class={styles.navbarPillBadge}>{app.sessionExchange}</span>
+                <span class={styles.navbarPillBadge}>{app.sessionCurrency}</span>
                 <span class={styles.navbarPillBadge}>{app.sessionMode?.toUpperCase()}</span>
+            </div>
+            <!-- Right: view switcher + profile -->
+            <div class={styles.navRightGroup}>
+                <div class={styles.navbarTabs}>
+                    <button class={styles.navbarTab} class:active={app.currentGlobalView === 'dashboard'} onclick={() => { app.currentGlobalView = 'dashboard'; }}>
+                        <Icon name="dashboard" /> Dashboard
+                    </button>
+                    <button class={styles.navbarTab} class:active={app.currentGlobalView === 'instances'} onclick={() => { app.currentGlobalView = 'instances'; }}>
+                        <Icon name="list" /> Instances
+                    </button>
+                    <button class={styles.navbarTab} class:active={app.currentGlobalView === 'settings'} onclick={() => { app.currentGlobalView = 'settings'; }}>
+                        <Icon name="settings" /> Settings
+                    </button>
+                </div>
+                <div class={styles.profileMenuWrapper}>
+                    <button class={styles.navbarProfileBtn} onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
+                        <Icon name="user" size={18} />
+                    </button>
+                    {#if showProfileMenu}
+                        <div class={styles.profileDropdown} role="menu">
+                            <div class={styles.profileDropdownHeader}>
+                                <span class={styles.profileCapital}>{app.sessionCurrency} {app.sessionCapital?.toLocaleString() || '0'}</span>
+                                <span class={styles.profileMode}>{app.sessionMode} Trading</span>
+                            </div>
+                            <div class={styles.profileDropdownDivider}></div>
+                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'dashboard'; }}>
+                                <Icon name="dashboard" /> General Dashboard
+                            </button>
+                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'instances'; }}>
+                                <Icon name="list" /> All Instances
+                            </button>
+                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'settings'; }}>
+                                <Icon name="settings" /> Settings
+                            </button>
+                            <div class={styles.profileDropdownDivider}></div>
+                            <button class={styles.profileDropdownItem + " " + styles.danger} onclick={() => { showProfileMenu = false; showQuitDialog = true; }}>
+                                <Icon name="quit" /> Quit
+                            </button>
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
     </div>
@@ -273,6 +274,14 @@
 
                 <div class={styles.instancePairBanner}>
                     <span class={styles.pairBannerTitle}>{app.pairDisplayFor(pair.symbol)}</span>
+                    <div class={styles.pairBannerPriceRow}>
+                        <span class={styles.pairBannerPrice}>{app.priceText}</span>
+                        {#if app.dayChangePct !== null}
+                            <span class="{styles.pairBannerChange} {app.dayChangePct >= 0 ? styles.up : styles.down}">
+                                {app.dayChangePct >= 0 ? '+' : ''}{app.dayChangePct.toFixed(2)}%
+                            </span>
+                        {/if}
+                    </div>
                 </div>
 
                 <!-- 1. Live Terminal Inner View -->

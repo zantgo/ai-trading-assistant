@@ -447,6 +447,7 @@ fn build_historical_snapshot(
         bid_size: Some(completed.volume),
         ask_size: Some(completed.volume),
         funding_rate: None,
+        prev_day_px: None,
         open: Some(completed.open),
         high: Some(completed.high),
         low: Some(completed.low),

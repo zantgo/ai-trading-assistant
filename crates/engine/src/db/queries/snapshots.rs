@@ -359,6 +359,7 @@ pub async fn query_latest_snapshot(
             bid_size: None,
             ask_size: None,
             funding_rate: None,
+            prev_day_px: None,
             open: parse_dec(r.get::<Option<String>, _>(6)),
             high: parse_dec(r.get::<Option<String>, _>(7)),
             low: parse_dec(r.get::<Option<String>, _>(8)),

@@ -3,8 +3,8 @@ use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use shared::normalized::{
-    ConnectionStatus, Exchange, ExchangeAdapter, NormalizedEvent, NormalizedOrderBook,
-    NormalizedTrade, SymbolMapper, TradeSide,
+    ConnectionStatus, Exchange, ExchangeAdapter, NormalizedAssetContext, NormalizedEvent,
+    NormalizedOrderBook, NormalizedTrade, SymbolMapper, TradeSide,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -68,6 +68,31 @@ fn to_internal_symbol(raw: &str) -> String {
     format!("{}-USD", raw)
 }
 
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AssetCtxEnvelope {
+    channel: String,
+    data: Option<AssetCtxPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AssetCtxPayload {
+    coin: String,
+    ctx: AssetCtxInner,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AssetCtxInner {
+    #[serde(rename = "prevDayPx")]
+    prev_day_px: Option<String>,
+    #[serde(rename = "markPx")]
+    mark_px: Option<String>,
+    #[serde(rename = "midPx")]
+    mid_px: Option<String>,
+}
+
 #[allow(dead_code)]
 #[async_trait]
 impl ExchangeAdapter for HyperliquidAdapter {
@@ -100,6 +125,7 @@ impl ExchangeAdapter for HyperliquidAdapter {
             if let Some(raw_sym) = mapper.get_raw(Exchange::Hyperliquid, sym).await {
                 subscriptions.push(serde_json::json!({"type": "trades", "coin": raw_sym}));
                 subscriptions.push(serde_json::json!({"type": "l2Book", "coin": raw_sym}));
+                subscriptions.push(serde_json::json!({"type": "activeAssetCtx", "coin": raw_sym}));
                 println!(
                     "📡 Hyperliquid Adapter: Subscribed to trades + l2Book for {} ({})",
                     sym, raw_sym
@@ -198,6 +224,34 @@ impl ExchangeAdapter for HyperliquidAdapter {
                                 }
                             }
                         }
+                    } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
+                        if let Ok(envelope) = serde_json::from_str::<AssetCtxEnvelope>(&raw_text) {
+                            if let Some(payload) = envelope.data {
+                                let prev = payload
+                                    .ctx
+                                    .prev_day_px
+                                    .as_deref()
+                                    .and_then(|s| Decimal::from_str(s).ok());
+                                let mark = payload
+                                    .ctx
+                                    .mark_px
+                                    .as_deref()
+                                    .or(payload.ctx.mid_px.as_deref())
+                                    .and_then(|s| Decimal::from_str(s).ok());
+                                if let (Some(prev_day_px), Some(mark_px)) = (prev, mark) {
+                                    let symbol = to_internal_symbol(&payload.coin);
+                                    let event =
+                                        NormalizedEvent::AssetContext(NormalizedAssetContext {
+                                            exchange: Exchange::Hyperliquid,
+                                            symbol,
+                                            prev_day_px,
+                                            mark_px,
+                                            timestamp_ms: 0,
+                                        });
+                                    let _ = event_tx.send(event).await;
+                                }
+                            }
+                        }
                     }
                 }
                 Message::Ping(ping) => {
@@ -251,6 +305,7 @@ pub async fn run_for_symbol(
     let subscriptions = vec![
         serde_json::json!({"type": "trades", "coin": &symbol}),
         serde_json::json!({"type": "l2Book", "coin": &symbol}),
+        serde_json::json!({"type": "activeAssetCtx", "coin": &symbol}),
     ];
     for sub in &subscriptions {
         let sub_request = serde_json::json!({
@@ -352,6 +407,32 @@ pub async fn run_for_symbol(
                                     side,
                                     timestamp_ms: t.time,
                                     trade_id: t.tid.to_string(),
+                                });
+                                let _ = event_tx.send(event).await;
+                            }
+                        }
+                    }
+                } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
+                    if let Ok(envelope) = serde_json::from_str::<AssetCtxEnvelope>(&raw_text) {
+                        if let Some(payload) = envelope.data {
+                            let prev = payload
+                                .ctx
+                                .prev_day_px
+                                .as_deref()
+                                .and_then(|s| Decimal::from_str(s).ok());
+                            let mark = payload
+                                .ctx
+                                .mark_px
+                                .as_deref()
+                                .or(payload.ctx.mid_px.as_deref())
+                                .and_then(|s| Decimal::from_str(s).ok());
+                            if let (Some(prev_day_px), Some(mark_px)) = (prev, mark) {
+                                let event = NormalizedEvent::AssetContext(NormalizedAssetContext {
+                                    exchange: Exchange::Hyperliquid,
+                                    symbol: internal_symbol.clone(),
+                                    prev_day_px,
+                                    mark_px,
+                                    timestamp_ms: 0,
                                 });
                                 let _ = event_tx.send(event).await;
                             }

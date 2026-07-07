@@ -153,6 +153,7 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         bid_size: None,
         ask_size: None,
         funding_rate: None,
+        prev_day_px: None,
         open: Some(dec!(49800.0)),
         high: Some(dec!(50200.0)),
         low: Some(dec!(49750.0)),

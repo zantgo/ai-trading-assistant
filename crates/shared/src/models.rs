@@ -25,6 +25,13 @@ pub struct MarketSnapshot {
     pub ask_size: Option<Decimal>,
     pub funding_rate: Option<Decimal>,
 
+    /// Prior-day mark price (24h reference). Sourced from the exchange asset
+    /// context feed on live pipelines; `None` for warm/historical/DB-restored
+    /// snapshots. The frontend derives the 24h change % from `mid_price` vs
+    /// this value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_day_px: Option<Decimal>,
+
     // Consolidated Candle OHLC Bars (core, non-indicator telemetry)
     pub open: Option<Decimal>,
     pub high: Option<Decimal>,

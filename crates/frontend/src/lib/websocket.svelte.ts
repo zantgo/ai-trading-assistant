@@ -75,6 +75,8 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
         if (vol != null) tf.volText = vol.toFixed(2);
         const avgVol = num(snapshot.average_volume);
         if (avgVol != null) tf.avgVolText = avgVol.toFixed(2);
+        const prevDay = num(snapshot.prev_day_px);
+        if (prevDay != null) tf.prevDayPx = prevDay;
     } catch (_) {}
 }
 

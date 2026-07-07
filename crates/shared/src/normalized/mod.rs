@@ -68,9 +68,19 @@ pub enum ConnectionStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizedAssetContext {
+    pub exchange: Exchange,
+    pub symbol: String,
+    pub prev_day_px: Decimal,
+    pub mark_px: Decimal,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NormalizedEvent {
     Trade(NormalizedTrade),
     OrderBook(NormalizedOrderBook),
+    AssetContext(NormalizedAssetContext),
     Status {
         exchange: Exchange,
         status: ConnectionStatus,

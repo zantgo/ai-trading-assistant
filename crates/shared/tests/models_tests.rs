@@ -33,6 +33,7 @@ fn test_market_snapshot_json_roundtrip() {
         bid_size: Some(dec!(1.5)),
         ask_size: Some(dec!(2.0)),
         funding_rate: Some(dec!(0.0001)),
+        prev_day_px: Some(dec!(49500.00)),
         open: Some(dec!(49800.00)),
         high: Some(dec!(50200.00)),
         low: Some(dec!(49750.00)),
@@ -50,6 +51,7 @@ fn test_market_snapshot_json_roundtrip() {
     assert_eq!(parsed.symbol, "BTC");
     assert_eq!(parsed.mid_price, dec!(50000.00));
     assert_eq!(parsed.exchange, Some(Exchange::Hyperliquid));
+    assert_eq!(parsed.prev_day_px, Some(dec!(49500.00)));
 
     let rsi = parsed.indicators.get("rsi").expect("rsi present");
     assert_eq!(rsi.raw_value, 65.0);
@@ -78,6 +80,7 @@ fn test_market_snapshot_empty_indicators() {
         bid_size: None,
         ask_size: None,
         funding_rate: None,
+        prev_day_px: None,
         open: None,
         high: None,
         low: None,

@@ -31,6 +31,7 @@ fn sample_snapshot() -> MarketSnapshot {
         bid_size: None,
         ask_size: None,
         funding_rate: None,
+        prev_day_px: None,
         open: Some(dec!(65000.0)),
         high: Some(dec!(65400.0)),
         low: Some(dec!(64900.0)),

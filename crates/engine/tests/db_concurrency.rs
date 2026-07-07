@@ -64,6 +64,7 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     bid_size: None,
                     ask_size: None,
                     funding_rate: None,
+                    prev_day_px: None,
                     open: Some(dec!(49800.00)),
                     high: Some(dec!(50200.00)),
                     low: None,

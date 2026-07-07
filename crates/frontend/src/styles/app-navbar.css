@@ -2,20 +2,11 @@
     .nav-header-stack {
         display: flex;
         flex-direction: column;
-        gap: 8px;
         padding: 12px 16px 0;
         flex-shrink: 0;
     }
 
-    /* ── Row 1: Brand Header Bar (flat, no container) ── */
-    .brand-header-bar {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 48px;
-        padding: 0 16px;
-        position: relative;
-    }
+    /* ── Brand title ── */
     .brand-header-title {
         font-size: 14px;
         font-weight: 700;
@@ -25,7 +16,7 @@
         white-space: nowrap;
     }
 
-    /* ── Row 2: Global Nav Card ── */
+    /* ── Unified Global Header Bar ── */
     .global-nav-card {
         display: flex;
         align-items: center;
@@ -35,6 +26,17 @@
         background-color: #11131a;
         border: 1px solid #2d3448;
         border-radius: 8px;
+    }
+    .brand-left-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+    .nav-right-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
     }
     .navbar-tabs {
         display: flex;
@@ -80,18 +82,19 @@
     .navbar-pill-badge {
         background: #232833;
         border-radius: 4px;
-        padding: 2px 8px;
+        padding: 3px 8px;
+        margin-left: 2px;
         color: #94a3b8;
         font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
+        letter-spacing: 0.04em;
         white-space: nowrap;
     }
 
-    /* ── Profile (absolutely positioned top-right of brand bar) ── */
+    /* ── Profile (inline in right group) ── */
     .profile-menu-wrapper {
-        position: absolute;
-        right: 12px;
+        position: relative;
     }
     .navbar-profile-btn {
         display: flex;

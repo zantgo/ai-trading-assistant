@@ -29,6 +29,7 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         symbol, exchange: 'Hyperliquid', barDurationSec,
         indicators: {},
         priceText: '--', volText: '--', avgVolText: '--',
+        prevDayPx: null,
         showPatterns: true,
         isCompleted: false, latestSnapshot: null, historyPrices: [],
         showEmas: true, showBb: true, showVwap: true, showVolume: true,
@@ -293,6 +294,15 @@ export class AppStore {
     // in the nested `indicators` map on each timeframe).
     get priceText() { return this.micro().priceText; }
     set priceText(v: string) { this.micro().priceText = v; }
+    get prevDayPx() { return this.micro().prevDayPx; }
+    set prevDayPx(v: number | null) { this.micro().prevDayPx = v; }
+    /** 24h change % derived from the current mark price vs prior-day price. */
+    get dayChangePct(): number | null {
+        const prev = this.micro().prevDayPx;
+        const mid = parseFloat(this.micro().priceText);
+        if (prev == null || !Number.isFinite(prev) || prev === 0 || Number.isNaN(mid)) return null;
+        return ((mid - prev) / prev) * 100;
+    }
     get avgVolText() { return this.micro().avgVolText; }
     set avgVolText(v: string) { this.micro().avgVolText = v; }
     get volText() { return this.micro().volText; }

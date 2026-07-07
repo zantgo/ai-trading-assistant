@@ -129,6 +129,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             bid_size: Some(dec!(10.0)),
             ask_size: Some(dec!(10.0)),
             funding_rate: None,
+            prev_day_px: None,
             open: Some(open),
             high: Some(high),
             low: Some(low),

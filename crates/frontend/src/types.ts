@@ -388,6 +388,8 @@ export interface TimeframeTelemetry {
     priceText: string;
     volText: string;
     avgVolText: string;
+    /** Prior-day mark price for 24h change derivation; null until first ctx tick. */
+    prevDayPx: number | null;
     showPatterns: boolean;
     isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
