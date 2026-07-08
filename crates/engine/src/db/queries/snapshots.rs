@@ -367,6 +367,7 @@ pub async fn query_latest_snapshot(
             volume: parse_dec(r.get::<Option<String>, _>(10)),
             average_volume: parse_dec(r.get::<Option<String>, _>(11)),
             context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
+            decision_context: None,
             indicators,
         }
     })

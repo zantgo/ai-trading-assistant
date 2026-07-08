@@ -114,6 +114,37 @@ async fn main() {
         bg_ws_url.clone(),
     ));
 
+    // Auto-restore session if profile config has persisted session data
+    {
+        let config = app_config.read().await;
+        if let (Some(ref mode), Some(ref currency), Some(ref exchange), Some(capital)) = (
+            &config.profile.session_mode,
+            &config.profile.session_currency,
+            &config.profile.session_exchange,
+            &config.profile.initial_capital,
+        ) {
+            let trading_mode = match mode.to_lowercase().as_str() {
+                "paper" => workspace::TradingMode::Paper,
+                _ => workspace::TradingMode::Paper,
+            };
+            let cur = match currency.to_uppercase().as_str() {
+                "USDT" => workspace::Currency::USDT,
+                "USDC" => workspace::Currency::USDC,
+                _ => workspace::Currency::USDC,
+            };
+            let exch = match exchange.to_lowercase().as_str() {
+                "hyperliquid" => workspace::ExchangeChoice::Hyperliquid,
+                "bitget" => workspace::ExchangeChoice::Bitget,
+                _ => workspace::ExchangeChoice::Hyperliquid,
+            };
+            let name = config.profile.user_name.clone();
+            match workspace.init_session(trading_mode, cur, exch, *capital, name).await {
+                Ok(()) => println!("🔄 Auto-restored session from config.toml profile"),
+                Err(e) => eprintln!("⚠️  Auto-restore failed: {}", e),
+            }
+        }
+    }
+
     let app_state = Arc::new(server::AppState {
         workspace: workspace.clone(),
         config: app_config.clone(),

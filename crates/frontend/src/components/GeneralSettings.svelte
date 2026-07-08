@@ -25,6 +25,10 @@
     let draftTrendAgentPrompt = $state('');
     let promptsStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
 
+    // Instance Limits
+    let draftMaxInstances = $state(100);
+    let maxInstancesStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
+
     let loaded = $state(false);
 
     async function loadSettings() {
@@ -45,6 +49,9 @@
             }
             if (config.workspace?.backup_api_key) {
                 draftBackupKey = config.workspace.backup_api_key;
+            }
+            if (config.workspace?.max_instances) {
+                draftMaxInstances = config.workspace.max_instances;
             }
             loaded = true;
         } catch (e) {
@@ -123,6 +130,30 @@
         }
     }
 
+    async function saveMaxInstances() {
+        maxInstancesStatus = 'saving';
+        try {
+            const res = await fetch('/api/settings/max-instances', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ max_instances: Number(draftMaxInstances) }),
+            });
+            maxInstancesStatus = res.ok ? 'success' : 'error';
+            if (res.ok) {
+                app.sessionMaxInstances = Number(draftMaxInstances);
+                setTimeout(() => { maxInstancesStatus = 'idle'; }, 2000);
+            }
+        } catch (_) {
+            maxInstancesStatus = 'error';
+        }
+    }
+
+    const perInstance = $derived(
+        app.sessionCapital && draftMaxInstances > 0
+            ? app.sessionCapital / draftMaxInstances
+            : 0
+    );
+
     $effect(() => { loadSettings(); loadPrompts(); });
 </script>
 
@@ -185,6 +216,25 @@
                 </div>
                 <button class={styles.saveBtn} onclick={saveBackupKey} disabled={backupKeyStatus === 'saving'}>
                     {backupKeyStatus === 'saving' ? 'Saving...' : backupKeyStatus === 'success' ? '✓ Saved' : 'Save Backup Key'}
+                </button>
+            </div>
+
+            <!-- Instance Limits -->
+            <div class={styles.settingsCard}>
+                <h3><Icon name="list" size={15} /> Instance Limits</h3>
+                <div class={styles.inputRow}>
+                    <label for="max-instances">Max Instances:</label>
+                    <input id="max-instances" type="number" bind:value={draftMaxInstances} min="1" max="1000" />
+                </div>
+                <div class={styles.inputRow}>
+                    <span class={styles.readonlyLabel}>Per-Instance Capital:</span>
+                    <span class={styles.capitalDisplay}>
+                        {app.sessionCurrency || 'USDT'} {perInstance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                </div>
+                <span class={styles.hint}>Portfolio of {app.sessionCurrency || 'USDT'} {app.sessionCapital?.toLocaleString() || '0'} divided into {draftMaxInstances} equal parts</span>
+                <button class={styles.saveBtn} onclick={saveMaxInstances} disabled={maxInstancesStatus === 'saving'}>
+                    {maxInstancesStatus === 'saving' ? 'Saving...' : maxInstancesStatus === 'success' ? '✓ Saved' : 'Save Instance Limits'}
                 </button>
             </div>
 

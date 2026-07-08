@@ -1,6 +1,7 @@
 use crate::config::AppConfig;
 use crate::server::types::{
-    BackupApiKeyRequest, ConfigResponse, RulesResponse, SetKeyRequest, SetRulesRequest,
+    BackupApiKeyRequest, ConfigResponse, MaxInstancesRequest, ProfileSettingsRequest,
+    ProfileSettingsResponse, RulesResponse, SetKeyRequest, SetRulesRequest,
 };
 use crate::server::AppState;
 use axum::{extract::State, http::header, response::IntoResponse, Json};
@@ -186,4 +187,64 @@ pub async fn serve_set_backup_api_key(
     }
     println!("Global backup API key updated");
     (axum::http::StatusCode::OK, "Backup API key saved").into_response()
+}
+
+/// GET /api/settings/profile — return current profile fields
+pub async fn serve_get_profile(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let config = state.config.read().await;
+    let user_name = state.workspace.session.user_name.read().await.clone();
+    Json(ProfileSettingsResponse {
+        user_name: user_name.or(config.profile.user_name.clone()),
+        wallet_address: config.profile.wallet_address.clone(),
+    })
+}
+
+/// POST /api/settings/profile — update user_name and/or wallet_address
+pub async fn serve_set_profile(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ProfileSettingsRequest>,
+) -> impl IntoResponse {
+    {
+        let mut config = state.config.write().await;
+        if let Some(ref name) = payload.user_name {
+            let trimmed = name.trim().to_string();
+            config.profile.user_name = if trimmed.is_empty() { None } else { Some(trimmed) };
+        }
+        if let Some(ref addr) = payload.wallet_address {
+            let trimmed = addr.trim().to_string();
+            config.profile.wallet_address = if trimmed.is_empty() { None } else { Some(trimmed) };
+        }
+        if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+            let _ = std::fs::write("config.toml", toml_str);
+        }
+    }
+    // Sync in-memory session
+    {
+        let config = state.config.read().await;
+        let mut un = state.workspace.session.user_name.write().await;
+        *un = config.profile.user_name.clone();
+    }
+    println!("Profile settings updated");
+    (axum::http::StatusCode::OK, "Profile saved").into_response()
+}
+
+/// POST /api/settings/max-instances — update max_instances in workspace config
+pub async fn serve_set_max_instances(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MaxInstancesRequest>,
+) -> impl IntoResponse {
+    if payload.max_instances == 0 || payload.max_instances > 1000 {
+        return (axum::http::StatusCode::BAD_REQUEST, "max_instances must be between 1 and 1000").into_response();
+    }
+    {
+        let mut config = state.config.write().await;
+        config.workspace.max_instances = payload.max_instances;
+        if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+            let _ = std::fs::write("config.toml", toml_str);
+        }
+    }
+    println!("Max instances updated to {}", payload.max_instances);
+    (axum::http::StatusCode::OK, "Max instances updated").into_response()
 }

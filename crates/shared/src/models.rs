@@ -53,6 +53,12 @@ pub struct MarketSnapshot {
     /// volume/liquidity/regime + overall). Populated for completed snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<crate::market_context::MarketContext>,
+
+    /// Quantitative decision-support metrics (probabilities, consensus,
+    /// expected ranges, forward-looking volatility). Computed from the
+    /// indicator map on completed-candle snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_context: Option<crate::decision_context::DecisionContext>,
 }
 
 /// Legacy-compatible read accessors that reconstruct flat indicator values

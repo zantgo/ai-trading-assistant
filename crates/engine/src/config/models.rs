@@ -121,6 +121,20 @@ pub struct IndicatorsConfig {
     pub linreg_period: usize,
     #[serde(default = "default_zscore_period")]
     pub zscore_period: usize,
+    #[serde(default = "default_cci_period")]
+    pub cci_period: usize,
+    #[serde(default = "default_psar_af_step")]
+    pub psar_af_step: f64,
+    #[serde(default = "default_psar_af_max")]
+    pub psar_af_max: f64,
+    #[serde(default = "default_ichimoku_tenkan")]
+    pub ichimoku_tenkan: usize,
+    #[serde(default = "default_ichimoku_kijun")]
+    pub ichimoku_kijun: usize,
+    #[serde(default = "default_ichimoku_senkou_b")]
+    pub ichimoku_senkou_b: usize,
+    #[serde(default = "default_ichimoku_displacement")]
+    pub ichimoku_displacement: usize,
     #[serde(default = "default_bbwp_lookback")]
     pub bbwp_lookback: usize,
     #[serde(default = "default_bbwp_period")]
@@ -157,6 +171,22 @@ pub struct IndicatorsConfig {
     pub rvol_threshold_institutional: f64,
     #[serde(default = "default_rvol_threshold_climax")]
     pub rvol_threshold_climax: f64,
+    #[serde(default = "default_williams_r_period")]
+    pub williams_r_period: usize,
+    #[serde(default = "default_hull_ma_period")]
+    pub hull_ma_period: usize,
+    #[serde(default = "default_stddev_channel_period")]
+    pub stddev_channel_period: usize,
+    #[serde(default = "default_force_index_smoothing")]
+    pub force_index_smoothing: usize,
+    #[serde(default = "default_volume_profile_bins")]
+    pub volume_profile_bins: usize,
+    #[serde(default = "default_volume_profile_window")]
+    pub volume_profile_window: usize,
+    #[serde(default = "default_volume_profile_value_area")]
+    pub volume_profile_value_area: f64,
+    #[serde(default = "default_smc_lookback")]
+    pub smc_lookback: usize,
 }
 
 fn default_bbwp_lookback() -> usize { 252 }
@@ -179,6 +209,13 @@ fn default_aroon_period() -> usize { 25 }
 fn default_chop_period() -> usize { 14 }
 fn default_linreg_period() -> usize { 20 }
 fn default_zscore_period() -> usize { 20 }
+fn default_cci_period() -> usize { 20 }
+fn default_psar_af_step() -> f64 { 0.02 }
+fn default_psar_af_max() -> f64 { 0.20 }
+fn default_ichimoku_tenkan() -> usize { 9 }
+fn default_ichimoku_kijun() -> usize { 26 }
+fn default_ichimoku_senkou_b() -> usize { 52 }
+fn default_ichimoku_displacement() -> usize { 26 }
 fn default_macd_extreme_high() -> f64 { 1000.0 }
 fn default_macd_extreme_low() -> f64 { -1000.0 }
 fn default_macd_contraction_threshold() -> f64 { 0.30 }
@@ -195,6 +232,14 @@ fn default_atr_target_rr() -> f64 { 2.5 }
 fn default_volume_average_period() -> usize { 20 }
 fn default_rvol_threshold_institutional() -> f64 { 1.5 }
 fn default_rvol_threshold_climax() -> f64 { 3.0 }
+fn default_williams_r_period() -> usize { 14 }
+fn default_hull_ma_period() -> usize { 16 }
+fn default_stddev_channel_period() -> usize { 20 }
+fn default_force_index_smoothing() -> usize { 13 }
+fn default_volume_profile_bins() -> usize { 30 }
+fn default_volume_profile_window() -> usize { 100 }
+fn default_volume_profile_value_area() -> f64 { 0.70 }
+fn default_smc_lookback() -> usize { 50 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FibonacciConfig {
@@ -259,6 +304,78 @@ fn default_scan_range_candles() -> usize { 120 }
 fn default_sr_proximity_threshold() -> f64 { 0.5 }
 fn default_sr_flip_tolerance() -> f64 { 0.3 }
 fn default_pattern_slope_tolerance() -> f64 { 0.2 }
+
+/// Session-based Pivot Points configuration. V1 supports UTC-daily sessions with
+/// the Classic method; `method` is forward-compatible for Fibonacci/Camarilla/
+/// Woodie once implemented.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PivotPointsConfig {
+    #[serde(default = "default_pivot_points_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_pivot_points_method")]
+    pub method: String,
+    #[serde(default = "default_pivot_points_proximity")]
+    pub proximity_threshold_pct: f64,
+}
+
+impl Default for PivotPointsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_pivot_points_enabled(),
+            method: default_pivot_points_method(),
+            proximity_threshold_pct: default_pivot_points_proximity(),
+        }
+    }
+}
+
+fn default_pivot_points_enabled() -> bool { true }
+fn default_pivot_points_method() -> String { "classic".to_string() }
+fn default_pivot_points_proximity() -> f64 { 0.15 }
+
+/// Candlestick pattern-recognition geometric thresholds (fractions).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CandlestickConfig {
+    #[serde(default = "default_cs_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_cs_doji_body_max")]
+    pub doji_body_max: f64,
+    #[serde(default = "default_cs_long_wick_mult")]
+    pub long_wick_body_mult: f64,
+    #[serde(default = "default_cs_small_wick_max")]
+    pub small_wick_max: f64,
+    #[serde(default = "default_cs_marubozu_wick_max")]
+    pub marubozu_wick_max: f64,
+    #[serde(default = "default_cs_spinning_body_max")]
+    pub spinning_body_max: f64,
+    #[serde(default = "default_cs_tweezer_eq_tol")]
+    pub tweezer_eq_tol: f64,
+    #[serde(default = "default_cs_min_confidence")]
+    pub min_confidence: f64,
+}
+
+impl Default for CandlestickConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_cs_enabled(),
+            doji_body_max: default_cs_doji_body_max(),
+            long_wick_body_mult: default_cs_long_wick_mult(),
+            small_wick_max: default_cs_small_wick_max(),
+            marubozu_wick_max: default_cs_marubozu_wick_max(),
+            spinning_body_max: default_cs_spinning_body_max(),
+            tweezer_eq_tol: default_cs_tweezer_eq_tol(),
+            min_confidence: default_cs_min_confidence(),
+        }
+    }
+}
+
+fn default_cs_enabled() -> bool { true }
+fn default_cs_doji_body_max() -> f64 { 0.1 }
+fn default_cs_long_wick_mult() -> f64 { 2.0 }
+fn default_cs_small_wick_max() -> f64 { 0.15 }
+fn default_cs_marubozu_wick_max() -> f64 { 0.05 }
+fn default_cs_spinning_body_max() -> f64 { 0.3 }
+fn default_cs_tweezer_eq_tol() -> f64 { 0.001 }
+fn default_cs_min_confidence() -> f64 { 0.3 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlowTimeframeConfig {
@@ -673,6 +790,32 @@ impl Default for WorkspaceConfig {
             max_instances: default_max_instances(),
             default_pair: default_default_pair(),
             backup_api_key: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProfileConfig {
+    #[serde(default)]
+    pub user_name: Option<String>,
+    #[serde(default)]
+    pub wallet_address: Option<String>,
+    #[serde(default)]
+    pub session_mode: Option<String>,
+    #[serde(default)]
+    pub session_currency: Option<String>,
+    #[serde(default)]
+    pub session_exchange: Option<String>,
+    #[serde(default)]
+    pub initial_capital: Option<f64>,
+}
+
+impl Default for ProfileConfig {
+    fn default() -> Self {
+        Self {
+            user_name: None, wallet_address: None,
+            session_mode: None, session_currency: None,
+            session_exchange: None, initial_capital: None,
         }
     }
 }

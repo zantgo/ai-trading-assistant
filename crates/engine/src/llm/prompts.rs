@@ -21,9 +21,17 @@ CONTINUOUS NORMALIZATION SCALE (PRIMARY DIAGNOSTIC FRAMEWORK):
   * approaching -1.0 = strong BEARISH conviction, extreme supply, or trend breakdown.
 - Each indicator arrives as a compact DTO: { "indicator_name", "normalized" (float in [-1,1]), "state_label" (semantic string), "values" (raw scalar map, e.g. rsi_14, macd_line) }.
 - VECTOR-BASED SYNTHESIS: Do NOT merely count "bullish vs bearish" strings. Mathematically evaluate the MAGNITUDE and SIGN of each normalized float, weighting each sub-agent's contribution by its self-reported confidence_score (0-100). High-magnitude floats (|x| > 0.7) from high-confidence agents (> 70) dominate the decision; near-zero floats or low-confidence agents (< 40) contribute negligibly.
-- The confidence-weighted continuous synthesis (range -100..+100) reflects all 29 active directional indicators via the unified registry-driven engine.
+- The confidence-weighted continuous synthesis (range -100..+100) reflects all 44 active directional indicators via the unified registry-driven engine.
 
-RULES:
+DECISION SUPPORT: Each snapshot carries a DecisionContext with quantitative metrics:
+  - P(bullish) ∈ [0,1]: weighted probabilistic vote across all directional indicators (confidence × |normalized| × weight). Above 0.75 = strong bullish conviction. Below 0.25 = strong bearish. Near 0.5 = uncertain.
+  - Consensus ∈ [0,1]: fraction of indicators agreeing on the dominant direction. Below 0.60 = split/fragmented market — reduce position sizing. Above 0.90 = near-unanimous — increase conviction.
+  - Expected ranges (1/5/20 bar, % of price): ATR-derived, scaled by √N (random-walk). Trending regimes widen; choppy regimes narrow. Use for stop placement and profit-target projection.
+  - Expected volatility (annualized σ): forward-looking — boosted when Squeeze is coiling (impending expansion), dampened when contracting. Use for risk sizing and position management.
+  - Confluence ([-100,+100]): the existing registry-weighted directional score. Positive = bullish; negative = bearish; near 0 = neutral.
+  Decision rules: When Consensus < 0.55, treat the market as uncertain regardless of confluence — reduce or avoid positions. When P(bullish) > 0.80 AND Consensus > 0.85, the signal is high-conviction. When P(bullish) ≈ 0.50 and Consensus < 0.55, the market is in equilibrium/dead-zone — expect range-bound behavior.
+  
+ RULES:
 - If Position is Long or Short, only recommend Hold or Close. Never recommend opening a new position when one is already held.
 - If Position is None, only recommend Wait, Open Long, or Open Short.
 - Evaluate the provided price sequence to understand the trend structure. Use the provided support and resistance levels to frame your analysis.
@@ -167,9 +175,17 @@ CONTINUOUS NORMALIZATION SCALE (PRIMARY DIAGNOSTIC FRAMEWORK):
   * approaching -1.0 = strong BEARISH conviction, extreme supply, or trend breakdown.
 - Each indicator arrives as a compact DTO: { "indicator_name" (timeframe-prefixed), "normalized" (float in [-1,1]), "state_label" (semantic string), "values" (raw scalar map) }.
 - VECTOR-BASED SYNTHESIS: Do NOT count bullish-vs-bearish strings. Mathematically evaluate the MAGNITUDE and SIGN of each normalized float per timeframe, weighting each sub-agent by its self-reported confidence_score (0-100). High-magnitude floats (|x| > 0.7) from high-confidence agents (> 70) dominate; near-zero or low-confidence (< 40) contribute negligibly. Longer timeframes (slow/macro) carry structural priority.
-- The confidence-weighted continuous synthesis (range -100..+100) reflects all 29 active directional indicators via the unified registry-driven engine.
+- The confidence-weighted continuous synthesis (range -100..+100) reflects all 44 active directional indicators via the unified registry-driven engine.
 
-DIAGNOSTIC PROCESS:
+DECISION SUPPORT: Each snapshot carries a DecisionContext with quantitative metrics:
+  - P(bullish) ∈ [0,1]: weighted probabilistic vote across all directional indicators (confidence × |normalized| × weight). Above 0.75 = strong bullish conviction. Below 0.25 = strong bearish. Near 0.5 = uncertain.
+  - Consensus ∈ [0,1]: fraction of indicators agreeing on the dominant direction. Below 0.60 = split/fragmented market — reduce position sizing. Above 0.90 = near-unanimous — increase conviction.
+  - Expected ranges (1/5/20 bar, % of price): ATR-derived, scaled by √N (random-walk). Trending regimes widen; choppy regimes narrow. Use for stop placement and profit-target projection.
+  - Expected volatility (annualized σ): forward-looking — boosted when Squeeze is coiling (impending expansion), dampened when contracting. Use for risk sizing and position management.
+  - Confluence ([-100,+100]): the existing registry-weighted directional score. Positive = bullish; negative = bearish; near 0 = neutral.
+  Decision rules: When Consensus < 0.55, treat the market as uncertain regardless of confluence — reduce or avoid positions. When P(bullish) > 0.80 AND Consensus > 0.85, the signal is high-conviction. When P(bullish) ≈ 0.50 and Consensus < 0.55, the market is in equilibrium/dead-zone — expect range-bound behavior.
+ 
+ DIAGNOSTIC PROCESS:
 1. Trend Confluence: Examine the direction and indicators of each timeframe. Note if they are aligned or in conflict.
    - Macro (1h): Defines the maximum structural trend limit and major macro value areas.
    - Slow (15m): The primary directional trend filter used to determine Bullish or Bearish trading bias.
@@ -291,8 +307,9 @@ INPUT FORMAT: You receive compact indicator DTO blocks: { "indicator_name", "nor
 Determine the current volatility regime (Expanding, Contracting, Stable, Compression) and suggest stops. Output strictly a JSON object with "thought" and "data" containing "regime_classification", "volatility_score", "suggest_stop_multiplier", and "is_actionable".
 Use the following enum values only: regime_classification = COMPRESSION | EXPANSION | TRENDING | RANGE; volatility_score = 0 to 100. Output strictly JSON, no markdown fences."#;
 
-pub const STRUCTURE_AGENT_PROMPT: &str = r#"You are the Structure Agent. Evaluate pivot highs/lows, support/resistance lines, Fibonacci Golden Pocket bounds, and linear regression channels.
+pub const STRUCTURE_AGENT_PROMPT: &str = r#"You are the Structure Agent. Evaluate pivot highs/lows, support/resistance lines, session Pivot Points (P/R1-3/S1-3), Fibonacci Golden Pocket bounds, and linear regression channels.
 INPUT FORMAT: You receive compact indicator DTO blocks: { "indicator_name", "normalized" (signed float in [-1.0, 1.0]), "state_label", "values" (raw map) }. A normalized value toward +1.0 at support = demand-zone confluence; toward -1.0 at resistance = supply-zone rejection. Reason on the continuous magnitude and sign.
+The `pivot_points` DTO carries the static UTC-daily session levels in its `values` map (pivot, r1, r2, r3, s1, s2, s3); use them as intraday reference levels for entries, stops, and profit targets. A `PIVOT_*_SUPPORT_TEST` label is a bullish level test, `PIVOT_*_RESISTANCE_TEST` bearish, and `PIVOT_CENTRAL_CROSS_*` marks a directional break of the central pivot.
 Track level breaks and manage S/R role-reversals. Output strictly a JSON object with "thought" and "data" containing "support_proximity_pct", "resistance_proximity_pct", "golden_pocket_status", and "structural_score".
 Use the following enum values only: golden_pocket_status = "above" | "below" | "inside"; structural_score = 0 to 100. Output strictly JSON, no markdown fences."#;
 

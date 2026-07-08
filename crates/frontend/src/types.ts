@@ -344,7 +344,7 @@ export interface MonitorResponse {
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
 export type IndicatorGroup =
-    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Advanced';
+    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Institutional';
 export type IndicatorClass = 'Leading' | 'Hybrid' | 'Lagging';
 export type RenderKind = 'Pane' | 'PriceOverlay' | 'PriceLevels' | 'Marker';
 export interface IndicatorMeta {
@@ -397,6 +397,7 @@ export interface TimeframeTelemetry {
     showEmas: boolean;
     showBb: boolean;
     showVwap: boolean;
+    showAvwap: boolean;
     showVolume: boolean;
     showAdx: boolean;
     showAtr: boolean;
@@ -405,6 +406,11 @@ export interface TimeframeTelemetry {
     showSqueeze: boolean;
     showBbwp: boolean;
     showFib: boolean;
+    showPivots: boolean;
+    showCandlestick: boolean;
+    showIchimoku: boolean;
+    showChikou: boolean;
+    showIchimokuCloud: boolean;
     showRvol: boolean;
     showStochastic: boolean;
     showChandeMo: boolean;
@@ -419,6 +425,18 @@ export interface TimeframeTelemetry {
     showChoppiness: boolean;
     showLinregSlope: boolean;
     showZscore: boolean;
+    showCci: boolean;
+    showPsar: boolean;
+    showWilliamsR: boolean;
+    showHullMa: boolean;
+    showAo: boolean;
+    showForceIdx: boolean;
+    showStdDevChnl: boolean;
+    showVolumeProfile: boolean;
+    showSmcStructure: boolean;
+    showSmcLiquidity: boolean;
+    showSmcFvg: boolean;
+    showSmcOrderBlocks: boolean;
     emaFastVal: number;
     emaMediumVal: number;
     emaSlowVal: number;
@@ -467,6 +485,10 @@ export interface TimeframeTelemetry {
     volumeAvgPeriodVal: number;
     rvolInstitutionalVal: number;
     rvolClimaxVal: number;
+    williamsRPeriodVal: number;
+    hullMaPeriodVal: number;
+    stddevChnlPeriodVal: number;
+    forceIdxSmoothingVal: number;
 }
 
 /** All Level 3 feature-panel view keys mountable inside an instance workspace. */
@@ -667,6 +689,7 @@ export interface EdgeSaveRequest {
     pair_key: string;
     description: string;
     config: EdgeConfig;
+    creator_name?: string;
 }
 
 export interface EdgeAnalyzeRequest {
@@ -682,6 +705,7 @@ export interface SavedEdge {
     description: string | null;
     config: EdgeConfig;
     created_at: string;
+    creator_name: string | null;
 }
 
 export interface HistoricalMetrics {

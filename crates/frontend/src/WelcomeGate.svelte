@@ -7,6 +7,7 @@
     let exchange = $state('Hyperliquid');
     let currency = $state('USDC');
     let capital = $state('');
+    let traderName = $state('');
     let error = $state<string | null>(null);
     let loading = $state(false);
 
@@ -35,8 +36,17 @@
             error = 'Please enter a valid initial capital amount greater than 0.';
             return;
         }
+        const name = traderName.trim();
+        if (!name) {
+            error = 'Please enter a trader name to identify your session.';
+            return;
+        }
+        if (name.length > 30) {
+            error = 'Trader name must be 30 characters or fewer.';
+            return;
+        }
         loading = true;
-        const result = await app.initSession(mode, currency, exchange, capitalNum);
+        const result = await app.initSession(mode, currency, exchange, capitalNum, name);
         if (!result.success) {
             error = result.error || 'Failed to initialize session.';
         }
@@ -113,6 +123,21 @@
                         </span>
                     </label>
                 </div>
+            </div>
+
+            <!-- Trader Name -->
+            <div class={styles.formGroup}>
+                <label class={styles.formLabel} for="name-input">Trader Name</label>
+                <input
+                    id="name-input"
+                    type="text"
+                    class={styles.formInput}
+                    placeholder="e.g. Satoshi"
+                    bind:value={traderName}
+                    onkeydown={handleKeydown}
+                    maxlength="30"
+                />
+                <span class={styles.formHint}>Your display name in the trading dashboard</span>
             </div>
 
             <!-- Paper Trading Capital -->

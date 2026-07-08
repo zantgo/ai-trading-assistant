@@ -239,6 +239,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::config::serve_set_backup_api_key),
         )
         .route(
+            "/api/settings/profile",
+            get(handlers::config::serve_get_profile)
+                .post(handlers::config::serve_set_profile),
+        )
+        .route(
+            "/api/settings/max-instances",
+            post(handlers::config::serve_set_max_instances),
+        )
+        .route(
             "/api/historical-recommendations",
             get(handlers::assistant::serve_historical_recommendations),
         )

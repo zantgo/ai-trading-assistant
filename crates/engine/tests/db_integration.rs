@@ -162,6 +162,8 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         average_volume: Some(dec!(120.0)),
         indicators,
         context: None,
+        decision_context: None,
+        
     };
 
     engine::db::insert_snapshot_internal(&pool, &snap).await;

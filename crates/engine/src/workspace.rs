@@ -102,6 +102,7 @@ pub struct SessionState {
     pub base_currency: RwLock<Option<Currency>>,
     pub exchange: RwLock<Option<ExchangeChoice>>,
     pub initial_capital: RwLock<Option<f64>>,
+    pub user_name: RwLock<Option<String>>,
 }
 
 impl Default for SessionState {
@@ -118,6 +119,7 @@ impl SessionState {
             base_currency: RwLock::new(None),
             exchange: RwLock::new(None),
             initial_capital: RwLock::new(None),
+            user_name: RwLock::new(None),
         }
     }
 }
@@ -195,6 +197,7 @@ impl Workspace {
         currency: Currency,
         exchange: ExchangeChoice,
         initial_capital: f64,
+        user_name: Option<String>,
     ) -> Result<(), String> {
         if trading_mode == TradingMode::Live {
             return Err(
@@ -223,13 +226,27 @@ impl Workspace {
             ));
         }
 
-        *self.session.trading_mode.write().await = Some(trading_mode);
+        *self.session.trading_mode.write().await = Some(trading_mode.clone());
         *self.session.base_currency.write().await = Some(currency.clone());
         *self.session.exchange.write().await = Some(exchange.clone());
         *self.session.initial_capital.write().await = Some(initial_capital);
+        *self.session.user_name.write().await = user_name.clone();
         self.session
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        // Persist profile to config.toml for restart survival
+        {
+            let mut config = self.config.write().await;
+            config.profile.user_name = user_name.clone().filter(|n| !n.trim().is_empty());
+            config.profile.session_mode = Some(trading_mode.as_str().to_string());
+            config.profile.session_currency = Some(currency.as_str().to_string());
+            config.profile.session_exchange = Some(exchange.as_str().to_string());
+            config.profile.initial_capital = Some(initial_capital);
+            if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+                let _ = std::fs::write("config.toml", toml_str);
+            }
+        }
 
         {
             let instances: Vec<_> = self.instances.read().await.keys().cloned().collect();
@@ -308,6 +325,19 @@ impl Workspace {
         *self.session.base_currency.write().await = None;
         *self.session.exchange.write().await = None;
         *self.session.initial_capital.write().await = None;
+        *self.session.user_name.write().await = None;
+
+        // Clear session fields from config but keep profile name/wallet
+        {
+            let mut config = self.config.write().await;
+            config.profile.session_mode = None;
+            config.profile.session_currency = None;
+            config.profile.session_exchange = None;
+            config.profile.initial_capital = None;
+            if let Ok(toml_str) = toml::to_string_pretty(&*config) {
+                let _ = std::fs::write("config.toml", toml_str);
+            }
+        }
 
         println!("✅ Session terminated. All instances stopped.");
         Ok(())

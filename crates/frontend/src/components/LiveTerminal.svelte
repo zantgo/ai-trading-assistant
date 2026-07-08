@@ -22,6 +22,7 @@
     import ChoppinessChart from './ChoppinessChart.svelte';
     import LinRegSlopeChart from './LinRegSlopeChart.svelte';
     import ZScoreChart from './ZScoreChart.svelte';
+    import CciChart from './CciChart.svelte';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -75,7 +76,7 @@
 
 <!-- Core panes: price overlay chart + primary oscillator/volume panes -->
 {#snippet basePanes(tf: TimeframeTelemetry)}
-    <div class="{styles.panelBox} {styles.panePrice} {(!tf.showEmas && !tf.showBb && !tf.showVwap && !tf.showSupertrend && !tf.showKeltner && !tf.showDonchian) ? styles.hiddenPane : ''}">
+    <div class="{styles.panelBox} {styles.panePrice} {(!tf.showEmas && !tf.showBb && !tf.showVwap && !tf.showAvwap && !tf.showSupertrend && !tf.showKeltner && !tf.showDonchian) ? styles.hiddenPane : ''}">
         <div class={styles.panelLabel}>PRICE</div>
         {#key tfKey(pairKey, tf)}
             <PriceChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('price', tf.barDurationSec)} />
@@ -197,6 +198,12 @@
             <ZScoreChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('zscore', tf.barDurationSec)} />
         {/key}
     </div>
+    <div class="{styles.panelBox} {styles.paneCci} {!tf.showCci ? styles.hiddenPane : ''}">
+        <div class={styles.panelLabel}>CCI</div>
+        {#key `${pairKey}-${tf.barDurationSec}-cci`}
+            <CciChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('cci', tf.barDurationSec)} />
+        {/key}
+    </div>
 {/snippet}
 
 <!-- Full timeframe column (header + all panes) -->
@@ -285,6 +292,8 @@
                 <LinRegSlopeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'zscore'}
                 <ZScoreChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'cci'}
+                <CciChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {/if}
         </div>
     </div>

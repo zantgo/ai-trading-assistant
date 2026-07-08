@@ -703,4 +703,249 @@ trend/breakout indicators; ranging regimes favor mean-reversion oscillators.
 ### Cross-Indicator Confluence
 `Σ(weight × normalized)` over enabled directional indicators ÷ active weight, dampened by
 non-directional gates (Choppiness/ADX) — configurable per-indicator weight/enable via the
-Scoring Weights settings panel and `POST /api/config/scoring-weights`.
+  Scoring Weights settings panel and `POST /api/config/scoring-weights`.
+
+---
+
+## 26. CCI (Commodity Channel Index — 20)
+
+### Description
+
+Measures deviation of typical price from statistical mean. Oscillates around zero.
+
+### AI Input Schema
+
+```json
+{
+  "cci_value": 125.4,
+  "cci_normalized": -0.78,
+  "state_label": "CCI_OVERBOUGHT | CCI_OVERSOLD | CCI_CLIMACTIC_BULL_EXHAUSTION | etc"
+}
+```
+
+### Signal Rules
+
+- **OVERBOUGHT (≥ +100)**: Reading above +100 warns of overbought conditions. Do not enter longs here — wait for reversion below +100. At ≥ +200, climactic exhaustion is probable (Threshold signal, Bearish).
+- **OVERSOLD (≤ −100)**: Reading below −100 warns of oversold conditions. Do not enter shorts here — wait for reversion above −100. At ≤ −200, climactic exhaustion is probable (Threshold signal, Bullish).
+- **NEUTRAL (−100 to +100)**: CCI in normal range — no extreme signal. Directional bias from sign alone is weak. Look for zero-cross confirmation.
+- Use CCI alongside RSI and Stochastic for multi-oscillator confluence. CCI is faster than RSI for detecting cyclical turns.
+
+---
+
+## 27. Williams %R (14)
+
+### Description
+
+Measures close relative to highest-high range on [-100,0] scale. Inverse of Fast Stochastic.
+
+### Signal Rules
+
+- **OVERBOUGHT (≥ −20)**: Above −20 → price near top of range — bearish. Do not buy at extremes (Threshold signal, Bearish).
+- **OVERSOLD (≤ −80)**: Below −80 → price near bottom of range — bullish. Do not sell at extremes (Threshold signal, Bullish).
+- **MIDLINE (−50)**: %R crossing −50 = momentum flip (ZeroLineCross). Combine with RSI 50-cross for confirmation.
+
+---
+
+## 28. Awesome Oscillator (AO)
+
+### Description
+
+SMA(5)-SMA(34) of median price. Bill Williams' momentum indicator.
+
+### Signal Rules
+
+- **ZERO CROSS (AO crosses 0)**: Bullish momentum flip when AO goes from negative to positive (ZeroLineCross, Bullish). Bearish when positive to negative.
+- **TWIN PEAKS**: Bullish twin peaks = AO makes a higher low (second trough above first) while still negative — bullish divergence. Bearish twin peaks = lower high while positive.
+- **SAUCER**: AO bars change from red to green while AO is above zero and price is above the cloud — continuation confirmation.
+
+---
+
+## 29. Force Index (13)
+
+### Description
+
+(Close − PrevClose) × Volume, smoothed by EMA(13). Elder's volume×momentum.
+
+### Signal Rules
+
+- **ZERO CROSS**: FI crossing from negative to positive = money flowing in (ZeroLineCross, Bullish). Positive to negative = money flowing out (Bearish).
+- **EXTREME READINGS**: Large |FI| with price direction = confirmed institutional flow. Divergence between FI direction and price direction warns of trend exhaustion.
+- FI is strongest when confirming price trends: rising FI + rising price = healthy uptrend; falling FI + rising price = bearish divergence.
+
+---
+
+## 30. Hull MA (16)
+
+### Description
+
+Near-zero-lag WMA designed to reduce lag while maintaining smoothness. Price overlay.
+
+### Signal Rules
+
+- **CROSSOVER**: Price crossing above HMA = bullish entry (Crossover signal). Price crossing below = bearish exit.
+- HMA is a chart overlay with normalized=0.0 (does not influence confluence scoring). Use it as a trend reference for entry/exit timing, not for directional conviction.
+
+---
+
+## 31. StdDev Channel (20)
+
+### Description
+
+Linear regression centerline ±2σ bands. Trend-aware volatility envelope.
+
+### Signal Rules
+
+- **UPPER BREAKOUT**: Price ≥ upper band = bullish breakout (Breakout signal).
+- **LOWER BREAKOUT**: Price ≤ lower band = bearish breakout (Breakout signal).
+- **BAND TOUCH**: Price near band edge (±15% of band range) without breaking out = mean-reversion signal (BandTouch signal). Use in range markets; ignore in strong trends.
+- **CENTERLINE**: Price crossing the regression centerline = trend direction confirmation.
+
+---
+
+## 32. PSAR (Parabolic SAR) — AF 0.02→0.20
+
+### Description
+
+Trailing stop-loss dot. Below price in uptrend, above in downtrend. Flips on reversal.
+
+### Signal Rules
+
+- **TRENDFLIP**: SAR dot flips from below to above price = trend changed from bullish to bearish. This IS the primary exit signal (TrendFlip signal).
+- **CROSSOVER**: Price crosses the SAR line (distinct from the dot flip itself). Price crossing above SAR = bullish; below = bearish (Crossover signal).
+- **DISTANCE**: Large distance between price and SAR = strong trend. SAR closing in on price = trend weakening — prepare for potential flip.
+
+---
+
+## 33. Volume Profile (OHLCV-based)
+
+### Description
+
+100-bar rolling window; 30-bin volume distribution. POC/VAH/VAL/HVN/LVN from OHLCV.
+
+### Signal Rules
+
+- **ABOVE VAH**: Price trading above Value Area High = bullish breakout (Breakout signal). The market has moved outside the previous session's accepted value.
+- **BELOW VAL**: Price trading below Value Area Low = bearish breakdown (Breakout signal).
+- **POC RETEST**: Price returning to the Point of Control from either direction = potential support/resistance reaction (LevelTest signal). POC acts as a magnet level.
+- **VALUE ACCEPTANCE/REJECTION**: Price inside value area = acceptance (equilibrium, trending less likely). Price closing outside after being inside = rejection.
+
+---
+
+## 34. Anchored VWAP
+
+### Description
+
+Multi-session VWAP with daily/weekly/monthly/swing anchors. Closest to price = active anchor.
+
+### Signal Rules
+
+- **CROSSOVER**: Price crossing the active anchored VWAP = directional entry (Crossover signal).
+- **DISCOUNT ZONE**: Price significantly below the active anchor = bullish (LevelTest signal). Price at discount to institutional fair value.
+- **PREMIUM ZONE**: Price significantly above the active anchor = bearish (LevelTest signal). Price at premium to institutional fair value.
+- **MULTI-ANCHOR**: Price above ALL anchors = strong bullish conviction. Price below ALL = strong bearish. Between anchors = neutral/uncertain.
+
+---
+
+## 35. Smart Money Concepts (4 indicators: smc_structure, smc_liquidity, smc_fvg, smc_order_blocks)
+
+### Description
+
+OHLCV-based institutional order-flow analysis. BOS/CHoCH for market structure. Liquidity sweeps for stop-hunting. Fair Value Gaps for imbalance zones. Order Blocks for institutional supply/demand zones.
+
+### Signal Rules — SMC Structure
+
+- **BOS (Break of Structure)**: Higher high forming after lower highs = bullish BOS (Breakout signal). Lower low after higher lows = bearish BOS. BOS confirms the current trend structure.
+- **CHoCH (Change of Character)**: Lower high after higher high in a bull trend = bearish CHoCH (TrendFlip signal). Higher low after lower low in a bear trend = bullish CHoCH. CHoCH warns of a potential trend reversal or range shift.
+
+### Signal Rules — SMC Liquidity
+
+- **BUY-SIDE SWEEP**: Price wicks below a recent swing low, then closes ABOVE it = long stops hunted, bullish reversal expected (PatternForming signal, Bullish). The sweep confirms the low was "taken."
+- **SELL-SIDE SWEEP**: Price wicks above a recent swing high, then closes BELOW it = short stops hunted, bearish reversal expected (PatternForming signal, Bearish).
+
+### Signal Rules — SMC FVG
+
+- **BULLISH FVG**: 3-candle gap where Low[3] > High[1] = bullish imbalance (LevelTest signal). The gap zone acts as a magnet — expect price to return and fill.
+- **BEARISH FVG**: 3-candle gap where High[3] < Low[1] = bearish imbalance. Same magnet behavior downward.
+- **MITIGATED FVG**: Price has traded through the gap = the imbalance is resolved. A mitigated bullish FVG that later holds as support = inverse FVG (structural support formed).
+
+### Signal Rules — SMC Order Blocks
+
+- **BULLISH OB**: Last bearish candle before a bullish BOS = demand zone (LevelTest signal when tested, Bullish). Price returning to this zone is a potential long entry.
+- **BEARISH OB**: Last bullish candle before a bearish BOS = supply zone (LevelTest signal when tested, Bearish). Price returning here is a potential short entry.
+- **MITIGATED OB**: Price closes beyond the OB zone = the block is broken (TrendFlip signal if role inverts). A mitigated bullish OB becomes potential resistance; a mitigated bearish OB becomes potential support.
+
+---
+
+## 36. DecisionContext
+
+### Description
+
+Read-only quantitative decision-support metrics computed from the full 51-indicator map. 17 fields covering probability, consensus, expected ranges, forward-looking volatility, risk, quality, reward/risk, stop recommendation, regime confidence, trend persistence, and trade readiness. No new indicators — it reads what already exists.
+
+### AI Input Schema
+
+```json
+{
+  "decision_context": {
+    "bullish_probability": 0.82,
+    "bearish_probability": 0.18,
+    "directional_bias": 0.64,
+    "consensus": 0.91,
+    "expected_range_1bar": 0.008,
+    "expected_range_5bar": 0.018,
+    "expected_range_20bar": 0.036,
+    "expected_volatility": 22.5,
+    "confluence": 62.0,
+    "risk_level": 0.22,
+    "reward_risk_ratio": 2.8,
+    "recommended_stop": 48750.0,
+    "trade_quality": 0.78,
+    "market_quality": 0.85,
+    "regime_confidence": 0.92,
+    "trend_persistence": 0.73,
+    "trade_readiness": 0.81
+  }
+}
+```
+
+### Signal Rules — Directional & Consensus
+
+- **High-conviction bullish**: P(bullish) > 0.80 AND Consensus > 0.85. Standard position sizing. Directional bias strongly positive.
+- **High-conviction bearish**: P(bearish) > 0.80 AND Consensus > 0.85. Standard position sizing.
+- **Fragmented market**: Consensus < 0.55 regardless of P(bullish). Reduce or avoid directional positions.
+- **Dead zone / equilibrium**: P(bullish) ≈ 0.50 AND Consensus < 0.55. Range-bound behavior expected.
+
+### Signal Rules — Risk & Stop
+
+- **High risk**: risk_level > 0.70. Do NOT open new positions. Reduce existing exposure.
+- **Low risk**: risk_level < 0.25. Standard sizing acceptable.
+- **Stop placement**: Use `recommended_stop` as context-aware stop. It prioritizes institutional levels (order blocks) over statistical levels (ATR). Always returns a value — hierarchical fallback chain.
+- **Asymmetric opportunity**: reward_risk_ratio ≥ 3.0. Target is 3× further than stop — favorable.
+- **Unfavorable asymmetry**: reward_risk_ratio < 1.0. Stop is wider than target — avoid this setup.
+
+### Signal Rules — Quality
+
+- **Trade Quality vs Market Quality**: They are DISTINCT. Market Quality = "is this market tradable?" (clean trend, low noise). Trade Quality = "is THIS directional setup good?" (confluence, probability, volume, consensus, confirmation).
+- **Trade Quality > 0.75**: Strong setup. All factors aligned in one direction.
+- **Trade Quality < 0.30**: Weak or no setup. Do not trade directionally.
+- **Contradiction penalty**: When SMC CHoCH, liquidity sweeps, or MACD divergence oppose the directional bias, trade_quality is HALVED (×0.5). Example: P(bullish)=0.84 but a bearish CHoCH exists → trade quality drops sharply.
+
+### Signal Rules — Regime & Trend
+
+- **Regime confidence > 0.85**: 6 regime indicators strongly agree on the current regime. Weighted: ADX 25%, Choppiness 25%, Ichimoku 20%, Aroon 15%, Supertrend 10%, EMA 5%.
+- **Regime confidence < 0.40**: Transitional market. Avoid directional bets.
+- **Trend persistence > 0.70**: 7+ of 9 confirmations support trend continuation. Strong trend.
+- **Trend persistence < 0.30**: Trend is weakening. Reduce or exit trend positions. Divergences present or CHoCH active.
+
+### Signal Rules — Expected Ranges & Volatility
+
+- **Expected ranges**: Use 1-bar for immediate noise, 5-bar for swing stop/target, 20-bar for position sizing. Trending regimes produce wider ranges; choppy regimes narrower.
+- **Volatility context**: Expected Volatility > 1.5× current HV = regime change likely (squeeze/coil). Adjust sizing.
+
+### Signal Rules — Trade Readiness (Synthesis)
+
+- **ACT (0.75–1.0)**: All systems aligned — low risk, high quality, persistent trend, confident regime. Execute standard sizing.
+- **READY (0.50–0.75)**: Favorable conditions. Proceed with caution — some factors may be neutral.
+- **PREPARE (0.25–0.50)**: Mixed signals. Wait for improvement or reduce size significantly.
+- **WAIT (0.0–0.25)**: Do not act. Risk is high, quality is low, or the market is fragmented.
+- Trade Readiness synthesizes 5 factors: 30% trade_quality + 25% (1−risk) + 20% market_quality + 10% regime_confidence + 15% trend_persistence.

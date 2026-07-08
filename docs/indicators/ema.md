@@ -61,3 +61,25 @@ During a fully aligned trending stack, the area between the EMA 10 and EMA 50 re
 The EMAs provide early invalidation triggers before your hard stop-losses are hit:
 *   **Long Invalidation:** If you are holding a long position and a candle closes decisively below the EMA 100 or EMA 200, the trend structure is compromised. Close the trade via a market order.
 *   **Short Invalidation:** If you are holding a short position and a candle closes decisively above the EMA 100 or EMA 200, the trend structure is compromised. Close the trade via a market order.
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| StackChange | ESTABLISHED_BULLISH_STACK | Fast > Medium > Slow > Long, price > fast EMA | Bullish |
+| StackChange | ESTABLISHED_BEARISH_STACK | Fast < Medium < Slow < Long, price < fast EMA | Bearish |
+| StackChange | CONSOLIDATED_TANGLED_STACK | EMAs are interwoven, no clear ordering | Neutral |
+| Crossover | EMA_PRICE_CROSS_FAST_BULLISH / BEARISH | Price crosses the fast EMA line — transition bar only | Bullish / Bearish |
+
+The StackChange and Crossover signals are distinct. StackChange fires on regime-level ribbon alignment; Crossover fires on point-in-time price-vs-fast-EMA crossings.
+
+## Normalization
+
+The EMA Ribbon normalized score in [-1, 1] is binary/tertiary:
+- **ESTABLISHED_BULLISH_STACK**: +1.0
+- **DYNAMIC_BULLISH_RETEST**: +0.8 (bullish pullback to medium EMA)
+- **CONSOLIDATED_TANGLED_STACK**: 0.0
+- **DYNAMIC_BEARISH_RETEST**: -0.8 (bearish pullback to medium EMA)
+- **ESTABLISHED_BEARISH_STACK**: -1.0
+
+The `values` sub-map carries: `fast`, `medium`, `slow`, `long` (the 4 EMA values). Confidence = |normalized|.

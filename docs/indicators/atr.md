@@ -111,3 +111,20 @@ Line Colors:
   ⚪ #8f929d Gray        = Stable volatility
   🔴 #ef4444 Dark Red    = Contracting volatility
 ```
+
+## 5. Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| Threshold | ATR_EXPANDING | ATR slope > +0.01 (volatility expanding — warns of regime change) | Neutral |
+| CompressionRelease | ATR_CONTRACTING | ATR slope < −0.01 (volatility contracting — coiled energy before expansion) | Neutral |
+
+## 6. Normalization
+
+ATR is a **chart-only overlay** — its normalized value is always 0.0 so it never influences the directional confluence engine. The state label is set to `ATR_STABLE` by default; the engine in `all.rs` overrides it to `ATR_EXPANDING` or `ATR_CONTRACTING` based on the ATR slope, and pushes the corresponding signals directly.
+
+The `values` sub-map carries:
+- `atr_14` — the raw ATR value (in price units)
+- `atr_slope` — the bar-over-bar ATR change
+
+Confidence = |normalized| = 0.0 (non-directional gate).

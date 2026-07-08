@@ -227,6 +227,20 @@ pub struct PreviousBarState {
     pub ema_fast: Option<f64>,
     pub ema_medium: Option<f64>,
     pub supertrend_line: Option<f64>,
+    // ── Deferred-indicator transition state (pivots / ichimoku) ──
+    /// Signed position vs the nearest active pivot level: +1 above pivot,
+    /// -1 below pivot, 0 unknown — used to detect pivot crossovers.
+    pub pivot_active_level: Option<f64>,
+    /// Previous Ichimoku Tenkan-sen (conversion line) for TK crossover.
+    pub ichimoku_tenkan: Option<f64>,
+    /// Previous Ichimoku Kijun-sen (base line) for TK crossover.
+    pub ichimoku_kijun: Option<f64>,
+    /// Previous price-vs-cloud position: +1 above cloud, -1 below, 0 inside —
+    /// used to detect cloud breakouts and price entering/leaving the cloud.
+    pub price_vs_cloud: Option<f64>,
+    /// Previous future-cloud colour sign (Senkou A − Senkou B) for twist detection.
+    pub ichimoku_future_bias: Option<f64>,
+    pub hull_ma: Option<f64>,
 }
 
 /// Stateful context bridging the pure calculators to signed normalization.

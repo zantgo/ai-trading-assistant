@@ -76,7 +76,7 @@ export class EdgeStore {
         }
     }
 
-    async saveEdge(pairKey: string): Promise<boolean> {
+    async saveEdge(pairKey: string, creatorName?: string): Promise<boolean> {
         if (!this.draftName.trim()) {
             this.error = 'Edge name is required';
             return false;
@@ -88,6 +88,7 @@ export class EdgeStore {
                 pair_key: pairKey,
                 description: this.draftDescription,
                 config: this.draftConfig,
+                creator_name: creatorName || undefined,
             };
             const result = await saveEdgeCall(payload);
             if (result.success) {

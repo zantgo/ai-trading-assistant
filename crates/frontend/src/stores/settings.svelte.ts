@@ -15,6 +15,7 @@ export class SettingsStore {
         keltner_ema_period: 20, keltner_atr_period: 10, keltner_multiplier: 2.0,
         donchian_period: 20, obv_smoothing: 20, cmf_period: 20, mfi_period: 14, hv_period: 20,
         aroon_period: 25, chop_period: 14, linreg_period: 20, zscore_period: 20,
+        williams_r_period: 14, hull_ma_period: 16, stddev_channel_period: 20, force_index_smoothing: 13,
     });
 
     emaFastLabel = $state('EMA-10'); emaMediumLabel = $state('EMA-50');

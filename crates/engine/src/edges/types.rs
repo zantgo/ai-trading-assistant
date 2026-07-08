@@ -308,6 +308,8 @@ pub struct EdgeSaveRequest {
     #[serde(default)]
     pub description: String,
     pub config: EdgeConfig,
+    #[serde(default)]
+    pub creator_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -328,6 +330,7 @@ pub struct SavedEdge {
     pub description: Option<String>,
     pub config: EdgeConfig,
     pub created_at: String,
+    pub creator_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -338,6 +341,7 @@ pub struct SavedEdgeRow {
     pub description: Option<String>,
     pub config_payload: String,
     pub created_at: String,
+    pub creator_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

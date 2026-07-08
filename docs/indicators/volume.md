@@ -55,3 +55,26 @@ Analyzing the divergence between price direction and volume trend helps identify
 ### 4.2 Bullish Volume Divergence
 *   **Structure:** Price continues to make lower lows, but volume peaks decline significantly, showing decreasing selling pressure.
 *   **Interpretation:** The markdown phase is losing institutional backing, indicating potential seller exhaustion and accumulation near the lows.
+
+---
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| VolumeClimax | VOLUME_CLIMAX (key=="volume") | Volume spike detected (volume label contains "CLIMAX") | Neutral |
+| VolumeClimax | EXHAUSTION_CLIMAX_VOLUME (key=="rvol") | RVOL indicates exhaustion climax (label contains "CLIMAX") | Neutral |
+
+Volume signals are non-directional — they flag participation extremes without a bullish/bearish bias. Direction is neutral for both Volume and RVOL climax signals.
+
+## Normalization
+
+**Volume**: Always 0.0 normalized (raw-only chart series that never influences the directional confluence engine).
+
+**RVOL**: Discrete 4-band mapping:
+- RVOL < 1.0: −0.5 (LOW_PARTICIPATION_VOLUME)
+- RVOL 1.0–1.5: 0.2 (NORMAL_PARTICIPATION_VOLUME)
+- RVOL 1.5–3.0: 0.8 (INSTITUTIONAL_BREAKOUT_VOLUME)
+- RVOL ≥ 3.0: −1.0 (EXHAUSTION_CLIMAX_VOLUME — extreme is bearish, mean-reversion framing)
+
+Both Volume and RVOL are non-directional gates. Confidence = 0.0 for Volume; `|normalized|` for RVOL.

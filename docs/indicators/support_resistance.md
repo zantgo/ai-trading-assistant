@@ -77,3 +77,19 @@ When price is within a configured proximity threshold (default 0.5%) of an activ
 
 ### 5.2 Breakout Validation
 S/R breakouts require institutional volume confirmation (RVOL ≥ 1.5) to be considered valid. Low-volume breaks through key levels are classified as "head fakes."
+
+---
+
+## 6. Live Pipeline Integration
+
+As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fully wired into the live and pre-warm normalization pipelines:
+
+* **Level source:** Swing pivots detected each completed candle (`FibonacciRange::detect_pivots`) are split into resistance (swing highs) and support (swing lows) and fed to a per-timeframe `SrRoleTracker` (flip tolerance 0.3%).
+* **Warm handover:** The tracker is warmed through the full historical candle series and carried into live ingestion via `WarmedPipelineState`, preserving flip memory across the handover boundary.
+* **Normalization:** `normalize_sr` consumes the role-adjusted `support_levels` / `resistance_levels` and emits:
+  * `SUPPORT_DEMAND_ZONE` (`LevelTest`, bullish) / `RESISTANCE_SUPPLY_ZONE` (`LevelTest`, bearish) on proximity (≤ 0.5%).
+  * `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` (`TrendFlip`) on RVOL-confirmed breaks.
+  * `STRUCTURE_NEUTRAL` otherwise.
+* **Scoring & AI:** As a `directional` registry indicator, `support_resistance` now contributes to the registry-driven confluence score and is surfaced in the AI Structure Agent / orchestrator context (previously it reported `INACTIVE` because no levels were wired).
+* **Telemetry:** The `support_resistance` row in the Telemetry Monitor renders its live state, normalized value, confidence, and signal badges automatically.
+

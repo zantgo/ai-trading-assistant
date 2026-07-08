@@ -305,7 +305,7 @@ export function readDraftFromPair(pair: InstanceState): {
     rsiPeriod: number; macdFast: number; macdSlow: number; macdSignal: number;
     adxPeriod: number; atrPeriod: number; squeezePeriod: number;
     analysisLimit: number;
-    showEmas: boolean; showBb: boolean; showVwap: boolean; showVolume: boolean;
+    showEmas: boolean; showBb: boolean; showVwap: boolean; showAvwap: boolean; showVolume: boolean;
     showAdx: boolean; showAtr: boolean; showRsi: boolean; showMacd: boolean;
     showSqueeze: boolean; showBbwp: boolean; showFib: boolean; showRvol: boolean;
     automationEnabled: boolean; automationIntervalValue: number;
@@ -344,6 +344,7 @@ export function readDraftFromPair(pair: InstanceState): {
         showEmas: pair.microTerm.showEmas,
         showBb: pair.microTerm.showBb,
         showVwap: pair.microTerm.showVwap,
+        showAvwap: pair.microTerm.showAvwap,
         showVolume: pair.microTerm.showVolume,
         showAdx: pair.microTerm.showAdx,
         showAtr: pair.microTerm.showAtr,

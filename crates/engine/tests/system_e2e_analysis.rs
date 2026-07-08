@@ -58,6 +58,9 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         bitget: Default::default(),
         fibonacci: Default::default(),
         pivots: Default::default(),
+        pivot_points: Default::default(),
+        candlestick: Default::default(),
+        profile: Default::default(),
         slow_timeframe: Default::default(),
         macro_timeframe: Default::default(),
         leverage: Default::default(),
@@ -138,6 +141,7 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             average_volume: None,
             indicators: std::collections::HashMap::new(),
             context: None,
+            decision_context: None,
         });
     }
 

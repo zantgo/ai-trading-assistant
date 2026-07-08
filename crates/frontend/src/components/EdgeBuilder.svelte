@@ -81,7 +81,7 @@
     }
 
     async function handleSave() {
-        const ok = await edge.saveEdge(app.pairKeyFor(pair.symbol));
+        const ok = await edge.saveEdge(app.pairKeyFor(pair.symbol), app.sessionUserName || undefined);
         if (ok) {
             await edge.fetchEdges(app.pairKeyFor(pair.symbol));
         }

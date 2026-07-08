@@ -696,10 +696,31 @@ fn default_trigger() -> String { "MANUAL".to_string() }
 // ─── Session ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct SessionInitRequest { pub mode: String, pub currency: String, pub exchange: String, pub capital: f64 }
+pub struct SessionInitRequest { pub mode: String, pub currency: String, pub exchange: String, pub capital: f64, #[serde(default)] pub user_name: Option<String> }
 
 #[derive(Debug, Serialize)]
-pub struct SessionStatusResponse { pub active: bool, pub mode: Option<String>, pub currency: Option<String>, pub exchange: Option<String>, pub capital: Option<f64>, pub instance_count: usize, pub max_instances: usize }
+pub struct SessionStatusResponse { pub active: bool, pub mode: Option<String>, pub currency: Option<String>, pub exchange: Option<String>, pub capital: Option<f64>, pub instance_count: usize, pub max_instances: usize, pub user_name: Option<String>, pub wallet_address: Option<String> }
+
+// ─── Profile Settings ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileSettingsRequest {
+    #[serde(default)]
+    pub user_name: Option<String>,
+    #[serde(default)]
+    pub wallet_address: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProfileSettingsResponse {
+    pub user_name: Option<String>,
+    pub wallet_address: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MaxInstancesRequest {
+    pub max_instances: usize,
+}
 
 // ─── Instance ──────────────────────────────────────────────────
 

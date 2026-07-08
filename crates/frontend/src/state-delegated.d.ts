@@ -13,6 +13,7 @@ declare module './state.svelte' {
         sessionExchange: string; sessionCapital: number; sessionInstanceCount: number;
         sessionMaxInstances: number; sessionLoading: boolean; sessionChecked: boolean;
         sessionError: string | null;
+        showQuitDialog: boolean;
 
         activeDecisionProfileId: number; decisionProfiles: DecisionProfile[];
         calculatedDecisionScore: DecisionScore | null; decisionLoading: boolean;

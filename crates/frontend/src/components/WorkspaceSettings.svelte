@@ -31,7 +31,7 @@
         exchange: 'Hyperliquid' as string,
         analysisLimit: 100 as number,
         visuals: {
-            showEmas: true, showBb: true, showVwap: true, showVolume: true,
+            showEmas: true, showBb: true, showVwap: true, showAvwap: true, showVolume: true,
             showAdx: true, showAtr: true, showRsi: true, showMacd: true,
             showSqueeze: true, showBbwp: true, showFib: true,
             showRvol: true, showStochastic: true, showChandeMo: true,
@@ -63,7 +63,7 @@
     $effect(() => {
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
         draft.analysisLimit = pair.microTerm.analysisLimit;
-        for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
+        for (const f of ['showEmas','showBb','showVwap','showAvwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
             (draft.visuals as any)[f] = (pair.microTerm as any)[f];
         }
         draft.automation.enabled = pair.automationEnabled;
@@ -169,7 +169,7 @@
 
     function applyVisualsToTerm(term: Record<string, any>, vis: typeof draft.visuals) {
         Object.assign(term, {
-            showEmas: vis.showEmas, showBb: vis.showBb, showVwap: vis.showVwap,
+            showEmas: vis.showEmas, showBb: vis.showBb, showVwap: vis.showVwap, showAvwap: vis.showAvwap,
             showVolume: vis.showVolume, showAdx: vis.showAdx, showAtr: vis.showAtr,
             showRsi: vis.showRsi, showMacd: vis.showMacd, showSqueeze: vis.showSqueeze,
             showBbwp: vis.showBbwp, showFib: vis.showFib,
@@ -254,6 +254,7 @@
                     <button class="{styles.selectorBtn} {draft.visuals.showEmas ? styles.active : ''}" onclick={() => draft.visuals.showEmas = !draft.visuals.showEmas}>EMAs</button>
                     <button class="{styles.selectorBtn} {draft.visuals.showBb ? styles.active : ''}" onclick={() => draft.visuals.showBb = !draft.visuals.showBb}>Bollinger</button>
                     <button class="{styles.selectorBtn} {draft.visuals.showVwap ? styles.active : ''}" onclick={() => draft.visuals.showVwap = !draft.visuals.showVwap}>VWAP</button>
+                    <button class="{styles.selectorBtn} {draft.visuals.showAvwap ? styles.active : ''}" onclick={() => draft.visuals.showAvwap = !draft.visuals.showAvwap}>A-VWAP</button>
                 </div>
             </div>
 

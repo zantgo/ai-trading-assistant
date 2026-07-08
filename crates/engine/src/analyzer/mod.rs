@@ -12,7 +12,7 @@ use crate::db;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern, PivotPoints, PivotMethod, Candlestick, CandlestickConfig, Ichimoku, Cci, ParabolicSar, WilliamsR, HullMA, AwesomeOscillator, ForceIndex, StdDevChannel, VolumeProfile, SmartMoney, AnchoredVwap};
 use shared::indicators::normalized::PreviousBarState;
 use crate::sr_engine::SrRoleTracker;
 
@@ -160,7 +160,9 @@ pub async fn run_single(
          mut aroon_indicator, mut choppiness_indicator, mut linreg_indicator, mut zscore_indicator,
          mut stoch_div, mut chandemo_div, mut mfi_div, mut cmf_div, mut obv_div, mut squeeze_div,
          mut vwap_sum_tp_vol, mut vwap_sum_vol,
-         mut last_day_index, mut volume_history);
+         mut last_day_index, mut volume_history, mut pivot_points_indicator, mut candlestick_indicator, mut ichimoku_indicator, mut cci_indicator, mut psar_indicator,
+         mut wr_indicator, mut hma_indicator, mut ao_indicator, mut fi_indicator, mut sdc_indicator,
+         mut volume_profile_indicator, mut smc_indicator, mut anchored_vwap_indicator);
 
     // Strict chronological handover boundary: the start time of the newest
     // historical (REST/DB) candle used for pre-warming. Live candles at or
@@ -171,6 +173,10 @@ pub async fn run_single(
         .as_ref()
         .and_then(|w| w.history.last().map(|c| c.start_time_ms))
         .unwrap_or(0);
+
+    // Support/Resistance role-reversal tracker (flip tolerance 0.3%). Persists
+    // across live bars; inherits warmed flip-state from the pre-warm pass.
+    let mut sr_tracker = SrRoleTracker::new(0.003);
 
     if let Some(w) = warmed {
         ema_fast = w.ema_fast;
@@ -207,6 +213,20 @@ pub async fn run_single(
         vwap_sum_vol = w.vwap_sum_vol;
         last_day_index = w.last_day_index;
         volume_history = w.volume_history;
+        sr_tracker = w.sr_tracker;
+        pivot_points_indicator = w.pivot_points_indicator;
+        candlestick_indicator = w.candlestick_indicator;
+        ichimoku_indicator = w.ichimoku_indicator;
+        cci_indicator = w.cci_indicator;
+        psar_indicator = w.psar_indicator;
+        wr_indicator = w.wr_indicator;
+        hma_indicator = w.hma_indicator;
+        ao_indicator = w.ao_indicator;
+        fi_indicator = w.fi_indicator;
+        sdc_indicator = w.sdc_indicator;
+        volume_profile_indicator = w.volume_profile_indicator;
+        smc_indicator = w.smc_indicator;
+        anchored_vwap_indicator = w.anchored_vwap_indicator;
 
         // Pre-populate history from warmed state
         {
@@ -283,6 +303,24 @@ pub async fn run_single(
         vwap_sum_vol = Decimal::ZERO;
         last_day_index = None;
         volume_history = VecDeque::with_capacity(20);
+        pivot_points_indicator = PivotPoints::new(PivotMethod::Classic);
+        candlestick_indicator = Candlestick::new(CandlestickConfig::default());
+        ichimoku_indicator = Ichimoku::new(
+            active_indicators.ichimoku_tenkan,
+            active_indicators.ichimoku_kijun,
+            active_indicators.ichimoku_senkou_b,
+            active_indicators.ichimoku_displacement,
+        );
+        cci_indicator = Cci::new(active_indicators.cci_period);
+        psar_indicator = ParabolicSar::new(active_indicators.psar_af_step, active_indicators.psar_af_max);
+        wr_indicator = WilliamsR::new(active_indicators.williams_r_period);
+        hma_indicator = HullMA::new(active_indicators.hull_ma_period);
+        ao_indicator = AwesomeOscillator::new();
+        fi_indicator = ForceIndex::new(active_indicators.force_index_smoothing);
+        sdc_indicator = StdDevChannel::new(active_indicators.stddev_channel_period);
+        volume_profile_indicator = VolumeProfile::new(active_indicators.volume_profile_window, active_indicators.volume_profile_bins, active_indicators.volume_profile_value_area);
+        smc_indicator = SmartMoney::new(active_indicators.smc_lookback);
+        anchored_vwap_indicator = AnchoredVwap::new();
     }
 
     // ADX slope history for the 2-bar consecutive-deceleration hook exit.
@@ -295,6 +333,7 @@ pub async fn run_single(
         std::collections::HashMap::new();
     let mut live_bar: u32 = 0;
     let mut prev_bar_state = PreviousBarState::default();
+    let mut last_pivot_count: usize = 0;
 
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
 
@@ -346,6 +385,34 @@ pub async fn run_single(
                     }
                     last_day_index = Some(day_index);
 
+                    // Session Pivot Points: accumulate this session's H/L/C and
+                    // recompute levels on UTC-day rollover.
+                    let pivot_levels =
+                        pivot_points_indicator.update(completed.high, completed.low, completed.close, day_index);
+
+                    // Candlestick recognition (Stage 1 geometry + Stage 3 confirm).
+                    let candlestick_reading =
+                        candlestick_indicator.update(completed.open, completed.high, completed.low, completed.close);
+
+                    // Ichimoku Cloud (Tenkan/Kijun/Senkou A/B/Chikou).
+                    let ichimoku_reading =
+                        ichimoku_indicator.update(completed.high, completed.low, completed.close);
+
+                    // CCI (Commodity Channel Index).
+                    let cci_reading = cci_indicator.update(completed.high, completed.low, completed.close);
+
+                    // Parabolic SAR.
+                    let psar_reading = psar_indicator.update(completed.high, completed.low);
+
+                    let wr_reading = wr_indicator.update(completed.high, completed.low, completed.close);
+                    let hma_reading = hma_indicator.update(completed.close);
+                    let ao_reading = ao_indicator.update(completed.high, completed.low);
+                    let fi_reading = fi_indicator.update(completed.close, completed.volume);
+                    let sdc_reading = sdc_indicator.update(completed.close);
+
+                    let volume_profile_reading = volume_profile_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+                    let smc_reading = smc_indicator.update(completed.open, completed.high, completed.low, completed.close);
+
                     let typical_price = (completed.high + completed.low + completed.close) / Decimal::from(3);
                     vwap_sum_tp_vol += typical_price * completed.volume;
                     vwap_sum_vol += completed.volume;
@@ -355,6 +422,12 @@ pub async fn run_single(
                     } else {
                         None
                     };
+
+                    let avwap_reading = anchored_vwap_indicator.update(
+                        completed.high, completed.low, completed.close, completed.volume,
+                        day_index,
+                        final_vwap.unwrap_or(Decimal::ZERO),
+                    );
 
                     let final_ema_fast = ema_fast.update(completed.close);
                     let final_ema_medium = ema_medium.update(completed.close);
@@ -398,20 +471,18 @@ pub async fn run_single(
                     let final_linreg = linreg_indicator.update(completed.close);
                     let final_zscore = zscore_indicator.update(completed.close);
 
-                    let extra_div = normalize::ExtraDivergence {
-                        stochastic: final_stoch.as_ref().map(|s| normalize::series_divergence_state(&stoch_div.update(completed.close, s.k_value))).unwrap_or_default(),
-                        chandemo: final_cmo.map(|v| normalize::series_divergence_state(&chandemo_div.update(completed.close, v))).unwrap_or_default(),
-                        mfi: final_mfi.map(|v| normalize::series_divergence_state(&mfi_div.update(completed.close, v))).unwrap_or_default(),
-                        cmf: final_cmf.map(|v| normalize::series_divergence_state(&cmf_div.update(completed.close, v))).unwrap_or_default(),
-                        obv: final_obv.as_ref().map(|o| normalize::series_divergence_state(&obv_div.update(completed.close, o.obv))).unwrap_or_default(),
-                        squeeze: final_sqz.as_ref().map(|s| normalize::series_divergence_state(&squeeze_div.update(completed.close, s.momentum_value))).unwrap_or_default(),
-                    };
+                    // ── Generalized divergence detection ──
+                    // Each oscillator's SeriesDivergence is updated every bar
+                    // for the RSI/MACD confirmation path below. The 6 extra
+                    // divergence states are resolved inline inside NormalizeParams
+                    // (below) so sr_supports/resistances are in scope for the
+                    // S/R-confirmation gate.
 
-                    // Divergence detection (live — potential status)
-                    let div_result = {
+                    // Divergence detection (live — potential status; confirmation
+                    // applied after S/R levels are computed below).
+                    let mut div_result = {
                         if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
-                            let mut det = divergence_detector.lock().await;
-                            det.update_full(completed.close, rsi, macd_hist)
+                            divergence_detector.lock().await.update_full(completed.close, rsi, macd_hist)
                         } else {
                             shared::indicators::DivergenceResult::default_div()
                         }
@@ -454,18 +525,52 @@ pub async fn run_single(
                         )
                     };
 
-                    // Chart pattern detection from pivots
-                    let pattern_result = {
+                    // Chart pattern detection from pivots (reused for S/R zones)
+                    let pivots = {
                         let hist = history.read().await;
                         let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
                         let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
-                        let pivots = FibonacciRange::detect_pivots(
+                        FibonacciRange::detect_pivots(
                             &candles_high, &candles_low,
                             fib_config.swing_lookback,
                             fib_config.swing_scan_range,
-                        );
-                        detect_pattern(&pivots)
+                        )
                     };
+                    if pivots.len() > last_pivot_count {
+                        anchored_vwap_indicator.reset_swing();
+                    }
+                    last_pivot_count = pivots.len();
+                    let pattern_result = detect_pattern(&pivots);
+
+                    // Support/Resistance zones: derive role-adjusted levels from
+                    // the swing pivots and update the flip tracker on this close.
+                    let (sr_supports, sr_resistances) =
+                        update_sr_levels(&mut sr_tracker, &pivots, completed.close, candle_close_sec);
+
+                    // Upgrade RSI/MACD potential divergences to Confirmed when
+                    // the candle close decisively breaks the nearest S/R level.
+                    // check_divergence_confirmation is a &self method on the
+                    // DivergenceDetector — we lock it again briefly.
+                    {
+                        let near_sup = sr_supports
+                            .iter()
+                            .copied()
+                            .filter(|s| *s > 0.0 && *s <= completed.close.to_f64().unwrap_or(0.0))
+                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        let near_res = sr_resistances
+                            .iter()
+                            .copied()
+                            .filter(|r| *r > 0.0 && *r >= completed.close.to_f64().unwrap_or(0.0))
+                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        if near_sup.is_some() || near_res.is_some() {
+                            let det = divergence_detector.lock().await;
+                            div_result = det.check_divergence_confirmation(
+                                &div_result, completed.close,
+                                near_sup.map(|s| Decimal::from_f64_retain(s).unwrap_or(Decimal::ZERO)),
+                                near_res.map(|r| Decimal::from_f64_retain(r).unwrap_or(Decimal::ZERO)),
+                            );
+                        }
+                    }
 
                     // Track ADX slope history for the 2-bar hook-exit rule.
                     if let Some(a) = final_adx.as_ref() {
@@ -519,7 +624,14 @@ pub async fn run_single(
                         choppiness: final_chop,
                         linreg_slope: final_linreg,
                         zscore: final_zscore,
-                        extra_div,
+                        extra_div: normalize::ExtraDivergence {
+                            stochastic: final_stoch.as_ref().map(|s| normalize::series_divergence_confirmed(&stoch_div.update(completed.close, s.k_value), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            chandemo: final_cmo.map(|v| normalize::series_divergence_confirmed(&chandemo_div.update(completed.close, v), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            mfi: final_mfi.map(|v| normalize::series_divergence_confirmed(&mfi_div.update(completed.close, v), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            cmf: final_cmf.map(|v| normalize::series_divergence_confirmed(&cmf_div.update(completed.close, v), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            obv: final_obv.as_ref().map(|o| normalize::series_divergence_confirmed(&obv_div.update(completed.close, o.obv), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            squeeze: final_sqz.as_ref().map(|s| normalize::series_divergence_confirmed(&squeeze_div.update(completed.close, s.momentum_value), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                        },
                         macd: &final_macd,
                         sqz: final_sqz.as_ref(),
                         adx: final_adx.as_ref(),
@@ -527,6 +639,7 @@ pub async fn run_single(
                         atr: final_atr.as_ref(),
                         bbwp: final_bbwp,
                         vwap: final_vwap,
+                        anchored_vwap: Some(avwap_reading),
                         ema_stack_state: ema_stack_str,
                         ema_fast: Some(final_ema_fast),
                         ema_medium: Some(final_ema_medium),
@@ -537,12 +650,26 @@ pub async fn run_single(
                         average_volume: avg_vol,
                         fib: Some(&fib),
                         pattern: Some(&pattern_result),
-                        support_levels: &[],
-                        resistance_levels: &[],
+                        support_levels: &sr_supports,
+                        resistance_levels: &sr_resistances,
                         active_position,
                         adx_consecutive_deceleration,
                         supertrend_flipped: final_supertrend.as_ref().map(|s| s.flipped).unwrap_or(false),
                         adx_di_crossover: final_adx.as_ref().and_then(|a| a.di_crossover.map(|c| match c { shared::indicators::DiCrossoverDir::Bullish => 1i8, shared::indicators::DiCrossoverDir::Bearish => -1i8 })),
+                        pivot_levels,
+                        pivot_proximity_pct: 0.0015,
+                        candlestick: Some(candlestick_reading),
+                        candlestick_min_confidence: 0.3,
+                        ichimoku: ichimoku_reading,
+                        cci: cci_reading,
+                        psar: psar_reading,
+                        williams_r: wr_reading,
+                        awesome_oscillator: ao_reading,
+                        force_index: fi_reading,
+                        hull_ma: hma_reading,
+                        stddev_channel: sdc_reading,
+                        volume_profile: volume_profile_reading,
+                        smc: smc_reading,
                         prev: prev_bar_state,
                     });
 
@@ -567,12 +694,55 @@ pub async fn run_single(
                         ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
                         ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
                         supertrend_line: final_supertrend.as_ref().map(|s| s.line.to_f64().unwrap_or(0.0)),
+                        // Populated in later phases (Pivots: P2, Ichimoku: P4).
+                        pivot_active_level: pivot_levels.map(|lv| {
+                            let p = lv.pivot.to_f64().unwrap_or(0.0);
+                            let c = completed.close.to_f64().unwrap_or(0.0);
+                            if c >= p { 1.0 } else { -1.0 }
+                        }),
+                        ichimoku_tenkan: ichimoku_reading.map(|r| r.tenkan.to_f64().unwrap_or(0.0)),
+                        ichimoku_kijun: ichimoku_reading.map(|r| r.kijun.to_f64().unwrap_or(0.0)),
+                        price_vs_cloud: ichimoku_reading.map(|r| {
+                            let top = r.senkou_a_current.to_f64().unwrap_or(0.0).max(r.senkou_b_current.to_f64().unwrap_or(0.0));
+                            let bot = r.senkou_a_current.to_f64().unwrap_or(0.0).min(r.senkou_b_current.to_f64().unwrap_or(0.0));
+                            let px = completed.close.to_f64().unwrap_or(0.0);
+                            if px > top { 1.0 } else if px < bot { -1.0 } else { 0.0 }
+                        }),
+                        ichimoku_future_bias: ichimoku_reading.map(|r| {
+                            (r.senkou_a - r.senkou_b).to_f64().unwrap_or(0.0).signum()
+                        }),
+                        hull_ma: hma_reading.map(|d| d.to_f64().unwrap_or(0.0)),
                     };
 
                     // Stamp signal freshness (age in completed bars).
                     let mut indicators = indicators;
                     live_bar = live_bar.wrapping_add(1);
                     stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
+
+                    // Compute quantitative decision-support context.
+                    let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+                    // Basic weighted-mean confluence from the indicator map
+                    // (matches the scoring engine's registry-weighted approach).
+                    let confluence_score = {
+                        let mut sum = 0.0f64;
+                        let mut wgt = 0.0f64;
+                        for meta in shared::indicators::registry::INDICATORS {
+                            if meta.directional {
+                                if let Some(v) = indicators.get(meta.key) {
+                                    let w = meta.default_weight;
+                                    sum += w * v.normalized;
+                                    wgt += w;
+                                }
+                            }
+                        }
+                        if wgt > 0.0 { (sum / wgt * 100.0).clamp(-100.0, 100.0) } else { 0.0 }
+                    };
+                    let dec_ctx = shared::decision_context::DecisionContext::compute(
+                        &indicators,
+                        completed.close.to_f64().unwrap_or(0.0),
+                        atr_val,
+                        confluence_score,
+                    );
 
                     let completed_snapshot = MarketSnapshot {
                         exchange: shadow_exchange,
@@ -594,6 +764,7 @@ pub async fn run_single(
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
                         context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
+                        decision_context: Some(dec_ctx),
                         indicators,
                     };
 
@@ -720,6 +891,34 @@ pub async fn run_single(
             }
         }
     }
+}
+
+/// Derive current support/resistance levels from swing pivots, updating the
+/// role-reversal tracker with the latest levels and candle close. Swing highs
+/// act as resistance, swing lows as support; the tracker flips a level's role
+/// when a candle closes decisively beyond it. Returns the current role-adjusted
+/// `(support_levels, resistance_levels)` for normalization.
+pub(crate) fn update_sr_levels(
+    tracker: &mut SrRoleTracker,
+    pivots: &[shared::indicators::PivotPoint],
+    close: Decimal,
+    timestamp_sec: u64,
+) -> (Vec<f64>, Vec<f64>) {
+    let mut raw_sup: Vec<f64> = Vec::new();
+    let mut raw_res: Vec<f64> = Vec::new();
+    for p in pivots {
+        let price = p.price.to_f64().unwrap_or(0.0);
+        if price <= 0.0 {
+            continue;
+        }
+        match p.pivot_type {
+            shared::indicators::PivotType::High => raw_res.push(price),
+            shared::indicators::PivotType::Low => raw_sup.push(price),
+        }
+    }
+    tracker.register_levels(&raw_sup, &raw_res);
+    let _ = tracker.process_candle_close(close.to_f64().unwrap_or(0.0), timestamp_sec);
+    (tracker.get_supports(), tracker.get_resistances())
 }
 
 /// Stamp `age_bars` on every signal using a persistent tracker keyed by
@@ -880,6 +1079,7 @@ fn broadcast_live_snapshot(
         atr: val_atr.as_ref(),
         bbwp: val_bbwp,
         vwap: val_vwap,
+        anchored_vwap: None,
         ema_stack_state,
         ema_fast: Some(val_ema_fast),
         ema_medium: Some(val_ema_medium),
@@ -896,6 +1096,20 @@ fn broadcast_live_snapshot(
         adx_consecutive_deceleration: false,
         supertrend_flipped: false,
         adx_di_crossover: None,
+        pivot_levels: None,
+        pivot_proximity_pct: 0.0015,
+        candlestick: None,
+        candlestick_min_confidence: 0.3,
+        ichimoku: None,
+        cci: None,
+        psar: None,
+        williams_r: None,
+        awesome_oscillator: None,
+        force_index: None,
+        hull_ma: None,
+        stddev_channel: None,
+        volume_profile: None,
+        smc: None,
         prev: PreviousBarState::default(),
     });
 
@@ -919,6 +1133,7 @@ fn broadcast_live_snapshot(
         volume: Some(candle.volume),
         average_volume: avg_vol,
         context: None,
+        decision_context: None,
         indicators,
     };
 

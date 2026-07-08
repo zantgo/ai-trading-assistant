@@ -1,175 +1,195 @@
-    /* ── Nav Header Stack Wrapper ── */
-    .nav-header-stack {
-        display: flex;
-        flex-direction: column;
-        padding: 12px 16px 0;
-        flex-shrink: 0;
-    }
+/* ── Nav Header Stack Wrapper ── */
+.nav-header-stack {
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 0;
+    flex-shrink: 0;
+}
 
-    /* ── Brand title ── */
-    .brand-header-title {
-        font-size: 14px;
-        font-weight: 700;
-        color: #f8fafc;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        white-space: nowrap;
-    }
+/* ── Brand title ── */
+.brand-header-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #f8fafc;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+}
 
-    /* ── Unified Global Header Bar ── */
-    .global-nav-card {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        height: 52px;
-        padding: 0 16px;
-        background-color: #11131a;
-        border: 1px solid #2d3448;
-        border-radius: 8px;
-    }
-    .brand-left-group {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-    }
-    .nav-right-group {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .navbar-tabs {
-        display: flex;
-        gap: 6px;
-        flex-shrink: 0;
-    }
-    .navbar-tab {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        padding: 6px 14px;
-        font-size: 11px;
-        font-weight: 600;
-        color: #64748b;
-        background: transparent;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s, border-color 0.15s;
-        white-space: nowrap;
-    }
-    .navbar-tab:hover:not(.active) {
-        color: #94a3b8;
-        border-color: #2d3448;
-    }
-    .navbar-tab:global(.active) {
-        background: #161a24;
-        border: 1px solid #2d3448;
-        color: #f8fafc;
-        font-weight: 700;
-        box-shadow: none;
-    }
-    .nav-session-group {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .nav-session-text {
-        font-size: 10px;
-        color: #64748b;
-        white-space: nowrap;
-    }
-    .navbar-pill-badge {
-        background: #232833;
-        border-radius: 4px;
-        padding: 3px 8px;
-        margin-left: 2px;
-        color: #94a3b8;
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        white-space: nowrap;
-    }
+/* ── Unified Global Header Bar ── */
+.global-nav-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    padding: 0 16px;
+    background-color: #060608;
+    border: none;
+    border-radius: 0;
+}
+.brand-left-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.nav-right-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.navbar-tabs {
+    display: flex;
+    gap: 20px;
+}
+.navbar-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 16px 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
+    transition: color 0.15s, text-shadow 0.15s;
+    white-space: nowrap;
+}
+.navbar-tab:hover {
+    color: #cbd5e1;
+}
+.navbar-tab:global(.active) {
+    color: #ffffff;
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+.navbar-pill-badge {
+    background: #1c212e;
+    border: 1px solid #2d3448;
+    border-radius: 4px;
+    padding: 3px 8px;
+    margin-left: 4px;
+    color: #94a3b8;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
 
-    /* ── Profile (inline in right group) ── */
-    .profile-menu-wrapper {
-        position: relative;
-    }
-    .navbar-profile-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        background: transparent;
-        border: 1px solid #2d3448;
-        border-radius: 6px;
-        color: #10b981;
-        cursor: pointer;
-        transition: background 0.15s, border-color 0.15s;
-    }
-    .navbar-profile-btn:hover {
-        background: rgba(255, 255, 255, 0.04);
-        border-color: #475569;
-    }
+/* Active State Badges (Green for Live, Yellow/Amber for Paper) */
+.navbar-pill-badge-active-live {
+    background: rgba(16, 185, 129, 0.15) !important;
+    border-color: #10b981 !important;
+    color: #10b981 !important;
+    font-weight: 800;
+}
 
-    /* Profile dropdown */
-    .profile-dropdown {
-        position: absolute;
-        top: 100%;
-        right: 0;
-        margin-top: 8px;
-        background: #11131a;
-        border: 1px solid #2d3448;
-        border-radius: 8px;
-        min-width: 220px;
-        z-index: 100;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-        overflow: hidden;
-    }
-    .profile-dropdown-header {
-        padding: 12px 14px 8px;
-    }
-    .profile-capital {
-        display: block;
-        font-size: 13px;
-        font-weight: 700;
-        color: #f8fafc;
-        font-family: ui-monospace, monospace;
-    }
-    .profile-mode {
-        display: block;
-        font-size: 10px;
-        color: #64748b;
-        text-transform: capitalize;
-        margin-top: 2px;
-    }
-    .profile-dropdown-divider {
-        height: 1px;
-        background: #1c212e;
-        margin: 0;
-    }
-    .profile-dropdown-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        padding: 10px 14px;
-        font-size: 11px;
-        color: #94a3b8;
-        background: transparent;
-        border: none;
-        text-align: left;
-        cursor: pointer;
-        transition: background 0.15s;
-    }
-    .profile-dropdown-item:hover {
-        background: rgba(255, 255, 255, 0.04);
-    }
-    .profile-dropdown-item.danger {
-        color: #ef4444;
-    }
-    .profile-dropdown-item.danger:hover {
-        background: rgba(239, 68, 68, 0.1);
-    }
+.navbar-pill-badge-active-paper {
+    background: rgba(245, 158, 11, 0.15) !important;
+    border-color: #f59e0b !important;
+    color: #f59e0b !important;
+    font-weight: 800;
+}
+
+.exchange-badge-currency {
+    color: #ffffff;
+    text-transform: uppercase;
+}
+.exchange-badge-on {
+    color: #ffffff;
+    text-transform: lowercase;
+}
+.exchange-badge-exchange {
+    color: #ffffff;
+}
+
+/* ── Profile ── */
+.profile-menu-wrapper {
+    position: relative;
+}
+.navbar-profile-tab {
+    padding: 16px 0;
+}
+/* Profile dropdown */
+.profile-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: auto;
+    margin-top: 8px;
+    background: #11131a;
+    border: 1px solid #2d3448;
+    border-radius: 8px;
+    min-width: 220px;
+    z-index: 100;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+.profile-dropdown-user {
+    display: flex;
+    align-items: center;
+    padding: 14px 16px 12px;
+}
+.profile-dropdown-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.profile-dropdown-info {
+    padding: 8px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.profile-dropdown-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.profile-dropdown-info-label {
+    font-size: 9px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.profile-dropdown-info-value {
+    font-size: 10px;
+    font-weight: 700;
+    color: #94a3b8;
+    font-family: ui-monospace, monospace;
+}
+.profile-dropdown-divider {
+    height: 1px;
+    background: #1c212e;
+    margin: 0;
+}
+.profile-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 11px;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.profile-dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.profile-dropdown-item.danger {
+    color: #ef4444;
+}
+.profile-dropdown-item.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}

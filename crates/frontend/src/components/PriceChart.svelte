@@ -1,9 +1,9 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { emaStackState, vwapBias, divStatus, iSub, getPriceFormat, getDecimalCount } from '../lib/telemetry';
+    import { emaStackState, vwapBias, divStatus, iSub, iRaw, getPriceFormat, getDecimalCount } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
+    import { createChart, CrosshairMode, CandlestickSeries, LineSeries, AreaSeries, LineStyle, createSeriesMarkers } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
@@ -37,6 +37,9 @@
     let bbMiddleSeries: ISeriesApi<'Line'>;
     let bbLowerSeries: ISeriesApi<'Line'>;
     let vwapSeries: ISeriesApi<'Line'>;
+    let avwapWeeklySeries: ISeriesApi<'Line'>;
+    let avwapMonthlySeries: ISeriesApi<'Line'>;
+    let avwapSwingSeries: ISeriesApi<'Line'>;
     let priceLineSeries: ISeriesApi<'Line'>;
     let supertrendSeries: ISeriesApi<'Line'>;
     let keltnerUpperSeries: ISeriesApi<'Line'>;
@@ -45,6 +48,18 @@
     let donchianUpperSeries: ISeriesApi<'Line'>;
     let donchianMiddleSeries: ISeriesApi<'Line'>;
     let donchianLowerSeries: ISeriesApi<'Line'>;
+    let ichimokuTenkanSeries: ISeriesApi<'Line'>;
+    let ichimokuKijunSeries: ISeriesApi<'Line'>;
+    let ichimokuSenkouASeries: ISeriesApi<'Line'>;
+    let ichimokuSenkouBSeries: ISeriesApi<'Line'>;
+    let ichimokuChikouSeries: ISeriesApi<'Line'>;
+    let ichimokuCloudASeries: ISeriesApi<'Area'>;
+    let ichimokuCloudBSeries: ISeriesApi<'Area'>;
+    let psarSeries: ISeriesApi<'Line'>;
+    let hmaSeries: ISeriesApi<'Line'>;
+    let sdUpperSeries: ISeriesApi<'Line'>;
+    let sdCenterSeries: ISeriesApi<'Line'>;
+    let sdLowerSeries: ISeriesApi<'Line'>;
 
     let supportLines: IPriceLine[] = [];
     let resistanceLines: IPriceLine[] = [];
@@ -55,7 +70,16 @@
     let fibExt2618Line: IPriceLine | null = null;
     let entryLine: IPriceLine | null = null;
     let stopLossLine: IPriceLine | null = null;
+    let pivotLines: IPriceLine[] = [];
+    let volumeProfileLines: IPriceLine[] = [];
     let markersApi: any = null;
+    // Accumulated candlestick pattern markers, keyed by candle time.
+    let patternMarkers = new Map<number, any>();
+    // SMC marker maps (one per sub-indicator).
+    let smcStructureMarkers = new Map<number, any>();
+    let smcLiquidityMarkers = new Map<number, any>();
+    let smcFvgMarkers = new Map<number, any>();
+    let smcOrderBlockMarkers = new Map<number, any>();
 
     // Track the active price-scale precision so we only reconfigure the chart
     // series when the asset crosses a decimal tier (not on every tick).
@@ -70,9 +94,15 @@
             candleSeries, priceLineSeries,
             ema10Series, ema50Series, ema100Series, ema200Series,
             bbUpperSeries, bbMiddleSeries, bbLowerSeries, vwapSeries,
+            avwapWeeklySeries, avwapMonthlySeries, avwapSwingSeries,
             supertrendSeries,
             keltnerUpperSeries, keltnerMiddleSeries, keltnerLowerSeries,
             donchianUpperSeries, donchianMiddleSeries, donchianLowerSeries,
+            ichimokuTenkanSeries, ichimokuKijunSeries, ichimokuSenkouASeries,
+            ichimokuSenkouBSeries, ichimokuChikouSeries,
+            ichimokuCloudASeries, ichimokuCloudBSeries,
+            psarSeries,
+            hmaSeries, sdUpperSeries, sdCenterSeries, sdLowerSeries,
         ]) {
             s?.applyOptions({ priceFormat });
         }
@@ -80,8 +110,99 @@
 
     async function updateMarkers() {
         if (!candleSeries || !markersApi || !pair) return;
-        const markers = await buildTradeMarkers(pairKey, pair.symbol, tf?.barDurationSec || 60);
-        markersApi.setMarkers(markers);
+        const trades = await buildTradeMarkers(pairKey, pair.symbol, tf?.barDurationSec || 60);
+        const patterns = tf?.showCandlestick ? Array.from(patternMarkers.values()) : [];
+        const smc = tf?.showSmcStructure ? Array.from(smcStructureMarkers.values()) : [];
+        const smcLiq = tf?.showSmcLiquidity ? Array.from(smcLiquidityMarkers.values()) : [];
+        const smcFvg = tf?.showSmcFvg ? Array.from(smcFvgMarkers.values()) : [];
+        const smcOb = tf?.showSmcOrderBlocks ? Array.from(smcOrderBlockMarkers.values()) : [];
+        const combined = [...trades, ...patterns, ...smc, ...smcLiq, ...smcFvg, ...smcOb].sort(
+            (a, b) => (a.time as number) - (b.time as number)
+        );
+        markersApi.setMarkers(combined);
+    }
+
+    /// Record a candlestick pattern marker from a completed-candle snapshot.
+    function recordPatternMarker(timeSec: number, m: IndicatorMap) {
+        const cs = m['candlestick'];
+        const sigs = cs?.signals ?? [];
+        const patSig = sigs.find(s => s.kind === 'PatternForming');
+        if (!patSig) return;
+        const bullish = patSig.direction === 'Bullish';
+        const confirmed = patSig.status === 'Confirmed';
+        // Short label: strip the _FORMED/_CONFIRMED suffix for the badge.
+        const short = patSig.label.replace(/_(FORMED|CONFIRMED)$/, '');
+        patternMarkers.set(timeSec, {
+            time: timeSec as Time,
+            position: bullish ? 'belowBar' : 'aboveBar',
+            color: bullish ? '#26a69a' : '#ef5350',
+            shape: confirmed ? (bullish ? 'arrowUp' : 'arrowDown') : 'circle',
+            text: short,
+        });
+        // Cap the marker trail to the most recent 60 patterns.
+        if (patternMarkers.size > 60) {
+            const oldest = Math.min(...patternMarkers.keys());
+            patternMarkers.delete(oldest);
+        }
+    }
+
+    /// Record SMC Structure markers (BOS/CHoCH) on completed candles.
+    function recordSmcStructureMarker(timeSec: number, m: IndicatorMap) {
+        const entry = m['smc_structure'];
+        if (!entry) return;
+        const values = entry.values ?? {};
+        const bosBull = values.bos_bullish === 1;
+        const bosBear = values.bos_bearish === 1;
+        const chochBull = values.choch_bullish === 1;
+        const chochBear = values.choch_bearish === 1;
+        if (bosBull) {
+            smcStructureMarkers.set(timeSec, { time: timeSec as Time, position: 'belowBar', color: '#00e5ff', shape: 'arrowUp', text: 'BOS ↑' });
+        } else if (bosBear) {
+            smcStructureMarkers.set(timeSec, { time: timeSec as Time, position: 'aboveBar', color: '#ff5252', shape: 'arrowDown', text: 'BOS ↓' });
+        } else if (chochBull) {
+            smcStructureMarkers.set(timeSec, { time: timeSec as Time, position: 'belowBar', color: '#ffab40', shape: 'circle', text: 'CHoCH ↑' });
+        } else if (chochBear) {
+            smcStructureMarkers.set(timeSec, { time: timeSec as Time, position: 'aboveBar', color: '#ffab40', shape: 'circle', text: 'CHoCH ↓' });
+        }
+        if (smcStructureMarkers.size > 60) { const o = Math.min(...smcStructureMarkers.keys()); smcStructureMarkers.delete(o); }
+    }
+
+    /// Record SMC Liquidity sweep markers.
+    function recordSmcLiquidityMarker(timeSec: number, m: IndicatorMap) {
+        const entry = m['smc_liquidity'];
+        if (!entry) return;
+        const values = entry.values ?? {};
+        if (values.sweep_buy === 1) {
+            smcLiquidityMarkers.set(timeSec, { time: timeSec as Time, position: 'belowBar', color: '#64ffda', shape: 'square', text: 'Liq Buy' });
+        } else if (values.sweep_sell === 1) {
+            smcLiquidityMarkers.set(timeSec, { time: timeSec as Time, position: 'aboveBar', color: '#ff5252', shape: 'square', text: 'Liq Sell' });
+        }
+        if (smcLiquidityMarkers.size > 30) { const o = Math.min(...smcLiquidityMarkers.keys()); smcLiquidityMarkers.delete(o); }
+    }
+
+    /// Record SMC Fair Value Gap markers.
+    function recordSmcFvgMarker(timeSec: number, m: IndicatorMap) {
+        const entry = m['smc_fvg'];
+        if (!entry) return;
+        const values = entry.values ?? {};
+        if (values.fvg_top != null && values.fvg_bottom != null) {
+            const bullish = values.fvg_bullish === 1;
+            smcFvgMarkers.set(timeSec, { time: timeSec as Time, position: bullish ? 'belowBar' : 'aboveBar', color: '#ffca28', shape: 'circle', text: bullish ? 'FVG ↑' : 'FVG ↓' });
+        }
+        if (smcFvgMarkers.size > 30) { const o = Math.min(...smcFvgMarkers.keys()); smcFvgMarkers.delete(o); }
+    }
+
+    /// Record SMC Order Block markers.
+    function recordSmcOrderBlockMarker(timeSec: number, m: IndicatorMap) {
+        const entry = m['smc_order_blocks'];
+        if (!entry) return;
+        const label = entry.state_label ?? '';
+        if (label.includes('BULLISH_TEST')) {
+            smcOrderBlockMarkers.set(timeSec, { time: timeSec as Time, position: 'belowBar', color: '#26a69a', shape: 'circle', text: 'OB ↑' });
+        } else if (label.includes('BEARISH_TEST')) {
+            smcOrderBlockMarkers.set(timeSec, { time: timeSec as Time, position: 'aboveBar', color: '#ef5350', shape: 'circle', text: 'OB ↓' });
+        }
+        if (smcOrderBlockMarkers.size > 30) { const o = Math.min(...smcOrderBlockMarkers.keys()); smcOrderBlockMarkers.delete(o); }
     }
 
     onMount(() => {
@@ -111,6 +232,9 @@
         bbMiddleSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         bbLowerSeries = chart.addSeries(LineSeries, { color: '#00e5ff', lineWidth: 1.0, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         vwapSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+        avwapWeeklySeries = chart.addSeries(LineSeries, { color: '#ffab40', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        avwapMonthlySeries = chart.addSeries(LineSeries, { color: '#ff6d00', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        avwapSwingSeries = chart.addSeries(LineSeries, { color: '#ff8a65', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         supertrendSeries = chart.addSeries(LineSeries, { color: '#26a69a', lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         keltnerUpperSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
         keltnerMiddleSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
@@ -118,6 +242,25 @@
         donchianUpperSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         donchianMiddleSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         donchianLowerSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        // Ichimoku Cloud — 5-line overlay (Tenkan, Kijun, Senkou A/B, Chikou).
+        // Senkou lines are rendered with time-shifted data to achieve the +26
+        // forward projection; Chikou is shifted −26 backward via data points.
+        ichimokuTenkanSeries = chart.addSeries(LineSeries, { color: '#ea80fc', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        ichimokuKijunSeries = chart.addSeries(LineSeries, { color: '#82b1ff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        ichimokuSenkouASeries = chart.addSeries(LineSeries, { color: '#69f0ae', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        ichimokuSenkouBSeries = chart.addSeries(LineSeries, { color: '#ff8a80', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        ichimokuChikouSeries = chart.addSeries(LineSeries, { color: '#b388ff', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+        // Semi-transparent AreaSeries behind the Senkou lines for the cloud fill.
+        ichimokuCloudASeries = chart.addSeries(AreaSeries, { lineColor: 'rgba(105,240,174,0)', topColor: 'rgba(105,240,174,0.08)', bottomColor: 'rgba(105,240,174,0.02)', priceLineVisible: false, crosshairMarkerVisible: false });
+        ichimokuCloudBSeries = chart.addSeries(AreaSeries, { lineColor: 'rgba(255,138,128,0)', topColor: 'rgba(255,138,128,0.08)', bottomColor: 'rgba(255,138,128,0.02)', priceLineVisible: false, crosshairMarkerVisible: false });
+
+        psarSeries = chart.addSeries(LineSeries, { color: '#ffab40', lineWidth: 2, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
+
+        hmaSeries = chart.addSeries(LineSeries, { color: '#ff8a65', lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        sdUpperSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        sdCenterSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        sdLowerSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
@@ -232,6 +375,9 @@
                         bbMiddleSeries.setData(mapIndicator(ind.bb_middle));
                         bbLowerSeries.setData(mapIndicator(ind.bb_lower));
                         vwapSeries.setData(mapIndicator(ind.vwap));
+                        avwapWeeklySeries.setData(mapIndicator(ind.avwap_weekly));
+                        avwapMonthlySeries.setData(mapIndicator(ind.avwap_monthly));
+                        avwapSwingSeries.setData(mapIndicator(ind.avwap_swing));
                         supertrendSeries.setData(mapIndicator(ind.supertrend));
                         keltnerUpperSeries.setData(mapIndicator(ind.keltner_upper));
                         keltnerMiddleSeries.setData(mapIndicator(ind.keltner_middle));
@@ -239,6 +385,18 @@
                         donchianUpperSeries.setData(mapIndicator(ind.donchian_upper));
                         donchianMiddleSeries.setData(mapIndicator(ind.donchian_middle));
                         donchianLowerSeries.setData(mapIndicator(ind.donchian_lower));
+                        ichimokuTenkanSeries.setData(mapIndicator(ind.ichimoku_tenkan));
+                        ichimokuKijunSeries.setData(mapIndicator(ind.ichimoku_kijun));
+                        ichimokuSenkouASeries.setData(mapIndicator(ind.ichimoku_senkou_a));
+                        ichimokuSenkouBSeries.setData(mapIndicator(ind.ichimoku_senkou_b));
+                        ichimokuChikouSeries.setData(mapIndicator(ind.ichimoku_chikou));
+                        ichimokuCloudASeries.setData(mapIndicator(ind.ichimoku_senkou_a));
+                        ichimokuCloudBSeries.setData(mapIndicator(ind.ichimoku_senkou_b));
+                        psarSeries.setData(mapIndicator(ind.psar_sar));
+                        hmaSeries.setData(mapIndicator(ind.hull_ma));
+                        sdUpperSeries.setData(mapIndicator(ind.stddev_upper));
+                        sdCenterSeries.setData(mapIndicator(ind.stddev_center));
+                        sdLowerSeries.setData(mapIndicator(ind.stddev_lower));
                     }
                 }
             } catch (err) {
@@ -289,6 +447,13 @@
     });
 
     $effect(() => {
+        if (!avwapWeeklySeries || !avwapMonthlySeries || !avwapSwingSeries || !pair || !tf) return;
+        avwapWeeklySeries.applyOptions({ visible: tf.showAvwap });
+        avwapMonthlySeries.applyOptions({ visible: tf.showAvwap });
+        avwapSwingSeries.applyOptions({ visible: tf.showAvwap });
+    });
+
+    $effect(() => {
         if (!supertrendSeries || !pair || !tf) return;
         supertrendSeries.applyOptions({ visible: tf.showSupertrend });
     });
@@ -305,6 +470,30 @@
         donchianUpperSeries.applyOptions({ visible: tf.showDonchian });
         donchianMiddleSeries.applyOptions({ visible: tf.showDonchian });
         donchianLowerSeries.applyOptions({ visible: tf.showDonchian });
+        ichimokuTenkanSeries.applyOptions({ visible: tf.showIchimoku });
+        ichimokuKijunSeries.applyOptions({ visible: tf.showIchimoku });
+        ichimokuSenkouASeries.applyOptions({ visible: tf.showIchimoku });
+        ichimokuSenkouBSeries.applyOptions({ visible: tf.showIchimoku });
+        ichimokuChikouSeries.applyOptions({ visible: tf.showChikou });
+        ichimokuCloudASeries.applyOptions({ visible: tf.showIchimokuCloud });
+        ichimokuCloudBSeries.applyOptions({ visible: tf.showIchimokuCloud });
+    });
+
+    $effect(() => {
+        if (!psarSeries || !pair || !tf) return;
+        psarSeries.applyOptions({ visible: tf.showPsar });
+    });
+
+    $effect(() => {
+        if (!hmaSeries || !pair || !tf) return;
+        hmaSeries.applyOptions({ visible: tf.showHullMa });
+    });
+
+    $effect(() => {
+        if (!sdUpperSeries || !sdCenterSeries || !sdLowerSeries || !pair || !tf) return;
+        sdUpperSeries.applyOptions({ visible: tf.showStdDevChnl });
+        sdCenterSeries.applyOptions({ visible: tf.showStdDevChnl });
+        sdLowerSeries.applyOptions({ visible: tf.showStdDevChnl });
     });
 
     $effect(() => {
@@ -313,6 +502,15 @@
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
+
+        // Completed-candle candlestick pattern → accumulate a chart marker.
+        if (snap.is_completed) {
+            recordPatternMarker(timeSec, m);
+            recordSmcStructureMarker(timeSec, m);
+            recordSmcLiquidityMarker(timeSec, m);
+            recordSmcFvgMarker(timeSec, m);
+            recordSmcOrderBlockMarker(timeSec, m);
+        }
 
         if (snap.open != null && snap.high != null && snap.low != null && snap.close != null) {
             candleSeries.update({
@@ -338,6 +536,9 @@
         const bbMiddle = iSub(m, 'bollinger', 'middle');
         const bbLower = iSub(m, 'bollinger', 'lower');
         const vwapVal = iSub(m, 'vwap', 'vwap');
+        const avwapWeekly = iSub(m, 'anchored_vwap', 'weekly');
+        const avwapMonthly = iSub(m, 'anchored_vwap', 'monthly');
+        const avwapSwing = iSub(m, 'anchored_vwap', 'swing');
 
         if (emaFast != null) ema10Series.update({ time: timeSec as Time, value: emaFast });
         if (emaMedium != null) ema50Series.update({ time: timeSec as Time, value: emaMedium });
@@ -347,6 +548,9 @@
         if (bbMiddle != null) bbMiddleSeries.update({ time: timeSec as Time, value: bbMiddle });
         if (bbLower != null) bbLowerSeries.update({ time: timeSec as Time, value: bbLower });
         if (vwapVal != null) vwapSeries.update({ time: timeSec as Time, value: vwapVal });
+        if (avwapWeekly != null) avwapWeeklySeries.update({ time: timeSec as Time, value: avwapWeekly });
+        if (avwapMonthly != null) avwapMonthlySeries.update({ time: timeSec as Time, value: avwapMonthly });
+        if (avwapSwing != null) avwapSwingSeries.update({ time: timeSec as Time, value: avwapSwing });
 
         const stLine = iSub(m, 'supertrend', 'line');
         const stDir = iSub(m, 'supertrend', 'direction');
@@ -366,6 +570,32 @@
         if (dU != null) donchianUpperSeries.update({ time: timeSec as Time, value: dU });
         if (dM != null) donchianMiddleSeries.update({ time: timeSec as Time, value: dM });
         if (dL != null) donchianLowerSeries.update({ time: timeSec as Time, value: dL });
+
+        // Ichimoku Cloud: five lines from the nested indicator map.
+        const iTenkan = iSub(m, 'ichimoku', 'tenkan');
+        const iKijun = iSub(m, 'ichimoku', 'kijun');
+        const iSenkouA = iSub(m, 'ichimoku', 'senkou_a');
+        const iSenkouB = iSub(m, 'ichimoku', 'senkou_b');
+        const iChikou = iSub(m, 'ichimoku', 'chikou');
+        if (iTenkan != null) ichimokuTenkanSeries.update({ time: timeSec as Time, value: iTenkan });
+        if (iKijun != null) ichimokuKijunSeries.update({ time: timeSec as Time, value: iKijun });
+        if (iSenkouA != null) ichimokuSenkouASeries.update({ time: timeSec as Time, value: iSenkouA });
+        if (iSenkouB != null) ichimokuSenkouBSeries.update({ time: timeSec as Time, value: iSenkouB });
+        if (iChikou != null) ichimokuChikouSeries.update({ time: timeSec as Time, value: iChikou });
+        if (iSenkouA != null) ichimokuCloudASeries.update({ time: timeSec as Time, value: iSenkouA });
+        if (iSenkouB != null) ichimokuCloudBSeries.update({ time: timeSec as Time, value: iSenkouB });
+
+        const psarVal = iSub(m, 'psar', 'sar');
+        if (psarVal != null) psarSeries.update({ time: timeSec as Time, value: psarVal });
+
+        const hmaVal = iRaw(m, 'hull_ma');
+        if (hmaVal != null) hmaSeries.update({ time: timeSec as Time, value: hmaVal });
+        const sdU = iSub(m, 'stddev_channel', 'upper');
+        const sdC = iSub(m, 'stddev_channel', 'center');
+        const sdL = iSub(m, 'stddev_channel', 'lower');
+        if (sdU != null) sdUpperSeries.update({ time: timeSec as Time, value: sdU });
+        if (sdC != null) sdCenterSeries.update({ time: timeSec as Time, value: sdC });
+        if (sdL != null) sdLowerSeries.update({ time: timeSec as Time, value: sdL });
     });
 
     // Support level price lines
@@ -546,6 +776,86 @@
                 axisLabelVisible: true,
                 title: '2.618 Ext',
             });
+        }
+    });
+
+    // Session Pivot Points — seven static horizontal levels (P/R1-3/S1-3).
+    $effect(() => {
+        if (!candleSeries) return;
+        pivotLines.forEach(l => candleSeries.removePriceLine(l));
+        pivotLines = [];
+        if (!pair || !tf.showPivots) return;
+
+        const snap = tf.latestSnapshot;
+        if (!snap) return;
+        const pm = (snap.indicators ?? {}) as IndicatorMap;
+
+        const levels: Array<[string, string, string]> = [
+            ['r3', 'R3', '#ef5350'],
+            ['r2', 'R2', '#ef5350'],
+            ['r1', 'R1', '#ef5350'],
+            ['pivot', 'P', '#8d6e63'],
+            ['s1', 'S1', '#26a69a'],
+            ['s2', 'S2', '#26a69a'],
+            ['s3', 'S3', '#26a69a'],
+        ];
+        for (const [key, title, color] of levels) {
+            const price = iSub(pm, 'pivot_points', key);
+            if (price != null && price > 0) {
+                pivotLines.push(candleSeries.createPriceLine({
+                    price,
+                    color,
+                    lineWidth: 1,
+                    lineStyle: key === 'pivot' ? 0 : 3,
+                    axisLabelVisible: true,
+                    title,
+                }));
+            }
+        }
+    });
+
+    // Volume Profile — POC/VAH/VAL horizontal price levels.
+    $effect(() => {
+        if (!candleSeries) return;
+        volumeProfileLines.forEach(l => candleSeries.removePriceLine(l));
+        volumeProfileLines = [];
+        if (!pair || !tf.showVolumeProfile) return;
+
+        const snap = tf.latestSnapshot;
+        if (!snap) return;
+        const vm = (snap.indicators ?? {}) as IndicatorMap;
+        const poc = iSub(vm, 'volume_profile', 'poc');
+        const vah = iSub(vm, 'volume_profile', 'vah');
+        const val = iSub(vm, 'volume_profile', 'val');
+        if (poc != null && poc > 0) {
+            volumeProfileLines.push(candleSeries.createPriceLine({
+                price: poc,
+                color: '#bcaaa4',
+                lineWidth: 2,
+                lineStyle: 0,
+                axisLabelVisible: true,
+                title: 'POC',
+            }));
+        }
+        if (vah != null && vah > 0) {
+            volumeProfileLines.push(candleSeries.createPriceLine({
+                price: vah,
+                color: '#ef5350',
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: 'VAH',
+            }));
+        }
+        if (val != null && val > 0) {
+            volumeProfileLines.push(candleSeries.createPriceLine({
+                price: val,
+                color: '#26a69a',
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: 'VAL',
+            }));
         }
     });
 

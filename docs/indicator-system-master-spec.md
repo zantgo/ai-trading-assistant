@@ -1,11 +1,13 @@
-# MASTER SPECIFICATION — Unified Indicator System (Final Desired State)
+# MASTER SPECIFICATION — Unified Indicator System (Final State)
 
-Audit reference for the 30-indicator upgrade (Ichimoku + Pivot Points are the final
-Advanced tier and are NOT part of the current build; the other 28 are). Describes
-every indicator end-to-end (backend → transport → frontend), its functional group,
+Audit reference for the full 51-indicator system. All 7 groups are populated including
+the Institutional tier (SMC). 43 base indicators with standalone calculators + 8
+divergence keys derived from parent oscillators. A read-only DecisionContext layer
+provides probabilistic, consensus, range, and volatility metrics per snapshot.
+
+Describes every indicator end-to-end (backend → transport → frontend), its functional group,
 class (Leading/Hybrid/Lagging), scoring role, render location, signals, and where its
-documentation/functionality lives. Use the Part VIII checklist to verify each phase
-with zero regressions.
+documentation/functionality lives.
 
 ## Part I — Architecture layers (data flow, begin → end)
 
@@ -19,7 +21,7 @@ L5 Persist        crates/engine/src/db/queries/snapshots.rs  (dedicated cols + a
 L5 Transport      WS /ws · REST /api/history (time-aligned arrays) · /api/config (registry manifest)
 L6 FE State       crates/frontend/src/state.svelte.ts + stores/settings + lib/api.svelte.ts
 L7 Render         Price overlays (PriceChart) · Levels (price lines) · Panes (<Name>Chart) · Markers · TelemetryTable (rows+badges)
-L8 Scoring        crates/engine/src/profile_evaluation/scoring.rs (registry-driven: directional signed Σ + non-directional gates)
+L8 Scoring        crates/engine/src/profile_evaluation/scoring.rs (registry-driven: directional signed Σ + non-directional gates) + DecisionContext
 L9 AI             crates/engine/src/llm/{pipeline,agents,prompts}.rs + docs/indicators-guide.md
 ```
 
@@ -35,7 +37,7 @@ buttons, scoring UI) are derived from the registry manifest, not hand-maintained
 |---|---|
 | `key` | map key, e.g. `supertrend` |
 | `display_name` | UI label |
-| `group` | functional: Trend·Momentum·Volume·Volatility·Structure·Regime·Advanced |
+| `group` | functional: Trend·Momentum·Volume·Volatility·Structure·Regime·Institutional |
 | `class` | Leading·Hybrid·Lagging |
 | `render` | Pane·PriceOverlay·PriceLevels·Marker |
 | `directional` | true = signed [-1,1] scoring contributor; false = gate/multiplier |

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { useAppStore } from './state.svelte';
-    import type { CurrentView, Level2Mode, OperationalMode, InstanceState } from './types';
+    import type { CurrentView, Level2Mode, InstanceState } from './types';
 
     import LiveTerminal from './components/LiveTerminal.svelte';
     import TerminalMonitor from './components/TerminalMonitor.svelte';
@@ -23,6 +23,7 @@
     import TimeframeSettings from './components/TimeframeSettings.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
+    import UserProfile from './components/UserProfile.svelte';
     import EdgeBuilder from './components/EdgeBuilder.svelte';
     import EdgeAnalyzer from './components/EdgeAnalyzer.svelte';
     import styles from './App.module.css';
@@ -41,9 +42,7 @@
     // ─── App store & component-local state ──────────────────────────────────
     const app = useAppStore();
     const wsState: WsState = createWsState();
-    let showQuitDialog = $state(false);
     let showProfileMenu = $state(false);
-    let applyBusy = $state(false);
 
     // ─── 3-Tier navigation config ───────────────────────────────────────────
     const MODE_DEFS: { key: Level2Mode; label: string }[] = [
@@ -60,8 +59,8 @@
             { view: 'risk', label: 'Risk Management', icon: 'shield' },
         ],
         user: [
-            { view: 'terminal', label: 'Live Terminal', icon: 'trending-up' },
-            { view: 'monitor', label: 'Terminal Monitor', icon: 'monitor' },
+            { view: 'terminal', label: 'Live Workspace', icon: 'trending-up' },
+            { view: 'monitor', label: 'State Panel', icon: 'monitor' },
             { view: 'positions', label: 'Positions', icon: 'dollar' },
             { view: 'commission', label: 'Fee Projection', icon: 'percent' },
             { view: 'costs', label: 'Token Costs', icon: 'dollar' },
@@ -82,16 +81,6 @@
         ],
     };
 
-    const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
-        general: null, user: 'ManualOnly', rule: 'DeterministicHeuristics', ai: 'HybridAiCopilot',
-    };
-
-    function execLabel(mode: OperationalMode): string {
-        if (mode === 'ManualOnly') return 'User-Controlled';
-        if (mode === 'DeterministicHeuristics') return 'Rule-Based';
-        return 'AI-Driven';
-    }
-
     function selectView(pair: InstanceState, view: CurrentView) {
         pair.currentView = view;
         pair.modeViews[pair.currentLevel2Mode] = view;
@@ -102,12 +91,6 @@
     function selectMode(pair: InstanceState, mode: Level2Mode) {
         pair.currentLevel2Mode = mode;
         selectView(pair, pair.modeViews[mode]);
-    }
-
-    async function applyMode() {
-        applyBusy = true;
-        await app.applyMode();
-        applyBusy = false;
     }
 
     // ─── Config & lifecycle ─────────────────────────────────────────────
@@ -158,46 +141,57 @@
         <div class={styles.globalNavCard}>
             <!-- Left: brand + session badges -->
             <div class={styles.brandLeftGroup}>
-                <span class={styles.brandHeaderTitle}>AI Trading Assistant</span>
-                <span class={styles.navbarPillBadge}>{app.sessionExchange}</span>
-                <span class={styles.navbarPillBadge}>{app.sessionCurrency}</span>
-                <span class={styles.navbarPillBadge}>{app.sessionMode?.toUpperCase()}</span>
+                <span class={styles.brandHeaderTitle}>AI TRADING ASSISTANT</span>
+                <span class={styles.navbarPillBadge}>
+                    <span class={styles.exchangeBadgeCurrency}>{app.sessionCurrency}</span>
+                    <span class={styles.exchangeBadgeOn}> on </span>
+                    <span class={styles.exchangeBadgeExchange}>{app.sessionExchange}</span>
+                </span>
+                <span class="{styles.navbarPillBadge} {app.sessionMode === 'live' ? styles.navbarPillBadgeActiveLive : styles.navbarPillBadgeActivePaper}">{app.sessionMode?.toUpperCase()}</span>
             </div>
             <!-- Right: view switcher + profile -->
             <div class={styles.navRightGroup}>
                 <div class={styles.navbarTabs}>
                     <button class={styles.navbarTab} class:active={app.currentGlobalView === 'dashboard'} onclick={() => { app.currentGlobalView = 'dashboard'; }}>
-                        <Icon name="dashboard" /> Dashboard
+                        <Icon name="dashboard" size={14} /> Dashboard
                     </button>
-                    <button class={styles.navbarTab} class:active={app.currentGlobalView === 'instances'} onclick={() => { app.currentGlobalView = 'instances'; }}>
-                        <Icon name="list" /> Instances
+                    <button class={styles.navbarTab} class:active={app.currentGlobalView === 'instances' || app.currentGlobalView === 'workspace'} onclick={() => { app.currentGlobalView = 'instances'; }}>
+                        <Icon name="instances" size={14} /> Instances
                     </button>
                     <button class={styles.navbarTab} class:active={app.currentGlobalView === 'settings'} onclick={() => { app.currentGlobalView = 'settings'; }}>
-                        <Icon name="settings" /> Settings
+                        <Icon name="settings" size={14} /> Settings
                     </button>
                 </div>
                 <div class={styles.profileMenuWrapper}>
-                    <button class={styles.navbarProfileBtn} onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
-                        <Icon name="user" size={18} />
+                    <button class="{styles.navbarTab} {styles.navbarProfileTab}" class:active={showProfileMenu || app.currentGlobalView === 'user_profile'} onclick={() => showProfileMenu = !showProfileMenu} title="Profile">
+                        <Icon name="user" size={16} /> {app.sessionUserName || 'Profile'}
                     </button>
                     {#if showProfileMenu}
                         <div class={styles.profileDropdown} role="menu">
-                            <div class={styles.profileDropdownHeader}>
-                                <span class={styles.profileCapital}>{app.sessionCurrency} {app.sessionCapital?.toLocaleString() || '0'}</span>
-                                <span class={styles.profileMode}>{app.sessionMode} Trading</span>
+                            <div class={styles.profileDropdownUser}>
+                                <span class={styles.profileDropdownName}>{app.sessionUserName || 'Trader'}</span>
                             </div>
                             <div class={styles.profileDropdownDivider}></div>
-                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'dashboard'; }}>
-                                <Icon name="dashboard" /> General Dashboard
-                            </button>
-                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'instances'; }}>
-                                <Icon name="list" /> All Instances
-                            </button>
-                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'settings'; }}>
-                                <Icon name="settings" /> Settings
+                            <div class={styles.profileDropdownInfo}>
+                                <div class={styles.profileDropdownInfoRow}>
+                                    <span class={styles.profileDropdownInfoLabel}>Exchange</span>
+                                    <span class={styles.profileDropdownInfoValue}>{app.sessionExchange}</span>
+                                </div>
+                                <div class={styles.profileDropdownInfoRow}>
+                                    <span class={styles.profileDropdownInfoLabel}>Portfolio</span>
+                                    <span class={styles.profileDropdownInfoValue}>{app.sessionCurrency} {app.sessionCapital?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}</span>
+                                </div>
+                                <div class={styles.profileDropdownInfoRow}>
+                                    <span class={styles.profileDropdownInfoLabel}>Per Instance</span>
+                                    <span class={styles.profileDropdownInfoValue}>{app.sessionCurrency} {app.perInstanceCapital.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
+                            </div>
+                            <div class={styles.profileDropdownDivider}></div>
+                            <button class={styles.profileDropdownItem} onclick={() => { showProfileMenu = false; app.currentGlobalView = 'user_profile'; }}>
+                                <Icon name="user" /> Profile
                             </button>
                             <div class={styles.profileDropdownDivider}></div>
-                            <button class={styles.profileDropdownItem + " " + styles.danger} onclick={() => { showProfileMenu = false; showQuitDialog = true; }}>
+                            <button class={styles.profileDropdownItem + " " + styles.danger} onclick={() => { showProfileMenu = false; app.showQuitDialog = true; }}>
                                 <Icon name="quit" /> Quit
                             </button>
                         </div>
@@ -217,6 +211,8 @@
         <InstanceList />
     {:else if app.currentGlobalView === 'settings'}
         <GeneralSettings />
+    {:else if app.currentGlobalView === 'user_profile'}
+        <UserProfile />
     {:else}
     {#if !app.apiKeyConfigured}
         <div class={styles.apiKeyBanner}>
@@ -235,25 +231,12 @@
                     <div class={styles.modeTabsContainer}>
                         {#each MODE_DEFS as mode (mode.key)}
                             <button
-                                class={styles.modeBtn}
-                                class:mode-active={pair.currentLevel2Mode === mode.key}
+                                class="{styles.modeBtn} {pair.currentLevel2Mode === mode.key ? styles.modeActive : ''}"
                                 onclick={() => selectMode(pair, mode.key)}
                             >
                                 {mode.label}
                             </button>
                         {/each}
-                    </div>
-                    <div class={styles.modeStatusGroup}>
-                        <span class={styles.execBadge}>ACTIVE: {execLabel(pair.activeExecutionMode)}</span>
-                        {#if MODE_TO_OP[pair.currentLevel2Mode]}
-                            <button
-                                class={styles.applyConfigBtn}
-                                disabled={applyBusy || MODE_TO_OP[pair.currentLevel2Mode] === pair.activeExecutionMode}
-                                onclick={applyMode}
-                            >
-                                {applyBusy ? 'Applying…' : 'Apply Workspace Configuration'}
-                            </button>
-                        {/if}
                     </div>
                 </div>
 
@@ -262,8 +245,7 @@
                     <div class={styles.subTabsContainer}>
                          {#each MODE_TABS[pair.currentLevel2Mode] as tab (tab.view)}
                             <button
-                                class={styles.subTabBtn}
-                                class:sub-tab-active={pair.currentView === tab.view}
+                                class="{styles.subTabBtn} {pair.currentView === tab.view ? styles.subTabActive : ''}"
                                 onclick={() => selectView(pair, tab.view)}
                             >
                                 <Icon name={tab.icon} size={14} /> {tab.label}
@@ -273,9 +255,11 @@
                 </div>
 
                 <div class={styles.instancePairBanner}>
-                    <span class={styles.pairBannerTitle}>{app.pairDisplayFor(pair.symbol)}</span>
+                    <span class={styles.pairBannerTitle}>{pair.symbol} / {app.quote}</span>
                     <div class={styles.pairBannerPriceRow}>
-                        <span class={styles.pairBannerPrice}>{app.priceText}</span>
+                        <span class={styles.pairBannerPrice}>
+                            {app.priceText !== '--' ? '$' + app.priceText : '--'}
+                        </span>
                         {#if app.dayChangePct !== null}
                             <span class="{styles.pairBannerChange} {app.dayChangePct >= 0 ? styles.up : styles.down}">
                                 {app.dayChangePct >= 0 ? '+' : ''}{app.dayChangePct.toFixed(2)}%
@@ -372,8 +356,8 @@
 {/if}
 </div>
 
-{#if showQuitDialog}
-    <QuitDialog onclose={() => showQuitDialog = false} />
+{#if app.showQuitDialog}
+    <QuitDialog onclose={() => app.showQuitDialog = false} />
 {/if}
 {/if}
 

@@ -79,3 +79,17 @@ A pattern breakout is triggered when price decisively violates the calculated li
 *   **Bullish Breakout:** A 5-minute execution candle closes completely above the Upper Resistance Line ($y_{\text{high}}$).
 *   **Bearish Breakout:** A 5-minute execution candle closes completely below the Lower Support Line ($y_{\text{low}}$).
 *   **The Volume Requirement:** To prevent entering "fakeouts," any pattern breakout must be confirmed by the Relative Volume indicator ($RVOL \ge 1.5$), verifying institutional support behind the structural break.
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| PatternForming | BULLISH_PATTERN_BREAKOUT / ACCUMULATION | A bang/bullish chart pattern (triangle, ascending-channel, falling-wedge) is detected with sufficient pivot confidence | Bullish |
+| PatternForming | BEARISH_PATTERN_BREAKOUT / DISTRIBUTION | A bearish chart pattern (descending-triangle, rising-wedge) is detected with sufficient pivot confidence | Bearish |
+| PatternForming | NO_PATTERN | No structural pattern detected | Neutral (no signal fired) |
+
+## Normalization
+
+Chart patterns are directional indicators. The `patterns` indicator receives its normalized value from the `PatternResult` produced by the `detect_pattern` function applied to swing pivots. The normalized score is computed from the pattern's breakout direction (bullish=+1, bearish=-1) multiplied by the detection confidence in [0, 1] via the standard PatternForming signal path in `normalize_all`.
+
+The `values` sub-map is empty for chart patterns (single-scalar indicator). Confidence defaults to the detection confidence percentage.

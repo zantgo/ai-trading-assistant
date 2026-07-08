@@ -1,0 +1,150 @@
+.profile-page {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    overflow-y: auto;
+}
+.profile-card {
+    display: flex;
+    gap: 32px;
+    background: #11131a;
+    border: 1px solid #2d3448;
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 600px;
+    width: 100%;
+}
+.identicon-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.identicon {
+    border-radius: 8px;
+    border: 2px solid #2d3448;
+}
+.identicon-hint {
+    font-size: 9px;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.fields-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.form-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.form-input {
+    background: #0b0c10;
+    border: 1px solid #2d3448;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.form-input:focus {
+    border-color: #10b981;
+}
+.form-input::placeholder {
+    color: #475569;
+}
+.form-hint {
+    font-size: 9px;
+    color: #475569;
+}
+.radio-group {
+    display: flex;
+    gap: 16px;
+}
+.radio-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    color: #94a3b8;
+}
+.radio-input {
+    accent-color: #10b981;
+    cursor: pointer;
+    margin: 0;
+}
+.radio-label {
+    font-weight: 600;
+}
+.save-btn {
+    background: #f8fafc;
+    color: #0b0c10;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    margin-top: 4px;
+    align-self: flex-start;
+}
+.save-btn:hover:not(:disabled) {
+    opacity: 0.85;
+}
+.save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.success-msg {
+    font-size: 10px;
+    color: #10b981;
+    font-weight: 600;
+}
+.error-msg {
+    font-size: 10px;
+    color: #ef4444;
+}
+.profile-divider {
+    height: 1px;
+    background: #1c212e;
+    margin: 4px 0;
+}
+.quit-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid #ef4444;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #ef4444;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: background 0.15s;
+    align-self: flex-start;
+}
+.quit-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}

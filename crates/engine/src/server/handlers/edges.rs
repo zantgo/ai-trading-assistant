@@ -50,6 +50,7 @@ pub async fn serve_edges_save(
         &payload.pair_key,
         &payload.description,
         &config_json,
+        payload.creator_name.as_deref(),
     )
     .await;
 

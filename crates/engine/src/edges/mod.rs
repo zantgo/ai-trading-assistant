@@ -139,8 +139,15 @@ pub async fn save_edge(pool: &SqlitePool, req: EdgeSaveRequest) -> Result<i64, S
     let config_json =
         serde_json::to_string(&req.config).map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    let id = db::edges_insert(pool, req.name.trim(), &req.pair_key, &req.description, &config_json)
-        .await;
+    let id = db::edges_insert(
+        pool,
+        req.name.trim(),
+        &req.pair_key,
+        &req.description,
+        &config_json,
+        req.creator_name.as_deref(),
+    )
+    .await;
 
     if id > 0 {
         Ok(id)

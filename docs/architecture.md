@@ -17,10 +17,10 @@ The AI Trading Assistant implements a 7-layer institutional trading framework co
 - **Normalization**: `SymbolMapper` translates exchange-specific symbols into normalized identifiers
 
 ### Layer 2 — Analysis (Implemented)
-- **Indicator Engine**: EMA(10/50/100/200), RSI(14), MACD(12/26/9), ADX(14) with DI+/DI- crossovers, ATR(14) with volatility regime, Bollinger Bands, Squeeze Momentum, BBWP(252/20), VWAP, Fibonacci retracement/extensions
-- **Market Structure Engine**: Swing highs/lows, S/R role tracking with flip detection, chart pattern classification (triangles, wedges, channels)
-- **Volume Analysis**: RVOL (relative volume), average volume tracking, volume profile levels
-- **Regime Detection Engine**: Classifies market into Trending, Compression, Expansion, or Range using ADX, BBWP, Squeeze state, and ATR regime
+- **Indicator Engine**: 51 indicators across 7 groups (10 Trend, 7 Momentum + 4 divergence keys, 7 Volume + 3 divergence keys, 6 Volatility + 1 divergence key, 5 Structure, 4 Regime, 4 Institutional). All driven by the unified registry manifest. Each indicator flows through: calculator → normalizer → signal derivation → scoring. Every indicator produces a `NormalizedIndicatorValue { raw_value, normalized[-1,+1], state_label, values{}, signals[], confidence }`.
+- **Market Structure Engine**: Swing highs/lows, S/R role tracking with flip detection, chart pattern classification (triangles, wedges, channels), 29-species candlestick pattern recognition with geometric→context→confirmation pipeline, Smart Money Concepts (BOS/CHoCH, liquidity sweeps, fair value gaps, order blocks).
+- **Volume Analysis**: RVOL, Volume Profile (POC/VAH/VAL via OHLCV binning, 100-bar window), Anchored VWAP (daily/weekly/monthly/swing-anchored).
+- **Regime Detection Engine**: Classifies market into Trending, Compression, Expansion, or Range using ADX, BBWP, Squeeze state, Choppiness Index, and ATR regime. 7 non-directional gates act as confluence multipliers.
 
 ### Layer 3 — Agent Layer (Implemented)
 Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
@@ -29,6 +29,7 @@ Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
 - **Structure Agent**: Support/resistance levels, Fibonacci retracements/extensions, volume profile zones, liquidity levels
 - **Risk Agent**: Position sizing recommendations, leverage suggestions, exposure monitoring
 - **Position Management Agent**: Active position state, unrealized PnL, stop-loss/take-profit tracking, invalidation detection
+- **Institutional Agent (Smart Money)**: SMC structure (BOS/CHoCH), liquidity sweep detection, fair value gap lifecycle, order block zone tracking
 
 ### Layer 4 — Orchestration (Implemented)
 - **Master Orchestrator**: `run_multi_timeframe_orchestrator()` synthesizes agent outputs into a unified decision (Open Position / Scale / Hold / Reduce / Exit / No Action)
@@ -100,6 +101,16 @@ Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
 | `DELETE` | `/api/config/remove-pair` | Remove a trading pair |
 | `GET` | `/api/paper/balance` | Query paper trading balance |
 | `POST` | `/api/paper/configure` | Configure paper trading parameters |
+
+## Decision Support Layer
+
+- **DecisionContext**: Read-only quantitative metrics computed per snapshot from the full indicator map. Zero new indicators, zero state.
+  - `P(bullish)` / `P(bearish)` — weighted probabilistic vote (confidence × |normalized| × registry weight)
+  - `Consensus` — fraction of indicators agreeing on direction. <0.55 = fragmented market.
+  - `Expected Range` — 1/5/20 bar ranges, √N scaled, regime-adjusted (trending widens, choppy narrows)
+  - `Expected Volatility` — forward-looking annualized σ (HV + squeeze coil/BBWP/ATR expansion signals)
+  - `Confluence` — registry-weighted directional score [−100,+100]
+  - Attached to every `MarketSnapshot`; auto-transported via WebSocket + REST `/api/history`
 
 ## Runtime Details
 

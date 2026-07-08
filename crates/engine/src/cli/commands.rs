@@ -59,6 +59,7 @@ impl CliConsole {
                     crate::workspace::Currency::USDC,
                     crate::workspace::ExchangeChoice::Hyperliquid,
                     10000.0,
+                    None,
                 )
                 .await
             {

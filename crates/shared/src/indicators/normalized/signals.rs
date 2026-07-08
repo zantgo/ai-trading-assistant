@@ -185,8 +185,19 @@ pub(super) fn derive_signals(map: &mut Map) {
             }
         }
 
+        // CCI: overbought/oversold thresholds and climactic exhaustion.
+        // Also matches the Momentum bias patterns above via the MOM_KEYS list
+        // (CCI is NOT in MOM_KEYS, so its BIAS labels are handled here).
+        if key == "cci" {
+            if l.contains("OVERBOUGHT") || l.contains("CLIMACTIC_BULL") {
+                sigs.push(threshold(SignalDirection::Bearish, l));
+            } else if l.contains("OVERSOLD") || l.contains("CLIMACTIC_BEAR") {
+                sigs.push(threshold(SignalDirection::Bullish, l));
+            }
+        }
+
         // ── ZeroLineCross across oscillators ──
-        const ZERO_CROSS_KEYS: &[&str] = &["cmf", "chandemo", "rsi", "macd", "linreg_slope", "zscore"];
+        const ZERO_CROSS_KEYS: &[&str] = &["cmf", "chandemo", "rsi", "macd", "linreg_slope", "zscore", "cci", "williams_r", "awesome_oscillator", "force_index"];
         if ZERO_CROSS_KEYS.contains(&key.as_str()) && l.contains("ZERO_CROSS") {
             let d = if l.contains("BULLISH") { SignalDirection::Bullish }
                 else if l.contains("BEARISH") { SignalDirection::Bearish }
@@ -195,7 +206,7 @@ pub(super) fn derive_signals(map: &mut Map) {
         }
 
         // ── BandTouch for channel indicators ──
-        const BAND_KEYS: &[&str] = &["donchian", "keltner", "bollinger"];
+        const BAND_KEYS: &[&str] = &["donchian", "keltner", "bollinger", "stddev_channel"];
         if BAND_KEYS.contains(&key.as_str()) && l.contains("BAND_TOUCH") {
             let d = if l.contains("BULLISH") { SignalDirection::Bullish }
                 else if l.contains("BEARISH") { SignalDirection::Bearish }
@@ -205,6 +216,12 @@ pub(super) fn derive_signals(map: &mut Map) {
 
         // ── Supertrend TrendFlip (from structured flipped field, surfaced via label) ──
         if key == "supertrend" && l.contains("FLIP") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, l));
+        }
+
+        // ── PSAR TrendFlip ──
+        if key == "psar" && l.contains("FLIP") {
             let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
             sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, l));
         }
@@ -238,6 +255,78 @@ pub(super) fn derive_signals(map: &mut Map) {
         // release, so it emits CompressionRelease in addition to Threshold. ──
         if key == "choppiness" && (l.contains("COIL") || l.contains("CONSOLIDATION_RANGE")) {
             sigs.push(IndicatorSignal::new(SignalKind::CompressionRelease, SignalDirection::Neutral, SignalStatus::Active, l));
+        }
+
+        // Volume Profile breakout / POC retest / value rejection.
+        if key == "volume_profile" {
+            if l.contains("BREAKOUT_ABOVE") {
+                sigs.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bullish, SignalStatus::Active, l));
+            } else if l.contains("BREAKOUT_BELOW") {
+                sigs.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bearish, SignalStatus::Active, l));
+            } else if l.contains("POC_SUPPORT") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bullish, SignalStatus::Active, l));
+            } else if l.contains("POC_RESISTANCE") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bearish, SignalStatus::Active, l));
+            }
+        }
+
+        // ── Pivot Points level test (support/resistance proximity). Support
+        // tests are bullish (demand), resistance tests bearish (supply). ──
+        if key == "pivot_points" {
+            if l.contains("SUPPORT_TEST") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bullish, SignalStatus::Active, l));
+            } else if l.contains("RESISTANCE_TEST") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bearish, SignalStatus::Active, l));
+            } else if l.contains("CENTRAL_TEST") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Neutral, SignalStatus::Active, l));
+            }
+        }
+
+        // ── SMC Structure: BOS→Breakout, CHoCH→TrendFlip. ──
+        if key == "smc_structure" {
+            if l.contains("BOS") { sigs.push(IndicatorSignal::new(SignalKind::Breakout,
+                if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                SignalStatus::Active, l));
+            } else if l.contains("CHOCH") { sigs.push(IndicatorSignal::new(SignalKind::TrendFlip,
+                if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                SignalStatus::Active, l));
+            }
+        }
+
+        // ── SMC Liquidity: sweep→PatternForming, sweep detected→Threshold. ──
+        if key == "smc_liquidity" {
+            if l.contains("BUY_SWEEP") || l.contains("SELL_SWEEP") {
+                sigs.push(IndicatorSignal::new(SignalKind::PatternForming,
+                    if l.contains("BUY") { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                    SignalStatus::Active, l));
+            }
+        }
+
+        // ── SMC FVG: open gap→LevelTest. ──
+        if key == "smc_fvg" && (l.contains("BULLISH_OPEN") || l.contains("BEARISH_OPEN")) {
+            sigs.push(IndicatorSignal::new(SignalKind::LevelTest,
+                if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                SignalStatus::Active, l));
+        }
+
+        // ── SMC Order Blocks: tested→LevelTest, active→LevelTest. ──
+        if key == "smc_order_blocks" && l != "SMC_OB_NONE" {
+            sigs.push(IndicatorSignal::new(SignalKind::LevelTest,
+                if l.contains("BULLISH") { SignalDirection::Bullish } else if l.contains("BEARISH") { SignalDirection::Bearish } else { SignalDirection::Neutral },
+                SignalStatus::Active, l));
+        }
+
+        // ── Anchored VWAP level tests / crossovers ──
+        if key == "anchored_vwap" {
+            if l.contains("PREMIUM_ZONE") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bearish, SignalStatus::Active, l));
+            } else if l.contains("DISCOUNT_ZONE") {
+                sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bullish, SignalStatus::Active, l));
+            } else if l.contains("ABOVE_ACTIVE") {
+                sigs.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, l));
+            } else if l.contains("BELOW_ACTIVE") {
+                sigs.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, l));
+            }
         }
 
         if !sigs.is_empty() {

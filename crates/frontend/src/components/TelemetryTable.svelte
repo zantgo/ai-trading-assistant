@@ -15,7 +15,7 @@
     const timeframes = ['microTerm', 'fastTerm', 'slowTerm', 'macroTerm'] as const;
 
     const CLASS_ORDER = ['Leading', 'Hybrid', 'Lagging'] as const;
-    const GROUP_ORDER = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Regime', 'Advanced'] as const;
+    const GROUP_ORDER = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Regime', 'Institutional'] as const;
 
     // Registry-driven buckets: group by class (Leading/Hybrid/Lagging) or by
     // functional group (Trend/Momentum/...). Preserves registry ordering within.

@@ -15,6 +15,8 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
     let capital = *state.workspace.session.initial_capital.read().await;
     let instance_count = state.workspace.instance_count().await;
     let max_instances = state.workspace.max_instances().await;
+    let user_name = state.workspace.session.user_name.read().await.clone();
+    let wallet_address = state.config.read().await.profile.wallet_address.clone();
 
     Json(SessionStatusResponse {
         active,
@@ -24,6 +26,8 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
         capital,
         instance_count,
         max_instances,
+        user_name,
+        wallet_address,
     })
 }
 
@@ -67,9 +71,15 @@ pub async fn serve_session_init(
         }
     };
 
+    let user_name = if payload.user_name.as_ref().map_or(false, |n| !n.trim().is_empty()) {
+        payload.user_name
+    } else {
+        None
+    };
+
     match state
         .workspace
-        .init_session(mode, currency, exchange, payload.capital)
+        .init_session(mode, currency, exchange, payload.capital, user_name)
         .await
     {
         Ok(()) => (

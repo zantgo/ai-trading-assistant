@@ -4,7 +4,7 @@ use crate::edges::types::{CachedAnalyticsRow, SavedEdge, SavedEdgeRow};
 
 pub async fn edges_list(pool: &SqlitePool, pair_key: &str) -> Vec<SavedEdge> {
     let rows: Vec<SavedEdgeRow> = sqlx::query_as(
-        "SELECT id, name, pair_key, description, config_payload, created_at
+        "SELECT id, name, pair_key, description, config_payload, created_at, creator_name
          FROM saved_edges
          WHERE pair_key = ?1
          ORDER BY created_at DESC",
@@ -24,6 +24,7 @@ pub async fn edges_list(pool: &SqlitePool, pair_key: &str) -> Vec<SavedEdge> {
                 description: row.description,
                 config,
                 created_at: row.created_at,
+                creator_name: row.creator_name,
             }
         })
         .collect()
@@ -35,15 +36,17 @@ pub async fn edges_insert(
     pair_key: &str,
     description: &str,
     config_json: &str,
+    creator_name: Option<&str>,
 ) -> i64 {
     let result = sqlx::query(
-        "INSERT INTO saved_edges (name, pair_key, description, config_payload)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO saved_edges (name, pair_key, description, config_payload, creator_name)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
     )
     .bind(name)
     .bind(pair_key)
     .bind(if description.is_empty() { None } else { Some(description) })
     .bind(config_json)
+    .bind(creator_name.filter(|n| !n.is_empty()))
     .execute(pool)
     .await;
 
@@ -58,7 +61,7 @@ pub async fn edges_insert(
 
 pub async fn edges_get(pool: &SqlitePool, id: i64) -> Result<SavedEdgeRow, String> {
     let row: Option<SavedEdgeRow> = sqlx::query_as(
-        "SELECT id, name, pair_key, description, config_payload, created_at
+        "SELECT id, name, pair_key, description, config_payload, created_at, creator_name
          FROM saved_edges WHERE id = ?1",
     )
     .bind(id)

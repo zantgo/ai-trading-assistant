@@ -1,6 +1,7 @@
 //! Consolidation of the normalization mappers into a unified map.
 
 use super::super::squeeze::MomentumDirection;
+use super::super::candlestick::{CandlestickResult, CandlestickStatus};
 use super::{
     DivergenceState, IndicatorSignal, NormalizationContext, NormalizationEngine,
     NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
@@ -83,6 +84,10 @@ pub struct IndicatorInputs {
     pub rvol: Option<f64>,
     // VWAP
     pub vwap: Option<f64>,
+    // Anchored VWAP (weekly / monthly / swing)
+    pub avwap_weekly: Option<f64>,
+    pub avwap_monthly: Option<f64>,
+    pub avwap_swing: Option<f64>,
     // Fibonacci
     pub fib_gp_low: Option<f64>,
     pub fib_gp_high: Option<f64>,
@@ -101,6 +106,63 @@ pub struct IndicatorInputs {
     // EMA ribbon values for fast/medium crossover detection.
     pub ema_fast: Option<f64>,
     pub ema_medium: Option<f64>,
+    // Session Pivot Points: seven levels + proximity threshold (fraction).
+    pub pivot: Option<f64>,
+    pub pivot_r1: Option<f64>,
+    pub pivot_r2: Option<f64>,
+    pub pivot_r3: Option<f64>,
+    pub pivot_s1: Option<f64>,
+    pub pivot_s2: Option<f64>,
+    pub pivot_s3: Option<f64>,
+    pub pivot_proximity_pct: f64,
+    // Candlestick pattern reading (Stage 1 geometry + Stage 3 confirmation).
+    pub candlestick: Option<CandlestickResult>,
+    pub candlestick_min_confidence: f64,
+    // Ichimoku Cloud: 5 lines + current-applicable cloud spans.
+    pub ichimoku_tenkan: Option<f64>,
+    pub ichimoku_kijun: Option<f64>,
+    pub ichimoku_senkou_a: Option<f64>,
+    pub ichimoku_senkou_b: Option<f64>,
+    pub ichimoku_chikou: Option<f64>,
+    pub ichimoku_senkou_a_current: Option<f64>,
+    pub ichimoku_senkou_b_current: Option<f64>,
+    // CCI (Commodity Channel Index).
+    pub cci: Option<f64>,
+    // Parabolic SAR.
+    pub psar_sar: Option<f64>,
+    pub psar_direction: Option<i8>,
+    pub psar_flipped: bool,
+    // Williams %R, AO, Force Index, Hull MA, StdDev Channel.
+    pub williams_r: Option<f64>,
+    pub awesome_oscillator: Option<f64>,
+    pub ao_rising: bool,
+    pub force_index: Option<f64>,
+    pub hull_ma: Option<f64>,
+    pub stddev_upper: Option<f64>,
+    pub stddev_center: Option<f64>,
+    pub stddev_lower: Option<f64>,
+    // Volume Profile
+    pub volprofile_poc: Option<f64>,
+    pub volprofile_vah: Option<f64>,
+    pub volprofile_val: Option<f64>,
+    pub volprofile_total_volume: f64,
+    // Smart Money Concepts (SMC)
+    pub smc_structure_bullish: bool,
+    pub smc_structure_bearish: bool,
+    pub smc_bos_bullish: bool,
+    pub smc_bos_bearish: bool,
+    pub smc_choch_bullish: bool,
+    pub smc_choch_bearish: bool,
+    pub smc_liq_sweep_buy: bool,
+    pub smc_liq_sweep_sell: bool,
+    pub smc_ob_bullish_high: Option<f64>,
+    pub smc_ob_bullish_low: Option<f64>,
+    pub smc_ob_bearish_high: Option<f64>,
+    pub smc_ob_bearish_low: Option<f64>,
+    pub smc_fvg_top: Option<f64>,
+    pub smc_fvg_bottom: Option<f64>,
+    pub smc_fvg_bullish: bool,
+    pub smc_premium_discount: f64,
 }
 
 impl NormalizationEngine {
@@ -130,10 +192,33 @@ impl NormalizationEngine {
             out.insert("chandemo".into(), Self::normalize_chandemo(cmo));
         }
 
+        if let Some(wr) = inputs.williams_r {
+            out.insert("williams_r".into(), Self::normalize_williams_r(wr));
+        }
+
+        if let Some(ao) = inputs.awesome_oscillator {
+            out.insert("awesome_oscillator".into(), Self::normalize_awesome_oscillator(ao, inputs.ao_rising));
+        }
+
+        if let Some(fi) = inputs.force_index {
+            out.insert("force_index".into(), Self::normalize_force_index(fi));
+        }
+
+        if let Some(cci) = inputs.cci {
+            out.insert("cci".into(), Self::normalize_cci(cci));
+        }
+
         if let (Some(line), Some(dir)) = (inputs.supertrend_line, inputs.supertrend_dir) {
             out.insert(
                 "supertrend".into(),
                 Self::normalize_supertrend(ctx.price, line, dir),
+            );
+        }
+
+        if let (Some(sar), Some(dir)) = (inputs.psar_sar, inputs.psar_direction) {
+            out.insert(
+                "psar".into(),
+                Self::normalize_psar(ctx.price, sar, dir),
             );
         }
 
@@ -263,8 +348,48 @@ impl NormalizationEngine {
             out.insert("ema_stack".into(), Self::normalize_ema_stack(ctx));
         }
 
+        if let Some(hma) = inputs.hull_ma {
+            out.insert("hull_ma".into(), Self::normalize_hull_ma(hma));
+        }
+
         if let Some(vwap) = inputs.vwap {
             out.insert("vwap".into(), Self::normalize_vwap(ctx.price, vwap));
+        }
+
+        if let Some(wk) = inputs.avwap_weekly {
+            let mut values = HashMap::new();
+            if let Some(w) = inputs.avwap_weekly {
+                values.insert("weekly".into(), w);
+            }
+            if let Some(m) = inputs.avwap_monthly {
+                values.insert("monthly".into(), m);
+            }
+            if let Some(s) = inputs.avwap_swing {
+                values.insert("swing".into(), s);
+            }
+            let price = ctx.price;
+            let active = [wk, inputs.avwap_monthly.unwrap_or(wk), inputs.avwap_swing.unwrap_or(wk)]
+                .iter()
+                .map(|&a| (a, (price - a).abs()))
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|a| a.0)
+                .unwrap_or(wk);
+            let ratio = price / active;
+            let (norm, label) = if ratio > 1.01 {
+                (-0.7, "AVWAP_PREMIUM_ZONE")
+            } else if ratio < 0.99 {
+                (0.7, "AVWAP_DISCOUNT_ZONE")
+            } else if ratio > 1.001 {
+                (-0.3, "AVWAP_ABOVE_ACTIVE")
+            } else if ratio < 0.999 {
+                (0.3, "AVWAP_BELOW_ACTIVE")
+            } else {
+                (0.0, "AVWAP_AT_ACTIVE")
+            };
+            out.insert(
+                "anchored_vwap".into(),
+                NormalizedIndicatorValue::with_values(active, norm, label, values),
+            );
         }
 
         if inputs.fib_gp_low.is_some()
@@ -307,6 +432,156 @@ impl NormalizationEngine {
                     ctx.rvol.unwrap_or(0.0),
                 ),
             );
+        }
+
+        // Session Pivot Points (levels published from the prior UTC session).
+        if let Some(p) = inputs.pivot {
+            out.insert(
+                "pivot_points".into(),
+                Self::normalize_pivot_points(
+                    ctx.price,
+                    p,
+                    inputs.pivot_r1.unwrap_or(0.0),
+                    inputs.pivot_r2.unwrap_or(0.0),
+                    inputs.pivot_r3.unwrap_or(0.0),
+                    inputs.pivot_s1.unwrap_or(0.0),
+                    inputs.pivot_s2.unwrap_or(0.0),
+                    inputs.pivot_s3.unwrap_or(0.0),
+                    inputs.pivot_proximity_pct,
+                ),
+            );
+        }
+
+        // ── Candlestick patterns: Stage 2 (Context Validation) ──
+        // Stage 1 geometry + Stage 3 confirmation happened upstream in the
+        // `Candlestick` calculator. Here we cross-check the live indicator map
+        // (trend / S-R / volume / volatility / regime) to adjust confidence and
+        // reject low-context readings before scoring.
+        if let Some(cs) = inputs.candlestick {
+            let status_code = match cs.status {
+                CandlestickStatus::Formed => 1u8,
+                CandlestickStatus::Confirmed => 2u8,
+                CandlestickStatus::Invalidated => 3u8,
+                CandlestickStatus::None => 0u8,
+            };
+            if status_code != 0 {
+                let dir = cs.direction as f64;
+                let read_norm = |k: &str| out.get(k).map(|v| v.normalized).unwrap_or(0.0);
+                let read_raw = |k: &str| out.get(k).map(|v| v.raw_value).unwrap_or(0.0);
+
+                // Trend alignment: reversal patterns gain when the prevailing
+                // ema-stack trend opposes them (exhaustion); continuation
+                // patterns gain when aligned.
+                let trend = read_norm("ema_stack");
+                let is_continuation = cs.pattern.category() == "continuation";
+                let trend_factor = if is_continuation {
+                    if trend * dir > 0.0 { 1.25 } else { 0.8 }
+                } else if trend * dir < 0.0 {
+                    1.25 // reversal against trend = higher value
+                } else {
+                    0.9
+                };
+
+                // S/R proximity: a pattern at a structural level is stronger.
+                let sr_mag = read_norm("support_resistance").abs();
+                let pivot_mag = read_norm("pivot_points").abs();
+                let struct_factor = 1.0 + 0.3 * sr_mag.max(pivot_mag);
+
+                // Volume: institutional participation reinforces the pattern.
+                let rvol = read_raw("rvol");
+                let vol_factor = if rvol >= 1.5 { 1.2 } else if rvol > 0.0 && rvol < 0.8 { 0.85 } else { 1.0 };
+
+                // Regime: choppy/range conditions reduce reliability.
+                let chop = read_raw("choppiness");
+                let regime_factor = if chop >= 61.8 { 0.75 } else if chop > 0.0 && chop <= 38.2 { 1.1 } else { 1.0 };
+
+                // Volatility: extreme BBWP expansion can produce noise wicks.
+                let bbwp = read_raw("bbwp");
+                let vola_factor = if bbwp >= 95.0 { 0.85 } else { 1.0 };
+
+                let context_mult =
+                    (trend_factor * struct_factor * vol_factor * regime_factor * vola_factor).clamp(0.0, 2.0);
+
+                out.insert(
+                    "candlestick".into(),
+                    Self::normalize_candlestick(
+                        cs.pattern.name(),
+                        cs.pattern.category(),
+                        cs.direction,
+                        cs.quality,
+                        status_code,
+                        context_mult,
+                        inputs.candlestick_min_confidence,
+                    ),
+                );
+            }
+        }
+
+        // ── Ichimoku Cloud: complete trend system ──
+        if let (Some(tenkan), Some(kijun), Some(sa), Some(sb)) = (
+            inputs.ichimoku_tenkan,
+            inputs.ichimoku_kijun,
+            inputs.ichimoku_senkou_a,
+            inputs.ichimoku_senkou_b,
+        ) {
+            let sa_cur = inputs.ichimoku_senkou_a_current.unwrap_or(sa);
+            let sb_cur = inputs.ichimoku_senkou_b_current.unwrap_or(sb);
+            let chikou = inputs.ichimoku_chikou.unwrap_or(ctx.price);
+            let mut entry = Self::normalize_ichimoku(
+                ctx.price, tenkan, kijun, sa, sb, sa_cur, sb_cur, chikou,
+            );
+
+            // Transition signals via previous-bar state.
+            let cloud_top = sa_cur.max(sb_cur);
+            let cloud_bottom = sa_cur.min(sb_cur);
+            let cur_side = if ctx.price > cloud_top {
+                1.0
+            } else if ctx.price < cloud_bottom {
+                -1.0
+            } else {
+                0.0
+            };
+
+            // Tenkan/Kijun crossover (Crossover).
+            if let (Some(pt), Some(pk)) = (ctx.prev.ichimoku_tenkan, ctx.prev.ichimoku_kijun) {
+                if pt <= pk && tenkan > kijun {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "ICHIMOKU_TK_CROSS_BULLISH"));
+                } else if pt >= pk && tenkan < kijun {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "ICHIMOKU_TK_CROSS_BEARISH"));
+                }
+            }
+
+            // Cloud breakout / entering / leaving (Breakout + LevelTest).
+            if let Some(prev_side) = ctx.prev.price_vs_cloud {
+                if prev_side <= 0.0 && cur_side > 0.0 {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bullish, SignalStatus::Active, "ICHIMOKU_CLOUD_BREAKOUT_UP"));
+                } else if prev_side >= 0.0 && cur_side < 0.0 {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bearish, SignalStatus::Active, "ICHIMOKU_CLOUD_BREAKOUT_DOWN"));
+                } else if prev_side != 0.0 && cur_side == 0.0 {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Neutral, SignalStatus::Active, "ICHIMOKU_PRICE_ENTERING_CLOUD"));
+                }
+            }
+
+            // Future cloud twist (TrendFlip): the forward Senkou A crosses
+            // Senkou B, flipping the future cloud colour.
+            let fut_color = (sa - sb).signum();
+            if let Some(prev_fut) = ctx.prev.ichimoku_future_bias {
+                if prev_fut <= 0.0 && fut_color > 0.0 {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bullish, SignalStatus::Active, "ICHIMOKU_FUTURE_CLOUD_TWIST_BULLISH"));
+                } else if prev_fut >= 0.0 && fut_color < 0.0 {
+                    entry.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bearish, SignalStatus::Active, "ICHIMOKU_FUTURE_CLOUD_TWIST_BEARISH"));
+                }
+            }
+
+            // Chikou confirmation: the lagging span (current close) clearing the
+            // cloud in the trend direction reinforces conviction.
+            if chikou > cloud_top && cur_side > 0.0 {
+                entry.signals.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bullish, SignalStatus::Active, "ICHIMOKU_CHIKOU_CONFIRMS_BULL"));
+            } else if chikou < cloud_bottom && cur_side < 0.0 {
+                entry.signals.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bearish, SignalStatus::Active, "ICHIMOKU_CHIKOU_CONFIRMS_BEAR"));
+            }
+
+            out.insert("ichimoku".into(), entry);
         }
 
         // Supplemental raw-only chart series (neutral normalized score so they
@@ -352,6 +627,54 @@ impl NormalizationEngine {
             );
         }
 
+        if let (Some(u), Some(c), Some(l)) = (inputs.stddev_upper, inputs.stddev_center, inputs.stddev_lower) {
+            out.insert("stddev_channel".into(), Self::normalize_stddev_channel(ctx.price, u, c, l));
+        }
+
+        if let (Some(poc), Some(vah), Some(val)) =
+            (inputs.volprofile_poc, inputs.volprofile_vah, inputs.volprofile_val)
+        {
+            out.insert(
+                "volume_profile".into(),
+                Self::normalize_volume_profile(ctx.price, poc, vah, val, inputs.volprofile_total_volume),
+            );
+        }
+
+        // SMC Structure: BOS/CHoCH detection (Breakout/TrendFlip signals).
+        if inputs.smc_structure_bullish || inputs.smc_structure_bearish
+            || inputs.smc_bos_bullish || inputs.smc_bos_bearish
+            || inputs.smc_choch_bullish || inputs.smc_choch_bearish
+        {
+            out.insert("smc_structure".into(), Self::normalize_smc_structure(
+                inputs.smc_structure_bullish, inputs.smc_structure_bearish,
+                inputs.smc_bos_bullish, inputs.smc_bos_bearish,
+                inputs.smc_choch_bullish, inputs.smc_choch_bearish,
+            ));
+        }
+
+        // SMC Liquidity: buy/sell-side sweep detection.
+        if inputs.smc_liq_sweep_buy || inputs.smc_liq_sweep_sell {
+            out.insert("smc_liquidity".into(), Self::normalize_smc_liquidity(
+                inputs.smc_liq_sweep_buy, inputs.smc_liq_sweep_sell,
+            ));
+        }
+
+        // SMC Fair Value Gap: 3-candle imbalance detection.
+        if inputs.smc_fvg_top.is_some() || inputs.smc_fvg_bottom.is_some() {
+            out.insert("smc_fvg".into(), Self::normalize_smc_fvg(
+                inputs.smc_fvg_top, inputs.smc_fvg_bottom, inputs.smc_fvg_bullish,
+            ));
+        }
+
+        // SMC Order Blocks: institutional zone detection.
+        if inputs.smc_ob_bullish_high.is_some() || inputs.smc_ob_bearish_high.is_some() {
+            out.insert("smc_order_blocks".into(), Self::normalize_smc_order_blocks(
+                ctx.price,
+                inputs.smc_ob_bullish_high, inputs.smc_ob_bullish_low,
+                inputs.smc_ob_bearish_high, inputs.smc_ob_bearish_low,
+            ));
+        }
+
         // Generalized divergence scored entries (Phase 2). Each also pushes a
         // Divergence signal onto its parent oscillator.
         for (parent, key, state) in [
@@ -379,6 +702,17 @@ impl NormalizationEngine {
                 entry.signals.push(IndicatorSignal::new(
                     SignalKind::TrendFlip, d, SignalStatus::Active,
                     if d == SignalDirection::Bullish { "SUPERTREND_BULLISH_FLIP" } else { "SUPERTREND_BEARISH_FLIP" },
+                ));
+            }
+        }
+
+        // PSAR flip (TrendFlip).
+        if inputs.psar_flipped {
+            if let Some(entry) = out.get_mut("psar") {
+                let d = if inputs.psar_direction == Some(1) { SignalDirection::Bullish } else { SignalDirection::Bearish };
+                entry.signals.push(IndicatorSignal::new(
+                    SignalKind::TrendFlip, d, SignalStatus::Active,
+                    if d == SignalDirection::Bullish { "PSAR_BULLISH_FLIP" } else { "PSAR_BEARISH_FLIP" },
                 ));
             }
         }
@@ -601,6 +935,22 @@ impl NormalizationEngine {
             }
         }
 
+        // ── PSAR price/SAR line Crossover (distinct from TrendFlip). ──
+        if let (Some(sar), Some(psar_prev), Some(pprice)) =
+            (inputs.psar_sar, ctx.prev.supertrend_line, ctx.prev.price)
+        {
+            let price = ctx.price;
+            if pprice <= psar_prev && price > sar {
+                if let Some(e) = out.get_mut("psar") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "PSAR_PRICE_CROSS_BULLISH"));
+                }
+            } else if pprice >= psar_prev && price < sar {
+                if let Some(e) = out.get_mut("psar") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "PSAR_PRICE_CROSS_BEARISH"));
+                }
+            }
+        }
+
         // ── Aroon TrendFlip (transition-only, distinct from Crossover). ──
         // Fires ONLY on the bar where Up/Down leadership crosses — a discrete
         // point-in-time flip event, then goes quiet until the next crossing.
@@ -614,6 +964,116 @@ impl NormalizationEngine {
             } else if pu >= pd && up < down {
                 if let Some(e) = out.get_mut("aroon") {
                     e.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bearish, SignalStatus::Active, "AROON_BEARISH_TREND_FLIP"));
+                }
+            }
+        }
+
+        // ── Pivot central crossover (distinct from level-test proximity):
+        // fires on the bar where price crosses the central pivot, using the
+        // prior bar's side-of-pivot. `pivot_active_level` carries the signed
+        // side (+1 above, -1 below) from the previous bar. ──
+        if let (Some(p), Some(prev_side)) = (inputs.pivot, ctx.prev.pivot_active_level) {
+            if p > 0.0 && ctx.price > 0.0 {
+                let cur_side = if ctx.price >= p { 1.0 } else { -1.0 };
+                if prev_side < 0.0 && cur_side > 0.0 {
+                    if let Some(e) = out.get_mut("pivot_points") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "PIVOT_CENTRAL_CROSS_BULLISH"));
+                    }
+                } else if prev_side > 0.0 && cur_side < 0.0 {
+                    if let Some(e) = out.get_mut("pivot_points") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "PIVOT_CENTRAL_CROSS_BEARISH"));
+                    }
+                }
+            }
+        }
+
+        // ── EMA price/vs fast-EMA crossover (Crossover).
+        // The EMA Ribbon registry entry claims Crossover; this is the price
+        // crossing the fast EMA line, distinct from the EMA fast/medium
+        // Crossover which fires on the ribbon-internal fast-vs-med cross. ──
+        if let (Some(ppx), Some(pema), Some(ema)) = (ctx.prev.price, ctx.prev.ema_fast, inputs.ema_fast) {
+            if ppx <= pema && ctx.price > ema {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "EMA_PRICE_CROSS_FAST_BULLISH"));
+                }
+            } else if ppx >= pema && ctx.price < ema {
+                if let Some(e) = out.get_mut("ema_stack") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "EMA_PRICE_CROSS_FAST_BEARISH"));
+                }
+            }
+        }
+
+        // ── Supertrend BandTouch (mean-reversion when price nears the ST line). ──
+        if let (Some(line), Some(dir)) = (inputs.supertrend_line, inputs.supertrend_dir) {
+            let dist = if line.abs() > f64::EPSILON { (ctx.price - line).abs() / line } else { 0.0 };
+            if dist < 0.005 {
+                if let Some(e) = out.get_mut("supertrend") {
+                let d = if dir == 1 { SignalDirection::Bearish } else { SignalDirection::Bullish };
+                    e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, d, SignalStatus::Active,
+                        if d == SignalDirection::Bearish { "SUPERTREND_UPPER_BAND_TOUCH" } else { "SUPERTREND_LOWER_BAND_TOUCH" }));
+                }
+            }
+        }
+
+        // ── Stochastic 50-midline cross (ZeroLineCross). ──
+        if let (Some(k), Some(pk)) = (inputs.stoch_k, ctx.prev.stoch_k) {
+            if pk <= 50.0 && k > 50.0 {
+                if let Some(e) = out.get_mut("stochastic") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bullish, SignalStatus::Active, "STOCH_50_CROSS_BULLISH"));
+                }
+            } else if pk >= 50.0 && k < 50.0 {
+                if let Some(e) = out.get_mut("stochastic") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bearish, SignalStatus::Active, "STOCH_50_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── MACD histogram sign flip (TrendFlip). ──
+        if let (Some(hist), Some(prev_hist)) = (inputs.macd_histogram, ctx.prev.macd_line) {
+            if prev_hist <= 0.0 && hist > 0.0 {
+                if let Some(e) = out.get_mut("macd") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bullish, SignalStatus::Active, "MACD_HISTOGRAM_FLIP_BULLISH"));
+                }
+            } else if prev_hist >= 0.0 && hist < 0.0 {
+                if let Some(e) = out.get_mut("macd") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bearish, SignalStatus::Active, "MACD_HISTOGRAM_FLIP_BEARISH"));
+                }
+            }
+        }
+
+        // ── LevelTest on band proximity (bollinger/donchian/keltner). ──
+        for (key, upper, lower) in &[
+            ("bollinger", inputs.bb_upper, inputs.bb_lower),
+            ("keltner", inputs.keltner_upper, inputs.keltner_lower),
+            ("donchian", inputs.donchian_upper, inputs.donchian_lower),
+        ] {
+            if let (Some(u), Some(l)) = (*upper, *lower) {
+                if ctx.price < u && ctx.price > l && u > l {
+                    let pos = (ctx.price - l) / (u - l);
+                    if pos > 0.6 && pos <= 0.85 {
+                        if let Some(e) = out.get_mut(*key) {
+                            e.signals.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Neutral, SignalStatus::Active,
+                                &format!("{}_UPPER_LEVEL_TEST", key.to_uppercase())));
+                        }
+                    } else if pos >= 0.15 && pos < 0.4 {
+                        if let Some(e) = out.get_mut(*key) {
+                            e.signals.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Neutral, SignalStatus::Active,
+                                &format!("{}_LOWER_LEVEL_TEST", key.to_uppercase())));
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── HMA price cross (Crossover). ──
+        if let (Some(pprice), Some(prev_hma), Some(hma)) = (ctx.prev.price, ctx.prev.hull_ma, inputs.hull_ma) {
+            if pprice <= prev_hma && ctx.price > hma {
+                if let Some(e) = out.get_mut("hull_ma") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bullish, SignalStatus::Active, "HMA_PRICE_CROSS_BULLISH"));
+                }
+            } else if pprice >= prev_hma && ctx.price < hma {
+                if let Some(e) = out.get_mut("hull_ma") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "HMA_PRICE_CROSS_BEARISH"));
                 }
             }
         }

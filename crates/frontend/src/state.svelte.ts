@@ -32,13 +32,21 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         prevDayPx: null,
         showPatterns: true,
         isCompleted: false, latestSnapshot: null, historyPrices: [],
-        showEmas: true, showBb: true, showVwap: true, showVolume: true,
+        showEmas: true, showBb: true, showVwap: true, showAvwap: true, showVolume: true,
         showAdx: true, showAtr: true, showRsi: true, showMacd: true,
         showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
+        showPivots: true, showCandlestick: true, showIchimoku: true, showChikou: false, showIchimokuCloud: true,
         showStochastic: true, showChandeMo: true,
         showSupertrend: true, showKeltner: true, showDonchian: true,
         showObv: true, showCmf: true, showMfi: true, showHv: true,
         showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
+        showCci: true, showPsar: true,
+        showWilliamsR: true, showHullMa: true, showAo: true, showForceIdx: true, showStdDevChnl: true,
+        showVolumeProfile: true,
+        showSmcStructure: true,
+        showSmcLiquidity: false,
+        showSmcFvg: false,
+        showSmcOrderBlocks: true,
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,
@@ -54,6 +62,7 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         squeezeKcPeriodVal: 20, squeezeKcAtrMultVal: 1.5,
         atrMultiplierVal: 2.0, atrTargetRRVal: 2.5,
         volumeAvgPeriodVal: 20, rvolInstitutionalVal: 1.5, rvolClimaxVal: 3.0,
+        williamsRPeriodVal: 14, hullMaPeriodVal: 16, stddevChnlPeriodVal: 20, forceIdxSmoothingVal: 13,
     };
 }
 
@@ -100,6 +109,13 @@ export class AppStore {
     instancesMap = $state<Record<string, InstanceState>>({});
     activeTab = $state<string>('BTC-USDT');
     currentGlobalView = $state<string>('dashboard');
+    showQuitDialog = $state(false);
+
+    // Delegated from SessionStore (declared for TypeScript)
+    declare sessionUserName: string;
+    declare sessionWalletAddress: string;
+    declare saveProfile: (userName: string, walletAddress: string) => Promise<boolean>;
+    declare fetchProfile: () => Promise<{ userName: string; walletAddress: string } | null>;
 
     constructor() {
         this.edges = useEdgeStore();
@@ -109,6 +125,7 @@ export class AppStore {
             'sessionActive', 'sessionMode', 'sessionCurrency', 'sessionExchange',
             'sessionCapital', 'sessionInstanceCount', 'sessionMaxInstances',
             'sessionLoading', 'sessionChecked', 'sessionError',
+            'sessionUserName', 'sessionWalletAddress',
         ]);
 
         this._delegate(this.profiles, [
@@ -161,7 +178,7 @@ export class AppStore {
             'completedTrades', 'userTrades',
         ]);
 
-        this._delegateMethods(this.session, 'fetchSessionStatus', 'initSession', 'quitSession');
+        this._delegateMethods(this.session, 'fetchSessionStatus', 'quitSession', 'saveProfile', 'fetchProfile');
         this._delegateMethods(this.profiles,
             'fetchDecisionProfiles', 'createDecisionProfile', 'deleteDecisionProfile',
             'updateDecisionProfileThresholds', 'addProfileIndicator',
@@ -199,6 +216,10 @@ export class AppStore {
 
     // ─── Helpers ─────────────────────────────────────────────────────
 
+    async initSession(mode: string, currency: string, exchange: string, capital: number, userName: string): Promise<{ success: boolean; error?: string }> {
+        return this.session.initSession(mode, currency, exchange, capital, userName);
+    }
+
     activeInstance(): InstanceState {
         if (!this.instancesMap[this.activeTab]) {
             this.instancesMap[this.activeTab] = createInstanceState(this.activeTab.split('-')[0] || 'BTC');
@@ -214,6 +235,12 @@ export class AppStore {
     get quote(): string { return this.sessionCurrency || 'USDT'; }
     pairKeyFor(symbol: string): string { return `${symbol}-${this.quote}`; }
     pairDisplayFor(symbol: string): string { return `${symbol}/${this.quote}`; }
+
+    /** Per-instance capital when portfolio is divided by max instances */
+    get perInstanceCapital(): number {
+        if (!this.sessionCapital || !this.sessionMaxInstances || this.sessionMaxInstances === 0) return 0;
+        return this.sessionCapital / this.sessionMaxInstances;
+    }
 
     initInstance(symbol: string, _exchange?: string) {
         const key = this.pairKeyFor(symbol);
@@ -237,6 +264,10 @@ export class AppStore {
                 tf.stochDPeriodVal = this.settings.globalIndicatorsConfig.stoch_d_period ?? 5;
                 tf.stochSPeriodVal = this.settings.globalIndicatorsConfig.stoch_s_period ?? 9;
                 tf.chandemoPeriodVal = this.settings.globalIndicatorsConfig.chandemo_period ?? 12;
+                tf.williamsRPeriodVal = this.settings.globalIndicatorsConfig.williams_r_period ?? 14;
+                tf.hullMaPeriodVal = this.settings.globalIndicatorsConfig.hull_ma_period ?? 16;
+                tf.stddevChnlPeriodVal = this.settings.globalIndicatorsConfig.stddev_channel_period ?? 20;
+                tf.forceIdxSmoothingVal = this.settings.globalIndicatorsConfig.force_index_smoothing ?? 13;
                 tf.analysisLimit = this.settings.globalCandlesConfig.analysis_limit ?? 100;
             }
         }
@@ -318,6 +349,8 @@ export class AppStore {
     set showBb(v: boolean) { this.micro().showBb = v; }
     get showVwap() { return this.micro().showVwap; }
     set showVwap(v: boolean) { this.micro().showVwap = v; }
+    get showAvwap() { return this.micro().showAvwap; }
+    set showAvwap(v: boolean) { this.micro().showAvwap = v; }
     get showVolume() { return this.micro().showVolume; }
     set showVolume(v: boolean) { this.micro().showVolume = v; }
     get showAdx() { return this.micro().showAdx; }

@@ -75,3 +75,15 @@
 .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .save-btn:hover:not(:disabled) { background: #4a6eef; }
 .loading-row { text-align: center; padding: 2rem; color: #64748b; }
+.readonly-label {
+    font-size: 0.78rem;
+    color: #64748b;
+    min-width: 160px;
+}
+.capital-display {
+    font-family: ui-monospace, monospace;
+    color: #10b981;
+    font-weight: 700;
+    font-size: 0.88rem;
+    padding: 0.35rem 0.5rem;
+}

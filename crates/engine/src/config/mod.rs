@@ -18,6 +18,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub pivots: PivotsConfig,
     #[serde(default)]
+    pub pivot_points: PivotPointsConfig,
+    #[serde(default)]
+    pub candlestick: CandlestickConfig,
+    #[serde(default)]
     pub slow_timeframe: SlowTimeframeConfig,
     #[serde(default)]
     pub macro_timeframe: SlowTimeframeConfig,
@@ -37,6 +41,8 @@ pub struct AppConfig {
     pub intervals: IntervalsConfig,
     #[serde(default)]
     pub api_failover: ApiFailoverConfig,
+    #[serde(default)]
+    pub profile: ProfileConfig,
     #[serde(default, skip_serializing)]
     pub instances: HashMap<String, InstanceSpecificConfig>,
 }

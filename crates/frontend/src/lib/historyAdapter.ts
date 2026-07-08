@@ -28,6 +28,9 @@ export interface FlatIndicatorHistory {
     bb_middle: Array<string | null>;
     bb_lower: Array<string | null>;
     vwap: Array<string | null>;
+    avwap_weekly: Array<string | null>;
+    avwap_monthly: Array<string | null>;
+    avwap_swing: Array<string | null>;
     supertrend: Array<string | null>;
     keltner_upper: Array<string | null>;
     keltner_middle: Array<string | null>;
@@ -35,6 +38,11 @@ export interface FlatIndicatorHistory {
     donchian_upper: Array<string | null>;
     donchian_middle: Array<string | null>;
     donchian_lower: Array<string | null>;
+    ichimoku_tenkan: Array<string | null>;
+    ichimoku_kijun: Array<string | null>;
+    ichimoku_senkou_a: Array<string | null>;
+    ichimoku_senkou_b: Array<string | null>;
+    ichimoku_chikou: Array<string | null>;
     obv: Array<string | null>;
     cmf: Array<string | null>;
     mfi: Array<string | null>;
@@ -43,6 +51,15 @@ export interface FlatIndicatorHistory {
     choppiness: Array<string | null>;
     linreg_slope: Array<string | null>;
     zscore: Array<string | null>;
+    cci: Array<string | null>;
+    psar_sar: Array<string | null>;
+    williams_r: Array<string | null>;
+    awesome_oscillator: Array<string | null>;
+    force_index: Array<string | null>;
+    hull_ma: Array<string | null>;
+    stddev_upper: Array<string | null>;
+    stddev_center: Array<string | null>;
+    stddev_lower: Array<string | null>;
 }
 
 type NestedHistory = {
@@ -93,6 +110,9 @@ export function flattenHistory(ih: NestedHistory | undefined | null): FlatIndica
         bb_middle: val('bollinger', 'middle'),
         bb_lower: val('bollinger', 'lower'),
         vwap: val('vwap', 'vwap'),
+        avwap_weekly: val('anchored_vwap', 'weekly'),
+        avwap_monthly: val('anchored_vwap', 'monthly'),
+        avwap_swing: val('anchored_vwap', 'swing'),
         supertrend: val('supertrend', 'line'),
         keltner_upper: val('keltner', 'upper'),
         keltner_middle: val('keltner', 'middle'),
@@ -100,6 +120,11 @@ export function flattenHistory(ih: NestedHistory | undefined | null): FlatIndica
         donchian_upper: val('donchian', 'upper'),
         donchian_middle: val('donchian', 'middle'),
         donchian_lower: val('donchian', 'lower'),
+        ichimoku_tenkan: val('ichimoku', 'tenkan'),
+        ichimoku_kijun: val('ichimoku', 'kijun'),
+        ichimoku_senkou_a: val('ichimoku', 'senkou_a'),
+        ichimoku_senkou_b: val('ichimoku', 'senkou_b'),
+        ichimoku_chikou: val('ichimoku', 'chikou'),
         obv: raw('obv'),
         cmf: raw('cmf'),
         mfi: raw('mfi'),
@@ -108,5 +133,14 @@ export function flattenHistory(ih: NestedHistory | undefined | null): FlatIndica
         choppiness: raw('choppiness'),
         linreg_slope: raw('linreg_slope'),
         zscore: raw('zscore'),
+        cci: raw('cci'),
+        psar_sar: val('psar', 'sar'),
+        williams_r: raw('williams_r'),
+        awesome_oscillator: raw('awesome_oscillator'),
+        force_index: raw('force_index'),
+        hull_ma: raw('hull_ma'),
+        stddev_upper: val('stddev_channel', 'upper'),
+        stddev_center: val('stddev_channel', 'center'),
+        stddev_lower: val('stddev_channel', 'lower'),
     };
 }
