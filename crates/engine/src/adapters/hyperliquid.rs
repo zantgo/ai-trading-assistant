@@ -4,7 +4,8 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use shared::normalized::{
     ConnectionStatus, Exchange, ExchangeAdapter, NormalizedAssetContext, NormalizedEvent,
-    NormalizedOrderBook, NormalizedTrade, SymbolMapper, TradeSide,
+    NormalizedFundingRate, NormalizedOpenInterest, NormalizedOrderBook, NormalizedTrade,
+    SymbolMapper, TradeSide,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -93,6 +94,39 @@ struct AssetCtxInner {
     mid_px: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OIEnvelope {
+    channel: String,
+    data: Option<OIPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OIPayload {
+    coin: String,
+    oi: String,
+    time: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct FundingEnvelope {
+    channel: String,
+    data: Option<FundingPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct FundingPayload {
+    coin: String,
+    #[serde(rename = "fundingRate")]
+    funding_rate: String,
+    #[serde(rename = "premium")]
+    premium: String,
+    time: u64,
+}
+
 #[allow(dead_code)]
 #[async_trait]
 impl ExchangeAdapter for HyperliquidAdapter {
@@ -126,8 +160,10 @@ impl ExchangeAdapter for HyperliquidAdapter {
                 subscriptions.push(serde_json::json!({"type": "trades", "coin": raw_sym}));
                 subscriptions.push(serde_json::json!({"type": "l2Book", "coin": raw_sym}));
                 subscriptions.push(serde_json::json!({"type": "activeAssetCtx", "coin": raw_sym}));
+                subscriptions.push(serde_json::json!({"type": "activeOI", "coin": raw_sym}));
+                subscriptions.push(serde_json::json!({"type": "predictedFunding", "coin": raw_sym}));
                 println!(
-                    "📡 Hyperliquid Adapter: Subscribed to trades + l2Book for {} ({})",
+                    "📡 Hyperliquid Adapter: Subscribed to trades + l2Book + OI + Funding for {} ({})",
                     sym, raw_sym
                 );
             }
@@ -248,6 +284,36 @@ impl ExchangeAdapter for HyperliquidAdapter {
                                             mark_px,
                                             timestamp_ms: 0,
                                         });
+                                    let _ = event_tx.send(event).await;
+                                }
+                            }
+                        }
+                    } else if raw_text.contains("\"channel\":\"activeOi\"") || raw_text.contains("\"channel\":\"activeOI\"") {
+                        if let Ok(envelope) = serde_json::from_str::<OIEnvelope>(&raw_text) {
+                            if let Some(payload) = envelope.data {
+                                let symbol = to_internal_symbol(&payload.coin);
+                                if let Ok(oi) = Decimal::from_str(&payload.oi) {
+                                    let event = NormalizedEvent::OpenInterest(NormalizedOpenInterest {
+                                        exchange: Exchange::Hyperliquid,
+                                        symbol,
+                                        oi,
+                                        timestamp_ms: payload.time,
+                                    });
+                                    let _ = event_tx.send(event).await;
+                                }
+                            }
+                        }
+                    } else if raw_text.contains("\"channel\":\"predictedFunding\"") || raw_text.contains("\"channel\":\"predictedFundings\"") {
+                        if let Ok(envelope) = serde_json::from_str::<FundingEnvelope>(&raw_text) {
+                            if let Some(payload) = envelope.data {
+                                let symbol = to_internal_symbol(&payload.coin);
+                                if let Ok(rate) = Decimal::from_str(&payload.funding_rate) {
+                                    let event = NormalizedEvent::FundingRate(NormalizedFundingRate {
+                                        exchange: Exchange::Hyperliquid,
+                                        symbol,
+                                        rate,
+                                        timestamp_ms: payload.time,
+                                    });
                                     let _ = event_tx.send(event).await;
                                 }
                             }

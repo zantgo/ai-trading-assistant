@@ -1,0 +1,93 @@
+.section {
+    border: 1px solid #1c212e;
+    border-left: 3px solid #2d3448;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: #0d0f15;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+}
+.section[data-stage='Setup'] { border-left-color: #3b82f6; }
+.section[data-stage='Trigger'] { border-left-color: #f59e0b; }
+.section[data-stage='Confirmation'] { border-left-color: #10b981; }
+.section[data-stage='Risk'] { border-left-color: #ef4444; }
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: #e2e8f0;
+}
+.header:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+.chevron {
+    font-size: 10px;
+    color: #64748b;
+    transition: transform 0.15s;
+}
+.chevron[data-open='true'] {
+    transform: rotate(90deg);
+}
+.title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #e2e8f0;
+}
+.subtitle {
+    font-size: 8px;
+    color: #64748b;
+    letter-spacing: 0.03em;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rollup-bar {
+    position: relative;
+    width: 70px;
+    height: 6px;
+    background: #0b0c10;
+    border-radius: 3px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.rollup-zero {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #334155;
+}
+.rollup-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 2px;
+    transition: left 0.2s, width 0.2s;
+}
+.rollup-val {
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 34px;
+    text-align: right;
+}
+.sig-count {
+    font-size: 9px;
+    color: #f59e0b;
+    min-width: 26px;
+    text-align: right;
+}
+
+.body {
+    padding: 6px 8px 8px 8px;
+}

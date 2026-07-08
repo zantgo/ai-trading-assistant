@@ -4,6 +4,7 @@ use engine::config::{AppConfig, FibonacciConfig, TimeframeConfig};
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, NormalizedEvent};
+use shared::statistics::StatisticsConfig;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -48,8 +49,10 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             costs: Default::default(),
             workspace: Default::default(),
             safety: Default::default(),
+        risk: Default::default(),
             intervals: Default::default(),
             api_failover: Default::default(),
+        statistics: Default::default(),
             instances: HashMap::new(),
         };
         let indicators = test_config.indicators.clone();
@@ -71,6 +74,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_broadcast,
                 tf_cfg,
                 fib_config,
+                StatisticsConfig::default(),
                 analyzer_div_det,
                 analyzer_history,
                 analyzer_latest_snap,

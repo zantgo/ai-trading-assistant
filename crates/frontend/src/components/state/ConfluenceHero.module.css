@@ -1,0 +1,181 @@
+.hero {
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    background: #0d0f15;
+    padding: 10px 12px;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #64ffda;
+    flex: 1;
+}
+.regime {
+    font-size: 9px;
+    font-weight: 700;
+    color: #e2e8f0;
+    background: #1c212e;
+    border-radius: 3px;
+    padding: 2px 6px;
+}
+.gate, .weight {
+    font-size: 9px;
+    color: #64748b;
+}
+
+.dial-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.dial-score {
+    font-size: 22px;
+    font-weight: 800;
+    min-width: 62px;
+    text-align: right;
+}
+.dial-track {
+    position: relative;
+    flex: 1;
+    height: 12px;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.dial-zero {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #475569;
+}
+.dial-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 4px;
+    transition: left 0.25s, width 0.25s;
+}
+.dial-scale {
+    font-size: 8px;
+    color: #475569;
+}
+
+.drivers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+.col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.col-head {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin-bottom: 2px;
+}
+.driver-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.driver-name {
+    font-size: 9px;
+    color: #cbd5e1;
+    width: 84px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+.driver-bar-wrap {
+    flex: 1;
+    height: 6px;
+    background: #0b0c10;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.driver-bar {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+}
+.driver-val {
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 38px;
+    text-align: right;
+}
+.empty {
+    font-size: 9px;
+    color: #475569;
+    font-style: italic;
+}
+
+.opp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #1c212e;
+}
+.opp-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+.opp-track {
+    position: relative;
+    flex: 1;
+    height: 8px;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.opp-fill {
+    height: 100%;
+    background: #f59e0b;
+    transition: width 0.25s;
+}
+.opp-row[data-breached='true'] .opp-fill {
+    background: #ef4444;
+}
+.opp-threshold-mark {
+    position: absolute;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: #e2e8f0;
+}
+.opp-val {
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 52px;
+    text-align: right;
+}
+.opp-warn {
+    font-size: 9px;
+    font-weight: 700;
+    color: #ef4444;
+    text-align: center;
+    letter-spacing: 0.05em;
+}

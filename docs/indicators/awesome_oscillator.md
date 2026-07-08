@@ -20,8 +20,10 @@ Labels: `AO_BULLISH_RISING` (AO > 0, rising), `AO_BULLISH_FALLING` (AO > 0, not 
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| ZeroLineCross | AO zero cross | AO crosses 0 (momentum flips from bullish to bearish or vice versa). Transition-only via engine. | Bullish / Bearish |
-| Threshold | AO extreme reading | Significant |AO| magnitude indicating strong directional momentum | Bullish / Bearish |
+| ZeroLineCross | AO_ZERO_CROSS_BULLISH | AO crosses from negative to positive — momentum flips bullish. Transition-only via engine prev-bar comparison. | Bullish |
+| ZeroLineCross | AO_ZERO_CROSS_BEARISH | AO crosses from positive to negative — momentum flips bearish. | Bearish |
+| Threshold | AO_EXTREME_BULLISH | Large positive AO magnitude indicating strong bullish momentum above the zero line. Saucer formation or twin peaks confirmation. | Bullish |
+| Threshold | AO_EXTREME_BEARISH | Large negative AO magnitude indicating strong bearish momentum below the zero line. | Bearish |
 
 ## 5. Configuration
 AO uses fixed 5/34 periods (no configurable parameters). It is `directional: true`.

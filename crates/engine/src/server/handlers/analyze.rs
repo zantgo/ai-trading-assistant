@@ -43,7 +43,7 @@ pub async fn serve_analyze(
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
-                "error": "AI Assistant API Key is not configured. Heuristic fallback has been deprecated. Please configure your key in settings."
+                "error": "AI Assistant API Key is not configured. Please configure your key in settings."
             })),
         )
             .into_response();

@@ -33,6 +33,10 @@ Pivot Points are computed **independently on all four timeframes** (Micro / Fast
 
 `normalize_pivot_points` produces a directional score in `[-1, 1]` and stores all seven levels in the `values` sub-map (`pivot`, `r1`, `r2`, `r3`, `s1`, `s2`, `s3`).
 
+## 4. Normalization & Signals
+
+`normalize_pivot_points` produces a directional score in `[-1, 1]` and stores all seven levels in the `values` sub-map (`pivot`, `r1`, `r2`, `r3`, `s1`, `s2`, `s3`).
+
 | Condition (within proximity, default 0.15%) | Label | Normalized | Signal |
 |---|---|---|---|
 | Price at S1/S2/S3 | `PIVOT_S{n}_SUPPORT_TEST` | +0.7 / +0.9 / +1.0 | `LevelTest` (bullish) |
@@ -41,6 +45,10 @@ Pivot Points are computed **independently on all four timeframes** (Micro / Fast
 | Between levels, above pivot | `PIVOT_ABOVE_CENTRAL` | mild negative (mean-reversion framing) | — |
 | Between levels, below pivot | `PIVOT_BELOW_CENTRAL` | mild positive | — |
 | Central pivot crossed this bar | `PIVOT_CENTRAL_CROSS_{BULLISH,BEARISH}` | — | `Crossover` |
+| Price closes above R1 with momentum | `PIVOT_BULLISH_BREAKOUT` | +1.0 | `Breakout` (bullish) |
+| Price closes below S1 with momentum | `PIVOT_BEARISH_BREAKOUT` | −1.0 | `Breakout` (bearish) |
+
+The central-pivot crossover uses the previous bar's side-of-pivot (`PreviousBarState.pivot_active_level`) to fire only on the transition bar. Breakout signals require the candle close beyond R1 (bullish) or S1 (bearish) with a 0.15% tolerance buffer — wicks alone do not trigger the Breakout.
 
 The central-pivot crossover uses the previous bar's side-of-pivot (`PreviousBarState.pivot_active_level`) to fire only on the transition bar.
 

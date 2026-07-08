@@ -1,0 +1,247 @@
+.card {
+    border-left: 2px solid #2d3448;
+    background: #11131a;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+}
+
+.glance {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    color: #cbd5e1;
+}
+.glance:hover {
+    background: rgba(100, 255, 218, 0.04);
+}
+
+.dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.name {
+    font-size: 11px;
+    font-weight: 600;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 88px;
+    flex: 0 0 auto;
+}
+.class-tag {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 1px 3px;
+    border-radius: 3px;
+    color: #94a3b8;
+    background: #1c212e;
+}
+.class-tag[data-class='Leading'] { color: #64ffda; }
+.class-tag[data-class='Lagging'] { color: #f59e0b; }
+.class-tag[data-class='Hybrid'] { color: #a855f7; }
+
+.gate {
+    font-size: 10px;
+    color: #64748b;
+}
+
+.gauge {
+    position: relative;
+    flex: 1 1 auto;
+    height: 6px;
+    min-width: 48px;
+    background: #0b0c10;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.gauge-zero {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #334155;
+}
+.gauge-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 2px;
+    transition: left 0.2s, width 0.2s;
+}
+.norm-val {
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 34px;
+    text-align: right;
+}
+.conf {
+    font-size: 9px;
+    color: #64748b;
+    min-width: 30px;
+    text-align: right;
+}
+.raw-inline {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-left: auto;
+}
+
+.sig {
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border: 1px solid;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+.chevron {
+    font-size: 9px;
+    color: #475569;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+.chevron[data-open='true'] {
+    transform: rotate(90deg);
+}
+
+/* ── Expanded drawer ── */
+.drawer {
+    padding: 6px 8px 8px 8px;
+    border-top: 1px solid #1c212e;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.category {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #64748b;
+    background: #1c212e;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+.state-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.spark {
+    width: 100%;
+    height: 24px;
+    display: block;
+}
+.spark-zero {
+    stroke: #334155;
+    stroke-width: 0.5;
+    stroke-dasharray: 2 2;
+}
+.spark-line {
+    fill: none;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.chip {
+    font-size: 9px;
+    color: #cbd5e1;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+.chip-key {
+    color: #64748b;
+    margin-right: 3px;
+}
+
+.signal-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.signal-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.signal-kind {
+    font-size: 9px;
+    color: #cbd5e1;
+    flex: 1;
+}
+.signal-status {
+    font-size: 8px;
+    font-weight: 700;
+    color: #64748b;
+}
+.signal-status[data-status='Confirmed'] { color: #10b981; }
+.signal-status[data-status='Active'] { color: #64ffda; }
+.signal-status[data-status='Potential'] { color: #f59e0b; }
+.signal-age {
+    font-size: 8px;
+    color: #475569;
+    min-width: 26px;
+    text-align: right;
+}
+
+.caps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+.caps-label {
+    font-size: 8px;
+    color: #475569;
+    text-transform: uppercase;
+}
+.cap {
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 3px;
+    border: 1px solid;
+    border-radius: 3px;
+}
+.cap-off {
+    opacity: 0.25;
+}
+
+.foot-row {
+    display: flex;
+    gap: 6px;
+}
+.foot-tag {
+    font-size: 8px;
+    color: #475569;
+    background: #1c212e;
+    border-radius: 3px;
+    padding: 1px 4px;
+    letter-spacing: 0.05em;
+}

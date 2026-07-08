@@ -80,7 +80,22 @@ S/R breakouts require institutional volume confirmation (RVOL ≥ 1.5) to be con
 
 ---
 
-## 6. Live Pipeline Integration
+## 6. Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| LevelTest | SUPPORT_DEMAND_ZONE | Price within 0.5% proximity of an active Support level. Level is below price and has not been broken. | Bullish |
+| LevelTest | RESISTANCE_SUPPLY_ZONE | Price within 0.5% proximity of an active Resistance level. Level is above price and has not been broken. | Bearish |
+| Breakout | RESISTANCE_FLIP_CONFIRMED | Price closes above a Resistance level with RVOL ≥ 1.5. Level flips from Resistance → Support. Level acts as institutional resistance absorbed. | Bullish |
+| Breakout | SUPPORT_FLIP_CONFIRMED | Price closes below a Support level with RVOL ≥ 1.5. Level flips from Support → Resistance. Level acts as institutional support broken. | Bearish |
+
+**Signal Confirmation Rules:**
+- LevelTest signals fire immediately when price enters the 0.5% proximity zone. They are secondary confluence only.
+- Breakout signals (S/R flips) require RVOL ≥ 1.5 institutional volume confirmation. Low-volume breaks (RVOL < 1.5) are classified as head fakes and do NOT emit a confirmed Breakout signal.
+- Flip tolerance of 0.3% prevents false flips from wicks and noise. Only candle closes count.
+- The `STRUCTURE_NEUTRAL` label is returned when price is not within proximity of any tracked level.
+
+## 7. Live Pipeline Integration
 
 As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fully wired into the live and pre-warm normalization pipelines:
 

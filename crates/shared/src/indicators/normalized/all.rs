@@ -97,6 +97,10 @@ pub struct IndicatorInputs {
     pub pattern_bullish: bool,
     pub pattern_bearish: bool,
     pub pattern_confidence: Option<f64>,
+    pub pattern_upper_slope: Option<f64>,
+    pub pattern_upper_intercept: Option<f64>,
+    pub pattern_lower_slope: Option<f64>,
+    pub pattern_lower_intercept: Option<f64>,
     // Supplemental raw-only series preserved for frontend charts (normalized 0.0)
     pub atr_14: Option<f64>,
     pub atr_slope: Option<f64>,
@@ -418,6 +422,10 @@ impl NormalizationEngine {
                     inputs.pattern_bearish,
                     inputs.pattern_confidence.unwrap_or(0.0),
                     ctx.rvol.unwrap_or(0.0),
+                    inputs.pattern_upper_slope,
+                    inputs.pattern_upper_intercept,
+                    inputs.pattern_lower_slope,
+                    inputs.pattern_lower_intercept,
                 ),
             );
         }

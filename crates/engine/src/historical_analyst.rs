@@ -205,6 +205,10 @@ impl HistoricalAnalyst {
 
         let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
+        // Capture recommendations before moving analysis fields
+        let regime_analysis = analysis.regime_analysis.clone();
+        let key_improvements = analysis.key_improvements.clone();
+
         let recommendation = HistoricalRecommendation {
             symbol: self.symbol.clone(),
             generated_at: now,
@@ -215,8 +219,8 @@ impl HistoricalAnalyst {
             profit_factor,
             suggested_rr_adjustment: suggested_rr,
             suggested_position_sizing_pct: suggested_sizing,
-            regime_analysis: analysis.regime_analysis,
-            key_improvements: analysis.key_improvements,
+            regime_analysis,
+            key_improvements,
             risk_recommendation: analysis.risk_recommendation,
         };
 
@@ -230,6 +234,16 @@ impl HistoricalAnalyst {
             profit_factor,
             avg_risk_reward
         );
+        println!(
+            "   Suggested R:R adjustment: {:.2}  |  Suggested sizing: {:.1}%",
+            suggested_rr, suggested_sizing
+        );
+        if !analysis.key_improvements.is_empty() {
+            println!("   Key improvements: {}", analysis.key_improvements);
+        }
+        if !analysis.regime_analysis.is_empty() {
+            println!("   Regime analysis: {}", analysis.regime_analysis);
+        }
 
         Ok(recommendation)
     }

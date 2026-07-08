@@ -37,6 +37,18 @@ export class SettingsStore {
     costActualTotal = $state(0);
     costLoading = $state(false);
 
+    regimeWeightMultipliers = $state<Record<string, Record<string, number>>>({});
+
+    async fetchScoringWeights() {
+        try {
+            const res = await fetch('/api/config/scoring-weights');
+            if (res.ok) {
+                const data = await res.json();
+                this.regimeWeightMultipliers = data.regime_weight_multipliers ?? {};
+            }
+        } catch (_) {}
+    }
+
     async fetchCostEstimate(pairKey: string) {
         this.costLoading = true;
         try {

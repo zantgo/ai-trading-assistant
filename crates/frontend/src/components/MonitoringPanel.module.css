@@ -1,0 +1,272 @@
+.panel {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    background: #0b0c10;
+    font-family: 'Courier New', monospace;
+    padding: 12px;
+    gap: 10px;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.title {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #e2e8f0;
+    flex: 1;
+}
+.refresh-btn {
+    padding: 2px 10px;
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 4px;
+    color: #94a3b8;
+    font-size: 12px;
+    cursor: pointer;
+}
+.refresh-btn:hover {
+    border-color: #64ffda;
+    color: #64ffda;
+}
+
+.error-box {
+    padding: 12px;
+    background: rgba(239, 83, 80, 0.1);
+    border: 1px solid #ef5350;
+    border-radius: 5px;
+    color: #ef5350;
+    font-size: 12px;
+    text-align: center;
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 40px 20px;
+    color: #64748b;
+    font-size: 13px;
+}
+.empty-icon {
+    font-size: 32px;
+    color: #334155;
+}
+.empty-hint {
+    font-size: 11px;
+    color: #475569;
+}
+
+/* ── Top row: summary + exit signals ── */
+.top-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+@media (max-width: 800px) {
+    .top-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.card-title {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #94a3b8;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #1c212e;
+}
+
+/* ── Summary card ── */
+.summary-card,
+.exit-card,
+.slots-card,
+.trail-card,
+.safety-card {
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    padding: 10px;
+}
+.summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+}
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.summary-label {
+    font-size: 8px;
+    color: #64748b;
+    letter-spacing: 0.04em;
+}
+.summary-value {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+.direction-long { color: #66bb6a; }
+.direction-short { color: #ef5350; }
+
+.account-row {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #1c212e;
+}
+.acct-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 8px;
+    color: #64748b;
+}
+.acct-item span:last-child {
+    font-size: 11px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+/* ── Exit signals ── */
+.exit-section {
+    margin-bottom: 10px;
+}
+.exit-label,
+.exit-value {
+    font-size: 10px;
+    color: #94a3b8;
+    display: block;
+    margin-bottom: 4px;
+}
+.exit-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+.exit-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.exit-bar-track {
+    flex: 1;
+    height: 6px;
+    background: #1c212e;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.exit-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s;
+}
+.exit-score {
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 48px;
+    text-align: right;
+}
+.exit-warning { color: #ef5350; font-size: 10px; font-weight: 700; }
+.exit-caution { color: #ffa726; font-size: 10px; font-weight: 700; }
+.exit-safe { color: #66bb6a; font-size: 10px; }
+
+/* ── Slots table ── */
+.slots-table {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.slots-header {
+    display: grid;
+    grid-template-columns: 0.5fr 1fr 0.7fr 1fr 1.2fr;
+    gap: 6px;
+    font-size: 8px;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1c212e;
+}
+.slot-row {
+    display: grid;
+    grid-template-columns: 0.5fr 1fr 0.7fr 1fr 1.2fr;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 11px;
+    color: #e2e8f0;
+    border-bottom: 1px solid #151923;
+}
+.slot-name {
+    font-weight: 700;
+    color: #64ffda;
+}
+.slot-tps {
+    font-size: 9px;
+    color: #94a3b8;
+}
+
+/* ── Bottom row ── */
+.bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+@media (max-width: 800px) {
+    .bottom-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ── Trailing stop ── */
+.trail-status {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+}
+.trail-active { color: #66bb6a; font-weight: 700; }
+.trail-inactive { color: #475569; }
+.trail-price { color: #e2e8f0; font-size: 11px; }
+
+/* ── Safety state ── */
+.safety-row {
+    display: flex;
+    gap: 16px;
+}
+.safety-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.safety-label {
+    font-size: 8px;
+    color: #64748b;
+}
+.safety-value {
+    font-size: 14px;
+    font-weight: 800;
+    color: #e2e8f0;
+}
+.safety-value-muted {
+    font-size: 11px;
+    color: #475569;
+    font-weight: 700;
+}
+.safety-warning { color: #ffa726; }
+.safety-danger { color: #ef5350; }
+
+/* ── PnL colors ── */
+.pnl-pos { color: #66bb6a; }
+.pnl-neg { color: #ef5350; }

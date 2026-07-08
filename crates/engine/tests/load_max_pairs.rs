@@ -9,6 +9,7 @@ use engine::config::{FibonacciConfig, TimeframeConfig};
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide};
+use shared::statistics::StatisticsConfig;
 
 #[tokio::test]
 #[ignore]
@@ -91,6 +92,7 @@ async fn test_load_max_pairs_stability() {
                     mid_broadcast,
                     mid_tf,
                     mfib,
+                    StatisticsConfig::default(),
                     m_div,
                     mh,
                     Arc::new(RwLock::new(None)),

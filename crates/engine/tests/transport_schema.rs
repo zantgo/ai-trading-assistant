@@ -31,6 +31,8 @@ fn sample_snapshot() -> MarketSnapshot {
         bid_size: None,
         ask_size: None,
         funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
         prev_day_px: None,
         open: Some(dec!(65000.0)),
         high: Some(dec!(65400.0)),
@@ -41,7 +43,8 @@ fn sample_snapshot() -> MarketSnapshot {
         indicators,
         context: None,
         decision_context: None,
-        
+        statistical_context: None,
+        risk_profile: None,
     }
 }
 

@@ -1,106 +1,78 @@
 use std::sync::Arc;
 
-use crate::llm::{LlmClient, MasterOrchestratorResult};
-use crate::server::pipeline;
-use crate::server::telemetry::DeterministicTelemetry;
-use crate::server::types::IndicatorSnapshot;
+use crate::llm::{AnalystDocument, LlmClient, TraderDecision};
 
-// ─── LLM Service Trait ────────────────────────────────────────────
+// ─── LLM Service Trait (v3.0) ──────────────────────────────────────
+// Two-Agent Pipeline: Analyst (information prep) → Trader (decision).
 
 #[async_trait::async_trait]
 pub trait LlmService: Send + Sync {
-    async fn run_multi_agent_pipeline(
+    async fn run_analyst(
         &self,
-        pool: sqlx::SqlitePool,
         symbol: &str,
-        micro: &IndicatorSnapshot,
-        fast: &IndicatorSnapshot,
-        slow: &IndicatorSnapshot,
-        macro_snap: &IndicatorSnapshot,
-        prices: &[f64],
-        master_id: i64,
-        telemetry: &DeterministicTelemetry,
-    ) -> Result<crate::llm::MultiAgentResults, String>;
-
-    #[allow(clippy::too_many_arguments)]
-    async fn run_master_orchestrator(
-        &self,
-        position: &str,
-        entry_price: &str,
-        prices: &[f64],
-        symbol: &str,
-        phase_one_json: &str,
+        current_price: f64,
+        indicators_dto: &str,
+        decision_context: &str,
+        market_context: &str,
         support_levels: &[String],
         resistance_levels: &[String],
-        journal_context: Option<&str>,
+        prices: &[f64],
         pair_key: Option<&str>,
-        confluence_score: i32,
-        slot_config: Option<&str>,
-        indicators_json: Option<&str>,
-    ) -> Result<MasterOrchestratorResult, String>;
+    ) -> Result<AnalystDocument, String>;
+
+    async fn run_trader(
+        &self,
+        analyst_document: &str,
+        position: &str,
+        entry_price: &str,
+        symbol: &str,
+        risk_profile: &str,
+        pair_key: Option<&str>,
+    ) -> Result<TraderDecision, String>;
 
     async fn has_api_key(&self) -> bool;
 }
 
 #[async_trait::async_trait]
 impl LlmService for LlmClient {
-    async fn run_multi_agent_pipeline(
+    async fn run_analyst(
         &self,
-        pool: sqlx::SqlitePool,
         symbol: &str,
-        micro: &IndicatorSnapshot,
-        fast: &IndicatorSnapshot,
-        slow: &IndicatorSnapshot,
-        macro_snap: &IndicatorSnapshot,
+        current_price: f64,
+        indicators_dto: &str,
+        decision_context: &str,
+        market_context: &str,
+        support_levels: &[String],
+        resistance_levels: &[String],
         prices: &[f64],
-        master_id: i64,
-        telemetry: &DeterministicTelemetry,
-    ) -> Result<crate::llm::MultiAgentResults, String> {
-        pipeline::run_multi_agent_pipeline(
-            Arc::new(self.clone()),
-            pool,
+        pair_key: Option<&str>,
+    ) -> Result<AnalystDocument, String> {
+        LlmClient::run_analyst_agent(
+            self,
             symbol,
-            micro,
-            fast,
-            slow,
-            macro_snap,
+            current_price,
+            indicators_dto,
+            decision_context,
+            market_context,
+            support_levels,
+            resistance_levels,
             prices,
-            master_id,
-            telemetry,
+            pair_key,
         )
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn run_master_orchestrator(
+    async fn run_trader(
         &self,
+        analyst_document: &str,
         position: &str,
         entry_price: &str,
-        prices: &[f64],
         symbol: &str,
-        phase_one_json: &str,
-        support_levels: &[String],
-        resistance_levels: &[String],
-        journal_context: Option<&str>,
+        risk_profile: &str,
         pair_key: Option<&str>,
-        confluence_score: i32,
-        slot_config: Option<&str>,
-        indicators_json: Option<&str>,
-    ) -> Result<MasterOrchestratorResult, String> {
-        LlmClient::run_master_orchestrator(
-            self,
-            position,
-            entry_price,
-            prices,
-            symbol,
-            phase_one_json,
-            support_levels,
-            resistance_levels,
-            journal_context,
-            pair_key,
-            confluence_score,
-            slot_config,
-            indicators_json,
+    ) -> Result<TraderDecision, String> {
+        LlmClient::run_trader_agent(
+            self, analyst_document, position, entry_price, symbol, risk_profile, pair_key,
         )
         .await
     }
@@ -112,63 +84,44 @@ impl LlmService for LlmClient {
 
 #[async_trait::async_trait]
 impl LlmService for Arc<LlmClient> {
-    async fn run_multi_agent_pipeline(
+    async fn run_analyst(
         &self,
-        pool: sqlx::SqlitePool,
         symbol: &str,
-        micro: &IndicatorSnapshot,
-        fast: &IndicatorSnapshot,
-        slow: &IndicatorSnapshot,
-        macro_snap: &IndicatorSnapshot,
+        current_price: f64,
+        indicators_dto: &str,
+        decision_context: &str,
+        market_context: &str,
+        support_levels: &[String],
+        resistance_levels: &[String],
         prices: &[f64],
-        master_id: i64,
-        telemetry: &DeterministicTelemetry,
-    ) -> Result<crate::llm::MultiAgentResults, String> {
-        pipeline::run_multi_agent_pipeline(
-            self.clone(),
-            pool,
+        pair_key: Option<&str>,
+    ) -> Result<AnalystDocument, String> {
+        LlmClient::run_analyst_agent(
+            self,
             symbol,
-            micro,
-            fast,
-            slow,
-            macro_snap,
+            current_price,
+            indicators_dto,
+            decision_context,
+            market_context,
+            support_levels,
+            resistance_levels,
             prices,
-            master_id,
-            telemetry,
+            pair_key,
         )
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn run_master_orchestrator(
+    async fn run_trader(
         &self,
+        analyst_document: &str,
         position: &str,
         entry_price: &str,
-        prices: &[f64],
         symbol: &str,
-        phase_one_json: &str,
-        support_levels: &[String],
-        resistance_levels: &[String],
-        journal_context: Option<&str>,
+        risk_profile: &str,
         pair_key: Option<&str>,
-        confluence_score: i32,
-        slot_config: Option<&str>,
-        indicators_json: Option<&str>,
-    ) -> Result<MasterOrchestratorResult, String> {
-        LlmClient::run_master_orchestrator(
-            self,
-            position,
-            entry_price,
-            prices,
-            symbol,
-            phase_one_json,
-            support_levels,
-            resistance_levels,
-            journal_context,
-            pair_key,
-            confluence_score,
-            slot_config,
-            indicators_json,
+    ) -> Result<TraderDecision, String> {
+        LlmClient::run_trader_agent(
+            self, analyst_document, position, entry_price, symbol, risk_profile, pair_key,
         )
         .await
     }

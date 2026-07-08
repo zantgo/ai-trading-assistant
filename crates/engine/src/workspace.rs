@@ -182,6 +182,13 @@ impl Workspace {
             .map(|inst| inst.active_pair.clone())
     }
 
+    pub async fn get_instance_by_pair_key(
+        &self,
+        pair_key: &str,
+    ) -> Option<Arc<Instance>> {
+        self.instances.read().await.get(pair_key).cloned()
+    }
+
     pub async fn get_instance_by_id(&self, id: &str) -> Option<Arc<Instance>> {
         self.instances
             .read()

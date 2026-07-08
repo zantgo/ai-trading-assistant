@@ -65,6 +65,7 @@ pub struct PaperTradeRecord {
     pub entry_timestamp: i64,
     pub exit_timestamp: i64,
     pub trigger: String,
+    pub market_regime: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -225,7 +226,7 @@ pub async fn paper_query_trades(
     use sqlx::Row;
     let rows = if let Some(sym) = symbol {
         sqlx::query(
-            "SELECT id, symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger
+            "SELECT id, symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger, market_regime
              FROM paper_trades WHERE symbol = ?1 ORDER BY id DESC LIMIT ?2"
         )
         .bind(sym)
@@ -234,7 +235,7 @@ pub async fn paper_query_trades(
         .await
     } else {
         sqlx::query(
-            "SELECT id, symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger
+            "SELECT id, symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger, market_regime
              FROM paper_trades ORDER BY id DESC LIMIT ?1"
         )
         .bind(limit as i64)
@@ -257,6 +258,7 @@ pub async fn paper_query_trades(
                 entry_timestamp: r.get(8),
                 exit_timestamp: r.get(9),
                 trigger: r.get(10),
+                market_regime: r.get(11),
             })
             .collect(),
         Err(e) => {

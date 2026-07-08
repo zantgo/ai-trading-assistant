@@ -5,6 +5,7 @@ pub mod master;
 pub mod memory;
 pub mod performance;
 pub mod profiles;
+pub mod risk;
 pub mod snapshots;
 pub mod stats;
 pub mod trades;

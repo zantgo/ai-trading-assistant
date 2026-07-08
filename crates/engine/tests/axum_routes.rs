@@ -45,8 +45,10 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         costs: Default::default(),
         workspace: Default::default(),
         safety: Default::default(),
+        risk: Default::default(),
         intervals: Default::default(),
         api_failover: Default::default(),
+        statistics: Default::default(),
         instances: HashMap::new(),
     }));
 
@@ -197,8 +199,10 @@ async fn test_websocket_stream_with_active_pair() {
         costs: Default::default(),
         workspace: Default::default(),
         safety: Default::default(),
+        risk: Default::default(),
         intervals: Default::default(),
         api_failover: Default::default(),
+        statistics: Default::default(),
         instances: HashMap::new(),
     }));
 

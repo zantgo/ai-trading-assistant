@@ -9,6 +9,7 @@ use engine::config::{FibonacciConfig, TimeframeConfig};
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide};
+use shared::statistics::StatisticsConfig;
 
 #[tokio::test]
 async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
@@ -133,6 +134,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     broadcast,
                     tf_cfg,
                     fib,
+                    StatisticsConfig::default(),
                     div_det,
                     history,
                     latest,

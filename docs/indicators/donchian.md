@@ -39,6 +39,8 @@ Labels: `DONCHIAN_UPPER_BREAKOUT`, `DONCHIAN_LOWER_BREAKOUT`, `DONCHIAN_UPPER_RA
 | Breakout | DONCHIAN_LOWER_BREAKOUT | Price ≤ lower band | Bearish |
 | BandTouch | DONCHIAN_UPPER_BAND_TOUCH | Price inside channel, position > 0.85 (near upper edge — mean-reversion proximity). Structured push from engine. | Bearish |
 | BandTouch | DONCHIAN_LOWER_BAND_TOUCH | Price inside channel, position < 0.15 (near lower edge). Structured push from engine. | Bullish |
+| LevelTest | DONCHIAN_MIDDLE_BAND_TEST | Price approaches the channel midpoint from either direction. Acts as dynamic equilibrium level — rejection signals continuation, crossing signals shift. | Direction depends on approach side |
+| LevelTest | DONCHIAN_MIDDLE_BAND_SUPPORT | Price bounces off the middle band after a pullback from a breakout. Confirms breakout integrity. | Aligned with breakout direction |
 
 ## 5. Scoring & AI Context
 

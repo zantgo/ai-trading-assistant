@@ -12,7 +12,7 @@ use super::normalized::SignalKind;
 use serde::Serialize;
 
 /// Functional category (blueprint grouping).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum IndicatorGroup {
     Trend,
     Momentum,
@@ -21,6 +21,7 @@ pub enum IndicatorGroup {
     Structure,
     Regime,
     Institutional,
+    DerivativesData,
 }
 
 /// Predictive class (leading vs confirming).
@@ -436,6 +437,57 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         signal_types: &[Divergence], default_weight: 1.0, default_enabled: true,
         config_params: &[], value_format: "decimals2", value_source: "raw", color: "#b2ff59", guide_section: "3",
     },
+    // ─────────── DERIVATIVES DATA (Phase 11) ───────────
+    IndicatorMeta {
+        key: "open_interest", display_name: "Open Interest", group: DerivativesData, class: Hybrid,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[Threshold], default_weight: 1.0, default_enabled: true,
+        config_params: &["oi_lookback"],
+        value_format: "decimals2", value_source: "raw", color: "#ffab40", guide_section: "35",
+    },
+    IndicatorMeta {
+        key: "oi_delta", display_name: "OI Delta", group: DerivativesData, class: Leading,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[Threshold, ZeroLineCross], default_weight: 1.0, default_enabled: true,
+        config_params: &["oi_delta_window"],
+        value_format: "decimals2", value_source: "raw", color: "#ff6e40", guide_section: "35",
+    },
+    IndicatorMeta {
+        key: "funding_rate", display_name: "Funding Rate", group: DerivativesData, class: Hybrid,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[Threshold], default_weight: 0.0, default_enabled: true,
+        config_params: &["funding_extreme_threshold"],
+        value_format: "percent1", value_source: "raw", color: "#00e676", guide_section: "36",
+    },
+    IndicatorMeta {
+        key: "oi_price_divergence", display_name: "OI-Price Divergence", group: DerivativesData, class: Leading,
+        render: Marker, directional: true, supports_divergence: false,
+        signal_types: &[Divergence], default_weight: 1.5, default_enabled: true,
+        config_params: &[],
+        value_format: "decimals2", value_source: "raw", color: "#ff5252", guide_section: "35",
+    },
+    // ─────────── ORDER BOOK DEPTH (Phase 2) ───────────
+    IndicatorMeta {
+        key: "order_flow_imbalance", display_name: "Order Flow Imbalance", group: DerivativesData, class: Leading,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[Threshold], default_weight: 1.0, default_enabled: true,
+        config_params: &[],
+        value_format: "decimals2", value_source: "raw", color: "#ff6d00", guide_section: "37",
+    },
+    IndicatorMeta {
+        key: "spread", display_name: "Spread", group: DerivativesData, class: Hybrid,
+        render: Pane, directional: false, supports_divergence: false,
+        signal_types: &[Threshold], default_weight: 0.0, default_enabled: true,
+        config_params: &[],
+        value_format: "percent1", value_source: "raw", color: "#f48fb1", guide_section: "37",
+    },
+    IndicatorMeta {
+        key: "depth_bias", display_name: "Depth Bias", group: DerivativesData, class: Leading,
+        render: Pane, directional: true, supports_divergence: false,
+        signal_types: &[Threshold], default_weight: 0.8, default_enabled: true,
+        config_params: &[],
+        value_format: "decimals2", value_source: "raw", color: "#18ffff", guide_section: "37",
+    },
 ];
 
 /// Return the full manifest as an owned vector (for API serialization).
@@ -470,7 +522,7 @@ mod tests {
     #[test]
     fn test_directional_and_gate_counts() {
         let gates = INDICATORS.iter().filter(|m| !m.directional).count();
-        // adx, atr, bbwp, hv, volume, rvol, choppiness
-        assert_eq!(gates, 7, "expected 7 non-directional gate indicators");
+        // adx, atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread
+        assert_eq!(gates, 9, "expected 9 non-directional gate indicators");
     }
 }

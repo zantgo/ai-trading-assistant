@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-// Data types for LLM API communication and orchestrator results.
+// Data types for LLM API communication — Two-Agent Pipeline (v3.0).
+// Architecture: Analyst Agent (information preparation) → Trader Agent (decision execution).
+
+// ─── Core API types ────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -32,8 +35,8 @@ pub(crate) struct ChatResponse {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Usage {
-    pub(crate) prompt_tokens: u64,
-    pub(crate) completion_tokens: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
     #[allow(dead_code)]
     total_tokens: u64,
 }
@@ -48,20 +51,7 @@ pub(crate) struct ChoiceMessage {
     pub(crate) content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IndividualIndicatorResult {
-    pub indicator_name: String,
-    pub signal: String,
-    pub reason: String,
-    #[serde(default)]
-    pub confidence_score: u8,
-    #[serde(default)]
-    pub divergence_status: Option<String>,
-    #[serde(default)]
-    pub divergence_type: Option<String>,
-    #[serde(default)]
-    pub is_confirmed: Option<bool>,
-}
+// ─── Journal Agent (kept for post-trade audit) ─────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JournalResult {
@@ -69,101 +59,41 @@ pub struct JournalResult {
     pub execution_score: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SupportResistance {
-    #[serde(default)]
-    pub detected_support_levels: Vec<String>,
-    #[serde(default)]
-    pub detected_resistance_levels: Vec<String>,
-    #[serde(default)]
-    pub structural_analysis: String,
-}
+// ─── Analyst Agent — Structured Market Document (v3.0) ─────────────
+// Agent 1 receives ALL indicator data and produces a well-organized,
+// human-readable document. NO trading decisions.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IndicatorSynthesis {
-    pub summary_count: String,
-    pub evaluation: String,
+pub struct AnalystDocument {
+    /// Overall market regime, directional bias, confluence score summary
+    pub market_summary: String,
+    /// EMA stack state, ADX strength, Ichimoku, Supertrend, trend indicators
+    pub trend_indicators: String,
+    /// RSI, MACD, Stochastic, CCI, Williams %R, momentum oscillators
+    pub momentum_indicators: String,
+    /// Bollinger Bands, BBWP, ATR regime, Squeeze status, Historical Volatility
+    pub volatility_indicators: String,
+    /// RVOL, OBV, CMF, MFI, VWAP bias, volume analysis
+    pub volume_indicators: String,
+    /// Support/Resistance levels, Fibonacci levels, Pivot Points, Chart Patterns
+    pub structure_indicators: String,
+    /// Active confirmed signals: divergences, crossovers, breakouts, squeeze releases
+    pub active_signals: String,
+    /// Weighted confluence score, consensus level, regime confidence, statistical context
+    pub confluence_summary: String,
 }
 
+// ─── Trader Agent — Final Trading Decision (v3.0) ─────────────────
+// Agent 2 makes strict trading decisions based solely on the Analyst's document.
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PositionRecommendation {
+pub struct TraderDecision {
+    /// Hold | Close | Wait | Open Long | Open Short
     pub action: String,
+    /// Confidence 0-100
+    pub confidence: u8,
+    /// Clear operational reasoning for the decision
     pub rationale: String,
-    #[serde(default)]
-    pub next_interval: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MasterOrchestratorResult {
-    pub general_trend: String,
-    #[serde(default)]
-    pub support_and_resistance: SupportResistance,
-    pub indicator_synthesis: IndicatorSynthesis,
-    pub position_recommendation: PositionRecommendation,
-    #[serde(default)]
-    pub eight_factor_score: i32,
-    #[serde(default)]
-    pub allocation_pct: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AgentEvaluationResult<T> {
-    pub thought: String,
-    pub data: T,
-}
-
-// ─── Sub-Agent Output Schemas ──────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TrendAgentData {
-    pub directional_bias: String,
-    pub confidence_score: i32,
-    pub ema_slope_alignment: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct VolatilityAgentData {
-    pub regime_classification: String,
-    pub volatility_score: i32,
-    pub suggest_stop_multiplier: f64,
-    pub is_actionable: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct StructureAgentData {
-    pub support_proximity_pct: f64,
-    pub resistance_proximity_pct: f64,
-    pub golden_pocket_status: String,
-    pub structural_score: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RiskAgentData {
-    pub suggested_sizing_pct: f64,
-    pub leverage: i32,
-    pub exposure_score: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PositionAgentData {
-    pub recommended_action: String,
-    pub rationale: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MasterOrchestrationData {
-    pub market_regime: String,
-    pub eight_factor_score: i32,
-    pub decision: String,
-    pub allocation_pct: f64,
-    pub rationale: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MultiAgentResults {
-    pub trend: AgentEvaluationResult<TrendAgentData>,
-    pub volatility: AgentEvaluationResult<VolatilityAgentData>,
-    pub structure: AgentEvaluationResult<StructureAgentData>,
-    pub risk: AgentEvaluationResult<RiskAgentData>,
-    pub position: AgentEvaluationResult<PositionAgentData>,
+    /// Any risk warnings or caveats
+    pub risk_notes: String,
 }

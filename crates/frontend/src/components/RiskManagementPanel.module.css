@@ -1,0 +1,359 @@
+.panel {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #0b0c10;
+    font-family: 'Courier New', monospace;
+}
+
+/* ── Sub-tab bar ── */
+.tab-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid #1c212e;
+    padding: 6px 12px 0 12px;
+    flex-shrink: 0;
+}
+.tab {
+    padding: 6px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tab:hover { color: #94a3b8; }
+.tab-active {
+    composes: tab;
+    color: #64ffda;
+    border-bottom-color: #64ffda;
+}
+
+/* ── Calculator layout ── */
+.calc-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+.sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid #1c212e;
+    overflow-y: auto;
+    padding: 10px;
+}
+.main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* ── Cards ── */
+.card {
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    padding: 10px;
+}
+.card-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #1c212e;
+}
+
+/* ── Profile list ── */
+.profile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 10px;
+}
+.profile-btn {
+    padding: 6px 8px;
+    background: transparent;
+    border: 1px solid #1c212e;
+    border-radius: 4px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.profile-btn:hover { border-color: #64ffda; }
+.profile-btn-active {
+    composes: profile-btn;
+    border-color: #64ffda;
+    color: #64ffda;
+    background: rgba(100, 255, 218, 0.06);
+}
+.delete-icon {
+    color: #ef5350;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.add-profile {
+    display: flex;
+    gap: 4px;
+}
+.input {
+    flex: 1;
+    padding: 5px 8px;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
+    border-radius: 3px;
+    color: #e2e8f0;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+}
+.add-btn {
+    padding: 5px 10px;
+    background: rgba(100, 255, 218, 0.1);
+    border: 1px solid #64ffda;
+    border-radius: 3px;
+    color: #64ffda;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* ── Field rows ── */
+.field-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.label {
+    font-size: 9px;
+    color: #64748b;
+    min-width: 95px;
+    letter-spacing: 0.04em;
+}
+.input-wrap {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+.input-prefix, .input-suffix {
+    font-size: 10px;
+    color: #64748b;
+    padding: 0 4px;
+}
+.field-input {
+    flex: 1;
+    padding: 4px 6px;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
+    border-radius: 3px;
+    color: #e2e8f0;
+    font-size: 11px;
+    font-family: 'Courier New', monospace;
+}
+
+/* ── Direction toggle ── */
+.toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid #1c212e;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.toggle-btn {
+    padding: 3px 14px;
+    background: transparent;
+    border: none;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+}
+.toggle-active {
+    color: #e2e8f0;
+}
+.toggle-long.toggle-active { background: rgba(102, 187, 106, 0.2); color: #66bb6a; }
+.toggle-short.toggle-active { background: rgba(239, 83, 80, 0.2); color: #ef5350; }
+
+/* ── ATR stop ── */
+.atr-toggle-row {
+    display: flex;
+    align-items: center;
+}
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: #e2e8f0;
+    cursor: pointer;
+}
+.atr-hint {
+    font-size: 8px;
+    color: #fbbf24;
+    margin-bottom: 6px;
+    margin-left: 103px;
+}
+
+/* ── Static values ── */
+.static-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+.profit-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: #66bb6a;
+}
+
+/* ── Result card ── */
+.result-card {
+    border-color: #64ffda33;
+}
+.result-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.result-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.result-full {
+    grid-column: 1 / -1;
+}
+.result-label {
+    font-size: 8px;
+    color: #64748b;
+}
+.result-value {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+.liq-price { color: #ef5350; }
+.cost-val { color: #ffa726; }
+.pnl-pos { color: #66bb6a; }
+.pnl-neg { color: #ef5350; }
+.placeholder {
+    text-align: center;
+    color: #475569;
+    font-size: 11px;
+}
+
+/* ── Risk Profile tab ── */
+.profile-tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+.loading-state, .error-state, .empty-state {
+    text-align: center;
+    padding: 30px;
+    color: #64748b;
+    font-size: 12px;
+}
+.action-btn {
+    margin-top: 10px;
+    padding: 6px 16px;
+    background: rgba(100, 255, 218, 0.1);
+    border: 1px solid #64ffda;
+    border-radius: 4px;
+    color: #64ffda;
+    font-size: 11px;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+}
+
+/* ── Summary row ── */
+.summary-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    align-items: center;
+}
+.risk-gauge {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.gauge-label { font-size: 9px; color: #64748b; }
+.gauge-value { font-size: 28px; font-weight: 800; color: #e2e8f0; }
+.gauge-conf { font-size: 9px; color: #475569; }
+
+.permission-badge {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.exposure-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10px;
+    color: #94a3b8;
+}
+
+/* ── R:R card ── */
+.rr-card {
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+.rr-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #e2e8f0;
+}
+
+/* ── Category grid ── */
+.category-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.cat-card {
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 5px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.cat-label { font-size: 8px; color: #64748b; letter-spacing: 0.04em; }
+.cat-score { font-size: 16px; font-weight: 800; color: #e2e8f0; }
+.cat-level { font-size: 8px; color: #94a3b8; }
+
+/* ── Explanation block ── */
+.explanation {
+    font-size: 10px;
+    color: #94a3b8;
+    line-height: 1.5;
+}

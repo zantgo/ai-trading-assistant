@@ -113,7 +113,9 @@ The dashed divergence line on the RSI chart slopes upward, while the dashed line
 | Divergence | BULLISH/BEARISH_DIVERGENCE | Price makes lower low, RSI makes higher low (bullish); price makes higher high, RSI makes lower high (bearish). Detected via 20-bar PeakTrough comparison. Status upgrades from Potential → Confirmed when candle close breaks nearest S/R level by >0.2%. | Bullish/Bearish |
 | Threshold | OVERBOUGHT_DISTRIBUTION | RSI ≥ 70 — overbought distribution zone | Bearish |
 | Threshold | OVERSOLD_ACCUMULATION | RSI ≤ 30 — oversold accumulation zone | Bullish |
-| Threshold | BULLISH_MOMENTUM / BEARISH_MOMENTUM | RSI between 30-70 with directional bias (momentum not yet extreme) | Bullish/Bearish |
+| Threshold | BULLISH_MOMENTUM | RSI between 50-70 with upward slope — building bullish momentum | Bullish |
+| Threshold | BEARISH_MOMENTUM | RSI between 30-50 with downward slope — building bearish momentum | Bearish |
+| Threshold | RSI_NEUTRAL_RANGE | RSI oscillating tightly between 45-55 with no clear slope over 10 bars — sideways momentum | Neutral |
 | ZeroLineCross | RSI_ZERO_CROSS_BULLISH/BEARISH | RSI crosses the 50 midline — transition bar only | Bullish/Bearish |
 
 ## Normalization

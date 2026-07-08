@@ -1,9 +1,6 @@
-use crate::profile_evaluation::{classify_market_regime, snapshot_values_from_flat};
+use crate::profile_evaluation::snapshot_values_from_flat;
 use crate::server::telemetry::compile_deterministic_telemetry;
-use crate::server::types::{
-    IndicatorSnapshot, IndicatorSynthesisResponse, MultiAgentAnalysisResponse, PhaseTwoResponse,
-    PositionRecommendationResponse, SupportResistanceResponse,
-};
+use crate::server::types::{IndicatorSnapshot, WizardAnalysisResponse};
 use crate::server::{math, AppState};
 use crate::services::traits::LlmService;
 use sqlx::SqlitePool;
@@ -14,6 +11,7 @@ pub struct AnalysisService {
     pool: SqlitePool,
     llm_client: Arc<dyn LlmService>,
     telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
+    config: Arc<tokio::sync::RwLock<crate::config::AppConfig>>,
 }
 
 pub struct AnalysisRequest {
@@ -33,6 +31,7 @@ impl AnalysisService {
             pool: state.pool.clone(),
             llm_client: state.llm_client.clone() as Arc<dyn LlmService>,
             telemetry_tx: state.telemetry_tx.clone(),
+            config: state.config.clone(),
         }
     }
 
@@ -43,7 +42,7 @@ impl AnalysisService {
     pub async fn run_analysis(
         &self,
         req: AnalysisRequest,
-    ) -> Result<MultiAgentAnalysisResponse, String> {
+    ) -> Result<WizardAnalysisResponse, String> {
         let symbol = req.symbol;
         let position = req.position;
         let entry_price = req.entry_price;
@@ -59,155 +58,252 @@ impl AnalysisService {
         let resistance_strings: Vec<String> =
             resistance_levels.iter().map(|s| s.to_string()).collect();
 
-        let empty_snap = IndicatorSnapshot::default();
+        let _empty_snap = IndicatorSnapshot::default();
         let mtf = req.timeframes.as_ref();
         let micro_snap = mtf.map(|t| &t.micro_term).unwrap_or(&indicators);
-        let fast_snap = mtf.map(|t| &t.fast_term).unwrap_or(&indicators);
-        let slow_snap = mtf
-            .and_then(|t| t.slow_term.as_ref())
-            .unwrap_or(&empty_snap);
-        let macro_snap = mtf
-            .and_then(|t| t.macro_term.as_ref())
-            .unwrap_or(&empty_snap);
 
-        let telemetry =
-            compile_deterministic_telemetry(micro_snap, &support_strings, &resistance_strings);
+        let _telemetry = compile_deterministic_telemetry(
+            micro_snap,
+            &support_strings,
+            &resistance_strings,
+            None,
+            None,
+        );
 
-        let multi_agent_results = self
+        // Build indicator DTO array from normalized indicator map
+        let indicators_dto = build_indicators_dto(micro_snap);
+
+        // Build decision context from snapshot
+        let decision_context = build_decision_context(micro_snap);
+
+        // Build market context
+        let market_context = build_market_context(micro_snap);
+
+        // Step 1: Run Analyst Agent
+        let analyst_document = self
             .llm_client
-            .run_multi_agent_pipeline(
-                self.pool.clone(),
+            .run_analyst(
                 &raw_symbol,
-                micro_snap,
-                fast_snap,
-                slow_snap,
-                macro_snap,
+                last_close_f,
+                &indicators_dto,
+                &decision_context,
+                &market_context,
+                &support_strings,
+                &resistance_strings,
                 &prices,
-                master_id,
-                &telemetry,
+                Some(&raw_symbol),
             )
             .await?;
 
-        let legacy_signals = multi_agent_results.to_legacy_signals();
-        let phase_one_json =
-            serde_json::to_string(&legacy_signals).unwrap_or_else(|_| "[]".into());
+        let analyst_json = serde_json::to_string(&analyst_document)
+            .map_err(|e| format!("Failed to serialize analyst document: {}", e))?;
 
-        let journal_context =
-            crate::db::query_recent_journal_for_context(&self.pool, &raw_symbol, 10).await;
-        let journal_opt: Option<&str> = if journal_context.is_empty() {
-            None
-        } else {
-            Some(&journal_context)
-        };
+        // Institutional Risk Management Layer — deterministic risk profile
+        // (advisory) injected into the trader payload.
+        let risk_profile_json = self
+            .build_risk_profile_json(&raw_symbol, micro_snap, last_close_f, confluence_from(micro_snap))
+            .await;
 
-        let indicators_json = serde_json::to_string(&micro_snap.indicators).ok();
-        let master_result = self
+        // Step 2: Run Trader Agent
+        let trader_decision = self
             .llm_client
-            .run_master_orchestrator(
+            .run_trader(
+                &analyst_json,
                 &position,
                 &entry_price,
-                &prices,
-                &symbol,
-                &phase_one_json,
-                &telemetry.support_levels,
-                &telemetry.resistance_levels,
-                journal_opt,
-                Some(&symbol),
-                telemetry.total_confluence_score,
-                None,
-                indicators_json.as_deref(),
+                &raw_symbol,
+                &risk_profile_json,
+                Some(&raw_symbol),
             )
             .await?;
 
-        self.spawn_background_updates(
-            master_id,
-            &indicators,
-            &master_result,
-        )
-        .await;
+        self.spawn_background_updates(master_id, &analyst_document, &trader_decision)
+            .await;
 
-        Ok(MultiAgentAnalysisResponse {
-            phase_one: legacy_signals,
-            phase_two: PhaseTwoResponse {
-                general_trend: master_result.general_trend,
-                support_and_resistance: SupportResistanceResponse {
-                    detected_support_levels: master_result
-                        .support_and_resistance
-                        .detected_support_levels,
-                    detected_resistance_levels: master_result
-                        .support_and_resistance
-                        .detected_resistance_levels,
-                    structural_analysis: master_result
-                        .support_and_resistance
-                        .structural_analysis,
-                },
-                indicator_synthesis: IndicatorSynthesisResponse {
-                    summary_count: master_result.indicator_synthesis.summary_count,
-                    evaluation: master_result.indicator_synthesis.evaluation,
-                },
-                position_recommendation: PositionRecommendationResponse {
-                    action: master_result.position_recommendation.action,
-                    rationale: master_result.position_recommendation.rationale,
-                },
-            },
+        Ok(WizardAnalysisResponse {
+            analyst_document,
+            trader_decision,
         })
+    }
+
+    /// Build the deterministic IRML risk profile for the pair and serialize it
+    /// to JSON for the trader agent payload. Returns an empty string on failure
+    /// (the trader treats this as `null`).
+    async fn build_risk_profile_json(
+        &self,
+        symbol: &str,
+        snap: &IndicatorSnapshot,
+        price: f64,
+        confluence: f64,
+    ) -> String {
+        let cfg = self.config.read().await;
+        let risk_cfg = cfg.risk.clone();
+        let suspend = cfg.safety.consecutive_loss_suspend;
+        let drawdown_limit = cfg.safety.capital_drawdown_pct;
+        let timeframe_secs = cfg.candles.duration_seconds as i64;
+        drop(cfg);
+
+        let indicators = &snap.indicators;
+        let market = shared::market_context::MarketContext::synthesize(indicators);
+        let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+        let decision = shared::decision_context::DecisionContext::compute(
+            indicators, price, atr_val, confluence,
+        );
+
+        let engine = crate::risk_engine::RiskEngine::new(risk_cfg, suspend, drawdown_limit);
+        let profile = engine
+            .evaluate(
+                &self.pool,
+                symbol,
+                symbol,
+                timeframe_secs,
+                indicators,
+                Some(&market),
+                Some(&decision),
+                None,
+                None,
+            )
+            .await;
+        serde_json::to_string(&profile).unwrap_or_default()
     }
 
     async fn spawn_background_updates(
         &self,
         master_id: i64,
-        indicators: &IndicatorSnapshot,
-        master_result: &crate::llm::MasterOrchestratorResult,
+        analyst: &crate::llm::AnalystDocument,
+        trader: &crate::llm::TraderDecision,
     ) {
         let db_telemetry = self.telemetry_tx.clone();
-        let db_pool = self.pool.clone();
         let db_master_id = master_id;
-        let db_indicators = indicators.clone();
-        let mr_general_trend = master_result.general_trend.clone();
-        let mr_support = serde_json::to_string(
-            &master_result.support_and_resistance.detected_support_levels,
-        )
-        .unwrap_or_default();
-        let mr_resistance = serde_json::to_string(
-            &master_result
-                .support_and_resistance
-                .detected_resistance_levels,
-        )
-        .unwrap_or_default();
-        let mr_summary = master_result.indicator_synthesis.summary_count.clone();
-        let mr_evaluation = master_result.indicator_synthesis.evaluation.clone();
-        let mr_action = master_result.position_recommendation.action.clone();
-        let mr_rationale = master_result.position_recommendation.rationale.clone();
-        let mr_score = master_result.eight_factor_score;
-        let mr_allocation = master_result.allocation_pct;
+        let general_trend = extract_trend_from_summary(&analyst.market_summary);
+        let indicator_synthesis_summary = format!(
+            "Action: {} (confidence: {})",
+            trader.action, trader.confidence
+        );
+        let indicator_synthesis_evaluation = analyst.confluence_summary.clone();
+        let mr_action = trader.action.clone();
+        let mr_rationale = trader.rationale.clone();
+        let mr_confidence = trader.confidence;
 
         tokio::spawn(async move {
-            let local_snap = snapshot_values_from_flat(&db_indicators);
-            let regime = classify_market_regime(&local_snap);
-
             let _ = db_telemetry
                 .send(crate::db::TelemetryMsg::UpdateMasterRecord {
                     master_id: db_master_id,
-                    general_trend: mr_general_trend,
-                    support_levels: mr_support,
-                    resistance_levels: mr_resistance,
-                    indicator_synthesis_summary: mr_summary,
-                    indicator_synthesis_evaluation: mr_evaluation,
+                    general_trend,
+                    support_levels: "[]".to_string(),
+                    resistance_levels: "[]".to_string(),
+                    indicator_synthesis_summary,
+                    indicator_synthesis_evaluation,
                     recommended_action: mr_action,
                     recommendation_rationale: mr_rationale,
-                    score_points: Some(mr_score),
+                    score_points: Some(mr_confidence as i32),
                     signals_json: None,
                 })
                 .await;
-
-            let _ = sqlx::query(
-                "UPDATE master_assistant_records SET market_regime = ?2, portfolio_allocation_pct = ?3 WHERE id = ?1"
-            )
-            .bind(db_master_id)
-            .bind(regime.as_str())
-            .bind(mr_allocation)
-            .execute(&db_pool)
-            .await;
         });
     }
+}
+
+/// Registry-weighted directional confluence `[-100,100]` from a snapshot map.
+fn confluence_from(snap: &IndicatorSnapshot) -> f64 {
+    let mut sum = 0.0f64;
+    let mut wgt = 0.0f64;
+    for meta in shared::indicators::registry::INDICATORS {
+        if meta.directional {
+            if let Some(v) = snap.indicators.get(meta.key) {
+                sum += meta.default_weight * v.normalized;
+                wgt += meta.default_weight;
+            }
+        }
+    }
+    if wgt > 0.0 {
+        (sum / wgt * 100.0).clamp(-100.0, 100.0)
+    } else {
+        0.0
+    }
+}
+
+fn extract_trend_from_summary(summary: &str) -> String {
+    let lower = summary.to_lowercase();
+    if lower.contains("bullish") || lower.contains("uptrend") || lower.contains("upward") {
+        "UPWARD".to_string()
+    } else if lower.contains("bearish") || lower.contains("downtrend") || lower.contains("downward") {
+        "DOWNWARD".to_string()
+    } else {
+        "SIDEWAYS".to_string()
+    }
+}
+
+/// Build a compact JSON array of indicator DTOs from the normalized indicator map.
+fn build_indicators_dto(snap: &IndicatorSnapshot) -> String {
+    let arr: Vec<serde_json::Value> = snap
+        .indicators
+        .iter()
+        .map(|(key, v)| {
+            let mut obj = serde_json::json!({
+                "indicator_name": key,
+                "normalized": v.normalized,
+                "state_label": v.state_label,
+            });
+            if let Some(vals) = &v.values {
+                obj["values"] = serde_json::to_value(vals).unwrap_or(serde_json::json!({}));
+            }
+            obj
+        })
+        .collect();
+    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Build decision context JSON from snapshot indicators.
+fn build_decision_context(snap: &IndicatorSnapshot) -> String {
+    // Try to synthesize from available data
+    let local_snap = snapshot_values_from_flat(snap);
+
+    let bullish_prob = local_snap
+        .indicators
+        .iter()
+        .filter(|(_, v)| v.normalized > 0.0)
+        .count() as f64
+        / local_snap.indicators.len().max(1) as f64;
+
+    let consensus = local_snap
+        .indicators
+        .values()
+        .filter(|v| v.normalized.abs() > 0.2)
+        .count() as f64
+        / local_snap.indicators.len().max(1) as f64;
+
+    let directional_sum: f64 = local_snap.indicators.values().map(|v| v.normalized).sum();
+    let bias = (directional_sum / local_snap.indicators.len().max(1) as f64).clamp(-1.0, 1.0);
+
+    let risk_level = if consensus < 0.5 { 0.6 } else { 0.3 };
+
+    serde_json::to_string(&serde_json::json!({
+        "bullish_probability": bullish_prob,
+        "directional_bias": bias,
+        "consensus": consensus,
+        "risk_level": risk_level,
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Build market context JSON from snapshot indicators.
+fn build_market_context(snap: &IndicatorSnapshot) -> String {
+    let regime = if let Some(adx) = snap.indicators.get("adx") {
+        if adx.normalized > 0.4 {
+            "TRENDING"
+        } else if adx.normalized < -0.4 {
+            "COMPRESSION"
+        } else {
+            "RANGE"
+        }
+    } else {
+        "RANGE"
+    };
+
+    serde_json::to_string(&serde_json::json!({
+        "regime": regime,
+        "current_price": snap.current_price,
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
 }

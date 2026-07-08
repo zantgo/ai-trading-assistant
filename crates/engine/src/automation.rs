@@ -15,7 +15,7 @@ use crate::db;
 use crate::event_detector;
 use crate::llm::LlmClient;
 use crate::paper_trading;
-use crate::profile_evaluation::{SnapshotValues, classify_market_regime};
+use crate::profile_evaluation::{SnapshotValues, classify_market_regime, regime_allows_entry};
 use crate::safety::SafetyManager;
 
 fn indicator_to_snapshot(snap: &crate::server::IndicatorSnapshot) -> SnapshotValues {
@@ -338,6 +338,7 @@ struct AutomationContextLight {
     next_interval_override: Arc<RwLock<Option<u64>>>,
     operational_mode: OperationalMode,
     weight_overrides: Arc<RwLock<Option<HashMap<String, i32>>>>,
+    safety: Arc<SafetyManager>,
 }
 
 fn ctx_to_clone(ctx: &AutomationContext) -> AutomationContextLight {
@@ -355,6 +356,7 @@ fn ctx_to_clone(ctx: &AutomationContext) -> AutomationContextLight {
         next_interval_override: ctx.next_interval_override.clone(),
         operational_mode: ctx.operational_mode.clone(),
         weight_overrides: ctx.weight_overrides.clone(),
+        safety: ctx.safety.clone(),
     }
 }
 
@@ -473,6 +475,8 @@ async fn execute_automation_cycle_light(
     let slow_tf_secs = config_guard.slow_timeframe.duration_seconds;
     let macro_tf_secs = config_guard.macro_timeframe.duration_seconds;
     let _scoring_cfg = config_guard.scoring.clone();
+    let regime_mult = (!config_guard.scoring.regime_weight_multipliers.is_empty())
+        .then(|| config_guard.scoring.regime_weight_multipliers.clone());
     drop(config_guard);
 
     let snapshot_micro = db::query_latest_snapshot(&ctx.pool, &ctx.symbol, 60).await;
@@ -494,79 +498,123 @@ async fn execute_automation_cycle_light(
         &indicators_micro,
         &support_strings,
         &resistance_strings,
+        None,
+        regime_mult.as_ref(),
     );
 
     let weight_overrides_guard = ctx.weight_overrides.read().await;
     let weight_map = weight_overrides_guard.as_ref();
 
-    let multi_agent_results = crate::server::run_multi_agent_pipeline(
-        llm.clone(),
-        ctx.pool.clone(),
-        &ctx.symbol,
-        &indicators_micro,
-        &indicators_fast,
-        &indicators_slow,
-        &indicators_macro,
-        prices,
-        master_id,
-        &telemetry,
-    )
-    .await
-    .map_err(|e| format!("Parallel agents failed: {}", e))?;
+    // Build indicator DTO array from normalized indicator map
+    let indicators_dto = build_indicators_dto(&indicators_micro);
 
-    let legacy_signals = multi_agent_results.to_legacy_signals();
-    let phase_one_json = serde_json::to_string(&legacy_signals).unwrap_or_else(|_| "[]".into());
+    // Build decision context
+    let decision_context = build_decision_context_json(&indicators_micro);
 
-    let journal_context =
-        db::query_recent_journal_for_context(&ctx.pool, &ctx.symbol, 10).await;
-    let journal_opt: Option<&str> =
-        if journal_context.is_empty() {
-            None
-        } else {
-            Some(&journal_context)
-        };
-
-    let indicators_json = serde_json::to_string(&indicators_micro.indicators).ok();
+    // Build market context
     let market_context_json = serde_json::to_string(
         &shared::market_context::MarketContext::synthesize(&indicators_micro.indicators),
     )
-    .ok();
-    let phase_two = llm
-        .run_multi_timeframe_orchestrator(
+    .unwrap_or_else(|_| "{}".to_string());
+
+    // Step 1: Analyst Agent — prepare structured market document
+    let analyst_document = llm
+        .run_analyst_agent(
+            &ctx.symbol,
+            last_close,
+            &indicators_dto,
+            &decision_context,
+            &market_context_json,
+            &support_strings,
+            &resistance_strings,
+            prices,
+            Some(&ctx.symbol),
+        )
+        .await
+        .map_err(|e| format!("Analyst agent failed: {}", e))?;
+
+    let analyst_json = serde_json::to_string(&analyst_document)
+        .map_err(|e| format!("Failed to serialize analyst document: {}", e))?;
+
+    // Institutional Risk Management Layer — deterministic advisory risk profile.
+    let risk_profile_json = {
+        let cfg = ctx.config.read().await;
+        let risk_cfg = cfg.risk.clone();
+        let suspend = cfg.safety.consecutive_loss_suspend;
+        let drawdown_limit = cfg.safety.capital_drawdown_pct;
+        let timeframe_secs = cfg.candles.duration_seconds as i64;
+        drop(cfg);
+
+        let indicators = &indicators_micro.indicators;
+        let market = shared::market_context::MarketContext::synthesize(indicators);
+        let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+        let mut sum = 0.0f64;
+        let mut wgt = 0.0f64;
+        for meta in shared::indicators::registry::INDICATORS {
+            if meta.directional {
+                if let Some(v) = indicators.get(meta.key) {
+                    sum += meta.default_weight * v.normalized;
+                    wgt += meta.default_weight;
+                }
+            }
+        }
+        let confluence = if wgt > 0.0 { (sum / wgt * 100.0).clamp(-100.0, 100.0) } else { 0.0 };
+        let decision = shared::decision_context::DecisionContext::compute(
+            indicators, last_close, atr_val, confluence,
+        );
+        let engine = crate::risk_engine::RiskEngine::new(risk_cfg, suspend, drawdown_limit);
+        let profile = engine
+            .evaluate(
+                &ctx.pool,
+                &ctx.symbol,
+                &ctx.symbol,
+                timeframe_secs,
+                indicators,
+                Some(&market),
+                Some(&decision),
+                None,
+                Some(&ctx.safety),
+            )
+            .await;
+        serde_json::to_string(&profile).unwrap_or_default()
+    };
+
+    // Step 2: Trader Agent — make final trading decision
+    let trader_decision = llm
+        .run_trader_agent(
+            &analyst_json,
             "None",
             "",
             &ctx.symbol,
-            &phase_one_json,
-            &support_strings,
-            &resistance_strings,
-            journal_opt,
+            &risk_profile_json,
             Some(&ctx.symbol),
-            telemetry.total_confluence_score,
-            None,
-            indicators_json.as_deref(),
-            market_context_json.as_deref(),
         )
         .await
-        .map_err(|e| format!("Orchestrator failed: {}", e))?;
+        .map_err(|e| format!("Trader agent failed: {}", e))?;
+
+    let trend = if analyst_document.market_summary.to_lowercase().contains("bullish") {
+        "UPWARD"
+    } else if analyst_document.market_summary.to_lowercase().contains("bearish") {
+        "DOWNWARD"
+    } else {
+        "SIDEWAYS"
+    };
 
     let _ = ctx
         .telemetry_tx
         .send(db::TelemetryMsg::UpdateMasterRecord {
             master_id,
-            general_trend: phase_two.general_trend.clone(),
-            support_levels: serde_json::to_string(
-                &phase_two.support_and_resistance.detected_support_levels,
-            )
-            .unwrap_or_default(),
-            resistance_levels: serde_json::to_string(
-                &phase_two.support_and_resistance.detected_resistance_levels,
-            )
-            .unwrap_or_default(),
-            indicator_synthesis_summary: phase_two.indicator_synthesis.summary_count.clone(),
-            indicator_synthesis_evaluation: phase_two.indicator_synthesis.evaluation.clone(),
-            recommended_action: phase_two.position_recommendation.action.clone(),
-            recommendation_rationale: phase_two.position_recommendation.rationale.clone(),
-            score_points: Some(phase_two.eight_factor_score),
+            general_trend: trend.to_string(),
+            support_levels: serde_json::to_string(&support_strings).unwrap_or_default(),
+            resistance_levels: serde_json::to_string(&resistance_strings).unwrap_or_default(),
+            indicator_synthesis_summary: format!(
+                "Action: {} (confidence: {})",
+                trader_decision.action, trader_decision.confidence
+            ),
+            indicator_synthesis_evaluation: analyst_document.confluence_summary.clone(),
+            recommended_action: trader_decision.action.clone(),
+            recommendation_rationale: trader_decision.rationale.clone(),
+            score_points: Some(trader_decision.confidence as i32),
             signals_json: None,
         })
         .await;
@@ -584,21 +632,11 @@ async fn execute_automation_cycle_light(
     }
 
     println!(
-        "🤖 Automation: {} analysis complete. Action: {} | Trend: {} | Interval: {}",
+        "🤖 Automation: {} analysis complete. Action: {} (confidence: {})",
         ctx.pair_key,
-        phase_two.position_recommendation.action,
-        phase_two.general_trend,
-        phase_two.position_recommendation.next_interval.as_deref().unwrap_or("normal"),
+        trader_decision.action,
+        trader_decision.confidence,
     );
-
-    if let Some(ref next) = phase_two.position_recommendation.next_interval {
-        let new_secs = match next.as_str() {
-            "slow" => ctx.intervals.slow_seconds,
-            "fast" => ctx.intervals.fast_seconds,
-            _ => ctx.intervals.normal_seconds,
-        };
-        *ctx.next_interval_override.write().await = Some(new_secs);
-    }
 
     let local_snap = indicator_to_snapshot(&indicators_micro);
     let regime = classify_market_regime(&local_snap);
@@ -608,7 +646,7 @@ async fn execute_automation_cycle_light(
     )
     .bind(master_id)
     .bind(regime.as_str())
-    .bind(phase_two.allocation_pct)
+    .bind(trader_decision.confidence as f64)
     .execute(&ctx.pool)
     .await;
 
@@ -621,9 +659,9 @@ async fn execute_automation_cycle_light(
         &ctx.symbol,
         now,
         regime.as_str(),
-        &phase_two.position_recommendation.action,
+        &trader_decision.action,
         85,
-        phase_two.eight_factor_score,
+        trader_decision.confidence as i32,
         2.0,
     )
     .await;
@@ -633,7 +671,7 @@ async fn execute_automation_cycle_light(
         return Ok(());
     }
 
-    let action = phase_two.position_recommendation.action.as_str();
+    let action = trader_decision.action.as_str();
     let current_price = prices.last().copied().unwrap_or(0.0);
 
     let sr_levels_f64: (Vec<f64>, Vec<f64>) = {
@@ -657,13 +695,13 @@ async fn execute_automation_cycle_light(
         &ctx.portfolio_risk,
         &ctx.pool,
         &ctx.symbol,
-        phase_two.allocation_pct,
+        trader_decision.confidence as f64,
         &existing_positions,
         &ctx.pair_close_histories,
     )
     .await;
     if !validation.allowed
-        && phase_two.allocation_pct > 0.0
+        && trader_decision.confidence > 0
         && (action == "Open Long" || action == "Open Short")
     {
         println!(
@@ -673,8 +711,16 @@ async fn execute_automation_cycle_light(
         return Ok(());
     }
 
+    if (action == "Open Long" || action == "Open Short") && !regime_allows_entry(&regime) {
+        println!(
+            "🛑 Auto Paper: {} blocked by regime {} — entries not permitted in this market state",
+            ctx.pair_key, regime.as_str()
+        );
+        return Ok(());
+    }
+
     let eight_factor_score = if use_scoring {
-        Some(phase_two.allocation_pct)
+        Some(trader_decision.confidence as f64)
     } else {
         None
     };
@@ -682,8 +728,13 @@ async fn execute_automation_cycle_light(
     if use_scoring {
         let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
         if let Some(ref p) = pos {
-            let macro_trend = phase_two.general_trend.as_str();
+            let macro_trend = trend;
             let snap_values = indicator_to_snapshot(&indicators_micro);
+            let regime_mult = {
+                let cfg = ctx.config.read().await;
+                (!cfg.scoring.regime_weight_multipliers.is_empty())
+                    .then(|| cfg.scoring.regime_weight_multipliers.clone())
+            };
             let (should_exit, opposite_count) = paper_trading::evaluate_opposite_exit(
                 &p.direction,
                 &snap_values,
@@ -691,6 +742,7 @@ async fn execute_automation_cycle_light(
                 &sr_levels_f64.1,
                 macro_trend,
                 max_opposite,
+                regime_mult.as_ref(),
             );
             if should_exit {
                 println!(
@@ -716,31 +768,10 @@ async fn execute_automation_cycle_light(
 
     let slow_trend_direction = determine_slow_trend_direction(&indicators_slow);
 
-    let micro_trend = &legacy_signals
-        .iter()
-        .filter(|r| r.indicator_name.starts_with("micro-"))
-        .map(|r| r.signal.as_str())
-        .collect::<Vec<_>>();
-    let fast_trend = &legacy_signals
-        .iter()
-        .filter(|r| r.indicator_name.starts_with("fast-"))
-        .map(|r| r.signal.as_str())
-        .collect::<Vec<_>>();
-    let slow_trend_signals = &legacy_signals
-        .iter()
-        .filter(|r| r.indicator_name.starts_with("slow-"))
-        .map(|r| r.signal.as_str())
-        .collect::<Vec<_>>();
-    let macro_trend_signals = &legacy_signals
-        .iter()
-        .filter(|r| r.indicator_name.starts_with("macro-"))
-        .map(|r| r.signal.as_str())
-        .collect::<Vec<_>>();
-
-    let micro_consensus = if micro_trend.iter().filter(|&&s| s == "BULLISH").count() >= micro_trend.len() / 2 { "BULLISH" } else if micro_trend.iter().filter(|&&s| s == "BEARISH").count() >= micro_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-    let fast_consensus = if fast_trend.iter().filter(|&&s| s == "BULLISH").count() >= fast_trend.len() / 2 { "BULLISH" } else if fast_trend.iter().filter(|&&s| s == "BEARISH").count() >= fast_trend.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-    let slow_consensus = if slow_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= slow_trend_signals.len() / 2 { "BULLISH" } else if slow_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= slow_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
-    let macro_consensus = if macro_trend_signals.iter().filter(|&&s| s == "BULLISH").count() >= macro_trend_signals.len() / 2 { "BULLISH" } else if macro_trend_signals.iter().filter(|&&s| s == "BEARISH").count() >= macro_trend_signals.len() / 2 { "BEARISH" } else { "SIDEWAYS" };
+    let micro_consensus = determine_slow_trend_direction(&indicators_micro);
+    let fast_consensus = determine_slow_trend_direction(&indicators_fast);
+    let slow_consensus = determine_slow_trend_direction(&indicators_slow);
+    let macro_consensus = determine_slow_trend_direction(&indicators_macro);
 
     let (confluence, count) = evaluate_confluence_mtf(
         micro_consensus,
@@ -766,6 +797,12 @@ async fn execute_automation_cycle_light(
                     eight_factor_score,
                 )
                 .await;
+                if res.success {
+                    try_set_fibonacci_take_profits(
+                        &ctx.pool, &ctx.symbol, "LONG", current_price,
+                        &indicators_micro, &regime,
+                    ).await;
+                }
                 println!(
                     "📄 Auto Paper: {} {} (confluence {}/4, slow {})",
                     ctx.pair_key, res.message, count, slow_trend_direction
@@ -793,6 +830,12 @@ async fn execute_automation_cycle_light(
                     eight_factor_score,
                 )
                 .await;
+                if res.success {
+                    try_set_fibonacci_take_profits(
+                        &ctx.pool, &ctx.symbol, "SHORT", current_price,
+                        &indicators_micro, &regime,
+                    ).await;
+                }
                 println!(
                     "📄 Auto Paper: {} {} (confluence {}/4, slow {})",
                     ctx.pair_key, res.message, count, slow_trend_direction
@@ -930,5 +973,101 @@ fn build_indicator_snapshot(
             snap
         }
         None => crate::server::IndicatorSnapshot::default(),
+    }
+}
+
+/// Build a compact JSON array of indicator DTOs from the normalized indicator map.
+fn build_indicators_dto(snap: &crate::server::IndicatorSnapshot) -> String {
+    let arr: Vec<serde_json::Value> = snap
+        .indicators
+        .iter()
+        .map(|(key, v)| {
+            let mut obj = serde_json::json!({
+                "indicator_name": key,
+                "normalized": v.normalized,
+                "state_label": v.state_label,
+            });
+            if let Some(vals) = &v.values {
+                obj["values"] = serde_json::to_value(vals).unwrap_or(serde_json::json!({}));
+            }
+            obj
+        })
+        .collect();
+    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Build decision context JSON from snapshot indicators.
+fn build_decision_context_json(snap: &crate::server::IndicatorSnapshot) -> String {
+    let total = snap.indicators.len().max(1) as f64;
+    let bullish_count = snap.indicators.values().filter(|v| v.normalized > 0.0).count() as f64;
+    let bearish_count = snap.indicators.values().filter(|v| v.normalized < 0.0).count() as f64;
+    let active_count = snap.indicators.values().filter(|v| v.normalized.abs() > 0.2).count() as f64;
+
+    let directional_sum: f64 = snap.indicators.values().map(|v| v.normalized).sum();
+    let bias = (directional_sum / total).clamp(-1.0, 1.0);
+
+    serde_json::to_string(&serde_json::json!({
+        "bullish_probability": bullish_count / total,
+        "bearish_probability": bearish_count / total,
+        "directional_bias": bias,
+        "consensus": active_count / total,
+        "confluence": (bias * 100.0) as i32,
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
+}
+
+async fn try_set_fibonacci_take_profits(
+    pool: &SqlitePool,
+    symbol: &str,
+    direction: &str,
+    entry_price: f64,
+    snap: &crate::server::IndicatorSnapshot,
+    regime: &crate::profile_evaluation::MarketRegime,
+) {
+    let fib = match snap.indicators.get("fibonacci") {
+        Some(v) => v,
+        None => return,
+    };
+    let vals = match &fib.values {
+        Some(m) => m,
+        None => return,
+    };
+    let ext_1618 = vals.get("ext_1618").copied().unwrap_or(0.0);
+    let ext_2618 = vals.get("ext_2618").copied().unwrap_or(0.0);
+
+    if ext_1618 <= 0.0 {
+        return;
+    }
+
+    let mut targets: Vec<(f64, f64)> = Vec::new();
+
+    if direction == "LONG" {
+        if ext_1618 > entry_price {
+            targets.push((50.0, ext_1618));
+        }
+        if ext_2618 > ext_1618 {
+            let close_pct = if *regime == crate::profile_evaluation::MarketRegime::Expansion {
+                100.0
+            } else {
+                50.0
+            };
+            targets.push((close_pct, ext_2618));
+        }
+    } else {
+        if ext_1618 < entry_price {
+            targets.push((50.0, ext_1618));
+        }
+        if ext_2618 < ext_1618 {
+            let close_pct = if *regime == crate::profile_evaluation::MarketRegime::Expansion {
+                100.0
+            } else {
+                50.0
+            };
+            targets.push((close_pct, ext_2618));
+        }
+    }
+
+    if !targets.is_empty() {
+        let _ = paper_trading::set_take_profit_targets(pool, symbol, &targets).await;
     }
 }

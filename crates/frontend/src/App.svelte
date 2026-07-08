@@ -4,7 +4,7 @@
     import type { CurrentView, Level2Mode, InstanceState } from './types';
 
     import LiveTerminal from './components/LiveTerminal.svelte';
-    import TerminalMonitor from './components/TerminalMonitor.svelte';
+    import StatePanel from './components/StatePanel.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
     import RiskCalculator from './components/RiskCalculator.svelte';
@@ -20,12 +20,18 @@
     import AiAssistantPanel from './components/AiAssistantPanel.svelte';
     import PaperTradingPanel from './components/PaperTradingPanel.svelte';
     import CostDashboardPanel from './components/CostDashboardPanel.svelte';
+    import RiskProfilePanel from './components/RiskProfilePanel.svelte';
     import TimeframeSettings from './components/TimeframeSettings.svelte';
+    import ExchangeSettings from './components/ExchangeSettings.svelte';
+    import MonitoringPanel from './components/MonitoringPanel.svelte';
+    import RiskManagementPanel from './components/RiskManagementPanel.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
     import UserProfile from './components/UserProfile.svelte';
     import EdgeBuilder from './components/EdgeBuilder.svelte';
     import EdgeAnalyzer from './components/EdgeAnalyzer.svelte';
+    import StatisticalPanel from './components/StatisticalPanel.svelte';
+    import TradingWizard from './components/TradingWizard.svelte';
     import styles from './App.module.css';
     import Icon from './lib/Icon.svelte';
     import type { IconName } from './lib/icons';
@@ -47,6 +53,7 @@
     // ─── 3-Tier navigation config ───────────────────────────────────────────
     const MODE_DEFS: { key: Level2Mode; label: string }[] = [
         { key: 'general', label: 'GENERAL' },
+        { key: 'wizard', label: 'TRADING WIZARD' },
         { key: 'user', label: 'USER-CONTROLLED' },
         { key: 'rule', label: 'RULE-BASED' },
         { key: 'ai', label: 'AI-DRIVEN' },
@@ -56,12 +63,18 @@
         general: [
             { view: 'timeframe_settings', label: 'Timeframe Settings', icon: 'clock' },
             { view: 'settings', label: 'Workspace Settings', icon: 'monitor' },
-            { view: 'risk', label: 'Risk Management', icon: 'shield' },
+            { view: 'risk_management', label: 'Risk Management', icon: 'shield' },
+        ],
+        wizard: [
+            { view: 'wizard_flow', label: 'Trading Wizard', icon: 'zap' },
+            { view: 'terminal', label: 'Live Workspace', icon: 'trending-up' },
         ],
         user: [
             { view: 'terminal', label: 'Live Workspace', icon: 'trending-up' },
             { view: 'monitor', label: 'State Panel', icon: 'monitor' },
+            { view: 'monitoring', label: 'Monitoring', icon: 'eye' },
             { view: 'positions', label: 'Positions', icon: 'dollar' },
+            { view: 'risk_management', label: 'Risk Management', icon: 'shield' },
             { view: 'commission', label: 'Fee Projection', icon: 'percent' },
             { view: 'costs', label: 'Token Costs', icon: 'dollar' },
         ],
@@ -72,6 +85,8 @@
         ],
         ai: [
             { view: 'assistant', label: 'AI Assistant', icon: 'bot' },
+            { view: 'statistics', label: 'Statistical Intel', icon: 'bar-chart' },
+            { view: 'monitoring', label: 'Monitoring', icon: 'eye' },
             { view: 'observability', label: 'Decision HUD', icon: 'target' },
             { view: 'performance', label: 'Performance Metrics', icon: 'bar-chart' },
             { view: 'analytics', label: 'Trade Audit', icon: 'bar-chart' },
@@ -86,6 +101,9 @@
         pair.modeViews[pair.currentLevel2Mode] = view;
         if (view === 'positions') app.fetchPaperStatus();
         else if (view === 'costs') app.fetchCostEstimate();
+        else if (view === 'risk_profile') app.fetchRiskProfile();
+        else if (view === 'monitoring') app.fetchActiveTrades();
+        else if (view === 'risk_management') app.fetchRiskProfile();
     }
 
     function selectMode(pair: InstanceState, mode: Level2Mode) {
@@ -274,9 +292,13 @@
                         <LiveTerminal pairKey={tabKey} />
                     </div>
 
-                <!-- 1.2 Terminal Monitor View -->
+                <!-- 1.2 State Panel (decision cockpit) View -->
                 {:else if pair.currentView === 'monitor'}
-                    <TerminalMonitor pairKey={tabKey} />
+                    <StatePanel pairKey={tabKey} />
+
+                <!-- 1.4 Trading Wizard -->
+                {:else if pair.currentView === 'wizard_flow'}
+                    <TradingWizard />
 
                 <!-- 1.5 AI Assistant View -->
                 {:else if pair.currentView === 'assistant'}
@@ -330,6 +352,20 @@
                 {:else if pair.currentView === 'costs'}
                     <CostDashboardPanel {pair} />
 
+                <!-- 9a. Institutional Risk Management Layer -->
+                {:else if pair.currentView === 'risk_profile'}
+                    <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
+                        <RiskProfilePanel {pair} />
+                    </div>
+
+                <!-- 9d. Monitoring Panel -->
+                {:else if pair.currentView === 'monitoring'}
+                    <MonitoringPanel pairKey={tabKey} />
+
+                <!-- 9e. Unified Risk Management Panel -->
+                {:else if pair.currentView === 'risk_management'}
+                    <RiskManagementPanel pairKey={tabKey} />
+
                 <!-- 9b. Edge Builder -->
                 {:else if pair.currentView === 'edge_builder'}
                     <EdgeBuilder paradigm={pair.currentLevel2Mode === 'ai' ? 'ai' : 'rule'} />
@@ -342,6 +378,12 @@
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <ObservabilityHub />
                     </div>
+                {:else if pair.currentView === 'statistics'}
+                    <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
+                        <StatisticalPanel />
+                    </div>
+                {:else if pair.currentView === 'exchange'}
+                    <ExchangeSettings />
                 {:else if pair.currentView === 'timeframe_settings'}
                     <TimeframeSettings {pair} {tabKey} onApplied={() => connectWs(app, wsState)} />
                 {/if}

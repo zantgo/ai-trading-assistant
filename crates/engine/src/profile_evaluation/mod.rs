@@ -1,6 +1,9 @@
 pub mod scoring;
 
-pub use scoring::{calculate_registry_confluence, calculate_registry_opposite_score, RegistryConfluence};
+pub use scoring::{
+    calculate_registry_confluence, calculate_registry_opposite_score, RegistryConfluence,
+    REGISTRY_OPPOSITE_EXIT_THRESHOLD,
+};
 
 use sqlx::SqlitePool;
 use crate::db;
@@ -331,6 +334,7 @@ pub enum MarketRegime {
     Compression,
     Expansion,
     Range,
+    Transitional,
 }
 
 impl MarketRegime {
@@ -340,6 +344,7 @@ impl MarketRegime {
             Self::Compression => "COMPRESSION",
             Self::Expansion => "EXPANSION",
             Self::Range => "RANGE",
+            Self::Transitional => "TRANSITIONAL",
         }
     }
 }
@@ -351,20 +356,95 @@ pub fn classify_market_regime(snap: &SnapshotValues) -> MarketRegime {
     let squeeze_on = squeeze_label == "COMPRESSION_COILING";
     let squeeze_release = squeeze_label.ends_with("VOLATILITY_RELEASE");
     let tangled = snap.label("ema_stack").contains("TANGLED") || snap.norm("ema_stack").abs() < 0.10;
+    let chop = snap.raw("choppiness").unwrap_or(50.0);
+    let aroon_up = snap.sub("aroon", "up").unwrap_or(0.0);
+    let aroon_down = snap.sub("aroon", "down").unwrap_or(0.0);
+    let atr_label = snap.label("atr");
 
-    if bbwp < 10.0 || squeeze_on {
-        return MarketRegime::Compression;
+    let mut scores: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::new();
+
+    // ADX (25%): <20→Range, 20-40→Trending, >40→Expansion
+    if adx < 20.0 {
+        *scores.entry("Range").or_insert(0.0) += 0.25;
+    } else if adx <= 40.0 {
+        *scores.entry("Trending").or_insert(0.0) += 0.25;
+    } else {
+        *scores.entry("Expansion").or_insert(0.0) += 0.25;
     }
 
-    if squeeze_release || bbwp > 90.0 {
-        return MarketRegime::Expansion;
+    // Choppiness (25%): >61.8→Range, <38.2→Trending, else→Transitional
+    if chop >= 61.8 {
+        *scores.entry("Range").or_insert(0.0) += 0.25;
+    } else if chop <= 38.2 {
+        *scores.entry("Trending").or_insert(0.0) += 0.25;
+    } else {
+        *scores.entry("Transitional").or_insert(0.0) += 0.25;
     }
 
-    if adx >= 25.0 && !tangled {
-        return MarketRegime::Trending;
+    // BBWP (15%): <20→Compression, >90→Expansion
+    if bbwp < 20.0 {
+        *scores.entry("Compression").or_insert(0.0) += 0.15;
+    } else if bbwp > 90.0 {
+        *scores.entry("Expansion").or_insert(0.0) += 0.15;
     }
 
-    MarketRegime::Range
+    // Squeeze (15%): ON→Compression, recently released→Expansion
+    if squeeze_on {
+        *scores.entry("Compression").or_insert(0.0) += 0.15;
+    } else if squeeze_release {
+        *scores.entry("Expansion").or_insert(0.0) += 0.15;
+    }
+
+    // ATR (10%): contracting→Compression, expanding→Expansion/Trending
+    if atr_label.contains("CONTRACTING") {
+        *scores.entry("Compression").or_insert(0.0) += 0.10;
+    } else if atr_label.contains("EXPANDING") {
+        *scores.entry("Expansion").or_insert(0.0) += 0.05;
+        *scores.entry("Trending").or_insert(0.0) += 0.05;
+    }
+
+    // Aroon (10%): both<30→Range, up>70→Trending, down>70→Trending
+    if aroon_up < 30.0 && aroon_down < 30.0 {
+        *scores.entry("Range").or_insert(0.0) += 0.10;
+    } else if aroon_up > 70.0 || aroon_down > 70.0 {
+        *scores.entry("Trending").or_insert(0.0) += 0.10;
+    }
+
+    // Find winning regime and compute confidence
+    let mut best_regime = "Range";
+    let mut best_score = 0.0f64;
+    let total_weight: f64 = scores.values().sum();
+    for (regime, score) in &scores {
+        if *score > best_score {
+            best_score = *score;
+            best_regime = *regime;
+        }
+    }
+
+    let confidence = if total_weight > 0.0 { best_score / total_weight } else { 0.0 };
+
+    // Force transition override when confidence too low or tangled EMA
+    if confidence < 0.40 || tangled {
+        return MarketRegime::Transitional;
+    }
+
+    match best_regime {
+        "Trending" => MarketRegime::Trending,
+        "Compression" => MarketRegime::Compression,
+        "Expansion" => MarketRegime::Expansion,
+        "Transitional" => MarketRegime::Transitional,
+        _ => MarketRegime::Range,
+    }
+}
+
+pub fn regime_allows_entry(regime: &MarketRegime) -> bool {
+    match regime {
+        MarketRegime::Trending => true,
+        MarketRegime::Compression => false,
+        MarketRegime::Expansion => true,
+        MarketRegime::Range => false,
+        MarketRegime::Transitional => false,
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

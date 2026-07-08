@@ -40,6 +40,8 @@ Labels: `KELTNER_UPPER_BREAKOUT`, `KELTNER_LOWER_BREAKOUT`, `KELTNER_UPPER_HALF`
 | Breakout | KELTNER_LOWER_BREAKOUT | Price ≤ lower band | Bearish |
 | BandTouch | KELTNER_UPPER_BAND_TOUCH | Price inside channel, position > 0.85 (near upper edge). Structured push from engine. | Bearish |
 | BandTouch | KELTNER_LOWER_BAND_TOUCH | Price inside channel, position < 0.15 (near lower edge). Structured push from engine. | Bullish |
+| LevelTest | KELTNER_MIDDLE_BAND_TEST | Price approaches the EMA midline from either direction. Acts as dynamic equilibrium level — rejection signals continuation, crossing signals shift. | Direction depends on approach side |
+| LevelTest | KELTNER_MIDDLE_BAND_SUPPORT | Price bounces off the EMA midline after a pullback from a breakout. Confirms breakout integrity and trend continuation. | Aligned with breakout direction |
 
 ## 5. Scoring & AI Context
 

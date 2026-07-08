@@ -32,10 +32,15 @@ Labels: `OBV_ACCUMULATION` (norm > 0.1), `OBV_DISTRIBUTION` (norm < -0.1), `OBV_
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| Threshold | OBV_ACCUMULATION | OBV in accumulation phase (norm > 0.1) | Bullish |
-| Threshold | OBV_DISTRIBUTION | OBV in distribution phase (norm < -0.1) | Bearish |
-| TrendFlip | OBV_TREND_FLIP_BULLISH/BEARISH | OBV crosses above/below its SMA (transition-only). Structured push from engine using prev-bar OBV/SMA comparison. | Bullish / Bearish |
-| Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-OBV divergence via SeriesDivergence. | Bullish / Bearish |
+| Threshold | OBV_ACCUMULATION | OBV in accumulation phase (norm > 0.1). Smart money buying. | Bullish |
+| Threshold | OBV_DISTRIBUTION | OBV in distribution phase (norm < -0.1). Smart money selling. | Bearish |
+| Threshold | OBV_NEUTRAL | OBV near equilibrium (|norm| ≤ 0.1). No clear accumulation or distribution. | Neutral |
+| TrendFlip | OBV_TREND_FLIP_BULLISH | OBV crosses above its SMA (transition-only). Accumulation trend flipping from distribution. | Bullish |
+| TrendFlip | OBV_TREND_FLIP_BEARISH | OBV crosses below its SMA (transition-only). Distribution trend flipping from accumulation. | Bearish |
+| Divergence | BULLISH_DIVERGENCE | Price makes lower low, OBV makes higher low — hidden accumulation. Detected via 20-bar SeriesDivergence. Status: Potential → Confirmed when nearest Support level broken with 0.2% tolerance. | Bullish |
+| Divergence | BEARISH_DIVERGENCE | Price makes higher high, OBV makes lower high — distribution exhaustion. Status: Potential → Confirmed when nearest Resistance level broken with 0.2% tolerance. | Bearish |
+
+**Divergence Lifecycle:** Potential (oscillator disagrees with price, no structural break) → Confirmed (candle close breaks nearest S/R boundary by >0.2% tolerance). Potential divergences are secondary confluence only — do not trade them as primary signals. Dedicated `obv_divergence` scoring key contributes separately to the confluence engine.
 
 ## 5. Scoring & AI Context
 

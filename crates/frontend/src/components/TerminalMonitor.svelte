@@ -95,6 +95,14 @@
         <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
         {#if monitor}
             <span class={styles.regimeTag}>REGIME: {context?.regime ?? '—'}</span>
+            {#if context}
+                {@const rc = (context as any).regime_confidence ?? 0}
+                <span class={styles.regimeConf} style="color:{rc >= 0.85 ? '#10b981' : rc >= 0.60 ? '#f59e0b' : rc >= 0.40 ? '#ef4444' : '#94a3b8'}">
+                    {rc >= 0.85 ? 'STRONG' : rc >= 0.60 ? 'MODERATE' : rc >= 0.40 ? 'WEAK' : 'TRANSITIONAL'}
+                </span>
+                {@const rs = (context as any).regime_stability ?? 0}
+                <span class={styles.regimeStab}>STB {Math.round(rs * 100)}%</span>
+            {/if}
             <span class={styles.trendAgree} style="color:{agreementColor(monitor.mtf.trend_agreement_pct / 100)}">
                 MTF AGREEMENT {pct(monitor.mtf.trend_agreement_pct)}
             </span>

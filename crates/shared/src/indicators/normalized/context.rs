@@ -231,6 +231,10 @@ impl NormalizationEngine {
         is_bearish: bool,
         confidence: f64,
         rvol: f64,
+        upper_slope: Option<f64>,
+        upper_intercept: Option<f64>,
+        lower_slope: Option<f64>,
+        lower_intercept: Option<f64>,
     ) -> NormalizedIndicatorValue {
         let (norm, label) = if is_bullish {
             if rvol >= 1.5 {
@@ -247,7 +251,12 @@ impl NormalizationEngine {
         } else {
             (0.0, "NO_PATTERN")
         };
-        NormalizedIndicatorValue::scalar(confidence, norm, label)
+        let mut values = HashMap::new();
+        if let Some(s) = upper_slope { values.insert("upper_slope".to_string(), s); }
+        if let Some(i) = upper_intercept { values.insert("upper_intercept".to_string(), i); }
+        if let Some(s) = lower_slope { values.insert("lower_slope".to_string(), s); }
+        if let Some(i) = lower_intercept { values.insert("lower_intercept".to_string(), i); }
+        NormalizedIndicatorValue::with_values(confidence, norm, label, values)
     }
 
     /// Support & Resistance with proximity + role-reversal breakout detection.

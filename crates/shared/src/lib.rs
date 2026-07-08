@@ -11,6 +11,9 @@ pub mod market_context;
 pub mod models;
 pub mod normalized;
 pub mod decision_context;
+pub mod statistics;
+pub mod structural_integrity;
+pub mod risk;
 
 pub use decision_context::DecisionContext;
 pub use normalized::TriggerType;

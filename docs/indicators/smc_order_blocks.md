@@ -35,8 +35,10 @@ The `values` sub-map carries: `ob_bullish_high/low`, `ob_bearish_high/low` (the 
 
 | SignalKind | Label Pattern | Trigger | Direction |
 |-----------|--------------|---------|-----------|
-| LevelTest | SMC_OB_BULLISH_TEST / BEARISH_TEST | Price tests an active OB zone (within 0.5%) | Bullish / Bearish |
-| TrendFlip | SMC_OB_BEARISH_ACTIVE → OB breaks | When a bullish OB is mitigated (broken below) → trend continuation downside | Bearish |
+| LevelTest | SMC_OB_BULLISH_TEST | Price tests an active bullish OB zone (within 0.5%). Demand zone holding — potential long entry. | Bullish |
+| LevelTest | SMC_OB_BEARISH_TEST | Price tests an active bearish OB zone (within 0.5%). Supply zone holding — potential short entry. | Bearish |
+| TrendFlip | SMC_OB_BULLISH_MITIGATED | Bullish OB broken below — demand absorbed, zone becomes potential resistance (breaker block). Trend continuation downside. | Bearish |
+| TrendFlip | SMC_OB_BEARISH_MITIGATED | Bearish OB broken above — supply absorbed, zone becomes potential support (breaker block). Trend continuation upside. | Bullish |
 
 ## 5. Scoring & AI Context
 

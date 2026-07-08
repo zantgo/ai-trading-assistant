@@ -359,6 +359,8 @@ pub async fn query_latest_snapshot(
             bid_size: None,
             ask_size: None,
             funding_rate: None,
+            open_interest: None,
+            oi_delta_1h: None,
             prev_day_px: None,
             open: parse_dec(r.get::<Option<String>, _>(6)),
             high: parse_dec(r.get::<Option<String>, _>(7)),
@@ -368,7 +370,9 @@ pub async fn query_latest_snapshot(
             average_volume: parse_dec(r.get::<Option<String>, _>(11)),
             context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
             decision_context: None,
+            statistical_context: None,
             indicators,
+            risk_profile: None,
         }
     })
 }

@@ -22,12 +22,19 @@ pub struct TradeDetailRow {
     pub commission_fees: f64,
     pub roi_percentage: f64,
     pub trigger_source: String,
+    pub market_regime: Option<String>,
 }
 
 pub async fn dash_trade_detail(pool: &SqlitePool) -> Vec<TradeDetailRow> {
     sqlx::query_as::<_, TradeDetailRow>(
-        "SELECT exit_timestamp, symbol, direction, entry_price, exit_price, size, realized_pnl, commission_fees, roi_percentage, trigger_source
-         FROM trade_telemetry_history ORDER BY exit_timestamp ASC",
+        "SELECT t.exit_timestamp, t.symbol, t.direction, t.entry_price, t.exit_price, t.size,
+                t.realized_pnl, t.commission_fees, t.roi_percentage, t.trigger_source,
+                COALESCE(pt.market_regime, 'RANGE') as market_regime
+         FROM trade_telemetry_history t
+         LEFT JOIN paper_trades pt ON pt.symbol = t.symbol
+             AND pt.exit_timestamp = t.exit_timestamp
+             AND ABS(pt.realized_pnl - t.realized_pnl) < 0.01
+         ORDER BY t.exit_timestamp ASC",
     )
     .fetch_all(pool)
     .await

@@ -71,6 +71,11 @@ pub use queries::trades::{
     insert_user_trade, query_user_trades, trade_telemetry_count, trade_telemetry_insert,
     trade_telemetry_query_all, TradeTelemetryRecord, UserTrade,
 };
+pub use queries::risk::{
+    insert_risk_event, insert_rr_calibration, latest_risk_event, latest_rr_block_index,
+    latest_rr_calibration, pair_initial_capital, pair_realized_pnls, pair_recent_ohlc,
+    pair_trade_count, RiskEventRow, RrCalibrationRow,
+};
 
 // ─── Init ──────────────────────────────────────────────────────────
 

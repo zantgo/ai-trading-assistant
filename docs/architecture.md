@@ -23,18 +23,17 @@ The AI Trading Assistant implements a 7-layer institutional trading framework co
 - **Regime Detection Engine**: Classifies market into Trending, Compression, Expansion, or Range using ADX, BBWP, Squeeze state, Choppiness Index, and ATR regime. 7 non-directional gates act as confluence multipliers.
 
 ### Layer 3 — Agent Layer (Implemented)
-Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
-- **Trend Agent**: EMA structure analysis, multi-timeframe alignment, directional bias
-- **Volatility Agent**: BBWP percentile, ATR expansion/contraction, Squeeze Momentum state, volatility regime classification
-- **Structure Agent**: Support/resistance levels, Fibonacci retracements/extensions, volume profile zones, liquidity levels
-- **Risk Agent**: Position sizing recommendations, leverage suggestions, exposure monitoring
-- **Position Management Agent**: Active position state, unrealized PnL, stop-loss/take-profit tracking, invalidation detection
-- **Institutional Agent (Smart Money)**: SMC structure (BOS/CHoCH), liquidity sweep detection, fair value gap lifecycle, order block zone tracking
+Specialized LLM agents running in a sequential two-agent pipeline via `run_analyst_agent()` → `run_trader_agent()`:
+
+- **Analyst Agent:** Receives ALL deterministic data (51 indicator DTOs, DecisionContext, MarketContext, S/R levels, price history) and produces an 8-section institutional market document (market_summary, trend/momentum/volatility/volume/structure indicators, active_signals, confluence_summary). Zero trading decisions — purely descriptive.
+- **Trader Agent:** Receives the Analyst Document + current position + IRML risk profile. Makes strict rule-bound decisions from 5 actions (Hold, Close, Wait, Open Long, Open Short) with confidence score and operational rationale.
+- **Journal Agent:** Post-trade audit producing retrospective analysis and execution score (0-10).
+- **Chat Agent:** Conversational interface for user queries about market conditions.
 
 ### Layer 4 — Orchestration (Implemented)
-- **Master Orchestrator**: `run_multi_timeframe_orchestrator()` synthesizes agent outputs into a unified decision (Open Position / Scale / Hold / Reduce / Exit / No Action)
+- **Pipeline Orchestration**: `services/analyzer.rs` orchestrates the two-agent cycle: builds indicator DTOs → compiles DecisionContext + MarketContext → runs Analyst Agent → builds IRML risk profile → runs Trader Agent → spawns background updates
 - **Orchestration Cycle**: Configurable interval via `automation.interval_seconds` (default: 900s)
-- **Decision Context**: Assembled from agent reports, active positions, historical decisions (memory buffer, last N=10), completed trades (trade history buffer, last N=10)
+- **Decision Context**: Assembled from analyst document, active positions, IRML risk boundaries
 - **Heuristic Fallback**: When no LLM API key is configured, a local 100-point confluence scoring model (trend 30/volatility 25/momentum 20/structure 25) gates decisions by regime, volume confirmation, and minimum score thresholds
 
 ### Layer 5 — Risk Management (Partially Implemented)
@@ -111,6 +110,27 @@ Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
   - `Expected Volatility` — forward-looking annualized σ (HV + squeeze coil/BBWP/ATR expansion signals)
   - `Confluence` — registry-weighted directional score [−100,+100]
   - Attached to every `MarketSnapshot`; auto-transported via WebSocket + REST `/api/history`
+
+## Frontend Trade Lifecycle (5-Stage Flow)
+
+The dashboard presents a clean 5-stage decision pipeline:
+
+```
+SETUP → TRIGGER → CONFIRMATION → EXECUTION → MONITORING
+```
+
+| Stage | Indicator Groups | Synthesis |
+|-------|-----------------|-----------|
+| Setup | Trend, Regime, Structure | — |
+| Trigger | Momentum, Price Action, Breakouts | — |
+| Confirmation | Volume, Trend Strength, Volatility, Smart Money, Order Flow | — |
+| Execution | — | Confluence, Decision Context, AI Synthesis |
+| Monitoring | — | Active trades, exit signals, scale/TP/SL, PnL tracking |
+
+**Risk Management (IRML)** is a dedicated standalone panel (General mode > Risk Management) providing:
+position sizing, ATR stops, stop loss, take profit, max risk, max daily loss, max allocation,
+and leverage. Risk boundaries feed into Execution and Monitoring stages but do not form a
+pipeline stage themselves.
 
 ## Runtime Details
 

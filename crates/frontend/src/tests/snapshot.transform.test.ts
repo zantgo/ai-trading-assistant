@@ -145,4 +145,30 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(eth.indicators['rsi'].state_label).toBe('OVERBOUGHT_DISTRIBUTION');
         expect(eth.priceText).toBe('3200.00');
     });
+
+    it('caches decision_context from completed candles and holds it across shadow snapshots', () => {
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+        expect(tf.decisionContext).toBeNull();
+
+        const completed = nestedSnapshot();
+        completed.decision_context = {
+            bullish_probability: 0.72, bearish_probability: 0.28, directional_bias: 0.44,
+            consensus: 0.6, expected_range_1bar: 0.01, expected_range_5bar: 0.02,
+            expected_range_20bar: 0.04, expected_volatility: 25, confluence: 0.5,
+            risk_level: 0.3, reward_risk_ratio: 2.5, recommended_stop: 64000,
+            trade_quality: 0.7, market_quality: 0.65, regime_confidence: 0.8,
+            trend_persistence: 0.55, trade_readiness: 0.68,
+        };
+        applySnapshotToTimeframe(tf, wsEvent(completed));
+        expect(tf.decisionContext).not.toBeNull();
+        expect(tf.decisionContext!.trade_readiness).toBe(0.68);
+
+        // Shadow (flicker) snapshot omits decision_context → cached value persists.
+        applySnapshotToTimeframe(
+            tf,
+            wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '65100.00' }),
+        );
+        expect(tf.isCompleted).toBe(false);
+        expect(tf.decisionContext!.trade_readiness).toBe(0.68);
+    });
 });

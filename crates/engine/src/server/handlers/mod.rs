@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod assistant;
+pub mod backtest;
 pub mod chat;
 pub mod config;
 pub mod dashboard;
@@ -10,6 +11,7 @@ pub mod instances;
 pub mod monitor;
 pub mod paper;
 pub mod profiles;
+pub mod risk_profile;
 pub mod session;
 pub mod system;
 pub mod trades;

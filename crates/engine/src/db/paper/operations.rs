@@ -448,6 +448,7 @@ pub(crate) async fn paper_insert_open_order(
     size: f64,
     is_reduce_only: bool,
     associated_position_id: Option<i64>,
+    slot_index: Option<i64>,
 ) -> Result<i64, sqlx::Error> {
     // Enforce entry order capacity constraint: E + 1 ≤ 4 - A
     if associated_position_id.is_none() && !is_reduce_only {
@@ -481,8 +482,8 @@ pub(crate) async fn paper_insert_open_order(
 
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO open_orders (symbol, order_type, direction, price, trigger_price, size, is_reduce_only, associated_position_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+        "INSERT INTO open_orders (symbol, order_type, direction, price, trigger_price, size, is_reduce_only, associated_position_id, slot_index, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
     )
     .bind(symbol)
     .bind(order_type)
@@ -492,6 +493,7 @@ pub(crate) async fn paper_insert_open_order(
     .bind(size)
     .bind(reduce_val)
     .bind(associated_position_id)
+    .bind(slot_index)
     .bind(now)
     .execute(&mut *tx)
     .await?;

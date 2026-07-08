@@ -5,6 +5,7 @@ use rust_decimal::Decimal;
 
 use crate::db;
 use crate::profile_evaluation::SnapshotValues;
+use std::collections::HashMap;
 
 #[inline]
 fn dec(v: f64) -> Decimal {
@@ -483,7 +484,7 @@ pub async fn set_take_profit_targets(
     let direction = if pos.direction == "LONG" { "SELL" } else { "BUY" };
     for (pct, price) in targets {
         crate::db::paper::operations::paper_insert_open_order(
-            pool, symbol, "LIMIT", direction, Some(*price), None, *pct, true, Some(pos.id),
+            pool, symbol, "LIMIT", direction, Some(*price), None, *pct, true, Some(pos.id), None,
         ).await.map_err(|e| format!("DB error: {}", e))?;
     }
 
@@ -536,7 +537,7 @@ pub async fn set_stop_loss_levels(
     let direction = if pos.direction == "LONG" { "SELL" } else { "BUY" };
     for (pct, price) in stops {
         crate::db::paper::operations::paper_insert_open_order(
-            pool, symbol, "STOP", direction, None, Some(*price), *pct, true, Some(pos.id),
+            pool, symbol, "STOP", direction, None, Some(*price), *pct, true, Some(pos.id), None,
         ).await.map_err(|e| format!("DB error: {}", e))?;
     }
 
@@ -585,7 +586,7 @@ pub async fn place_pending_order(
     }
 
     crate::db::paper::operations::paper_insert_open_order(
-        pool, symbol, order_type, direction, price, trigger_price, 25.0, false, None,
+        pool, symbol, order_type, direction, price, trigger_price, 25.0, false, None, None,
     ).await.map_err(|e| format!("DB error: {}", e))
 }
 
@@ -881,13 +882,14 @@ pub fn evaluate_opposite_exit(
     _resistance_levels: &[f64],
     _macro_trend: &str,
     _max_opposite: u32,
+    regime_multipliers: Option<&HashMap<String, HashMap<String, f64>>>,
 ) -> (bool, u32) {
     let opposite_score = crate::profile_evaluation::calculate_registry_opposite_score(
         position_direction,
         snap,
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
-        None,
+        regime_multipliers,
     );
     let threshold = crate::profile_evaluation::scoring::REGISTRY_OPPOSITE_EXIT_THRESHOLD as u32;
     (opposite_score > threshold, opposite_score)
@@ -1373,9 +1375,20 @@ pub async fn close_slot_internal(
     } else {
         0.0
     };
+
+    let regime: String = sqlx::query_scalar(
+        "SELECT COALESCE(market_regime, 'RANGE') FROM master_assistant_records WHERE symbol = ?1 AND created_at <= ?2 ORDER BY id DESC LIMIT 1"
+    )
+    .bind(symbol)
+    .bind(now / 1000)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None)
+    .unwrap_or_else(|| "RANGE".to_string());
+
     sqlx::query(
-        "INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+        "INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, realized_pnl, roi_pct, entry_timestamp, exit_timestamp, trigger, market_regime)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
     )
     .bind(symbol)
     .bind(&direction)
@@ -1387,6 +1400,7 @@ pub async fn close_slot_internal(
     .bind(oldest.timestamp)
     .bind(now)
     .bind(trigger)
+    .bind(&regime)
     .execute(&mut *tx)
     .await
     .ok();

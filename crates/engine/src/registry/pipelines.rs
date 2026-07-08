@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use rust_decimal::Decimal;
 
 use crate::analyzer;
 use crate::automation;
@@ -98,6 +99,9 @@ pub async fn build_pipelines(
         analyzer::HIST_BUFFER_MAX,
     )));
 
+    let shared_oi = Arc::new(RwLock::new(None::<Decimal>));
+    let shared_funding = Arc::new(RwLock::new(None::<Decimal>));
+
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
         micro: analyzer::TimeframePipeline {
@@ -110,6 +114,8 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: shared_oi.clone(),
+            latest_funding: shared_funding.clone(),
         },
         fast: analyzer::TimeframePipeline {
             history: fast_history.clone(),
@@ -121,6 +127,8 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: shared_oi.clone(),
+            latest_funding: shared_funding.clone(),
         },
         slow: analyzer::TimeframePipeline {
             history: slow_history.clone(),
@@ -132,6 +140,8 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: shared_oi.clone(),
+            latest_funding: shared_funding.clone(),
         },
         r#macro: analyzer::TimeframePipeline {
             history: macro_history.clone(),
@@ -143,9 +153,13 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: shared_oi.clone(),
+            latest_funding: shared_funding.clone(),
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
+        latest_oi: shared_oi.clone(),
+        latest_funding: shared_funding.clone(),
     });
 
     spawn_tasks(
@@ -462,6 +476,10 @@ async fn spawn_tasks(
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
         let a_pool = workspace.pool.clone();
+        let a_stats = workspace.config.read().await.statistics.clone();
+        let a_oi = active_pair.micro.latest_oi.clone();
+        let a_fund = active_pair.micro.latest_funding.clone();
+        let a_ob = workspace.config.read().await.orderbook.clone();
         tokio::spawn(async move {
             analyzer::run_single(
                 rx,
@@ -469,6 +487,7 @@ async fn spawn_tasks(
                 bcast,
                 tf_cfg,
                 a_fib,
+                a_stats,
                 div_det,
                 hist,
                 snap,
@@ -481,6 +500,9 @@ async fn spawn_tasks(
                 candle_fwd,
                 warmed,
                 Some(a_pool),
+                a_oi,
+                a_fund,
+                a_ob,
             )
             .await;
         });

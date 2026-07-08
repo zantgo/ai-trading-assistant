@@ -153,6 +153,8 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         bid_size: None,
         ask_size: None,
         funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
         prev_day_px: None,
         open: Some(dec!(49800.0)),
         high: Some(dec!(50200.0)),
@@ -163,7 +165,8 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         indicators,
         context: None,
         decision_context: None,
-        
+        statistical_context: None,
+        risk_profile: None,
     };
 
     engine::db::insert_snapshot_internal(&pool, &snap).await;

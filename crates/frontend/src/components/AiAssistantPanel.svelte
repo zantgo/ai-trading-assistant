@@ -67,20 +67,8 @@
                     <div class={styles.loadingIndicator}>
                         <span class={styles.dot + " " + styles.pulseBlue}></span>
                         <span class={styles.statusText}>
-                            {app.analysisPhase === 'phase1' ? 'Phase 1: Running 28 MTF indicator agents...' : 'Phase 2: Synthesizing master report...'}
+                            Two-Agent Pipeline: Analyzing market data...
                         </span>
-                    </div>
-                    <div class={styles.agentProgressList}>
-                        {#each app.agentProgress.slice(0, 28) as agent (agent.name)}
-                            <div class={styles.agentProgressItem}
-                                class:ap-complete={agent.status === 'complete'}
-                                class:ap-failed={agent.status === 'failed'}
-                                class:ap-running={agent.status === 'pending' && app.analysisPhase === 'phase1'}
-                            >
-                                <span class={styles.apName}>{agent.name}</span>
-                                <span class={styles.apStatus}>{agent.status === 'complete' ? '✓' : agent.status === 'failed' ? '✗' : '···'}</span>
-                            </div>
-                        {/each}
                     </div>
                 {/if}
 
@@ -90,35 +78,39 @@
                     </div>
                 {/if}
 
-                {#if app.multiAgentResponse && !app.assistantLoading}
-                    {@const resp = app.multiAgentResponse}
-                    {@const pt = resp.phase_two}
+                {#if app.wizardResponse && !app.assistantLoading}
+                    {@const resp = app.wizardResponse}
+                    {@const analyst = resp.analyst_document}
+                    {@const trader = resp.trader_decision}
                     <div class={styles.analysisResult + " " + styles.clickableResult} onclick={openAssistantModal} role="button" tabindex="0" onkeydown={(e) => { if (e.key === 'Enter') openAssistantModal() }}>
                         <div class="{styles.resultBlock} {styles.reveal} {panel.revealDelay0}">
-                            <h4 class={styles.resultStageTitle}>Phase 1 — MTF Consensus</h4>
-                            <span class={styles.consensusBadge} class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
-                                {pt.indicator_synthesis.summary_count}
-                            </span>
+                            <h4 class={styles.resultStageTitle}>Analyst Report</h4>
+                            <p class={styles.resultReasoning}>{analyst.market_summary.substring(0, 120)}...</p>
                         </div>
                         <div class="{styles.resultBlock} {styles.reveal} {panel.revealDelay150}">
-                            <h4 class={styles.resultStageTitle}>Phase 2 — Trend & Structure</h4>
-                            <span class={styles.resultBadge} class:badge-up={pt.general_trend === 'UPWARD'} class:badge-down={pt.general_trend === 'DOWNWARD'} class:badge-side={pt.general_trend === 'SIDEWAYS'}>
-                                {pt.general_trend}
-                            </span>
-                            <p class={styles.resultReasoning}>{pt.indicator_synthesis.evaluation.substring(0, 120)}...</p>
+                            <h4 class={styles.resultStageTitle}>Confluence</h4>
+                            <p class={styles.resultReasoning}>{analyst.confluence_summary.substring(0, 100)}...</p>
                         </div>
                         <div class="{styles.resultBlock} {styles.resultAction} {styles.reveal} {panel.revealDelay300}">
-                            <h4 class={styles.resultStageTitle}>3. Position Recommendation</h4>
-                            <span class={styles.actionCall} class:action-green={pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long'} class:action-red={pt.position_recommendation.action === 'Close'} class:action-amber={pt.position_recommendation.action === 'Wait' || pt.position_recommendation.action === 'Open Short'}>
-                                {pt.position_recommendation.action}
+                            <h4 class={styles.resultStageTitle}>Trader Decision</h4>
+                            <span class={styles.actionCall} class:action-green={trader.action === 'Hold' || trader.action === 'Open Long'} class:action-red={trader.action === 'Close'} class:action-amber={trader.action === 'Wait' || trader.action === 'Open Short'}>
+                                {trader.action} ({trader.confidence}%)
                             </span>
-                            <p class={styles.resultReasoning}>{pt.position_recommendation.rationale.substring(0, 150)}...</p>
+                            <p class={styles.resultReasoning}>{trader.rationale.substring(0, 150)}...</p>
+                            {#if trader.risk_notes && trader.risk_notes !== 'No significant risk flags.'}
+                                <div class={styles.riskNotes}>⚠ {trader.risk_notes}</div>
+                            {/if}
+                            {#if app.riskProfile?.profile}
+                                <div class={styles.riskContext}>
+                                    <span>IRML: {app.riskProfile.profile.permission} · Risk {Math.round(app.riskProfile.profile.overall_risk * 100)}%</span>
+                                </div>
+                            {/if}
                         </div>
                         <div class={styles.clickHint}>Click for full analysis & chat</div>
                     </div>
                 {:else if !app.assistantLoading && !app.assistantError}
                     <p class={styles.signalsPlaceholder}>
-                        Select your current position and request an AI multi-timeframe market analysis.
+                        Select your current position and request an AI market analysis using the two-agent pipeline.
                     </p>
                 {/if}
             </div>

@@ -46,7 +46,36 @@ pub fn calculate_registry_confluence(
         _ => 0.85,
     };
     let adx_gate = if adx_congested { 0.6 } else { 1.0 };
-    let regime_gate = chop_gate * adx_gate;
+
+    let atr_gate = match snap.label("atr").as_str() {
+        "ATR_CONTRACTING" => 0.80,
+        "ATR_EXPANDING" => 1.00,
+        _ => 1.00,
+    };
+    let bbwp_gate = match snap.raw("bbwp") {
+        Some(b) if b < 10.0 => 0.50,
+        Some(b) if b > 90.0 => 0.40,
+        Some(_) => 1.00,
+        None => 1.00,
+    };
+    let hv_gate = match snap.raw("hv") {
+        Some(h) if h > 100.0 => 0.60,
+        Some(h) if h > 60.0 => 0.80,
+        Some(h) if h < 20.0 => 0.90,
+        Some(_) => 1.00,
+        None => 1.00,
+    };
+    let vol_gate = match snap.raw("volume") {
+        Some(v) if v <= 0.0 => 1.0,
+        _ => 1.0,
+    };
+    let rvol_gate = match snap.raw("rvol") {
+        Some(r) if r < 1.0 => 0.50,
+        Some(r) if r >= 3.0 => 0.30,
+        Some(_) => 1.00,
+        None => 1.00,
+    };
+    let regime_gate = adx_gate * chop_gate * atr_gate * bbwp_gate * hv_gate * vol_gate * rvol_gate;
 
     let mut sum = 0.0f64;
     let mut active_weight = 0.0f64;
@@ -101,12 +130,19 @@ fn classify_regime_label(snap: &SnapshotValues) -> String {
     let bbwp = snap.raw("bbwp").unwrap_or(50.0);
     let chop = snap.raw("choppiness").unwrap_or(50.0);
     let adx = snap.raw("adx").unwrap_or(0.0);
-    if bbwp <= 15.0 || chop >= 61.8 {
+    let tangled = snap.label("ema_stack").contains("TANGLED") || snap.norm("ema_stack").abs() < 0.10;
+    let squeeze_on = snap.label("squeeze").contains("COILING");
+
+    if squeeze_on || bbwp <= 15.0 {
         "COMPRESSION"
-    } else if bbwp >= 85.0 {
+    } else if chop >= 61.8 {
+        "RANGE"
+    } else if bbwp >= 85.0 || adx > 40.0 {
         "EXPANSION"
     } else if adx >= 25.0 || chop <= 38.2 {
-        "TRENDING"
+        if tangled { "TRANSITIONAL" } else { "TRENDING" }
+    } else if tangled {
+        "TRANSITIONAL"
     } else {
         "RANGE"
     }
@@ -223,4 +259,67 @@ mod tests {
         let cc = calculate_registry_confluence("BULLISH", &ch, &HashMap::new(), &HashMap::new(), None);
         assert!(cc.normalized < ct.normalized, "choppy regime should dampen conviction");
     }
+}
+
+use shared::indicators::normalized::NormalizedIndicatorValue;
+use shared::indicators::registry::{IndicatorGroup, INDICATORS};
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GroupSummary {
+    pub group: String,
+    pub dominant_direction: String,
+    pub confirmed_signals: usize,
+    pub active_signals: usize,
+    pub potential_signals: usize,
+    pub mean_confidence: f64,
+    pub consensus_pct: f64,
+}
+
+pub fn aggregate_by_group(
+    indicators: &std::collections::HashMap<String, NormalizedIndicatorValue>,
+) -> Vec<GroupSummary> {
+    let mut groups: std::collections::HashMap<IndicatorGroup, (f64, f64, usize, usize, usize, usize)> =
+        std::collections::HashMap::new();
+
+    for meta in INDICATORS {
+        let Some(ind) = indicators.get(meta.key) else { continue };
+        if ind.state_label == "INACTIVE" {
+            continue;
+        }
+        let entry = groups.entry(meta.group).or_insert((0.0, 0.0, 0, 0, 0, 0));
+        entry.0 += ind.normalized * ind.confidence;
+        entry.1 += ind.confidence;
+        entry.5 += 1;
+        for sig in &ind.signals {
+            match sig.status {
+                shared::indicators::normalized::SignalStatus::Confirmed => entry.2 += 1,
+                shared::indicators::normalized::SignalStatus::Active => entry.3 += 1,
+                shared::indicators::normalized::SignalStatus::Potential => entry.4 += 1,
+            }
+        }
+    }
+
+    let mut summaries = Vec::new();
+    for (group, (dir_sum, conf_sum, confirmed, active, potential, count)) in &groups {
+        let dom = if *dir_sum > 0.1 { "BULLISH" } else if *dir_sum < -0.1 { "BEARISH" } else { "NEUTRAL" };
+        let mean_conf = if *count > 0 { conf_sum / *count as f64 } else { 0.0 };
+        let consensus = if *count > 0 {
+            let agree = if *dir_sum > 0.1 { *count - ((*count as f64 - dir_sum.signum() * *count as f64 * 0.5) as usize) }
+                        else if *dir_sum < -0.1 { *count - ((*count as f64 + dir_sum.signum() * *count as f64 * 0.5) as usize) }
+                        else { count / 2 };
+            agree.max(0).min(*count) as f64 / *count as f64
+        } else { 0.0 };
+        summaries.push(GroupSummary {
+            group: format!("{:?}", group),
+            dominant_direction: dom.to_string(),
+            confirmed_signals: *confirmed,
+            active_signals: *active,
+            potential_signals: *potential,
+            mean_confidence: mean_conf,
+            consensus_pct: consensus,
+        });
+    }
+    summaries.sort_by(|a, b| b.consensus_pct.partial_cmp(&a.consensus_pct).unwrap_or(std::cmp::Ordering::Equal));
+    summaries
 }

@@ -1,5 +1,5 @@
 import type { AppStore } from '../state.svelte';
-import type { MultiAgentAnalysis } from '../types';
+import type { WizardAnalysisResponse } from '../types';
 import {
     fetchAssistantHistoryFromServer,
 } from './api.svelte';
@@ -35,27 +35,8 @@ export async function requestAssistantAnalysis(app: AppStore): Promise<void> {
     app.assistantLoading = true;
     app.assistantError = null;
     app.assistantResponse = null;
-    app.multiAgentResponse = null;
-    app.individualResults = [];
-    app.analysisPhase = 'phase1';
-    app.agentProgress = [
-        { name: 'micro-RSI', status: 'pending' }, { name: 'micro-MACD', status: 'pending' },
-        { name: 'micro-SQUEEZE', status: 'pending' }, { name: 'micro-ADX', status: 'pending' },
-        { name: 'micro-BOLLINGER_ATR', status: 'pending' }, { name: 'micro-VOLUME_EMA', status: 'pending' },
-        { name: 'micro-VWAP', status: 'pending' },
-        { name: 'fast-RSI', status: 'pending' }, { name: 'fast-MACD', status: 'pending' },
-        { name: 'fast-SQUEEZE', status: 'pending' }, { name: 'fast-ADX', status: 'pending' },
-        { name: 'fast-BOLLINGER_ATR', status: 'pending' }, { name: 'fast-VOLUME_EMA', status: 'pending' },
-        { name: 'fast-VWAP', status: 'pending' },
-        { name: 'slow-RSI', status: 'pending' }, { name: 'slow-MACD', status: 'pending' },
-        { name: 'slow-SQUEEZE', status: 'pending' }, { name: 'slow-ADX', status: 'pending' },
-        { name: 'slow-BOLLINGER_ATR', status: 'pending' }, { name: 'slow-VOLUME_EMA', status: 'pending' },
-        { name: 'slow-VWAP', status: 'pending' },
-        { name: 'macro-RSI', status: 'pending' }, { name: 'macro-MACD', status: 'pending' },
-        { name: 'macro-SQUEEZE', status: 'pending' }, { name: 'macro-ADX', status: 'pending' },
-        { name: 'macro-BOLLINGER_ATR', status: 'pending' }, { name: 'macro-VOLUME_EMA', status: 'pending' },
-        { name: 'macro-VWAP', status: 'pending' },
-    ];
+    app.wizardResponse = null;
+    app.analysisPhase = 'running';
 
     try {
         const historyRes = await fetch(`/api/history?symbol=${encodeURIComponent(app.activeTab)}&timeframe_secs=60`);
@@ -86,18 +67,8 @@ export async function requestAssistantAnalysis(app: AppStore): Promise<void> {
 
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
-        const analysis: MultiAgentAnalysis = await res.json();
-        app.multiAgentResponse = analysis;
-        app.individualResults = analysis.phase_one;
-
-        for (let i = 0; i < app.agentProgress.length; i++) {
-            const result = analysis.phase_one.find(r => r.indicator_name === app.agentProgress[i].name);
-            if (result) {
-                app.agentProgress[i].status = result.signal === 'UNAVAILABLE' ? 'failed' : 'complete';
-            } else {
-                app.agentProgress[i].status = 'failed';
-            }
-        }
+        const analysis: WizardAnalysisResponse = await res.json();
+        app.wizardResponse = analysis;
         app.analysisPhase = 'complete';
         await fetchAssistantHistory(app);
     } catch (e: any) {
@@ -117,11 +88,12 @@ export function scrollChatToBottom(container: HTMLElement | null): void {
 }
 
 export function openAssistantChat(app: AppStore, getContainer: () => HTMLElement | null): void {
-    if (!app.multiAgentResponse) return;
-    const resp = app.multiAgentResponse!;
-    const phaseTwo = resp.phase_two;
-    const snap = app.latestSnapshot || {};
+    if (!app.wizardResponse) return;
+    const resp = app.wizardResponse;
+    const analyst = resp.analyst_document;
+    const trader = resp.trader_decision;
 
+    const snap = app.latestSnapshot || {};
     const contextLines: string[] = [];
     contextLines.push(`Current position: ${app.currentPosition}`);
     contextLines.push(`Symbol: ${app.activeSymbol}`);
@@ -130,16 +102,6 @@ export function openAssistantChat(app: AppStore, getContainer: () => HTMLElement
     }
 
     const rsi = snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : null;
-    const squeezeOn = snap.squeeze_on ?? null;
-    const squeezeMom = snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : null;
-    const macdHist = snap.macd_hist ? parseFloat(String(snap.macd_hist)) : null;
-    const adx = snap.adx_14 ? parseFloat(String(snap.adx_14)) : null;
-    const atr = snap.atr_14 ? parseFloat(String(snap.atr_14)) : null;
-    const emaFast = snap.ema_fast ? parseFloat(String(snap.ema_fast)) : null;
-    const emaSlow = snap.ema_slow ? parseFloat(String(snap.ema_slow)) : null;
-    const vwap = snap.vwap ? parseFloat(String(snap.vwap)) : null;
-    const bbUpper = snap.bb_upper ? parseFloat(String(snap.bb_upper)) : null;
-    const bbLower = snap.bb_lower ? parseFloat(String(snap.bb_lower)) : null;
     const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : null;
 
     if (price !== null) contextLines.push(`Current price: $${price.toFixed(4)}`);
@@ -147,38 +109,25 @@ export function openAssistantChat(app: AppStore, getContainer: () => HTMLElement
         const rsiDesc = rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral';
         contextLines.push(`RSI(14): ${rsi.toFixed(2)} (${rsiDesc})`);
     }
-    if (squeezeOn !== null) contextLines.push(`Squeeze: ${squeezeOn ? 'ON (potential breakout)' : 'OFF'}`);
-    if (macdHist !== null) contextLines.push(`MACD Histogram: ${macdHist.toFixed(4)}`);
-    if (adx !== null) contextLines.push(`ADX(14): ${adx.toFixed(2)}`);
-    if (atr !== null) contextLines.push(`ATR(14): ${atr.toFixed(4)}`);
-    if (emaFast !== null && emaSlow !== null) {
-        contextLines.push(`EMA Fast: ${emaFast.toFixed(4)}, EMA Slow: ${emaSlow.toFixed(4)}`);
-    }
-    if (vwap !== null) contextLines.push(`VWAP: ${vwap.toFixed(4)}`);
-    if (bbUpper !== null && bbLower !== null) {
-        contextLines.push(`BB Upper: ${bbUpper.toFixed(4)}, BB Lower: ${bbLower.toFixed(4)}`);
-    }
-    contextLines.push(`Phase 1 Signals: ${phaseTwo.indicator_synthesis.summary_count}`);
-    contextLines.push(`Trend: ${phaseTwo.general_trend}`);
-    contextLines.push(`Support: ${phaseTwo.support_and_resistance.detected_support_levels.join(', ')}`);
-    contextLines.push(`Resistance: ${phaseTwo.support_and_resistance.detected_resistance_levels.join(', ')}`);
-    contextLines.push(`Recommendation: ${phaseTwo.position_recommendation.action} — ${phaseTwo.position_recommendation.rationale}`);
+    contextLines.push(`Decision: ${trader.action} (confidence: ${trader.confidence})`);
+    contextLines.push(`Analyst Summary: ${analyst.market_summary}`);
 
     const systemContext = contextLines.join('\n');
 
     const assistantGreeting = [
-        `Hello! Based on my multi-agent technical analysis, I recommend **${phaseTwo.position_recommendation.action}**.`,
+        `Hello! Based on the two-agent technical analysis, I recommend **${trader.action}**.`,
         ``,
-        `**Market Trend:** ${phaseTwo.general_trend}`,
+        `**Market Summary:** ${analyst.market_summary}`,
         ``,
-        `**Indicator Consensus:** ${phaseTwo.indicator_synthesis.summary_count}`,
-        `${phaseTwo.indicator_synthesis.evaluation}`,
+        `**Trend:** ${analyst.trend_indicators}`,
         ``,
-        `**Support/Resistance Analysis:** ${phaseTwo.support_and_resistance.structural_analysis}`,
+        `**Confluence:** ${analyst.confluence_summary}`,
         ``,
-        `**Rationale:** ${phaseTwo.position_recommendation.rationale}`,
+        `**Decision Rationale:** ${trader.rationale}`,
         ``,
-        `Feel free to ask me about any specific indicator or market condition — I'm here to help you understand the data.`,
+        `**Risk Notes:** ${trader.risk_notes}`,
+        ``,
+        `Feel free to ask me about any specific indicator or market condition.`,
     ].join('\n');
 
     app.chatHistory = [

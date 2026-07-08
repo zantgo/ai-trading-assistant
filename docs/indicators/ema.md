@@ -69,7 +69,10 @@ The EMAs provide early invalidation triggers before your hard stop-losses are hi
 | StackChange | ESTABLISHED_BULLISH_STACK | Fast > Medium > Slow > Long, price > fast EMA | Bullish |
 | StackChange | ESTABLISHED_BEARISH_STACK | Fast < Medium < Slow < Long, price < fast EMA | Bearish |
 | StackChange | CONSOLIDATED_TANGLED_STACK | EMAs are interwoven, no clear ordering | Neutral |
-| Crossover | EMA_PRICE_CROSS_FAST_BULLISH / BEARISH | Price crosses the fast EMA line — transition bar only | Bullish / Bearish |
+| Crossover | EMA_PRICE_CROSS_FAST_BULLISH | Price crosses above the EMA 10 line — transition bar only | Bullish |
+| Crossover | EMA_PRICE_CROSS_FAST_BEARISH | Price crosses below the EMA 10 line — transition bar only | Bearish |
+| Crossover | EMA_PRICE_CROSS_MEDIUM_BULLISH | Price crosses above the EMA 50 line. Swing trend confirmation. | Bullish |
+| Crossover | EMA_PRICE_CROSS_MEDIUM_BEARISH | Price crosses below the EMA 50 line. Swing trend breakdown. | Bearish |
 
 The StackChange and Crossover signals are distinct. StackChange fires on regime-level ribbon alignment; Crossover fires on point-in-time price-vs-fast-EMA crossings.
 

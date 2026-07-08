@@ -25,6 +25,14 @@ pub struct MarketSnapshot {
     pub ask_size: Option<Decimal>,
     pub funding_rate: Option<Decimal>,
 
+    /// Live Open Interest from exchange WS. Total number of outstanding contracts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_interest: Option<Decimal>,
+
+    /// Open Interest change over the last 1 hour (OI_delta_1h = current − OI_1h_ago).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oi_delta_1h: Option<Decimal>,
+
     /// Prior-day mark price (24h reference). Sourced from the exchange asset
     /// context feed on live pipelines; `None` for warm/historical/DB-restored
     /// snapshots. The frontend derives the 24h change % from `mid_price` vs
@@ -59,6 +67,20 @@ pub struct MarketSnapshot {
     /// indicator map on completed-candle snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_context: Option<crate::decision_context::DecisionContext>,
+
+    /// Statistical Intelligence Layer enrichment — distribution statistics,
+    /// empirical probabilities, confidence intervals, market shape, Monte
+    /// Carlo outcomes, and derived decision-support features. Computed
+    /// incrementally from rolling OHLCV history on completed candles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statistical_context: Option<crate::statistics::statistical_context::StatisticalContext>,
+
+    /// Institutional Risk Management Layer profile — six risk categories,
+    /// exposure tier, drawdown state, trade permission, and the adaptive
+    /// reward/risk recommendation. Populated on demand (AI paths / risk API);
+    /// left `None` on the live WebSocket stream to keep the hot path cheap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_profile: Option<crate::risk::RiskProfile>,
 }
 
 /// Legacy-compatible read accessors that reconstruct flat indicator values

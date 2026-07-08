@@ -66,10 +66,10 @@
     }
 </script>
 
-{#if app.isAssistantModalOpen && app.multiAgentResponse}
-    {@const resp = app.multiAgentResponse!}
-    {@const pt = resp.phase_two}
-    {@const indicators = resp.phase_one}
+{#if app.isAssistantModalOpen && app.wizardResponse}
+    {@const resp = app.wizardResponse}
+    {@const analyst = resp.analyst_document}
+    {@const trader = resp.trader_decision}
     {@const snap = app.latestSnapshot || {}}
     {@const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : null}
 
@@ -85,46 +85,29 @@
             <div class={styles.modalBody}>
                 <div class={styles.modalLeft}>
                     <div class={styles.masterSynthesis}>
-                        <h3 class={styles.sectionHeading}>Phase 2 — Master Synthesis</h3>
+                        <h3 class={styles.sectionHeading}>Analyst Report</h3>
 
                         <div class={styles.srRibbon}>
-                            <div class="{styles.srBlock} {styles.srSupport}">
-                                <span class={styles.srLabel}>SUPPORT</span>
-                                {#if pt.support_and_resistance.detected_support_levels.length > 0}
-                                    {#each pt.support_and_resistance.detected_support_levels as lvl}
-                                        <span class={styles.srLevel}>{lvl}</span>
-                                    {/each}
-                                {:else}
-                                    <span class="{styles.srLevel} {styles.srNone}">None</span>
-                                {/if}
-                            </div>
                             <div class="{styles.srBlock} {styles.srCurrent}">
                                 <span class={styles.srLabel}>PRICE</span>
                                 <span class="{styles.srLevel} {styles.srPriceLabel}">{price !== null ? price.toFixed(4) : '--'}</span>
                             </div>
-                            <div class="{styles.srBlock} {styles.srResistance}">
-                                <span class={styles.srLabel}>RESISTANCE</span>
-                                {#if pt.support_and_resistance.detected_resistance_levels.length > 0}
-                                    {#each pt.support_and_resistance.detected_resistance_levels as lvl}
-                                        <span class={styles.srLevel}>{lvl}</span>
-                                    {/each}
-                                {:else}
-                                    <span class="{styles.srLevel} {styles.srNone}">None</span>
-                                {/if}
+                        </div>
+
+                        <p class={styles.srStructural}>{analyst.market_summary}</p>
+
+                        <div class="{styles.decisionCallout} {trader.action === 'Hold' || trader.action === 'Open Long' ? styles.decisionGreen : trader.action === 'Close' ? styles.decisionRed : styles.decisionAmber}">
+                            <span class={styles.decisionAction}>{trader.action}</span>
+                            <span class={styles.decisionTrend}>{trader.confidence}% confidence</span>
+                            <p class={styles.decisionRationale}>{trader.rationale}</p>
+                        </div>
+
+                        {#if trader.risk_notes && trader.risk_notes !== 'No significant risk flags.'}
+                            <div class={styles.synthesisSummary}>
+                                <span class={styles.synthCount}>Risk</span>
+                                <p class={styles.synthEval}>{trader.risk_notes}</p>
                             </div>
-                        </div>
-                        <p class={styles.srStructural}>{pt.support_and_resistance.structural_analysis}</p>
-
-                        <div class="{styles.decisionCallout} {pt.position_recommendation.action === 'Hold' || pt.position_recommendation.action === 'Open Long' ? styles.decisionGreen : pt.position_recommendation.action === 'Close' ? styles.decisionRed : styles.decisionAmber}">
-                            <span class={styles.decisionAction}>{pt.position_recommendation.action}</span>
-                            <span class={styles.decisionTrend}>{pt.general_trend}</span>
-                            <p class={styles.decisionRationale}>{pt.position_recommendation.rationale}</p>
-                        </div>
-
-                        <div class={styles.synthesisSummary}>
-                            <span class={styles.synthCount}>{pt.indicator_synthesis.summary_count}</span>
-                            <p class={styles.synthEval}>{pt.indicator_synthesis.evaluation}</p>
-                        </div>
+                        {/if}
                     </div>
 
                     <h3 class={styles.sectionHeading}>Momentum Meters</h3>
@@ -134,20 +117,36 @@
                         <MomentumMeter label="SQUEEZE" normalized={copilotMicroInd['squeeze']?.normalized ?? 0} stateLabel={copilotMicroInd['squeeze']?.state_label ?? 'UNKNOWN'} />
                     </div>
 
-                    <h3 class={styles.sectionHeading}>Phase 1 — Individual Indicator Agents</h3>
+                    <h3 class={styles.sectionHeading}>Market Analysis Document</h3>
                     <div class={styles.indicatorGrid}>
-                        {#each indicators as ind}
-                            <div class="{styles.phaseOneCard} {ind.signal === 'BULLISH' ? styles.pocBullish : ind.signal === 'BEARISH' ? styles.pocBearish : ind.signal === 'SIDEWAYS' ? styles.pocSideways : ind.signal === 'UNAVAILABLE' ? styles.pocUnavailable : ''} {ind.divergence_status === 'potential' ? styles.divPotential : ''} {ind.divergence_status === 'confirmed' ? styles.divConfirmed : ''}">
-                                <span class={styles.pocName}>{ind.indicator_name}</span>
-                                <span class={styles.pocSignal}>{ind.signal}</span>
-                                {#if ind.divergence_status === 'potential'}
-                                    <span class="{styles.divBadge} {styles.divBadgePotential}">POTENTIAL</span>
-                                {:else if ind.divergence_status === 'confirmed'}
-                                    <span class="{styles.divBadge} {styles.divBadgeConfirmed}">{ind.divergence_type === 'bullish' ? '✓ BULLISH' : '✗ BEARISH'}</span>
-                                {/if}
-                                <p class={styles.pocReason}>{ind.reason}</p>
-                            </div>
-                        {/each}
+                        <div class="{styles.phaseOneCard} {styles.pocBullish}">
+                            <span class={styles.pocName}>Trend</span>
+                            <p class={styles.pocReason}>{analyst.trend_indicators}</p>
+                        </div>
+                        <div class="{styles.phaseOneCard} {styles.pocBearish}">
+                            <span class={styles.pocName}>Momentum</span>
+                            <p class={styles.pocReason}>{analyst.momentum_indicators}</p>
+                        </div>
+                        <div class="{styles.phaseOneCard} {styles.pocSideways}">
+                            <span class={styles.pocName}>Volatility</span>
+                            <p class={styles.pocReason}>{analyst.volatility_indicators}</p>
+                        </div>
+                        <div class="{styles.phaseOneCard}">
+                            <span class={styles.pocName}>Volume</span>
+                            <p class={styles.pocReason}>{analyst.volume_indicators}</p>
+                        </div>
+                        <div class="{styles.phaseOneCard}">
+                            <span class={styles.pocName}>Structure</span>
+                            <p class={styles.pocReason}>{analyst.structure_indicators}</p>
+                        </div>
+                        <div class="{styles.phaseOneCard}">
+                            <span class={styles.pocName}>Signals</span>
+                            <p class={styles.pocReason}>{analyst.active_signals}</p>
+                        </div>
+                        <div class="{styles.phaseOneCard}">
+                            <span class={styles.pocName}>Confluence</span>
+                            <p class={styles.pocReason}>{analyst.confluence_summary}</p>
+                        </div>
                     </div>
                 </div>
 

@@ -32,8 +32,11 @@ Labels: `PSAR_UPTREND`, `PSAR_DOWNTREND`. The `values` sub-map carries `sar` (SA
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| TrendFlip | PSAR_BULLISH_FLIP / BEARISH_FLIP | SAR direction changes (the dot flips sides). Structured push from engine when `flipped == true`. | Bullish / Bearish |
-| Crossover | PSAR_PRICE_CROSS_BULLISH / BEARISH | Price crosses the SAR line. Transition-only via prev-bar price/SAR comparison. Distinct from TrendFlip which is the flip of the SAR itself. | Bullish / Bearish |
+| TrendFlip | PSAR_BULLISH_FLIP | SAR direction changes from above to below price (bullish reversal). Structured push from engine when `flipped == true`. | Bullish |
+| TrendFlip | PSAR_BEARISH_FLIP | SAR direction changes from below to above price (bearish reversal). | Bearish |
+| Crossover | PSAR_PRICE_CROSS_BULLISH | Price crosses from below to above the SAR line. Transition-only via prev-bar comparison. | Bullish |
+| Crossover | PSAR_PRICE_CROSS_BEARISH | Price crosses from above to below the SAR line. | Bearish |
+| Crossover | PSAR_ACCELERATION_BREAK | Price rapidly extends beyond SAR with increasing AF (Acceleration Factor approaching max 0.20). Indicates trend acceleration/exhaustion. | Bullish/Bearish (aligned with trend)
 
 ## 5. Scoring & AI Context
 `psar` is `directional: true`. Contributes to confluence scoring. The AI treats PSAR as a trailing-stop reference and trend-confirmation tool alongside Supertrend.

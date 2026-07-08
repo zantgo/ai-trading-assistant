@@ -23,6 +23,21 @@ pub struct DashboardStats {
     pub cumulative_commissions: Vec<(i64, f64)>,
     pub fee_pnl_ratio: Vec<FeePnlRatio>,
     pub monthly_summary: Vec<MonthlySummary>,
+    pub sharpe_ratio: f64,
+    pub recovery_factor: f64,
+    pub regime_breakdown: Vec<RegimeBreakdownRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RegimeBreakdownRow {
+    pub regime: String,
+    pub trades: usize,
+    pub wins: usize,
+    pub losses: usize,
+    pub win_rate: f64,
+    pub profit_factor: f64,
+    pub total_pnl: f64,
+    pub avg_r_multiple: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +189,9 @@ pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) ->
     };
     let (daily_commissions, cumulative_commissions, fee_pnl_ratio) = compute_commission_stats(&trades);
     let monthly_summary = compute_monthly_summary(&trades);
+    let sharpe_ratio = compute_sharpe_ratio(&trades);
+    let recovery_factor = compute_recovery_factor(&trades, &equity_curve);
+    let regime_breakdown = compute_regime_breakdown(&trades);
 
     DashboardStats {
         core_stats,
@@ -196,6 +214,9 @@ pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) ->
         cumulative_commissions,
         fee_pnl_ratio,
         monthly_summary,
+        sharpe_ratio,
+        recovery_factor,
+        regime_breakdown,
     }
 }
 
@@ -236,7 +257,35 @@ fn empty_dashboard() -> DashboardStats {
         cumulative_commissions: vec![],
         fee_pnl_ratio: vec![],
         monthly_summary: vec![],
+        sharpe_ratio: 0.0,
+        recovery_factor: 0.0,
+        regime_breakdown: vec![],
     }
+}
+
+fn compute_sharpe_ratio(trades: &[TradeDetailRow]) -> f64 {
+    if trades.is_empty() { return 0.0; }
+    let returns: Vec<f64> = trades.iter().map(|t| t.roi_percentage / 100.0).collect();
+    let n = returns.len() as f64;
+    let mean = returns.iter().sum::<f64>() / n;
+    if n < 2.0 { return 0.0; }
+    let variance = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    let std_dev = variance.sqrt();
+    if std_dev < 1e-12 { 0.0 } else { mean / std_dev * (252.0_f64).sqrt() }
+}
+
+fn compute_recovery_factor(trades: &[TradeDetailRow], equity_curve: &[(i64, f64)]) -> f64 {
+    if equity_curve.is_empty() || trades.is_empty() { return 0.0; }
+    let net_profit: f64 = trades.iter().map(|t| t.realized_pnl).sum();
+    if net_profit <= 0.0 { return 0.0; }
+    let mut peak = f64::MIN;
+    let mut max_dd = 0.0;
+    for &(_, eq) in equity_curve {
+        if eq > peak { peak = eq; }
+        let dd = peak - eq;
+        if dd > max_dd { max_dd = dd; }
+    }
+    if max_dd < 1.0 { 0.0 } else { net_profit / max_dd }
 }
 
 use crate::db::TradeDetailRow;
@@ -256,6 +305,7 @@ async fn fetch_paper_trades_as_detail(pool: &SqlitePool) -> Vec<TradeDetailRow> 
             commission_fees: 0.0,
             roi_percentage: r.roi_pct,
             trigger_source: r.trigger,
+            market_regime: r.market_regime,
         })
         .collect()
 }
@@ -631,6 +681,36 @@ fn format_ts_month(ts: i64) -> String {
     chrono::DateTime::from_timestamp(secs, 0)
         .map(|dt| dt.format("%Y-%m").to_string())
         .unwrap_or_else(|| "1970-01".to_string())
+}
+
+fn compute_regime_breakdown(trades: &[TradeDetailRow]) -> Vec<RegimeBreakdownRow> {
+    use std::collections::HashMap;
+    let mut by_regime: HashMap<String, Vec<&TradeDetailRow>> = HashMap::new();
+    for t in trades {
+        let regime = t.market_regime.clone().unwrap_or_else(|| "RANGE".to_string());
+        by_regime.entry(regime).or_default().push(t);
+    }
+    let mut rows: Vec<RegimeBreakdownRow> = by_regime
+        .into_iter()
+        .map(|(regime, tlist)| {
+            let total = tlist.len();
+            let wins = tlist.iter().filter(|t| t.realized_pnl > 0.0).count();
+            let losses = total - wins;
+            let total_pnl: f64 = tlist.iter().map(|t| t.realized_pnl).sum();
+            let gains: f64 = tlist.iter().filter(|t| t.realized_pnl > 0.0).map(|t| t.realized_pnl).sum();
+            let loss_abs: f64 = tlist.iter().filter(|t| t.realized_pnl < 0.0).map(|t| t.realized_pnl.abs()).sum();
+            let profit_factor = if loss_abs > 0.0 { gains / loss_abs } else { 0.0 };
+            let win_rate = if total > 0 { wins as f64 / total as f64 } else { 0.0 };
+            let avg_r = if total > 0 {
+                tlist.iter().map(|t| t.roi_percentage / 100.0).sum::<f64>() / total as f64
+            } else { 0.0 };
+            RegimeBreakdownRow {
+                regime, trades: total, wins, losses, win_rate, profit_factor, total_pnl, avg_r_multiple: avg_r,
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| b.trades.cmp(&a.trades));
+    rows
 }
 
 fn ts_to_hour(ts: i64) -> usize {

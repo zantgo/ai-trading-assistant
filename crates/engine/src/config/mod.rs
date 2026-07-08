@@ -3,6 +3,7 @@ pub use models::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use shared::statistics::StatisticsConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -34,15 +35,27 @@ pub struct AppConfig {
     #[serde(default)]
     pub costs: CostsConfig,
     #[serde(default)]
+    pub orderbook: OrderBookConfig,
+    #[serde(default)]
+    pub execution: ExecutionConfig,
+    #[serde(default)]
     pub workspace: WorkspaceConfig,
     #[serde(default)]
     pub safety: SafetyConfig,
+    #[serde(default)]
+    pub risk: RiskConfig,
+    #[serde(default)]
+    pub portfolio: PortfolioConfig,
     #[serde(default)]
     pub intervals: IntervalsConfig,
     #[serde(default)]
     pub api_failover: ApiFailoverConfig,
     #[serde(default)]
+    pub backtest: crate::backtest::engine::BacktestConfig,
+    #[serde(default)]
     pub profile: ProfileConfig,
+    #[serde(default)]
+    pub statistics: StatisticsConfig,
     #[serde(default, skip_serializing)]
     pub instances: HashMap<String, InstanceSpecificConfig>,
 }

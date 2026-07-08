@@ -69,8 +69,10 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
         costs: Default::default(),
         workspace: Default::default(),
         safety: Default::default(),
+        risk: Default::default(),
         intervals: Default::default(),
         api_failover: Default::default(),
+        statistics: Default::default(),
         instances: HashMap::new(),
     }));
 
@@ -132,6 +134,8 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             bid_size: Some(dec!(10.0)),
             ask_size: Some(dec!(10.0)),
             funding_rate: None,
+            open_interest: None,
+            oi_delta_1h: None,
             prev_day_px: None,
             open: Some(open),
             high: Some(high),
@@ -142,6 +146,8 @@ async fn build_e2e_state() -> (Arc<AppState>, SqlitePool) {
             indicators: std::collections::HashMap::new(),
             context: None,
             decision_context: None,
+            statistical_context: None,
+        risk_profile: None,
         });
     }
 

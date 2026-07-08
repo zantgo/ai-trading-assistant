@@ -1,63 +1,67 @@
-//! Phase 6 verification: a mock orchestrator response matching the prompt's
-//! OUTPUT SCHEMA still deserializes cleanly into `MasterOrchestratorResult`
-//! after the continuous-scale prompt/ingestion changes.
+//! Two-Agent Pipeline verification: mock analyst document and trader decision
+//! JSON still deserializes cleanly into the new DTOs (v3.0).
 
-use engine::llm::MasterOrchestratorResult;
+use engine::llm::{AnalystDocument, TraderDecision};
 
 #[test]
-fn mock_orchestrator_json_parses_into_dto() {
-    // Mirrors the OUTPUT SCHEMA declared in the (updated) orchestrator prompts.
+fn mock_analyst_json_parses_into_dto() {
     let mock = r#"{
-        "general_trend": "UPWARD",
-        "support_and_resistance": {
-            "structural_analysis": "Price holding above S1 with a confirmed resistance flip."
-        },
-        "indicator_synthesis": {
-            "summary_count": "5 Bullish, 1 Bearish, 2 Sideways",
-            "evaluation": "Continuous vectors converge bullishly; confluence score is strongly positive."
-        },
-        "position_recommendation": {
-            "action": "Open Long",
-            "rationale": "High-magnitude bullish normalized floats with volume confirmation.",
-            "next_interval": "fast"
-        },
-        "eight_factor_score": 72,
-        "allocation_pct": 3.0
+        "market_summary": "Bullish regime with strong directional bias. Confluence score 72.",
+        "trend_indicators": "Bullish EMA stack. ADX at 32 (strong). Supertrend long.",
+        "momentum_indicators": "RSI 62 (neutral-bullish). MACD histogram expanding above zero.",
+        "volatility_indicators": "BBWP at 45%. ATR stable. Squeeze off, momentum accelerating.",
+        "volume_indicators": "RVOL 1.8 (institutional). OBV rising. VWAP premium.",
+        "structure_indicators": "Price above S1. Golden Pocket entry zone. No active patterns.",
+        "active_signals": "RSI bullish divergence confirmed. Squeeze release on prior candle.",
+        "confluence_summary": "72/100 confluence. 85% consensus. High regime confidence."
     }"#;
 
-    let result: MasterOrchestratorResult =
-        serde_json::from_str(mock).expect("mock orchestrator JSON must parse into the DTO");
+    let result: AnalystDocument =
+        serde_json::from_str(mock).expect("mock analyst JSON must parse into the DTO");
 
-    assert_eq!(result.general_trend, "UPWARD");
-    assert_eq!(result.position_recommendation.action, "Open Long");
-    assert_eq!(
-        result.position_recommendation.next_interval.as_deref(),
-        Some("fast")
-    );
-    assert_eq!(result.eight_factor_score, 72);
-    assert_eq!(result.allocation_pct, 3.0);
-    assert_eq!(
-        result.support_and_resistance.structural_analysis,
-        "Price holding above S1 with a confirmed resistance flip."
-    );
-
-    // Round-trips back to JSON (Serialize contract intact).
-    let round = serde_json::to_string(&result).expect("DTO must serialize");
-    assert!(round.contains("\"general_trend\""));
+    assert!(result.market_summary.contains("Bullish"));
+    assert!(result.trend_indicators.contains("EMA"));
+    assert!(!result.market_summary.contains("action"));
 }
 
 #[test]
-fn orchestrator_dto_tolerates_missing_optional_score_fields() {
-    // eight_factor_score / allocation_pct are #[serde(default)] — older/minimal
-    // model outputs that omit them must still parse.
-    let minimal = r#"{
-        "general_trend": "SIDEWAYS",
-        "indicator_synthesis": { "summary_count": "3/3", "evaluation": "Flat." },
-        "position_recommendation": { "action": "Wait", "rationale": "Equilibrium." }
+fn mock_trader_json_parses_into_dto() {
+    let mock = r#"{
+        "action": "Open Long",
+        "confidence": 78,
+        "rationale": "Strong bullish confluence with confirmed divergence and institutional volume.",
+        "risk_notes": "No significant risk flags."
     }"#;
-    let result: MasterOrchestratorResult =
-        serde_json::from_str(minimal).expect("minimal JSON must parse with defaults");
-    assert_eq!(result.eight_factor_score, 0);
-    assert_eq!(result.allocation_pct, 0.0);
-    assert_eq!(result.position_recommendation.action, "Wait");
+
+    let result: TraderDecision =
+        serde_json::from_str(mock).expect("mock trader JSON must parse into the DTO");
+
+    assert_eq!(result.action, "Open Long");
+    assert_eq!(result.confidence, 78);
+    assert!(!result.rationale.is_empty());
+}
+
+#[test]
+fn trader_decision_validates_position_rules() {
+    // When position is "Long", only Hold or Close allowed
+    let close_only = r#"{
+        "action": "Close",
+        "confidence": 65,
+        "rationale": "Bearish divergence confirmed. Exiting position.",
+        "risk_notes": ""
+    }"#;
+    let result: TraderDecision =
+        serde_json::from_str(close_only).expect("Close decision must parse");
+    assert_eq!(result.action, "Close");
+
+    // When position is "None", only Open Long or Open Short or Wait allowed
+    let open = r#"{
+        "action": "Open Long",
+        "confidence": 80,
+        "rationale": "All conditions favorable for entry.",
+        "risk_notes": "Monitor volume on entry candle."
+    }"#;
+    let result2: TraderDecision =
+        serde_json::from_str(open).expect("Open Long decision must parse");
+    assert_eq!(result2.action, "Open Long");
 }

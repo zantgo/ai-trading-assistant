@@ -4,7 +4,6 @@
     import Icon from '../lib/Icon.svelte';
     import type { InstanceState, PositionScalingConfig } from '../types';
     import ExchangeSettings from './ExchangeSettings.svelte';
-    import IndicatorWeightPanel from './settings/IndicatorWeightPanel.svelte';
     import ScoringWeightsPanel from './settings/ScoringWeightsPanel.svelte';
     import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
     import TriggerConfigPanel from './settings/TriggerConfigPanel.svelte';
@@ -359,10 +358,6 @@
             </div>
 
             <!-- Indicator Weight Overrides -->
-            <div class={styles.spacer12}>
-                <IndicatorWeightPanel initial={weightOverrides} onchange={(w) => { weightOverrides = w; }} />
-            </div>
-
             <!-- Position Sizing & Leverage -->
             <div class={styles.spacer12}>
                 <PositionScalingPanel initial={positionScaling} onchange={(c) => { positionScaling = c; }} />

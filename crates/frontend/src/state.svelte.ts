@@ -2,8 +2,8 @@
 import type {
     AssistantAnalysis, AssistantHistoryRecord, ChatMessage, DecisionProfile, DecisionScore,
     RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection, ExchangeAccount,
-    DashboardStats, TradeLedgerRecord, TradeJournalRecord, IndividualIndicatorResult,
-    MultiAgentAnalysis, AgentProgress, InstanceState, TimeframeTelemetry,
+    DashboardStats, TradeLedgerRecord, TradeJournalRecord,
+    WizardAnalysisResponse, InstanceState, TimeframeTelemetry,
     ScaleInPortion, TakeProfitTarget, UserTrade,
     SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
     CurrentView, Level2Mode, OperationalMode,
@@ -19,6 +19,7 @@ import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
 /** Maps a Level 2 paradigm to its backend operational_mode (general leaves it unchanged). */
 const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
     general: null,
+    wizard: null,
     user: 'ManualOnly',
     rule: 'DeterministicHeuristics',
     ai: 'HybridAiCopilot',
@@ -31,7 +32,7 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         priceText: '--', volText: '--', avgVolText: '--',
         prevDayPx: null,
         showPatterns: true,
-        isCompleted: false, latestSnapshot: null, historyPrices: [],
+        isCompleted: false, latestSnapshot: null, decisionContext: null, statisticalContext: null, historyPrices: [],
         showEmas: true, showBb: true, showVwap: true, showAvwap: true, showVolume: true,
         showAdx: true, showAtr: true, showRsi: true, showMacd: true,
         showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
@@ -76,13 +77,13 @@ function createInstanceState(symbol: string): InstanceState {
         assistantHistory: [], chatHistory: [],
         currentPosition: 'None', entryPriceVal: '', stopLossVal: '',
         assistantLoading: false, assistantError: null,
-        assistantResponse: null, multiAgentResponse: null,
-        analysisPhase: 'idle', individualResults: [], agentProgress: [],
+        assistantResponse: null, wizardResponse: null,
+        analysisPhase: 'idle',
         historyLatestClose: '0',
         isAssistantModalOpen: false, chatInputText: '', isChatLoading: false,
         currentView: 'terminal',
         currentLevel2Mode: 'user',
-        modeViews: { general: 'timeframe_settings', user: 'terminal', rule: 'decision', ai: 'assistant' },
+        modeViews: { general: 'timeframe_settings', wizard: 'wizard_flow', user: 'terminal', rule: 'decision', ai: 'assistant' },
         activeExecutionMode: 'HybridAiCopilot',
         automationEnabled: false, automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
@@ -110,6 +111,11 @@ export class AppStore {
     activeTab = $state<string>('BTC-USDT');
     currentGlobalView = $state<string>('dashboard');
     showQuitDialog = $state(false);
+
+    // ─── Institutional Risk Management Layer ──────────────────────────
+    riskProfile = $state<import('./types').RiskProfileResponse | null>(null);
+    riskProfileLoading = $state(false);
+    riskProfileError = $state<string | null>(null);
 
     // Delegated from SessionStore (declared for TypeScript)
     declare sessionUserName: string;
@@ -418,14 +424,10 @@ export class AppStore {
     set assistantError(v: string | null) { this.activeInstance().assistantError = v; }
     get assistantResponse() { return this.activeInstance().assistantResponse; }
     set assistantResponse(v: AssistantAnalysis | null) { this.activeInstance().assistantResponse = v; }
-    get multiAgentResponse() { return this.activeInstance().multiAgentResponse; }
-    set multiAgentResponse(v: MultiAgentAnalysis | null) { this.activeInstance().multiAgentResponse = v; }
+    get wizardResponse() { return this.activeInstance().wizardResponse; }
+    set wizardResponse(v: WizardAnalysisResponse | null) { this.activeInstance().wizardResponse = v; }
     get analysisPhase() { return this.activeInstance().analysisPhase; }
-    set analysisPhase(v: 'idle' | 'phase1' | 'phase2' | 'complete') { this.activeInstance().analysisPhase = v; }
-    get individualResults() { return this.activeInstance().individualResults; }
-    set individualResults(v: IndividualIndicatorResult[]) { this.activeInstance().individualResults = v; }
-    get agentProgress() { return this.activeInstance().agentProgress; }
-    set agentProgress(v: AgentProgress[]) { this.activeInstance().agentProgress = v; }
+    set analysisPhase(v: 'idle' | 'running' | 'complete') { this.activeInstance().analysisPhase = v; }
     get historyLatestClose() { return this.activeInstance().historyLatestClose; }
     set historyLatestClose(v: string) { this.activeInstance().historyLatestClose = v; }
     get isAssistantModalOpen() { return this.activeInstance().isAssistantModalOpen; }
@@ -510,8 +512,22 @@ export class AppStore {
     // ─── Delegate Methods (with activeTab/sessionCapital references) ────
 
     async fetchCostEstimate() { await this.settings.fetchCostEstimate(this.activeTab); }
-
+    async fetchRiskProfile() {
+        this.riskProfileLoading = true;
+        this.riskProfileError = null;
+        try {
+            const res = await fetch(`/api/risk-profile?pair_key=${encodeURIComponent(this.activeTab)}&_=${Date.now()}`);
+            if (!res.ok) throw new Error(`Risk profile fetch failed: ${res.status}`);
+            this.riskProfile = await res.json();
+        } catch (e) {
+            this.riskProfileError = e instanceof Error ? e.message : String(e);
+            this.riskProfile = null;
+        } finally {
+            this.riskProfileLoading = false;
+        }
+    }
     async fetchPaperStatus() { await this.paper.fetchPaperStatus(this.activeTab); }
+    async fetchActiveTrades() { /* no-op; MonitoringPanel fetches directly */ }
     async openPaperPosition(direction: 'LONG' | 'SHORT') { await this.paper.openPaperPosition(this.activeTab, direction); }
     async closePaperPosition() { await this.paper.closePaperPosition(this.activeTab); }
     async openPositionPct(direction: 'LONG' | 'SHORT', pct: number) { return await this.paper.openPositionPct(this.activeTab, direction, pct); }

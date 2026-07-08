@@ -12,12 +12,15 @@ pub struct Cci {
 impl Cci {
     pub fn new(period: usize) -> Self {
         Self {
-            period,
+            period: period.max(1),
             typicals: VecDeque::with_capacity(period + 1),
         }
     }
 
     pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+        if self.period == 0 {
+            return None;
+        }
         let tp = (high + low + close) / Decimal::from(3);
         self.typicals.push_back(tp);
         while self.typicals.len() > self.period {

@@ -25,6 +25,10 @@ pub struct PatternResult {
     pub is_bearish: bool,
     pub confidence: f64,
     pub description: String,
+    pub upper_slope: Option<f64>,
+    pub upper_intercept: Option<f64>,
+    pub lower_slope: Option<f64>,
+    pub lower_intercept: Option<f64>,
 }
 
 impl PatternResult {
@@ -35,6 +39,10 @@ impl PatternResult {
             is_bearish: false,
             confidence: 0.0,
             description: String::new(),
+            upper_slope: None,
+            upper_intercept: None,
+            lower_slope: None,
+            lower_intercept: None,
         }
     }
 }
@@ -130,6 +138,16 @@ fn detect_triangle(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<Patter
             "Triangle pattern detected — highs descending, lows ascending, {}% convergence",
             confidence as u32
         ),
+        upper_slope: high_slope.to_f64(),
+        upper_intercept: recent_highs.last().map(|p| {
+            p.price.to_f64().unwrap_or(0.0)
+                - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
+        }),
+        lower_slope: low_slope.to_f64(),
+        lower_intercept: recent_lows.last().map(|p| {
+            p.price.to_f64().unwrap_or(0.0)
+                - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
+        }),
     })
 }
 
@@ -181,6 +199,16 @@ fn detect_wedge(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<PatternRe
         is_bearish,
         confidence,
         description: format!("Wedge pattern detected — {:.2}% convergence", confidence),
+        upper_slope: high_slope.to_f64(),
+        upper_intercept: recent_highs.last().map(|p| {
+            p.price.to_f64().unwrap_or(0.0)
+                - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
+        }),
+        lower_slope: low_slope.to_f64(),
+        lower_intercept: recent_lows.last().map(|p| {
+            p.price.to_f64().unwrap_or(0.0)
+                - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
+        }),
     })
 }
 
@@ -262,6 +290,16 @@ fn detect_channel(
         is_bearish,
         confidence,
         description: format!("Channel pattern detected — {:.2}% confidence", confidence),
+        upper_slope: high_slope.to_f64(),
+        upper_intercept: recent_highs.last().map(|p| {
+            p.price.to_f64().unwrap_or(0.0)
+                - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
+        }),
+        lower_slope: low_slope.to_f64(),
+        lower_intercept: recent_lows.last().map(|p| {
+            p.price.to_f64().unwrap_or(0.0)
+                - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
+        }),
     })
 }
 

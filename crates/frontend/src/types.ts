@@ -231,41 +231,29 @@ export interface ExchangeAccount {
 // 3. Portfolio & Paper Trading
 // ================================================================
 
-export interface IndividualIndicatorResult {
-    indicator_name: string;
-    signal: 'BULLISH' | 'BEARISH' | 'SIDEWAYS' | 'UNAVAILABLE';
-    reason: string;
-    divergence_status?: 'none' | 'potential' | 'confirmed';
-    divergence_type?: 'bullish' | 'bearish' | null;
-    is_confirmed?: boolean;
+// ─── Two-Agent Pipeline Types (v3.0) ───────────────────────────────
+
+export interface AnalystDocument {
+    market_summary: string;
+    trend_indicators: string;
+    momentum_indicators: string;
+    volatility_indicators: string;
+    volume_indicators: string;
+    structure_indicators: string;
+    active_signals: string;
+    confluence_summary: string;
 }
 
-export interface SupportResistance {
-    detected_support_levels: string[];
-    detected_resistance_levels: string[];
-    structural_analysis: string;
+export interface TraderDecision {
+    action: 'Hold' | 'Close' | 'Wait' | 'Open Long' | 'Open Short';
+    confidence: number;
+    rationale: string;
+    risk_notes: string;
 }
 
-export interface IndicatorSynthesis {
-    summary_count: string;
-    evaluation: string;
-}
-
-export interface MasterOrchestratorResult {
-    general_trend: 'UPWARD' | 'DOWNWARD' | 'SIDEWAYS';
-    support_and_resistance: SupportResistance;
-    indicator_synthesis: IndicatorSynthesis;
-    position_recommendation: { action: 'Hold' | 'Close' | 'Wait' | 'Open Long' | 'Open Short'; rationale: string; };
-}
-
-export interface MultiAgentAnalysis {
-    phase_one: IndividualIndicatorResult[];
-    phase_two: MasterOrchestratorResult;
-}
-
-export interface AgentProgress {
-    name: string;
-    status: 'pending' | 'running' | 'complete' | 'failed';
+export interface WizardAnalysisResponse {
+    analyst_document: AnalystDocument;
+    trader_decision: TraderDecision;
 }
 
 // ================================================================
@@ -316,6 +304,12 @@ export interface MarketContext {
     overall_score: number;
     overall_label: string;
 }
+/** Signed per-indicator contribution to a timeframe's confluence score. */
+export interface ContributionDto {
+    key: string;
+    display_name: string;
+    contribution: number;
+}
 export interface MonitorTimeframe {
     label: string;
     timeframe_secs: number;
@@ -323,6 +317,20 @@ export interface MonitorTimeframe {
     overall_score: number;
     overall_label: string;
     confluence_score: number;
+    /** Bias-projected confluence in [-1,1] (pre-scaling of confluence_score). */
+    confluence_normalized: number;
+    /** Total active weight of enabled/present directional indicators. */
+    active_weight: number;
+    /** Non-directional regime gate applied this run (choppiness × adx). */
+    regime_gate: number;
+    /** Per-indicator signed contributions driving the confluence score. */
+    contributions: ContributionDto[];
+    /** Opposite-signal exit score if holding LONG (sum of opposing |contrib| × 100). */
+    opposite_score_long: number;
+    /** Opposite-signal exit score if holding SHORT. */
+    opposite_score_short: number;
+    /** Registry opposite-signal exit threshold (conviction bar, 0-100 scale). */
+    opposite_exit_threshold: number;
 }
 export interface MtfIndicatorRow {
     key: string;
@@ -341,6 +349,51 @@ export interface MonitorResponse {
     mtf: MtfConfirmation;
     market_context: MarketContext | null;
 }
+
+/**
+ * Quantitative decision-support metrics (mirror Rust shared::decision_context).
+ * Broadcast per COMPLETED candle in MarketSnapshot.decision_context; cached
+ * per timeframe on the frontend (shadow snapshots omit it).
+ */
+export interface DecisionContext {
+    // Directional
+    bullish_probability: number;
+    bearish_probability: number;
+    directional_bias: number;
+    consensus: number;
+    // Expected range
+    expected_range_1bar: number;
+    expected_range_5bar: number;
+    expected_range_20bar: number;
+    expected_volatility: number;
+    // Confluence
+    confluence: number;
+    // Risk & reward
+    risk_level: number;
+    reward_risk_ratio: number;
+    recommended_stop: number;
+    // Quality
+    trade_quality: number;
+    market_quality: number;
+    // Regime & trend
+    regime_confidence: number;
+    trend_persistence: number;
+    // Synthesis
+    trade_readiness: number;
+}
+
+export interface GroupSummary {
+    group: string;
+    dominant_direction: string;
+    confirmed_signals: number;
+    active_signals: number;
+    potential_signals: number;
+    mean_confidence: number;
+    consensus_pct: number;
+}
+
+/** Manually-tracked position direction for the active instance. */
+export type PositionState = 'None' | 'Long' | 'Short';
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
 export type IndicatorGroup =
@@ -393,6 +446,10 @@ export interface TimeframeTelemetry {
     showPatterns: boolean;
     isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
+    /** Last completed-candle DecisionContext (cached across shadow snapshots). */
+    decisionContext: DecisionContext | null;
+    /** Last completed-candle StatisticalContext (cached across shadow snapshots). */
+    statisticalContext: StatisticalContext | null;
     historyPrices: number[];
     showEmas: boolean;
     showBb: boolean;
@@ -492,10 +549,67 @@ export interface TimeframeTelemetry {
 }
 
 /** All Level 3 feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer';
+export type CurrentView = 'terminal' | 'monitor' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer' | 'statistics' | 'wizard_flow' | 'risk_profile' | 'monitoring' | 'risk_management';
+
+// ─── Institutional Risk Management Layer (IRML) ─────────────────────────────
+export interface RiskObjectDto {
+    score: number;
+    confidence: number;
+    historical_percentile: number;
+    trend: 'Increasing' | 'Stable' | 'Decreasing';
+    level: string;
+    explanation: string;
+}
+
+export interface RewardRiskDto {
+    win_rate_estimate: number;
+    breakeven_ratio: number;
+    recommended_ratio: number;
+    confidence: number;
+    sample_size: number;
+}
+
+export interface RiskProfileDto {
+    overall_risk: number;
+    overall_confidence: number;
+    overall_level: string;
+    market: RiskObjectDto;
+    structural: RiskObjectDto;
+    momentum: RiskObjectDto;
+    volatility: RiskObjectDto;
+    liquidity: RiskObjectDto;
+    behavioral: RiskObjectDto;
+    exposure: string;
+    recommended_allocation_pct: number;
+    drawdown_state: string;
+    permission: string;
+    opportunity_score: number;
+    reward_risk: RewardRiskDto;
+    explanation: string;
+}
+
+export interface RrBlockDto {
+    block_index: number;
+    wins: number;
+    losses: number;
+    win_rate_estimate: number;
+    breakeven_ratio: number;
+    recommended_ratio: number;
+    confidence: number;
+    net_block_pnl: number;
+}
+
+export interface RiskProfileResponse {
+    pair_key: string;
+    symbol: string;
+    available: boolean;
+    message: string | null;
+    profile: RiskProfileDto | null;
+    rr_history: RrBlockDto[];
+}
 
 /** Level 2 operational-mode paradigm groupings. */
-export type Level2Mode = 'general' | 'user' | 'rule' | 'ai';
+export type Level2Mode = 'general' | 'wizard' | 'user' | 'rule' | 'ai';
 
 export interface InstanceState {
     symbol: string;
@@ -507,16 +621,14 @@ export interface InstanceState {
     macroTerm: TimeframeTelemetry;
     assistantHistory: AssistantHistoryRecord[];
     chatHistory: ChatMessage[];
-    currentPosition: 'None' | 'Long' | 'Short';
+    currentPosition: PositionState;
     entryPriceVal: string;
     stopLossVal: string;
     assistantLoading: boolean;
     assistantError: string | null;
     assistantResponse: AssistantAnalysis | null;
-    multiAgentResponse: MultiAgentAnalysis | null;
-    analysisPhase: 'idle' | 'phase1' | 'phase2' | 'complete';
-    individualResults: IndividualIndicatorResult[];
-    agentProgress: AgentProgress[];
+    wizardResponse: WizardAnalysisResponse | null;
+    analysisPhase: 'idle' | 'running' | 'complete';
     historyLatestClose: string;
     isAssistantModalOpen: boolean;
     chatInputText: string;
@@ -841,3 +953,91 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
     { label: '12 h', seconds: 43200 },
     { label: '1 day', seconds: 86400 },
 ];
+
+// ================================================================
+// 8. Statistical Intelligence Layer (SIL)
+// ================================================================
+
+export interface StatisticValue {
+    current: number;
+    mean: number;
+    stddev: number;
+    percentile: number;
+    z_score: number;
+    confidence: number;
+    trend: string;
+}
+
+export interface StatisticalContext {
+    // Distribution
+    price_stats: StatisticValue;
+    return_stats: StatisticValue;
+    atr_stats: StatisticValue;
+    rsi_stats: StatisticValue;
+    bbwp_stats: StatisticValue;
+    // Market shape
+    skewness: number;
+    kurtosis: number;
+    entropy: number;
+    tail_risk: number;
+    distribution_symmetry: number;
+    market_shape_label: string;
+    volatility_percentile: number;
+    compression_percentile: number;
+    // Probabilities
+    trend_continuation_prob: number;
+    mean_reversion_prob: number;
+    breakout_success_prob: number;
+    reversal_prob: number;
+    atr_expansion_prob: number;
+    squeeze_release_prob: number;
+    volatility_expansion_prob: number;
+    stop_before_target_prob: number;
+    observation_counts: Record<string, number>;
+    // Confidence
+    prediction_interval_68: [number, number];
+    prediction_interval_95: [number, number];
+    prediction_interval_99: [number, number];
+    bootstrap_confidence_95: [number, number];
+    historical_reliability: number;
+    confidence_score: number;
+    // Relationships
+    feature_agreement: number;
+    indicator_redundancy: number;
+    consensus_stability: number;
+    trend_consistency: number;
+    momentum_consistency: number;
+    // Monte Carlo
+    mc_target_hit_prob: number;
+    mc_stop_hit_prob: number;
+    mc_max_drawdown_95: number;
+    mc_max_favorable_excursion_95: number;
+    mc_expected_movement: number;
+    mc_best_case: number;
+    mc_worst_case: number;
+    mc_median_outcome: number;
+    mc_confidence_95_range: [number, number];
+    // Kalman
+    kalman_drift: number;
+    kalman_noise_vol: number;
+    kalman_trend_strength: number;
+    // ML
+    regime_label: string;
+    regime_stability: number;
+    anomaly_score: number;
+    top_anomaly_reason: string;
+    top_predictive_indicators: [string, number][];
+    bayesian_posteriors: Record<string, [number, number, number]>;
+    // Derived
+    market_stretch_score: number;
+    trend_reliability: number;
+    momentum_stability: number;
+    volatility_shock_prob: number;
+    compression_probability: number;
+    expansion_probability: number;
+    breakout_confidence: number;
+    trend_confidence: number;
+    risk_confidence: number;
+    expected_opportunity: number;
+    market_predictability: number;
+}

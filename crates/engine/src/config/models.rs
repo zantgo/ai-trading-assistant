@@ -72,7 +72,7 @@ fn default_analysis_limit() -> usize {
     500
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndicatorsConfig {
     pub ema_fast: usize,
     pub ema_medium: usize,
@@ -187,6 +187,81 @@ pub struct IndicatorsConfig {
     pub volume_profile_value_area: f64,
     #[serde(default = "default_smc_lookback")]
     pub smc_lookback: usize,
+}
+
+impl Default for IndicatorsConfig {
+    /// Sensible non-zero defaults consistent with the serde `default_*` fns and
+    /// the canonical `config.toml`. Kept explicit (rather than derived) so that
+    /// `..Default::default()` never yields zero periods — a zero period would
+    /// cause divide-by-zero panics in period-normalized indicators (e.g. CCI).
+    fn default() -> Self {
+        Self {
+            // Core periods (required in config.toml — mirror its canonical values).
+            ema_fast: 10,
+            ema_medium: 50,
+            ema_slow: 100,
+            ema_long: 200,
+            rsi_period: 14,
+            macd_fast: 12,
+            macd_slow: 26,
+            macd_signal: 9,
+            adx_period: 14,
+            atr_period: 14,
+            squeeze_period: 20,
+            // Serde-defaulted fields — reuse the single-source default fns.
+            stoch_k_period: default_stoch_k(),
+            stoch_d_period: default_stoch_d(),
+            stoch_s_period: default_stoch_s(),
+            chandemo_period: default_chandemo(),
+            supertrend_period: default_supertrend_period(),
+            supertrend_multiplier: default_supertrend_multiplier(),
+            keltner_ema_period: default_keltner_ema(),
+            keltner_atr_period: default_keltner_atr(),
+            keltner_multiplier: default_keltner_multiplier(),
+            donchian_period: default_donchian_period(),
+            obv_smoothing: default_obv_smoothing(),
+            cmf_period: default_cmf_period(),
+            mfi_period: default_mfi_period(),
+            hv_period: default_hv_period(),
+            aroon_period: default_aroon_period(),
+            chop_period: default_chop_period(),
+            linreg_period: default_linreg_period(),
+            zscore_period: default_zscore_period(),
+            cci_period: default_cci_period(),
+            psar_af_step: default_psar_af_step(),
+            psar_af_max: default_psar_af_max(),
+            ichimoku_tenkan: default_ichimoku_tenkan(),
+            ichimoku_kijun: default_ichimoku_kijun(),
+            ichimoku_senkou_b: default_ichimoku_senkou_b(),
+            ichimoku_displacement: default_ichimoku_displacement(),
+            bbwp_lookback: default_bbwp_lookback(),
+            bbwp_period: default_bbwp_period(),
+            macd_extreme_high_threshold: default_macd_extreme_high(),
+            macd_extreme_low_threshold: default_macd_extreme_low(),
+            macd_histogram_contraction_threshold: default_macd_contraction_threshold(),
+            adx_trend_threshold: default_adx_trend_threshold(),
+            adx_exhaustion_threshold: default_adx_exhaustion_threshold(),
+            adx_slope_lookback: default_adx_slope_lookback(),
+            squeeze_min_duration: default_squeeze_min_duration(),
+            squeeze_bb_period: default_squeeze_bb_period(),
+            squeeze_bb_std_dev: default_squeeze_bb_std_dev(),
+            squeeze_kc_period: default_squeeze_kc_period(),
+            squeeze_kc_atr_multiplier: default_squeeze_kc_atr_multiplier(),
+            atr_multiplier_coefficient: default_atr_multiplier(),
+            atr_target_rr_ratio: default_atr_target_rr(),
+            volume_average_period: default_volume_average_period(),
+            rvol_threshold_institutional: default_rvol_threshold_institutional(),
+            rvol_threshold_climax: default_rvol_threshold_climax(),
+            williams_r_period: default_williams_r_period(),
+            hull_ma_period: default_hull_ma_period(),
+            stddev_channel_period: default_stddev_channel_period(),
+            force_index_smoothing: default_force_index_smoothing(),
+            volume_profile_bins: default_volume_profile_bins(),
+            volume_profile_window: default_volume_profile_window(),
+            volume_profile_value_area: default_volume_profile_value_area(),
+            smc_lookback: default_smc_lookback(),
+        }
+    }
 }
 
 fn default_bbwp_lookback() -> usize { 252 }
@@ -771,6 +846,65 @@ impl Default for CostsConfig {
 fn default_price_per_1m_input_tokens() -> f64 { 0.27 }
 fn default_price_per_1m_output_tokens() -> f64 { 1.10 }
 
+// ─── Order Book Depth Analysis ─────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrderBookConfig {
+    #[serde(default = "default_ob_depth_levels")]
+    pub depth_levels: usize,
+    #[serde(default = "default_ob_wall_threshold")]
+    pub wall_threshold: f64,
+    #[serde(default = "default_ob_spread_wide_threshold_pct")]
+    pub spread_wide_threshold_pct: f64,
+}
+
+impl Default for OrderBookConfig {
+    fn default() -> Self {
+        Self {
+            depth_levels: default_ob_depth_levels(),
+            wall_threshold: default_ob_wall_threshold(),
+            spread_wide_threshold_pct: default_ob_spread_wide_threshold_pct(),
+        }
+    }
+}
+
+fn default_ob_depth_levels() -> usize { 25 }
+fn default_ob_wall_threshold() -> f64 { 0.15 }
+fn default_ob_spread_wide_threshold_pct() -> f64 { 1.0 }
+
+// ─────────────────────────── Portfolio Optimization ───────────────────────
+// Phase 5: Kelly Criterion sizing + Risk Parity allocation layered on top of
+// the IRML static exposure tiers. All fields carry sane defaults so existing
+// config.toml files remain valid without a `[portfolio]` section.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortfolioConfig {
+    #[serde(default = "default_kelly_fraction")]
+    pub kelly_fraction: f64,
+    #[serde(default = "default_allocation_method")]
+    pub allocation_method: String,
+    #[serde(default = "default_min_alloc")]
+    pub min_allocation_pct: f64,
+    #[serde(default = "default_max_alloc")]
+    pub max_allocation_pct: f64,
+}
+
+impl Default for PortfolioConfig {
+    fn default() -> Self {
+        Self {
+            kelly_fraction: default_kelly_fraction(),
+            allocation_method: default_allocation_method(),
+            min_allocation_pct: default_min_alloc(),
+            max_allocation_pct: default_max_alloc(),
+        }
+    }
+}
+
+fn default_kelly_fraction() -> f64 { 0.5 }
+fn default_allocation_method() -> String { "kelly_risk_parity".to_string() }
+fn default_min_alloc() -> f64 { 0.5 }
+fn default_max_alloc() -> f64 { 5.0 }
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     #[serde(default = "default_max_instances")]
@@ -826,6 +960,8 @@ pub struct SafetyConfig {
     pub consecutive_loss_caution: u32,
     #[serde(default = "default_consecutive_loss_dropout")]
     pub consecutive_loss_dropout: u32,
+    #[serde(default = "default_consecutive_loss_suspend")]
+    pub consecutive_loss_suspend: u32,
     #[serde(default = "default_dropout_duration_hours")]
     pub dropout_duration_hours: u64,
     #[serde(default = "default_capital_drawdown_pct")]
@@ -834,14 +970,123 @@ pub struct SafetyConfig {
 
 fn default_consecutive_loss_caution() -> u32 { 3 }
 fn default_consecutive_loss_dropout() -> u32 { 5 }
+fn default_consecutive_loss_suspend() -> u32 { 7 }
 fn default_dropout_duration_hours() -> u64 { 8 }
 fn default_capital_drawdown_pct() -> f64 { 30.0 }
+
+// ─────────────────────────── Institutional Risk Management Layer ───────────
+// Configuration surface for the IRML (see docs/institutional-risk-management-layer.md).
+// All fields carry sane defaults so existing config.toml files remain valid.
+
+/// Per-category weighting for the Position Risk Profile aggregation (Section 7.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RiskCategoryWeights {
+    #[serde(default = "default_weight_one")]
+    pub market: f64,
+    #[serde(default = "default_weight_one")]
+    pub structural: f64,
+    #[serde(default = "default_weight_one")]
+    pub momentum: f64,
+    #[serde(default = "default_weight_volatility")]
+    pub volatility: f64,
+    #[serde(default = "default_weight_liquidity")]
+    pub liquidity: f64,
+    #[serde(default = "default_weight_one")]
+    pub behavioral: f64,
+}
+
+fn default_weight_one() -> f64 { 1.0 }
+fn default_weight_volatility() -> f64 { 1.2 }
+fn default_weight_liquidity() -> f64 { 0.8 }
+
+impl Default for RiskCategoryWeights {
+    fn default() -> Self {
+        Self {
+            market: 1.0,
+            structural: 1.0,
+            momentum: 1.0,
+            volatility: 1.2,
+            liquidity: 0.8,
+            behavioral: 1.0,
+        }
+    }
+}
+
+/// Institutional Risk Management Layer configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RiskConfig {
+    // ── Aggregation ──
+    #[serde(default)]
+    pub category_weights: RiskCategoryWeights,
+    #[serde(default = "default_worst_case_lambda")]
+    pub worst_case_lambda: f64,
+    #[serde(default = "default_transition_hysteresis")]
+    pub transition_hysteresis: f64,
+
+    // ── Adaptive Reward/Risk engine (Section 12) ──
+    #[serde(default = "default_rr_prior_wins")]
+    pub rr_prior_wins: f64,
+    #[serde(default = "default_rr_prior_losses")]
+    pub rr_prior_losses: f64,
+    #[serde(default = "default_rr_safety_margin")]
+    pub rr_safety_margin: f64,
+    #[serde(default = "default_rr_block_size")]
+    pub rr_block_size: u32,
+    #[serde(default = "default_rr_lookback_trades")]
+    pub rr_lookback_trades: u32,
+
+    // ── Hard execution constraints (Section 16) ──
+    #[serde(default = "default_max_daily_loss_pct")]
+    pub max_daily_loss_pct: f64,
+    #[serde(default = "default_max_trade_duration_secs")]
+    pub max_trade_duration_secs: u64,
+    #[serde(default = "default_min_trade_quality")]
+    pub min_trade_quality: f64,
+    #[serde(default = "default_min_confidence")]
+    pub min_confidence: f64,
+    #[serde(default = "default_max_volatility_percentile")]
+    pub max_volatility_percentile: f64,
+}
+
+fn default_worst_case_lambda() -> f64 { 0.5 }
+fn default_transition_hysteresis() -> f64 { 0.05 }
+fn default_rr_prior_wins() -> f64 { 5.0 }
+fn default_rr_prior_losses() -> f64 { 5.0 }
+fn default_rr_safety_margin() -> f64 { 1.25 }
+fn default_rr_block_size() -> u32 { 10 }
+fn default_rr_lookback_trades() -> u32 { 0 }
+fn default_max_daily_loss_pct() -> f64 { 5.0 }
+fn default_max_trade_duration_secs() -> u64 { 86_400 }
+fn default_min_trade_quality() -> f64 { 0.4 }
+fn default_min_confidence() -> f64 { 0.5 }
+fn default_max_volatility_percentile() -> f64 { 95.0 }
+
+impl Default for RiskConfig {
+    fn default() -> Self {
+        Self {
+            category_weights: RiskCategoryWeights::default(),
+            worst_case_lambda: default_worst_case_lambda(),
+            transition_hysteresis: default_transition_hysteresis(),
+            rr_prior_wins: default_rr_prior_wins(),
+            rr_prior_losses: default_rr_prior_losses(),
+            rr_safety_margin: default_rr_safety_margin(),
+            rr_block_size: default_rr_block_size(),
+            rr_lookback_trades: default_rr_lookback_trades(),
+            max_daily_loss_pct: default_max_daily_loss_pct(),
+            max_trade_duration_secs: default_max_trade_duration_secs(),
+            min_trade_quality: default_min_trade_quality(),
+            min_confidence: default_min_confidence(),
+            max_volatility_percentile: default_max_volatility_percentile(),
+        }
+    }
+}
 
 impl Default for SafetyConfig {
     fn default() -> Self {
         Self {
             consecutive_loss_caution: default_consecutive_loss_caution(),
             consecutive_loss_dropout: default_consecutive_loss_dropout(),
+            consecutive_loss_suspend: default_consecutive_loss_suspend(),
             dropout_duration_hours: default_dropout_duration_hours(),
             capital_drawdown_pct: default_capital_drawdown_pct(),
         }
@@ -892,6 +1137,42 @@ impl Default for ApiFailoverConfig {
             max_retries_per_call: default_max_retries_per_call(),
             retry_delay_seconds: default_retry_delay_seconds(),
             max_consecutive_failures: default_max_consecutive_failures(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionConfig {
+    #[serde(default = "default_exec_mode")]
+    pub mode: String,
+    #[serde(default = "default_max_slippage_pct")]
+    pub max_slippage_pct: f64,
+    #[serde(default = "default_order_timeout_secs")]
+    pub order_timeout_secs: u64,
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit_orders_per_sec: u32,
+    #[serde(default = "default_max_order_size")]
+    pub max_order_size_usd: f64,
+    #[serde(default = "default_max_position_value")]
+    pub max_position_value_usd: f64,
+}
+
+fn default_exec_mode() -> String { "paper".into() }
+fn default_max_slippage_pct() -> f64 { 0.5 }
+fn default_order_timeout_secs() -> u64 { 30 }
+fn default_rate_limit() -> u32 { 5 }
+fn default_max_order_size() -> f64 { 50000.0 }
+fn default_max_position_value() -> f64 { 200000.0 }
+
+impl Default for ExecutionConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_exec_mode(),
+            max_slippage_pct: default_max_slippage_pct(),
+            order_timeout_secs: default_order_timeout_secs(),
+            rate_limit_orders_per_sec: default_rate_limit(),
+            max_order_size_usd: default_max_order_size(),
+            max_position_value_usd: default_max_position_value(),
         }
     }
 }

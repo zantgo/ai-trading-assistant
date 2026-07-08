@@ -17,6 +17,7 @@ mod all;
 mod context;
 mod extended;
 mod signals;
+pub mod signal_lifecycle;
 
 pub use all::IndicatorInputs;
 

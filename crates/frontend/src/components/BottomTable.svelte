@@ -174,6 +174,14 @@
                 </table>
 
                 <!-- Bracket Creator (inline, no collapsible sub-table) -->
+                {@const activeCount = app.activeSlots.filter((s: { is_active: boolean }) => s.is_active).length}
+                {@const tpOk = tps.length <= activeCount}
+                {@const slOk = sls.length <= activeCount}
+                <div class={styles.constraintRow}>
+                    <span>Slots: {activeCount}/4 active</span>
+                    <span style="color:{tpOk ? '#10b981' : '#ef4444'}">TP: {tps.length}/{activeCount} {tpOk ? '✓' : '!'}</span>
+                    <span style="color:{slOk ? '#10b981' : '#ef4444'}">SL: {sls.length}/{activeCount} {slOk ? '✓' : '!'}</span>
+                </div>
                 <div class={styles.bracketCreator}>
                     <input type="number" class={styles.creatorInput}
                         bind:value={bracketPrice} step="0.01" placeholder="Price" />
@@ -333,6 +341,14 @@
                 {app.paperBreakEvenTrailEnabled ? 'ON' : 'OFF'}
             </button>
         </div>
+        {#if app.activePaperPosition && app.paperBreakEvenTrailEnabled}
+            <div class={styles.accountItem}>
+                <span class={styles.accountItemLabel}>BE Status</span>
+                <span class={styles.accountItemValue} style="color:{app.paperInvalidationLevel === app.paperAvgEntryPrice ? '#10b981' : '#f59e0b'}">
+                    {app.paperInvalidationLevel === app.paperAvgEntryPrice ? 'LOCKED' : 'AWAITING TP1'}
+                </span>
+            </div>
+        {/if}
     </div>
 </div>
 

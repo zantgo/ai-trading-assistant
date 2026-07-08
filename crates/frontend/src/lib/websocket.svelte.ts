@@ -1,5 +1,5 @@
 import type { AppStore } from '../state.svelte';
-import type { IndicatorMap, TimeframeTelemetry } from '../types';
+import type { DecisionContext, IndicatorMap, StatisticalContext, TimeframeTelemetry } from '../types';
 import { getDecimalCount } from './telemetry';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
@@ -67,6 +67,17 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
             : {};
         tf.latestSnapshot = snapshot;
         tf.isCompleted = snapshot.is_completed === true;
+
+        // DecisionContext + MarketContext synthesis are only attached to
+        // COMPLETED candles; shadow (flicker) snapshots omit them. Cache the
+        // last completed reading so downstream panels keep a stable value
+        // between candle closes instead of flashing empty.
+        if (tf.isCompleted && snapshot.decision_context && typeof snapshot.decision_context === 'object') {
+            tf.decisionContext = snapshot.decision_context as DecisionContext;
+        }
+        if (tf.isCompleted && snapshot.statistical_context && typeof snapshot.statistical_context === 'object') {
+            tf.statisticalContext = snapshot.statistical_context as StatisticalContext;
+        }
 
         // Core (non-indicator) market data.
         const mid = num(snapshot.mid_price);

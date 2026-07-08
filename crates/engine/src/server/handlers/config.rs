@@ -40,6 +40,20 @@ pub async fn serve_set_scoring_weights(
     (axum::http::StatusCode::OK, "Scoring weights saved").into_response()
 }
 
+/// GET /api/config/scoring-weights — returns current registry scoring configuration.
+pub async fn serve_get_scoring_weights(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let config = state.config.read().await;
+    let scoring = &config.scoring;
+    let response = serde_json::json!({
+        "indicator_weights": scoring.indicator_weights,
+        "indicator_enabled": scoring.indicator_enabled,
+        "regime_weight_multipliers": scoring.regime_weight_multipliers,
+    });
+    Json(response).into_response()
+}
+
 
 pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let current_config = state.config.read().await.clone();

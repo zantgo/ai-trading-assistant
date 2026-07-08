@@ -131,6 +131,27 @@ See `.github/workflows/ci.yml` — 3-stage sequential pipeline:
 - Candle aggregation happens server-side; the broadcast includes both completed candle snapshots and "shadow" (real-time flickering) values
 - The local variable holding `getState()` must NOT be named `state` — it conflicts with the `$state` rune. Use `app` or `store` instead.
 
+## Documentation Structure
+
+The project uses a **10-layer institutional trading strategy documentation system** under `docs/layers/`. Each layer follows a consistent format (Purpose → Inputs → Outputs → A-G Sub-Components → Integration) and is cross-referenced with adjacent layers.
+
+| Layer | Initials | File |
+|-------|----------|------|
+| 1 — Technical Indicator | ITIL | `docs/layers/01-itil-technical-indicator.md` |
+| 2 — Regime Classification | IRCL | `docs/layers/02-ircl-regime-classification.md` |
+| 3 — Structure Mapping | ISML | `docs/layers/03-isml-structure-mapping.md` |
+| 4 — Confluence Scoring | ICSL | `docs/layers/04-icsl-confluence-scoring.md` |
+| 5 — Decision Context | IDCL | `docs/layers/05-idcl-decision-context.md` |
+| 6 — Statistical Intelligence | ISIL | `docs/layers/06-isil-statistical-intelligence.md` |
+| 7 — Risk Management | IRML | `docs/layers/07-irmL-risk-management.md` |
+| 8 — AI Synthesis | IASL | `docs/layers/08-iasl-ai-synthesis.md` |
+| 9 — Execution Protocol | IEPL | `docs/layers/09-iepl-execution-protocol.md` |
+| 10 — Performance Evaluation | IPEL | `docs/layers/10-ipel-performance-evaluation.md` |
+
+Start at `docs/index.md` for the full pipeline diagram and navigation. See `docs/glossary.md` for 80+ institutional trading terms.
+
+The `docs/layers/` docs are the **authoritative strategy reference**. The architecture document (`docs/architecture.md`) describes the software implementation. The indicator docs (`docs/indicators/`) provide per-indicator signal specifications.
+
 ## Frontend CSS Management
 
 Every Svelte component with custom styles must follow the **Scoped CSS Modules** pattern:

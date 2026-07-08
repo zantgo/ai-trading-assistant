@@ -1,0 +1,126 @@
+.card {
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    background: #0d0f15;
+    padding: 10px 12px;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.head {
+    display: flex;
+    align-items: center;
+}
+.title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #64ffda;
+}
+
+.readiness-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.readiness-gauge {
+    flex: 1;
+    height: 14px;
+    background: #0b0c10;
+    border: 1px solid #1c212e;
+    border-radius: 7px;
+    overflow: hidden;
+}
+.readiness-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.25s;
+}
+.readiness-num {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1;
+}
+.readiness-val {
+    font-size: 22px;
+    font-weight: 800;
+}
+.readiness-lbl {
+    font-size: 7px;
+    letter-spacing: 0.08em;
+    color: #64748b;
+}
+
+.breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.input-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.input-label {
+    font-size: 9px;
+    color: #cbd5e1;
+    width: 108px;
+    flex-shrink: 0;
+}
+.input-weight {
+    font-size: 8px;
+    color: #475569;
+    width: 32px;
+    flex-shrink: 0;
+}
+.input-bar-wrap {
+    flex: 1;
+    height: 6px;
+    background: #0b0c10;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.input-bar {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.25s;
+}
+.input-val {
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 24px;
+    text-align: right;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #1c212e;
+}
+.stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.stat-label {
+    font-size: 7px;
+    letter-spacing: 0.06em;
+    color: #64748b;
+}
+.stat-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+.empty {
+    font-size: 10px;
+    color: #475569;
+    font-style: italic;
+    padding: 12px 0;
+    text-align: center;
+}

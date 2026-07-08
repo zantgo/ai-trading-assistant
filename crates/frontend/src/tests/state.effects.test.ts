@@ -32,11 +32,8 @@ describe('TEST-UI: State Reactive Effects', () => {
     it('should phase through analysis states progressively', () => {
         expect(app.analysisPhase).toBe('idle');
 
-        app.analysisPhase = 'phase1';
-        expect(app.analysisPhase).toBe('phase1');
-
-        app.analysisPhase = 'phase2';
-        expect(app.analysisPhase).toBe('phase2');
+        app.analysisPhase = 'running';
+        expect(app.analysisPhase).toBe('running');
 
         app.analysisPhase = 'complete';
         expect(app.analysisPhase).toBe('complete');

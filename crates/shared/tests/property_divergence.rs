@@ -77,13 +77,24 @@ proptest! {
             let result = det.update_full(dec(prices[i]), dec(rsi_vals[i]), Decimal::ZERO);
 
             // has_bullish is true iff at least one divergence type is bullish
-            let any_bullish = result.rsi_divergence == DivergenceType::RsiBullish
-                || result.macd_divergence == DivergenceType::MacdBullish;
+            // (regular OR hidden), matching the detector's own logic.
+            let any_bullish = matches!(
+                result.rsi_divergence,
+                DivergenceType::RsiBullish | DivergenceType::RsiBullishHidden
+            ) || matches!(
+                result.macd_divergence,
+                DivergenceType::MacdBullish | DivergenceType::MacdBullishHidden
+            );
             prop_assert_eq!(result.has_bullish, any_bullish,
                 "has_bullish must match divergence types");
 
-            let any_bearish = result.rsi_divergence == DivergenceType::RsiBearish
-                || result.macd_divergence == DivergenceType::MacdBearish;
+            let any_bearish = matches!(
+                result.rsi_divergence,
+                DivergenceType::RsiBearish | DivergenceType::RsiBearishHidden
+            ) || matches!(
+                result.macd_divergence,
+                DivergenceType::MacdBearish | DivergenceType::MacdBearishHidden
+            );
             prop_assert_eq!(result.has_bearish, any_bearish,
                 "has_bearish must match divergence types");
         }

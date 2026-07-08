@@ -5,14 +5,18 @@
     import type { TimeframeTelemetry, IndicatorMeta, IndicatorSignal, SignalDirection } from '../types';
 
     const app = useAppStore();
-    let { pairKey }: { pairKey: string } = $props();
+    let { pairKey, only = null }: { pairKey: string; only?: string | null } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const registry = $derived<IndicatorMeta[]>((app.indicatorRegistry ?? []) as IndicatorMeta[]);
     let copied = $state(false);
     let expandedTfTable = $state<string | null>(null);
     let groupMode = $state<'class' | 'group'>('class');
 
-    const timeframes = ['microTerm', 'fastTerm', 'slowTerm', 'macroTerm'] as const;
+    const timeframes = $derived(
+        (['microTerm', 'fastTerm', 'slowTerm', 'macroTerm'] as const).filter(
+            (t) => !only || t === only,
+        ),
+    );
 
     const CLASS_ORDER = ['Leading', 'Hybrid', 'Lagging'] as const;
     const GROUP_ORDER = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Regime', 'Institutional'] as const;

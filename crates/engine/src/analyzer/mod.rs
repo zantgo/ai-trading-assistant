@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{broadcast, RwLock};
 use rust_decimal::Decimal;
@@ -8,12 +8,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
 use crate::config::FibonacciConfig;
+use crate::config::OrderBookConfig;
 use crate::db;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern, PivotPoints, PivotMethod, Candlestick, CandlestickConfig, Ichimoku, Cci, ParabolicSar, WilliamsR, HullMA, AwesomeOscillator, ForceIndex, StdDevChannel, VolumeProfile, SmartMoney, AnchoredVwap};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern, PivotPoints, PivotMethod, Candlestick, CandlestickConfig, Ichimoku, Cci, ParabolicSar, WilliamsR, HullMA, AwesomeOscillator, ForceIndex, StdDevChannel, VolumeProfile, SmartMoney, AnchoredVwap, OrderBookAnalysis};
 use shared::indicators::normalized::PreviousBarState;
+use shared::indicators::normalized::NormalizedIndicatorValue;
+use shared::statistics::{StatisticsEngine, StatisticsConfig};
 use crate::sr_engine::SrRoleTracker;
 
 pub mod normalize;
@@ -30,6 +33,10 @@ pub struct TimeframePipeline {
     pub divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     pub sr_tracker: Arc<tokio::sync::Mutex<SrRoleTracker>>,
     pub fibonacci: FibonacciConfig,
+    /// Latest Open Interest (shared across timeframes, updated by WS OI events).
+    pub latest_oi: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Funding Rate (shared across timeframes, updated by WS funding events).
+    pub latest_funding: Arc<RwLock<Option<Decimal>>>,
 }
 
 pub struct ActivePair {
@@ -40,6 +47,10 @@ pub struct ActivePair {
     pub r#macro: TimeframePipeline,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
+    /// Latest Open Interest (shared across all timeframes, updated by WS events).
+    pub latest_oi: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Funding Rate (shared across all timeframes, updated by WS events).
+    pub latest_funding: Arc<RwLock<Option<Decimal>>>,
 }
 
 impl ActivePair {
@@ -130,6 +141,7 @@ pub async fn run_single(
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
     tf_config: TimeframeConfig,
     fib_config: FibonacciConfig,
+    statistics_config: StatisticsConfig,
     divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
@@ -142,6 +154,9 @@ pub async fn run_single(
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
     paper_pool: Option<sqlx::SqlitePool>,
+    latest_oi: Arc<RwLock<Option<Decimal>>>,
+    latest_funding: Arc<RwLock<Option<Decimal>>>,
+    ob_config: OrderBookConfig,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -177,6 +192,11 @@ pub async fn run_single(
     // Support/Resistance role-reversal tracker (flip tolerance 0.3%). Persists
     // across live bars; inherits warmed flip-state from the pre-warm pass.
     let mut sr_tracker = SrRoleTracker::new(0.003);
+
+    // Statistical Intelligence Layer — per-timeframe engine.
+    let mut sil_engine = StatisticsEngine::new(statistics_config);
+    let mut prev_sil_close: f64 = 0.0;
+    let mut mc_counter: u64 = 0;
 
     if let Some(w) = warmed {
         ema_fast = w.ema_fast;
@@ -335,7 +355,16 @@ pub async fn run_single(
     let mut prev_bar_state = PreviousBarState::default();
     let mut last_pivot_count: usize = 0;
 
+    // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
+    let mut oi_history: VecDeque<f64> = VecDeque::with_capacity(60);
+
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
+
+    let mut order_book_analysis = OrderBookAnalysis::new(
+        ob_config.depth_levels,
+        ob_config.wall_threshold,
+    );
+    let spread_wide_threshold_pct = ob_config.spread_wide_threshold_pct;
 
     let mut shadow_bid = Decimal::ZERO;
     let mut shadow_ask = Decimal::ZERO;
@@ -719,6 +748,29 @@ pub async fn run_single(
                     live_bar = live_bar.wrapping_add(1);
                     stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
 
+                    // Inject Derivatives Data indicators (OI & Funding Rate).
+                    let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
+                    let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
+
+                    let oi_delta_f = match oi_f {
+                        Some(cur) => {
+                            oi_history.push_back(cur);
+                            if oi_history.len() > 60 { oi_history.pop_front(); }
+                            if oi_history.len() > 1 {
+                                Some(cur - oi_history.front().unwrap())
+                            } else { None }
+                        }
+                        None => None,
+                    };
+                    inject_derivatives_indicators(&mut indicators, oi_f, fund_f, oi_delta_f);
+
+                    // Inject order book depth analysis indicators
+                    inject_orderbook_indicators(
+                        &mut indicators,
+                        &order_book_analysis,
+                        spread_wide_threshold_pct,
+                    );
+
                     // Compute quantitative decision-support context.
                     let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
                     // Basic weighted-mean confluence from the indicator map
@@ -744,6 +796,42 @@ pub async fn run_single(
                         confluence_score,
                     );
 
+                    // Compute Statistical Intelligence Layer enrichment.
+                    let close_f = completed.close.to_f64().unwrap_or(0.0);
+                    let rsi_val = indicators.get("rsi").map(|v| v.raw_value).unwrap_or(50.0);
+                    let bbwp_val = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+                    let sqz_mom = indicators.get("squeeze")
+                        .and_then(|v| v.values.as_ref())
+                        .and_then(|vals| vals.get("momentum").copied())
+                        .unwrap_or(0.0);
+                    let sqz_on = indicators.get("squeeze")
+                        .map(|v| v.state_label.contains("ON"))
+                        .unwrap_or(false);
+                    let vol_f = completed.volume.to_f64().unwrap_or(0.0);
+                    let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
+                    let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
+                    let sil_ctx = sil_engine.advance_ext(
+                        close_f, atr_val, rsi_val, bbwp_val, sqz_mom,
+                        vol_f, rvol_f, adx_val, prev_sil_close, sqz_on,
+                        indicators.get("macd").map(|v| v.raw_value).unwrap_or(0.0),
+                        indicators.get("obv").map(|v| v.raw_value).unwrap_or(0.0),
+                        indicators.get("stochastic")
+                            .and_then(|v| v.values.as_ref())
+                            .and_then(|vals| vals.get("k_line").copied())
+                            .unwrap_or(50.0),
+                        indicators.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0),
+                        indicators.get("ema_stack")
+                            .and_then(|v| v.values.as_ref())
+                            .and_then(|vals| vals.get("medium").copied())
+                            .unwrap_or(close_f),
+                    );
+                    prev_sil_close = close_f;
+
+                    mc_counter += 1;
+                    if mc_counter % 10 == 0 {
+                        sil_engine.run_monte_carlo(close_f, atr_val);
+                    }
+
                     let completed_snapshot = MarketSnapshot {
                         exchange: shadow_exchange,
                         timeframe_secs,
@@ -755,7 +843,9 @@ pub async fn run_single(
                         ask_price: shadow_ask,
                         bid_size: Some(completed.volume),
                         ask_size: Some(completed.volume),
-                        funding_rate: None,
+                        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
+                        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
+                        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
                         prev_day_px: shadow_prev_day_px,
                         open: Some(completed.open),
                         high: Some(completed.high),
@@ -765,7 +855,9 @@ pub async fn run_single(
                         average_volume: avg_vol,
                         context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
                         decision_context: Some(dec_ctx),
+                        statistical_context: Some(sil_ctx),
                         indicators,
+                        risk_profile: None,
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
@@ -795,6 +887,34 @@ pub async fn run_single(
                                             symbol, close_f64
                                         );
                                     }
+                                }
+                            }
+
+                            // CHoCH + volume structural breakdown invalidation
+                            if let Some(pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
+                                let has_choch = completed_snapshot.indicators.get("smc_structure")
+                                    .and_then(|v| v.values.as_ref())
+                                    .map(|vals| {
+                                        vals.get("choch_bullish").copied().unwrap_or(0.0) > 0.0
+                                            || vals.get("choch_bearish").copied().unwrap_or(0.0) > 0.0
+                                    })
+                                    .unwrap_or(false);
+                                let rvol = completed_snapshot.indicators.get("rvol")
+                                    .map(|v| v.raw_value)
+                                    .unwrap_or(1.0);
+                                if has_choch && rvol >= 1.5 {
+                                    let close_f64 = completed.close.to_f64().unwrap_or(0.0);
+                                    let _ = crate::paper_trading::invalidate_position(
+                                        pool,
+                                        &telemetry_tx,
+                                        &symbol,
+                                        close_f64,
+                                        "STRUCTURAL_BREAKDOWN_CHOCH",
+                                    ).await;
+                                    println!(
+                                        "🛑 Analyzer: {} position invalidated — CHoCH detected with institutional volume (RVOL={})",
+                                        symbol, rvol
+                                    );
                                 }
                             }
                         }
@@ -850,6 +970,17 @@ pub async fn run_single(
                     shadow_ask = best_ask.0;
                 }
 
+                // Update order book depth analysis
+                {
+                    let bids_f64: Vec<(f64, f64)> = book.bids.iter().map(|(p, s)| {
+                        (p.to_f64().unwrap_or(0.0), s.to_f64().unwrap_or(0.0))
+                    }).collect();
+                    let asks_f64: Vec<(f64, f64)> = book.asks.iter().map(|(p, s)| {
+                        (p.to_f64().unwrap_or(0.0), s.to_f64().unwrap_or(0.0))
+                    }).collect();
+                    order_book_analysis.update(&bids_f64, &asks_f64);
+                }
+
                 if candle_gen.current_candle.is_some() {
                     let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
                     let shadow_candle = NormalizedCandle {
@@ -886,9 +1017,253 @@ pub async fn run_single(
                 shadow_prev_day_px = Some(ctx.prev_day_px);
             }
 
+            NormalizedEvent::OpenInterest(ref oi) => {
+                let mut guard = latest_oi.write().await;
+                *guard = Some(oi.oi);
+            }
+
+            NormalizedEvent::FundingRate(ref fr) => {
+                let mut guard = latest_funding.write().await;
+                *guard = Some(fr.rate);
+            }
+
             NormalizedEvent::Status { exchange, status, message } => {
                 println!("[STATUS {}] {}: {:?} — {}", timeframe_label, exchange, status, message);
             }
+        }
+    }
+}
+
+/// Inject Derivatives Data (OI & Funding) normalized indicator entries into
+/// the snapshot indicator map. Called after the main indicator map is built.
+fn inject_derivatives_indicators(
+    indicators: &mut HashMap<String, NormalizedIndicatorValue>,
+    oi: Option<f64>,
+    funding: Option<f64>,
+    oi_delta: Option<f64>,
+) {
+    use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+
+    // Open Interest
+    if let Some(o) = oi {
+        indicators.insert("open_interest".into(), NormalizedIndicatorValue {
+            raw_value: o,
+            normalized: 0.0,
+            state_label: format!("OI_{:.0}", o),
+            values: None,
+            signals: vec![],
+            confidence: 0.5,
+        });
+    }
+
+    // OI Delta (1h change)
+    if let Some(delta) = oi_delta {
+        let normalized = (delta / 1000.0).clamp(-1.0, 1.0);
+        let dir = if normalized > 0.1 { SignalDirection::Bullish }
+            else if normalized < -0.1 { SignalDirection::Bearish }
+            else { SignalDirection::Neutral };
+        let has_signal = delta.abs() > 500.0;
+        indicators.insert("oi_delta".into(), NormalizedIndicatorValue {
+            raw_value: delta,
+            normalized,
+            state_label: if delta > 0.0 { "OI_RISING".to_string() }
+                else if delta < 0.0 { "OI_FALLING".to_string() }
+                else { "OI_STABLE".to_string() },
+            values: None,
+            signals: if has_signal { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: dir,
+                status: SignalStatus::Active,
+                label: if delta > 500.0 { "OI_SURGE".to_string() } else { "OI_DRAIN".to_string() },
+                strength: (delta.abs() / 1000.0).min(1.0),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // Funding Rate (non-directional gate)
+    if let Some(f) = funding {
+        let extreme = f.abs() > 0.001;
+        let ann_pct = f * 1095.0 * 100.0; // annualized %
+        indicators.insert("funding_rate".into(), NormalizedIndicatorValue {
+            raw_value: f,
+            normalized: 0.0,
+            state_label: if f > 0.001 { "FUNDING_HIGH_POSITIVE".to_string() }
+                else if f < -0.001 { "FUNDING_HIGH_NEGATIVE".to_string() }
+                else { format!("FUNDING_{:.1}PCT", ann_pct.abs()) },
+            values: None,
+            signals: if extreme { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: if f > 0.0 { SignalDirection::Bearish } else { SignalDirection::Bullish },
+                status: SignalStatus::Active,
+                label: "FUNDING_EXTREME".to_string(),
+                strength: 0.7,
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // OI-Price Divergence
+    if let (Some(_o), Some(delta)) = (oi, oi_delta) {
+        let ema_bias = indicators.get("ema_stack").map(|v| v.normalized).unwrap_or(0.0);
+        let div = if delta > 0.0 && ema_bias < -0.3 { -0.7 }
+            else if delta < 0.0 && ema_bias > 0.3 { 0.7 }
+            else { 0.0 };
+        indicators.insert("oi_price_divergence".into(), NormalizedIndicatorValue {
+            raw_value: div,
+            normalized: div,
+            state_label: if div > 0.3 { "OI_BULLISH_DIV".to_string() }
+                else if div < -0.3 { "OI_BEARISH_DIV".to_string() }
+                else { "OI_PRICE_ALIGNED".to_string() },
+            values: None,
+            signals: if div.abs() > 0.3 { vec![IndicatorSignal {
+                kind: SignalKind::Divergence,
+                direction: if div > 0.0 { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                status: SignalStatus::Active,
+                label: "OI_PRICE_DIVERGENCE".to_string(),
+                strength: div.abs(),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+}
+
+/// Inject Order Book Depth Analysis normalized indicator entries into the
+/// snapshot indicator map. Called after the main indicator map is built.
+fn inject_orderbook_indicators(
+    indicators: &mut HashMap<String, NormalizedIndicatorValue>,
+    ob: &OrderBookAnalysis,
+    spread_wide_threshold_pct: f64,
+) {
+    use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+
+    // Order Flow Imbalance
+    if let Some(ofi) = ob.order_flow_imbalance() {
+        let (dir, sig_label) = if ofi > 0.7 {
+            (SignalDirection::Bullish, "BULLISH_IMBALANCE")
+        } else if ofi < -0.7 {
+            (SignalDirection::Bearish, "BEARISH_IMBALANCE")
+        } else if ofi > 0.0 {
+            (SignalDirection::Bullish, "BUY_PRESSURE")
+        } else if ofi < 0.0 {
+            (SignalDirection::Bearish, "SELL_PRESSURE")
+        } else {
+            (SignalDirection::Neutral, "BALANCED")
+        };
+        let has_signal = ofi.abs() > 0.7;
+        indicators.insert("order_flow_imbalance".into(), NormalizedIndicatorValue {
+            raw_value: ofi,
+            normalized: ofi,
+            state_label: sig_label.to_string(),
+            values: None,
+            signals: if has_signal { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: dir,
+                status: SignalStatus::Active,
+                label: sig_label.to_string(),
+                strength: ofi.abs(),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: ofi.abs(),
+        });
+    }
+
+    // Spread (non-directional gate)
+    if let Some(spread) = ob.spread_pct() {
+        let wide = spread > spread_wide_threshold_pct;
+        indicators.insert("spread".into(), NormalizedIndicatorValue {
+            raw_value: spread,
+            normalized: 0.0,
+            state_label: if wide { "SPREAD_WIDENING".to_string() } else { "TIGHT".to_string() },
+            values: None,
+            signals: if wide { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: SignalDirection::Neutral,
+                status: SignalStatus::Active,
+                label: "SPREAD_WIDENING".to_string(),
+                strength: (spread / 5.0).min(1.0),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // Depth Bias (bid depth / ask depth ratio)
+    if let Some(ratio) = ob.depth_imbalance_ratio(1.0) {
+        if ratio.is_finite() {
+            let norm = ((ratio - 1.0) / (ratio + 1.0)).clamp(-1.0, 1.0);
+            let label = if ratio > 1.5 {
+                "DEEP_BIDS"
+            } else if ratio < 0.67 {
+                "DEEP_ASKS"
+            } else {
+                "BALANCED_DEPTH"
+            };
+            let has_signal = ratio > 2.0 || ratio < 0.5;
+            let dir = if norm > 0.0 {
+                SignalDirection::Bullish
+            } else if norm < 0.0 {
+                SignalDirection::Bearish
+            } else {
+                SignalDirection::Neutral
+            };
+            indicators.insert("depth_bias".into(), NormalizedIndicatorValue {
+                raw_value: ratio,
+                normalized: norm,
+                state_label: label.to_string(),
+                values: None,
+                signals: if has_signal { vec![IndicatorSignal {
+                    kind: SignalKind::Threshold,
+                    direction: dir,
+                    status: SignalStatus::Active,
+                    label: if ratio > 2.0 { "BID_DEPTH_SURGE".to_string() } else { "ASK_DEPTH_SURGE".to_string() },
+                    strength: norm.abs(),
+                    age_bars: 0,
+                    points: None,
+                }]} else { vec![] },
+                confidence: norm.abs(),
+            });
+        }
+    }
+
+    // Wall signals: attach to order_flow_imbalance entry if it exists
+    if let Some(ref wall) = ob.wall_detected() {
+        match wall.as_str() {
+            "BID_WALL" => {
+                if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
+                    ofier.signals.push(IndicatorSignal {
+                        kind: SignalKind::Threshold,
+                        direction: SignalDirection::Bullish,
+                        status: SignalStatus::Active,
+                        label: "BID_WALL".to_string(),
+                        strength: 0.8,
+                        age_bars: 0,
+                        points: None,
+                    });
+                }
+            }
+            "ASK_WALL" => {
+                if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
+                    ofier.signals.push(IndicatorSignal {
+                        kind: SignalKind::Threshold,
+                        direction: SignalDirection::Bearish,
+                        status: SignalStatus::Active,
+                        label: "ASK_WALL".to_string(),
+                        strength: 0.8,
+                        age_bars: 0,
+                        points: None,
+                    });
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -1125,6 +1500,8 @@ fn broadcast_live_snapshot(
         bid_size: Some(candle.volume),
         ask_size: Some(candle.volume),
         funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
         prev_day_px,
         open: Some(candle.open),
         high: Some(candle.high),
@@ -1134,7 +1511,9 @@ fn broadcast_live_snapshot(
         average_volume: avg_vol,
         context: None,
         decision_context: None,
+        statistical_context: None,
         indicators,
+        risk_profile: None,
     };
 
     let _ = broadcast_tx.send(snapshot);

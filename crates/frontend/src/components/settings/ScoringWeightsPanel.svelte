@@ -22,7 +22,7 @@
         seeded = true;
     });
 
-    const GROUPS = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Regime'];
+    const GROUPS = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Regime', 'Institutional'];
 
     async function save() {
         status = 'saving';

@@ -105,6 +105,14 @@
                     <span class={styles.adbStatLabel}>Largest Gain</span>
                     <span class="{styles.adbStatValue} {styles.adbPos}">{formatUsd(stats.core_stats.largest_gain)}</span>
                 </div>
+                <div class={styles.adbStatCard}>
+                    <span class={styles.adbStatLabel}>Sharpe Ratio</span>
+                    <span class={styles.adbStatValue}>{((stats as any).sharpe_ratio ?? 0).toFixed(2)}</span>
+                </div>
+                <div class={styles.adbStatCard}>
+                    <span class={styles.adbStatLabel}>Recovery Factor</span>
+                    <span class={styles.adbStatValue}>{((stats as any).recovery_factor ?? 0).toFixed(2)}</span>
+                </div>
             </div>
 
             <!-- Equity Curve -->

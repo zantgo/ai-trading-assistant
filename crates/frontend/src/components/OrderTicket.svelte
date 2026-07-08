@@ -108,37 +108,37 @@
 <div class={styles.orderTicketContainer}>
     <!-- Long Controls -->
     <div class={styles.pacingGroup}>
-        <button
-            class={styles.btnLong}
-            onclick={handleOpenLong}
-            disabled={!canOpenLong}
-        >
-            LONG ({activeLongs}/4)
-        </button>
-        <button
-            class={styles.btnClose}
-            onclick={handleCloseLong}
-            disabled={!canCloseLong}
-        >
-            CLOSE ({4 - activeLongs}/4)
+        <div class={styles.entryRow}>
+            <button class={styles.btnLong} onclick={handleOpenLong} disabled={!canOpenLong || activeLongs >= 1}>
+                E1 33%
+            </button>
+            <button class={styles.btnLong} onclick={handleOpenLong} disabled={!canOpenLong || activeLongs >= 2 || activeLongs < 1}>
+                E2 33%
+            </button>
+            <button class={styles.btnLong} onclick={handleOpenLong} disabled={!canOpenLong || activeLongs >= 3 || activeLongs < 2}>
+                E3 33%
+            </button>
+        </div>
+        <button class={styles.btnClose} onclick={handleCloseLong} disabled={!canCloseLong}>
+            CLOSE ({activeLongs}/4)
         </button>
     </div>
 
     <!-- Short Controls -->
     <div class={styles.pacingGroup}>
-        <button
-            class={styles.btnShort}
-            onclick={handleOpenShort}
-            disabled={!canOpenShort}
-        >
-            SHORT ({activeShorts}/4)
-        </button>
-        <button
-            class={styles.btnClose}
-            onclick={handleCloseShort}
-            disabled={!canCloseShort}
-        >
-            CLOSE ({4 - activeShorts}/4)
+        <div class={styles.entryRow}>
+            <button class={styles.btnShort} onclick={handleOpenShort} disabled={!canOpenShort || activeShorts >= 1}>
+                E1 33%
+            </button>
+            <button class={styles.btnShort} onclick={handleOpenShort} disabled={!canOpenShort || activeShorts >= 2 || activeShorts < 1}>
+                E2 33%
+            </button>
+            <button class={styles.btnShort} onclick={handleOpenShort} disabled={!canOpenShort || activeShorts >= 3 || activeShorts < 2}>
+                E3 33%
+            </button>
+        </div>
+        <button class={styles.btnClose} onclick={handleCloseShort} disabled={!canCloseShort}>
+            CLOSE ({activeShorts}/4)
         </button>
     </div>
 

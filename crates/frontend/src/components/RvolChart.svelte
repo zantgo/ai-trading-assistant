@@ -30,6 +30,20 @@
         return '#94a3b8';
     }
 
+    function rvolLabel(rvol: number): string {
+        if (rvol >= 3.0) return 'EXHAUSTION CLIMAX';
+        if (rvol >= 1.5) return 'INSTITUTIONAL';
+        if (rvol >= 1.0) return 'NORMAL';
+        return 'CONSOLIDATION';
+    }
+
+    let lastRvol = $derived(
+        tf?.latestSnapshot
+            ? iRaw((tf.latestSnapshot.indicators ?? {}) as IndicatorMap, 'rvol') ?? 1.0
+            : 1.0
+    );
+    let rvolLabelText = $derived(rvolLabel(lastRvol));
+
     onMount(() => {
         chart = createChart(container, {
             autoSize: true,
@@ -168,7 +182,9 @@
 </script>
 
 <div class="chart-container" bind:this={container}></div>
+<div class="rvol-label" style="color:{rvolColor(lastRvol)}">{rvolLabelText} ({lastRvol.toFixed(2)})</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { width: 100%; height: calc(100% - 16px); }
+    .rvol-label { font-size: 10px; font-family: var(--font-mono); text-align: center; padding: 2px 0; opacity: 0.8; }
 </style>

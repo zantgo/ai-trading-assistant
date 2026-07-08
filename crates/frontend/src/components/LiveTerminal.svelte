@@ -23,6 +23,9 @@
     import LinRegSlopeChart from './LinRegSlopeChart.svelte';
     import ZScoreChart from './ZScoreChart.svelte';
     import CciChart from './CciChart.svelte';
+import WilliamsRChart from './WilliamsRChart.svelte';
+import ForceIndexChart from './ForceIndexChart.svelte';
+import AoChart from './AoChart.svelte';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -140,6 +143,24 @@
         <div class={styles.panelLabel}>CHANDE MO</div>
         {#key `${pairKey}-${tf.barDurationSec}-${tf.chandemoPeriodVal}-cmo`}
             <ChandeMoChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('chandemo', tf.barDurationSec)} />
+        {/key}
+    </div>
+    <div class="{styles.panelBox} {styles.paneAo} {!tf.showAo ? styles.hiddenPane : ''}">
+        <div class={styles.panelLabel}>AO</div>
+        {#key `${pairKey}-${tf.barDurationSec}-ao`}
+            <AoChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('ao', tf.barDurationSec)} />
+        {/key}
+    </div>
+    <div class="{styles.panelBox} {styles.paneWilliams} {!tf.showWilliamsR ? styles.hiddenPane : ''}">
+        <div class={styles.panelLabel}>W%R</div>
+        {#key `${pairKey}-${tf.barDurationSec}-wr`}
+            <WilliamsRChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('williamsr', tf.barDurationSec)} />
+        {/key}
+    </div>
+    <div class="{styles.panelBox} {styles.paneForceIdx} {!tf.showForceIdx ? styles.hiddenPane : ''}">
+        <div class={styles.panelLabel}>FORCE</div>
+        {#key `${pairKey}-${tf.barDurationSec}-fi`}
+            <ForceIndexChart pairKey={pairKey} timeframe={tf.barDurationSec} onDoubleClick={() => handleChartDblClick('forceidx', tf.barDurationSec)} />
         {/key}
     </div>
 {/snippet}

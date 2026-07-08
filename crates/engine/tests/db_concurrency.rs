@@ -64,6 +64,8 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     bid_size: None,
                     ask_size: None,
                     funding_rate: None,
+                    open_interest: None,
+                    oi_delta_1h: None,
                     prev_day_px: None,
                     open: Some(dec!(49800.00)),
                     high: Some(dec!(50200.00)),
@@ -74,7 +76,8 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     indicators: std::collections::HashMap::new(),
                     context: None,
                     decision_context: None,
-                    
+                    statistical_context: None,
+        risk_profile: None,
                 };
 
                 let result = sqlx::query(

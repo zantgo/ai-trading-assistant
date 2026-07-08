@@ -238,8 +238,9 @@ impl DecisionContext {
         let vwap_stop = val("vwap", "vwap");
         let vp_stop = if bd > 0.0 { val("volume_profile", "val") } else { val("volume_profile", "vah") };
         let pivot_stop = if bd > 0.0 { val("pivot_points", "s1") } else { val("pivot_points", "r1") };
+        let avwap_stop = val("anchored_vwap", "vwap_weekly");
         let atr_stop = if bd > 0.0 { price - 2.0 * atr_value } else { price + 2.0 * atr_value };
-        let stop_candidates: Vec<f64> = [ob_stop, swing_stop, vwap_stop, vp_stop, pivot_stop]
+        let stop_candidates: Vec<f64> = [ob_stop, swing_stop, vwap_stop, vp_stop, pivot_stop, avwap_stop]
             .iter().filter_map(|x| *x)
             .filter(|&x| if bd > 0.0 { x < price && (price - x) / price > 0.005 }
                          else { x > price && (x - price) / price > 0.005 })

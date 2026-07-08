@@ -72,6 +72,20 @@ export interface DashboardStats {
     cumulative_commissions: [number, number][];
     fee_pnl_ratio: FeePnlRatio[];
     monthly_summary: MonthlySummary[];
+    sharpe_ratio: number;
+    recovery_factor: number;
+    regime_breakdown: RegimeBreakdownRow[];
+}
+
+export interface RegimeBreakdownRow {
+    regime: string;
+    trades: number;
+    wins: number;
+    losses: number;
+    win_rate: number;
+    profit_factor: number;
+    total_pnl: number;
+    avg_r_multiple: number;
 }
 
 export interface TradeLedgerRecord {

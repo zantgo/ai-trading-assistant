@@ -23,14 +23,18 @@ norm = clamp(((price - middle) / (upper - middle)))   // [-1, +1] scaled positio
 Stored in the `values` sub-map: `upper`, `middle`, `lower`. State labels determine signal firing.
 
 ## 4. Signals
+
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
 | Breakout | BOLLINGER_UPPER_BREAKOUT | Price ≥ upper band | Bullish |
 | Breakout | BOLLINGER_LOWER_BREAKOUT | Price ≤ lower band | Bearish |
 | BandTouch | BOLLINGER_UPPER_BAND_TOUCH | Price inside bands, %B > 0.90 (near upper edge). Structured push from engine. | Bearish |
 | BandTouch | BOLLINGER_LOWER_BAND_TOUCH | Price inside bands, %B < 0.10 (near lower edge). Structured push from engine. | Bullish |
+| LevelTest | BOLLINGER_MIDDLE_BAND_REJECTION_BULLISH | Price approaches middle band from above, bounces. %B near 0.50 with directional momentum favoring bulls. | Bullish |
+| LevelTest | BOLLINGER_MIDDLE_BAND_REJECTION_BEARISH | Price approaches middle band from below, rejected. %B near 0.50 with directional momentum favoring bears. | Bearish |
+| LevelTest | BOLLINGER_MIDDLE_BAND_SUPPORT_HOLD | Price riding near middle band with multiple touches holding. Acts as dynamic S/R in trending markets. | Direction-neutral |
 
-Both Breakout and BandTouch fire from distinct detection sources (structured engine push + label-based trigger) — duplicate badges from both paths are intentional.
+Both Breakout and BandTouch fire from distinct detection sources (structured engine push + label-based trigger) — duplicate badges from both paths are intentional. LevelTest signals indicate price interaction with the middle band acting as dynamic support/resistance.
 
 ## 5. Configuration
 ```toml

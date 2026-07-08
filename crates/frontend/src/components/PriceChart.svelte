@@ -68,6 +68,8 @@
     let fibGpBottomLine: IPriceLine | null = null;
     let fibExt1618Line: IPriceLine | null = null;
     let fibExt2618Line: IPriceLine | null = null;
+    let fibExt1272Line: IPriceLine | null = null;
+    let fibRetLines: IPriceLine[] = [];
     let entryLine: IPriceLine | null = null;
     let stopLossLine: IPriceLine | null = null;
     let pivotLines: IPriceLine[] = [];
@@ -726,6 +728,9 @@
         if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
         if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
         if (fibExt2618Line) { candleSeries.removePriceLine(fibExt2618Line); fibExt2618Line = null; }
+        if (fibExt1272Line) { candleSeries.removePriceLine(fibExt1272Line); fibExt1272Line = null; }
+        fibRetLines.forEach(l => candleSeries.removePriceLine(l));
+        fibRetLines = [];
         if (!pair || !tf.showFib) return;
 
         const snap = tf.latestSnapshot;
@@ -736,6 +741,24 @@
         const gpHigh = iSub(fm, 'fibonacci', 'gp_top');
         const ext1618 = iSub(fm, 'fibonacci', 'ext_1618');
         const ext2618 = iSub(fm, 'fibonacci', 'ext_2618');
+        const ext1272 = iSub(fm, 'fibonacci', 'ext_1272');
+
+        const retLevels: [string, string, string][] = [
+            ['ret_0236', '23.6%', '#64748b'],
+            ['ret_0382', '38.2%', '#64748b'],
+            ['ret_0500', '50.0%', '#94a3b8'],
+            ['ret_0786', '78.6%', '#f59e0b'],
+        ];
+        for (const [subKey, title, color] of retLevels) {
+            const val = iSub(fm, 'fibonacci', subKey);
+            if (val != null && val > 0) {
+                fibRetLines.push(candleSeries.createPriceLine({
+                    price: val, color,
+                    lineWidth: 1, lineStyle: 3,
+                    axisLabelVisible: false, title,
+                }));
+            }
+        }
 
         if (gpHigh != null && gpHigh > 0) {
             fibGpTopLine = candleSeries.createPriceLine({
@@ -775,6 +798,16 @@
                 lineStyle: 1,
                 axisLabelVisible: true,
                 title: '2.618 Ext',
+            });
+        }
+        if (ext1272 != null && ext1272 > 0) {
+            fibExt1272Line = candleSeries.createPriceLine({
+                price: ext1272,
+                color: '#81c784',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: '1.272 Ext',
             });
         }
     });
@@ -857,6 +890,58 @@
                 title: 'VAL',
             }));
         }
+        const hvn = iSub(vm, 'volume_profile', 'hvn');
+        if (hvn != null && hvn > 0) {
+            volumeProfileLines.push(candleSeries.createPriceLine({
+                price: hvn, color: '#bcaaa4', lineWidth: 1, lineStyle: 1,
+                axisLabelVisible: false, title: 'HVN',
+            }));
+        }
+        const lvn = iSub(vm, 'volume_profile', 'lvn');
+        if (lvn != null && lvn > 0) {
+            volumeProfileLines.push(candleSeries.createPriceLine({
+                price: lvn, color: '#78909c', lineWidth: 1, lineStyle: 3,
+                axisLabelVisible: false, title: 'LVN',
+            }));
+        }
+    });
+
+    // SMC Zone Overlays — OB zones and FVGs as price-line bands
+    let smcZoneLines: IPriceLine[] = [];
+    $effect(() => {
+        smcZoneLines.forEach(l => candleSeries?.removePriceLine(l));
+        smcZoneLines = [];
+        if (!pair || !candleSeries) return;
+
+        const snap = tf.latestSnapshot;
+        if (!snap) return;
+        const sm = (snap.indicators ?? {}) as IndicatorMap;
+
+        // Order Block zones
+        if (tf.showSmcOrderBlocks) {
+            const obBh = iSub(sm, 'smc_order_blocks', 'ob_bullish_high');
+            const obBl = iSub(sm, 'smc_order_blocks', 'ob_bullish_low');
+            if (obBh != null && obBl != null && obBh > 0) {
+                smcZoneLines.push(candleSeries.createPriceLine({ price: obBh, color: 'rgba(16,185,129,0.4)', lineWidth: 3, lineStyle: 0, axisLabelVisible: true, title: 'OB Bull' }));
+                smcZoneLines.push(candleSeries.createPriceLine({ price: obBl, color: 'rgba(16,185,129,0.4)', lineWidth: 3, lineStyle: 0, axisLabelVisible: false, title: '' }));
+            }
+            const obSh = iSub(sm, 'smc_order_blocks', 'ob_bearish_high');
+            const obSl = iSub(sm, 'smc_order_blocks', 'ob_bearish_low');
+            if (obSh != null && obSl != null && obSh > 0) {
+                smcZoneLines.push(candleSeries.createPriceLine({ price: obSh, color: 'rgba(239,68,68,0.4)', lineWidth: 3, lineStyle: 0, axisLabelVisible: true, title: 'OB Bear' }));
+                smcZoneLines.push(candleSeries.createPriceLine({ price: obSl, color: 'rgba(239,68,68,0.4)', lineWidth: 3, lineStyle: 0, axisLabelVisible: false, title: '' }));
+            }
+        }
+
+        // FVG gap zones
+        if (tf.showSmcFvg) {
+            const fvgTop = iSub(sm, 'smc_fvg', 'fvg_top');
+            const fvgBot = iSub(sm, 'smc_fvg', 'fvg_bottom');
+            if (fvgTop != null && fvgBot != null && fvgTop > 0) {
+                smcZoneLines.push(candleSeries.createPriceLine({ price: fvgTop, color: 'rgba(255,202,40,0.5)', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'FVG Top' }));
+                smcZoneLines.push(candleSeries.createPriceLine({ price: fvgBot, color: 'rgba(255,202,40,0.5)', lineWidth: 2, lineStyle: 0, axisLabelVisible: false, title: 'FVG Bot' }));
+            }
+        }
     });
 
     $effect(() => {
@@ -867,6 +952,47 @@
 
         if (candleSeries && pair) {
             updateMarkers();
+        }
+    });
+
+    // Chart Pattern Trendline Overlays
+    let patternLines: IPriceLine[] = [];
+    $effect(() => {
+        patternLines.forEach(l => candleSeries?.removePriceLine(l));
+        patternLines = [];
+        if (!pair || !candleSeries || !tf.showPatterns) return;
+        const snap = tf.latestSnapshot;
+        if (!snap) return;
+        const pm = (snap.indicators ?? {}) as IndicatorMap;
+        const pat = pm['patterns'];
+        if (!pat || pat.state_label === 'NO_PATTERN') return;
+
+        const upperSlope = iSub(pm, 'patterns', 'upper_slope');
+        const upperIntercept = iSub(pm, 'patterns', 'upper_intercept');
+        const lowerSlope = iSub(pm, 'patterns', 'lower_slope');
+        const lowerIntercept = iSub(pm, 'patterns', 'lower_intercept');
+        const currentBar = (snap.timestamp as number) || Date.now() / 1000;
+        const barIdx = currentBar / (tf.barDurationSec || 60);
+
+        const color = pat.state_label.includes('BULLISH') ? '#26a69a' : '#ef5350';
+
+        if (upperSlope != null && upperIntercept != null) {
+            const price = upperSlope * barIdx + upperIntercept;
+            if (price > 0) {
+                patternLines.push(candleSeries.createPriceLine({
+                    price, color, lineWidth: 1, lineStyle: 2,
+                    axisLabelVisible: true, title: 'PAT ↑',
+                }));
+            }
+        }
+        if (lowerSlope != null && lowerIntercept != null) {
+            const price = lowerSlope * barIdx + lowerIntercept;
+            if (price > 0) {
+                patternLines.push(candleSeries.createPriceLine({
+                    price, color, lineWidth: 1, lineStyle: 2,
+                    axisLabelVisible: false, title: 'PAT ↓',
+                }));
+            }
         }
     });
 </script>

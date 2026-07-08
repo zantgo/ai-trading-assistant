@@ -37,7 +37,10 @@ The magnitude floor is ±0.6 (Supertrend never produces a near-zero reading). La
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
 | TrendFlip | SUPERTREND_FLIP | Supertrend direction changed this bar (`flipped == true`). Structured push from engine. | Bullish (flip to up) / Bearish (flip to down) |
-| Crossover | SUPERTREND_PRICE_CROSS_BULLISH/BEARISH | Price crossed the Supertrend line. Detected via previous-bar price and line comparison (transition-only). | Bullish / Bearish |
+| Crossover | SUPERTREND_PRICE_CROSS_BULLISH | Price crossed from below the Supertrend line to above. Detected via previous-bar price and line comparison (transition-only). | Bullish |
+| Crossover | SUPERTREND_PRICE_CROSS_BEARISH | Price crossed from above the Supertrend line to below. | Bearish |
+| BandTouch | SUPERTREND_LINE_TOUCH_BULLISH | Price tests the Supertrend line from above (acting as support) without crossing below. Confirms trend support. | Bullish |
+| BandTouch | SUPERTREND_LINE_TOUCH_BEARISH | Price tests the Supertrend line from below (acting as resistance) without crossing above. Confirms trend resistance. | Bearish |
 
 ## 5. Scoring & AI Context
 

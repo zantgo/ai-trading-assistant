@@ -580,6 +580,8 @@ fn build_historical_snapshot(
         bid_size: Some(completed.volume),
         ask_size: Some(completed.volume),
         funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
         prev_day_px: None,
         open: Some(completed.open),
         high: Some(completed.high),
@@ -603,6 +605,8 @@ fn build_historical_snapshot(
             let px = completed.close.to_f64().unwrap_or(0.0);
             shared::decision_context::DecisionContext::compute(&indicators, px, atr_val, conf)
         }),
+        statistical_context: None,
         indicators,
+        risk_profile: None,
     }
 }

@@ -18,13 +18,11 @@ use crate::workspace::Workspace;
 pub mod handlers;
 pub mod helpers;
 pub mod math;
-pub mod pipeline;
 pub mod telemetry;
 pub mod types;
 pub mod ws;
 
 pub use math::compute_support_resistance;
-pub use pipeline::run_multi_agent_pipeline;
 pub use telemetry::compile_deterministic_telemetry;
 pub use types::IndicatorSnapshot;
 
@@ -97,13 +95,21 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::config::serve_config).post(handlers::config::update_config),
         )
         .route("/api/config/key", post(handlers::config::serve_set_key))
-        .route("/api/config/scoring-weights", post(handlers::config::serve_set_scoring_weights))
+        .route("/api/config/scoring-weights", get(handlers::config::serve_get_scoring_weights).post(handlers::config::serve_set_scoring_weights))
         .route(
             "/api/rules",
             get(handlers::config::serve_get_rules).post(handlers::config::serve_set_rules),
         )
         .route("/api/history", get(handlers::history::serve_history))
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
+        .route(
+            "/api/monitor/active-trades",
+            get(handlers::monitor::serve_active_trades),
+        )
+        .route(
+            "/api/risk-profile",
+            get(handlers::risk_profile::serve_risk_profile),
+        )
         .route("/api/analyze", post(handlers::analyze::serve_analyze))
         .route("/api/chat", post(handlers::chat::serve_chat))
         .route(
@@ -366,6 +372,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/system/observability",
             get(handlers::system::serve_observability_buffers),
         )
+        .route(
+            "/api/backtest/run",
+            post(handlers::backtest::run_backtest),
+        )
+        .route(
+            "/api/backtest/walk-forward",
+            post(handlers::backtest::run_walk_forward),
+        )
         .route("/ws", get(ws::ws_handler))
         .route(
             "/favicon.ico",
@@ -469,6 +483,8 @@ mod tests {
             &indicators,
             &support_levels,
             &resistance_levels,
+            None,
+            None,
         );
 
         // bbwp < 10.0 -> COMPRESSION regime

@@ -51,6 +51,22 @@ pub struct NormalizedTrade {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizedOpenInterest {
+    pub exchange: Exchange,
+    pub symbol: String,
+    pub oi: Decimal,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizedFundingRate {
+    pub exchange: Exchange,
+    pub symbol: String,
+    pub rate: Decimal,
+    pub timestamp_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedOrderBook {
     pub exchange: Exchange,
     pub symbol: String,
@@ -81,6 +97,8 @@ pub enum NormalizedEvent {
     Trade(NormalizedTrade),
     OrderBook(NormalizedOrderBook),
     AssetContext(NormalizedAssetContext),
+    OpenInterest(NormalizedOpenInterest),
+    FundingRate(NormalizedFundingRate),
     Status {
         exchange: Exchange,
         status: ConnectionStatus,

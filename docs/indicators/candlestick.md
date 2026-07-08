@@ -75,13 +75,22 @@ Final `confidence = quality × context_mult`, gated by `min_confidence` (default
 
 ---
 
-## 6. Signals, Scoring & Rendering
+## 6. Signals
 
-* **Signal:** `PatternForming` with `SignalStatus::Potential` (Formed) → `Confirmed`, carrying the pattern label and confidence strength.
-* **Scoring:** `candlestick` is a `directional` registry indicator contributing `weight × normalized` to the confluence engine.
+| SignalKind | Label Pattern | Trigger Condition | Direction | Status |
+|-----------|--------------|------------------|-----------|--------|
+| PatternForming | CANDLESTICK_PATTERN_FORMED | Geometric detection passes Stage 1. Pattern shape matches template with quality ≥ min_confidence (0.3). | Bullish / Bearish per pattern | **Potential** |
+| PatternForming | CANDLESTICK_PATTERN_CONFIRMED | Powered Stage 1 pattern confirmed: next candle closes beyond the signal candle's extreme (high for bullish, low for bearish). | Bullish / Bearish per pattern | **Confirmed** |
+
+**Lifecycle:** Potential (Formed) → Confirmed (next candle closes beyond trigger) → Expired (unconfirmed after `max_confirm_age` = 3 bars, discarded). Neutral patterns (Doji, Spinning Top, Long-Legged Doji) never enter the confirmation pipeline.
+
+**Scoring:** `candlestick` is a `directional` registry indicator contributing `weight × normalized` to the confluence engine. Confirmed patterns carry full weight (×1.0); Formed-only patterns carry reduced weight (×0.6). Below-threshold or invalidated readings collapse to neutral (0.0).
+
+## 7. Rendering & Persistence
+
 * **Persistence:** pattern name, category, direction, quality, confidence, and status flow through the JSON blob — no migration.
 * **Frontend:** confirmed patterns render as directional arrow markers on the candle (green ▲ below / red ▼ above); merely-formed patterns render as circles. Toggled via the `PATTERNS` chart pill (`showCandlestick`).
-* **AI Context:** the Structure Agent and Master Orchestrator receive the pattern DTO and treat candlesticks as contextual confluence, never standalone triggers.
+* **AI Context:** the Analyst Agent receives the pattern DTO and treats candlesticks as contextual confluence, never standalone triggers.
 
 ---
 

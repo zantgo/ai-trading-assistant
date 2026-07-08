@@ -26,10 +26,14 @@ Labels: `MFI_OVERBOUGHT_DISTRIBUTION`, `MFI_OVERSOLD_ACCUMULATION`, `MFI_BULLISH
 ## 4. Signals
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| Threshold | MFI_OVERBOUGHT / OVERSOLD | MFI ≥ 80 / ≤ 20 | Bearish/Bullish |
-| Threshold | MFI_BULLISH_FLOW / BEARISH_FLOW | MFI between 20-80 with directional bias | Bullish/Bearish |
-| ZeroLineCross | MFI midline 50 cross | MFI crosses 50 (bullish/bearish bias flip). Transition-only via prev-bar MFI. | Bullish/Bearish |
-| Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-MFI divergence via SeriesDivergence. | Bullish/Bearish |
+| Threshold | MFI_OVERBOUGHT_DISTRIBUTION | MFI ≥ 80 — overbought distribution, potential reversal down | Bearish |
+| Threshold | MFI_OVERSOLD_ACCUMULATION | MFI ≤ 20 — oversold accumulation, potential reversal up | Bullish |
+| Threshold | MFI_BULLISH_FLOW | MFI between 50-80 with upward slope — institutional accumulation in progress | Bullish |
+| Threshold | MFI_BEARISH_FLOW | MFI between 20-50 with downward slope — institutional distribution in progress | Bearish |
+| Divergence | BULLISH_DIVERGENCE | Price makes lower low, MFI makes higher low — hidden volume-weighted accumulation. Detected via 20-bar SeriesDivergence. Potential → Confirmed when nearest Support level broken with 0.2% tolerance. | Bullish |
+| Divergence | BEARISH_DIVERGENCE | Price makes higher high, MFI makes lower high — volume-weighted distribution exhaustion. Potential → Confirmed when nearest Resistance level broken with 0.2% tolerance. | Bearish |
+
+**Divergence Lifecycle:** Potential (oscillator disagrees with price, no structural break) → Confirmed (candle close breaks nearest S/R boundary by >0.2% tolerance). Dedicated `mfi_divergence` scoring key. The MFI 50 midline cross is a configuration signal (not a formal SignalKind emission) — it contributes to the `MFI_BULLISH_FLOW` / `MFI_BEARISH_FLOW` state transitions.
 
 ## 5. Configuration
 ```toml

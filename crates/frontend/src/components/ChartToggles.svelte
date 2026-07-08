@@ -103,6 +103,30 @@
         syncAll(tf => { tf.showWilliamsR = v; });
     }
 
+    function toggleAdx() {
+        if (!pair) return;
+        const v = !pair.microTerm.showAdx;
+        syncAll(tf => { tf.showAdx = v; });
+    }
+
+    function toggleAtr() {
+        if (!pair) return;
+        const v = !pair.microTerm.showAtr;
+        syncAll(tf => { tf.showAtr = v; });
+    }
+
+    function toggleRsi() {
+        if (!pair) return;
+        const v = !pair.microTerm.showRsi;
+        syncAll(tf => { tf.showRsi = v; });
+    }
+
+    function toggleVolume() {
+        if (!pair) return;
+        const v = !pair.microTerm.showVolume;
+        syncAll(tf => { tf.showVolume = v; });
+    }
+
     function toggleHullMa() {
         if (!pair) return;
         const v = !pair.microTerm.showHullMa;
@@ -204,6 +228,14 @@
             onclick={toggleChikou}>CHIKOU</button>
         <button class="{styles.togglePill} {styles.cciPill} {pair.microTerm.showCci ? styles.active : ''}"
             onclick={toggleCci}>CCI</button>
+        <button class="{styles.togglePill} {styles.adxPill} {pair.microTerm.showAdx ? styles.active : ''}"
+            onclick={toggleAdx}>ADX</button>
+        <button class="{styles.togglePill} {styles.atrPill} {pair.microTerm.showAtr ? styles.active : ''}"
+            onclick={toggleAtr}>ATR</button>
+        <button class="{styles.togglePill} {styles.rsiPill} {pair.microTerm.showRsi ? styles.active : ''}"
+            onclick={toggleRsi}>RSI</button>
+        <button class="{styles.togglePill} {styles.volPill} {pair.microTerm.showVolume ? styles.active : ''}"
+            onclick={toggleVolume}>VOL</button>
         <button class="{styles.togglePill} {styles.psarPill} {pair.microTerm.showPsar ? styles.active : ''}"
             onclick={togglePsar}>PSAR</button>
         <button class="{styles.togglePill} {styles.williamsRPill} {pair.microTerm.showWilliamsR ? styles.active : ''}"

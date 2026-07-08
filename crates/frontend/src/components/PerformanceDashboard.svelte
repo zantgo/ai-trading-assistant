@@ -403,6 +403,41 @@
                 </div>
             </div>
 
+            {#if app.dashboardStats?.regime_breakdown && app.dashboardStats.regime_breakdown.length > 0}
+                {@const regimeData = app.dashboardStats.regime_breakdown}
+            <div class="{styles.card} {styles.matrixCard}">
+                <h3 class={styles.cardTitle}>By Regime</h3>
+                <table class={styles.historyTable}>
+                    <thead>
+                        <tr>
+                            <th>Regime</th>
+                            <th>Trades</th>
+                            <th>Win Rate</th>
+                            <th>PF</th>
+                            <th>P&L</th>
+                            <th>Avg R</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each regimeData as rb}
+                            <tr>
+                                <td>{rb.regime}</td>
+                                <td>{rb.trades}</td>
+                                <td>{Math.round(rb.win_rate * 100)}%</td>
+                                <td>{rb.profit_factor.toFixed(2)}</td>
+                                <td>
+                                    <span style="color:{rb.total_pnl >= 0 ? '#10b981' : '#ef4444'}">
+                                        {rb.total_pnl >= 0 ? '+' : ''}${rb.total_pnl.toFixed(2)}
+                                    </span>
+                                </td>
+                                <td>{rb.avg_r_multiple.toFixed(2)}</td>
+                            </tr>
+                        {/each}
+                    </tbody>
+                </table>
+            </div>
+            {/if}
+
             <div class="{styles.card} {styles.autoInfoCard}">
                 <h3 class={styles.cardTitle}>About Paper Trading</h3>
                 <p class={styles.autoDescription}>Paper trading simulates real trades using virtual capital without financial risk:</p>

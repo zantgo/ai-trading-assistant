@@ -1,5 +1,5 @@
 use crate::db::{CompletedTradesBufferRow, DecisionMemoryBufferRow};
-use crate::llm::{ChatMessage, IndividualIndicatorResult};
+use crate::llm::{AnalystDocument, ChatMessage, TraderDecision};
 use serde::{Deserialize, Serialize};
 use shared::indicators::normalized::NormalizedIndicatorValue;
 use std::collections::{BTreeSet, HashMap};
@@ -237,36 +237,9 @@ fn divergence_status(label: Option<&str>) -> Option<String> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SupportResistanceResponse {
-    pub detected_support_levels: Vec<String>,
-    pub detected_resistance_levels: Vec<String>,
-    pub structural_analysis: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct IndicatorSynthesisResponse {
-    pub summary_count: String,
-    pub evaluation: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PositionRecommendationResponse {
-    pub action: String,
-    pub rationale: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PhaseTwoResponse {
-    pub general_trend: String,
-    pub support_and_resistance: SupportResistanceResponse,
-    pub indicator_synthesis: IndicatorSynthesisResponse,
-    pub position_recommendation: PositionRecommendationResponse,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MultiAgentAnalysisResponse {
-    pub phase_one: Vec<IndividualIndicatorResult>,
-    pub phase_two: PhaseTwoResponse,
+pub struct WizardAnalysisResponse {
+    pub analyst_document: AnalystDocument,
+    pub trader_decision: TraderDecision,
 }
 
 #[derive(Debug, Serialize)]
@@ -345,6 +318,15 @@ pub struct HistoryResponse {
 
 // ─── Terminal Monitor (cross-timeframe meta-intelligence) ──────
 
+/// Signed per-indicator contribution to a timeframe's confluence score.
+#[derive(Debug, Serialize)]
+pub struct ContributionDto {
+    pub key: String,
+    pub display_name: String,
+    /// Signed contribution `weight × normalized` (bull-bias frame).
+    pub contribution: f64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MonitorTimeframe {
     pub label: String,
@@ -354,6 +336,20 @@ pub struct MonitorTimeframe {
     pub overall_label: String,
     /// Registry confluence score in [-100,100] for this timeframe (bull bias).
     pub confluence_score: i32,
+    /// Bias-projected confluence in [-1,1] (pre-scaling of confluence_score).
+    pub confluence_normalized: f64,
+    /// Total active weight of enabled/present directional indicators.
+    pub active_weight: f64,
+    /// Non-directional regime gate applied this run (choppiness × adx).
+    pub regime_gate: f64,
+    /// Per-indicator signed contributions driving the confluence score.
+    pub contributions: Vec<ContributionDto>,
+    /// Opposite-signal exit score if holding LONG (sum of opposing |contrib| × 100).
+    pub opposite_score_long: u32,
+    /// Opposite-signal exit score if holding SHORT.
+    pub opposite_score_short: u32,
+    /// Registry opposite-signal exit threshold (conviction bar, 0-100 scale).
+    pub opposite_exit_threshold: f64,
 }
 
 /// Per-indicator agreement across the four timeframes.
@@ -382,6 +378,59 @@ pub struct MonitorResponse {
     pub mtf: MtfConfirmation,
     /// Macro-timeframe market-context synthesis (falls back to micro).
     pub market_context: Option<shared::market_context::MarketContext>,
+}
+
+// ── Active Trades Monitoring (IMOL) ────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ActiveTradesResponse {
+    pub symbol: String,
+    pub has_active_position: bool,
+    pub direction: Option<String>,
+    pub average_entry_price: Option<f64>,
+    pub total_size: f64,
+    pub unrealized_pnl: f64,
+    pub unrealized_roi_pct: f64,
+    pub margin_used: f64,
+    pub account_value: f64,
+    pub slots: Vec<ActiveTradeDto>,
+    pub break_even_trail: BreakEvenTrailDto,
+    pub exit_signals: ExitSignalsDto,
+    pub safety_state: SafetyStateDto,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveTradeDto {
+    pub slot_id: i64,
+    pub direction: String,
+    pub entry_price: f64,
+    pub size: f64,
+    pub allocated_usd: f64,
+    pub unrealized_pnl: f64,
+    pub unrealized_pnl_pct: f64,
+    pub stop_loss_price: Option<f64>,
+    pub take_profit_prices: Vec<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BreakEvenTrailDto {
+    pub enabled: bool,
+    pub trail_price: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExitSignalsDto {
+    pub opposite_score_long: u32,
+    pub opposite_score_short: u32,
+    pub opposite_exit_threshold: f64,
+    pub invalidation_level: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SafetyStateDto {
+    pub consecutive_losses: u32,
+    pub caution_threshold: u32,
+    pub suspend_threshold: u32,
 }
 
 #[derive(Debug, Serialize)]

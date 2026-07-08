@@ -4,7 +4,7 @@ export type IconName =
     | 'clock' | 'shield' | 'trending-up' | 'monitor' | 'dollar'
     | 'percent' | 'target' | 'tool' | 'compass' | 'bot'
     | 'bar-chart' | 'book' | 'refresh' | 'zap' | 'minus'
-    | 'pause' | 'stop' | 'trash';
+    | 'pause' | 'stop' | 'trash' | 'eye';
 
 const PATHS: Record<IconName, string> = {
     user: `<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>`,
@@ -36,6 +36,7 @@ const PATHS: Record<IconName, string> = {
     pause: `<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>`,
     stop: `<rect x="4" y="4" width="16" height="16" rx="2"/>`,
     trash: `<polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>`,
+    eye: `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`,
 };
 
 export function iconHtml(name: IconName): string {
