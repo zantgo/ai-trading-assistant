@@ -1,78 +1,83 @@
-.quit-overlay {
+.quitOverlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.75);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
     backdrop-filter: blur(4px);
 }
-.quit-dialog {
-    background: #1a1a2e;
+.quitDialog {
+    background: #11131a;
     border: 1px solid #2d3448;
     border-radius: 12px;
     padding: 2rem;
     width: 100%;
     max-width: 400px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
     text-align: center;
 }
-.quit-icon {
-    font-size: 2.5rem;
-    margin-bottom: 0.5rem;
+.quitIcon {
+    color: #ef4444;
+    margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: center;
 }
-.quit-title {
-    color: #e0e0ff;
-    font-size: 1.2rem;
+.quitTitle {
+    color: #f8fafc;
+    font-size: 1.25rem;
+    font-weight: 700;
     margin: 0 0 0.75rem 0;
 }
-.quit-message {
-    color: #64748b;
+.quitMessage {
+    color: #94a3b8;
     font-size: 0.85rem;
     line-height: 1.5;
     margin: 0 0 1.5rem 0;
 }
-.quit-message strong {
-    color: #ff9999;
+.quitMessage strong {
+    color: #f8fafc;
+    font-weight: 700;
 }
-.quit-actions {
+.quitActions {
     display: flex;
     gap: 0.75rem;
     justify-content: center;
 }
-.quit-cancel {
+.quitCancel {
     padding: 0.6rem 1.5rem;
-    background: #2d3448;
-    border: 1px solid #444466;
+    background: #334155;
+    border: 1px solid #475569;
     border-radius: 8px;
-    color: #64748b;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-.quit-cancel:hover:not(:disabled) {
-    background: #3a3a5a;
-}
-.quit-confirm {
-    padding: 0.6rem 1.5rem;
-    background: #cc3333;
-    border: none;
-    border-radius: 8px;
-    color: white;
+    color: #f8fafc;
     font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: opacity 0.15s;
+}
+.quitCancel:hover:not(:disabled) {
+    opacity: 0.85;
+}
+.quitConfirm {
+    padding: 0.6rem 1.5rem;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 8px;
+    color: #ef4444;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
-.quit-confirm:hover:not(:disabled) {
-    opacity: 0.85;
+.quitConfirm:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.25);
 }
-.quit-cancel:disabled,
-.quit-confirm:disabled {
+.quitCancel:disabled,
+.quitConfirm:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }

@@ -106,7 +106,7 @@
 
 <div class={styles.instancesView}>
     <div class={styles.instancesHeader}>
-        <h2>All Instances</h2>
+        <h2>Instances</h2>
         <span class={styles.instancesCount}>{totalCount} / {maxCount}</span>
     </div>
 
@@ -125,7 +125,15 @@
             {app.quote}
         </span>
         <button class={styles.addBtn} onclick={handleCreate} disabled={addLoading || !newBase.trim()}>
-            {addLoading ? '...' : '+ Create'}
+            {#if addLoading}
+                <span class={styles.waveContainer}>
+                    <span class={styles.waveDot}>.</span>
+                    <span class={styles.waveDot}>.</span>
+                    <span class={styles.waveDot}>.</span>
+                </span>
+            {:else}
+                + Create
+            {/if}
         </button>
     </div>
     {#if addError}

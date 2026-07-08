@@ -1,7 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { useAppStore } from '../state.svelte';
-    import { generateIdenticonSvg } from '../lib/identicon';
     import Icon from '../lib/Icon.svelte';
     import styles from './UserProfile.module.css';
 
@@ -15,8 +14,6 @@
     let keyType = $state<'api' | 'wallet'>('wallet');
     let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
     let saveError = $state('');
-
-    const identiconSrc = $derived(generateIdenticonSvg(draftName || 'default', 96));
 
     onMount(async () => {
         const profile = await app.fetchProfile();
@@ -42,22 +39,16 @@
 <div class={styles.profilePage}>
     <div class={styles.profileCard}>
         <div class={styles.identiconSection}>
-            <img src={identiconSrc} alt="Profile identicon" class={styles.identicon} width="96" height="96" />
-            <div class={styles.identiconHint}>Generated from your name</div>
+            <div class={styles.profilePicContainer}>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class={styles.profilePicSvg}>
+                    <circle cx="12" cy="8" r="4" fill="rgba(255, 255, 255, 0.05)"/>
+                    <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                </svg>
+            </div>
         </div>
 
         <div class={styles.fieldsSection}>
-            <div class={styles.formGroup}>
-                <label class={styles.formLabel} for="up-name">Display Name</label>
-                <input
-                    id="up-name"
-                    type="text"
-                    class={styles.formInput}
-                    placeholder="e.g. Satoshi"
-                    bind:value={draftName}
-                    maxlength="30"
-                />
-            </div>
+            <div class={styles.profileNameDisplay}>{draftName}</div>
 
             <div class={styles.formGroup}>
                 <span class={styles.formLabel}>Key Type</span>
@@ -118,7 +109,7 @@
                         placeholder="0x..."
                         bind:value={draftWallet}
                     />
-                    <span class={styles.formHint}>Currently unavailable — saved for future integration</span>
+                    <span class={styles.formHint}>Currently unavailable</span>
                 </div>
                 <div class={styles.formGroup}>
                     <label class={styles.formLabel} for="up-wallet-secret">Secret Key</label>

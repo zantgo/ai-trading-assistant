@@ -324,7 +324,7 @@
 
 <div class={styles.dashboardView}>
     <div class={styles.headerRow}>
-        <h2 class={styles.dashboardTitle}>General Dashboard</h2>
+        <h2 class={styles.dashboardTitle}>Dashboard</h2>
         <div class={styles.utcClock}>{utcTime}</div>
     </div>
 

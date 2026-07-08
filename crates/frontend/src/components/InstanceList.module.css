@@ -24,13 +24,14 @@
 }
 .add-input {
     flex: 1;
-    padding: 0.45rem 0.6rem;
-    background: #1e1e3a;
+    padding: 8px 12px;
+    background: #0b0c10;
     border: 1px solid #2d3448;
     border-radius: 6px;
-    color: #e0e0ff;
+    color: #f8fafc;
     font-size: 0.85rem;
     outline: none;
+    transition: border-color 0.15s;
 }
 .add-input:focus { border-color: #94a3b8; }
 .add-input.short { flex: 0 0 100px; }
@@ -38,11 +39,11 @@
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
-    padding: 0.45rem 0.75rem;
-    background: #22224a;
+    padding: 8px 12px;
+    background: #11131a;
     border: 1px solid #2d3448;
     border-radius: 6px;
-    color: #9fb0ff;
+    color: #94a3b8;
     font-size: 0.8rem;
     font-weight: 600;
     letter-spacing: 0.03em;
@@ -51,22 +52,23 @@
 .add-error {
     margin: -0.5rem 0 1rem;
     padding: 0.5rem 0.75rem;
-    background: rgba(255, 102, 102, 0.1);
-    border: 1px solid rgba(255, 102, 102, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.4);
     border-radius: 6px;
-    color: #ff8888;
+    color: #f87171;
     font-size: 0.82rem;
 }
 .add-btn {
-    padding: 0.45rem 1rem;
-    background: #334155;
+    padding: 8px 16px;
+    background: #f8fafc;
     border: none;
     border-radius: 6px;
-    color: white;
+    color: #0b0c10;
     font-size: 0.85rem;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
+    transition: opacity 0.15s;
 }
 .add-btn:hover:not(:disabled) { opacity: 0.85; }
 .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -75,9 +77,9 @@
     padding: 2rem;
     color: #64748b;
 }
-.error-row { color: #ff6666; }
+.error-row { color: #f87171; }
 .instances-table {
-    border: 1px solid #2d3448;
+    border: 1px solid #1c212e;
     border-radius: 8px;
     overflow: hidden;
 }
@@ -89,18 +91,56 @@
     font-size: 0.82rem;
 }
 .table-header {
-    background: #1a1a35;
+    background: #11131a;
     color: #64748b;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
     font-size: 0.7rem;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #1c212e;
 }
 .table-row {
-    background: #14142a;
-    border-top: 1px solid #1e1e3a;
+    background: #11131a;
+    border-top: 1px solid #1c212e;
+    transition: background 0.15s;
 }
-.table-row:hover { background: #1a1a35; }
+.table-row:hover { background: #161a24; }
+
+/* Dynamic Bouncing Wave Dots */
+.waveContainer {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    height: 14px;
+    vertical-align: middle;
+}
+
+.waveDot {
+    display: inline-block;
+    font-size: 18px;
+    line-height: 0.6;
+    font-weight: 800;
+    color: #0b0c10;
+    animation: waveBounce 1.2s infinite ease-in-out both;
+}
+
+.waveDot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.waveDot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes waveBounce {
+    0%, 80%, 100% {
+        transform: translateY(0);
+    }
+    40% {
+        transform: translateY(-5px);
+    }
+}
 .status-dot {
     display: inline-block;
     width: 8px;

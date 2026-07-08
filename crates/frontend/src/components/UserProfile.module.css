@@ -23,15 +23,29 @@
     gap: 8px;
     flex-shrink: 0;
 }
-.identicon {
-    border-radius: 8px;
-    border: 2px solid #2d3448;
+.profilePicContainer {
+    width: 96px;
+    height: 96px;
+    background: #0b0c10;
+    border: 1px solid #2d3448;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    box-sizing: border-box;
 }
-.identicon-hint {
-    font-size: 9px;
-    color: #475569;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+.profilePicSvg {
+    width: 48px;
+    height: 48px;
+}
+.profileNameDisplay {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 8px;
+    letter-spacing: -0.2px;
+    font-family: var(--font-sans);
 }
 .fields-section {
     flex: 1;
