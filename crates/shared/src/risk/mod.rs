@@ -15,6 +15,8 @@ pub mod kelly;
 pub mod object;
 pub mod risk_parity;
 pub mod rr;
+/// Phase 20: Markowitz Mean-Variance Optimization — efficient frontier, tangency portfolio.
+pub mod mean_variance;
 
 use std::collections::HashMap;
 

@@ -297,3 +297,4 @@ This smooth, evidence-driven update ensures the R:R recommendation adapts propor
 - [IEPL: §A Entry Protocol](../layers/09-iepl-execution-protocol.md) — How sizing adjustments affect entry allocation
 - [IASL: §B Analyst Agent](../layers/08-iasl-ai-synthesis.md) — How agent performance scoring feeds prompt refinement
 - [Historical Analyst](../institutional-unified-strategy-framework.md) — AI-driven periodic trade review
+- [IPEL Factor Attribution](../layers/10-ipel-factor-attribution.md) — Alpha/beta decomposition, rolling factor exposures, regime-conditional alpha, signal quality decomposition

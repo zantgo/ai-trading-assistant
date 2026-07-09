@@ -28,6 +28,18 @@ pub mod anomaly;
 pub mod regime_classifier;
 pub mod derived_features;
 
+// Phase 16: Advanced Risk Modeling
+pub mod var;
+pub mod garch;
+pub mod evt;
+pub mod information_coeff;
+
+// Phase 18: Factor Model
+pub mod factor_model;
+
+// Phase 19: Cointegration
+pub mod cointegration;
+
 use distribution::{DistributionTracker, METRIC_COUNT};
 use probability::ProbabilityEngine;
 use bayesian::{BayesianEngine, ObservationKind};
@@ -43,6 +55,8 @@ use anomaly::AnomalyDetector;
 use regime_classifier::StatisticalRegime;
 use derived_features::DerivedFeatures;
 use statistical_context::StatisticalContext;
+use garch::GarchModel;
+use information_coeff::IcTracker;
 
 pub use types::WINDOW_SIZES;
 pub use types::StatisticsConfig;
@@ -73,6 +87,19 @@ pub struct StatisticsEngine {
     /// Cached top predictors (recomputed every 20 bars).
     cached_predictors: Vec<(String, f64)>,
     bars_since_importance: usize,
+    /// GARCH(1,1) volatility forecasting model.
+    garch: Option<GarchModel>,
+    /// Initialization buffer for GARCH parameter estimation.
+    garch_buffer: Vec<f64>,
+    /// Information Coefficient tracker.
+    ic_tracker: IcTracker,
+    /// Queue of pending IC predictions (for forward-bar resolution).
+    ic_predictions_queue: std::collections::VecDeque<(f64, usize)>,
+    /// Cached VaR/CVaR summary (updated every bar).
+    cached_var: var::VarCvarSummary,
+    /// Cached EVT metrics (recomputed every 100 bars).
+    cached_evt: Option<evt::EvtTailMetrics>,
+    evt_update_countdown: usize,
 }
 
 impl StatisticsEngine {
@@ -83,6 +110,10 @@ impl StatisticsEngine {
         } else {
             config.windows.clone()
         };
+        let ic_lookback = config.ic_lookback;
+        let ic_forward = config.ic_forward_bars;
+        let garch_enabled = config.garch_enabled;
+        let garch_window = config.garch_estimation_window;
         Self {
             distribution: DistributionTracker::new(&windows),
             probability: ProbabilityEngine::new(
@@ -114,6 +145,29 @@ impl StatisticsEngine {
             cached_predictors: Vec::new(),
             bars_since_importance: 0,
             config,
+            garch: if garch_enabled {
+                Some(GarchModel {
+                    omega: 0.0,
+                    alpha: 0.05,
+                    beta: 0.90,
+                    current_variance: 0.0,
+                    prev_sq_residual: 0.0,
+                    return_mean: 0.0,
+                    bar_count: 0,
+                })
+            } else {
+                None
+            },
+            garch_buffer: if garch_enabled {
+                Vec::with_capacity(garch_window)
+            } else {
+                Vec::new()
+            },
+            ic_tracker: IcTracker::new(ic_lookback, ic_forward),
+            ic_predictions_queue: std::collections::VecDeque::new(),
+            cached_var: var::VarCvarSummary::zero(),
+            cached_evt: None,
+            evt_update_countdown: 0,
         }
     }
 
@@ -367,6 +421,74 @@ impl StatisticsEngine {
         ctx.expected_opportunity = derived.expected_opportunity;
         ctx.market_predictability = derived.market_predictability;
 
+        // ── Phase 16: VaR/CVaR ─────────────────────────────
+        self.cached_var = var::VarCvarSummary::compute(&self.distribution);
+        ctx.var_95 = self.cached_var.var_95;
+        ctx.var_99 = self.cached_var.var_99;
+        ctx.cvar_95 = self.cached_var.cvar_95;
+        ctx.cvar_99 = self.cached_var.cvar_99;
+
+        // ── Phase 16: GARCH ────────────────────────────────
+        if let Some(ref mut g) = self.garch {
+            // Collect returns for initial estimation, then switch to online.
+            if !g.is_ready() && self.garch_buffer.len() < self.config.garch_estimation_window {
+                self.garch_buffer.push(log_return);
+                if self.garch_buffer.len() >= 30 {
+                    // Attempt fit; if it fails, fall back to defaults.
+                    if let Some(fitted) = GarchModel::fit(&self.garch_buffer) {
+                        *g = fitted;
+                    } else {
+                        g.bar_count = self.garch_buffer.len() + 100; // mark ready with fallback
+                        g.current_variance = self.distribution
+                            .statistic(self.distribution.best_window_idx(), 1)
+                            .stddev.powi(2);
+                    }
+                }
+            }
+            let forecast = g.advance(log_return);
+            ctx.garch_forecast_vol = forecast.forecast_1bar;
+            ctx.garch_long_run_vol = forecast.long_run_vol;
+            ctx.garch_persistence = forecast.persistence;
+        }
+
+        // ── Phase 16: EVT ──────────────────────────────────
+        if self.config.evt_enabled {
+            if self.evt_update_countdown == 0 || self.cached_evt.is_none() {
+                self.cached_evt = evt::compute_evt(&self.distribution);
+                self.evt_update_countdown = 100;
+            }
+            self.evt_update_countdown = self.evt_update_countdown.saturating_sub(1);
+            if let Some(ref evt_metrics) = self.cached_evt {
+                ctx.evt_var_99 = evt_metrics.var_99;
+                ctx.evt_expected_shortfall_99 = evt_metrics.expected_shortfall_99;
+                ctx.evt_tail_index = evt_metrics.tail_index_xi;
+                ctx.evt_scale = evt_metrics.scale_beta;
+            }
+        }
+
+        // ── Phase 16: IC (resolved from pending predictions) ──
+        // Resolve any pending predictions where forward_bars have elapsed.
+        let mut resolved_indices: Vec<usize> = Vec::new();
+        let mut i = 0;
+        let forward_bars = self.config.ic_forward_bars;
+        while i < self.ic_predictions_queue.len() {
+            self.ic_predictions_queue[i].1 = self.ic_predictions_queue[i].1.saturating_sub(1);
+            if self.ic_predictions_queue[i].1 == 0 {
+                resolved_indices.push(i);
+                break; // resolve oldest first (FIFO)
+            }
+            i += 1;
+        }
+        for idx in resolved_indices.iter().rev() {
+            let (prediction, _) = self.ic_predictions_queue.remove(*idx).unwrap();
+            self.ic_tracker.push(prediction, log_return);
+        }
+        if let Some(ic_metrics) = self.ic_tracker.compute() {
+            ctx.ic_spearman = ic_metrics.spearman_ic;
+            ctx.ic_rank = ic_metrics.rank;
+            ctx.ic_significance = ic_metrics.significance;
+        }
+
         ctx
     }
 
@@ -475,6 +597,17 @@ impl StatisticsEngine {
     /// Number of completed candles processed so far.
     pub fn bar_count(&self) -> u64 {
         self.bar_count
+    }
+
+    /// Track a trading signal value for Information Coefficient computation.
+    /// The signal is queued; its outcome (forward return) resolves after
+    /// `ic_forward_bars` candles.  Call this after `advance_ext()` with the
+    /// per-candle confluence score or other signal metric.
+    pub fn track_ic_signal(&mut self, signal_value: f64) {
+        if self.config.ic_enabled {
+            self.ic_predictions_queue
+                .push_back((signal_value, self.config.ic_forward_bars));
+        }
     }
 
     /// Run a Monte Carlo price-path simulation using the current price,

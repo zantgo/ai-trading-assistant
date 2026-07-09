@@ -24,6 +24,12 @@
 | 12 | Order Book Depth Analysis | Complete | Full L2 depth processing; OFI, wall detection, depth-weighted mid, spread, depth_bias indicators; OrderBookAnalysis calculator |
 | 13 | Backtesting Framework | Complete | Historical replay engine; Sharpe/Sortino/DSR metrics; walk-forward optimizer; `POST /api/backtest/run` endpoint |
 | 14 | Portfolio Optimization | Complete | Kelly Criterion (full + fractional); Risk Parity (ERC + budgeted); PortfolioOptimizer integrating IRML win rates; 24 unit tests |
+| 15 | Derivatives Data Indicators | Complete | Open Interest, OI Delta, Funding Rate, OI-Price Divergence indicators; WS integration; config + frontend |
+| 16 | ISIL Advanced Risk Modeling | Planned | VaR/CVaR engine, GARCH(1,1) volatility forecasting, EVT (POT/GPD) tail risk, Spearman Information Coefficient — pure math in `statistics/` |
+| 17 | TWAP/VWAP Execution Algorithms | Planned | Time-sliced execution (TWAP/VWAP/IS), scalping-optimized short-duration slices, algo progress tracking, integration with slot machine |
+| 18 | Factor Model + Stress Testing | Planned | 1-factor alpha/beta decomposition, predefined stress scenarios (flash crash, vol spike, correlation breakdown), scenario P&L |
+| 19 | Cointegration Framework | Planned | Engle-Granger 2-step + Johansen test, OU half-life, pair cointegration z-scores, cross-pair mean-reversion signals (adds nalgebra dep) |
+| 20 | Markowitz Mean-Variance | Planned | Efficient frontier computation, tangency portfolio (max Sharpe), complement to existing Kelly + Risk Parity allocation engine |
 
 ---
 
@@ -42,15 +48,30 @@
 | 9 | IEPL — Institutional Execution Protocol Layer | `docs/layers/09-iepl-execution-protocol.md` | Complete |
 | 10 | IPEL — Institutional Performance Evaluation Layer | `docs/layers/10-ipel-performance-evaluation.md` | In Progress |
 
+## Layer Extension Documents
+
+| # | Document | Layer | Description |
+|---|----------|-------|-------------|
+| 6e | ISIL Advanced Risk Modeling | ISIL | VaR/CVaR, GARCH volatility forecasting, EVT tail risk, Spearman IC |
+| 7e | IRML Portfolio Optimization | IRML | Markowitz MVO, efficient frontier, stress testing framework |
+| 9e | IEPL Algorithmic Execution | IEPL | TWAP, VWAP, Implementation Shortfall execution algorithms |
+| 10e | IPEL Factor Attribution | IPEL | Alpha/beta decomposition, factor performance attribution |
+| 3e | ISML Cointegration | ISML/ISIL | Pair cointegration analysis, Johansen test, OU mean-reversion |
+
 ## New Phases (Post-10-Layer Completion)
 
 | Phase | Name | Status | Description |
 |-------|------|--------|-------------|
-| 11 | Open Interest & Funding Rate | Planned | Live OI and funding rate WS ingestion, OI delta indicator, funding rate gate |
-| 12 | Order Book Depth Analysis | Planned | Full L2 depth processing, OFI, wall detection, depth-weighted mid-price |
-| 13 | Backtesting Framework | Planned | Historical replay engine, walk-forward optimization, deflated Sharpe ratio |
-| 14 | Real-Exchange Execution (Phase 8) | Planned | Hyperliquid order API, position reconciliation, execution safety |
-| 15 | Portfolio Optimization | Planned | Kelly Criterion sizing, Risk Parity allocation, integrated with IRML |
+| 11 | Open Interest & Funding Rate | Complete | Live OI and funding rate WS ingestion, OI delta indicator, funding rate gate |
+| 12 | Order Book Depth Analysis | Complete | Full L2 depth processing, OFI, wall detection, depth-weighted mid-price |
+| 13 | Backtesting Framework | Complete | Historical replay engine, walk-forward optimization, deflated Sharpe ratio |
+| 14 | Real-Exchange Execution (Phase 8) | Complete (engine) | OrderManager, PositionReconciler, ExecutionGuard; API handlers pending |
+| 15 | Portfolio Optimization | Complete | Kelly Criterion sizing, Risk Parity allocation, integrated with IRML |
+| 16 | ISIL Advanced Risk Modeling | Planned | VaR/CVaR, GARCH(1,1) volatility forecast, EVT tail risk, Spearman IC |
+| 17 | TWAP/VWAP Execution Algorithms | Planned | Time-sliced execution, VWAP tracking, scalping-optimized durations |
+| 18 | Factor Model + Stress Testing | Planned | Alpha/beta, scenario P&L, covariance-based stress tests |
+| 19 | Cointegration Framework | Planned | Engle-Granger, Johansen, OU half-life (adds nalgebra dep) |
+| 20 | Markowitz Mean-Variance | Planned | Efficient frontier, tangency portfolio, MVO allocation |
 
 ---
 

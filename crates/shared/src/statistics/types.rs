@@ -78,6 +78,35 @@ pub struct StatisticsConfig {
 
     #[serde(default = "default_one")]
     pub bayesian_prior_beta: f64,
+
+    // ── Phase 16: Advanced Risk Modeling ──────────────────────
+    /// Enable GARCH(1,1) volatility forecasting.
+    #[serde(default = "default_true")]
+    pub garch_enabled: bool,
+
+    /// Window size for GARCH parameter estimation.
+    #[serde(default = "default_garch_window")]
+    pub garch_estimation_window: usize,
+
+    /// Enable EVT tail risk modeling.
+    #[serde(default = "default_true")]
+    pub evt_enabled: bool,
+
+    /// Percentile threshold for POT exceedance selection.
+    #[serde(default = "default_evt_pct")]
+    pub evt_threshold_percentile: f64,
+
+    /// Enable Information Coefficient tracking.
+    #[serde(default = "default_true")]
+    pub ic_enabled: bool,
+
+    /// Rolling window size for IC computation.
+    #[serde(default = "default_ic_lookback")]
+    pub ic_lookback: usize,
+
+    /// Forward bars for IC outcome measurement.
+    #[serde(default = "default_ic_forward")]
+    pub ic_forward_bars: usize,
 }
 
 impl Default for StatisticsConfig {
@@ -103,6 +132,13 @@ impl Default for StatisticsConfig {
             anomaly_threshold: 0.8,
             bayesian_prior_alpha: 1.0,
             bayesian_prior_beta: 1.0,
+            garch_enabled: true,
+            garch_estimation_window: 252,
+            evt_enabled: true,
+            evt_threshold_percentile: 0.95,
+            ic_enabled: true,
+            ic_lookback: 50,
+            ic_forward_bars: 5,
         }
     }
 }
@@ -125,3 +161,7 @@ fn default_anomaly() -> f64 { 0.8 }
 fn default_kalman_q() -> f64 { 0.00001 }
 fn default_kalman_r() -> f64 { 0.001 }
 fn default_kalman_rw() -> usize { 100 }
+fn default_garch_window() -> usize { 252 }
+fn default_evt_pct() -> f64 { 0.95 }
+fn default_ic_lookback() -> usize { 50 }
+fn default_ic_forward() -> usize { 5 }

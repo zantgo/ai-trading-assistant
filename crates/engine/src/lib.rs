@@ -36,5 +36,6 @@ pub mod services;
 pub mod sr_engine;
 pub mod stats_compiler;
 pub mod strategy_optimizer;
+pub mod stress_test;
 pub mod trigger_engine;
 pub mod workspace;

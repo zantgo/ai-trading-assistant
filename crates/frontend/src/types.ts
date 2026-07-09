@@ -549,7 +549,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All Level 3 feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer' | 'statistics' | 'wizard_flow' | 'risk_profile' | 'monitoring' | 'risk_management';
+export type CurrentView = 'terminal' | 'monitor' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer' | 'statistics' | 'wizard_flow' | 'risk_profile' | 'monitoring' | 'risk_management' | 'workflow' | 'risk_overview';
 
 // ─── Institutional Risk Management Layer (IRML) ─────────────────────────────
 export interface RiskObjectDto {
@@ -609,7 +609,7 @@ export interface RiskProfileResponse {
 }
 
 /** Level 2 operational-mode paradigm groupings. */
-export type Level2Mode = 'general' | 'wizard' | 'user' | 'rule' | 'ai';
+export type Level2Mode = 'general' | 'wizard' | 'user' | 'rule' | 'ai' | 'risk';
 
 export interface InstanceState {
     symbol: string;
@@ -655,6 +655,8 @@ export interface InstanceState {
     showEmaMedium: boolean;
     showEmaSlow: boolean;
     showEmaLong: boolean;
+    /** Per-timeframe per-indicator weight overrides. Falls back to registry default_weight. */
+    indicatorWeights: Record<string, Record<string, number>>;
 }
 
 export interface ScaleInPortion {

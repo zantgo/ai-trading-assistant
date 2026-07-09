@@ -115,6 +115,16 @@
 | 10 | IPEL | Institutional Performance Evaluation Layer | How well did we do, and how to adapt? | [10-ipel-performance-evaluation.md](layers/10-ipel-performance-evaluation.md) |
 | 11 | IMOL | Institutional Monitoring Layer | How is the active trade performing? | [11-imol-monitoring.md](layers/11-imol-monitoring.md) |
 
+## Layer Extension Documents
+
+| # | Document | Layer | Description |
+|---|----------|-------|-------------|
+| 6e | [ISIL Advanced Risk Modeling](layers/06-isil-advanced-risk-modeling.md) | ISIL | VaR/CVaR, GARCH volatility forecasting, EVT tail risk, Spearman IC |
+| 7e | [IRML Stress Testing & MVO](layers/07-irmL-stress-testing-mvo.md) | IRML | Stress scenario framework, Markowitz efficient frontier |
+| 9e | [IEPL Algorithmic Execution](layers/09-iepl-algorithmic-execution.md) | IEPL | TWAP, VWAP, Implementation Shortfall execution algorithms |
+| 10e | [IPEL Factor Attribution](layers/10-ipel-factor-attribution.md) | IPEL | Alpha/beta decomposition, rolling factor exposures |
+| 3e | [Cointegration Analysis](layers/03-isml-cointegration.md) | ISML/ISIL | Pair cointegration, Johansen test, OU mean-reversion |
+
 ---
 
 ## Frontend Decision Flow (UI)
@@ -155,7 +165,7 @@ Structure  Breakouts    Volatility     Context         Trailing Stop
 | [Indicators Guide (AI Rulebook)](indicators-guide.md) | LLM / AI Agents | Condensed reference: signal thresholds, AI input schemas, rules per indicator |
 | [User Manual](user-manual.md) | End Users | Installation, configuration, dashboard usage, troubleshooting |
 | [Fractional Slot Machine](fractional-dynamic-position-slot-machine.md) | Developers | Position lifecycle engine: 4-slot FIFO, cycle capital math, bracket constraints |
-| [Glossary](glossary.md) | All | 80+ terms: SMC, Volume Profile, indicators, statistics, risk, execution |
+| [Glossary](glossary.md) | All | 100+ terms: SMC, Volume Profile, indicators, statistics, risk, execution, VaR, GARCH, EVT, cointegration |
 | [Project Plan](plan.md) | Maintainers | Phased roadmap with implementation status |
 | [Commission & Fees](commission.md) | Developers | Fee modeling, funding rate decay, viability gating |
 | [Stats Compiler](stats-compiler.md) | Developers | Dashboard statistics aggregation, performance analytics |

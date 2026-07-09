@@ -333,3 +333,4 @@ All TP and SL bracket orders are **reduce_only** — they can only decrease posi
 - [IRCL: §E Strategy Gates](../layers/02-ircl-regime-classification.md) — Regime-specific allocation tiers and stop multipliers
 - [ICSL: §G Opposite Score Engine](../layers/04-icsl-confluence-scoring.md) — Opposite score computation for invalidation trigger
 - [IASL: §E Decision Categories](../layers/08-iasl-ai-synthesis.md) — How TraderDecision actions map to execution
+- [IEPL Algorithmic Execution](../layers/09-iepl-algorithmic-execution.md) — TWAP, VWAP, IS execution algorithms as alternative to 3-layer price entry

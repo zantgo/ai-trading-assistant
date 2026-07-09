@@ -3,3 +3,5 @@
 pub mod order_manager;
 pub mod position_reconciler;
 pub mod exec_safety;
+/// Phase 17 — Algorithmic execution: TWAP, VWAP, Implementation Shortfall.
+pub mod algo;

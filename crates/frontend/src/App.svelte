@@ -32,6 +32,8 @@
     import EdgeAnalyzer from './components/EdgeAnalyzer.svelte';
     import StatisticalPanel from './components/StatisticalPanel.svelte';
     import TradingWizard from './components/TradingWizard.svelte';
+    import TradingWorkflow from './components/TradingWorkflow.svelte';
+    import RiskOverview from './components/RiskOverview.svelte';
     import styles from './App.module.css';
     import Icon from './lib/Icon.svelte';
     import type { IconName } from './lib/icons';
@@ -53,7 +55,8 @@
     // ─── 3-Tier navigation config ───────────────────────────────────────────
     const MODE_DEFS: { key: Level2Mode; label: string }[] = [
         { key: 'general', label: 'GENERAL' },
-        { key: 'wizard', label: 'TRADING WIZARD' },
+        { key: 'wizard', label: 'TRADING WORKFLOW' },
+        { key: 'risk', label: 'RISK' },
         { key: 'user', label: 'USER-CONTROLLED' },
         { key: 'rule', label: 'RULE-BASED' },
         { key: 'ai', label: 'AI-DRIVEN' },
@@ -61,22 +64,26 @@
 
     const MODE_TABS: Record<Level2Mode, { view: CurrentView; label: string; icon: IconName }[]> = {
         general: [
+            { view: 'terminal', label: 'Live Workspace', icon: 'trending-up' },
             { view: 'timeframe_settings', label: 'Timeframe Settings', icon: 'clock' },
+            { view: 'commission', label: 'Fee Projection', icon: 'percent' },
+            { view: 'costs', label: 'Token Costs', icon: 'dollar' },
             { view: 'settings', label: 'Workspace Settings', icon: 'monitor' },
-            { view: 'risk_management', label: 'Risk Management', icon: 'shield' },
         ],
         wizard: [
-            { view: 'wizard_flow', label: 'Trading Wizard', icon: 'zap' },
-            { view: 'terminal', label: 'Live Workspace', icon: 'trending-up' },
+            { view: 'workflow', label: 'Workflow', icon: 'target' },
+        ],
+        risk: [
+            { view: 'risk_overview', label: 'Overview', icon: 'shield' },
+            { view: 'risk_profile', label: 'Risk Profile', icon: 'shield' },
+            { view: 'risk_management', label: 'Risk Manager', icon: 'shield' },
+            { view: 'commission', label: 'Fees', icon: 'percent' },
         ],
         user: [
-            { view: 'terminal', label: 'Live Workspace', icon: 'trending-up' },
             { view: 'monitor', label: 'State Panel', icon: 'monitor' },
             { view: 'monitoring', label: 'Monitoring', icon: 'eye' },
             { view: 'positions', label: 'Positions', icon: 'dollar' },
             { view: 'risk_management', label: 'Risk Management', icon: 'shield' },
-            { view: 'commission', label: 'Fee Projection', icon: 'percent' },
-            { view: 'costs', label: 'Token Costs', icon: 'dollar' },
         ],
         rule: [
             { view: 'decision', label: 'Decision Trading', icon: 'target' },
@@ -296,7 +303,11 @@
                 {:else if pair.currentView === 'monitor'}
                     <StatePanel pairKey={tabKey} />
 
-                <!-- 1.4 Trading Wizard -->
+                <!-- 1.3 Trading Workflow -->
+                {:else if pair.currentView === 'workflow'}
+                    <TradingWorkflow pairKey={tabKey} />
+
+                <!-- 1.4 Trading Wizard (legacy) -->
                 {:else if pair.currentView === 'wizard_flow'}
                     <TradingWizard />
 
@@ -352,7 +363,11 @@
                 {:else if pair.currentView === 'costs'}
                     <CostDashboardPanel {pair} />
 
-                <!-- 9a. Institutional Risk Management Layer -->
+                <!-- 9a. Risk Overview -->
+                {:else if pair.currentView === 'risk_overview'}
+                    <RiskOverview />
+
+                <!-- 9b. Institutional Risk Management Layer -->
                 {:else if pair.currentView === 'risk_profile'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <RiskProfilePanel {pair} />

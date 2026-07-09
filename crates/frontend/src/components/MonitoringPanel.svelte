@@ -121,9 +121,9 @@
                 {#if data.exit_signals}
                     {@const es = data.exit_signals}
                     {@const thresh = es.opposite_exit_threshold}
+                    {@const score = data.direction === 'LONG' ? es.opposite_score_short : es.opposite_score_long}
                     <div class={styles.exitSection}>
                         <span class={styles.exitLabel}>Opposite Score ({data.direction === 'LONG' ? 'SHORT' : 'LONG'} bias)</span>
-                        {@const score = data.direction === 'LONG' ? es.opposite_score_short : es.opposite_score_long}
                         <div class={styles.exitBarWrap}>
                             <div class={styles.exitBarTrack}>
                                 <div class={styles.exitBarFill} style="width:{pctBar(score, thresh)};background:{barColor(score, thresh)}"></div>

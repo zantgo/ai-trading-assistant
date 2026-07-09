@@ -1,0 +1,221 @@
+.container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px;
+    gap: 16px;
+    background: #0b0c10;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}
+
+/* ── Hero ── */
+.hero {
+    text-align: center;
+    padding: 24px 16px;
+    background: linear-gradient(135deg, #11131a 0%, #0d0f15 100%);
+    border: 1px solid #1c212e;
+    border-radius: 10px;
+}
+.heroTitle {
+    font-size: 10px;
+    font-weight: 700;
+    color: #475569;
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+}
+.heroAmount {
+    font-size: 32px;
+    font-weight: 800;
+    color: #f8fafc;
+    letter-spacing: -0.5px;
+    font-family: 'JetBrains Mono', monospace;
+}
+.heroMode {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 6px;
+    letter-spacing: 1px;
+}
+
+/* ── Stat grid ── */
+.statGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+.statCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 14px 10px;
+    background: #11131a;
+    border: 1px solid #1c212e;
+    border-radius: 8px;
+}
+.statLabel {
+    font-size: 8px;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.statValue {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f8fafc;
+    font-family: 'JetBrains Mono', monospace;
+}
+.statHint {
+    font-size: 8px;
+    color: #334155;
+}
+
+/* ── Section ── */
+.section {
+    background: #11131a;
+    border: 1px solid #1c212e;
+    border-radius: 8px;
+    padding: 14px;
+}
+.sectionTitle {
+    font-size: 10px;
+    font-weight: 700;
+    color: #64ffda;
+    letter-spacing: 1.5px;
+    margin-bottom: 12px;
+}
+
+/* ── Allocation list ── */
+.allocList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.allocRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+}
+.allocInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 100px;
+}
+.allocSymbol {
+    font-size: 12px;
+    font-weight: 700;
+    color: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.statusLive {
+    font-size: 8px;
+    color: #10b981;
+}
+.statusOffline {
+    font-size: 8px;
+    color: #475569;
+}
+.allocLabel {
+    font-size: 8px;
+    color: #64748b;
+}
+.allocBarWrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.allocBarTrack {
+    flex: 1;
+    height: 6px;
+    background: #1c212e;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.allocBarFill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    min-width: 2px;
+}
+.allocBarLabel {
+    font-size: 8px;
+    font-weight: 600;
+    min-width: 50px;
+    text-align: right;
+}
+.allocAmounts {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    min-width: 140px;
+    justify-content: flex-end;
+}
+.allocUsed {
+    font-size: 11px;
+    font-weight: 600;
+    color: #cbd5e1;
+    font-family: 'JetBrains Mono', monospace;
+}
+.allocOf {
+    font-size: 9px;
+    color: #475569;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Configuration ── */
+.configRow {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.configDesc {
+    font-size: 10px;
+    color: #94a3b8;
+    line-height: 1.5;
+}
+.configFields {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.configItem {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px;
+    background: #0d0f15;
+    border: 1px solid #1c212e;
+    border-radius: 6px;
+    text-align: center;
+}
+.configLabel {
+    font-size: 8px;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.configVal {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f8fafc;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Empty state ── */
+.emptyState {
+    text-align: center;
+    padding: 24px 16px;
+    color: #475569;
+    font-size: 11px;
+}

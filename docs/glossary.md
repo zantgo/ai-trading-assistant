@@ -182,3 +182,46 @@
 | **Risk Parity** | Equal Risk Contribution — allocates weights w_i = (1/σ_i) / Σ(1/σ_j) so each asset contributes equal risk |
 | **Funding Rate** | Periodic payment between long and short perp holders. Positive = longs pay shorts. Extreme positive → short signal; extreme negative → long signal |
 | **Whale Wall** | Large resting limit order at a single price level. Act as temporary support/resistance; their removal signals directional intent |
+
+---
+
+## Quantitative Risk Terms
+
+| Term | Definition |
+|------|------------|
+| **VaR (Value at Risk)** | Probabilistic maximum loss: "There is a 5% chance of losing ≥ X% in one period." Historical VaR = nth percentile of return distribution. |
+| **CVaR (Conditional VaR / Expected Shortfall)** | Expected loss GIVEN the loss exceeds VaR. Coherent risk measure (sub-additive). Always ≥ VaR. CVaR = mean(returns ≤ VaR_threshold). |
+| **GARCH (Generalized AutoRegressive Conditional Heteroskedasticity)** | Time-varying volatility model: σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}. Captures volatility clustering — high vol periods follow high vol, low follows low. |
+| **GARCH Persistence** | α + β — near 1.0 means volatility shocks persist for long periods (long memory). See also GARCH |
+| **EVT (Extreme Value Theory)** | Statistical framework for modeling extreme events beyond observed data. Unlike historical methods, extrapolates into unobserved tail regions. |
+| **POT (Peaks-Over-Threshold)** | EVT method: fit Generalized Pareto Distribution to exceedances above a high threshold. See also EVT, GPD |
+| **GPD (Generalized Pareto Distribution)** | F(x) = 1 − (1 + ξ·x/β)^(−1/ξ). ξ = shape (tail index): ξ > 0 = heavy-tailed, ξ = 0 = exponential, ξ < 0 = bounded |
+| **PWM (Probability-Weighted Moments)** | Robust GPD parameter estimation method. Closed-form, no iterative optimizer needed. b_r = E[X·F(X)^r] |
+| **Markowitz MVO (Mean-Variance Optimization)** | Portfolio allocation maximizing expected return for given volatility. Produces efficient frontier, tangency portfolio (max Sharpe ratio). |
+| **Efficient Frontier** | Set of portfolios offering maximum expected return for each level of volatility. Upper boundary of the feasible set. |
+| **Tangency Portfolio** | Portfolio on the efficient frontier with the highest Sharpe ratio. Theoretical optimal risky portfolio. |
+| **Factor Model** | Decomposes returns: r_i = α + β·r_m + ε. β = market sensitivity, α = skill (excess return unexplained by market). |
+| **Alpha (Jensen's)** | Excess return not explained by market exposure. Positive alpha = strategy outperforms passive beta exposure. |
+| **Information Coefficient (IC)** | Spearman rank correlation between predicted signal and actual outcome. Measures signal quality independently of magnitude. |
+| **Spearman Rank Correlation** | Correlation of rank-transformed values. Robust to outliers and non-linear relationships. Used for IC computation. |
+| **Cointegration** | Statistical relationship where two or more non-stationary time series share a long-run equilibrium. Deviations are mean-reverting. |
+| **Engle-Granger Test** | 2-step cointegration test: (1) OLS regression of y on x, (2) ADF test on residuals. Simplest cointegration test for 2 assets. |
+| **Johansen Test** | Multi-asset cointegration test using eigenvalue decomposition of the VECM Π matrix. Trace and max-eigenvalue statistics. |
+| **ADF (Augmented Dickey-Fuller)** | Unit root test: H₀ = series has unit root (non-stationary). Reject H₀ for cointegration residuals. |
+| **OU Process (Ornstein-Uhlenbeck)** | Mean-reverting stochastic process: dS = θ(μ−S)dt + σdW. Half-life = ln(2)/θ. Models cointegrated spreads. |
+| **Half-Life (Mean Reversion)** | Time for deviation to halve. ln(2)/|θ|. Short = fast mean reversion (scalping). Long = slow (position trades). |
+
+---
+
+## Execution Algorithm Terms
+
+| Term | Definition |
+|------|------------|
+| **TWAP (Time-Weighted Average Price)** | Execution algorithm dividing order into N equal slices at fixed time intervals. Simplest, most predictable, ideal for scalping. |
+| **VWAP (Volume-Weighted Average Price)** | Execution algorithm scheduling slices according to historical volume distribution. Benchmark for execution quality. |
+| **Implementation Shortfall** | Execution algorithm minimizing total cost = market impact + timing risk + opportunity cost. Based on Almgren-Chriss framework. |
+| **Algo Slice** | Single scheduled order within an execution algorithm. Has size, time offset, price target, and status. |
+| **Algo Abort** | Premature termination of an execution algorithm. Triggers: IRML permission downgrade, price deviation > threshold, consecutive unfilled slices. |
+| **VWAP Performance** | (avg_fill_price − vwap_benchmark) / vwap_benchmark in basis points. Negative for buys = favorable (bought below VWAP). |
+| **Market Impact** | Price movement caused by the order itself. Proportional to σ·√(Q/V) where Q = order size, V = market volume. |
+| **Stress Testing** | Evaluating portfolio P&L under predefined extreme scenarios (flash crash, vol spike, correlation breakdown). Answers "what if?" beyond historical data.

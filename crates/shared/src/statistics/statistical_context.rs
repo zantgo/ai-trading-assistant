@@ -93,6 +93,29 @@ pub struct StatisticalContext {
     pub risk_confidence: f64,
     pub expected_opportunity: f64,
     pub market_predictability: f64,
+
+    // ── Phase 16: Advanced Risk Modeling ──────────────────────
+    // VaR/CVaR
+    pub var_95: f64,
+    pub var_99: f64,
+    pub cvar_95: f64,
+    pub cvar_99: f64,
+
+    // GARCH
+    pub garch_forecast_vol: f64,
+    pub garch_long_run_vol: f64,
+    pub garch_persistence: f64,
+
+    // EVT
+    pub evt_var_99: f64,
+    pub evt_expected_shortfall_99: f64,
+    pub evt_tail_index: f64,
+    pub evt_scale: f64,
+
+    // Information Coefficient
+    pub ic_spearman: f64,
+    pub ic_rank: f64,
+    pub ic_significance: f64,
 }
 
 impl Default for StatisticalContext {
@@ -168,6 +191,21 @@ impl Default for StatisticalContext {
             risk_confidence: 0.0,
             expected_opportunity: 0.0,
             market_predictability: 0.0,
+
+            var_95: 0.0,
+            var_99: 0.0,
+            cvar_95: 0.0,
+            cvar_99: 0.0,
+            garch_forecast_vol: 0.0,
+            garch_long_run_vol: 0.0,
+            garch_persistence: 0.0,
+            evt_var_99: 0.0,
+            evt_expected_shortfall_99: 0.0,
+            evt_tail_index: 0.0,
+            evt_scale: 0.0,
+            ic_spearman: 0.0,
+            ic_rank: 0.0,
+            ic_significance: 0.0,
         }
     }
 }

@@ -868,3 +868,18 @@ Implementing the Statistical Intelligence Layer shifts the system from a collect
 - [x] Phase 10: Frontend (SIL panel, indicator enrichment, `/api/statistics` endpoint)
 - [x] Testing: core property tests, engine integration, E2E, UI
 - [x] Config: `config.toml` `[statistics]` section populated
+
+---
+
+## 19. Advanced Risk Modeling Extension
+
+The ISIL Advanced Risk Modeling extension adds four sub-modules:
+
+| Module | File | Description |
+|--------|------|-------------|
+| **VaR/CVaR** | `crates/shared/src/statistics/var.rs` | Historical Value at Risk and Conditional VaR at 95/99% confidence |
+| **GARCH(1,1)** | `crates/shared/src/statistics/garch.rs` | Conditional volatility forecasting capturing volatility clustering |
+| **EVT (POT/GPD)** | `crates/shared/src/statistics/evt.rs` | Extreme Value Theory tail risk via Peaks-Over-Threshold + Generalized Pareto Distribution |
+| **Information Coefficient** | `crates/shared/src/statistics/information_coeff.rs` | Spearman rank correlation between signals and forward returns |
+
+See [ISIL Advanced Risk Modeling](06-isil-advanced-risk-modeling.md) for full specification.

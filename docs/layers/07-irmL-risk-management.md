@@ -840,3 +840,14 @@ transparent, explainable gatekeeper between analysis and execution — mirroring
 professional quantitative desks where alpha generation and risk management are
 independent systems working together to produce disciplined, capital-preserving
 decisions.
+
+---
+
+## 22. Extensions
+
+| Extension | File | Description |
+|-----------|------|-------------|
+| **Stress Testing** | [07-irmL-stress-testing-mvo.md](07-irmL-stress-testing-mvo.md) §Part 1 | 5 predefined stress scenarios (Flash Crash, Vol Spike, Correlation Breakdown, Trend Reversal, Funding Crisis) |
+| **Markowitz MVO** | [07-irmL-stress-testing-mvo.md](07-irmL-stress-testing-mvo.md) §Part 2 | Efficient frontier, tangency portfolio, mean-variance allocation alongside existing Kelly + Risk Parity |
+| **VaR/CVaR Consumption** | [06-isil-advanced-risk-modeling.md](06-isil-advanced-risk-modeling.md) | IRML consumes VaR and CVaR for capital allocation guardrails |
+| **EVT Tail Risk** | [06-isil-advanced-risk-modeling.md](06-isil-advanced-risk-modeling.md) | IRML consumes EVT-based VaR/ES for superior crypto tail risk estimation |

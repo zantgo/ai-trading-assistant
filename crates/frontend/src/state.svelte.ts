@@ -20,6 +20,7 @@ import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
 const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
     general: null,
     wizard: null,
+    risk: null,
     user: 'ManualOnly',
     rule: 'DeterministicHeuristics',
     ai: 'HybridAiCopilot',
@@ -83,7 +84,7 @@ function createInstanceState(symbol: string): InstanceState {
         isAssistantModalOpen: false, chatInputText: '', isChatLoading: false,
         currentView: 'terminal',
         currentLevel2Mode: 'user',
-        modeViews: { general: 'timeframe_settings', wizard: 'wizard_flow', user: 'terminal', rule: 'decision', ai: 'assistant' },
+        modeViews: { general: 'terminal', wizard: 'workflow', risk: 'risk_overview', user: 'terminal', rule: 'decision', ai: 'assistant' },
         activeExecutionMode: 'HybridAiCopilot',
         automationEnabled: false, automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
@@ -93,6 +94,7 @@ function createInstanceState(symbol: string): InstanceState {
         markedSupportLevels: [], markedResistanceLevels: [], srFlipEvents: '[]',
         priceLineMode: false,
         showEmaFast: true, showEmaMedium: true, showEmaSlow: true, showEmaLong: true,
+        indicatorWeights: {},
     };
 }
 
