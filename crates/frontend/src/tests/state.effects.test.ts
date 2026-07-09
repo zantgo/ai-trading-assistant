@@ -8,7 +8,6 @@ describe('TEST-UI: State Reactive Effects', () => {
     beforeEach(() => {
         app = useAppStore();
         app.initInstance('BTC');
-        app.apiKeyConfigured = true;
     });
 
     it('should register all four timeframes on pair init', () => {
@@ -27,20 +26,6 @@ describe('TEST-UI: State Reactive Effects', () => {
         expect(pair.microTerm.priceText).toBe('--');
         expect(pair.microTerm.indicators).toEqual({});
         expect(pair.isConnected).toBe(false);
-    });
-
-    it('should phase through analysis states progressively', () => {
-        expect(app.analysisPhase).toBe('idle');
-
-        app.analysisPhase = 'running';
-        expect(app.analysisPhase).toBe('running');
-
-        app.analysisPhase = 'complete';
-        expect(app.analysisPhase).toBe('complete');
-
-        // Reset to idle
-        app.analysisPhase = 'idle';
-        expect(app.analysisPhase).toBe('idle');
     });
 
     it('should trigger auto-trade log when position changes from active to None', () => {
@@ -83,20 +68,6 @@ describe('TEST-UI: State Reactive Effects', () => {
         expect(snap.mid_price).toBe('65000.00');
         expect(snap.symbol).toBe('BTC');
         expect(snap.is_completed).toBe(true);
-    });
-
-    it('should maintain chat history across messages', () => {
-        expect(app.chatHistory.length).toBe(0);
-
-        app.chatHistory = [
-            { role: 'user', content: 'What is the trend?' },
-            { role: 'assistant', content: 'The trend is bullish with strong momentum.' },
-        ];
-
-        expect(app.chatHistory.length).toBe(2);
-        expect(app.chatHistory[0].role).toBe('user');
-        expect(app.chatHistory[1].role).toBe('assistant');
-        expect(app.chatHistory[1].content).toContain('bullish');
     });
 
     it('should snapshot per-timeframe state independently', () => {

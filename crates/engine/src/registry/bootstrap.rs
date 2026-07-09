@@ -44,10 +44,8 @@ pub struct BootstrapInput {
 ///   "gap" between the last local candle and now. If no local data exists, the
 ///   full lookback window is fetched from REST.
 async fn collect_candles(
-    is_bitget: bool,
     exchange_raw: String,
     internal_symbol: String,
-    product_type: String,
     rest_url: String,
     pool: SqlitePool,
     secs: u64,
@@ -68,33 +66,16 @@ async fn collect_candles(
     };
 
     let rest_candles = if rest_start < now_ms {
-        let interval = if is_bitget {
-            crate::adapters::bitget_rest::timeframe_secs_to_interval(secs)
-        } else {
-            crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(secs)
-        };
-        let fetched = if is_bitget {
-            crate::adapters::bitget_rest::fetch_historical_candles(
-                &exchange_raw,
-                &internal_symbol,
-                &product_type,
-                interval,
-                rest_start,
-                now_ms,
-                &rest_url,
-            )
-            .await
-        } else {
-            crate::adapters::hyperliquid_rest::fetch_historical_candles(
-                &exchange_raw,
-                &internal_symbol,
-                interval,
-                rest_start,
-                now_ms,
-                &rest_url,
-            )
-            .await
-        };
+        let interval = crate::adapters::hyperliquid_rest::timeframe_secs_to_interval(secs);
+        let fetched = crate::adapters::hyperliquid_rest::fetch_historical_candles(
+            &exchange_raw,
+            &internal_symbol,
+            interval,
+            rest_start,
+            now_ms,
+            &rest_url,
+        )
+        .await;
         match fetched {
             Ok(c) => c,
             Err(e) => {
@@ -143,20 +124,12 @@ pub async fn fetch_and_warm_bootstrap(
         .unwrap()
         .as_millis() as u64;
 
-    let is_bitget = input.exchange_choice == ExchangeChoice::Bitget;
     let exchange_raw = input.exchange_choice.raw_symbol(&input.base, &input.quote);
-    let product_type = input
-        .exchange_choice
-        .bitget_product_type(&input.quote)
-        .unwrap_or("")
-        .to_string();
 
     let (micro_res, fast_res, slow_res, macro_res) = tokio::join!(
         collect_candles(
-            is_bitget,
             exchange_raw.clone(),
             input.internal_symbol.clone(),
-            product_type.clone(),
             input.rest_url.clone(),
             input.pool.clone(),
             input.micro_secs,
@@ -164,10 +137,8 @@ pub async fn fetch_and_warm_bootstrap(
             now_ms,
         ),
         collect_candles(
-            is_bitget,
             exchange_raw.clone(),
             input.internal_symbol.clone(),
-            product_type.clone(),
             input.rest_url.clone(),
             input.pool.clone(),
             input.fast_secs,
@@ -175,10 +146,8 @@ pub async fn fetch_and_warm_bootstrap(
             now_ms,
         ),
         collect_candles(
-            is_bitget,
             exchange_raw.clone(),
             input.internal_symbol.clone(),
-            product_type.clone(),
             input.rest_url.clone(),
             input.pool.clone(),
             input.slow_secs,
@@ -186,10 +155,8 @@ pub async fn fetch_and_warm_bootstrap(
             now_ms,
         ),
         collect_candles(
-            is_bitget,
             exchange_raw.clone(),
             input.internal_symbol.clone(),
-            product_type.clone(),
             input.rest_url.clone(),
             input.pool.clone(),
             input.macro_secs,

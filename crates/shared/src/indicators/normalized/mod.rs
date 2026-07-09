@@ -481,7 +481,6 @@ mod meta_tests {
 
     #[test]
     fn derive_signals_boosts_confidence() {
-        use std::collections::HashMap;
         let mut inputs = IndicatorInputs::default();
         inputs.rsi = Some(15.0); // deep oversold → strong normalized + OB/OS threshold signal
         let ctx = NormalizationContext::default();

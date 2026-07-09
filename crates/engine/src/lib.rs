@@ -1,7 +1,3 @@
-// DB persistence, orchestrator, and pipeline layers legitimately take many
-// positional parameters (column binds, multi-timeframe context). Refactoring
-// them into parameter structs adds churn without clarity, so the lint is
-// accepted crate-wide.
 #![allow(clippy::too_many_arguments)]
 
 pub mod adapters;
@@ -10,17 +6,15 @@ pub mod api_failover;
 pub mod automation;
 pub mod backtest;
 pub mod candle_aggregator;
-pub mod cli;
 pub mod commission;
 pub mod config;
 pub mod db;
+pub mod decision;
 pub mod edges;
 pub mod event_detector;
 pub mod execution;
-pub mod historical_analyst;
 pub mod instance;
 pub mod registry;
-pub mod llm;
 pub mod order_matcher;
 pub mod paper_trading;
 pub mod performance_evaluator;

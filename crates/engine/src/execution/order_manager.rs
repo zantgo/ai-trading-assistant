@@ -100,7 +100,7 @@ impl OrderManager {
         Ok(order)
     }
 
-    pub fn update_fill(&mut self, cloid: &str, fill_price: f64, fill_size: f64) -> Option<OrderState> {
+    pub fn update_fill(&mut self, cloid: &str, _fill_price: f64, fill_size: f64) -> Option<OrderState> {
         if let Some(order) = self.active_orders.get_mut(cloid) {
             order.filled += fill_size;
             order.updated_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;

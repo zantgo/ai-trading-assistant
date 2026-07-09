@@ -18,15 +18,6 @@ export async function fetchConfigFromServer(): Promise<Record<string, unknown>> 
     return res.json();
 }
 
-export async function saveApiKeyCall(apiKey: string): Promise<{ ok: boolean; error?: string }> {
-    const res = await fetch('/api/config/key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey }),
-    });
-    return { ok: res.ok, error: res.ok ? undefined : 'Rejected by Server' };
-}
-
 export async function saveRulesCall(content: string): Promise<boolean> {
     const res = await fetch('/api/rules', {
         method: 'POST',
@@ -40,21 +31,6 @@ export async function fetchRulesCall(): Promise<string> {
     const res = await fetch('/api/rules');
     const data = await res.json();
     return data.content || '';
-}
-
-export async function saveCostConfigCall(inputPrice: number, outputPrice: number): Promise<boolean> {
-    const res = await fetch('/api/config');
-    const config = await res.json();
-    config.costs = {
-        price_per_1m_input_tokens: inputPrice,
-        price_per_1m_output_tokens: outputPrice,
-    };
-    const saveRes = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-    });
-    return saveRes.ok;
 }
 
 export async function saveIntervalsConfigCall(slowSecs: number, normalSecs: number, fastSecs: number): Promise<boolean> {
@@ -73,33 +49,20 @@ export async function saveIntervalsConfigCall(slowSecs: number, normalSecs: numb
     return saveRes.ok;
 }
 
-export async function fetchAssistantHistoryFromServer(): Promise<{ records: Record<string, unknown>[]; latest_close: string }> {
-    const res = await fetch('/api/assistant-records');
-    const data = await res.json();
-    return { records: data.records || [], latest_close: data.latest_close || '0' };
-}
-
 // ─── Config application logic ──────────────────────────────────────────────
 
 export interface ApplyConfigResult {
-    costInputPrice: number;
-    costOutputPrice: number;
     firstSymbol: string;
 }
 
 /** Applies config from the server to the AppStore. Returns data needed for component-local state. */
 export function applyConfigToStore(app: AppStore, config: Record<string, unknown>): ApplyConfigResult {
-    app.apiKeyConfigured = (config.api_key_configured as boolean) ?? true;
 
     if (config.candles) app.globalCandlesConfig = config.candles as { duration_seconds: number; analysis_limit: number };
     if (config.indicators) app.globalIndicatorsConfig = config.indicators as Record<string, number>;
     if (config.indicator_registry) app.indicatorRegistry = config.indicator_registry as import('../types').IndicatorMeta[];
 
-    const costs = config.costs as Record<string, number> | undefined;
-    const costInputPrice = costs?.price_per_1m_input_tokens ?? 0.27;
-    const costOutputPrice = costs?.price_per_1m_output_tokens ?? 1.10;
-
-    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number }; operational_mode?: string }>;
+    const pairConfigs = (config.instances || {}) as Record<string, { micro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; fast_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; slow_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; macro_term?: { candles: { duration_seconds: number; analysis_limit?: number }; indicators: Record<string, number> }; automation?: { enabled?: boolean; interval_seconds?: number } }>;
     const symbols: string[] = (config.symbols as string[]) || ['BTC'];
 
     for (const item of symbols) {
@@ -152,10 +115,6 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         }
 
         if (specific && targetState) {
-            const opMode = specific.operational_mode;
-            if (opMode === 'ManualOnly' || opMode === 'DeterministicHeuristics' || opMode === 'HybridAiCopilot') {
-                targetState.activeExecutionMode = opMode;
-            }
             if (specific.micro_term) {
                 targetState.microTerm.barDurationSec = specific.micro_term.candles.duration_seconds;
                 Object.assign(targetState.microTerm, {
@@ -243,7 +202,7 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
         ? (symbols[0].includes(':') ? symbols[0].split(':')[1] : symbols[0])
         : '';
 
-    return { costInputPrice, costOutputPrice, firstSymbol };
+    return { firstSymbol };
 }
 
 // ─── Apply settings API ────────────────────────────────────────────────────

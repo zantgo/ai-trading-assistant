@@ -1,0 +1,274 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.section {
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--bg-card, #0f172a);
+}
+
+.sectionTitle {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    font-family: var(--font-mono, monospace);
+}
+
+/* ── Portfolio ── */
+.exposureGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.exposureCard {
+    padding: 8px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 6px;
+    background: var(--bg-dark, #020617);
+}
+
+.exposureLabel {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+}
+
+.exposureValue {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    font-family: var(--font-mono, monospace);
+    margin-top: 2px;
+    display: block;
+}
+
+.utilBar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.utilTrack {
+    flex: 1;
+    height: 4px;
+    background: var(--border-muted, #1e293b);
+    border-radius: 2px;
+}
+
+.utilFill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.utilText {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    font-family: var(--font-mono, monospace);
+}
+
+/* ── Position ── */
+.noPosition {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    color: var(--text-muted, #64748b);
+    font-size: 13px;
+}
+
+.posHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.posDir {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+}
+
+.posLong {
+    background: #10b98122;
+    color: #10b981;
+    border: 1px solid #10b98144;
+}
+
+.posShort {
+    background: #ef444422;
+    color: #ef4444;
+    border: 1px solid #ef444444;
+}
+
+.posSize {
+    font-size: 11px;
+    color: var(--text-muted, #64748b);
+    font-family: var(--font-mono, monospace);
+}
+
+.posGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.posItem {
+    padding: 6px 8px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 4px;
+    background: var(--bg-dark, #020617);
+}
+
+.posLabel {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    display: block;
+}
+
+.posValue {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    font-family: var(--font-mono, monospace);
+    margin-top: 2px;
+    display: block;
+}
+
+/* ── Decision Tree ── */
+.actionRow {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.actionBtn {
+    padding: 8px 16px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 6px;
+    background: var(--bg-dark, #020617);
+    color: var(--text-primary, #e2e8f0);
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.actionBtn:hover {
+    border-color: var(--text-muted, #64748b);
+}
+
+.actionLong {
+    border-color: #10b98144;
+    color: #10b981;
+}
+
+.actionLong:hover {
+    background: #10b98115;
+    border-color: #10b981;
+}
+
+.actionShort {
+    border-color: #ef444444;
+    color: #ef4444;
+}
+
+.actionShort:hover {
+    background: #ef444415;
+    border-color: #ef4444;
+}
+
+.actionClose {
+    border-color: #ef444444;
+    color: #ef4444;
+}
+
+.actionClose:hover {
+    background: #ef444415;
+    border-color: #ef4444;
+}
+
+.actionModify {
+    border-color: #f59e0b44;
+    color: #f59e0b;
+}
+
+.actionModify:hover {
+    background: #f59e0b15;
+    border-color: #f59e0b;
+}
+
+.actionNeutral {
+    border-color: var(--border-muted, #1e293b);
+    color: var(--text-muted, #64748b);
+}
+
+.actionNeutral:hover {
+    border-color: var(--text-muted, #64748b);
+}
+
+/* ── Modify SL/TP ── */
+.modifyForm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid #f59e0b44;
+    border-radius: 6px;
+    background: #f59e0b08;
+}
+
+.modifyInput {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 4px;
+    background: var(--bg-dark, #020617);
+    color: var(--text-primary, #e2e8f0);
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+}
+
+.modifyInput:focus {
+    outline: none;
+    border-color: #f59e0b;
+}
+
+.modifyHint {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    font-family: var(--font-mono, monospace);
+    white-space: nowrap;
+}
+
+.modifyConfirm {
+    padding: 6px 14px;
+    border: 1px solid #f59e0b44;
+    border-radius: 4px;
+    background: #f59e0b15;
+    color: #f59e0b;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-mono, monospace);
+}
+
+.modifyConfirm:hover {
+    background: #f59e0b25;
+    border-color: #f59e0b;
+}

@@ -5,7 +5,7 @@
 
     const app = useAppStore();
 
-    let activePerfTab = $state<'manual' | 'ai' | 'paper'>('manual');
+    let activePerfTab = $state<'manual' | 'paper'>('manual');
 
     const last100Trades = $derived(app.userTrades.slice(0, 100));
     const totalTrades = $derived(last100Trades.length);
@@ -37,59 +37,6 @@
         if (ev < 0.60) return 8;
         if (ev < 1.00) return 9;
         return 10;
-    });
-
-    // AI performance state
-    let aiRecords = $state<any[]>([]);
-    let aiPerfData = $state<any[]>([]);
-    let aiLoading = $state(false);
-
-    async function fetchAiPerformance() {
-        if (aiLoading) return;
-        aiLoading = true;
-        try {
-            const [recordsRes, perfRes] = await Promise.all([
-                fetch('/api/assistant-records?trigger_type=Automated'),
-                fetch('/api/automated-performance'),
-            ]);
-            if (recordsRes.ok) {
-                const data = await recordsRes.json();
-                aiRecords = data.records || [];
-            }
-            if (perfRes.ok) {
-                aiPerfData = await perfRes.json();
-            }
-        } catch (_) {} finally {
-            aiLoading = false;
-        }
-    }
-
-    const aiTotalRuns = $derived(aiRecords.length);
-    const aiBullishRuns = $derived(aiRecords.filter((r: any) =>
-        r.trend_classification === 'UPWARD').length);
-    const aiBearishRuns = $derived(aiRecords.filter((r: any) =>
-        r.trend_classification === 'DOWNWARD').length);
-    const aiSidewaysRuns = $derived(aiRecords.filter((r: any) =>
-        r.trend_classification === 'SIDEWAYS').length);
-
-    const aiEvaluated1h = $derived(aiPerfData.filter((p: any) => p.direction_correct_1h !== null));
-    const aiEvaluated4h = $derived(aiPerfData.filter((p: any) => p.direction_correct_4h !== null));
-    const aiEvaluated24h = $derived(aiPerfData.filter((p: any) => p.direction_correct_24h !== null));
-
-    const aiHitRate1h = $derived.by(() => {
-        if (aiEvaluated1h.length === 0) return 0;
-        const correct = aiEvaluated1h.filter((p: any) => p.direction_correct_1h).length;
-        return (correct / aiEvaluated1h.length) * 100;
-    });
-    const aiHitRate4h = $derived.by(() => {
-        if (aiEvaluated4h.length === 0) return 0;
-        const correct = aiEvaluated4h.filter((p: any) => p.direction_correct_4h).length;
-        return (correct / aiEvaluated4h.length) * 100;
-    });
-    const aiHitRate24h = $derived.by(() => {
-        if (aiEvaluated24h.length === 0) return 0;
-        const correct = aiEvaluated24h.filter((p: any) => p.direction_correct_24h).length;
-        return (correct / aiEvaluated24h.length) * 100;
     });
 
     // Paper trading state
@@ -130,10 +77,6 @@
         <button class="{styles.perfTabBtn} {activePerfTab === 'manual' ? styles.perfTabActive : ''}"
                 onclick={() => activePerfTab = 'manual'}>
             Manual Trades
-        </button>
-        <button class="{styles.perfTabBtn} {activePerfTab === 'ai' ? styles.perfTabActive : ''}"
-                onclick={() => { activePerfTab = 'ai'; fetchAiPerformance(); }}>
-            AI Recommendations
         </button>
         <button class="{styles.perfTabBtn} {activePerfTab === 'paper' ? styles.perfTabActive : ''}"
                 onclick={() => { activePerfTab = 'paper'; fetchPaperPerformance(); }}>
@@ -253,114 +196,6 @@
                 {/if}
             </div>
         </div>
-    {:else if activePerfTab === 'ai'}
-        <!-- AI Recommendations Tab -->
-        <div class={styles.perfGrid}>
-            <div class="{styles.card} {styles.scoreCard}">
-                <h3 class={styles.cardTitle}>AI Signal Hit Rate</h3>
-                <div class={styles.hitRateGrid}>
-                    <div class={styles.hitRateItem}>
-                        <span class={styles.hitLabel}>1 Hour</span>
-                        <span class={styles.hitValue}>{aiHitRate1h.toFixed(1)}%</span>
-                        <span class={styles.hitSub}>({aiEvaluated1h.length} eval)</span>
-                    </div>
-                    <div class={styles.hitRateItem}>
-                        <span class={styles.hitLabel}>4 Hours</span>
-                        <span class={styles.hitValue}>{aiHitRate4h.toFixed(1)}%</span>
-                        <span class={styles.hitSub}>({aiEvaluated4h.length} eval)</span>
-                    </div>
-                    <div class={styles.hitRateItem}>
-                        <span class={styles.hitLabel}>24 Hours</span>
-                        <span class={styles.hitValue}>{aiHitRate24h.toFixed(1)}%</span>
-                        <span class={styles.hitSub}>({aiEvaluated24h.length} eval)</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="{styles.card} {styles.matrixCard}">
-                <h3 class={styles.cardTitle}>Consensus Distribution</h3>
-                <div class={styles.consensusBars}>
-                    <div class={styles.consensusRow}>
-                        <span class={styles.consensusLabel}>Bullish</span>
-                        <div class={styles.consensusBarTrack}>
-                            <div class="{styles.consensusBarFill} {styles.bullishFill}" style="width: {aiTotalRuns > 0 ? (aiBullishRuns / aiTotalRuns * 100) : 0}%"></div>
-                        </div>
-                        <span class={styles.consensusCount}>{aiBullishRuns}</span>
-                    </div>
-                    <div class={styles.consensusRow}>
-                        <span class={styles.consensusLabel}>Bearish</span>
-                        <div class={styles.consensusBarTrack}>
-                            <div class="{styles.consensusBarFill} {styles.bearishFill}" style="width: {aiTotalRuns > 0 ? (aiBearishRuns / aiTotalRuns * 100) : 0}%"></div>
-                        </div>
-                        <span class={styles.consensusCount}>{aiBearishRuns}</span>
-                    </div>
-                    <div class={styles.consensusRow}>
-                        <span class={styles.consensusLabel}>Sideways</span>
-                        <div class={styles.consensusBarTrack}>
-                            <div class="{styles.consensusBarFill} {styles.sidewaysFill}" style="width: {aiTotalRuns > 0 ? (aiSidewaysRuns / aiTotalRuns * 100) : 0}%"></div>
-                        </div>
-                        <span class={styles.consensusCount}>{aiSidewaysRuns}</span>
-                    </div>
-                </div>
-                <p class="{styles.matrixInfo} {styles.matrixInfoSpacer}">Total automated evaluations: {aiTotalRuns}</p>
-            </div>
-
-            <div class="{styles.card} {styles.autoInfoCard}">
-                <h3 class={styles.cardTitle}>How It Works</h3>
-                <p class={styles.autoDescription}>Automated AI evaluations run independently for each trading pair at your configured interval:</p>
-                <ol class={styles.autoSteps}>
-                    <li>The scheduler gathers the last 100 candle closes and current indicator values.</li>
-                    <li>Phase 1: Seven parallel indicator agents evaluate RSI, MACD, Squeeze, ADX, Bollinger/ATR, Volume/EMA, and VWAP.</li>
-                    <li>Phase 2: The master orchestrator synthesizes findings and issues a recommendation.</li>
-                    <li>Results are stored with trigger: <strong>"Automated"</strong> and tracked for accuracy over 1h, 4h, and 24h horizons.</li>
-                </ol>
-            </div>
-        </div>
-
-        <div class="{styles.card} {styles.logsCard}">
-            <h3 class={styles.cardTitle}>Automated Run History</h3>
-            <div class={styles.logsTableWrapper}>
-                {#if aiLoading}
-                    <p class={styles.emptyMsg}>Loading automated records...</p>
-                {:else if aiRecords.length === 0}
-                    <p class={styles.emptyMsg}>No automated AI evaluations recorded yet. Enable automation in Workspace Settings.</p>
-                {:else}
-                    <table class={styles.logsTable}>
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Symbol</th>
-                                <th>Trend</th>
-                                <th>Consensus</th>
-                                <th>Action</th>
-                                <th>Price @ Analysis</th>
-                                <th>Δ% (vs latest)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {#each aiRecords as rec}
-                                {@const recPrice = parseFloat(rec.price_at_analysis) || 0}
-                                {@const latest = parseFloat(app.historyLatestClose) || 0}
-                                {@const delta = recPrice > 0 ? ((latest - recPrice) / recPrice * 100) : 0}
-                                <tr>
-                                    <td>{rec.created_at.substring(0, 19)}</td>
-                                    <td>{rec.symbol}</td>
-                                    <td class={rec.trend_classification === 'UPWARD' ? styles.textGreen + ' font-bold' : rec.trend_classification === 'DOWNWARD' ? styles.textRed : styles.textAmber}>
-                                        {rec.trend_classification}
-                                    </td>
-                                    <td>{rec.indicator_alignment}</td>
-                                    <td class={rec.recommended_action === 'Open Long' || rec.recommended_action === 'Hold' ? styles.textGreen + ' font-bold' : rec.recommended_action === 'Close' ? styles.textRed : styles.textAmber}>
-                                        {rec.recommended_action.substring(0, 10)}
-                                    </td>
-                                    <td class={styles.mono}>{rec.price_at_analysis.substring(0, 10)}</td>
-                                    <td class="{styles.mono} {delta > 0 ? styles.deltaPositive : ''} {delta < 0 ? styles.deltaNegative : ''}">{delta.toFixed(2)}%</td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                {/if}
-            </div>
-        </div>
     {:else if activePerfTab === 'paper'}
         <!-- Paper Trade Log Tab -->
         <div class={styles.perfGrid}>
@@ -443,7 +278,7 @@
                 <p class={styles.autoDescription}>Paper trading simulates real trades using virtual capital without financial risk:</p>
                 <ol class={styles.autoSteps}>
                     <li>Configure initial balance and per-trade allocation in Workspace Settings.</li>
-                    <li>Open positions manually from the Positions tab or let automated AI signals execute them.</li>
+                    <li>Open positions manually from the Positions tab or let automated signals execute them.</li>
                     <li>Track realized P&L, ROI, and performance metrics over time in this dashboard.</li>
                 </ol>
             </div>

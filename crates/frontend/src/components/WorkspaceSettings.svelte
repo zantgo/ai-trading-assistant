@@ -2,11 +2,8 @@
     import { useAppStore } from '../state.svelte';
     import { createInstance } from '../lib/api.svelte';
     import Icon from '../lib/Icon.svelte';
-    import type { InstanceState, PositionScalingConfig } from '../types';
+    import type { InstanceState } from '../types';
     import ExchangeSettings from './ExchangeSettings.svelte';
-    import ScoringWeightsPanel from './settings/ScoringWeightsPanel.svelte';
-    import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
-    import TriggerConfigPanel from './settings/TriggerConfigPanel.svelte';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -43,21 +40,12 @@
             intervalValue: 15 as number,
             intervalUnit: 'minutes' as 'seconds' | 'minutes' | 'hours',
         },
-        apiKey: '' as string,
         rules: '' as string,
     });
 
-    let apiKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
-    let apiKeyError = $state('');
     let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
-    let draftCostInputPrice = $state(app.costPriceInput);
-    let draftCostOutputPrice = $state(app.costPriceOutput);
-    let costSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
 
-    let weightOverrides = $state<Record<string, number>>({});
-    let positionScaling = $state<PositionScalingConfig | null>(null);
-    let aiTriggerConfig = $state<{ trigger: import('../types').TriggerModeConfig } | null>(null);
-    let operationalMode = $state<import('../types').OperationalMode>('HybridAiCopilot');
+
 
     $effect(() => {
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
@@ -86,52 +74,7 @@
         return `${s}s`;
     }
 
-    async function saveCostConfig() {
-        costSaveStatus = 'saving';
-        try {
-            const res = await fetch('/api/config/costs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    price_per_1m_input_tokens: Number(draftCostInputPrice),
-                    price_per_1m_output_tokens: Number(draftCostOutputPrice),
-                }),
-            });
-            costSaveStatus = res.ok ? 'success' : 'error';
-            if (res.ok) {
-                app.costPriceInput = Number(draftCostInputPrice);
-                app.costPriceOutput = Number(draftCostOutputPrice);
-                setTimeout(() => { costSaveStatus = 'idle'; }, 2000);
-            }
-        } catch (_) {
-            costSaveStatus = 'error';
-        }
-    }
 
-    async function saveApiKey() {
-        const key = draft.apiKey.trim();
-        if (!key) return;
-        apiKeyStatus = 'saving';
-        try {
-            const res = await fetch('/api/config/key', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: key }),
-            });
-            if (res.ok) {
-                app.apiKeyConfigured = true;
-                draft.apiKey = '';
-                apiKeyStatus = 'success';
-                setTimeout(() => { apiKeyStatus = 'idle'; }, 2000);
-            } else {
-                apiKeyError = 'Rejected by Server';
-                apiKeyStatus = 'error';
-            }
-        } catch (e: any) {
-            apiKeyError = e.message || 'Connection failed';
-            apiKeyStatus = 'error';
-        }
-    }
 
     async function fetchRules() {
         rulesStatus = 'loading';
@@ -215,30 +158,6 @@
         target.automationIntervalUnit = auto.intervalUnit;
     }
 
-    let aiConfigSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
-
-    async function saveAiConfig() {
-        aiConfigSaveStatus = 'saving';
-        try {
-            const payload: Record<string, unknown> = {
-                operational_mode: operationalMode,
-                weight_overrides: weightOverrides && Object.keys(weightOverrides).length > 0 ? weightOverrides : null,
-                position_scaling: positionScaling,
-                ai_trigger: aiTriggerConfig,
-            };
-            const res = await fetch(`/api/instances/${encodeURIComponent(tabKey)}/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            aiConfigSaveStatus = res.ok ? 'success' : 'error';
-            if (res.ok) {
-                setTimeout(() => { aiConfigSaveStatus = 'idle'; }, 2000);
-            }
-        } catch (_) {
-            aiConfigSaveStatus = 'error';
-        }
-    }
 </script>
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
@@ -266,12 +185,9 @@
                 </div>
             </div>
 
-            <div class={styles.spacer12}>
-                <ScoringWeightsPanel />
-            </div>
 
             <div class="{styles.settingGroupBox} {styles.spacer12}">
-                <span class={styles.selectorsLabel}>AI & Automation</span>
+                <span class={styles.selectorsLabel}>Automation</span>
                 <div class={styles.toggleRow}>
                     <span class={styles.toggleLabel}>Status</span>
                     <button class="{styles.selectorBtn} {draft.automation.enabled ? styles.active : ''}"
@@ -279,17 +195,6 @@
                         {draft.automation.enabled ? 'ON' : 'OFF'}
                     </button>
                 </div>
-                <div class="{styles.inputRow} {styles.spacer8}">
-                    <label for="opMode">Operational Mode:</label>
-                    <select id="opMode" bind:value={operationalMode} class={styles.tfUnitSelect}>
-                        <option value="HybridAiCopilot">AI Copilot</option>
-                        <option value="DeterministicHeuristics">Heuristics Only</option>
-                        <option value="ManualOnly">Manual Only</option>
-                    </select>
-                </div>
-                <p class={styles.helpText}>
-                    AI Copilot: full LLM pipeline. Heuristics Only: local indicators, no AI calls. Manual Only: local indicators + on-demand AI via sidebar.
-                </p>
                 {#if draft.automation.enabled}
                     <div class="{styles.inputRow} {styles.spacer8}">
                         <label for="autoInterval">Interval:</label>
@@ -334,47 +239,7 @@
 
         <!-- Backend Secrets & Prompts Guide Column -->
         <div class={styles.settingsCol}>
-            <h3 class={styles.cardTitle}>Backend & AI Prompts</h3>
-
-            <!-- API Key Config -->
-            <div class={styles.settingGroupBox}>
-                <span class={styles.selectorsLabel}>DeepSeek API Secret Key</span>
-                <div class={styles.keyInputRow}>
-                    <input type="password" class={styles.keyField} placeholder="sk-..." bind:value={draft.apiKey} />
-                    <button class={styles.keySaveBtn} disabled={apiKeyStatus === 'saving'} onclick={saveApiKey}>
-                        {apiKeyStatus === 'saving' ? '...' : 'Save'}
-                    </button>
-                </div>
-                {#if apiKeyStatus === 'success'}
-                    <div class="{styles.statusMsg} {styles.successMsg}">Key saved.</div>
-                {/if}
-            </div>
-
-            <div class="{styles.settingGroupBox} {styles.spacer12}">
-                <div class={styles.inputRow}>
-                    <label for="wsAnalysisLimit">AI Analysis Lookback (Candles):</label>
-                    <input id="wsAnalysisLimit" type="number" bind:value={draft.analysisLimit} min="10" max="500" step="5" />
-                </div>
-            </div>
-
-            <!-- Indicator Weight Overrides -->
-            <!-- Position Sizing & Leverage -->
-            <div class={styles.spacer12}>
-                <PositionScalingPanel initial={positionScaling} onchange={(c) => { positionScaling = c; }} />
-            </div>
-
-            <!-- AI Trigger Configuration -->
-            <div class={styles.spacer12}>
-                <TriggerConfigPanel initial={aiTriggerConfig} onchange={(c) => { aiTriggerConfig = c; }} />
-            </div>
-
-            <button class="{styles.keySaveBtn} {styles.spacer8} {styles.fullWidth}"
-                    disabled={aiConfigSaveStatus === 'saving'} onclick={saveAiConfig}>
-                {aiConfigSaveStatus === 'saving' ? 'Saving...' : 'Save AI Configuration'}
-            </button>
-            {#if aiConfigSaveStatus === 'success'}
-                <div class="{styles.statusMsg} {styles.successMsg}">AI config saved.</div>
-            {/if}
+            <h3 class={styles.cardTitle}>Backend Configuration</h3>
 
             <!-- Rules Editor -->
             <div class="{styles.settingGroupBox} {styles.spacer12}">
@@ -421,20 +286,6 @@
                 </button>
             </div>
 
-            <div class="{styles.settingGroupBox} {styles.spacer12}">
-                <span class={styles.selectorsLabel}>AI Orchestrator Settings</span>
-                <div class="{styles.inputRow} {styles.spacer4}">
-                    <label for="paperInterval">Eval Interval (min):</label>
-                    <input id="paperInterval" type="number" bind:value={app.paperAutoExecuteIntervals} min="1" max="1440" step="1" />
-                </div>
-                <div class="{styles.inputRow} {styles.spacer8}">
-                    <label for="paperLookback">Lookback Trades:</label>
-                    <input id="paperLookback" type="number" bind:value={app.paperLookbackTrades} min="1" max="50" step="1" />
-                </div>
-                <p class={styles.helpTextSm}>
-                    Number of past trades fed to the Master Orchestrator for context.
-                </p>
-            </div>
 
             <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <span class={styles.selectorsLabel}>Auto-Execution</span>
@@ -453,28 +304,10 @@
                     </button>
                 </div>
                 <p class={styles.helpTextSm}>
-                    When enabled, automated AI signals will automatically place paper orders.
+                    When enabled, automated signals will automatically place paper orders.
                 </p>
             </div>
 
-            <div class="{styles.settingGroupBox} {styles.spacer12}">
-                <span class={styles.selectorsLabel}>AI Token Cost Calculator (per 1M tokens)</span>
-                <div class="{styles.inputRow} {styles.spacer4}">
-                    <label for="costInput">Input Price $/1M:</label>
-                    <input id="costInput" type="number" bind:value={draftCostInputPrice} min="0" step="0.01" />
-                </div>
-                <div class="{styles.inputRow} {styles.spacer8}">
-                    <label for="costOutput">Output Price $/1M:</label>
-                    <input id="costOutput" type="number" bind:value={draftCostOutputPrice} min="0" step="0.01" />
-                </div>
-                <button class="{styles.keySaveBtn} {styles.spacer8} {styles.fullWidth}"
-                        disabled={costSaveStatus === 'saving'} onclick={saveCostConfig}>
-                    {costSaveStatus === 'saving' ? 'Saving...' : 'Save Cost Config'}
-                </button>
-                {#if costSaveStatus === 'success'}
-                    <div class="{styles.statusMsg} {styles.successMsg}">Pricing saved.</div>
-                {/if}
-            </div>
 
             <div class="{styles.settingGroupBox} {styles.spacer12}">
                 <button class={styles.paperResetBtn} onclick={() => {

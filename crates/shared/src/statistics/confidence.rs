@@ -131,11 +131,6 @@ impl ConfidenceEngine {
         }
     }
 
-    /// Reference to the reliability log for external recording.
-    pub(crate) fn reliability_log_mut(&mut self) -> &mut VecDeque<(f64, bool)> {
-        &mut self.reliability_log
-    }
-
     /// Number of entries in the reliability log.
     pub fn reliability_log_len(&self) -> usize {
         self.reliability_log.len()

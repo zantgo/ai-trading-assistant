@@ -241,7 +241,7 @@ mod mahalanobis_tests {
         for _ in 0..100 {
             ic.update(&[0.0, 0.0]);
         }
-        let d_normal = ic.mahalanobis(&[1.0, 1.0]);
+        let _d_normal = ic.mahalanobis(&[1.0, 1.0]);
         ic.update(&[5.0, 5.0]);
         let d_outlier = ic.mahalanobis(&[5.0, 5.0]);
         assert!(d_outlier > 0.0, "mahalanobis should detect distance; got {}", d_outlier);

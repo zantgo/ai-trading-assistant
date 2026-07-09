@@ -15,8 +15,7 @@
         return r;
     });
 
-    // 3-of-4 confirmation: indicators where ≥3 timeframes share one direction
-    // (mirrors the Layer-4 orchestrator's 3/4-timeframe agreement rule).
+    // 3-of-4 confirmation: indicators where ≥3 timeframes share one direction.
     const confirmed3of4 = $derived(
         (mtf?.rows ?? []).filter((row) => {
             const bulls = row.per_tf.filter((d) => d > 0).length;

@@ -1,4 +1,4 @@
-use crate::server::types::{ObservabilityBuffersResponse, SystemStatusResponse, WsQuery};
+use crate::server::types::WsQuery;
 use crate::server::AppState;
 use axum::{
     extract::{Query, State},
@@ -10,13 +10,6 @@ use std::sync::Arc;
 pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let active_pairs_count = state.workspace.instance_count().await;
 
-    let costs = state.config.read().await.costs.clone();
-    let total_ai_token_costs_usd = {
-        let tracker = &state.llm_client.token_tracker;
-        (tracker.global.load().0 as f64 / 1_000_000.0) * costs.price_per_1m_input_tokens
-            + (tracker.global.load().1 as f64 / 1_000_000.0) * costs.price_per_1m_output_tokens
-    };
-
     let mut total_allocated_margin = 0.0;
     let instances = state.workspace.instances.read().await;
     for instance in instances.values() {
@@ -27,16 +20,13 @@ pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl Int
         }
     }
 
-    let response = SystemStatusResponse {
-        connected: state
-            .api_key_configured
-            .load(std::sync::atomic::Ordering::Relaxed),
-        latency_ms: 12,
-        journal_mode: "WAL".to_string(),
-        total_allocated_margin,
-        total_ai_token_costs_usd,
-        active_pairs_count,
-    };
+    let response = serde_json::json!({
+        "connected": true,
+        "latency_ms": 12,
+        "journal_mode": "WAL",
+        "total_allocated_margin": total_allocated_margin,
+        "active_pairs_count": active_pairs_count,
+    });
 
     Json(response)
 }
@@ -84,9 +74,9 @@ pub async fn serve_observability_buffers(
     .await
     .unwrap_or_default();
 
-    Json(ObservabilityBuffersResponse {
-        symbol: raw_symbol,
-        recent_decisions,
-        completed_trades,
-    })
+    Json(serde_json::json!({
+        "symbol": raw_symbol,
+        "recent_decisions": recent_decisions,
+        "completed_trades": completed_trades,
+    }))
 }

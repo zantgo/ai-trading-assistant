@@ -26,41 +26,6 @@ impl HyperliquidConfig {
 fn default_hyperliquid_ws_url() -> String {
     "wss://api.hyperliquid.xyz/ws".to_string()
 }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BitgetConfig {
-    #[serde(default = "default_bitget_ws_url")]
-    pub ws_url: String,
-}
-
-impl Default for BitgetConfig {
-    fn default() -> Self {
-        Self {
-            ws_url: default_bitget_ws_url(),
-        }
-    }
-}
-
-impl BitgetConfig {
-    /// Base path for Bitget V2 mix (perpetual futures) market endpoints.
-    pub fn mix_base_url(&self) -> String {
-        "https://api.bitget.com/api/v2/mix/market".to_string()
-    }
-
-    pub fn rest_url(&self) -> String {
-        format!("{}/candles", self.mix_base_url())
-    }
-
-    /// Ticker endpoint used to verify a contract symbol exists.
-    pub fn ticker_url(&self) -> String {
-        format!("{}/ticker", self.mix_base_url())
-    }
-}
-
-fn default_bitget_ws_url() -> String {
-    "wss://ws.bitget.com/v2/ws/public".to_string()
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandlesConfig {
     pub duration_seconds: u64,
@@ -657,60 +622,6 @@ impl Default for AutomationConfig {
 fn default_max_opposite_exit_signals() -> usize { 5 }
 fn default_automation_interval() -> u64 { 900 }
 
-// ─── Operational Mode ──────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub enum OperationalMode {
-    ManualOnly,
-    DeterministicHeuristics,
-    #[default]
-    HybridAiCopilot,
-}
-
-impl OperationalMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            OperationalMode::ManualOnly => "ManualOnly",
-            OperationalMode::DeterministicHeuristics => "DeterministicHeuristics",
-            OperationalMode::HybridAiCopilot => "HybridAiCopilot",
-        }
-    }
-}
-
-// ─── AI Trigger Configuration ──────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "mode")]
-pub enum TriggerMode {
-    /// Fixed time interval between AI runs (legacy behaviour).
-    #[serde(rename = "interval")]
-    Interval { seconds: u64 },
-    /// Trigger after N closed candles of a specific timeframe.
-    #[serde(rename = "candle_close")]
-    CandleClose {
-        /// Timeframe label: "micro", "fast", "slow", or "macro".
-        timeframe: String,
-        count: u32,
-    },
-    /// Trigger only when specific deterministic events fire.
-    #[serde(rename = "event_driven")]
-    EventDriven {
-        events: Vec<String>,
-    },
-}
-
-impl Default for TriggerMode {
-    fn default() -> Self {
-        TriggerMode::Interval { seconds: 900 }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AiTriggerConfig {
-    #[serde(default)]
-    pub trigger: TriggerMode,
-}
-
 // ─── Position Sizing & Leverage Scaling ────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -817,10 +728,6 @@ pub struct InstanceSpecificConfig {
     #[serde(default)]
     pub automation: AutomationConfig,
     #[serde(default)]
-    pub operational_mode: OperationalMode,
-    #[serde(default)]
-    pub ai_trigger: AiTriggerConfig,
-    #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
     pub position_scaling: Option<PositionScalingConfig>,
@@ -911,8 +818,6 @@ pub struct WorkspaceConfig {
     pub max_instances: usize,
     #[serde(default = "default_default_pair")]
     pub default_pair: String,
-    #[serde(default)]
-    pub backup_api_key: Option<String>,
 }
 
 fn default_max_instances() -> usize { 100 }
@@ -923,7 +828,6 @@ impl Default for WorkspaceConfig {
         Self {
             max_instances: default_max_instances(),
             default_pair: default_default_pair(),
-            backup_api_key: None,
         }
     }
 }

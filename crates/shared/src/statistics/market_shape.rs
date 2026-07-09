@@ -53,7 +53,7 @@ impl MarketShape {
             return Self::default();
         }
 
-        let (mean, variance, skewness, kurtosis) = compute_moments(&returns);
+        let (_mean, _variance, skewness, kurtosis) = compute_moments(&returns);
         let entropy = compute_entropy(&returns, ENTROPY_BINS);
         let tail_risk = compute_tail_risk(&returns);
         let symmetry = if skewness.abs() > 1e-12 {

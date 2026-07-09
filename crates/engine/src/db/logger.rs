@@ -1,7 +1,5 @@
-use crate::llm::LlmClient;
 use shared::models::MarketSnapshot;
 use sqlx::SqlitePool;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum TelemetryMsg {
@@ -88,7 +86,6 @@ pub enum TelemetryMsg {
 pub async fn run_telemetry_logger(
     pool: SqlitePool,
     mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>,
-    llm_client: Arc<LlmClient>,
 ) {
     println!("Telemetry & Logging Worker: Background log thread running.");
     while let Some(msg) = rx.recv().await {
@@ -283,11 +280,9 @@ pub async fn run_telemetry_logger(
                 trigger,
             } => {
                 let pool_clone = pool.clone();
-                let llm = llm_client.clone();
                 tokio::spawn(async move {
                     run_journaling_task(
                         &pool_clone,
-                        &llm,
                         &symbol,
                         &direction,
                         entry_price,
@@ -309,7 +304,6 @@ pub async fn run_telemetry_logger(
 
 async fn run_journaling_task(
     pool: &SqlitePool,
-    llm_client: &Arc<LlmClient>,
     symbol: &str,
     direction: &str,
     entry_price: f64,
@@ -337,95 +331,26 @@ async fn run_journaling_task(
     let indicator_context =
         build_entry_exit_indicator_context(pool, symbol, entry_timestamp, exit_timestamp).await;
 
-    let trade_context = format!(
-        "TRADE AUDIT REQUEST\n\
-         Asset: {}\n\
-         Direction: {}\n\
-         Entry Price: ${:.4}\n\
-         Exit Price: ${:.4}\n\
-         Size: {:.6}\n\
-         Entry Time: {}\n\
-         Exit Time: {}\n\
-         Realized PnL: ${:.2}\n\
-         ROI: {:.2}%\n\
-         ROE (Return on Equity): {:.2}%\n\
-         Allocated Capital: ${:.2}\n\
-         Exit Trigger: {}\n\
-         Technical Entry Reason: {}\n\
-         \n\
-         Indicator Context at Entry & Exit:\n{}\n\
-         \n\
-         Critically analyze this trade. Identify execution mistakes or successes.\n\
-         Score the execution quality from 0.0 to 10.0 independent of whether the trade won or lost.",
-        asset, direction, entry_price, exit_price, size,
-        entry_date, exit_date, realized_pnl, roi_pct, roe_pct, allocated_usd, trigger,
+    let notes = format!(
+        "Direction: {}\nEntry: ${:.4} | Exit: ${:.4}\nSize: {:.6}\nPnL: ${:.2} | ROI: {:.2}% | ROE: {:.2}%\nAllocated: ${:.2}\nTrigger: {}\nEntry Reason: {}\n\nIndicator Context:\n{}",
+        direction, entry_price, exit_price, size,
+        realized_pnl, roi_pct, roe_pct, allocated_usd, trigger,
         entry_reason, indicator_context,
     );
 
-    if llm_client.api_key.read().await.is_empty() {
-        let notes = format!(
-            "[API key not configured at time of close. Trigger: {}]",
-            trigger
-        );
-        crate::db::queries::journals::insert_trade_journal(
-            pool,
-            0,
-            &entry_date,
-            &exit_date,
-            &asset,
-            direction,
-            &entry_reason,
-            roe_pct,
-            &notes,
-            5.0,
-        )
-        .await;
-        return;
-    }
-
-    match llm_client
-        .run_journal_agent(&trade_context, Some(symbol))
-        .await
-    {
-        Ok(result) => {
-            let trade_id =
-                find_trade_telemetry_id(pool, symbol, entry_timestamp, exit_timestamp).await;
-            crate::db::queries::journals::insert_trade_journal(
-                pool,
-                trade_id,
-                &entry_date,
-                &exit_date,
-                &asset,
-                direction,
-                &entry_reason,
-                roe_pct,
-                &result.final_analysis,
-                result.execution_score,
-            )
-            .await;
-            println!(
-                "Trade Journal: {} {} recorded — Score: {:.1}/10",
-                symbol, direction, result.execution_score
-            );
-        }
-        Err(e) => {
-            eprintln!("Journal agent failed for {}: {}", symbol, e);
-            let notes = format!("[Journal agent error: {}]", e);
-            crate::db::queries::journals::insert_trade_journal(
-                pool,
-                0,
-                &entry_date,
-                &exit_date,
-                &asset,
-                direction,
-                &entry_reason,
-                roe_pct,
-                &notes,
-                5.0,
-            )
-            .await;
-        }
-    }
+    crate::db::queries::journals::insert_trade_journal(
+        pool,
+        0,
+        &entry_date,
+        &exit_date,
+        &asset,
+        direction,
+        &entry_reason,
+        roe_pct,
+        &notes,
+        5.0,
+    )
+    .await;
 }
 
 fn format_ts(ms: i64) -> String {
@@ -529,27 +454,4 @@ async fn build_entry_exit_indicator_context(
         "Entry indicators (approx):\n{}\nExit indicators (approx):\n{}",
         entry_snap, exit_snap
     )
-}
-
-async fn find_trade_telemetry_id(
-    pool: &SqlitePool,
-    symbol: &str,
-    entry_timestamp: i64,
-    exit_timestamp: i64,
-) -> i64 {
-    use sqlx::Row;
-    let row = sqlx::query(
-        "SELECT id FROM trade_telemetry_history
-         WHERE symbol = ?1 AND entry_timestamp = ?2 AND exit_timestamp = ?3
-         ORDER BY id DESC LIMIT 1",
-    )
-    .bind(symbol)
-    .bind(entry_timestamp)
-    .bind(exit_timestamp)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    row.map(|r| r.get::<i64, _>(0)).unwrap_or(0)
 }

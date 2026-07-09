@@ -1,0 +1,176 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+/* ── Header ── */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    background: var(--bg-card, #0f172a);
+}
+
+.headerLeft {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.headerSymbol {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary, #e2e8f0);
+    font-family: var(--font-mono, monospace);
+}
+
+.headerStatus {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    font-family: var(--font-mono, monospace);
+}
+
+.statusLive { color: #10b981; }
+.statusOffline { color: #ef4444; }
+
+.headerPrice {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary, #e2e8f0);
+    font-family: var(--font-mono, monospace);
+}
+
+/* ── Cards ── */
+.card {
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--bg-card, #0f172a);
+}
+
+.cardTitle {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    font-family: var(--font-mono, monospace);
+}
+
+/* ── Position Grid ── */
+.posGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.posItem {
+    padding: 6px 8px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 4px;
+    background: var(--bg-dark, #020617);
+}
+
+.posLabel {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    display: block;
+}
+
+.posValue {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    font-family: var(--font-mono, monospace);
+    margin-top: 2px;
+    display: block;
+}
+
+.noPos {
+    font-size: 13px;
+    color: var(--text-muted, #64748b);
+    text-align: center;
+    padding: 12px;
+}
+
+/* ── Position direction badges ── */
+.posLong { color: #10b981; }
+.posShort { color: #ef4444; }
+
+/* ── PnL colors ── */
+.pnlUp { color: #10b981; }
+.pnlDown { color: #ef4444; }
+
+/* ── Stats Row ── */
+.statsRow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.statCard {
+    padding: 10px;
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    background: var(--bg-card, #0f172a);
+    text-align: center;
+}
+
+.statLabel {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    font-family: var(--font-mono, monospace);
+}
+
+.statValue {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary, #e2e8f0);
+    font-family: var(--font-mono, monospace);
+    margin-top: 4px;
+    display: block;
+}
+
+/* ── Trades Table ── */
+.tradesTable {
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+}
+
+.tradesHeader {
+    display: grid;
+    grid-template-columns: 60px 90px 90px 80px 1fr;
+    gap: 4px;
+    padding: 4px 6px;
+    color: var(--text-muted, #64748b);
+    border-bottom: 1px solid var(--border-muted, #1e293b);
+    margin-bottom: 4px;
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.tradeRow {
+    display: grid;
+    grid-template-columns: 60px 90px 90px 80px 1fr;
+    gap: 4px;
+    padding: 3px 6px;
+    color: var(--text-secondary, #94a3b8);
+}
+
+.tradeRow:hover {
+    background: var(--bg-dark, #020617);
+}
+
+.tradeDate {
+    color: var(--text-muted, #64748b);
+    font-size: 9px;
+}

@@ -1,54 +1,7 @@
-// Shared TypeScript interfaces for the AI Trading Assistant dashboard.
+// Shared TypeScript interfaces for the Trading Assistant dashboard.
 
 // Re-export statistics types for backward compatibility
 export type { CoreStats, DailyActivity, DailyPnl, HourlyWinRate, WeekdayWinRate, DirectionBreakdown, DashboardStats, TradeLedgerRecord, TradeJournalRecord, StyleSegment, TraderStyleBreakdown, StreakMetrics, CalendarDay, PairStat, DailyCommission, FeePnlRatio, MonthlySummary } from './types/stats';
-
-// ================================================================
-// 1. AI Orchestrator & Agents
-// ================================================================
-
-export interface TrendAnalysis {
-    classification: 'trending upwards' | 'trending downwards' | 'sideways';
-    structural_reasoning: string;
-}
-
-export interface IndicatorAlignment {
-    classification: 'supportive' | 'conflicting' | 'neutral';
-    observation: string;
-}
-
-export interface PositionRecommendation {
-    action: 'Hold' | 'Close' | 'Wait' | 'Open Long' | 'Open Short';
-    rationale: string;
-}
-
-export interface AssistantAnalysis {
-    trend_analysis: TrendAnalysis;
-    indicator_alignment: IndicatorAlignment;
-    position_recommendation: PositionRecommendation;
-}
-
-export interface AssistantHistoryRecord {
-    id: number;
-    created_at: string;
-    position: 'None' | 'Long' | 'Short';
-    entry_price?: string;
-    trend_classification: 'UPWARD' | 'DOWNWARD' | 'SIDEWAYS';
-    indicator_alignment: string;
-    indicator_synthesis_summary?: string;
-    recommended_action: 'Hold' | 'Close' | 'Wait' | 'Open Long' | 'Open Short';
-    recommendation_rationale: string;
-    price_at_analysis: string;
-    support_levels?: string;
-    resistance_levels?: string;
-    symbol: string;
-    trigger_type: 'Manual' | 'Automated';
-}
-
-export interface ChatMessage {
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-}
 
 export interface IndicatorRule {
     id: number;
@@ -102,7 +55,6 @@ export interface SystemHeartbeat {
     latency_ms: number;
     journal_mode: string;
     total_allocated_margin: number;
-    total_ai_token_costs_usd: number;
     active_pairs_count: number;
 }
 
@@ -230,31 +182,6 @@ export interface ExchangeAccount {
 // ================================================================
 // 3. Portfolio & Paper Trading
 // ================================================================
-
-// ─── Two-Agent Pipeline Types (v3.0) ───────────────────────────────
-
-export interface AnalystDocument {
-    market_summary: string;
-    trend_indicators: string;
-    momentum_indicators: string;
-    volatility_indicators: string;
-    volume_indicators: string;
-    structure_indicators: string;
-    active_signals: string;
-    confluence_summary: string;
-}
-
-export interface TraderDecision {
-    action: 'Hold' | 'Close' | 'Wait' | 'Open Long' | 'Open Short';
-    confidence: number;
-    rationale: string;
-    risk_notes: string;
-}
-
-export interface WizardAnalysisResponse {
-    analyst_document: AnalystDocument;
-    trader_decision: TraderDecision;
-}
 
 // ================================================================
 // 4. Instance & WebSocket Telemetry
@@ -548,8 +475,11 @@ export interface TimeframeTelemetry {
     forceIdxSmoothingVal: number;
 }
 
-/** All Level 3 feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'assistant' | 'positions' | 'performance' | 'settings' | 'decision' | 'risk' | 'commission' | 'exchange' | 'analytics' | 'ledger' | 'costs' | 'observability' | 'timeframe_settings' | 'edge_builder' | 'edge_analyzer' | 'statistics' | 'wizard_flow' | 'risk_profile' | 'monitoring' | 'risk_management' | 'workflow' | 'risk_overview';
+/** Workflow sub-tabs within the improved Workflow view. */
+export type CurrentView = 'workflow_charts' | 'workflow_state' | 'workflow_metrics' | 'workflow_decision' | 'workflow_performance' | 'workflow_ledger';
+
+/** Per-instance navbar tabs. */
+export type InstanceView = 'general' | 'workflow';
 
 // ─── Institutional Risk Management Layer (IRML) ─────────────────────────────
 export interface RiskObjectDto {
@@ -608,9 +538,6 @@ export interface RiskProfileResponse {
     rr_history: RrBlockDto[];
 }
 
-/** Level 2 operational-mode paradigm groupings. */
-export type Level2Mode = 'general' | 'wizard' | 'user' | 'rule' | 'ai' | 'risk';
-
 export interface InstanceState {
     symbol: string;
     exchange: string;
@@ -619,24 +546,12 @@ export interface InstanceState {
     fastTerm: TimeframeTelemetry;
     slowTerm: TimeframeTelemetry;
     macroTerm: TimeframeTelemetry;
-    assistantHistory: AssistantHistoryRecord[];
-    chatHistory: ChatMessage[];
     currentPosition: PositionState;
     entryPriceVal: string;
     stopLossVal: string;
-    assistantLoading: boolean;
-    assistantError: string | null;
-    assistantResponse: AssistantAnalysis | null;
-    wizardResponse: WizardAnalysisResponse | null;
-    analysisPhase: 'idle' | 'running' | 'complete';
     historyLatestClose: string;
-    isAssistantModalOpen: boolean;
-    chatInputText: string;
-    isChatLoading: boolean;
-    currentView: CurrentView;
-    currentLevel2Mode: Level2Mode;
-    modeViews: Record<Level2Mode, CurrentView>;
-    activeExecutionMode: OperationalMode;
+    workflowView: CurrentView;
+    instanceView: InstanceView;
     automationEnabled: boolean;
     automationIntervalValue: number;
     automationIntervalUnit: 'seconds' | 'minutes' | 'hours';
@@ -657,6 +572,43 @@ export interface InstanceState {
     showEmaLong: boolean;
     /** Per-timeframe per-indicator weight overrides. Falls back to registry default_weight. */
     indicatorWeights: Record<string, Record<string, number>>;
+    decisionOutput: DecisionOutput | null;
+    decisionHistory: DecisionHistoryRecord[];
+}
+
+export interface FactorBreakdown {
+    confluence_norm: number;
+    trade_readiness: number;
+    trade_quality: number;
+    safety_score: number;
+    trend_persistence: number;
+    regime_confidence: number;
+    breakout_confidence: number;
+    signal_decay: number;
+    regime_multiplier: number;
+    base_score: number;
+    final_score: number;
+    regime: string;
+    hard_gates_passed: number;
+    failing_gates: string[];
+}
+
+export interface DecisionOutput {
+    action: string;
+    confidence: number;
+    rationale: string;
+    risk_notes: string;
+    factor_breakdown: FactorBreakdown;
+}
+
+export interface DecisionHistoryRecord {
+    id: number;
+    timestamp: string;
+    symbol: string;
+    position: string;
+    action: string;
+    confidence: number;
+    rationale: string;
 }
 
 export interface ScaleInPortion {
@@ -882,8 +834,6 @@ export interface EdgeAnalysisResponse {
 // 6. Operational Modes, Triggers & Positioning
 // ================================================================
 
-export type OperationalMode = 'ManualOnly' | 'DeterministicHeuristics' | 'HybridAiCopilot';
-
 export type TriggerModeUnion = 'interval' | 'candle_close' | 'event_driven';
 
 export interface TriggerConfigBase {
@@ -907,10 +857,6 @@ export interface TriggerConfigEventDriven extends TriggerConfigBase {
 }
 
 export type TriggerModeConfig = TriggerConfigInterval | TriggerConfigCandleClose | TriggerConfigEventDriven;
-
-export interface AiTriggerConfig {
-    trigger: TriggerModeConfig;
-}
 
 export type AllocationCurveModel = 'Stepped' | 'Linear' | 'Exponential';
 

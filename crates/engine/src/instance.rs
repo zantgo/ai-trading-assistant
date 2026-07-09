@@ -1,6 +1,5 @@
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -59,15 +58,13 @@ impl TradingState {
 pub struct ConfigState {
     pub status: InstanceStatus,
     pub intervals: IntervalsConfig,
-    pub operational_mode: crate::config::OperationalMode,
 }
 
 impl ConfigState {
-    pub fn new(intervals: IntervalsConfig, operational_mode: crate::config::OperationalMode) -> Self {
+    pub fn new(intervals: IntervalsConfig) -> Self {
         Self {
             status: InstanceStatus::Running,
             intervals,
-            operational_mode,
         }
     }
 }
@@ -89,10 +86,7 @@ pub struct Instance {
     pub config_state: RwLock<ConfigState>,
     pub safety_config: SafetyConfig,
 
-    pub api_key: RwLock<Option<String>>,
-    pub api_key_valid: AtomicBool,
     pub api_failover: Arc<ApiFailoverState>,
-    pub token_tracker: Arc<crate::llm::TokenTracker>,
 
     pub safety: Arc<SafetyManager>,
 
@@ -121,7 +115,6 @@ impl Instance {
         fast: TimeframeBuffers,
         slow: TimeframeBuffers,
         r#macro: TimeframeBuffers,
-        operational_mode: crate::config::OperationalMode,
     ) -> Self {
         let safety = Arc::new(SafetyManager::new(
             safe_config.consecutive_loss_caution,
@@ -135,12 +128,9 @@ impl Instance {
             pair,
             cancel: active_pair.cancel.clone(),
             trading: RwLock::new(TradingState::default()),
-            config_state: RwLock::new(ConfigState::new(inter_config, operational_mode)),
+            config_state: RwLock::new(ConfigState::new(inter_config)),
             safety_config: safe_config,
-            api_key: RwLock::new(None),
-            api_key_valid: AtomicBool::new(false),
             api_failover: Arc::new(ApiFailoverState::new(None, None, 30, 5, 10, 300)),
-            token_tracker: Arc::new(crate::llm::TokenTracker::default()),
             safety,
             active_pair,
             automation_ctx: Arc::new(RwLock::new(None)),

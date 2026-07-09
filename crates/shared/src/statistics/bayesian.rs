@@ -20,7 +20,6 @@ struct PendingObservation {
     trigger_price: f64,
     trigger_atr: f64,
     trigger_rsi: f64,
-    trigger_bbwp: f64,
     kind: ObservationKind,
 }
 
@@ -154,14 +153,12 @@ impl BayesianEngine {
         price: f64,
         atr: f64,
         rsi: f64,
-        bbwp: f64,
     ) {
         self.pending.push_back(PendingObservation {
             trigger_at: self.bar_count,
             trigger_price: price,
             trigger_atr: atr,
             trigger_rsi: rsi,
-            trigger_bbwp: bbwp,
             kind,
         });
     }
@@ -289,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_hdi_clamped() {
-        let mut t = BayesianTracker::new(1.0, 1.0);
+        let t = BayesianTracker::new(1.0, 1.0);
         // With few observations the HDI should stay within [0, 1].
         let (lo, hi) = t.hdi_95();
         assert!(lo >= 0.0 && hi <= 1.0);
@@ -307,7 +304,7 @@ mod tests {
     #[test]
     fn test_observation_queue_resolves() {
         let mut engine = BayesianEngine::new(1.0, 1.0, 5);
-        engine.queue_trigger(ObservationKind::TrendContinuation, 50000.0, 500.0, 60.0, 50.0);
+        engine.queue_trigger(ObservationKind::TrendContinuation, 50000.0, 500.0, 60.0);
         // Advance 5 bars with a higher price (uptrend → continuation success).
         for _ in 0..5 {
             engine.advance_bar(51000.0, 500.0);
@@ -321,7 +318,7 @@ mod tests {
     #[test]
     fn test_queue_only_resolves_after_window() {
         let mut engine = BayesianEngine::new(1.0, 1.0, 5);
-        engine.queue_trigger(ObservationKind::TrendContinuation, 50000.0, 500.0, 60.0, 50.0);
+        engine.queue_trigger(ObservationKind::TrendContinuation, 50000.0, 500.0, 60.0);
         // Advance only 3 bars — observation should NOT yet resolve.
         for _ in 0..3 {
             engine.advance_bar(51000.0, 500.0);

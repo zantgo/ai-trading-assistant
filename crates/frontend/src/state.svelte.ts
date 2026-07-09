@@ -1,12 +1,12 @@
 // Global reactive state using Svelte 5 runes
 import type {
-    AssistantAnalysis, AssistantHistoryRecord, ChatMessage, DecisionProfile, DecisionScore,
+    DecisionProfile, DecisionScore, DecisionOutput, DecisionHistoryRecord,
     RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection, ExchangeAccount,
     DashboardStats, TradeLedgerRecord, TradeJournalRecord,
-    WizardAnalysisResponse, InstanceState, TimeframeTelemetry,
+    InstanceState, TimeframeTelemetry,
     ScaleInPortion, TakeProfitTarget, UserTrade,
     SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
-    CurrentView, Level2Mode, OperationalMode,
+    CurrentView, InstanceView,
 } from './types';
 import { PaperTradingStore } from './stores/paperTrading.svelte';
 import { SettingsStore } from './stores/settings.svelte';
@@ -16,15 +16,6 @@ import { ProfileStore } from './stores/profiles.svelte';
 import { ExchangeKeyStore } from './stores/exchangeKeys.svelte';
 import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
 
-/** Maps a Level 2 paradigm to its backend operational_mode (general leaves it unchanged). */
-const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
-    general: null,
-    wizard: null,
-    risk: null,
-    user: 'ManualOnly',
-    rule: 'DeterministicHeuristics',
-    ai: 'HybridAiCopilot',
-};
 
 function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
     return {
@@ -75,17 +66,11 @@ function createInstanceState(symbol: string): InstanceState {
         fastTerm: createTimeframeTelemetry(symbol, 180),
         slowTerm: createTimeframeTelemetry(symbol, 300),
         macroTerm: createTimeframeTelemetry(symbol, 900),
-        assistantHistory: [], chatHistory: [],
         currentPosition: 'None', entryPriceVal: '', stopLossVal: '',
-        assistantLoading: false, assistantError: null,
-        assistantResponse: null, wizardResponse: null,
-        analysisPhase: 'idle',
         historyLatestClose: '0',
-        isAssistantModalOpen: false, chatInputText: '', isChatLoading: false,
-        currentView: 'terminal',
-        currentLevel2Mode: 'user',
-        modeViews: { general: 'terminal', wizard: 'workflow', risk: 'risk_overview', user: 'terminal', rule: 'decision', ai: 'assistant' },
-        activeExecutionMode: 'HybridAiCopilot',
+        workflowView: 'workflow_charts',
+        instanceView: 'general',
+        decisionOutput: null, decisionHistory: [],
         automationEnabled: false, automationIntervalValue: 15,
         automationIntervalUnit: 'minutes',
         slowIntervalSecs: 3600, normalIntervalSecs: 900, fastIntervalSecs: 300,
@@ -168,15 +153,10 @@ export class AppStore {
         ]);
 
         this._delegate(this.settings, [
-            'apiKeyConfigured', 'rulesContent', 'globalCandlesConfig',
+            'rulesContent', 'globalCandlesConfig',
             'globalIndicatorsConfig', 'indicatorRegistry', 'emaFastLabel', 'emaMediumLabel',
             'emaSlowLabel', 'emaLongLabel', 'rsiLabel', 'adxLabel', 'atrLabel',
             'macdLabel',
-            'costPriceInput', 'costPriceOutput', 'costIntervalSecs',
-            'costRunsPerDay', 'costTokensPerRunInput', 'costTokensPerRunOutput',
-            'costDailyProjected', 'costWeeklyProjected', 'costMonthlyProjected',
-            'costActualInputTokens', 'costActualOutputTokens', 'costActualTotal',
-            'costLoading',
         ]);
 
         this._delegate(this.analytics, [
@@ -405,11 +385,7 @@ export class AppStore {
         return `${sec}s`;
     }
 
-    // Active instance assistant & chat accessors
-    get assistantHistory() { return this.activeInstance().assistantHistory; }
-    set assistantHistory(v: AssistantHistoryRecord[]) { this.activeInstance().assistantHistory = v; }
-    get chatHistory() { return this.activeInstance().chatHistory; }
-    set chatHistory(v: ChatMessage[]) { this.activeInstance().chatHistory = v; }
+    // Active instance position & decision accessors
     get currentPosition(): 'None' | 'Long' | 'Short' { return this.activeInstance().currentPosition; }
     set currentPosition(v: 'None' | 'Long' | 'Short') {
         const pair = this.activeInstance(); const oldVal = pair.currentPosition;
@@ -420,66 +396,16 @@ export class AppStore {
     set entryPriceVal(v: string) { this.activeInstance().entryPriceVal = v; }
     get stopLossVal() { return this.activeInstance().stopLossVal; }
     set stopLossVal(v: string) { this.activeInstance().stopLossVal = v; }
-    get assistantLoading() { return this.activeInstance().assistantLoading; }
-    set assistantLoading(v: boolean) { this.activeInstance().assistantLoading = v; }
-    get assistantError() { return this.activeInstance().assistantError; }
-    set assistantError(v: string | null) { this.activeInstance().assistantError = v; }
-    get assistantResponse() { return this.activeInstance().assistantResponse; }
-    set assistantResponse(v: AssistantAnalysis | null) { this.activeInstance().assistantResponse = v; }
-    get wizardResponse() { return this.activeInstance().wizardResponse; }
-    set wizardResponse(v: WizardAnalysisResponse | null) { this.activeInstance().wizardResponse = v; }
-    get analysisPhase() { return this.activeInstance().analysisPhase; }
-    set analysisPhase(v: 'idle' | 'running' | 'complete') { this.activeInstance().analysisPhase = v; }
     get historyLatestClose() { return this.activeInstance().historyLatestClose; }
     set historyLatestClose(v: string) { this.activeInstance().historyLatestClose = v; }
-    get isAssistantModalOpen() { return this.activeInstance().isAssistantModalOpen; }
-    set isAssistantModalOpen(v: boolean) { this.activeInstance().isAssistantModalOpen = v; }
-    get chatInputText() { return this.activeInstance().chatInputText; }
-    set chatInputText(v: string) { this.activeInstance().chatInputText = v; }
-    get isChatLoading() { return this.activeInstance().isChatLoading; }
-    set isChatLoading(v: boolean) { this.activeInstance().isChatLoading = v; }
-    get currentView() { return this.activeInstance().currentView; }
-    set currentView(v: CurrentView) {
-        const pair = this.activeInstance();
-        pair.currentView = v;
-        pair.modeViews[pair.currentLevel2Mode] = v;
-    }
-
-    // ─── Level 2 operational-mode navigation (UI-only) ────────────────
-    get currentLevel2Mode() { return this.activeInstance().currentLevel2Mode; }
-    set currentLevel2Mode(m: Level2Mode) { this.switchMode(m); }
-
-    /** Switch the Level 2 paradigm and restore that mode's last active Level 3 view. */
-    switchMode(mode: Level2Mode) {
-        const pair = this.activeInstance();
-        pair.currentLevel2Mode = mode;
-        pair.currentView = pair.modeViews[mode];
-    }
-
-    get activeExecutionMode() { return this.activeInstance().activeExecutionMode; }
-
-    /** operational_mode that the currently selected paradigm maps to (null = leave unchanged). */
-    get pendingOperationalMode(): OperationalMode | null {
-        return MODE_TO_OP[this.activeInstance().currentLevel2Mode];
-    }
-
-    /** Explicitly apply the selected paradigm's operational_mode to the backend. */
-    async applyMode(): Promise<boolean> {
-        const target = this.pendingOperationalMode;
-        if (!target) return false;
-        try {
-            const res = await fetch(`/api/instances/${encodeURIComponent(this.activeTab)}/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ operational_mode: target }),
-            });
-            if (res.ok) { this.activeInstance().activeExecutionMode = target; return true; }
-            return false;
-        } catch (e) {
-            console.error('Failed to apply operational mode:', e);
-            return false;
-        }
-    }
+    get workflowView() { return this.activeInstance().workflowView; }
+    set workflowView(v: CurrentView) { this.activeInstance().workflowView = v; }
+    get instanceView() { return this.activeInstance().instanceView; }
+    set instanceView(v: InstanceView) { this.activeInstance().instanceView = v; }
+    get decisionOutput(): DecisionOutput | null { return this.activeInstance().decisionOutput; }
+    set decisionOutput(v: DecisionOutput | null) { this.activeInstance().decisionOutput = v; }
+    get decisionHistory(): DecisionHistoryRecord[] { return this.activeInstance().decisionHistory; }
+    set decisionHistory(v: DecisionHistoryRecord[]) { this.activeInstance().decisionHistory = v; }
 
     // Automation accessors
     get automationEnabled() { return this.activeInstance().automationEnabled; }
@@ -513,7 +439,6 @@ export class AppStore {
 
     // ─── Delegate Methods (with activeTab/sessionCapital references) ────
 
-    async fetchCostEstimate() { await this.settings.fetchCostEstimate(this.activeTab); }
     async fetchRiskProfile() {
         this.riskProfileLoading = true;
         this.riskProfileError = null;

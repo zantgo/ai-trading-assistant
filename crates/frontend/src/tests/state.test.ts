@@ -7,17 +7,8 @@ describe('TEST-UI: Global State Runes', () => {
 
     beforeEach(() => {
         app = useAppStore();
-        app.analysisPhase = 'idle';
         app.currentPosition = 'None';
         app.entryPriceVal = '';
-        app.isAssistantModalOpen = false;
-        app.chatHistory = [];
-    });
-
-    it('should initialize with default states', () => {
-        expect(app.analysisPhase).toBe('idle');
-        expect(app.currentPosition).toBe('None');
-        expect(app.isAssistantModalOpen).toBe(false);
     });
 
     it('should handle position changes and validate fields', () => {
@@ -26,22 +17,6 @@ describe('TEST-UI: Global State Runes', () => {
 
         app.entryPriceVal = '3120.50';
         expect(app.entryPriceVal).toBe('3120.50');
-    });
-
-    it('should transition analysis phases progressively', () => {
-        expect(app.analysisPhase).toBe('idle');
-
-        app.analysisPhase = 'running';
-        expect(app.analysisPhase).toBe('running');
-
-        app.analysisPhase = 'complete';
-        expect(app.analysisPhase).toBe('complete');
-    });
-
-    it('should build chat history context correctly upon modal open', () => {
-        app.chatHistory.push({ role: 'assistant', content: 'Greeting message' });
-        expect(app.chatHistory.length).toBe(1);
-        expect(app.chatHistory[0].role).toBe('assistant');
     });
 
     it('should initialize instancesMap with exchange-symbol key', () => {
@@ -63,47 +38,4 @@ describe('TEST-UI: Global State Runes', () => {
         expect(app.instancesMap['ETH-USDT'].microTerm.priceText).toBe('--');
     });
 
-    it('should toggle apiKeyConfigured flag', () => {
-        expect(app.apiKeyConfigured).toBe(true);
-        app.apiKeyConfigured = false;
-        expect(app.apiKeyConfigured).toBe(false);
-        app.apiKeyConfigured = true;
-        expect(app.apiKeyConfigured).toBe(true);
-    });
-
-    it('should restore per-mode Level 3 view when switching Level 2 modes', () => {
-        app.initInstance('BTC');
-        app.activeTab = 'BTC-USDT';
-
-        app.switchMode('user');
-        expect(app.currentLevel2Mode).toBe('user');
-        expect(app.currentView).toBe('terminal');
-
-        app.currentView = 'costs';
-        expect(app.currentView).toBe('costs');
-
-        app.switchMode('ai');
-        expect(app.currentView).toBe('assistant');
-        app.currentView = 'ledger';
-
-        app.switchMode('user');
-        expect(app.currentView).toBe('costs');
-
-        app.switchMode('ai');
-        expect(app.currentView).toBe('ledger');
-    });
-
-    it('should map Level 2 paradigms to backend operational modes', () => {
-        app.initInstance('BTC');
-        app.activeTab = 'BTC-USDT';
-
-        app.switchMode('general');
-        expect(app.pendingOperationalMode).toBe(null);
-        app.switchMode('user');
-        expect(app.pendingOperationalMode).toBe('ManualOnly');
-        app.switchMode('rule');
-        expect(app.pendingOperationalMode).toBe('DeterministicHeuristics');
-        app.switchMode('ai');
-        expect(app.pendingOperationalMode).toBe('HybridAiCopilot');
-    });
 });

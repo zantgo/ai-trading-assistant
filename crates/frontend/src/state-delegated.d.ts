@@ -50,18 +50,12 @@ declare module './state.svelte' {
         paperRealizedPnlAccumulator: number;
         paperBreakEvenTrailEnabled: boolean;
 
-        apiKeyConfigured: boolean; rulesContent: string;
+        rulesContent: string;
         globalCandlesConfig: { duration_seconds: number; analysis_limit: number };
         globalIndicatorsConfig: Record<string, number>;
         indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
-
-        costPriceInput: number; costPriceOutput: number; costIntervalSecs: number;
-        costRunsPerDay: number; costTokensPerRunInput: number; costTokensPerRunOutput: number;
-        costDailyProjected: number; costWeeklyProjected: number; costMonthlyProjected: number;
-        costActualInputTokens: number; costActualOutputTokens: number; costActualTotal: number;
-        costLoading: boolean;
 
         dashboardStats: DashboardStats | null; dashboardActiveFilter: string;
         dashboardPeriod: string; dashboardOrigin: string;

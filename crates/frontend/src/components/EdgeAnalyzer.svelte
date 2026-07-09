@@ -4,8 +4,6 @@
     import { useEdgeStore } from '../stores/edges.svelte';
     import styles from './EdgeAnalyzer.module.css';
 
-    let { paradigm = 'rule' }: { paradigm?: 'rule' | 'ai' } = $props();
-
     const app = useAppStore();
     const edge = useEdgeStore();
 
@@ -109,7 +107,7 @@
 
 <div class={styles.edgeAnalyzer}>
     <div class={styles.header}>
-        <h2>Edge Analyzer <span class={styles.paradigmBadge}>{paradigm === 'ai' ? 'AI-Driven' : 'Rule-Based'}</span></h2>
+        <h2>Edge Analyzer <span class={styles.paradigmBadge}>Rule-Based</span></h2>
         <div class={styles.headerControls}>
             <select bind:value={selectedTimeframe} class={styles.tfSelect}>
                 <option value={60}>1m Timeframe</option>

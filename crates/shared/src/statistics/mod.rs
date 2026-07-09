@@ -111,7 +111,6 @@ impl StatisticsEngine {
             config.windows.clone()
         };
         let ic_lookback = config.ic_lookback;
-        let ic_forward = config.ic_forward_bars;
         let garch_enabled = config.garch_enabled;
         let garch_window = config.garch_estimation_window;
         Self {
@@ -163,7 +162,7 @@ impl StatisticsEngine {
             } else {
                 Vec::new()
             },
-            ic_tracker: IcTracker::new(ic_lookback, ic_forward),
+            ic_tracker: IcTracker::new(ic_lookback),
             ic_predictions_queue: std::collections::VecDeque::new(),
             cached_var: var::VarCvarSummary::zero(),
             cached_evt: None,
@@ -341,7 +340,7 @@ impl StatisticsEngine {
         let cluster_features = normalize_features(
             close, atr, rsi, bbwp, squeeze, rvol, adx, log_return,
         );
-        let (cluster_label, cluster_stability) =
+        let (_cluster_label, cluster_stability) =
             self.regime_cluster.classify_and_update(&cluster_features);
 
         let mut ctx = StatisticalContext {
@@ -470,7 +469,6 @@ impl StatisticsEngine {
         // Resolve any pending predictions where forward_bars have elapsed.
         let mut resolved_indices: Vec<usize> = Vec::new();
         let mut i = 0;
-        let forward_bars = self.config.ic_forward_bars;
         while i < self.ic_predictions_queue.len() {
             self.ic_predictions_queue[i].1 = self.ic_predictions_queue[i].1.saturating_sub(1);
             if self.ic_predictions_queue[i].1 == 0 {
@@ -517,7 +515,7 @@ impl StatisticsEngine {
                 let above2 = p2 > sma20;
                 if above == above1 && above == above2 {
                     self.bayesian.queue_trigger(
-                        ObservationKind::TrendContinuation, close, atr, rsi, bbwp,
+                        ObservationKind::TrendContinuation, close, atr, rsi,
                     );
                 }
             }
@@ -532,7 +530,7 @@ impl StatisticsEngine {
             let std = var.sqrt().max(1e-12);
             if (close - sma20).abs() > 1.5 * std {
                 self.bayesian.queue_trigger(
-                    ObservationKind::MeanReversion, close, atr, rsi, bbwp,
+                    ObservationKind::MeanReversion, close, atr, rsi,
                 );
             }
         }
@@ -540,14 +538,14 @@ impl StatisticsEngine {
         // Reversal trigger: RSI extreme.
         if rsi > 70.0 || rsi < 30.0 {
             self.bayesian.queue_trigger(
-                ObservationKind::Reversal, close, atr, rsi, bbwp,
+                ObservationKind::Reversal, close, atr, rsi,
             );
         }
 
         // ATR expansion trigger: BBWP high.
         if bbwp > 80.0 {
             self.bayesian.queue_trigger(
-                ObservationKind::AtrExpansion, close, atr, rsi, bbwp,
+                ObservationKind::AtrExpansion, close, atr, rsi,
             );
         }
 
@@ -563,7 +561,7 @@ impl StatisticsEngine {
                 if was_coiling && curr_mom.abs() > 0.3 {
                     self.bayesian.queue_trigger(
                         ObservationKind::SqueezeReleaseBullish,
-                        close, atr, rsi, bbwp,
+                        close, atr, rsi,
                     );
                 }
             }
@@ -572,26 +570,15 @@ impl StatisticsEngine {
         // Volatility expansion trigger.
         if bbwp > 60.0 {
             self.bayesian.queue_trigger(
-                ObservationKind::VolatilityExpansion, close, atr, rsi, bbwp,
+                ObservationKind::VolatilityExpansion, close, atr, rsi,
             );
         }
 
         // Stop before target trigger: every bar is a candidate for
         // hypothetical trade simulation.
         self.bayesian.queue_trigger(
-            ObservationKind::StopBeforeTarget, close, atr, rsi, bbwp,
+            ObservationKind::StopBeforeTarget, close, atr, rsi,
         );
-    }
-
-    /// Expose the distribution tracker for modules that need raw window
-    /// access (market shape, probability, etc.).
-    pub(crate) fn distribution(&self) -> &DistributionTracker {
-        &self.distribution
-    }
-
-    /// Reference to the active configuration.
-    pub(crate) fn config(&self) -> &StatisticsConfig {
-        &self.config
     }
 
     /// Number of completed candles processed so far.

@@ -2,14 +2,6 @@
 
 // Layer 1-2 → Layer 3: Indicator data passed to AI agents
 pub const METHOD_INDICATOR_ANALYZE: &str = "indicator.analyze";
-pub const METHOD_DOMAIN_AGENT_EVALUATE: &str = "agent.evaluate";
-
-// Layer 3 → Layer 4: Agent verdicts passed to orchestrator
-pub const METHOD_AGENT_VERDICT: &str = "agent.verdict";
-
-// Layer 4: Orchestrator decision
-pub const METHOD_ORCHESTRATOR_DECIDE: &str = "orchestrator.decide";
-pub const METHOD_ORCHESTRATOR_INTERVAL_SELECT: &str = "orchestrator.interval_select";
 
 // Risk / Execution layer
 pub const METHOD_EXECUTION_OPEN: &str = "execution.open_position";
@@ -32,7 +24,6 @@ pub const METHOD_INSTANCE_STATUS_CHANGED: &str = "instance.status_changed";
 // Broadcast to frontend
 pub const METHOD_BROADCAST_MARKET_SNAPSHOT: &str = "broadcast.market_snapshot";
 pub const METHOD_BROADCAST_AGENT_RESULT: &str = "broadcast.agent_result";
-pub const METHOD_BROADCAST_ORCHESTRATOR_RESULT: &str = "broadcast.orchestrator_result";
 pub const METHOD_BROADCAST_SAFETY_EVENT: &str = "broadcast.safety_event";
 pub const METHOD_BROADCAST_SYSTEM_STATUS: &str = "broadcast.system_status";
 

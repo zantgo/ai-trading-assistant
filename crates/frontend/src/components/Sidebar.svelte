@@ -13,7 +13,7 @@
 
     function selectInstance(pairKey: string) {
         app.activeTab = pairKey;
-        app.currentGlobalView = 'workspace';
+        app.currentGlobalView = 'workflow';
     }
 
     async function confirmAdd() {

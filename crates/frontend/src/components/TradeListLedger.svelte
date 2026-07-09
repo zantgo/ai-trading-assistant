@@ -94,7 +94,7 @@
                     <th>Entry Reason</th>
                     <th>ROE</th>
                     <th>Score</th>
-                    <th>AI Retrospective</th>
+                    <th>Retrospective</th>
                 </tr>
             </thead>
             <tbody>

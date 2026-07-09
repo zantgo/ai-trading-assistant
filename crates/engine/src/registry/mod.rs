@@ -26,7 +26,6 @@ pub struct InstanceSummary {
 pub async fn add_instance(
     workspace: &Arc<Workspace>,
     pair: (String, String),
-    llm_client: Arc<crate::llm::LlmClient>,
 ) -> Result<Arc<Instance>, String> {
     // Session-first gate: no pipelines may be spawned until the user has
     // initialized a session (exchange + capital) via the Welcome Gate.
@@ -89,25 +88,14 @@ pub async fn add_instance(
 
     let raw_symbol = exchange_choice.raw_symbol(&base, &quote);
 
-    // Verify the symbol is actually tradeable on the selected exchange's
+    // Verify the symbol is actually tradeable on Hyperliquid's
     // perpetual futures market before spawning any pipelines.
     {
-        let (bitget_ticker_url, hl_info_url) = {
+        let hl_info_url = {
             let cfg = workspace.config.read().await;
-            (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
+            cfg.hyperliquid.rest_url()
         };
-        let availability = match exchange_choice {
-            ExchangeChoice::Bitget => {
-                let pt = exchange_choice
-                    .bitget_product_type(&quote)
-                    .unwrap_or("USDT-FUTURES");
-                crate::adapters::bitget_rest::symbol_exists(&raw_symbol, pt, &bitget_ticker_url)
-                    .await
-            }
-            ExchangeChoice::Hyperliquid => {
-                crate::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url).await
-            }
-        };
+        let availability = crate::adapters::hyperliquid_rest::symbol_exists(&base, &hl_info_url).await;
         match availability {
             Ok(true) => {}
             Ok(false) => {
@@ -136,7 +124,6 @@ pub async fn add_instance(
 
     // Register symbol mapping (native <-> unified)
     let exchange_enum = match exchange_choice {
-        ExchangeChoice::Bitget => Exchange::Bitget,
         ExchangeChoice::Hyperliquid => Exchange::Hyperliquid,
     };
     workspace
@@ -174,14 +161,8 @@ pub async fn add_instance(
                 default_indicators.clone(),
             )
         });
-    let rest_url = match exchange_choice {
-        ExchangeChoice::Bitget => config_guard.bitget.rest_url(),
-        _ => config_guard.hyperliquid.rest_url(),
-    };
+    let rest_url = config_guard.hyperliquid.rest_url();
     let drop_fib = fib_config.clone();
-    let operational_mode = pair_cfg
-        .map(|p| p.operational_mode.clone())
-        .unwrap_or_default();
     let weight_overrides = pair_cfg.and_then(|p| p.weight_overrides.clone());
     let position_scaling = pair_cfg.and_then(|p| p.position_scaling.clone());
     drop(config_guard);
@@ -238,7 +219,6 @@ pub async fn add_instance(
         safety_config,
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
-        operational_mode,
         weight_overrides,
         position_scaling,
     };
@@ -246,7 +226,6 @@ pub async fn add_instance(
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
         workspace,
-        llm_client,
         warmed_states.as_ref().ok().cloned(),
     )
     .await;
@@ -425,7 +404,6 @@ pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> R
 pub async fn recharge_instance(
     workspace: &Arc<Workspace>,
     pair_key: &str,
-    llm_client: Arc<crate::llm::LlmClient>,
 ) -> Result<(), String> {
     let old_instance = {
         let instances = workspace.instances.read().await;
@@ -474,11 +452,7 @@ pub async fn recharge_instance(
         .await
         .clone()
         .unwrap_or(Currency::USDC);
-    let rest_url = match exchange_choice {
-        ExchangeChoice::Bitget => config_guard.bitget.rest_url(),
-        _ => config_guard.hyperliquid.rest_url(),
-    };
-    let operational_mode = pair_cfg.operational_mode.clone();
+    let rest_url = config_guard.hyperliquid.rest_url();
     let weight_overrides = pair_cfg.weight_overrides.clone();
     let position_scaling = pair_cfg.position_scaling.clone();
     drop(config_guard);
@@ -543,7 +517,6 @@ pub async fn recharge_instance(
         safety_config: safety_config.clone(),
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
-        operational_mode,
         weight_overrides,
         position_scaling,
     };
@@ -551,7 +524,6 @@ pub async fn recharge_instance(
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
         workspace,
-        llm_client,
         warmed_states.as_ref().ok().cloned(),
     )
     .await;
@@ -588,18 +560,9 @@ pub async fn recharge_instance(
             let old_trading = old_instance.trading.read().await;
             tokio::sync::RwLock::new(old_trading.clone())
         },
-        config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config, pair_cfg.operational_mode.clone())),
+        config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config)),
         safety_config,
-        api_key: {
-            let old_key = old_instance.api_key.read().await;
-            tokio::sync::RwLock::new(old_key.clone())
-        },
-        api_key_valid: {
-            let old_valid = old_instance.api_key_valid.load(std::sync::atomic::Ordering::Relaxed);
-            std::sync::atomic::AtomicBool::new(old_valid)
-        },
         api_failover: old_instance.api_failover.clone(),
-        token_tracker: old_instance.token_tracker.clone(),
         safety: old_instance.safety.clone(),
         active_pair: artifacts.instance.active_pair.clone(),
         automation_ctx: artifacts.instance.automation_ctx.clone(),

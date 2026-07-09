@@ -23,8 +23,6 @@ pub struct IcTracker {
     outcomes: VecDeque<f64>,
     /// Maximum lookback window size.
     lookback: usize,
-    /// Forward bars for outcome measurement.
-    forward_bars: usize,
 }
 
 /// Information Coefficient metrics for the current window.
@@ -39,12 +37,11 @@ pub struct IcMetrics {
 }
 
 impl IcTracker {
-    pub fn new(lookback: usize, forward_bars: usize) -> Self {
+    pub fn new(lookback: usize) -> Self {
         Self {
             predictions: VecDeque::with_capacity(lookback),
             outcomes: VecDeque::with_capacity(lookback),
             lookback,
-            forward_bars,
         }
     }
 
@@ -226,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_ic_tracker_push_and_compute() {
-        let mut tracker = IcTracker::new(20, 5);
+        let mut tracker = IcTracker::new(20);
         // Feed perfectly correlated data
         for i in 0..20 {
             tracker.push(i as f64, i as f64 * 2.0);
@@ -238,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_ic_tracker_too_few() {
-        let tracker = IcTracker::new(20, 5);
+        let tracker = IcTracker::new(20);
         assert!(tracker.compute().is_none());
     }
 }

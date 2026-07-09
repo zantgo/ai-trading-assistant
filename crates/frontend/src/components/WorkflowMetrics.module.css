@@ -1,0 +1,86 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.gateSection {
+    flex-shrink: 0;
+}
+
+.summarySection {
+    flex-shrink: 0;
+}
+
+.groupsSection {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sectionTitle {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    font-family: var(--font-mono, monospace);
+    padding: 0 2px;
+}
+
+.groupBlock {
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-card, #0f172a);
+}
+
+.groupHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.groupHeader:hover {
+    background: var(--bg-dark, #020617);
+}
+
+.groupArrow {
+    font-size: 8px;
+    color: var(--text-muted, #64748b);
+    width: 10px;
+}
+
+.groupName {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.groupCount {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    margin-left: auto;
+}
+
+.groupCards {
+    padding: 4px 6px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 420px;
+    overflow-y: auto;
+}

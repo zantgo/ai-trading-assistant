@@ -1,0 +1,13 @@
+.container {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+}
+.label {
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.5;
+    letter-spacing: 0.04em;
+}

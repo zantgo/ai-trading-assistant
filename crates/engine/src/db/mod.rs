@@ -132,7 +132,6 @@ pub async fn init_db() -> SqlitePool {
         .expect("Database Setup: Failed to run schema migrations");
 
     seed::seed_default_profiles(&pool).await;
-    crate::historical_analyst::add_historical_recommendations_table(&pool).await;
 
     pool
 }

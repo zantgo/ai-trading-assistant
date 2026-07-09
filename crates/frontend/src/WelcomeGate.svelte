@@ -11,9 +11,7 @@
     let error = $state<string | null>(null);
     let loading = $state(false);
 
-    // Perpetual-futures settlement rules per exchange:
-    //  - Hyperliquid settles exclusively in USDC.
-    //  - Bitget supports both USDT-M and USDC-M futures.
+    // Hyperliquid settles exclusively in USDC.
     const supportedCurrencies = $derived(
         exchange === 'Hyperliquid' ? ['USDC'] : ['USDT', 'USDC']
     );
@@ -72,7 +70,7 @@
 <div class={styles.welcomeGate}>
     <div class={styles.welcomeCard}>
         <div class={styles.welcomeHeader}>
-            <h1 class={styles.welcomeTitle}>AI Trading Assistant</h1>
+            <h1 class={styles.welcomeTitle}>Quantitative Trading Engine</h1>
             <p class={styles.welcomeSubtitle}>Configure your session to begin</p>
         </div>
 
@@ -99,9 +97,8 @@
                 <label class={styles.formLabel} for="exchange-select">Exchange</label>
                 <select id="exchange-select" class={styles.formSelect} bind:value={exchange}>
                     <option value="Hyperliquid">Hyperliquid</option>
-                    <option value="Bitget">Bitget</option>
                 </select>
-                <span class={styles.formHint}>Perpetual futures. Hyperliquid settles in USDC; Bitget supports USDT and USDC.</span>
+                <span class={styles.formHint}>Perpetual futures. Hyperliquid settles in USDC.</span>
             </div>
 
             <!-- Settlement Currency -->

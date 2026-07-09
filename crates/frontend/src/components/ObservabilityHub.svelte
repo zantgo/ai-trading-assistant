@@ -32,11 +32,6 @@
         };
     });
 
-    function formatUsd(v: number | undefined): string {
-        if (v == null || isNaN(v)) return '$0.0000';
-        return '$' + v.toFixed(4);
-    }
-
     function formatPnl(v: number | undefined): string {
         if (v == null || isNaN(v)) return '$0.00';
         return (v >= 0 ? '+' : '') + '$' + v.toFixed(2);
@@ -66,14 +61,6 @@
             <div class={styles.vitalCard}>
                 <span class={styles.vitalLabel}>Core Latency</span>
                 <span class={styles.vitalValue + ' ' + styles.textBlue}>{app.systemHeartbeat.latency_ms} ms</span>
-            </div>
-            <div class={styles.vitalCard}>
-                <span class={styles.vitalLabel}>Database Mode</span>
-                <span class={styles.vitalValue + ' ' + styles.textEmerald}>{app.systemHeartbeat.journal_mode}</span>
-            </div>
-            <div class={styles.vitalCard}>
-                <span class={styles.vitalLabel}>Cumulative AI Cost</span>
-                <span class={styles.vitalValue + ' ' + styles.textAmber}>{formatUsd(app.systemHeartbeat.total_ai_token_costs_usd)}</span>
             </div>
         </div>
 
@@ -152,19 +139,6 @@
                         Stop Loss target configured dynamically at ${app.paperInvalidationLevel.toFixed(2)}.
                     </p>
                 </div>
-
-                <!-- Master Orchestrator -->
-                <div class="{styles.agentNode} {app.totalPointsScore > 0 ? styles.complete : ''}">
-                    <div class={styles.agentNodeHeader}>
-                        <span class={styles.agentNodeName}>MASTER ORCHESTRATOR</span>
-                        <span class={styles.agentNodeStatus}>CONFLUENCE: {app.totalPointsScore} pt</span>
-                    </div>
-                    <p class={styles.agentNodeThought}>
-                        Synthesizing inputs from sub-agents.
-                        Point Score evaluates to {app.totalPointsScore}/90.
-                        Capital allocation multiplier maps to: {app.allocatedCapitalPct}%.
-                    </p>
-                </div>
             </div>
         </div>
 
@@ -174,13 +148,13 @@
                 <h4 class={styles.cardTitle}>Decision Memory Buffer</h4>
                 <div class={styles.bufferList}>
                     {#if app.recentDecisions.length === 0}
-                        <p class={styles.bufferEmpty}>No logged orchestrator runs in memory.</p>
+                        <p class={styles.bufferEmpty}>No logged decision runs in memory.</p>
                     {:else}
                         {#each app.recentDecisions as dec (dec.id)}
                             <div class={styles.bufferRow}>
                                 <span class={styles.bufferTime}>{formatTime(dec.timestamp)}</span>
                                 <span class={'buffer-regime ' + styles.textBlue + ' font-semibold'}>{dec.regime_classification}</span>
-                                <span class={styles.bufferAction}>{dec.orchestrator_decision}</span>
+                                <span class={styles.bufferAction}>{dec.confidence_score}% conf</span>
                                 <span class={'buffer-score font-mono'}>{dec.eight_factor_score} pts</span>
                             </div>
                         {/each}

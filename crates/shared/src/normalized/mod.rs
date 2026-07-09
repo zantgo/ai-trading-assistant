@@ -12,7 +12,6 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Exchange {
     Hyperliquid,
-    Bitget,
 }
 
 impl std::fmt::Display for Exchange {

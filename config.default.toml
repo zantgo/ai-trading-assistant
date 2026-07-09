@@ -38,10 +38,27 @@ chop_period = 14
 linreg_period = 20
 zscore_period = 20
 
-[costs]
-price_per_1m_input_tokens = 0.27
-price_per_1m_output_tokens = 1.10
-
 [fees]
 maker_fee_pct = 0.02
 taker_fee_pct = 0.06
+
+[decision]
+exit_opposite_threshold = 60.0
+anomaly_threshold = 0.85
+max_signal_age_bars = 5
+w_confluence = 0.25
+w_readiness = 0.20
+w_quality = 0.15
+w_safety = 0.15
+w_trend = 0.10
+w_regime_conf = 0.10
+w_breakout = 0.05
+regime_mult_trending = 1.0
+regime_mult_expansion = 0.9
+regime_mult_range = 0.7
+regime_mult_compression = 0.5
+regime_mult_transitional = 0.0
+open_threshold_trending = 0.55
+open_threshold_expansion = 0.60
+open_threshold_range = 0.70
+open_threshold_compression = 999.0

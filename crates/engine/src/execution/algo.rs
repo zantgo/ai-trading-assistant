@@ -11,7 +11,7 @@
 //! - **ImplementationShortfall**: Balances market impact, timing risk,
 //!   and opportunity cost (Almgren-Chriss framework).
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Algorithm type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

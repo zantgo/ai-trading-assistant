@@ -891,7 +891,7 @@ pub async fn run_single(
                             }
 
                             // CHoCH + volume structural breakdown invalidation
-                            if let Some(pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
+                            if let Some(_pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
                                 let has_choch = completed_snapshot.indicators.get("smc_structure")
                                     .and_then(|v| v.values.as_ref())
                                     .map(|vals| {

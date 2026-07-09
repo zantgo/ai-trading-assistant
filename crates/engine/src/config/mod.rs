@@ -13,8 +13,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub hyperliquid: HyperliquidConfig,
     #[serde(default)]
-    pub bitget: BitgetConfig,
-    #[serde(default)]
     pub fibonacci: FibonacciConfig,
     #[serde(default)]
     pub pivots: PivotsConfig,

@@ -1,8 +1,6 @@
-pub mod analyze;
-pub mod assistant;
 pub mod backtest;
-pub mod chat;
 pub mod config;
+pub mod decision;
 pub mod dashboard;
 pub mod edges;
 pub mod exchange_keys;

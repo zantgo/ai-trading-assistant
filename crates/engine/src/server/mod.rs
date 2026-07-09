@@ -5,14 +5,12 @@ use axum::{
 };
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::config::AppConfig;
-use crate::llm::LlmClient;
 use crate::workspace::Workspace;
 
 pub mod handlers;
@@ -30,33 +28,12 @@ pub struct AppState {
     pub workspace: Arc<Workspace>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
-    pub llm_client: Arc<LlmClient>,
-    pub api_key_configured: Arc<AtomicBool>,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
     pub ws_url: String,
-    pub bitget_ws_url: String,
 }
 
 // ── Stratified state types for Axum FromRef ──────────────────────
-
-#[derive(Clone)]
-pub struct DbState(pub SqlitePool);
-
-impl axum::extract::FromRef<Arc<AppState>> for DbState {
-    fn from_ref(state: &Arc<AppState>) -> Self {
-        Self(state.pool.clone())
-    }
-}
-
-#[derive(Clone)]
-pub struct LlmState(pub Arc<LlmClient>);
-
-impl axum::extract::FromRef<Arc<AppState>> for LlmState {
-    fn from_ref(state: &Arc<AppState>) -> Self {
-        Self(state.llm_client.clone())
-    }
-}
 
 #[derive(Clone)]
 pub struct WsState(pub mpsc::Sender<crate::db::TelemetryMsg>);
@@ -94,12 +71,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/config",
             get(handlers::config::serve_config).post(handlers::config::update_config),
         )
-        .route("/api/config/key", post(handlers::config::serve_set_key))
         .route("/api/config/scoring-weights", get(handlers::config::serve_get_scoring_weights).post(handlers::config::serve_set_scoring_weights))
-        .route(
-            "/api/rules",
-            get(handlers::config::serve_get_rules).post(handlers::config::serve_set_rules),
-        )
+        .route("/api/decision", post(handlers::decision::serve_decision))
         .route("/api/history", get(handlers::history::serve_history))
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
         .route(
@@ -110,19 +83,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/risk-profile",
             get(handlers::risk_profile::serve_risk_profile),
         )
-        .route("/api/analyze", post(handlers::analyze::serve_analyze))
-        .route("/api/chat", post(handlers::chat::serve_chat))
         .route(
             "/api/trades",
             get(handlers::trades::serve_get_trades).post(handlers::trades::serve_add_trade),
-        )
-        .route(
-            "/api/assistant-records",
-            get(handlers::assistant::serve_assistant_records),
-        )
-        .route(
-            "/api/automated-performance",
-            get(handlers::assistant::serve_automated_performance),
         )
         .route(
             "/api/paper/status",
@@ -229,22 +192,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::instances::serve_instance_intervals),
         )
         .route(
-            "/api/instances/:instance_id/api-key",
-            post(handlers::instances::serve_set_instance_api_key),
-        )
-        .route(
-            "/api/instances/:instance_id/api-key",
-            delete(handlers::instances::serve_delete_instance_api_key),
-        )
-        .route(
-            "/api/instances/:instance_id/usage",
-            get(handlers::instances::serve_instance_usage),
-        )
-        .route(
-            "/api/settings/backup-api-key",
-            post(handlers::config::serve_set_backup_api_key),
-        )
-        .route(
             "/api/settings/profile",
             get(handlers::config::serve_get_profile)
                 .post(handlers::config::serve_set_profile),
@@ -252,14 +199,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/settings/max-instances",
             post(handlers::config::serve_set_max_instances),
-        )
-        .route(
-            "/api/historical-recommendations",
-            get(handlers::assistant::serve_historical_recommendations),
-        )
-        .route(
-            "/api/instances/:instance_id/chat",
-            post(handlers::chat::serve_instance_chat),
         )
         .route(
             "/api/decision-profiles",
@@ -343,10 +282,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/trades/telemetry",
             post(handlers::trades::serve_trade_telemetry_add),
-        )
-        .route(
-            "/api/cost-estimate",
-            get(handlers::assistant::serve_cost_estimate),
         )
         .route(
             "/api/edges",

@@ -1,64 +1,6 @@
-use crate::db::{CompletedTradesBufferRow, DecisionMemoryBufferRow};
-use crate::llm::{AnalystDocument, ChatMessage, TraderDecision};
 use serde::{Deserialize, Serialize};
 use shared::indicators::normalized::NormalizedIndicatorValue;
 use std::collections::{BTreeSet, HashMap};
-
-#[derive(Debug, Deserialize)]
-pub struct AnalyzeRequest {
-    pub position: String,
-    #[serde(default)]
-    pub entry_price: String,
-    pub historical_prices: Vec<f64>,
-    pub indicators: IndicatorSnapshot,
-    #[serde(default)]
-    pub symbol: String,
-    #[serde(default)]
-    pub timeframes: Option<MultiTimeframeIndicators>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct MultiTimeframeIndicators {
-    pub micro_term: IndicatorSnapshot,
-    pub fast_term: IndicatorSnapshot,
-    #[serde(default)]
-    pub slow_term: Option<IndicatorSnapshot>,
-    #[serde(default)]
-    pub macro_term: Option<IndicatorSnapshot>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SetKeyRequest {
-    pub api_key: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SetRulesRequest {
-    pub content: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RulesResponse {
-    pub content: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConfigResponse {
-    pub api_key_configured: bool,
-    pub symbols: Vec<String>,
-    pub candles: crate::config::CandlesConfig,
-    pub indicators: crate::config::IndicatorsConfig,
-    pub instances: std::collections::HashMap<String, crate::config::InstanceSpecificConfig>,
-    /// Authoritative indicator manifest (single source of truth) consumed by the
-    /// frontend to drive the telemetry matrix, toggles, and scoring UI.
-    pub indicator_registry: Vec<shared::indicators::IndicatorMeta>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AssistantRecordsQuery {
-    #[serde(default)]
-    pub trigger_type: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct HistoryQuery {
@@ -234,12 +176,6 @@ fn divergence_status(label: Option<&str>) -> Option<String> {
         Some("POTENTIAL_BEARISH_DIVERGENCE") => Some("potential_bearish".into()),
         _ => None,
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct WizardAnalysisResponse {
-    pub analyst_document: AnalystDocument,
-    pub trader_decision: TraderDecision,
 }
 
 #[derive(Debug, Serialize)]
@@ -433,16 +369,6 @@ pub struct SafetyStateDto {
     pub suspend_threshold: u32,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ChatReplResponse {
-    pub reply: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ChatHistoryRequest {
-    pub history: Vec<ChatMessage>,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct AddTradeRequest {
     pub symbol: String,
@@ -451,76 +377,6 @@ pub struct AddTradeRequest {
     pub risk_multiplier: f64,
     pub reward_multiplier: f64,
 }
-
-#[derive(Debug, Serialize)]
-pub struct MasterRecordJson {
-    pub id: i64,
-    pub created_at: String,
-    pub position: String,
-    pub entry_price: Option<String>,
-    pub trend_classification: String,
-    pub indicator_alignment: String,
-    pub indicator_synthesis_summary: String,
-    pub recommended_action: String,
-    pub recommendation_rationale: String,
-    pub price_at_analysis: String,
-    pub support_levels: String,
-    pub resistance_levels: String,
-    pub symbol: String,
-    pub trigger_type: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MasterHistoryResponse {
-    pub records: Vec<MasterRecordJson>,
-    pub latest_close: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AnalyzeAcceptedResponse {
-    pub master_id: i64,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SystemStatusResponse {
-    pub connected: bool,
-    pub latency_ms: u64,
-    pub journal_mode: String,
-    pub total_allocated_margin: f64,
-    pub total_ai_token_costs_usd: f64,
-    pub active_pairs_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ObservabilityBuffersResponse {
-    pub symbol: String,
-    pub recent_decisions: Vec<DecisionMemoryBufferRow>,
-    pub completed_trades: Vec<CompletedTradesBufferRow>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CostEstimateResponse {
-    pub price_per_1m_input_tokens: f64,
-    pub price_per_1m_output_tokens: f64,
-    pub interval_seconds: u64,
-    pub runs_per_day: f64,
-    pub input_tokens_per_run: u64,
-    pub output_tokens_per_run: u64,
-    pub projected_daily_cost: f64,
-    pub projected_weekly_cost: f64,
-    pub projected_monthly_cost: f64,
-    pub actual_input_tokens_used: u64,
-    pub actual_output_tokens_used: u64,
-    pub actual_total_cost: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CostEstimateQuery {
-    pub pair_key: Option<String>,
-}
-
-// ─── Paper Trading ───────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub struct PaperStatusQuery { #[serde(default)] pub symbol: String }
@@ -796,37 +652,13 @@ pub struct InstanceConfigPayload {
     #[serde(default)]
     pub automation: Option<crate::config::AutomationConfig>,
     #[serde(default)]
-    pub operational_mode: Option<String>,
-    #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
     pub position_scaling: Option<crate::config::PositionScalingConfig>,
-    #[serde(default)]
-    pub ai_trigger: Option<crate::config::AiTriggerConfig>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct InstanceManualRequest { pub action: String, pub direction: Option<String>, #[serde(default)] pub price: Option<f64> }
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceApiKeyRequest { pub api_key: String, #[serde(default)] pub base_url: Option<String>, #[serde(default)] pub model: Option<String> }
-
-#[derive(Debug, Serialize)]
-pub struct InstanceUsageResponse {
-    pub id: String, pub pair: String, pub symbol: String, pub status: String,
-    pub initial_capital: f64, pub current_equity: f64, pub paper_balance: f64,
-    pub paper_equity: f64, pub paper_unrealized_pnl: f64,
-    pub consecutive_losses: u32,
-    pub caution_level: String, pub instance_id: String, pub consecutive_failures: u32,
-    pub failover_active: bool, pub failover_source: Option<String>,
-    pub input_tokens: u64, pub output_tokens: u64,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct InstanceIntervalsRequest { pub slow_seconds: i64, pub normal_seconds: i64, pub fast_seconds: i64 }
-
-#[derive(Debug, Deserialize)]
-pub struct BackupApiKeyRequest { pub api_key: String, pub label: Option<String> }
-
-#[derive(Debug, Deserialize)]
-pub struct InstanceChatRequest { pub message: String, #[serde(default)] pub context: Option<String>, #[serde(default)] pub history: Vec<crate::llm::ChatMessage> }

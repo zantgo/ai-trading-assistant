@@ -96,7 +96,6 @@ pub fn single_factor_beta(asset_returns: &[f64], factor_returns: &[f64]) -> Opti
         1.0
     };
     let se_alpha = if n > 2 {
-        let x_sq_sum: f64 = factor_returns.iter().map(|f| f.powi(2)).sum();
         (var_residual * (1.0 / n as f64 + mean_factor.powi(2) / (var_factor * (n - 1) as f64))).sqrt()
     } else {
         1.0

@@ -9,7 +9,7 @@
         app.fetchExchangeKeys();
     });
 
-    const EXCHANGES = ['Bitget', 'Hyperliquid'];
+    const EXCHANGES = ['Hyperliquid'];
     let form = app.exchangeFormDraft;
     let showForm = $state(false);
 
@@ -64,7 +64,7 @@
                     </div>
                     <div class={styles.esFieldRow}>
                         <label class={styles.esLabel} for="es-passphrase">Passphrase</label>
-                        <input id="es-passphrase" type="password" class={styles.esInput} bind:value={form.passphrase} placeholder="Required for Bitget" />
+                        <input id="es-passphrase" type="password" class={styles.esInput} bind:value={form.passphrase} placeholder="Optional" />
                     </div>
                     <div class={styles.esFieldRow}>
                         <label class={styles.esLabel} for="es-referred">Referred UID</label>

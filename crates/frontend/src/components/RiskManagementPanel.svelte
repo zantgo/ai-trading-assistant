@@ -13,7 +13,7 @@
     let activeTab = $state<'calculator' | 'risk_profile'>('calculator');
 
     // ─── Live ATR value from pair's telemetry ───
-    const liveAtr = $derived(() => {
+    const liveAtr = $derived.by(() => {
         const p = pair as any;
         const snap = p?.microTerm?.latestSnapshot;
         if (!snap) return null;
@@ -182,7 +182,7 @@
                     <div class={styles.card}>
                         <h3 class={styles.cardTitle}>OPERATION</h3>
                         <div class={styles.fieldRow}>
-                            <label class={styles.label}>Direction</label>
+                            <span class={styles.label}>Direction</span>
                             <div class={styles.toggle}>
                                 <button class="{styles.toggleBtn} {app.riskDirection === 'LONG' ? styles.toggleLong + ' ' + styles.toggleActive : ''}"
                                     onclick={() => app.riskDirection = 'LONG'}>LONG</button>
@@ -243,11 +243,11 @@
                             </div>
                         </div>
                         <div class={styles.fieldRow}>
-                            <label class={styles.label}>Risk/Reward</label>
+                            <span class={styles.label}>Risk/Reward</span>
                             <span class={styles.staticVal}>1 : {app.riskCalculation?.risk_reward_ratio != null ? app.riskCalculation!.risk_reward_ratio!.toFixed(2) : '--'}</span>
                         </div>
                         <div class={styles.fieldRow}>
-                            <label class={styles.label}>Est. Profit</label>
+                            <span class={styles.label}>Est. Profit</span>
                             <span class={styles.profitVal}>{formatUsd(app.riskCalculation?.estimated_profit)}</span>
                         </div>
                     </div>

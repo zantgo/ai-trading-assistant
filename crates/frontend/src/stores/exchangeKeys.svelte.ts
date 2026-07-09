@@ -8,7 +8,7 @@ export class ExchangeKeyStore {
         exchange: string; account_name: string; api_key: string; api_secret: string;
         passphrase: string; referred_uid: string; is_active: boolean;
     }>({
-        exchange: 'Bitget', account_name: '', api_key: '', api_secret: '',
+        exchange: 'Hyperliquid', account_name: '', api_key: '', api_secret: '',
         passphrase: '', referred_uid: '', is_active: true,
     });
 
@@ -17,7 +17,7 @@ export class ExchangeKeyStore {
     }
 
     async addExchangeKey() {
-        try { const res = await fetch('/api/exchange-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.exchangeFormDraft) }); if (res.ok) { this.exchangeFormDraft = { exchange: 'Bitget', account_name: '', api_key: '', api_secret: '', passphrase: '', referred_uid: '', is_active: true }; await this.fetchExchangeKeys(); } } catch (_) {}
+        try { const res = await fetch('/api/exchange-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.exchangeFormDraft) }); if (res.ok) { this.exchangeFormDraft = { exchange: 'Hyperliquid', account_name: '', api_key: '', api_secret: '', passphrase: '', referred_uid: '', is_active: true }; await this.fetchExchangeKeys(); } } catch (_) {}
     }
 
     async deleteExchangeKey(id: number) {

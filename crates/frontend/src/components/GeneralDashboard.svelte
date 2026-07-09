@@ -8,7 +8,6 @@
 
     const app = useAppStore();
     let stats = $state<DashboardStats | null>(null);
-    let recommendations = $state<any[]>([]);
     let heartbeat = $state<SystemHeartbeat | null>(null);
     let instances = $state<InstanceSummary[]>([]);
     let loading = $state(true);
@@ -51,19 +50,14 @@
 
     async function fetchAll() {
         try {
-            const [statsRes, recsRes, statusRes, instancesRes, paperPerfRes] = await Promise.all([
+            const [statsRes, statusRes, instancesRes, paperPerfRes] = await Promise.all([
                 fetch(`/api/dashboard/stats?initial_capital=${app.sessionCapital}`),
-                fetch('/api/historical-recommendations'),
                 fetch('/api/system/status'),
                 fetch('/api/instances'),
                 fetch('/api/paper/performance'),
             ]);
 
             if (statsRes.ok) stats = await statsRes.json();
-            if (recsRes.ok) {
-                const data = await recsRes.json();
-                recommendations = data.recommendations || [];
-            }
             if (statusRes.ok) heartbeat = await statusRes.json();
 
             let paperPnl = 0;
@@ -601,41 +595,6 @@
                         </div>
                     {/if}
                 </div>
-            </div>
-        {/if}
-
-        <!-- Historical Analyst Recommendations -->
-        {#if recommendations.length > 0}
-            <div class={styles.sectionHeader}>
-                <h3>Historical Analyst Recommendations</h3>
-            </div>
-            <div class={styles.recommendationsList}>
-                {#each recommendations.slice(0, 5) as rec}
-                    <div class={styles.recCard}>
-                        <div class={styles.recHeader}>
-                            <span class={styles.recSymbol}>{rec.symbol || rec.pair_key}</span>
-                            <span class={styles.recDate}>{rec.generated_at?.substring(0, 10)}</span>
-                            <span class={styles.recStats}>
-                                WR: {(rec.win_rate * 100).toFixed(0)}% |
-                                PF: {rec.profit_factor?.toFixed(2)} |
-                                R:R: {rec.avg_risk_reward?.toFixed(2)}
-                            </span>
-                        </div>
-                        {#if rec.key_improvements}
-                            <p class={styles.recText}><strong>Improvements:</strong> {rec.key_improvements}</p>
-                        {/if}
-                        {#if rec.risk_recommendation}
-                            <p class={styles.recText}><strong>Risk:</strong> {rec.risk_recommendation}</p>
-                        {/if}
-                        {#if rec.regime_analysis}
-                            <p class={styles.recText}><strong>Regimes:</strong> {rec.regime_analysis}</p>
-                        {/if}
-                    </div>
-                {/each}
-            </div>
-        {:else}
-            <div class={styles.sectionHeader}>
-                <p class={styles.noData}>No historical analyst recommendations yet. They appear after enough trades accumulate.</p>
             </div>
         {/if}
     {/if}

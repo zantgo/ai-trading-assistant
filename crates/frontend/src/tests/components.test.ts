@@ -10,7 +10,6 @@ describe('TEST-UI: Component State Validation', () => {
     beforeEach(() => {
         app = useAppStore();
         app.initInstance('TEST');
-        app.apiKeyConfigured = true;
     });
 
     it('should reject negative leverage in risk calculation', () => {

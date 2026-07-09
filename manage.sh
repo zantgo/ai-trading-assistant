@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# AI Trading Assistant - Workspace Management Script
+# Quantitative Trading Engine - Workspace Management Script
 # ==============================================================================
 
 set -euo pipefail
@@ -12,14 +12,13 @@ FRONTEND_DIR="crates/frontend"
 PID_FILE=".engine.pid"
 
 show_help() {
-    echo "AI Trading Assistant - CLI Management Tool"
+    echo "Quantitative Trading Engine - Management Tool"
     echo "Usage: ./manage.sh [command]"
     echo ""
     echo "Commands:"
     echo "  build              Compile frontend assets and verify cargo workspace compiles"
     echo "  run                Run the engine in the foreground with live logs"
     echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
-    echo "  cli                Launch the interactive CLI trading console"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
     echo "  test               Run all 5 test suites (core → correlation → e2e → engine-full → ui)"
@@ -38,11 +37,7 @@ show_help() {
 }
 
 check_env() {
-    if [ ! -f ".env" ]; then
-        echo "❌ Error: .env file missing in workspace root."
-        echo "   Copy .env.example to .env and configure your DEEPSEEK_API_KEY."
-        exit 1
-    fi
+    return 0
 }
 
 build() {
@@ -63,7 +58,7 @@ run_foreground() {
         echo "⚠️  Frontend build missing. Triggering compilation first..."
         build
     fi
-    echo "🚀 Starting AI Trading Assistant in the foreground..."
+    echo "🚀 Starting Quantitative Trading Engine in the foreground..."
     cargo run -- --web
 }
 
@@ -82,19 +77,13 @@ run_silent() {
         fi
     fi
 
-    echo "🚀 Starting AI Trading Assistant in the background..."
+    echo "🚀 Starting Quantitative Trading Engine in the background..."
     echo "📝 Logs will be written to: $LOG_FILE"
     
     # Run cargo in background and record PID
     nohup cargo run -- --web > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "✅ Engine running under PID: $!"
-}
-
-cli_mode() {
-    check_env
-    echo "🖥️  Starting AI Trading Assistant — CLI Console..."
-    cargo run -- --cli
 }
 
 stop_instance() {
@@ -267,9 +256,6 @@ case "$1" in
         ;;
     run-silent)
         run_silent
-        ;;
-    cli)
-        cli_mode
         ;;
     stop)
         stop_instance

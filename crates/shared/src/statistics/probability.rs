@@ -400,10 +400,6 @@ mod tests {
         (0..n).map(|i| base + i as f64 * step).collect()
     }
 
-    fn make_downtrend(n: usize, base: f64, step: f64) -> Vec<f64> {
-        (0..n).map(|i| base - i as f64 * step).collect()
-    }
-
     #[test]
     fn test_trend_continuation_uptrend() {
         let prices = make_uptrend(100, 50000.0, 10.0);
@@ -422,7 +418,7 @@ mod tests {
         let n = 100;
         let mut rsis = vec![50.0; n];
         let mut prices = vec![50000.0; n];
-        let mut atrs = vec![500.0; n];
+        let atrs = vec![500.0; n];
         for i in 0..n {
             let phase = (i as f64 * 0.3).sin();
             rsis[i] = 50.0 + phase * 30.0;

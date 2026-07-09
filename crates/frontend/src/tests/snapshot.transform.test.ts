@@ -64,7 +64,6 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
     beforeEach(() => {
         app = useAppStore();
         app.initInstance('BTC');
-        app.apiKeyConfigured = true;
     });
 
     it('parses the nested indicators map into the state rune', () => {

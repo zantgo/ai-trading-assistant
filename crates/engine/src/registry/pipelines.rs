@@ -6,12 +6,11 @@ use rust_decimal::Decimal;
 use crate::analyzer;
 use crate::automation;
 use crate::config::{
-    FibonacciConfig, IntervalsConfig, OperationalMode, PositionScalingConfig,
+    FibonacciConfig, IntervalsConfig, PositionScalingConfig,
     SafetyConfig, TimeframeConfig,
 };
 use crate::db;
 use crate::instance::{Instance, TimeframeBuffers};
-use crate::llm::LlmClient;
 use crate::portfolio_risk::PortfolioRiskState;
 use crate::sr_engine::SrRoleTracker;
 use crate::workspace::{Currency, ExchangeChoice, Workspace};
@@ -36,7 +35,6 @@ pub struct PipelineContext {
     pub safety_config: SafetyConfig,
     pub intervals_config: IntervalsConfig,
     pub cancel: CancellationToken,
-    pub operational_mode: OperationalMode,
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     pub position_scaling: Option<PositionScalingConfig>,
 }
@@ -52,7 +50,6 @@ pub struct PipelineArtifacts {
 pub async fn build_pipelines(
     ctx: &PipelineContext,
     workspace: &Arc<Workspace>,
-    llm_client: Arc<LlmClient>,
     warmed_states: Option<(
         analyzer::WarmedPipelineState,
         analyzer::WarmedPipelineState,
@@ -230,7 +227,6 @@ pub async fn build_pipelines(
         fast_buf.clone(),
         slow_buf.clone(),
         macro_buf.clone(),
-        ctx.operational_mode.clone(),
     ));
 
     let (trigger_tx, trigger_rx) = mpsc::channel::<automation::TriggerMessage>(32);
@@ -252,16 +248,13 @@ pub async fn build_pipelines(
         macro_snapshot_history: macro_snapshot_history.clone(),
         config: workspace.config.clone(),
         pool: workspace.pool.clone(),
-        llm_client,
         telemetry_tx: workspace.telemetry_tx.clone(),
         cancel: cancel.clone(),
-        api_key_configured: workspace.api_key_configured.clone(),
         portfolio_risk: Arc::new(PortfolioRiskState::default()),
         pair_close_histories: Arc::new(RwLock::new(HashMap::new())),
         safety: instance.safety.clone(),
         intervals: instance.config_state.read().await.intervals.clone(),
         next_interval_override: Arc::new(RwLock::new(None)),
-        operational_mode: ctx.operational_mode.clone(),
         weight_overrides: Arc::new(RwLock::new(ctx.weight_overrides.clone())),
         position_scaling: Arc::new(RwLock::new(ctx.position_scaling.clone())),
         candle_counters: Arc::new(RwLock::new(HashMap::new())),
@@ -508,26 +501,14 @@ async fn spawn_tasks(
         });
     }
 
-    // WebSocket adapter (perpetual futures on all exchanges)
+    // WebSocket adapter (perpetual futures on Hyperliquid)
     let ws_symbol = exchange_choice.raw_symbol(base, &quote);
-    let ws_product_type = exchange_choice
-        .bitget_product_type(&quote)
-        .unwrap_or("")
-        .to_string();
     let ws_internal = internal_symbol.to_string();
     let ws_tx = active_pair.snapshot_tx.clone();
     let ws_cancel = cancel.clone();
-    let ws_url = if exchange_choice == ExchangeChoice::Bitget {
-        workspace.bitget_ws_url.clone()
-    } else {
-        workspace.ws_url.clone()
-    };
+    let ws_url = workspace.ws_url.clone();
     tokio::spawn(async move {
-        if exchange_choice == ExchangeChoice::Bitget {
-            crate::adapters::bitget::run_for_symbol(ws_symbol, ws_internal, ws_product_type, ws_tx, ws_cancel, &ws_url).await;
-        } else {
-            crate::adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, &ws_url).await;
-        }
+        crate::adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, &ws_url).await;
     });
 }
 

@@ -75,3 +75,108 @@
     @keyframes spin {
         to { transform: rotate(360deg); }
     }
+    .profile-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 99;
+    }
+
+    /* ── Pair tabs in global header ── */
+    .pair-tabs-group {
+        display: flex;
+        gap: 2px;
+        margin-left: 12px;
+    }
+    .pair-tab {
+        padding: 2px 10px;
+        font-size: 10px;
+        font-weight: 600;
+        font-family: var(--font-mono, monospace);
+        color: #64748b;
+        background: #0f1117;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .pair-tab:hover { color: #cbd5e1; border-color: #2d3448; }
+    .pair-tab-active {
+        color: #ffffff;
+        background: #1c212e;
+        border-color: #3b4562;
+        font-weight: 700;
+    }
+
+    /* ── Instance navbar ── */
+    .instance-navbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        border-bottom: 1px solid #1c212e;
+        background: #080a0e;
+        flex-shrink: 0;
+    }
+    .instance-nav-tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #64748b;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .instance-nav-tab:hover { color: #cbd5e1; }
+    .instance-nav-tab:global(.active) {
+        color: #ffffff;
+        background: #1c212e;
+        border-color: #3b4562;
+        font-weight: 700;
+    }
+    .instance-nav-muted {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: auto;
+        padding: 4px 8px;
+        font-size: 10px;
+        color: #475569;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+    }
+    .instance-nav-muted:hover { color: #94a3b8; }
+
+    /* ── Instance pair banner ── */
+    .instance-pair-banner {
+        padding: 8px 12px;
+        background: #0a0c12;
+        border-bottom: 1px solid #1c212e;
+        flex-shrink: 0;
+    }
+
+    /* ── Manage header & empty state ── */
+    .manage-header { padding: 12px 16px 0; }
+    .back-btn {
+        padding: 4px 10px;
+        font-size: 11px;
+        color: #64748b;
+        background: #0f1117;
+        border: 1px solid #2d3448;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .back-btn:hover { color: #cbd5e1; }
+    .empty-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        color: #475569;
+        font-size: 13px;
+    }

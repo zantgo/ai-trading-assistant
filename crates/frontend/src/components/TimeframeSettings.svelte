@@ -224,7 +224,7 @@
                 applyTermToTelemetry(draft.macro, pair.macroTerm);
                 onApplied?.();
                 saveStatus = 'success';
-                setTimeout(() => { saveStatus = 'idle'; pair.currentView = 'terminal'; }, 800);
+                setTimeout(() => { saveStatus = 'idle'; pair.workflowView = 'workflow_charts'; }, 800);
             } else {
                 saveStatus = 'error';
             }

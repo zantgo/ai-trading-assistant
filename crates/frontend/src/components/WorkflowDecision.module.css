@@ -1,0 +1,203 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-muted, #64748b);
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+}
+
+.error {
+    padding: 10px;
+    border: 1px solid #ef444444;
+    border-radius: 6px;
+    background: #ef444410;
+    color: #ef4444;
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+}
+
+/* ── Decision Output ── */
+.decisionSection {
+    border: 2px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--bg-card, #0f172a);
+}
+
+.actionRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.actionLabel, .confLabel {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    font-family: var(--font-mono, monospace);
+}
+
+.actionValue {
+    padding: 4px 14px;
+    border: 2px solid;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    text-transform: uppercase;
+}
+
+.confValue {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+}
+
+.confTrack {
+    flex: 1;
+    min-width: 80px;
+    height: 6px;
+    background: var(--border-muted, #1e293b);
+    border-radius: 3px;
+}
+
+.confFill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.rationale {
+    padding: 8px;
+    border-top: 1px solid var(--border-muted, #1e293b);
+}
+
+.rationaleLabel, .riskLabel {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    font-family: var(--font-mono, monospace);
+}
+
+.rationaleText, .riskText {
+    margin: 4px 0 0;
+    font-size: 11px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.4;
+}
+
+.riskNotes {
+    padding: 8px;
+    border-top: 1px solid var(--border-muted, #1e293b);
+    background: #f59e0b08;
+}
+
+/* ── Factor Breakdown ── */
+.factorSection {
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--bg-card, #0f172a);
+}
+
+.factorTitle, .gatesTitle {
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    font-family: var(--font-mono, monospace);
+}
+
+.factorRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.factorName {
+    font-size: 10px;
+    color: var(--text-secondary, #94a3b8);
+    font-family: var(--font-mono, monospace);
+    width: 72px;
+}
+
+.factorWeight {
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    font-family: var(--font-mono, monospace);
+    width: 36px;
+}
+
+.factorTrack {
+    flex: 1;
+    height: 6px;
+    background: var(--border-muted, #1e293b);
+    border-radius: 3px;
+}
+
+.factorFill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.factorVal {
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-mono, monospace);
+    width: 30px;
+    text-align: right;
+}
+
+.factorMeta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-muted, #1e293b);
+    font-size: 9px;
+    color: var(--text-muted, #64748b);
+    font-family: var(--font-mono, monospace);
+}
+
+/* ── Hard Gates ── */
+.gatesSection {
+    border: 1px solid var(--border-muted, #1e293b);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--bg-card, #0f172a);
+}
+
+.failingGates {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.failingGate {
+    padding: 4px 8px;
+    border: 1px solid #ef444444;
+    border-radius: 4px;
+    background: #ef444410;
+    color: #ef4444;
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+}
+
+.confluenceSection, .dcSection {
+    flex-shrink: 0;
+}

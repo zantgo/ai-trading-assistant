@@ -1,5 +1,5 @@
 use crate::config::ExecutionConfig;
-use crate::execution::order_manager::{OrderState, OrderStatus};
+use crate::execution::order_manager::OrderState;
 
 pub struct ExecutionGuard {
     pub max_slippage_pct: f64,

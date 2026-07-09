@@ -29,12 +29,6 @@ use crate::statistics::WINDOW_SIZES;
 ///  13 → EMA_50
 pub(crate) const METRIC_COUNT: usize = 14;
 
-/// Human-friendly names for the 14 tracked metrics.
-pub(crate) const METRIC_NAMES: [&str; METRIC_COUNT] = [
-    "price", "returns", "atr", "rsi", "bbwp", "squeeze", "volume", "rvol", "adx",
-    "macd", "obv", "stochk", "choppiness", "ema_50",
-];
-
 // ── Pure distribution functions (work on any &[f64]) ──────────
 
 /// Median value. Sorts a clone — O(n log n) per call.

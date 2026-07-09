@@ -1,6 +1,5 @@
 use std::collections::{VecDeque, HashMap};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use tokio::sync::{RwLock, mpsc};
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
@@ -8,12 +7,10 @@ use tokio_util::sync::CancellationToken;
 use rust_decimal::prelude::ToPrimitive;
 
 use crate::config::{
-    AppConfig, AutomationConfig, IntervalsConfig, OperationalMode, TriggerMode,
+    AppConfig, AutomationConfig, IntervalsConfig,
     PositionScalingConfig,
 };
 use crate::db;
-use crate::event_detector;
-use crate::llm::LlmClient;
 use crate::paper_trading;
 use crate::profile_evaluation::{SnapshotValues, classify_market_regime, regime_allows_entry};
 use crate::safety::SafetyManager;
@@ -49,16 +46,13 @@ pub struct AutomationContext {
     pub macro_snapshot_history: Arc<RwLock<VecDeque<MarketSnapshot>>>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
-    pub llm_client: Arc<LlmClient>,
     pub telemetry_tx: mpsc::Sender<db::TelemetryMsg>,
     pub cancel: CancellationToken,
-    pub api_key_configured: Arc<AtomicBool>,
     pub portfolio_risk: Arc<PortfolioRiskState>,
     pub pair_close_histories: Arc<RwLock<HashMap<String, Vec<f64>>>>,
     pub safety: Arc<SafetyManager>,
     pub intervals: IntervalsConfig,
     pub next_interval_override: Arc<RwLock<Option<u64>>>,
-    pub operational_mode: OperationalMode,
     pub weight_overrides: Arc<RwLock<Option<HashMap<String, i32>>>>,
     pub position_scaling: Arc<RwLock<Option<PositionScalingConfig>>>,
     pub candle_counters: Arc<RwLock<HashMap<String, u32>>>,
@@ -133,12 +127,6 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             .map(|p| &p.automation)
             .cloned()
             .unwrap_or_default();
-        let op_mode = pair_cfg
-            .map(|p| p.operational_mode.clone())
-            .unwrap_or(OperationalMode::HybridAiCopilot);
-        let trigger_cfg = pair_cfg
-            .map(|p| p.ai_trigger.trigger.clone())
-            .unwrap_or(TriggerMode::Interval { seconds: 900 });
 
         if auto_cfg.enabled != state.enabled {
             state.enabled = auto_cfg.enabled;
@@ -160,18 +148,6 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
         if !state.enabled {
             continue;
-        }
-
-        match op_mode {
-            OperationalMode::ManualOnly => {
-                update_heuristics_state(&ctx).await;
-                continue;
-            }
-            OperationalMode::DeterministicHeuristics => {
-                update_heuristics_state(&ctx).await;
-                continue;
-            }
-            OperationalMode::HybridAiCopilot => {}
         }
 
         // ─── Safety Check ────────────────────────────────────────────
@@ -196,11 +172,6 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             continue;
         }
 
-        if !ctx.api_key_configured.load(std::sync::atomic::Ordering::Relaxed) {
-            println!("🤖 Automation: No API Key configured for {}. Skipping cycle...", ctx.pair_key);
-            continue;
-        }
-
         // ─── Dynamic Interval Override ───────────────────────────────
         if let Some(new_secs) = *ctx.next_interval_override.read().await {
             if new_secs != state.interval_seconds {
@@ -211,38 +182,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             *ctx.next_interval_override.write().await = None;
         }
 
-        let should_trigger = match &trigger_cfg {
-            TriggerMode::Interval { seconds: _ } => {
-                state.next_remaining_secs() == 0
-            }
-            TriggerMode::CandleClose { timeframe, count } => {
-                let counters = ctx.candle_counters.read().await;
-                let current = counters.get(timeframe).copied().unwrap_or(0);
-                current >= *count
-            }
-            TriggerMode::EventDriven { events } => {
-                if events.is_empty() {
-                    false
-                } else {
-                    let curr = build_indicator_snapshot_from_latest(&ctx.micro_latest).await;
-                    let prev_guard = ctx.prev_indicators.read().await;
-                    let triggered = event_detector::evaluate_trigger_events(
-                        prev_guard.as_ref(),
-                        &curr,
-                        events,
-                    );
-                    if !triggered.is_empty() {
-                        println!(
-                            "🎯 Event Trigger: {} fired events: {:?}",
-                            ctx.pair_key, triggered
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                }
-            }
-        };
+        let should_trigger = state.next_remaining_secs() == 0;
 
         if !should_trigger {
             update_heuristics_state(&ctx).await;
@@ -268,11 +208,7 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
             *entry = prices.clone();
         }
 
-        if ctx.llm_client.api_key.read().await.is_empty() {
-            continue;
-        }
-
-        let trigger_detail = format_trigger_detail(&trigger_cfg);
+        let trigger_detail = format!("interval:{}s", state.interval_seconds);
         let master_id = db::insert_master_placeholder(
             &ctx.pool,
             "None",
@@ -293,20 +229,14 @@ pub async fn run_pair_automation_loop(ctx: AutomationContext) {
 
         // Log trigger detail
         let _ = sqlx::query(
-            "UPDATE master_assistant_records SET trigger_type_detail = ?2, operational_mode = ?3 WHERE id = ?1",
+            "UPDATE master_assistant_records SET trigger_type_detail = ?2 WHERE id = ?1",
         )
         .bind(master_id)
         .bind(&trigger_detail)
-        .bind(ctx.operational_mode.as_str())
         .execute(&ctx.pool)
         .await;
 
         state.last_run = Some(std::time::Instant::now());
-
-        // Reset candle counters on any trigger dispatch
-        if let TriggerMode::CandleClose { timeframe, .. } = &trigger_cfg {
-            ctx.candle_counters.write().await.insert(timeframe.clone(), 0);
-        }
 
         let trigger_msg = TriggerMessage {
             reason: trigger_detail.clone(),
@@ -330,13 +260,9 @@ struct AutomationContextLight {
     micro_history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     config: Arc<RwLock<AppConfig>>,
     pool: SqlitePool,
-    llm_client: Arc<LlmClient>,
     telemetry_tx: mpsc::Sender<db::TelemetryMsg>,
     portfolio_risk: Arc<PortfolioRiskState>,
     pair_close_histories: Arc<RwLock<HashMap<String, Vec<f64>>>>,
-    intervals: IntervalsConfig,
-    next_interval_override: Arc<RwLock<Option<u64>>>,
-    operational_mode: OperationalMode,
     weight_overrides: Arc<RwLock<Option<HashMap<String, i32>>>>,
     safety: Arc<SafetyManager>,
 }
@@ -348,13 +274,9 @@ fn ctx_to_clone(ctx: &AutomationContext) -> AutomationContextLight {
         micro_history: ctx.micro_history.clone(),
         config: ctx.config.clone(),
         pool: ctx.pool.clone(),
-        llm_client: ctx.llm_client.clone(),
         telemetry_tx: ctx.telemetry_tx.clone(),
         portfolio_risk: ctx.portfolio_risk.clone(),
         pair_close_histories: ctx.pair_close_histories.clone(),
-        intervals: ctx.intervals.clone(),
-        next_interval_override: ctx.next_interval_override.clone(),
-        operational_mode: ctx.operational_mode.clone(),
         weight_overrides: ctx.weight_overrides.clone(),
         safety: ctx.safety.clone(),
     }
@@ -367,9 +289,6 @@ async fn trigger_listener_loop(
     while let Some(msg) = rx.recv().await {
         if ctx.cancel.is_cancelled() {
             break;
-        }
-        if ctx.automation_ctx.operational_mode != OperationalMode::HybridAiCopilot {
-            continue;
         }
         println!(
             "🎯 Trigger Listener: {} executing AI cycle (reason: {})",
@@ -407,11 +326,10 @@ async fn trigger_listener_loop(
         .await;
 
         let _ = sqlx::query(
-            "UPDATE master_assistant_records SET trigger_type_detail = ?2, operational_mode = ?3 WHERE id = ?1",
+            "UPDATE master_assistant_records SET trigger_type_detail = ?2 WHERE id = ?1",
         )
         .bind(master_id)
         .bind(&msg.trigger_type_detail)
-        .bind(ctx.automation_ctx.operational_mode.as_str())
         .execute(&ctx.automation_ctx.pool)
         .await;
 
@@ -447,34 +365,18 @@ async fn build_indicator_snapshot_from_latest(
     }
 }
 
-fn format_trigger_detail(cfg: &TriggerMode) -> String {
-    match cfg {
-        TriggerMode::Interval { seconds } => format!("interval:{}s", seconds),
-        TriggerMode::CandleClose { timeframe, count } => {
-            format!("candle:{}:{}", timeframe, count)
-        }
-        TriggerMode::EventDriven { events } => {
-            format!("event:{}", events.join(","))
-        }
-    }
-}
-
 async fn execute_automation_cycle_light(
     ctx: &AutomationContextLight,
     master_id: i64,
     prices: &[f64],
 ) -> Result<(), String> {
-    let llm = ctx.llm_client.clone();
-    if llm.api_key.read().await.is_empty() {
-        return Ok(());
-    }
+    use crate::decision::{DecisionConfig, DecisionMatrix, Action};
 
     let last_close = prices.last().copied().unwrap_or(0.0);
 
     let config_guard = ctx.config.read().await;
     let slow_tf_secs = config_guard.slow_timeframe.duration_seconds;
     let macro_tf_secs = config_guard.macro_timeframe.duration_seconds;
-    let _scoring_cfg = config_guard.scoring.clone();
     let regime_mult = (!config_guard.scoring.regime_weight_multipliers.is_empty())
         .then(|| config_guard.scoring.regime_weight_multipliers.clone());
     drop(config_guard);
@@ -494,7 +396,7 @@ async fn execute_automation_cycle_light(
 
     let support_strings: Vec<String> = support_levels.iter().map(|s| s.to_string()).collect();
     let resistance_strings: Vec<String> = resistance_levels.iter().map(|s| s.to_string()).collect();
-    let telemetry = crate::server::compile_deterministic_telemetry(
+    let _telemetry = crate::server::compile_deterministic_telemetry(
         &indicators_micro,
         &support_strings,
         &resistance_strings,
@@ -505,39 +407,79 @@ async fn execute_automation_cycle_light(
     let weight_overrides_guard = ctx.weight_overrides.read().await;
     let weight_map = weight_overrides_guard.as_ref();
 
-    // Build indicator DTO array from normalized indicator map
-    let indicators_dto = build_indicators_dto(&indicators_micro);
+    let indicators = &indicators_micro.indicators;
 
-    // Build decision context
-    let decision_context = build_decision_context_json(&indicators_micro);
+    let mut sum = 0.0f64;
+    let mut wgt = 0.0f64;
+    for meta in shared::indicators::registry::INDICATORS {
+        if meta.directional {
+            if let Some(v) = indicators.get(meta.key) {
+                sum += meta.default_weight * v.normalized;
+                wgt += meta.default_weight;
+            }
+        }
+    }
+    let confluence_score = if wgt > 0.0 { (sum / wgt * 100.0).clamp(-100.0, 100.0) } else { 0.0 };
 
-    // Build market context
-    let market_context_json = serde_json::to_string(
-        &shared::market_context::MarketContext::synthesize(&indicators_micro.indicators),
-    )
-    .unwrap_or_else(|_| "{}".to_string());
+    let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+    let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(0.0);
+    let bbwp_val = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+    let chop_val = indicators.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0);
+    let squeeze_on = indicators
+        .get("squeeze")
+        .map(|v| v.state_label == "COMPRESSION_COILING")
+        .unwrap_or(false);
 
-    // Step 1: Analyst Agent — prepare structured market document
-    let analyst_document = llm
-        .run_analyst_agent(
-            &ctx.symbol,
-            last_close,
-            &indicators_dto,
-            &decision_context,
-            &market_context_json,
-            &support_strings,
-            &resistance_strings,
-            prices,
-            Some(&ctx.symbol),
-        )
-        .await
-        .map_err(|e| format!("Analyst agent failed: {}", e))?;
+    let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
+    let positioned = pos.is_some();
+    let position_dir = pos.as_ref().map(|p| if p.direction == "LONG" { 1.0 } else { -1.0 });
 
-    let analyst_json = serde_json::to_string(&analyst_document)
-        .map_err(|e| format!("Failed to serialize analyst document: {}", e))?;
+    let opposite_score = if let Some(dir) = position_dir {
+        let opp = -confluence_score * dir;
+        if opp > 0.0 { opp } else { 0.0 }
+    } else {
+        0.0
+    };
 
-    // Institutional Risk Management Layer — deterministic advisory risk profile.
-    let risk_profile_json = {
+    let local_snap = indicator_to_snapshot(&indicators_micro);
+    let regime = classify_market_regime(&local_snap);
+    let regime_confidence = indicators
+        .iter()
+        .filter(|(_, v)| v.normalized.abs() > 0.3)
+        .count() as f64
+        / indicators.len().max(1) as f64;
+
+    let trend_persistence = (adx_val / 100.0).min(1.0);
+    let trade_readiness = (1.0 - (chop_val / 100.0)).max(0.0);
+    let trade_quality = (regime_confidence * 0.5 + trend_persistence * 0.5).min(1.0);
+    let risk_level = if atr_val > 0.0 && last_close > 0.0 {
+        (atr_val / last_close * 10.0).min(1.0)
+    } else {
+        0.5
+    };
+    let compressed = squeeze_on;
+    let choppy = chop_val > 60.0;
+    let breakout_confidence = if squeeze_on { 0.3 } else { bbwp_val / 100.0 };
+    let anomaly_score = 0.0;
+    let confirmed_opposing_divergence = {
+        let rsi_div = indicators
+            .get("rsi_divergence")
+            .map(|v| v.state_label.as_str())
+            .unwrap_or("");
+        let macd_div = indicators
+            .get("macd_divergence")
+            .map(|v| v.state_label.as_str())
+            .unwrap_or("");
+        if let Some(dir) = position_dir {
+            (dir > 0.0 && (rsi_div.contains("bearish") || macd_div.contains("bearish")))
+                || (dir < 0.0 && (rsi_div.contains("bullish") || macd_div.contains("bullish")))
+        } else {
+            false
+        }
+    };
+    let signal_age_bars = 1;
+
+    let risk_profile = {
         let cfg = ctx.config.read().await;
         let risk_cfg = cfg.risk.clone();
         let suspend = cfg.safety.consecutive_loss_suspend;
@@ -545,25 +487,12 @@ async fn execute_automation_cycle_light(
         let timeframe_secs = cfg.candles.duration_seconds as i64;
         drop(cfg);
 
-        let indicators = &indicators_micro.indicators;
         let market = shared::market_context::MarketContext::synthesize(indicators);
-        let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
-        let mut sum = 0.0f64;
-        let mut wgt = 0.0f64;
-        for meta in shared::indicators::registry::INDICATORS {
-            if meta.directional {
-                if let Some(v) = indicators.get(meta.key) {
-                    sum += meta.default_weight * v.normalized;
-                    wgt += meta.default_weight;
-                }
-            }
-        }
-        let confluence = if wgt > 0.0 { (sum / wgt * 100.0).clamp(-100.0, 100.0) } else { 0.0 };
         let decision = shared::decision_context::DecisionContext::compute(
-            indicators, last_close, atr_val, confluence,
+            indicators, last_close, atr_val, confluence_score,
         );
         let engine = crate::risk_engine::RiskEngine::new(risk_cfg, suspend, drawdown_limit);
-        let profile = engine
+        engine
             .evaluate(
                 &ctx.pool,
                 &ctx.symbol,
@@ -575,29 +504,40 @@ async fn execute_automation_cycle_light(
                 None,
                 Some(&ctx.safety),
             )
-            .await;
-        serde_json::to_string(&profile).unwrap_or_default()
+            .await
     };
 
-    // Step 2: Trader Agent — make final trading decision
-    let trader_decision = llm
-        .run_trader_agent(
-            &analyst_json,
-            "None",
-            "",
-            &ctx.symbol,
-            &risk_profile_json,
-            Some(&ctx.symbol),
-        )
-        .await
-        .map_err(|e| format!("Trader agent failed: {}", e))?;
+    let decision_config = DecisionConfig::default();
+    let matrix = DecisionMatrix::new(decision_config);
+    let output = matrix.evaluate(
+        positioned,
+        position_dir,
+        confluence_score,
+        opposite_score,
+        trade_readiness,
+        trade_quality,
+        trend_persistence,
+        risk_level,
+        regime.as_str(),
+        regime_confidence,
+        breakout_confidence,
+        anomaly_score,
+        compressed,
+        choppy,
+        confirmed_opposing_divergence,
+        signal_age_bars,
+        Some(&risk_profile),
+    );
 
-    let trend = if analyst_document.market_summary.to_lowercase().contains("bullish") {
-        "UPWARD"
-    } else if analyst_document.market_summary.to_lowercase().contains("bearish") {
-        "DOWNWARD"
-    } else {
-        "SIDEWAYS"
+    let trend = match regime {
+        crate::profile_evaluation::MarketRegime::Trending | crate::profile_evaluation::MarketRegime::Expansion => {
+            if confluence_score > 0.0 {
+                "UPWARD"
+            } else {
+                "DOWNWARD"
+            }
+        }
+        _ => "SIDEWAYS",
     };
 
     let _ = ctx
@@ -608,13 +548,13 @@ async fn execute_automation_cycle_light(
             support_levels: serde_json::to_string(&support_strings).unwrap_or_default(),
             resistance_levels: serde_json::to_string(&resistance_strings).unwrap_or_default(),
             indicator_synthesis_summary: format!(
-                "Action: {} (confidence: {})",
-                trader_decision.action, trader_decision.confidence
+                "Action: {} (confidence: {:.0})",
+                output.action.as_str(), output.confidence
             ),
-            indicator_synthesis_evaluation: analyst_document.confluence_summary.clone(),
-            recommended_action: trader_decision.action.clone(),
-            recommendation_rationale: trader_decision.rationale.clone(),
-            score_points: Some(trader_decision.confidence as i32),
+            indicator_synthesis_evaluation: output.rationale.clone(),
+            recommended_action: output.action.as_str().to_string(),
+            recommendation_rationale: output.rationale.clone(),
+            score_points: Some(output.confidence as i32),
             signals_json: None,
         })
         .await;
@@ -632,21 +572,18 @@ async fn execute_automation_cycle_light(
     }
 
     println!(
-        "🤖 Automation: {} analysis complete. Action: {} (confidence: {})",
+        "🤖 Automation: {} analysis complete. Action: {} (confidence: {:.0})",
         ctx.pair_key,
-        trader_decision.action,
-        trader_decision.confidence,
+        output.action.as_str(),
+        output.confidence,
     );
-
-    let local_snap = indicator_to_snapshot(&indicators_micro);
-    let regime = classify_market_regime(&local_snap);
 
     let _ = sqlx::query(
         "UPDATE master_assistant_records SET market_regime = ?2, portfolio_allocation_pct = ?3 WHERE id = ?1",
     )
     .bind(master_id)
     .bind(regime.as_str())
-    .bind(trader_decision.confidence as f64)
+    .bind(output.confidence)
     .execute(&ctx.pool)
     .await;
 
@@ -659,9 +596,9 @@ async fn execute_automation_cycle_light(
         &ctx.symbol,
         now,
         regime.as_str(),
-        &trader_decision.action,
+        output.action.as_str(),
         85,
-        trader_decision.confidence as i32,
+        output.confidence as i32,
         2.0,
     )
     .await;
@@ -671,7 +608,7 @@ async fn execute_automation_cycle_light(
         return Ok(());
     }
 
-    let action = trader_decision.action.as_str();
+    let action = output.action;
     let current_price = prices.last().copied().unwrap_or(0.0);
 
     let sr_levels_f64: (Vec<f64>, Vec<f64>) = {
@@ -695,15 +632,12 @@ async fn execute_automation_cycle_light(
         &ctx.portfolio_risk,
         &ctx.pool,
         &ctx.symbol,
-        trader_decision.confidence as f64,
+        output.confidence,
         &existing_positions,
         &ctx.pair_close_histories,
     )
     .await;
-    if !validation.allowed
-        && trader_decision.confidence > 0
-        && (action == "Open Long" || action == "Open Short")
-    {
+    if !validation.allowed && matches!(action, Action::OpenLong | Action::OpenShort) {
         println!(
             "🛑 Auto Paper: {} portfolio risk check failed: {}",
             ctx.pair_key, validation.reason
@@ -711,7 +645,7 @@ async fn execute_automation_cycle_light(
         return Ok(());
     }
 
-    if (action == "Open Long" || action == "Open Short") && !regime_allows_entry(&regime) {
+    if matches!(action, Action::OpenLong | Action::OpenShort) && !regime_allows_entry(&regime) {
         println!(
             "🛑 Auto Paper: {} blocked by regime {} — entries not permitted in this market state",
             ctx.pair_key, regime.as_str()
@@ -720,13 +654,12 @@ async fn execute_automation_cycle_light(
     }
 
     let eight_factor_score = if use_scoring {
-        Some(trader_decision.confidence as f64)
+        Some(output.confidence)
     } else {
         None
     };
 
     if use_scoring {
-        let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
         if let Some(ref p) = pos {
             let macro_trend = trend;
             let snap_values = indicator_to_snapshot(&indicators_micro);
@@ -781,7 +714,7 @@ async fn execute_automation_cycle_light(
     );
 
     match action {
-        "Open Long" => {
+        Action::OpenLong => {
             if slow_trend_direction != "BULLISH" {
                 println!(
                     "📄 Auto Paper: {} skipping Open Long — slow trend is {} (15m chart)",
@@ -814,7 +747,7 @@ async fn execute_automation_cycle_light(
                 );
             }
         }
-        "Open Short" => {
+        Action::OpenShort => {
             if slow_trend_direction != "BEARISH" {
                 println!(
                     "📄 Auto Paper: {} skipping Open Short — slow trend is {} (15m chart)",
@@ -847,9 +780,8 @@ async fn execute_automation_cycle_light(
                 );
             }
         }
-        "Close" => {
-            let pos = db::paper_get_active_position(&ctx.pool, &ctx.symbol).await;
-            if pos.is_some() {
+        Action::Close => {
+            if let Some(ref p) = pos {
                 let res = paper_trading::close_paper_position(
                     &ctx.pool,
                     &ctx.telemetry_tx,
@@ -860,56 +792,54 @@ async fn execute_automation_cycle_light(
                 .await;
                 println!("📄 Auto Paper: {} {}", ctx.pair_key, res.message);
 
-                if let Some(ref p) = pos {
-                    let pnl = if p.direction == "LONG" {
-                        (current_price - p.entry_price) * p.size
-                    } else {
-                        (p.entry_price - current_price) * p.size
-                    };
-                    let roi = if p.allocated_usd > 0.0 {
-                        (pnl / p.allocated_usd) * 100.0
-                    } else {
-                        0.0
-                    };
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as i64;
-                    db::trade_telemetry_insert(
-                        &ctx.pool,
-                        "Hyperliquid",
-                        &ctx.symbol,
-                        &p.direction,
-                        p.entry_timestamp,
-                        now,
-                        p.entry_price,
-                        current_price,
-                        p.size,
-                        p.allocated_usd * 0.0006,
-                        0.0,
-                        pnl,
-                        roi,
-                        "AUTOMATED",
-                    )
-                    .await;
+                let pnl = if p.direction == "LONG" {
+                    (current_price - p.entry_price) * p.size
+                } else {
+                    (p.entry_price - current_price) * p.size
+                };
+                let roi = if p.allocated_usd > 0.0 {
+                    (pnl / p.allocated_usd) * 100.0
+                } else {
+                    0.0
+                };
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64;
+                db::trade_telemetry_insert(
+                    &ctx.pool,
+                    "Hyperliquid",
+                    &ctx.symbol,
+                    &p.direction,
+                    p.entry_timestamp,
+                    now,
+                    p.entry_price,
+                    current_price,
+                    p.size,
+                    p.allocated_usd * 0.0006,
+                    0.0,
+                    pnl,
+                    roi,
+                    "AUTOMATED",
+                )
+                .await;
 
-                    let _ = ctx
-                        .telemetry_tx
-                        .send(db::TelemetryMsg::JournalTrade {
-                            symbol: ctx.symbol.clone(),
-                            direction: p.direction.clone(),
-                            entry_price: p.entry_price,
-                            exit_price: current_price,
-                            entry_timestamp: p.entry_timestamp,
-                            exit_timestamp: now,
-                            size: p.size,
-                            realized_pnl: pnl,
-                            roi_pct: roi,
-                            allocated_usd: p.allocated_usd,
-                            trigger: "AUTOMATED".to_string(),
-                        })
-                        .await;
-                }
+                let _ = ctx
+                    .telemetry_tx
+                    .send(db::TelemetryMsg::JournalTrade {
+                        symbol: ctx.symbol.clone(),
+                        direction: p.direction.clone(),
+                        entry_price: p.entry_price,
+                        exit_price: current_price,
+                        entry_timestamp: p.entry_timestamp,
+                        exit_timestamp: now,
+                        size: p.size,
+                        realized_pnl: pnl,
+                        roi_pct: roi,
+                        allocated_usd: p.allocated_usd,
+                        trigger: "AUTOMATED".to_string(),
+                    })
+                    .await;
             }
         }
         _ => {}
@@ -974,46 +904,6 @@ fn build_indicator_snapshot(
         }
         None => crate::server::IndicatorSnapshot::default(),
     }
-}
-
-/// Build a compact JSON array of indicator DTOs from the normalized indicator map.
-fn build_indicators_dto(snap: &crate::server::IndicatorSnapshot) -> String {
-    let arr: Vec<serde_json::Value> = snap
-        .indicators
-        .iter()
-        .map(|(key, v)| {
-            let mut obj = serde_json::json!({
-                "indicator_name": key,
-                "normalized": v.normalized,
-                "state_label": v.state_label,
-            });
-            if let Some(vals) = &v.values {
-                obj["values"] = serde_json::to_value(vals).unwrap_or(serde_json::json!({}));
-            }
-            obj
-        })
-        .collect();
-    serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
-}
-
-/// Build decision context JSON from snapshot indicators.
-fn build_decision_context_json(snap: &crate::server::IndicatorSnapshot) -> String {
-    let total = snap.indicators.len().max(1) as f64;
-    let bullish_count = snap.indicators.values().filter(|v| v.normalized > 0.0).count() as f64;
-    let bearish_count = snap.indicators.values().filter(|v| v.normalized < 0.0).count() as f64;
-    let active_count = snap.indicators.values().filter(|v| v.normalized.abs() > 0.2).count() as f64;
-
-    let directional_sum: f64 = snap.indicators.values().map(|v| v.normalized).sum();
-    let bias = (directional_sum / total).clamp(-1.0, 1.0);
-
-    serde_json::to_string(&serde_json::json!({
-        "bullish_probability": bullish_count / total,
-        "bearish_probability": bearish_count / total,
-        "directional_bias": bias,
-        "consensus": active_count / total,
-        "confluence": (bias * 100.0) as i32,
-    }))
-    .unwrap_or_else(|_| "{}".to_string())
 }
 
 async fn try_set_fibonacci_take_profits(

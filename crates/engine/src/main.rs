@@ -1,32 +1,18 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{mpsc::channel, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use engine::{
-    cli, config, db, llm, order_matcher, performance_evaluator, portfolio_equity, server,
+    config, db, order_matcher, performance_evaluator, portfolio_equity, server,
     strategy_optimizer, workspace,
 };
 use shared::normalized::SymbolMapper;
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let web_mode = args.iter().any(|a| a == "--web" || a == "--gui");
-    let cli_mode = args.iter().any(|a| a == "--cli");
-
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    match dotenvy::dotenv() {
-        Ok(_) => println!("✅ Loaded .env configuration."),
-        Err(e) => {
-            eprintln!("⚠️  No .env file found: {}", e);
-            eprintln!("   Create a .env file at the project root with: DEEPSEEK_API_KEY=sk-...");
-            eprintln!("   The dashboard will run, but AI features require a valid key.");
-        }
-    }
-
-    println!("⚙️  AI Trading Assistant: Loading Master Configuration...");
+    println!("⚙️  Quantitative Trading Engine: Loading Configuration...");
     let mut app_config = config::load_config();
     app_config.instances = config::load_instances();
     println!(
@@ -40,42 +26,6 @@ async fn main() {
         "🚪 Session-first boot: workspace starts empty and inactive. Awaiting Welcome Gate session initialization before any pipelines spawn."
     );
 
-    let (llm_client, key_present) = {
-        let api_key = std::env::var("DEEPSEEK_API_KEY")
-            .ok()
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty());
-        let base_url = std::env::var("DEEPSEEK_BASE_URL")
-            .unwrap_or_else(|_| "https://api.deepseek.com/v1".into());
-        let model =
-            std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".into());
-        llm::LlmClient::from_config(llm::LlmClientConfig {
-            api_key,
-            base_url,
-            model,
-        })
-    };
-    let llm_client = Arc::new(llm_client);
-    let api_key_configured = Arc::new(AtomicBool::new(false));
-
-    if key_present {
-        println!("🔑 Validating DeepSeek API key...");
-        match llm_client.validate_key().await {
-            Ok(()) => {
-                println!("✅ Key validated successfully.");
-                api_key_configured.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-            Err(e) => {
-                eprintln!(
-                    "⚠️  API Key Validation Failed: {}. You can configure it manually in the UI.",
-                    e
-                );
-            }
-        }
-    } else {
-        eprintln!("⚠️  No API key found. AI analysis will fall back to local heuristics. Configure via the UI config panel.");
-    }
-
     println!("🗄️  Initializing local SQLite telemetry database...");
     let db_pool = db::init_db().await;
     println!("✅ Database Setup: Connected to local telemetry.db file and verified schema.");
@@ -88,30 +38,25 @@ async fn main() {
     }
     db::verify_encryption_or_panic(&db_pool).await;
 
-    let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(10000);
+    let (telemetry_tx, telemetry_rx) = channel::<db::TelemetryMsg>(20000);
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
-        let llm = llm_client.clone();
         async move {
-            db::run_telemetry_logger(pool, telemetry_rx, llm).await;
+            db::run_telemetry_logger(pool, telemetry_rx).await;
         }
     });
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
 
     let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
-    let bg_ws_url = app_config.read().await.bitget.ws_url.clone();
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
-    println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
     let workspace = Arc::new(workspace::Workspace::new(
         app_config.clone(),
         db_pool.clone(),
         symbol_mapper.clone(),
         telemetry_tx.clone(),
-        api_key_configured.clone(),
         hl_ws_url.clone(),
-        bg_ws_url.clone(),
     ));
 
     // Auto-restore session if profile config has persisted session data
@@ -134,7 +79,6 @@ async fn main() {
             };
             let exch = match exchange.to_lowercase().as_str() {
                 "hyperliquid" => workspace::ExchangeChoice::Hyperliquid,
-                "bitget" => workspace::ExchangeChoice::Bitget,
                 _ => workspace::ExchangeChoice::Hyperliquid,
             };
             let name = config.profile.user_name.clone();
@@ -149,12 +93,9 @@ async fn main() {
         workspace: workspace.clone(),
         config: app_config.clone(),
         pool: db_pool.clone(),
-        llm_client: llm_client.clone(),
-        api_key_configured: api_key_configured.clone(),
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
         ws_url: hl_ws_url.clone(),
-        bitget_ws_url: bg_ws_url.clone(),
     });
 
     let app = server::build_router(app_state.clone());
@@ -162,40 +103,18 @@ async fn main() {
     let mut handles = Vec::new();
     handles.push(logger_handle);
 
-    if cli_mode {
-        println!("🖥️  CLI Mode: Starting interactive console session...");
-        println!("   Type 'help' for available commands, 'quit' to exit.");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .expect("❌ Web Server Setup: Failed to bind port 3000");
 
-        // Drop the web app — CLI handles all interaction
-        drop(app);
+    println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
 
-        let cli_console =
-            cli::CliConsole::new(workspace.clone(), db_pool.clone(), llm_client.clone());
-        cli_console.run().await;
-
-        println!("👋 CLI session ended. Shutting down...");
-        return;
-    }
-
-    if web_mode {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let server_handle = tokio::spawn(async move {
+        axum::serve(listener, app)
             .await
-            .expect("❌ Web Server Setup: Failed to bind port 3000");
-
-        println!("🌐 Web Server Setup: Visualizer Dashboard live at http://127.0.0.1:3000");
-
-        let server_handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
-        });
-        handles.push(server_handle);
-    } else {
-        println!(
-            "🖥️  CLI Mode: Running as headless daemon — Web server disabled (use --web to enable)."
-        );
-        drop(app);
-    }
+            .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+    });
+    handles.push(server_handle);
 
     let eval_cancel = CancellationToken::new();
     let eval_pool = db_pool.clone();

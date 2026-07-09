@@ -40,29 +40,18 @@ impl Currency {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExchangeChoice {
     Hyperliquid,
-    Bitget,
 }
 
 impl ExchangeChoice {
     pub fn as_str(&self) -> &'static str {
         match self {
             ExchangeChoice::Hyperliquid => "Hyperliquid",
-            ExchangeChoice::Bitget => "Bitget",
         }
     }
 
-    /// Native exchange symbol for REST/WS requests (perpetual futures).
-    ///
-    /// - Hyperliquid: the bare coin (e.g. `BTC`); collateral is always USDC.
-    /// - Bitget USDT-M futures: `BASEUSDT` (e.g. `BTCUSDT`).
-    /// - Bitget USDC-M futures: `BASEUSDC` (e.g. `BTCUSDC`).
-    pub fn raw_symbol(&self, base: &str, quote: &Currency) -> String {
+    pub fn raw_symbol(&self, base: &str, _quote: &Currency) -> String {
         match self {
             ExchangeChoice::Hyperliquid => base.to_string(),
-            ExchangeChoice::Bitget => match quote {
-                Currency::USDT => format!("{}USDT", base),
-                Currency::USDC => format!("{}USDC", base),
-            },
         }
     }
 
@@ -72,26 +61,9 @@ impl ExchangeChoice {
         format!("{}-{}", base, quote.as_str())
     }
 
-    /// Bitget V2 mix (perpetual futures) `productType` for the given quote.
-    /// Not applicable to Hyperliquid (returns `None`).
-    pub fn bitget_product_type(&self, quote: &Currency) -> Option<&'static str> {
-        match self {
-            ExchangeChoice::Bitget => Some(match quote {
-                Currency::USDT => "USDT-FUTURES",
-                Currency::USDC => "USDC-FUTURES",
-            }),
-            ExchangeChoice::Hyperliquid => None,
-        }
-    }
-
-    /// Whether the given settlement/quote currency is supported for this
-    /// exchange's perpetual futures.
     pub fn supports_currency(&self, quote: &Currency) -> bool {
         match self {
-            // Hyperliquid perpetuals settle exclusively in USDC.
             ExchangeChoice::Hyperliquid => *quote == Currency::USDC,
-            // Bitget offers both USDT-M and USDC-M futures.
-            ExchangeChoice::Bitget => matches!(quote, Currency::USDT | Currency::USDC),
         }
     }
 }
@@ -131,9 +103,7 @@ pub struct Workspace {
     pub pool: SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
-    pub api_key_configured: Arc<AtomicBool>,
     pub ws_url: String,
-    pub bitget_ws_url: String,
 }
 
 impl Workspace {
@@ -142,9 +112,7 @@ impl Workspace {
         pool: SqlitePool,
         symbol_mapper: Arc<SymbolMapper>,
         telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
-        api_key_configured: Arc<AtomicBool>,
         ws_url: String,
-        bitget_ws_url: String,
     ) -> Self {
         Self {
             instances: Arc::new(RwLock::new(HashMap::new())),
@@ -153,9 +121,7 @@ impl Workspace {
             pool,
             symbol_mapper,
             telemetry_tx,
-            api_key_configured,
             ws_url,
-            bitget_ws_url,
         }
     }
 
@@ -214,7 +180,7 @@ impl Workspace {
         if initial_capital <= 0.0 {
             return Err("Initial capital must be greater than 0.".to_string());
         }
-        if exchange != ExchangeChoice::Hyperliquid && exchange != ExchangeChoice::Bitget {
+        if exchange != ExchangeChoice::Hyperliquid {
             return Err("Unsupported exchange selected.".to_string());
         }
         // Enforce the exchange <-> settlement-currency rules for perpetual
@@ -228,7 +194,6 @@ impl Workspace {
                 match exchange {
                     ExchangeChoice::Hyperliquid =>
                         "Hyperliquid perpetuals settle in USDC only.",
-                    ExchangeChoice::Bitget => "Select USDT or USDC.",
                 }
             ));
         }

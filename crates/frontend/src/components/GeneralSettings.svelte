@@ -16,14 +16,7 @@
     let draftFailoverDelay = $state(30);
     let draftFailoverMax = $state(10);
 
-    // Backup API key
-    let draftBackupKey = $state('');
-    let backupKeyStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
 
-    // Prompts
-    let draftOrchestratorPrompt = $state('');
-    let draftTrendAgentPrompt = $state('');
-    let promptsStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
 
     // Instance Limits
     let draftMaxInstances = $state(100);
@@ -46,9 +39,6 @@
                 draftFailoverRetries = config.api_failover.max_retries_per_call ?? 5;
                 draftFailoverDelay = config.api_failover.retry_delay_seconds ?? 30;
                 draftFailoverMax = config.api_failover.max_consecutive_failures ?? 10;
-            }
-            if (config.workspace?.backup_api_key) {
-                draftBackupKey = config.workspace.backup_api_key;
             }
             if (config.workspace?.max_instances) {
                 draftMaxInstances = config.workspace.max_instances;
@@ -82,54 +72,6 @@
         } catch (_) {}
     }
 
-    async function saveBackupKey() {
-        backupKeyStatus = 'saving';
-        try {
-            const res = await fetch('/api/settings/backup-api-key', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: draftBackupKey.trim() }),
-            });
-            backupKeyStatus = res.ok ? 'success' : 'error';
-            if (res.ok) setTimeout(() => { backupKeyStatus = 'idle'; }, 2000);
-        } catch (_) {
-            backupKeyStatus = 'error';
-        }
-    }
-
-    async function loadPrompts() {
-        promptsStatus = 'loading';
-        try {
-            const [rulesRes, promptsRes] = await Promise.all([
-                fetch('/api/rules'),
-                fetch('/api/config'),
-            ]);
-            if (rulesRes.ok) {
-                const data = await rulesRes.json();
-                draftOrchestratorPrompt = data.content || '';
-                draftTrendAgentPrompt = '';
-            }
-            promptsStatus = 'idle';
-        } catch (_) {
-            promptsStatus = 'error';
-        }
-    }
-
-    async function savePrompts() {
-        promptsStatus = 'saving';
-        try {
-            await fetch('/api/rules', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: draftOrchestratorPrompt }),
-            });
-            promptsStatus = 'success';
-            setTimeout(() => { promptsStatus = 'idle'; }, 2000);
-        } catch (_) {
-            promptsStatus = 'error';
-        }
-    }
-
     async function saveMaxInstances() {
         maxInstancesStatus = 'saving';
         try {
@@ -154,7 +96,7 @@
             : 0
     );
 
-    $effect(() => { loadSettings(); loadPrompts(); });
+    $effect(() => { loadSettings(); });
 </script>
 
 <div class={styles.settingsView}>
@@ -170,7 +112,7 @@
                 <div class={styles.inputRow}>
                     <label for="loss-caution">Consecutive Loss Caution:</label>
                     <input id="loss-caution" type="number" bind:value={draftLossCaution} min="1" max="100" />
-                    <span class={styles.hint}>≥ this → AI becomes cautious</span>
+                    <span class={styles.hint}>≥ this → instance becomes cautious</span>
                 </div>
                 <div class={styles.inputRow}>
                     <label for="loss-dropout">Consecutive Loss Dropout:</label>
@@ -207,18 +149,6 @@
                 </div>
             </div>
 
-            <!-- Backup API Key -->
-            <div class={styles.settingsCard}>
-                <h3>🔑 Backup API Key</h3>
-                <div class={styles.inputRow}>
-                    <label for="backup-key">Global Backup Key:</label>
-                    <input id="backup-key" type="password" bind:value={draftBackupKey} placeholder="sk-..." />
-                </div>
-                <button class={styles.saveBtn} onclick={saveBackupKey} disabled={backupKeyStatus === 'saving'}>
-                    {backupKeyStatus === 'saving' ? 'Saving...' : backupKeyStatus === 'success' ? '✓ Saved' : 'Save Backup Key'}
-                </button>
-            </div>
-
             <!-- Instance Limits -->
             <div class={styles.settingsCard}>
                 <h3><Icon name="list" size={15} /> Instance Limits</h3>
@@ -238,18 +168,6 @@
                 </button>
             </div>
 
-            <!-- System Prompts -->
-            <div class="{styles.settingsCard} {styles.fullWidth}">
-                <h3>📝 System Prompts</h3>
-                <div class={styles.inputRow}>
-                    <label for="orchestrator-prompt">Orchestrator / Rules Guide:</label>
-                </div>
-                <textarea id="orchestrator-prompt" bind:value={draftOrchestratorPrompt} rows="12" class={styles.promptEditor}></textarea>
-                <button class={styles.saveBtn} onclick={savePrompts} disabled={promptsStatus === 'saving'}>
-                    {promptsStatus === 'saving' ? 'Saving...' : promptsStatus === 'success' ? '✓ Saved' : 'Save Prompts'}
-                </button>
-                <span class={styles.hint}>Edits the indicators-guide.md that all agents and the orchestrator reference.</span>
-            </div>
         </div>
     {/if}
 </div>
