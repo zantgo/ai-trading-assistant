@@ -32,7 +32,7 @@
 
     let expandedTf = $state<string | null>(null);
 
-    function label(tf: TimeframeTelemetry): string {
+    function label(tf: TimeframeTelemetry, colId: string): string {
         const sec = tf.barDurationSec;
         let suffix: string;
         if (sec >= 86400) suffix = `${sec / 86400}d`;
@@ -40,10 +40,7 @@
         else if (sec >= 60) suffix = `${sec / 60}m`;
         else suffix = `${sec}s`;
 
-        if (sec >= 900) return `MACRO (${suffix})`;
-        if (sec >= 300) return `SLOW (${suffix})`;
-        if (sec >= 180) return `FAST (${suffix})`;
-        return `MICRO (${suffix})`;
+        return `${colId.toUpperCase()} (${suffix})`;
     }
 
     function tfKey(pairKey: string, tf: TimeframeTelemetry): string {
@@ -203,7 +200,7 @@
 {#snippet column(tf: TimeframeTelemetry, colId: string, visible: boolean)}
     <div class="{styles.timescaleColumn} {!visible ? styles.hiddenPane : ''} {expandedTf === colId ? styles.expandedTfColumn : ''}">
         <div class={styles.timescaleHeader}>
-            <span class={styles.timescaleTitle}>{label(tf)}</span>
+            <span class={styles.timescaleTitle}>{label(tf, colId)}</span>
             <div class={styles.headerActions}>
                 <span class={styles.timescalePrice}>{tf.priceText}</span>
                 <button class={styles.expandBtn} onclick={() => toggleExpand(colId)} title={expandedTf === colId ? 'Collapse' : 'Expand'}>

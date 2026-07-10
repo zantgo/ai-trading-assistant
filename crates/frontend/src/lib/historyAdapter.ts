@@ -40,6 +40,8 @@ export interface FlatIndicatorHistory {
     mfi: Array<string | null>;
     hv: Array<string | null>;
     aroon: Array<string | null>;
+    aroon_up: Array<string | null>;
+    aroon_down: Array<string | null>;
     choppiness: Array<string | null>;
     linreg_slope: Array<string | null>;
     zscore: Array<string | null>;
@@ -105,6 +107,8 @@ export function flattenHistory(ih: NestedHistory | undefined | null): FlatIndica
         mfi: raw('mfi'),
         hv: raw('hv'),
         aroon: raw('aroon'),
+        aroon_up: val('aroon', 'up'),
+        aroon_down: val('aroon', 'down'),
         choppiness: raw('choppiness'),
         linreg_slope: raw('linreg_slope'),
         zscore: raw('zscore'),

@@ -43,9 +43,18 @@ pub struct ActivePair {
 
 impl ActivePair {
     fn pipeline_for(&self, timeframe_secs: u64) -> &TimeframePipeline {
+        if self.micro.timeframe_secs == timeframe_secs { return &self.micro; }
         if self.fast.timeframe_secs == timeframe_secs { return &self.fast; }
         if self.slow.timeframe_secs == timeframe_secs { return &self.slow; }
         if self.r#macro.timeframe_secs == timeframe_secs { return &self.r#macro; }
+        eprintln!(
+            "⚠️  pipeline_for: no pipeline matches timeframe_secs={} (micro={}, fast={}, slow={}, macro={}) — falling back to micro",
+            timeframe_secs,
+            self.micro.timeframe_secs,
+            self.fast.timeframe_secs,
+            self.slow.timeframe_secs,
+            self.r#macro.timeframe_secs,
+        );
         &self.micro
     }
 
@@ -569,8 +578,8 @@ pub async fn run_single(
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
 
-                    // Decisive close invalidation: check at every 1-minute candle close
-                    if timeframe_secs == 60 {
+                    // Decisive close invalidation: check at every Micro timeframe candle close
+                    if timeframe_label == "Micro" {
                         if let Some(ref pool) = paper_pool {
                             if let Some(pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
                                 if let Some(inval_level) = pos.final_invalidation_level {

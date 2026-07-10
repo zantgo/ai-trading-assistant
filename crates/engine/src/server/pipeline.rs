@@ -505,13 +505,13 @@ pub async fn run_multi_agent_pipeline(
         telemetry.total_confluence_score,
         telemetry.market_regime,
         micro.current_price.unwrap_or(0.0),
-        compact_block(micro, "micro", &["ema_stack", "rsi", "macd", "adx"]),
+        compact_block(micro, "micro", &["ema_stack", "rsi", "macd", "adx", "supertrend", "keltner", "donchian", "aroon", "linreg_slope"]),
     );
 
     let context_volatility = format!(
         r#"{{ "market_regime": "{}", "confluence_inputs": {} }}"#,
         telemetry.market_regime,
-        compact_block(micro, "micro", &["bbwp", "squeeze", "rvol", "atr"]),
+        compact_block(micro, "micro", &["bbwp", "squeeze", "rvol", "atr", "hv", "choppiness", "bollinger"]),
     );
 
     let context_structure = format!(
@@ -524,13 +524,13 @@ pub async fn run_multi_agent_pipeline(
     let context_risk = format!(
         r#"{{ "leverage": 20, "max_risk_pct": 2.0, "confluence_score": {}, "confluence_inputs": {} }}"#,
         telemetry.total_confluence_score,
-        compact_block(micro, "micro", &["rvol"]),
+        compact_block(micro, "micro", &["rvol", "atr", "hv", "choppiness"]),
     );
 
     let context_position = format!(
         r#"{{ "current_price": {}, "confluence_inputs": {} }}"#,
         micro.current_price.unwrap_or(0.0),
-        compact_block(micro, "micro", &["macd", "squeeze", "rsi"]),
+        compact_block(micro, "micro", &["macd", "squeeze", "rsi", "stochastic", "chandemo", "obv", "cmf", "mfi"]),
     );
 
     let p_key_trend = pair_key.clone();
