@@ -105,7 +105,7 @@
 
 <div class={styles.instancesView}>
     <div class={styles.instancesHeader}>
-        <h2>All Instances</h2>
+        <h2>Instances</h2>
         <span class={styles.instancesCount}>{totalCount} / {maxCount}</span>
     </div>
 

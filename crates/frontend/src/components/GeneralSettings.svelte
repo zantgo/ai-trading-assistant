@@ -126,7 +126,7 @@
 </script>
 
 <div class={styles.settingsView}>
-    <h2>General Settings</h2>
+    <h2>Settings</h2>
 
     {#if !loaded}
         <div class={styles.loadingRow}>Loading settings...</div>
