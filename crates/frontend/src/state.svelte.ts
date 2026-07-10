@@ -73,7 +73,7 @@ export class AppStore {
 
         this._delegate(this.session, [
             'sessionActive', 'sessionCurrency', 'sessionExchange',
-            'sessionInstanceCount', 'sessionMaxInstances',
+            'sessionCapital', 'sessionInstanceCount', 'sessionMaxInstances',
             'sessionLoading', 'sessionChecked', 'sessionError',
         ]);
 

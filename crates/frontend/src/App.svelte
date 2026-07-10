@@ -7,10 +7,6 @@
     import TerminalMonitor from './components/TerminalMonitor.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
     import CommissionCalculator from './components/CommissionCalculator.svelte';
-    import PerformanceDashboard from './components/PerformanceDashboard.svelte';
-    import AnalyticsDashboard from './components/AnalyticsDashboard.svelte';
-    import TradeListLedger from './components/TradeListLedger.svelte';
-    import ObservabilityHub from './components/ObservabilityHub.svelte';
     import TimeframeSettings from './components/TimeframeSettings.svelte';
     import GeneralDashboard from './components/GeneralDashboard.svelte';
     import GeneralSettings from './components/GeneralSettings.svelte';
@@ -40,10 +36,6 @@
         { view: 'monitor', label: '🖥️ Terminal Monitor' },
         { view: 'decision', label: '🎯 Decision Trading' },
         { view: 'commission', label: '💸 Fee Projection' },
-        { view: 'performance', label: '📊 Performance Metrics' },
-        { view: 'analytics', label: '📊 Trade Audit' },
-        { view: 'ledger', label: '📋 Trade Ledger' },
-        { view: 'observability', label: '🎯 DECISION HUD' },
         { view: 'timeframe_settings', label: '🕐 Timeframe Settings' },
         { view: 'settings', label: '⚙️ Workspace Settings' },
     ];
@@ -177,55 +169,33 @@
                     <span class={styles.pairBannerTitle}>{app.pairDisplayFor(pair.symbol)}</span>
                 </div>
 
-                <!-- 1. Live Terminal Inner View -->
+                <!-- Live Terminal -->
                 {#if pair.currentView === 'terminal'}
                     <div class={styles.mainLayout + " " + 'animate-fade'}>
                         <LiveTerminal pairKey={tabKey} />
                     </div>
 
-                <!-- 1.2 Terminal Monitor View -->
+                <!-- Terminal Monitor -->
                 {:else if pair.currentView === 'monitor'}
                     <TerminalMonitor pairKey={tabKey} />
 
-                <!-- 3. Decision Trading View -->
+                <!-- Decision Trading -->
                 {:else if pair.currentView === 'decision'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <DecisionTrading />
                     </div>
 
-                <!-- 5b. Commission Fee Projection View -->
+                <!-- Commission Fee Projection -->
                 {:else if pair.currentView === 'commission'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <CommissionCalculator />
                     </div>
 
-                <!-- 2. Performance Metrics Inner View -->
-                {:else if pair.currentView === 'performance'}
-                    <div class={styles.workspaceInnerContent}>
-                        <PerformanceDashboard />
-                    </div>
-
-                <!-- 7. Analytics Dashboard View -->
-                {:else if pair.currentView === 'analytics'}
-                    <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
-                        <AnalyticsDashboard />
-                    </div>
-
-                <!-- 8. Trade Ledger View -->
-                {:else if pair.currentView === 'ledger'}
-                    <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
-                        <TradeListLedger />
-                    </div>
-
-                {:else if pair.currentView === 'observability'}
-                    <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
-                        <ObservabilityHub />
-                    </div>
-
+                <!-- Timeframe Settings -->
                 {:else if pair.currentView === 'timeframe_settings'}
                     <TimeframeSettings {pair} {tabKey} onApplied={() => connectWs(app, wsState)} />
 
-                <!-- 4. Local Workspace Settings Tab View -->
+                <!-- Workspace Settings -->
                 {:else if pair.currentView === 'settings'}
                     <WorkspaceSettings {pair} {tabKey} />
                 {/if}

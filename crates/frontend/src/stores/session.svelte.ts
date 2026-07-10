@@ -2,6 +2,7 @@ export class SessionStore {
     sessionActive = $state(false);
     sessionCurrency = $state<string>('USDT');
     sessionExchange = $state<string>('Hyperliquid');
+    sessionCapital = $state(10000);
     sessionInstanceCount = $state(0);
     sessionMaxInstances = $state(100);
     sessionLoading = $state(false);
@@ -19,6 +20,7 @@ export class SessionStore {
                 if (this.sessionActive && this.onSessionActivated) this.onSessionActivated();
                 this.sessionCurrency = data.currency || 'USDT';
                 this.sessionExchange = data.exchange || 'Hyperliquid';
+                this.sessionCapital = data.capital || 10000;
                 this.sessionInstanceCount = data.instance_count || 0;
                 this.sessionMaxInstances = data.max_instances || 100;
             }

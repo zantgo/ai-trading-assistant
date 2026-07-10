@@ -319,7 +319,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'decision' | 'commission' | 'performance' | 'analytics' | 'ledger' | 'observability' | 'settings' | 'timeframe_settings';
+export type CurrentView = 'terminal' | 'monitor' | 'decision' | 'commission' | 'settings' | 'timeframe_settings';
 
 export interface InstanceState {
     symbol: string;
