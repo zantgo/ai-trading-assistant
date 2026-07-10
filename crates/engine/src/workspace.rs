@@ -8,21 +8,6 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TradingMode {
-    Paper,
-    Live,
-}
-
-impl TradingMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TradingMode::Paper => "paper",
-            TradingMode::Live => "live",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum Currency {
     USDT,
     USDC,
@@ -52,10 +37,6 @@ impl ExchangeChoice {
     }
 
     /// Native exchange symbol for REST/WS requests (perpetual futures).
-    ///
-    /// - Hyperliquid: the bare coin (e.g. `BTC`); collateral is always USDC.
-    /// - Bitget USDT-M futures: `BASEUSDT` (e.g. `BTCUSDT`).
-    /// - Bitget USDC-M futures: `BASEUSD` (e.g. `BTCUSD`).
     pub fn raw_symbol(&self, base: &str, quote: &Currency) -> String {
         match self {
             ExchangeChoice::Hyperliquid => base.to_string(),
@@ -88,9 +69,7 @@ impl ExchangeChoice {
     /// exchange's perpetual futures.
     pub fn supports_currency(&self, quote: &Currency) -> bool {
         match self {
-            // Hyperliquid perpetuals settle exclusively in USDC.
             ExchangeChoice::Hyperliquid => *quote == Currency::USDC,
-            // Bitget offers both USDT-M and USDC-M futures.
             ExchangeChoice::Bitget => matches!(quote, Currency::USDT | Currency::USDC),
         }
     }
@@ -98,10 +77,8 @@ impl ExchangeChoice {
 
 pub struct SessionState {
     pub active: AtomicBool,
-    pub trading_mode: RwLock<Option<TradingMode>>,
     pub base_currency: RwLock<Option<Currency>>,
     pub exchange: RwLock<Option<ExchangeChoice>>,
-    pub initial_capital: RwLock<Option<f64>>,
 }
 
 impl Default for SessionState {
@@ -114,10 +91,8 @@ impl SessionState {
     pub fn new() -> Self {
         Self {
             active: AtomicBool::new(false),
-            trading_mode: RwLock::new(None),
             base_currency: RwLock::new(None),
             exchange: RwLock::new(None),
-            initial_capital: RwLock::new(None),
         }
     }
 }
@@ -129,7 +104,6 @@ pub struct Workspace {
     pub pool: SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
-    pub api_key_configured: Arc<AtomicBool>,
     pub ws_url: String,
     pub bitget_ws_url: String,
 }
@@ -140,7 +114,6 @@ impl Workspace {
         pool: SqlitePool,
         symbol_mapper: Arc<SymbolMapper>,
         telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
-        api_key_configured: Arc<AtomicBool>,
         ws_url: String,
         bitget_ws_url: String,
     ) -> Self {
@@ -151,7 +124,6 @@ impl Workspace {
             pool,
             symbol_mapper,
             telemetry_tx,
-            api_key_configured,
             ws_url,
             bitget_ws_url,
         }
@@ -191,25 +163,12 @@ impl Workspace {
 
     pub async fn init_session(
         &self,
-        trading_mode: TradingMode,
         currency: Currency,
         exchange: ExchangeChoice,
-        initial_capital: f64,
     ) -> Result<(), String> {
-        if trading_mode == TradingMode::Live {
-            return Err(
-                "Live trading is not available. Please select Paper Trading.".to_string(),
-            );
-        }
-        if initial_capital <= 0.0 {
-            return Err("Initial capital must be greater than 0.".to_string());
-        }
         if exchange != ExchangeChoice::Hyperliquid && exchange != ExchangeChoice::Bitget {
             return Err("Unsupported exchange selected.".to_string());
         }
-        // Enforce the exchange <-> settlement-currency rules for perpetual
-        // futures. Hyperliquid settles only in USDC; Bitget supports USDT-M and
-        // USDC-M futures.
         if !exchange.supports_currency(&currency) {
             return Err(format!(
                 "{} does not support {} settlement. {}",
@@ -223,36 +182,14 @@ impl Workspace {
             ));
         }
 
-        *self.session.trading_mode.write().await = Some(trading_mode);
         *self.session.base_currency.write().await = Some(currency.clone());
         *self.session.exchange.write().await = Some(exchange.clone());
-        *self.session.initial_capital.write().await = Some(initial_capital);
         self.session
             .active
             .store(true, std::sync::atomic::Ordering::Relaxed);
 
-        {
-            let instances: Vec<_> = self.instances.read().await.keys().cloned().collect();
-            if instances.len() == 1 {
-                let _ = crate::db::paper_set_advanced_config(
-                    &self.pool,
-                    &instances[0],
-                    initial_capital,
-                    10.0,
-                    false,
-                    2.0,
-                    20,
-                    15,
-                    10,
-                    false,
-                )
-                .await;
-            }
-        }
-
         println!(
-            "✅ Session initialized: Paper Trading, {:.2} {} on {}",
-            initial_capital,
+            "✅ Session initialized: {} on {}",
             currency.as_str(),
             exchange.as_str(),
         );
@@ -262,7 +199,6 @@ impl Workspace {
     pub async fn quit_session(&self) -> Result<(), String> {
         println!("🛑 Initiating graceful shutdown of all instances...");
 
-        // Collect all instance IDs and cancel them
         let instance_ids: Vec<String> = {
             let instances = self.instances.read().await;
             instances.values().map(|i| i.id.clone()).collect()
@@ -271,43 +207,19 @@ impl Workspace {
         for instance_id in &instance_ids {
             let instances = self.instances.read().await;
             if let Some(instance) = instances.values().find(|i| &i.id == instance_id) {
-                // Close any open paper positions at current market price
-                let symbol = instance.symbol();
-                let pos = crate::db::paper_get_active_position(&instance.pool, &symbol).await;
-                if pos.is_some() {
-                    let exit_price = 0.0; // 0 signals "use current market price"
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as i64;
-                    let _ = self
-                        .telemetry_tx
-                        .send(crate::db::TelemetryMsg::PaperClosePosition {
-                            symbol: symbol.clone(),
-                            exit_price,
-                            exit_timestamp: now,
-                            trigger: "SESSION_QUIT".to_string(),
-                        })
-                        .await;
-                }
                 instance.cancel.cancel();
             }
         }
 
-        // Brief wait for tasks to wind down
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        // Clear the instance registry
         self.instances.write().await.clear();
 
-        // Reset session state
         self.session
             .active
             .store(false, std::sync::atomic::Ordering::Relaxed);
-        *self.session.trading_mode.write().await = None;
         *self.session.base_currency.write().await = None;
         *self.session.exchange.write().await = None;
-        *self.session.initial_capital.write().await = None;
 
         println!("✅ Session terminated. All instances stopped.");
         Ok(())

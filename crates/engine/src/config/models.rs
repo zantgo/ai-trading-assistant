@@ -469,9 +469,9 @@ fn default_automation_interval() -> u64 { 900 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum OperationalMode {
+    #[default]
     ManualOnly,
     DeterministicHeuristics,
-    #[default]
     HybridAiCopilot,
 }
 
@@ -490,17 +490,13 @@ impl OperationalMode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode")]
 pub enum TriggerMode {
-    /// Fixed time interval between AI runs (legacy behaviour).
     #[serde(rename = "interval")]
     Interval { seconds: u64 },
-    /// Trigger after N closed candles of a specific timeframe.
     #[serde(rename = "candle_close")]
     CandleClose {
-        /// Timeframe label: "micro", "fast", "slow", or "macro".
         timeframe: String,
         count: u32,
     },
-    /// Trigger only when specific deterministic events fire.
     #[serde(rename = "event_driven")]
     EventDriven {
         events: Vec<String>,
@@ -523,12 +519,9 @@ pub struct AiTriggerConfig {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum AllocationCurveModel {
-    /// Legacy stepped: <40→base, 40–59→mid, ≥60→max
     #[default]
     Stepped,
-    /// Linear interpolation between base and max pct.
     Linear,
-    /// Exponential curve concentrating allocation at high scores.
     Exponential,
 }
 
@@ -571,8 +564,6 @@ pub struct PositionScalingConfig {
     pub leverage_mode: String,
     #[serde(default = "default_cross_leverage")]
     pub leverage_cap: u32,
-    /// Margin target as fraction of capital for volatility-scaled leverage.
-    /// Only used when leverage_mode is "VolatilityScaled".
     #[serde(default = "default_target_margin")]
     pub target_margin: f64,
 }
@@ -635,33 +626,11 @@ pub struct InstanceSpecificConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CostsConfig {
-    #[serde(default = "default_price_per_1m_input_tokens")]
-    pub price_per_1m_input_tokens: f64,
-    #[serde(default = "default_price_per_1m_output_tokens")]
-    pub price_per_1m_output_tokens: f64,
-}
-
-impl Default for CostsConfig {
-    fn default() -> Self {
-        Self {
-            price_per_1m_input_tokens: default_price_per_1m_input_tokens(),
-            price_per_1m_output_tokens: default_price_per_1m_output_tokens(),
-        }
-    }
-}
-
-fn default_price_per_1m_input_tokens() -> f64 { 0.27 }
-fn default_price_per_1m_output_tokens() -> f64 { 1.10 }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     #[serde(default = "default_max_instances")]
     pub max_instances: usize,
     #[serde(default = "default_default_pair")]
     pub default_pair: String,
-    #[serde(default)]
-    pub backup_api_key: Option<String>,
 }
 
 fn default_max_instances() -> usize { 100 }
@@ -672,7 +641,6 @@ impl Default for WorkspaceConfig {
         Self {
             max_instances: default_max_instances(),
             default_pair: default_default_pair(),
-            backup_api_key: None,
         }
     }
 }
@@ -725,30 +693,6 @@ impl Default for IntervalsConfig {
             slow_seconds: default_slow_seconds(),
             normal_seconds: default_normal_seconds(),
             fast_seconds: default_fast_seconds(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ApiFailoverConfig {
-    #[serde(default = "default_max_retries_per_call")]
-    pub max_retries_per_call: u32,
-    #[serde(default = "default_retry_delay_seconds")]
-    pub retry_delay_seconds: u64,
-    #[serde(default = "default_max_consecutive_failures")]
-    pub max_consecutive_failures: u32,
-}
-
-fn default_max_retries_per_call() -> u32 { 5 }
-fn default_retry_delay_seconds() -> u64 { 30 }
-fn default_max_consecutive_failures() -> u32 { 10 }
-
-impl Default for ApiFailoverConfig {
-    fn default() -> Self {
-        Self {
-            max_retries_per_call: default_max_retries_per_call(),
-            retry_delay_seconds: default_retry_delay_seconds(),
-            max_consecutive_failures: default_max_consecutive_failures(),
         }
     }
 }

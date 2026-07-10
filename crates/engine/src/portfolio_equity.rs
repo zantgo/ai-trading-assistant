@@ -2,7 +2,6 @@ use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use crate::instance::InstanceStatus;
 use crate::workspace::Workspace;
 
 const LOG_INTERVAL_SECS: u64 = 60;
@@ -61,12 +60,13 @@ pub async fn purge_equity_history(pool: &SqlitePool, older_than_ms: i64) {
         .await;
 }
 
-async fn write_snapshot(pool: &SqlitePool, workspace: &Arc<Workspace>) {
+async fn write_snapshot(pool: &SqlitePool, _workspace: &Arc<Workspace>) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64;
 
+    // No paper trading — equity snapshot tracks zero values for historical continuity
     let total_cash: f64 = sqlx::query(
         "SELECT COALESCE(SUM(current_cash), 0.0) FROM paper_balances",
     )
@@ -75,47 +75,8 @@ async fn write_snapshot(pool: &SqlitePool, workspace: &Arc<Workspace>) {
     .map(|r| r.get(0))
     .unwrap_or(0.0);
 
-    let instances = workspace.get_all_instances().await;
-
-    let mut total_unrealized = 0.0;
-    let mut total_margin = 0.0;
-    for instance in &instances {
-        let status = instance.status().await;
-        if status != InstanceStatus::Running {
-            continue;
-        }
-        let symbol = format!("{}-{}", instance.pair.0, instance.pair.1);
-        if let Some(pos) = crate::db::paper_get_active_position(pool, &symbol).await {
-            total_margin += pos.allocated_usd;
-            let price = instance.latest_price().await.unwrap_or(pos.entry_price);
-            let unrealized = if pos.direction == "LONG" {
-                pos.size * (price - pos.entry_price)
-            } else {
-                pos.size * (pos.entry_price - price)
-            };
-            total_unrealized += unrealized;
-
-            // Log per-position equity snapshot for performance charts
-            let pos_equity = pos.allocated_usd + unrealized;
-            let pos_cash: f64 = sqlx::query_scalar(
-                "SELECT current_cash FROM paper_balances WHERE symbol = ?1"
-            )
-            .bind(&symbol)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(0.0);
-            crate::db::paper_insert_equity_snapshot(
-                pool, &symbol, now_ms, pos_equity, pos_cash, unrealized,
-            )
-            .await;
-        }
-    }
-
-    let total_value = total_cash + total_margin + total_unrealized;
-
-    insert_equity_snapshot(pool, now_ms, total_value, total_cash, total_unrealized).await;
+    let total_value = total_cash;
+    insert_equity_snapshot(pool, now_ms, total_value, total_cash, 0.0).await;
     purge_equity_history(pool, now_ms - PURGE_OLDER_THAN_MS).await;
 }
 

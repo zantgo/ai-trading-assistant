@@ -1,31 +1,33 @@
-use crate::db::{CompletedTradesBufferRow, DecisionMemoryBufferRow};
-use crate::llm::{ChatMessage, IndividualIndicatorResult};
+// Minimal shim types (previously defined in db/queries/memory.rs)
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct DecisionMemoryBufferRow {
+    pub id: i64,
+    pub symbol: String,
+    pub timestamp: i64,
+    pub regime_classification: String,
+    pub orchestrator_decision: String,
+    pub confidence_score: f64,
+    pub eight_factor_score: i32,
+    pub portfolio_risk_pct: f64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct CompletedTradesBufferRow {
+    pub id: i64,
+    pub symbol: String,
+    pub direction: String,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub realized_pnl: f64,
+    pub roi_pct: f64,
+    pub execution_score: f64,
+    pub primary_mistake: String,
+    pub closed_at: i64,
+}
+
 use serde::{Deserialize, Serialize};
 use shared::indicators::normalized::NormalizedIndicatorValue;
 use std::collections::{BTreeSet, HashMap};
-
-#[derive(Debug, Deserialize)]
-pub struct AnalyzeRequest {
-    pub position: String,
-    #[serde(default)]
-    pub entry_price: String,
-    pub historical_prices: Vec<f64>,
-    pub indicators: IndicatorSnapshot,
-    #[serde(default)]
-    pub symbol: String,
-    #[serde(default)]
-    pub timeframes: Option<MultiTimeframeIndicators>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct MultiTimeframeIndicators {
-    pub micro_term: IndicatorSnapshot,
-    pub fast_term: IndicatorSnapshot,
-    #[serde(default)]
-    pub slow_term: Option<IndicatorSnapshot>,
-    #[serde(default)]
-    pub macro_term: Option<IndicatorSnapshot>,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct SetKeyRequest {
@@ -49,15 +51,7 @@ pub struct ConfigResponse {
     pub candles: crate::config::CandlesConfig,
     pub indicators: crate::config::IndicatorsConfig,
     pub instances: std::collections::HashMap<String, crate::config::InstanceSpecificConfig>,
-    /// Authoritative indicator manifest (single source of truth) consumed by the
-    /// frontend to drive the telemetry matrix, toggles, and scoring UI.
     pub indicator_registry: Vec<shared::indicators::IndicatorMeta>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AssistantRecordsQuery {
-    #[serde(default)]
-    pub trigger_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,39 +231,6 @@ fn divergence_status(label: Option<&str>) -> Option<String> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SupportResistanceResponse {
-    pub detected_support_levels: Vec<String>,
-    pub detected_resistance_levels: Vec<String>,
-    pub structural_analysis: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct IndicatorSynthesisResponse {
-    pub summary_count: String,
-    pub evaluation: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PositionRecommendationResponse {
-    pub action: String,
-    pub rationale: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PhaseTwoResponse {
-    pub general_trend: String,
-    pub support_and_resistance: SupportResistanceResponse,
-    pub indicator_synthesis: IndicatorSynthesisResponse,
-    pub position_recommendation: PositionRecommendationResponse,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MultiAgentAnalysisResponse {
-    pub phase_one: Vec<IndividualIndicatorResult>,
-    pub phase_two: PhaseTwoResponse,
-}
-
-#[derive(Debug, Serialize)]
 pub struct HistoryCandle {
     pub time: u64,
     pub open: String,
@@ -280,8 +241,6 @@ pub struct HistoryCandle {
 }
 
 /// Parallel time-series arrays for a single indicator (aligned to `times`).
-/// `values` carries multi-line sub-series (e.g. macd line/signal, bollinger
-/// bands, ema ribbon) each aligned to `times`.
 #[derive(Debug, Default, Serialize)]
 pub struct HistoricalIndicatorArrays {
     pub raw: Vec<Option<f64>>,
@@ -291,8 +250,6 @@ pub struct HistoricalIndicatorArrays {
 }
 
 impl HistoricalIndicatorArrays {
-    /// Initialize with pre-known multi-line sub-keys so `values` sub-series
-    /// stay aligned even when some snapshots omit them.
     pub fn with_value_keys(value_keys: &BTreeSet<String>) -> Self {
         let mut values = HashMap::new();
         for k in value_keys {
@@ -306,7 +263,6 @@ impl HistoricalIndicatorArrays {
         }
     }
 
-    /// Append a present indicator value (raw/normalized/label + each sub-value).
     pub fn push_value(&mut self, v: &NormalizedIndicatorValue) {
         self.raw.push(Some(v.raw_value));
         self.normalized.push(Some(v.normalized));
@@ -317,7 +273,6 @@ impl HistoricalIndicatorArrays {
         }
     }
 
-    /// Append a null (missing) slot, preserving parallel alignment.
     pub fn push_none(&mut self) {
         self.raw.push(None);
         self.normalized.push(None);
@@ -352,24 +307,19 @@ pub struct MonitorTimeframe {
     pub regime: String,
     pub overall_score: i32,
     pub overall_label: String,
-    /// Registry confluence score in [-100,100] for this timeframe (bull bias).
     pub confluence_score: i32,
 }
 
-/// Per-indicator agreement across the four timeframes.
 #[derive(Debug, Serialize)]
 pub struct MtfIndicatorRow {
     pub key: String,
     pub display_name: String,
-    /// Signed direction (+1/0/-1) per timeframe: [micro, fast, slow, macro].
     pub per_tf: Vec<i8>,
-    /// Fraction of timeframes agreeing with the dominant direction (0-1).
     pub agreement: f64,
 }
 
 #[derive(Debug, Serialize)]
 pub struct MtfConfirmation {
-    /// Overall trend-agreement across indicators & timeframes (0-100%).
     pub trend_agreement_pct: f64,
     pub structural_trend: String,
     pub rows: Vec<MtfIndicatorRow>,
@@ -380,18 +330,7 @@ pub struct MonitorResponse {
     pub symbol: String,
     pub timeframes: Vec<MonitorTimeframe>,
     pub mtf: MtfConfirmation,
-    /// Macro-timeframe market-context synthesis (falls back to micro).
     pub market_context: Option<shared::market_context::MarketContext>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ChatReplResponse {
-    pub reply: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ChatHistoryRequest {
-    pub history: Vec<ChatMessage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -401,36 +340,6 @@ pub struct AddTradeRequest {
     pub outcome: String,
     pub risk_multiplier: f64,
     pub reward_multiplier: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MasterRecordJson {
-    pub id: i64,
-    pub created_at: String,
-    pub position: String,
-    pub entry_price: Option<String>,
-    pub trend_classification: String,
-    pub indicator_alignment: String,
-    pub indicator_synthesis_summary: String,
-    pub recommended_action: String,
-    pub recommendation_rationale: String,
-    pub price_at_analysis: String,
-    pub support_levels: String,
-    pub resistance_levels: String,
-    pub symbol: String,
-    pub trigger_type: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MasterHistoryResponse {
-    pub records: Vec<MasterRecordJson>,
-    pub latest_close: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AnalyzeAcceptedResponse {
-    pub master_id: i64,
-    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -449,128 +358,6 @@ pub struct ObservabilityBuffersResponse {
     pub recent_decisions: Vec<DecisionMemoryBufferRow>,
     pub completed_trades: Vec<CompletedTradesBufferRow>,
 }
-
-#[derive(Debug, Serialize)]
-pub struct CostEstimateResponse {
-    pub price_per_1m_input_tokens: f64,
-    pub price_per_1m_output_tokens: f64,
-    pub interval_seconds: u64,
-    pub runs_per_day: f64,
-    pub input_tokens_per_run: u64,
-    pub output_tokens_per_run: u64,
-    pub projected_daily_cost: f64,
-    pub projected_weekly_cost: f64,
-    pub projected_monthly_cost: f64,
-    pub actual_input_tokens_used: u64,
-    pub actual_output_tokens_used: u64,
-    pub actual_total_cost: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CostEstimateQuery {
-    pub pair_key: Option<String>,
-}
-
-// ─── Paper Trading ───────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct PaperStatusQuery { #[serde(default)] pub symbol: String }
-
-#[derive(Debug, Deserialize)]
-pub struct PaperConfigRequest {
-    pub symbol: String, pub initial_usd: f64, pub allocation_pct: f64,
-    pub auto_execute: bool, #[serde(default = "default_max_risk_pct")] pub max_risk_pct: f64,
-    #[serde(default = "default_leverage")] pub leverage: i32,
-    #[serde(default = "default_auto_execute_intervals")] pub auto_execute_intervals: i32,
-    #[serde(default = "default_lookback_trades")] pub lookback_trades: i32,
-    #[serde(default)] pub break_even_trail_enabled: bool,
-}
-fn default_max_risk_pct() -> f64 { 2.0 }
-fn default_leverage() -> i32 { 20 }
-fn default_auto_execute_intervals() -> i32 { 15 }
-fn default_lookback_trades() -> i32 { 10 }
-
-#[derive(Debug, Deserialize)]
-pub struct PaperResetRequest { pub symbol: String }
-
-#[derive(Debug, Deserialize)]
-pub struct PaperOrderRequest { pub symbol: String, pub direction: String, pub action: String }
-
-#[derive(Debug, Deserialize)]
-pub struct PaperPositionPctRequest { pub symbol: String, pub direction: String, #[serde(default)] pub pct: f64 }
-
-#[derive(Debug, Deserialize)]
-pub struct PaperTpSlRequest { pub symbol: String, pub targets: Vec<TpSlTarget> }
-
-#[derive(Debug, Deserialize)]
-pub struct TpSlTarget { pub pct: f64, pub price: f64 }
-
-#[derive(Debug, Deserialize)]
-pub struct PaperPerformanceQuery { #[serde(default)] pub symbol: Option<String> }
-
-#[derive(Debug, Deserialize)]
-pub struct PlaceOrderRequest {
-    pub symbol: String,
-    pub order_type: String,
-    pub direction: String,
-    #[serde(default)]
-    pub price: Option<f64>,
-    #[serde(default)]
-    pub trigger_price: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CancelOrderRequest {
-    pub symbol: String,
-    pub order_id: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PlaceOrderResponse {
-    pub success: bool,
-    pub message: String,
-    pub order_id: Option<i64>,
-}
-
-// ─── Portion Slot Operations ──────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct PaperPortionOpenRequest {
-    pub symbol: String,
-    pub direction: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PaperPortionOpenResponse {
-    pub success: bool,
-    pub message: String,
-    pub slot_index: i32,
-    pub size: f64,
-    pub allocated_usd: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PaperPortionCloseRequest {
-    pub symbol: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PaperPortionCloseResponse {
-    pub success: bool,
-    pub message: String,
-    pub slot_index: i32,
-    pub realized_pnl: f64,
-    pub refunded_usd: f64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PaperEquityHistoryQuery {
-    #[serde(default)]
-    pub symbol: String,
-    #[serde(default = "default_equity_limit")]
-    pub limit: i64,
-}
-fn default_equity_limit() -> i64 { 200 }
 
 // ─── Decision Profiles ────────────────────────────────────────
 
@@ -657,16 +444,6 @@ pub struct FeeTableQuery {
     #[serde(default)] pub leverages: Option<Vec<i32>>,
 }
 
-// ─── Exchange Keys ─────────────────────────────────────────────
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ExchangeKeyRequest {
-    pub exchange: String, pub account_name: String, pub api_key: String,
-    pub api_secret: String, #[serde(default)] pub passphrase: String,
-    #[serde(default)] pub referred_uid: String, #[serde(default = "default_is_active")] pub is_active: bool,
-}
-fn default_is_active() -> bool { true }
-
 // ─── Dashboard / Journal ───────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -696,10 +473,10 @@ fn default_trigger() -> String { "MANUAL".to_string() }
 // ─── Session ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct SessionInitRequest { pub mode: String, pub currency: String, pub exchange: String, pub capital: f64 }
+pub struct SessionInitRequest { pub exchange: String, pub currency: String }
 
 #[derive(Debug, Serialize)]
-pub struct SessionStatusResponse { pub active: bool, pub mode: Option<String>, pub currency: Option<String>, pub exchange: Option<String>, pub capital: Option<f64>, pub instance_count: usize, pub max_instances: usize }
+pub struct SessionStatusResponse { pub active: bool, pub currency: Option<String>, pub exchange: Option<String>, pub instance_count: usize, pub max_instances: usize }
 
 // ─── Instance ──────────────────────────────────────────────────
 
@@ -739,24 +516,4 @@ pub struct InstanceConfigPayload {
 pub struct InstanceManualRequest { pub action: String, pub direction: Option<String>, #[serde(default)] pub price: Option<f64> }
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceApiKeyRequest { pub api_key: String, #[serde(default)] pub base_url: Option<String>, #[serde(default)] pub model: Option<String> }
-
-#[derive(Debug, Serialize)]
-pub struct InstanceUsageResponse {
-    pub id: String, pub pair: String, pub symbol: String, pub status: String,
-    pub initial_capital: f64, pub current_equity: f64, pub paper_balance: f64,
-    pub paper_equity: f64, pub paper_unrealized_pnl: f64,
-    pub consecutive_losses: u32,
-    pub caution_level: String, pub instance_id: String, pub consecutive_failures: u32,
-    pub failover_active: bool, pub failover_source: Option<String>,
-    pub input_tokens: u64, pub output_tokens: u64,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct InstanceIntervalsRequest { pub slow_seconds: i64, pub normal_seconds: i64, pub fast_seconds: i64 }
-
-#[derive(Debug, Deserialize)]
-pub struct BackupApiKeyRequest { pub api_key: String, pub label: Option<String> }
-
-#[derive(Debug, Deserialize)]
-pub struct InstanceChatRequest { pub message: String, #[serde(default)] pub context: Option<String>, #[serde(default)] pub history: Vec<crate::llm::ChatMessage> }

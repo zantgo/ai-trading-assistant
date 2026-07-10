@@ -1,17 +1,14 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::analyzer;
-use crate::automation;
 use crate::config::{
     FibonacciConfig, IntervalsConfig, OperationalMode, PositionScalingConfig,
     SafetyConfig, TimeframeConfig,
 };
 use crate::db;
 use crate::instance::{Instance, TimeframeBuffers};
-use crate::llm::LlmClient;
-use crate::portfolio_risk::PortfolioRiskState;
 use crate::sr_engine::SrRoleTracker;
 use crate::workspace::{Currency, ExchangeChoice, Workspace};
 use shared::indicators::DivergenceDetector;
@@ -51,7 +48,6 @@ pub struct PipelineArtifacts {
 pub async fn build_pipelines(
     ctx: &PipelineContext,
     workspace: &Arc<Workspace>,
-    llm_client: Arc<LlmClient>,
     warmed_states: Option<(
         analyzer::WarmedPipelineState,
         analyzer::WarmedPipelineState,
@@ -218,44 +214,6 @@ pub async fn build_pipelines(
         macro_buf.clone(),
         ctx.operational_mode.clone(),
     ));
-
-    let (trigger_tx, trigger_rx) = mpsc::channel::<automation::TriggerMessage>(32);
-
-    let auto_ctx = automation::AutomationContext {
-        pair_key: ctx.pair_key.clone(),
-        symbol: ctx.internal_symbol.clone(),
-        micro_history: micro_history.clone(),
-        fast_history: fast_history.clone(),
-        slow_history: slow_history.clone(),
-        macro_history: macro_history.clone(),
-        micro_latest: micro_latest.clone(),
-        fast_latest: fast_latest.clone(),
-        slow_latest: slow_latest.clone(),
-        macro_latest: macro_latest.clone(),
-        micro_snapshot_history: micro_snapshot_history.clone(),
-        fast_snapshot_history: fast_snapshot_history.clone(),
-        slow_snapshot_history: slow_snapshot_history.clone(),
-        macro_snapshot_history: macro_snapshot_history.clone(),
-        config: workspace.config.clone(),
-        pool: workspace.pool.clone(),
-        llm_client,
-        telemetry_tx: workspace.telemetry_tx.clone(),
-        cancel: cancel.clone(),
-        api_key_configured: workspace.api_key_configured.clone(),
-        portfolio_risk: Arc::new(PortfolioRiskState::default()),
-        pair_close_histories: Arc::new(RwLock::new(HashMap::new())),
-        safety: instance.safety.clone(),
-        intervals: instance.config_state.read().await.intervals.clone(),
-        next_interval_override: Arc::new(RwLock::new(None)),
-        operational_mode: ctx.operational_mode.clone(),
-        weight_overrides: Arc::new(RwLock::new(ctx.weight_overrides.clone())),
-        position_scaling: Arc::new(RwLock::new(ctx.position_scaling.clone())),
-        candle_counters: Arc::new(RwLock::new(HashMap::new())),
-        prev_indicators: Arc::new(RwLock::new(None)),
-        trigger_tx,
-        trigger_rx: Arc::new(tokio::sync::Mutex::new(Some(trigger_rx))),
-    };
-    *instance.automation_ctx.write().await = Some(auto_ctx);
 
     PipelineArtifacts {
         instance,

@@ -1,28 +1,16 @@
 // Global reactive state using Svelte 5 runes
 import type {
-    AssistantAnalysis, AssistantHistoryRecord, ChatMessage, DecisionProfile, DecisionScore,
-    RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection, ExchangeAccount,
-    DashboardStats, TradeLedgerRecord, TradeJournalRecord, IndividualIndicatorResult,
-    MultiAgentAnalysis, AgentProgress, InstanceState, TimeframeTelemetry,
+    DecisionProfile, DecisionScore,
+    RiskProfile, RiskCalculation, FeeTableRow, CommissionProjection,
+    DashboardStats, TradeLedgerRecord, TradeJournalRecord,
+    InstanceState, TimeframeTelemetry,
     ScaleInPortion, TakeProfitTarget, UserTrade,
-    SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow,
-    CurrentView, Level2Mode, OperationalMode,
+    CurrentView,
 } from './types';
-import { PaperTradingStore } from './stores/paperTrading.svelte';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
-import { ExchangeKeyStore } from './stores/exchangeKeys.svelte';
-import { useEdgeStore, type EdgeStore } from './stores/edges.svelte';
-
-/** Maps a Level 2 paradigm to its backend operational_mode (general leaves it unchanged). */
-const MODE_TO_OP: Record<Level2Mode, OperationalMode | null> = {
-    general: null,
-    user: 'ManualOnly',
-    rule: 'DeterministicHeuristics',
-    ai: 'HybridAiCopilot',
-};
 
 function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
     return {
@@ -63,37 +51,17 @@ function createInstanceState(symbol: string): InstanceState {
         fastTerm: createTimeframeTelemetry(symbol, 180),
         slowTerm: createTimeframeTelemetry(symbol, 300),
         macroTerm: createTimeframeTelemetry(symbol, 900),
-        assistantHistory: [], chatHistory: [],
-        currentPosition: 'None', entryPriceVal: '', stopLossVal: '',
-        assistantLoading: false, assistantError: null,
-        assistantResponse: null, multiAgentResponse: null,
-        analysisPhase: 'idle', individualResults: [], agentProgress: [],
         historyLatestClose: '0',
-        isAssistantModalOpen: false, chatInputText: '', isChatLoading: false,
         currentView: 'terminal',
-        currentLevel2Mode: 'user',
-        modeViews: { general: 'timeframe_settings', user: 'terminal', rule: 'decision', ai: 'assistant' },
-        activeExecutionMode: 'HybridAiCopilot',
-        automationEnabled: false, automationIntervalValue: 15,
-        automationIntervalUnit: 'minutes',
-        slowIntervalSecs: 3600, normalIntervalSecs: 900, fastIntervalSecs: 300,
-        nextEvaluationIn: '--',
-        totalPointsScore: 0, allocatedCapitalPct: 0, activeOppositeSignalsCount: 0,
-        markedSupportLevels: [], markedResistanceLevels: [], srFlipEvents: '[]',
-        priceLineMode: false,
-        showEmaFast: true, showEmaMedium: true, showEmaSlow: true, showEmaLong: true,
     };
 }
 
 export class AppStore {
     // ─── Sub-stores ───────────────────────────────────────────────────
-    paper = new PaperTradingStore();
     settings = new SettingsStore();
     analytics = new AnalyticsStore();
     session = new SessionStore();
     profiles = new ProfileStore();
-    exchangeKeys = new ExchangeKeyStore();
-    edges: EdgeStore;
 
     // ─── Global State ─────────────────────────────────────────────────
     instancesMap = $state<Record<string, InstanceState>>({});
@@ -101,12 +69,11 @@ export class AppStore {
     currentGlobalView = $state<string>('dashboard');
 
     constructor() {
-        this.edges = useEdgeStore();
         this.session.onSessionActivated = () => { this.currentGlobalView = 'dashboard'; };
 
         this._delegate(this.session, [
-            'sessionActive', 'sessionMode', 'sessionCurrency', 'sessionExchange',
-            'sessionCapital', 'sessionInstanceCount', 'sessionMaxInstances',
+            'sessionActive', 'sessionCurrency', 'sessionExchange',
+            'sessionInstanceCount', 'sessionMaxInstances',
             'sessionLoading', 'sessionChecked', 'sessionError',
         ]);
 
@@ -121,43 +88,15 @@ export class AppStore {
             'commissionLoading', 'feeTable', 'feeTableLoading',
         ]);
 
-        this._delegate(this.exchangeKeys, [
-            'exchangeAccounts', 'exchangeActiveCount', 'exchangeMaxAccounts', 'exchangeFormDraft',
-        ]);
-
-        this._delegate(this.paper, [
-            'paperCashBalance', 'paperInitialUSD', 'paperAllocationPct',
-            'paperAutoExecute', 'activePaperPosition', 'paperUnrealizedPnl',
-            'paperUnrealizedRoi', 'paperTotalAccountValue', 'paperMarginUsed',
-            'paperMaxTrades', 'paperActiveTrades', 'paperAvailableTrades',
-            'paperHistory', 'paperLoading', 'paperScaleInPortions',
-            'paperTakeProfitTargets', 'paperAvgEntryPrice',
-            'paperInvalidationLevel', 'paperFilledPortions', 'paperMaxRiskPct',
-            'paperLeverage', 'paperAutoExecuteIntervals', 'paperLookbackTrades',
-            'paperBreakEvenTrailEnabled',
-            'paperPositionPct', 'paperFreeBalancePct', 'paperDirection',
-            'openOrders',
-            'activeSlots', 'positionSlots', 'equitySnapshots',
-            'paperInitialAllocatedMargin', 'paperRealizedPnlAccumulator',
-        ]);
-
         this._delegate(this.settings, [
             'apiKeyConfigured', 'rulesContent', 'globalCandlesConfig',
             'globalIndicatorsConfig', 'indicatorRegistry', 'emaFastLabel', 'emaMediumLabel',
             'emaSlowLabel', 'emaLongLabel', 'rsiLabel', 'adxLabel', 'atrLabel',
             'macdLabel',
-            'costPriceInput', 'costPriceOutput', 'costIntervalSecs',
-            'costRunsPerDay', 'costTokensPerRunInput', 'costTokensPerRunOutput',
-            'costDailyProjected', 'costWeeklyProjected', 'costMonthlyProjected',
-            'costActualInputTokens', 'costActualOutputTokens', 'costActualTotal',
-            'costLoading',
         ]);
 
         this._delegate(this.analytics, [
-            'dashboardStats', 'dashboardActiveFilter', 'dashboardPeriod',
-            'dashboardOrigin', 'tradeLedgerRecords', 'tradeJournalRecords',
-            'journalLookbackDepth', 'systemHeartbeat', 'recentDecisions',
-            'completedTrades', 'userTrades',
+            'dashboardStats', 'tradeLedgerRecords', 'tradeJournalRecords',
         ]);
 
         this._delegateMethods(this.session, 'fetchSessionStatus', 'initSession', 'quitSession');
@@ -167,11 +106,9 @@ export class AppStore {
             'updateProfileIndicator', 'deleteProfileIndicator',
             'fetchRiskProfiles', 'createRiskProfile', 'deleteRiskProfile',
             'calculateRisk', 'fetchFeeTable', 'calculateCommissionProjection');
-        this._delegateMethods(this.exchangeKeys, 'fetchExchangeKeys', 'addExchangeKey', 'deleteExchangeKey');
         this._delegateMethods(this.analytics,
             'fetchTradeLedger', 'fetchTradeJournal', 'updateJournalNotes',
-            'fetchSystemStatus', 'fetchObservabilityBuffers',
-            'fetchTrades', 'exportJournalCSV', 'exportJournalJSON');
+            'fetchDashboardStats');
     }
 
     private _delegate(target: any, props: string[]) {
@@ -208,8 +145,6 @@ export class AppStore {
     micro(): TimeframeTelemetry { return this.activeInstance().microTerm; }
 
     // ─── Quote-asset abstraction ─────────────────────────────────────
-    // The settlement/quote currency is decided at the Welcome Gate and drives
-    // every pair key ("BASE-<quote>") and display label ("BASE/<quote>").
     get quote(): string { return this.sessionCurrency || 'USDT'; }
     pairKeyFor(symbol: string): string { return `${symbol}-${this.quote}`; }
     pairDisplayFor(symbol: string): string { return `${symbol}/${this.quote}`; }
@@ -245,39 +180,6 @@ export class AppStore {
 
     switchTab(key: string) { this.activeTab = key; }
 
-    autoLogTrade(pair: InstanceState, oldPosition: 'Long' | 'Short') {
-        const entryPrice = parseFloat(pair.entryPriceVal);
-        const exitPrice = parseFloat(pair.microTerm.priceText);
-        if (isNaN(entryPrice) || isNaN(exitPrice) || entryPrice <= 0 || exitPrice <= 0) {
-            console.warn("⚠️ Trade Logger Bypassed: Entry Price or Current Market Price is invalid.");
-            return;
-        }
-        const stopLoss = parseFloat(pair.stopLossVal);
-        let riskDistance = 0;
-        if (!isNaN(stopLoss) && stopLoss > 0 && stopLoss !== entryPrice) {
-            riskDistance = Math.abs(entryPrice - stopLoss);
-        } else {
-            riskDistance = entryPrice * 0.01;
-        }
-        let pnl = 0;
-        if (oldPosition === 'Long') pnl = exitPrice - entryPrice;
-        else pnl = entryPrice - exitPrice;
-        const outcome = pnl >= 0 ? 'WIN' : 'LOSS';
-        const rewardDistance = Math.abs(pnl);
-        const rewardMultiplier = riskDistance > 0 ? (rewardDistance / riskDistance) : 1.0;
-        const payload = {
-            symbol: pair.symbol.toUpperCase(), direction: oldPosition, outcome,
-            risk_multiplier: 1.0, reward_multiplier: parseFloat(rewardMultiplier.toFixed(2)),
-        };
-        fetch('/api/trades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-            .then(res => {
-                if (res.ok) {
-                    console.log(`✅ Auto-Logged Trade: ${payload.symbol} ${payload.direction} ${payload.outcome}`);
-                    this.analytics.fetchTrades().catch(() => {});
-                }
-            }).catch(err => console.error("❌ Auto-Logger Network Error:", err));
-    }
-
     // ─── Instance / Telemetry Accessors ──────────────────────────────
 
     get microTerm() { return this.activeInstance().microTerm; }
@@ -289,8 +191,7 @@ export class AppStore {
     get isConnected() { return this.activeInstance().isConnected; }
     set isConnected(v: boolean) { this.activeInstance().isConnected = v; }
 
-    // Micro-term telemetry accessors (core market data only; indicators live
-    // in the nested `indicators` map on each timeframe).
+    // Micro-term telemetry accessors
     get priceText() { return this.micro().priceText; }
     set priceText(v: string) { this.micro().priceText = v; }
     get avgVolText() { return this.micro().avgVolText; }
@@ -347,146 +248,12 @@ export class AppStore {
     set squeezePeriodVal(v: number) { this.micro().squeezePeriodVal = v; }
     get analysisLimit() { return this.micro().analysisLimit; }
     set analysisLimit(v: number) { this.micro().analysisLimit = v; }
-    get candleTimeframeLabel() {
-        const sec = this.micro().barDurationSec;
-        if (sec % 3600 === 0) return `${sec / 3600}h`;
-        if (sec % 60 === 0) return `${sec / 60}m`;
-        return `${sec}s`;
-    }
 
-    // Active instance assistant & chat accessors
-    get assistantHistory() { return this.activeInstance().assistantHistory; }
-    set assistantHistory(v: AssistantHistoryRecord[]) { this.activeInstance().assistantHistory = v; }
-    get chatHistory() { return this.activeInstance().chatHistory; }
-    set chatHistory(v: ChatMessage[]) { this.activeInstance().chatHistory = v; }
-    get currentPosition(): 'None' | 'Long' | 'Short' { return this.activeInstance().currentPosition; }
-    set currentPosition(v: 'None' | 'Long' | 'Short') {
-        const pair = this.activeInstance(); const oldVal = pair.currentPosition;
-        if (oldVal !== 'None' && v === 'None') { this.autoLogTrade(pair, oldVal); pair.entryPriceVal = ''; pair.stopLossVal = ''; }
-        pair.currentPosition = v;
-    }
-    get entryPriceVal() { return this.activeInstance().entryPriceVal; }
-    set entryPriceVal(v: string) { this.activeInstance().entryPriceVal = v; }
-    get stopLossVal() { return this.activeInstance().stopLossVal; }
-    set stopLossVal(v: string) { this.activeInstance().stopLossVal = v; }
-    get assistantLoading() { return this.activeInstance().assistantLoading; }
-    set assistantLoading(v: boolean) { this.activeInstance().assistantLoading = v; }
-    get assistantError() { return this.activeInstance().assistantError; }
-    set assistantError(v: string | null) { this.activeInstance().assistantError = v; }
-    get assistantResponse() { return this.activeInstance().assistantResponse; }
-    set assistantResponse(v: AssistantAnalysis | null) { this.activeInstance().assistantResponse = v; }
-    get multiAgentResponse() { return this.activeInstance().multiAgentResponse; }
-    set multiAgentResponse(v: MultiAgentAnalysis | null) { this.activeInstance().multiAgentResponse = v; }
-    get analysisPhase() { return this.activeInstance().analysisPhase; }
-    set analysisPhase(v: 'idle' | 'phase1' | 'phase2' | 'complete') { this.activeInstance().analysisPhase = v; }
-    get individualResults() { return this.activeInstance().individualResults; }
-    set individualResults(v: IndividualIndicatorResult[]) { this.activeInstance().individualResults = v; }
-    get agentProgress() { return this.activeInstance().agentProgress; }
-    set agentProgress(v: AgentProgress[]) { this.activeInstance().agentProgress = v; }
     get historyLatestClose() { return this.activeInstance().historyLatestClose; }
     set historyLatestClose(v: string) { this.activeInstance().historyLatestClose = v; }
-    get isAssistantModalOpen() { return this.activeInstance().isAssistantModalOpen; }
-    set isAssistantModalOpen(v: boolean) { this.activeInstance().isAssistantModalOpen = v; }
-    get chatInputText() { return this.activeInstance().chatInputText; }
-    set chatInputText(v: string) { this.activeInstance().chatInputText = v; }
-    get isChatLoading() { return this.activeInstance().isChatLoading; }
-    set isChatLoading(v: boolean) { this.activeInstance().isChatLoading = v; }
+
     get currentView() { return this.activeInstance().currentView; }
-    set currentView(v: CurrentView) {
-        const pair = this.activeInstance();
-        pair.currentView = v;
-        pair.modeViews[pair.currentLevel2Mode] = v;
-    }
-
-    // ─── Level 2 operational-mode navigation (UI-only) ────────────────
-    get currentLevel2Mode() { return this.activeInstance().currentLevel2Mode; }
-    set currentLevel2Mode(m: Level2Mode) { this.switchMode(m); }
-
-    /** Switch the Level 2 paradigm and restore that mode's last active Level 3 view. */
-    switchMode(mode: Level2Mode) {
-        const pair = this.activeInstance();
-        pair.currentLevel2Mode = mode;
-        pair.currentView = pair.modeViews[mode];
-    }
-
-    get activeExecutionMode() { return this.activeInstance().activeExecutionMode; }
-
-    /** operational_mode that the currently selected paradigm maps to (null = leave unchanged). */
-    get pendingOperationalMode(): OperationalMode | null {
-        return MODE_TO_OP[this.activeInstance().currentLevel2Mode];
-    }
-
-    /** Explicitly apply the selected paradigm's operational_mode to the backend. */
-    async applyMode(): Promise<boolean> {
-        const target = this.pendingOperationalMode;
-        if (!target) return false;
-        try {
-            const res = await fetch(`/api/instances/${encodeURIComponent(this.activeTab)}/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ operational_mode: target }),
-            });
-            if (res.ok) { this.activeInstance().activeExecutionMode = target; return true; }
-            return false;
-        } catch (e) {
-            console.error('Failed to apply operational mode:', e);
-            return false;
-        }
-    }
-
-    // Automation accessors
-    get automationEnabled() { return this.activeInstance().automationEnabled; }
-    set automationEnabled(v: boolean) { this.activeInstance().automationEnabled = v; }
-    get automationIntervalValue() { return this.activeInstance().automationIntervalValue; }
-    set automationIntervalValue(v: number) { this.activeInstance().automationIntervalValue = v; }
-    get automationIntervalUnit() { return this.activeInstance().automationIntervalUnit; }
-    set automationIntervalUnit(v: 'seconds' | 'minutes' | 'hours') { this.activeInstance().automationIntervalUnit = v; }
-    get slowIntervalSecs() { return this.activeInstance().slowIntervalSecs; }
-    set slowIntervalSecs(v: number) { this.activeInstance().slowIntervalSecs = v; }
-    get normalIntervalSecs() { return this.activeInstance().normalIntervalSecs; }
-    set normalIntervalSecs(v: number) { this.activeInstance().normalIntervalSecs = v; }
-    get fastIntervalSecs() { return this.activeInstance().fastIntervalSecs; }
-    set fastIntervalSecs(v: number) { this.activeInstance().fastIntervalSecs = v; }
-    get nextEvaluationIn() { return this.activeInstance().nextEvaluationIn; }
-    set nextEvaluationIn(v: string) { this.activeInstance().nextEvaluationIn = v; }
-
-    // Confluence & S/R accessors
-    get totalPointsScore() { return this.activeInstance().totalPointsScore; }
-    set totalPointsScore(v: number) { this.activeInstance().totalPointsScore = v; }
-    get allocatedCapitalPct() { return this.activeInstance().allocatedCapitalPct; }
-    set allocatedCapitalPct(v: number) { this.activeInstance().allocatedCapitalPct = v; }
-    get activeOppositeSignalsCount() { return this.activeInstance().activeOppositeSignalsCount; }
-    set activeOppositeSignalsCount(v: number) { this.activeInstance().activeOppositeSignalsCount = v; }
-    get markedSupportLevels() { return this.activeInstance().markedSupportLevels; }
-    set markedSupportLevels(v: number[]) { this.activeInstance().markedSupportLevels = v; }
-    get markedResistanceLevels() { return this.activeInstance().markedResistanceLevels; }
-    set markedResistanceLevels(v: number[]) { this.activeInstance().markedResistanceLevels = v; }
-    get srFlipEvents() { return this.activeInstance().srFlipEvents; }
-    set srFlipEvents(v: string) { this.activeInstance().srFlipEvents = v; }
-
-    // ─── Delegate Methods (with activeTab/sessionCapital references) ────
-
-    async fetchCostEstimate() { await this.settings.fetchCostEstimate(this.activeTab); }
-
-    async fetchPaperStatus() { await this.paper.fetchPaperStatus(this.activeTab); }
-    async openPaperPosition(direction: 'LONG' | 'SHORT') { await this.paper.openPaperPosition(this.activeTab, direction); }
-    async closePaperPosition() { await this.paper.closePaperPosition(this.activeTab); }
-    async openPositionPct(direction: 'LONG' | 'SHORT', pct: number) { return await this.paper.openPositionPct(this.activeTab, direction, pct); }
-    async closePositionPct(pct: number) { return await this.paper.closePositionPct(this.activeTab, pct); }
-    async setTpTargets(targets: { pct: number; price: number }[]) { return await this.paper.setTpTargets(this.activeTab, targets); }
-    async setSlLevels(stops: { pct: number; price: number }[]) { return await this.paper.setSlLevels(this.activeTab, stops); }
-    async resetPaperAccount() { await this.paper.resetPaperAccount(this.activeTab); }
-    async savePaperConfig(initialUSD: number, allocationPct: number, autoExecute: boolean) { await this.paper.savePaperConfig(this.activeTab, initialUSD, allocationPct, autoExecute); }
-    async fetchPaperHistory(symbol?: string) { await this.paper.fetchPaperHistory(this.activeTab, symbol); }
-    async fetchOpenOrders() { await this.paper.fetchOpenOrders(this.activeTab); }
-    async placeOrder(order: import('./types').PlaceOrderPayload) { return await this.paper.placeOrder(this.activeTab, order); }
-    async cancelOrder(orderId: number) { return await this.paper.cancelOrder(this.activeTab, orderId); }
-    async fetchSlotStates() { await this.paper.fetchSlotStates(this.activeTab); }
-    async fetchEquityHistory() { await this.paper.fetchEquityHistory(this.activeTab); }
-    async openSlot(direction: 'LONG' | 'SHORT') { return await this.paper.openSlot(this.activeTab, direction); }
-    async closeSlot() { return await this.paper.closeSlot(this.activeTab); }
-
-    async fetchDashboardStats() { await this.analytics.fetchDashboardStats(this.sessionCapital); }
+    set currentView(v: CurrentView) { this.activeInstance().currentView = v; }
 }
 
 // Module-level singleton for backward compatibility

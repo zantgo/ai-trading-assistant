@@ -3,51 +3,18 @@ use sqlx::SqlitePool;
 
 pub mod crypto;
 pub mod logger;
-pub mod paper;
 pub mod queries;
 pub mod seed;
-
-// ─── Paper re-exports ──────────────────────────────────────────────
-
-pub use paper::{
-    paper_count_brackets_by_type, paper_ensure_balance, paper_fetch_equity_history,
-    paper_find_vacant_slot, paper_get_account_metrics, paper_get_active_position,
-    paper_get_active_slot_count, paper_get_active_slots, paper_get_balance,
-    paper_get_brackets_for_position, paper_get_oldest_active_slot, paper_get_open_orders,
-    paper_insert_equity_snapshot, paper_query_trades, paper_reset_account,
-    paper_set_advanced_config, paper_set_balance_config, ActivePaperPosition, OpenOrder,
-    PaperAccountMetrics, PaperBalance, PaperTradeRecord, PositionSlotRecord, ScaleInPortionRecord,
-};
 
 // ─── Logger re-exports ─────────────────────────────────────────────
 
 pub use logger::{run_telemetry_logger, TelemetryMsg};
 
-// ─── Edge re-exports ───────────────────────────────────────────────
-
-pub use queries::edges::{
-    edge_analytics_cache_get, edge_analytics_cache_upsert, edges_delete, edges_get, edges_insert,
-    edges_list,
-};
-
 // ─── Query re-exports ──────────────────────────────────────────────
 
-pub use queries::exchange_keys::{
-    exchange_keys_active_count, exchange_keys_delete, exchange_keys_insert, exchange_keys_list,
-    exchange_keys_update_sync, ExchangeKey,
-};
 pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,
     update_journal_notes, TradeJournalRecord,
-};
-pub use queries::master::{
-    insert_individual_log_internal, insert_master_placeholder, query_master_action_by_id,
-    query_master_records, query_master_records_by_trigger, update_master_record_internal,
-    MasterRecord,
-};
-pub use queries::memory::{
-    insert_agent_thought_log, insert_decision_memory_buffer, query_completed_trades_buffer,
-    query_decision_memory_buffer, CompletedTradesBufferRow, DecisionMemoryBufferRow,
 };
 pub use queries::performance::{
     insert_automated_performance_baseline, query_automated_performance,
@@ -127,7 +94,6 @@ pub async fn init_db() -> SqlitePool {
         .expect("Database Setup: Failed to run schema migrations");
 
     seed::seed_default_profiles(&pool).await;
-    crate::historical_analyst::add_historical_recommendations_table(&pool).await;
 
     pool
 }

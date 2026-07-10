@@ -148,7 +148,7 @@ pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) ->
     let mut trades: Vec<TradeDetailRow> = crate::db::dash_trade_detail(pool).await;
 
     if trades.is_empty() {
-        trades = fetch_paper_trades_as_detail(pool).await;
+        // Paper trading removed — no fallback to paper_trades table
     }
 
     if trades.is_empty() && compounded_curve.is_empty() {
@@ -241,24 +241,7 @@ fn empty_dashboard() -> DashboardStats {
 
 use crate::db::TradeDetailRow;
 
-async fn fetch_paper_trades_as_detail(pool: &SqlitePool) -> Vec<TradeDetailRow> {
-    let records = crate::db::paper_query_trades(pool, None, 10000).await;
-    records
-        .into_iter()
-        .map(|r| TradeDetailRow {
-            exit_timestamp: r.exit_timestamp,
-            symbol: r.symbol,
-            direction: r.direction,
-            entry_price: r.entry_price,
-            exit_price: r.exit_price,
-            size: r.size,
-            realized_pnl: r.realized_pnl,
-            commission_fees: 0.0,
-            roi_percentage: r.roi_pct,
-            trigger_source: r.trigger,
-        })
-        .collect()
-}
+// Paper trades query removed — paper trading is eliminated.
 
 fn compute_core_stats(trades: &[TradeDetailRow]) -> CoreStats {
     if trades.is_empty() {

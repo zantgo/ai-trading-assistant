@@ -5,26 +5,22 @@ use axum::{
 };
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::config::AppConfig;
-use crate::llm::LlmClient;
 use crate::workspace::Workspace;
 
 pub mod handlers;
 pub mod helpers;
 pub mod math;
-pub mod pipeline;
 pub mod telemetry;
 pub mod types;
 pub mod ws;
 
 pub use math::compute_support_resistance;
-pub use pipeline::run_multi_agent_pipeline;
 pub use telemetry::compile_deterministic_telemetry;
 pub use types::IndicatorSnapshot;
 
@@ -32,12 +28,9 @@ pub struct AppState {
     pub workspace: Arc<Workspace>,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
-    pub llm_client: Arc<LlmClient>,
-    pub api_key_configured: Arc<AtomicBool>,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
     pub ws_url: String,
-    pub bitget_ws_url: String,
 }
 
 // ── Stratified state types for Axum FromRef ──────────────────────
@@ -48,15 +41,6 @@ pub struct DbState(pub SqlitePool);
 impl axum::extract::FromRef<Arc<AppState>> for DbState {
     fn from_ref(state: &Arc<AppState>) -> Self {
         Self(state.pool.clone())
-    }
-}
-
-#[derive(Clone)]
-pub struct LlmState(pub Arc<LlmClient>);
-
-impl axum::extract::FromRef<Arc<AppState>> for LlmState {
-    fn from_ref(state: &Arc<AppState>) -> Self {
-        Self(state.llm_client.clone())
     }
 }
 
@@ -96,7 +80,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/config",
             get(handlers::config::serve_config).post(handlers::config::update_config),
         )
-        .route("/api/config/key", post(handlers::config::serve_set_key))
         .route("/api/config/scoring-weights", post(handlers::config::serve_set_scoring_weights))
         .route(
             "/api/rules",
@@ -104,81 +87,33 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/history", get(handlers::history::serve_history))
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
-        .route("/api/analyze", post(handlers::analyze::serve_analyze))
-        .route("/api/chat", post(handlers::chat::serve_chat))
         .route(
             "/api/trades",
             get(handlers::trades::serve_get_trades).post(handlers::trades::serve_add_trade),
         )
         .route(
-            "/api/assistant-records",
-            get(handlers::assistant::serve_assistant_records),
+            "/api/trade-ledger",
+            get(handlers::trades::serve_trade_ledger),
         )
         .route(
-            "/api/automated-performance",
-            get(handlers::assistant::serve_automated_performance),
+            "/api/trade-journal",
+            get(handlers::trades::serve_trade_journal),
         )
         .route(
-            "/api/paper/status",
-            get(handlers::paper::serve_paper_status),
+            "/api/trade-journal/:id/notes",
+            post(handlers::trades::serve_update_journal_notes),
         )
         .route(
-            "/api/paper/config",
-            post(handlers::paper::serve_paper_config),
-        )
-        .route("/api/paper/reset", post(handlers::paper::serve_paper_reset))
-        .route("/api/paper/order", post(handlers::paper::serve_paper_order))
-        .route(
-            "/api/paper/position",
-            post(handlers::paper::serve_paper_position_pct),
+            "/api/trade-journal/export/csv",
+            get(handlers::trades::serve_export_journal_csv),
         )
         .route(
-            "/api/paper/close",
-            post(handlers::paper::serve_paper_close_pct),
+            "/api/trade-journal/export/json",
+            get(handlers::trades::serve_export_journal_json),
         )
         .route(
-            "/api/paper/tp",
-            post(handlers::paper::serve_paper_set_tp),
-        )
-        .route(
-            "/api/paper/sl",
-            post(handlers::paper::serve_paper_set_sl),
-        )
-        .route(
-            "/api/paper/unrealized",
-            get(handlers::paper::serve_paper_unrealized),
-        )
-        .route(
-            "/api/paper/performance",
-            get(handlers::paper::serve_paper_performance),
-        )
-        .route(
-            "/api/paper/open-orders",
-            get(handlers::paper::serve_paper_open_orders),
-        )
-        .route(
-            "/api/paper/order/place",
-            post(handlers::paper::serve_paper_place_order),
-        )
-        .route(
-            "/api/paper/order/cancel",
-            post(handlers::paper::serve_paper_cancel_order),
-        )
-        .route(
-            "/api/paper/portion/open",
-            post(handlers::paper::serve_paper_portion_open),
-        )
-        .route(
-            "/api/paper/portion/close",
-            post(handlers::paper::serve_paper_portion_close),
-        )
-        .route(
-            "/api/paper/equity-history",
-            get(handlers::paper::serve_paper_equity_history),
-        )
-        .route(
-            "/api/paper/slot-states",
-            get(handlers::paper::serve_paper_slot_states),
+            "/api/trades/telemetry",
+            post(handlers::trades::serve_trade_telemetry_add),
         )
         .route(
             "/api/instances",
@@ -221,30 +156,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/instances/:instance_id/intervals",
             post(handlers::instances::serve_instance_intervals),
-        )
-        .route(
-            "/api/instances/:instance_id/api-key",
-            post(handlers::instances::serve_set_instance_api_key),
-        )
-        .route(
-            "/api/instances/:instance_id/api-key",
-            delete(handlers::instances::serve_delete_instance_api_key),
-        )
-        .route(
-            "/api/instances/:instance_id/usage",
-            get(handlers::instances::serve_instance_usage),
-        )
-        .route(
-            "/api/settings/backup-api-key",
-            post(handlers::config::serve_set_backup_api_key),
-        )
-        .route(
-            "/api/historical-recommendations",
-            get(handlers::assistant::serve_historical_recommendations),
-        )
-        .route(
-            "/api/instances/:instance_id/chat",
-            post(handlers::chat::serve_instance_chat),
         )
         .route(
             "/api/decision-profiles",
@@ -292,62 +203,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::profiles::serve_commission_projection),
         )
         .route(
-            "/api/exchange-keys",
-            get(handlers::exchange_keys::serve_exchange_keys_list)
-                .post(handlers::exchange_keys::serve_exchange_keys_add),
-        )
-        .route(
-            "/api/exchange-keys/:id",
-            delete(handlers::exchange_keys::serve_exchange_keys_delete)
-                .post(handlers::exchange_keys::serve_exchange_keys_sync),
-        )
-        .route(
             "/api/dashboard/stats",
             get(handlers::dashboard::serve_dashboard_stats),
-        )
-        .route(
-            "/api/trade-ledger",
-            get(handlers::trades::serve_trade_ledger),
-        )
-        .route(
-            "/api/trade-journal",
-            get(handlers::trades::serve_trade_journal),
-        )
-        .route(
-            "/api/trade-journal/:id/notes",
-            post(handlers::trades::serve_update_journal_notes),
-        )
-        .route(
-            "/api/trade-journal/export/csv",
-            get(handlers::trades::serve_export_journal_csv),
-        )
-        .route(
-            "/api/trade-journal/export/json",
-            get(handlers::trades::serve_export_journal_json),
-        )
-        .route(
-            "/api/trades/telemetry",
-            post(handlers::trades::serve_trade_telemetry_add),
-        )
-        .route(
-            "/api/cost-estimate",
-            get(handlers::assistant::serve_cost_estimate),
-        )
-        .route(
-            "/api/edges",
-            get(handlers::edges::serve_edges_list),
-        )
-        .route(
-            "/api/edges/save",
-            post(handlers::edges::serve_edges_save),
-        )
-        .route(
-            "/api/edges/analyze",
-            post(handlers::edges::serve_edges_analyze),
-        )
-        .route(
-            "/api/edges/:id",
-            delete(handlers::edges::serve_edges_delete),
         )
         .route(
             "/api/system/status",
@@ -462,10 +319,7 @@ mod tests {
             &resistance_levels,
         );
 
-        // bbwp < 10.0 -> COMPRESSION regime
         assert_eq!(telemetry.market_regime, "COMPRESSION");
-        // RSI < 30 -> +10, RSI div potential -> +10, bearish stack -> -10, price < 200EMA -> -20
-        // total should be negative
         assert!(telemetry.total_confluence_score < 0);
         assert_eq!(telemetry.rvol, 0.8);
         assert_eq!(telemetry.adx_value, 15.0);

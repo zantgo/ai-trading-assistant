@@ -1,81 +1,62 @@
 # System Architecture
 
-The AI Trading Assistant implements a 7-layer institutional trading framework combining multi-timeframe analysis, multi-agent LLM orchestration, and disciplined risk management.
+The Market Monitor implements a real-time market telemetry pipeline combining multi-timeframe analysis, deterministic indicator computation, and interactive charting.
 
 ## Core Crate Topology
 
-- `crates/shared`: Domain representations (`MarketSnapshot`), normalized exchange events, and functional indicator calculations (EMA, RSI, MACD, ADX, ATR, Bollinger, Squeeze, BBWP, Fibonacci, Chart Patterns, Divergence).
-- `crates/engine`: High-performance daemon maintaining live Hyperliquid WebSocket connections, multi-timeframe candle aggregation, SQLite telemetry persistence, paper trading simulation, and the Axum HTTP/WS dashboard server.
-- `crates/frontend`: Svelte 5 application providing interactive charting, real-time WebSocket snapshots, AI analysis triggers, paper trading controls, commission calculator, and performance analytics.
+- `crates/shared`: Domain representations (`MarketSnapshot`), normalized exchange events, and functional indicator calculations (EMA, RSI, MACD, ADX, ATR, Bollinger, Squeeze, BBWP, Fibonacci, Chart Patterns, Divergence, +25 more).
+- `crates/engine`: High-performance daemon maintaining live Hyperliquid/Bitget WebSocket connections, multi-timeframe candle aggregation, SQLite telemetry persistence, and the Axum HTTP/WS dashboard server.
+- `crates/frontend`: Svelte 5 application providing interactive charting, real-time WebSocket snapshots, decision scoring, commission calculator, and market analysis tools.
 
-## 7-Layer Architecture
+## 5-Layer Architecture
 
-### Layer 1 — Market Data (Implemented)
-- **Exchange Data**: Hyperliquid WebSocket ingestion (order book + trade streams)
-- **Data Cache**: In-memory sliding window buffers for all 5 timeframes
-- **Candle Aggregator**: Generates 15s, 1m, 5m, 15m, and 1h candles from raw trade streams; additionally aggregates 4h and 1d macro candles from 1m closes
+### Layer 1 — Market Data
+- **Exchange Data**: Hyperliquid & Bitget WebSocket ingestion (order book + trade streams)
+- **Data Cache**: In-memory sliding window buffers for all timeframes
+- **Candle Aggregator**: Generates candles from raw trade streams; aggregates macro candles (4h, 1d) from 1m closes
 - **Normalization**: `SymbolMapper` translates exchange-specific symbols into normalized identifiers
 
-### Layer 2 — Analysis (Implemented)
-- **Indicator Engine**: EMA(10/50/100/200), RSI(14), MACD(12/26/9), ADX(14) with DI+/DI- crossovers, ATR(14) with volatility regime, Bollinger Bands, Squeeze Momentum, BBWP(252/20), VWAP, Fibonacci retracement/extensions
-- **Market Structure Engine**: Swing highs/lows, S/R role tracking with flip detection, chart pattern classification (triangles, wedges, channels)
+### Layer 2 — Analysis
+- **Indicator Engine**: EMA(10/50/100/200), RSI(14), MACD(12/26/9), ADX(14) with DI+/DI- crossovers, ATR(14) with volatility regime, Bollinger Bands, Squeeze Momentum, BBWP(252/20), VWAP, Fibonacci retracement/extensions, Stochastic, ChandeMO, Supertrend, Keltner Channels, Donchian Channels, OBV, CMF, MFI, Historical Volatility, Aroon, Choppiness Index, Linear Regression Slope, Z-Score, RVOL
+- **Market Structure Engine**: Swing highs/lows, S/R role tracking with flip detection, chart pattern classification
 - **Volume Analysis**: RVOL (relative volume), average volume tracking, volume profile levels
 - **Regime Detection Engine**: Classifies market into Trending, Compression, Expansion, or Range using ADX, BBWP, Squeeze state, and ATR regime
 
-### Layer 3 — Agent Layer (Implemented)
-Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
-- **Trend Agent**: EMA structure analysis, multi-timeframe alignment, directional bias
-- **Volatility Agent**: BBWP percentile, ATR expansion/contraction, Squeeze Momentum state, volatility regime classification
-- **Structure Agent**: Support/resistance levels, Fibonacci retracements/extensions, volume profile zones, liquidity levels
-- **Risk Agent**: Position sizing recommendations, leverage suggestions, exposure monitoring
-- **Position Management Agent**: Active position state, unrealized PnL, stop-loss/take-profit tracking, invalidation detection
+### Layer 3 — Decision Scoring
+- **8-Factor Confluence Score**: RSI (10pt), RSI Divergence (20pt), MACD (10pt), MACD Divergence (10pt), Support/Resistance (10pt), Trend (20pt), 200EMA (10pt), Patterns (10pt)
+- **Registry-Based Scoring**: Weighted confluence scoring across all 34 registered indicators with per-regime multipliers
+- **Opposite-Signal Exit Evaluation**: Evaluates exit signals for existing positions
+- **Momentum Bias**: Directional bias computed from indicator alignment
 
-### Layer 4 — Orchestration (Implemented)
-- **Master Orchestrator**: `run_multi_timeframe_orchestrator()` synthesizes agent outputs into a unified decision (Open Position / Scale / Hold / Reduce / Exit / No Action)
-- **Orchestration Cycle**: Configurable interval via `automation.interval_seconds` (default: 900s)
-- **Decision Context**: Assembled from agent reports, active positions, historical decisions (memory buffer, last N=10), completed trades (trade history buffer, last N=10)
-- **Heuristic Fallback**: When no LLM API key is configured, a local 100-point confluence scoring model (trend 30/volatility 25/momentum 20/structure 25) gates decisions by regime, volume confirmation, and minimum score thresholds
+### Layer 4 — Risk & Commission Analysis
+- **Risk Calculator**: `risk_calculator.rs` computes margin, liquidation price, position sizing, risk-reward ratios
+- **Commission & Fee Projection**: `commission.rs` calculates maker/taker fees, dual-entry projections, viability gates
+- **Profile-Based Configuration**: Decision profiles and risk profiles with per-indicator weight customization
 
-### Layer 5 — Risk Management (Partially Implemented)
-- **Per-Trade Risk (Implemented)**: `risk_calculator.rs` computes margin, liquidation price, position sizing; 8-factor scoring model with ADX regime gates, RVOL volume gates, and BBWP volatility adjustments
-- **Portfolio Risk (New)**: `portfolio_risk.rs` validates new positions against daily drawdown limits, total portfolio exposure caps, single-pair concentration limits, and cross-pair Pearson correlations
-- **Paper Trading (Implemented)**: Simulated execution with balance tracking, break-even trailing, opposite-signal exit, and decisive-close invalidation
-
-### Layer 6 — Execution (Paper Only)
-- **Paper Trading Simulation**: Virtual order matching against live prices, PnL tracking, trade journal logging
-- **Real-Exchange Execution (Planned — Phase 8)**: Order Manager, Position Tracker, and Execution Monitor for Hyperliquid API integration
-
-### Layer 7 — Analytics & Learning (Partially Implemented)
-- **Performance Evaluator**: Checks direction correctness at 1h/4h/24h horizons against future price outcomes
-- **Trade Journal**: `paper_trades`, `trade_telemetry_history`, `trade_learning_journal` tables with agent-scored post-trade analysis
-- **Strategy Optimizer (New)**: Periodic per-regime performance analysis computing Profit Factor, Win Rate, and Avg R-Multiple; generates allocation bias and threshold adjustment recommendations
-- **Continuous Learning**: Adaptive reweighting of indicators, threshold adjustments, and position sizing optimization (recommendations logged for review)
+### Layer 5 — Analytics & Dashboard
+- **Performance Metrics**: Dashboard statistics with equity curves, daily activity, PnL analysis
+- **Trade Journal**: Trade logging and journaling for manual trade tracking
+- **Portfolio Monitoring**: Portfolio equity snapshots, risk state tracking
 
 ## Data Flow Diagram
 
 ```
-+------------------+       Live Websocket       +---------------+
-|   Hyperliquid    |  ======================>   |  Rust Engine  |
-+------------------+                            +---------------+
-                                                        || 5-Timeframe Pipeline
-                                                        || Indicator Computation
-                                                        || Cache last 100 closes
-                                                        || Serves HTTP API & WS
-+------------------+      Trigger Analysis      +---------------+
-|   User Browser   |  ---------------------->   |  AI Assistant |
-| (Svelte 5 Term)  |  <======================   |   (LLM)       |
-+------------------+    Structured Response     +---------------+
-         |                                               |
-         |        +---------------------------+          |
-         +------->|  Portfolio Risk Engine    |<---------+
-                  |  Strategy Optimizer       |
-                  |  Performance Evaluator    |
-                  +---------------------------+
-                           |
-                   +---------------+
-                   |   SQLite DB   |
-                   | (telemetry.db)|
-                   +---------------+
++------------------+       Live WebSocket        +---------------+
+|  Hyperliquid /   |  ======================>    |  Rust Engine  |
+|     Bitget       |                             +---------------+
++------------------+                                     || Multi-Timeframe Pipeline
+                                                         || Indicator Computation (34+)
+                                                         || Regime Detection
+                                                         || S/R Role Tracking
++------------------+      WebSocket (MarketSnapshot)  +---------------+
+|   User Browser   |  <=============================> |  Axum Server  |
+| (Svelte 5 Term)  |                             | (port 3000) |
++------------------+                             +---------------+
+                                                         |
+                                                 +---------------+
+                                                 |   SQLite DB   |
+                                                 | (telemetry.db)|
+                                                 +---------------+
 ```
 
 ## Commission Module (`crates/engine/src/commission.rs`)
@@ -92,18 +73,18 @@ Specialized LLM agents running in parallel via `run_multi_agent_pipeline()`:
 | `GET` | `/` | Serves Svelte 5 dashboard (static files from `crates/frontend/dist`) |
 | `GET` | `/ws` | WebSocket streaming `MarketSnapshot` JSON at candle close |
 | `GET` | `/api/config` | Returns parsed `config.toml` settings |
-| `GET` | `/api/history` | Returns last 100 close prices for the default symbol |
-| `POST` | `/api/analyze` | Accepts position + market data, returns structured assistant response |
-| `GET` | `/api/cost-estimate` | Token cost projections per pair |
-| `POST` | `/api/config/set-key` | Configure DeepSeek API key |
-| `POST` | `/api/config/add-pair` | Add a new trading pair at runtime |
-| `DELETE` | `/api/config/remove-pair` | Remove a trading pair |
-| `GET` | `/api/paper/balance` | Query paper trading balance |
-| `POST` | `/api/paper/configure` | Configure paper trading parameters |
+| `GET` | `/api/history` | Returns last 100 close prices |
+| `GET` | `/api/session/status` | Returns active session state |
+| `POST` | `/api/session/init` | Initialize monitoring session (exchange + currency) |
+| `POST` | `/api/session/quit` | Gracefully shutdown all instances |
+| `GET` | `/api/instances` | List all active instances |
+| `POST` | `/api/instances` | Create a new instance |
+| `GET` | `/api/monitor` | Live monitoring data |
+| `GET` | `/api/dashboard/stats` | Aggregated dashboard statistics |
 
 ## Runtime Details
 
 - Server: `http://127.0.0.1:3000` (localhost only)
-- Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`)
+- Market data: Hyperliquid (`wss://api.hyperliquid.xyz/ws`) and Bitget (`wss://ws.bitget.com/v2/ws/public`)
 - SQLite auto-created at `./telemetry.db` on startup
 - Configuration: `config.toml` at workspace root (panics if missing)

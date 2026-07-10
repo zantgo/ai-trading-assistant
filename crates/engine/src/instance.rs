@@ -1,13 +1,10 @@
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use crate::analyzer;
-use crate::api_failover::ApiFailoverState;
-use crate::automation;
 use crate::config::{AppConfig, IntervalsConfig, SafetyConfig};
 use crate::safety::SafetyManager;
 use shared::models::MarketSnapshot;
@@ -89,15 +86,9 @@ pub struct Instance {
     pub config_state: RwLock<ConfigState>,
     pub safety_config: SafetyConfig,
 
-    pub api_key: RwLock<Option<String>>,
-    pub api_key_valid: AtomicBool,
-    pub api_failover: Arc<ApiFailoverState>,
-    pub token_tracker: Arc<crate::llm::TokenTracker>,
-
     pub safety: Arc<SafetyManager>,
 
     pub active_pair: Arc<analyzer::ActivePair>,
-    pub automation_ctx: Arc<RwLock<Option<automation::AutomationContext>>>,
 
     pub pool: SqlitePool,
     pub config: Arc<RwLock<AppConfig>>,
@@ -137,13 +128,8 @@ impl Instance {
             trading: RwLock::new(TradingState::default()),
             config_state: RwLock::new(ConfigState::new(inter_config, operational_mode)),
             safety_config: safe_config,
-            api_key: RwLock::new(None),
-            api_key_valid: AtomicBool::new(false),
-            api_failover: Arc::new(ApiFailoverState::new(None, None, 30, 5, 10, 300)),
-            token_tracker: Arc::new(crate::llm::TokenTracker::default()),
             safety,
             active_pair,
-            automation_ctx: Arc::new(RwLock::new(None)),
             pool,
             config,
             micro,

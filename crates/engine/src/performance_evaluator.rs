@@ -58,11 +58,9 @@ pub async fn run_performance_evaluator(cfg: EvaluatorConfig) {
                 }
             };
 
-            let action = db::query_master_action_by_id(&cfg.pool, entry.master_record_id).await;
-            let action = match action {
-                Some(a) => a,
-                None => continue,
-            };
+            // Master records query removed — skip this entry
+            let action = "".to_string();
+            continue;
 
             let mut price_1h: Option<String> = entry.price_at_1h.clone();
             let mut corr_1h: Option<bool> = entry.direction_correct_1h;

@@ -80,7 +80,7 @@ describe('TEST-UI: Global State Runes', () => {
 
         app.switchMode('user');
         expect(app.currentLevel2Mode).toBe('user');
-        expect(app.currentView).toBe('terminal');
+        expect(app.currentView).toBe('positions');
 
         app.currentView = 'costs';
         expect(app.currentView).toBe('costs');

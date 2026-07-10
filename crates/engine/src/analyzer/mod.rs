@@ -158,7 +158,7 @@ pub async fn run_single(
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
-    paper_pool: Option<sqlx::SqlitePool>,
+    _paper_pool: Option<sqlx::SqlitePool>,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -496,20 +496,8 @@ pub async fn run_single(
                             .take(2)
                             .all(|s| *s < Decimal::ZERO);
 
-                    // Active position context for direction-aware normalization.
-                    let active_position: Option<i8> = if let Some(ref pool) = paper_pool {
-                        match db::paper::queries::paper_get_active_position(pool, &symbol)
-                            .await
-                            .map(|p| p.direction)
-                            .as_deref()
-                        {
-                            Some("LONG") => Some(1),
-                            Some("SHORT") => Some(-1),
-                            _ => Some(0),
-                        }
-                    } else {
-                        Some(0)
-                    };
+                    // Active position context: no paper trading, always neutral.
+                    let active_position: Option<i8> = Some(0);
 
                     let ema_stack_str = ema_stack_state.as_deref();
 
@@ -598,36 +586,6 @@ pub async fn run_single(
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
-
-                    // Decisive close invalidation: check at every Micro timeframe candle close
-                    if timeframe_label == "Micro" {
-                        if let Some(ref pool) = paper_pool {
-                            if let Some(pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
-                                if let Some(inval_level) = pos.final_invalidation_level {
-                                    let tolerance = 0.002;
-                                    let close_f64 = completed.close.to_f64().unwrap_or(0.0);
-                                    let invalidated = match pos.direction.as_str() {
-                                        "LONG" => close_f64 < inval_level * (1.0 - tolerance),
-                                        "SHORT" => close_f64 > inval_level * (1.0 + tolerance),
-                                        _ => false,
-                                    };
-                                    if invalidated {
-                                        let _ = crate::paper_trading::invalidate_position(
-                                            pool,
-                                            &telemetry_tx,
-                                            &symbol,
-                                            close_f64,
-                                            "DECISIVE_CLOSE_1M",
-                                        ).await;
-                                        println!(
-                                            "🛑 Analyzer: {} position invalidated by 1m decisive close at ${:.2}",
-                                            symbol, close_f64
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     {
                         let mut snap = latest_snapshot.write().await;

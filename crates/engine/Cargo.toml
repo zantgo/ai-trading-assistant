@@ -37,11 +37,8 @@ toml = "0.8"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 
-# HTTP client for LLM API calls
+# HTTP client for REST API calls
 reqwest = { version = "0.12", features = ["json"] }
-
-# .env file loader
-dotenvy = "0.15"
 
 # Cancellation token for graceful task shutdown
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -60,8 +57,8 @@ aes-gcm = "0.10"
 rand = "0.8"
 sha2 = "0.10"
 
-# Terminal input with history and line editing
-rustyline = "15"
+# Terminal input with history and line editing (CLI mode removed)
+# rustyline = "15"
 
 [dev-dependencies]
 rust_decimal_macros = "1"

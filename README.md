@@ -1,21 +1,14 @@
-# ⚙️ AI Trading Assistant Dashboard
+# Market Monitor Dashboard
 
-> **High-performance market telemetry orchestrator and interactive AI decision assistant for Hyperliquid, built in Rust.**
+> **High-performance market telemetry monitor and technical indicator dashboard for Hyperliquid and Bitget, built in Rust.**
 
-The **AI Trading Assistant** is designed to process high-resolution decentralized finance telemetry and transform raw data into structured, actionable market analysis for human traders. Rather than trading autonomously, it serves as an interactive copilot, running technical indicator analysis in Rust and feeding data on-demand to LLMs via the Model Context Protocol (MCP) to provide structured guidance.
+The **Market Monitor** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. Rather than executing trades, it serves as a comprehensive market observation tool, computing 34+ technical indicators in Rust and streaming live data to a Svelte 5 dashboard via WebSocket.
 
-## 🚀 Quick Start Workflow
+## Quick Start Workflow
 
 The system provides a unified helper script (`manage.sh`) at the root level to simplify building, running, and testing the entire workspace.
 
-### 1. Setup Environment
-Ensure your `.env` is configured at the workspace root:
-```bash
-cp .env.example .env
-# Open .env and populate your DEEPSEEK_API_KEY
-```
-
-### 2. Common Workflow Commands
+### 1. Common Workflow Commands
 
 All key operations can be executed directly from the root directory:
 
@@ -45,21 +38,15 @@ chmod +x manage.sh
 
 Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 
-## 🏗️ Workspace Structure
-- `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines.
-- `crates/engine`: Ingestion engine, WebSocket client, SQLite persistence, and HTTP/WS server serving dashboard assets.
-- `crates/mcp-server` *(Planned Integration)*: MCP adapter translating telemetry history and position context into structured AI prompt parameters.
+## Workspace Structure
+- `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines (34+ indicators).
+- `crates/engine`: Ingestion engine, WebSocket clients (Hyperliquid + Bitget), SQLite persistence, and HTTP/WS server serving dashboard assets.
+- `crates/frontend`: Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
 
-## 📚 Documentation
+## Documentation
 
 | Document | Audience | Description |
 |---|---|---|
-| **[User Manual](docs/user-manual.md)** | End Users | Installation, configuration, LLM setup, dashboard usage, AI assistant workflow, troubleshooting |
-| **[Architecture](docs/architecture.md)** | Developers | System topology, data-flow diagrams, on-demand assistant loop, structured reasoning sequence |
-| **[Project Plan](docs/plan.md)** | Maintainers | Phased execution roadmap with implementation status for each milestone |
-| **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions, implementation guidelines for LLM-based contributors |
-
----
-
-## ⚠️ Disclaimer
-This system is an information tool for **research and educational purposes only**. It does not execute trades automatically. All financial execution remains the sole responsibility of the user.
+| **[User Manual](docs/user-manual.md)** | End Users | Installation, configuration, dashboard usage, troubleshooting |
+| **[Architecture](docs/architecture.md)** | Developers | System topology, data-flow diagrams, indicator pipeline |
+| **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions for LLM-based contributors |

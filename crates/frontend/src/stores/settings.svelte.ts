@@ -22,39 +22,5 @@ export class SettingsStore {
     rsiLabel = $state('RSI (14)'); adxLabel = $state('ADX (14)');
     atrLabel = $state('ATR (14)'); macdLabel = $state('MACD (12,26,9)');
 
-    costPriceInput = $state(0.27);
-    costPriceOutput = $state(1.10);
-    costIntervalSecs = $state(900);
-    costRunsPerDay = $state(0);
-    costTokensPerRunInput = $state(0);
-    costTokensPerRunOutput = $state(0);
-    costDailyProjected = $state(0);
-    costWeeklyProjected = $state(0);
-    costMonthlyProjected = $state(0);
-    costActualInputTokens = $state(0);
-    costActualOutputTokens = $state(0);
-    costActualTotal = $state(0);
-    costLoading = $state(false);
-
-    async fetchCostEstimate(pairKey: string) {
-        this.costLoading = true;
-        try {
-            const res = await fetch(`/api/cost-estimate?pair_key=${encodeURIComponent(pairKey)}`);
-            if (res.ok) {
-                const data = await res.json();
-                this.costPriceInput = data.price_per_1m_input_tokens ?? 0.27;
-                this.costPriceOutput = data.price_per_1m_output_tokens ?? 1.10;
-                this.costIntervalSecs = data.interval_seconds ?? 900;
-                this.costRunsPerDay = data.runs_per_day ?? 0;
-                this.costTokensPerRunInput = data.input_tokens_per_run ?? 0;
-                this.costTokensPerRunOutput = data.output_tokens_per_run ?? 0;
-                this.costDailyProjected = data.projected_daily_cost ?? 0;
-                this.costWeeklyProjected = data.projected_weekly_cost ?? 0;
-                this.costMonthlyProjected = data.projected_monthly_cost ?? 0;
-                this.costActualInputTokens = data.actual_input_tokens_used ?? 0;
-                this.costActualOutputTokens = data.actual_output_tokens_used ?? 0;
-                this.costActualTotal = data.actual_total_cost ?? 0;
-            }
-        } catch (_) {} finally { this.costLoading = false; }
-    }
+    // Token cost tracking removed — no LLM service.
 }

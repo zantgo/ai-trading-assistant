@@ -1,8 +1,14 @@
-use crate::automation::TriggerMessage;
 use crate::config::TriggerMode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+
+/// Minimal trigger message sent when trigger conditions are met.
+#[derive(Debug, Clone)]
+pub struct TriggerMessage {
+    pub reason: String,
+    pub trigger_type_detail: String,
+}
 
 /// Manages trigger dispatch for interval, candle-close, and event-driven modes.
 pub struct TriggerEngine {

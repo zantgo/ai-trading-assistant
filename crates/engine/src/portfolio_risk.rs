@@ -4,6 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SimpleActivePosition {
+    pub symbol: String,
+    pub allocated_usd: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct PortfolioRiskState {
     pub max_daily_drawdown_pct: f64,
@@ -40,7 +46,7 @@ pub async fn validate_new_position(
     pool: &SqlitePool,
     symbol: &str,
     new_exposure_pct: f64,
-    existing_positions: &[db::ActivePaperPosition],
+    existing_positions: &[SimpleActivePosition],
     pair_close_histories: &Arc<RwLock<HashMap<String, Vec<f64>>>>,
 ) -> PortfolioValidation {
     let mut reasons = Vec::new();
@@ -124,38 +130,9 @@ pub async fn validate_new_position(
     }
 }
 
-pub async fn query_all_active_positions(pool: &SqlitePool) -> Vec<db::ActivePaperPosition> {
-    use sqlx::Row;
-    let rows = match sqlx::query(
-    "SELECT id, symbol, direction, entry_price, size, allocated_usd, entry_timestamp,
-            average_entry_price, current_portions, final_invalidation_level, target_profit_ratio,
-            initial_allocated_margin, realized_pnl_accumulator
-     FROM active_positions",
-    )
-    .fetch_all(pool)
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => return Vec::new(),
-    };
-
-    rows.iter()
-        .map(|r| db::ActivePaperPosition {
-            id: r.get(0),
-            symbol: r.get(1),
-            direction: r.get(2),
-            entry_price: r.get(3),
-            size: r.get(4),
-            allocated_usd: r.get(5),
-            entry_timestamp: r.get(6),
-            average_entry_price: r.get(7),
-            current_portions: r.get(8),
-            final_invalidation_level: r.get(9),
-            target_profit_ratio: r.get(10),
-            initial_allocated_margin: r.get(11),
-            realized_pnl_accumulator: r.get(12),
-        })
-        .collect()
+pub async fn query_all_active_positions(_pool: &SqlitePool) -> Vec<SimpleActivePosition> {
+    // No paper trading — return empty positions list
+    Vec::new()
 }
 
 pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {

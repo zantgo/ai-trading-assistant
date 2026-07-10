@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
-use crate::db;
 use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::workspace::{Currency, ExchangeChoice, Workspace};
 use shared::normalized::Exchange;
@@ -26,17 +25,16 @@ pub struct InstanceSummary {
 pub async fn add_instance(
     workspace: &Arc<Workspace>,
     pair: (String, String),
-    llm_client: Arc<crate::llm::LlmClient>,
 ) -> Result<Arc<Instance>, String> {
     // Session-first gate: no pipelines may be spawned until the user has
-    // initialized a session (exchange + capital) via the Welcome Gate.
+    // initialized a session (exchange) via the Welcome Gate.
     if !workspace
         .session
         .active
         .load(std::sync::atomic::Ordering::Relaxed)
     {
         return Err(
-            "No active session. Initialize a session (select exchange and capital) before adding pairs.".to_string(),
+            "No active session. Initialize a session (select exchange) before adding pairs.".to_string(),
         );
     }
 
@@ -246,7 +244,6 @@ pub async fn add_instance(
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
         workspace,
-        llm_client,
         warmed_states.as_ref().ok().cloned(),
     )
     .await;
@@ -282,24 +279,6 @@ pub async fn add_instance(
             if let Ok(toml_str) = toml::to_string_pretty(&*config) {
                 let _ = tokio::fs::write("config.toml", toml_str).await;
             }
-        }
-    }
-
-    if current_count == 0 {
-        if let Some(capital) = *workspace.session.initial_capital.read().await {
-            let _ = crate::db::paper_set_advanced_config(
-                &workspace.pool,
-                &pair_key,
-                capital,
-                10.0,
-                false,
-                2.0,
-                20,
-                15,
-                10,
-                false,
-            )
-            .await;
         }
     }
 
@@ -350,22 +329,6 @@ pub async fn stop_instance(workspace: &Arc<Workspace>, instance_id: &str) -> Res
         .cloned()
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
     drop(instances);
-
-    let symbol = instance.symbol();
-    let _ = crate::db::paper_get_active_position(&instance.pool, &symbol).await;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
-    let _ = workspace
-        .telemetry_tx
-        .send(db::TelemetryMsg::PaperClosePosition {
-            symbol: symbol.clone(),
-            exit_price: 0.0,
-            exit_timestamp: now,
-            trigger: "STOP".to_string(),
-        })
-        .await;
 
     instance.config_state.write().await.status = InstanceStatus::Stopped;
     instance.cancel.cancel();
@@ -425,7 +388,6 @@ pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> R
 pub async fn recharge_instance(
     workspace: &Arc<Workspace>,
     pair_key: &str,
-    llm_client: Arc<crate::llm::LlmClient>,
 ) -> Result<(), String> {
     let old_instance = {
         let instances = workspace.instances.read().await;
@@ -551,7 +513,6 @@ pub async fn recharge_instance(
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
         workspace,
-        llm_client,
         warmed_states.as_ref().ok().cloned(),
     )
     .await;
@@ -590,19 +551,8 @@ pub async fn recharge_instance(
         },
         config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config, pair_cfg.operational_mode.clone())),
         safety_config,
-        api_key: {
-            let old_key = old_instance.api_key.read().await;
-            tokio::sync::RwLock::new(old_key.clone())
-        },
-        api_key_valid: {
-            let old_valid = old_instance.api_key_valid.load(std::sync::atomic::Ordering::Relaxed);
-            std::sync::atomic::AtomicBool::new(old_valid)
-        },
-        api_failover: old_instance.api_failover.clone(),
-        token_tracker: old_instance.token_tracker.clone(),
         safety: old_instance.safety.clone(),
         active_pair: artifacts.instance.active_pair.clone(),
-        automation_ctx: artifacts.instance.automation_ctx.clone(),
         pool: old_instance.pool.clone(),
         config: old_instance.config.clone(),
         micro: artifacts.micro,

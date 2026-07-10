@@ -28,15 +28,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub fees: FeesConfig,
     #[serde(default)]
-    pub costs: CostsConfig,
-    #[serde(default)]
     pub workspace: WorkspaceConfig,
     #[serde(default)]
     pub safety: SafetyConfig,
     #[serde(default)]
     pub intervals: IntervalsConfig,
-    #[serde(default)]
-    pub api_failover: ApiFailoverConfig,
     #[serde(default, skip_serializing)]
     pub instances: HashMap<String, InstanceSpecificConfig>,
 }
