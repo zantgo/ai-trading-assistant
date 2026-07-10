@@ -2,8 +2,8 @@
   "ETH-USDT": {
     "micro_term": {
       "candles": {
-        "duration_seconds": 15,
-        "analysis_limit": 100
+        "duration_seconds": 60,
+        "analysis_limit": 500
       },
       "indicators": {
         "ema_fast": 10,
@@ -168,7 +168,7 @@
     "macro_term": {
       "candles": {
         "duration_seconds": 900,
-        "analysis_limit": 100
+        "analysis_limit": 500
       },
       "indicators": {
         "ema_fast": 10,
@@ -239,8 +239,8 @@
   "ADA-USDT": {
     "micro_term": {
       "candles": {
-        "duration_seconds": 15,
-        "analysis_limit": 100
+        "duration_seconds": 60,
+        "analysis_limit": 500
       },
       "indicators": {
         "ema_fast": 10,
@@ -405,7 +405,7 @@
     "macro_term": {
       "candles": {
         "duration_seconds": 900,
-        "analysis_limit": 100
+        "analysis_limit": 500
       },
       "indicators": {
         "ema_fast": 10,
@@ -713,8 +713,8 @@
   "BTC-USDC": {
     "micro_term": {
       "candles": {
-        "duration_seconds": 5,
-        "analysis_limit": 100
+        "duration_seconds": 60,
+        "analysis_limit": 500
       },
       "indicators": {
         "ema_fast": 10,
@@ -879,7 +879,7 @@
     "macro_term": {
       "candles": {
         "duration_seconds": 900,
-        "analysis_limit": 100
+        "analysis_limit": 500
       },
       "indicators": {
         "ema_fast": 10,

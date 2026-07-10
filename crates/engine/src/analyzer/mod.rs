@@ -47,14 +47,23 @@ impl ActivePair {
         if self.fast.timeframe_secs == timeframe_secs { return &self.fast; }
         if self.slow.timeframe_secs == timeframe_secs { return &self.slow; }
         if self.r#macro.timeframe_secs == timeframe_secs { return &self.r#macro; }
-        eprintln!(
-            "⚠️  pipeline_for: no pipeline matches timeframe_secs={} (micro={}, fast={}, slow={}, macro={}) — falling back to micro",
-            timeframe_secs,
-            self.micro.timeframe_secs,
-            self.fast.timeframe_secs,
-            self.slow.timeframe_secs,
-            self.r#macro.timeframe_secs,
-        );
+        // Rate-limit the warning: log once per unique mismatch signature per
+        // pair, since this fires on every /api/history chart request.
+        {
+            static WARNED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<(String, u64, u64, u64, u64, u64)>>> =
+                std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+            let key = (self.symbol.clone(), timeframe_secs, self.micro.timeframe_secs, self.fast.timeframe_secs, self.slow.timeframe_secs, self.r#macro.timeframe_secs);
+            if WARNED.lock().ok().map_or(true, |mut set| set.insert(key)) {
+                eprintln!(
+                    "⚠️  pipeline_for: no pipeline matches timeframe_secs={} (micro={}, fast={}, slow={}, macro={}) — falling back to micro",
+                    timeframe_secs,
+                    self.micro.timeframe_secs,
+                    self.fast.timeframe_secs,
+                    self.slow.timeframe_secs,
+                    self.r#macro.timeframe_secs,
+                );
+            }
+        }
         &self.micro
     }
 
@@ -503,6 +512,18 @@ pub async fn run_single(
                     };
 
                     let ema_stack_str = ema_stack_state.as_deref();
+
+                    // Compute support/resistance levels from price history.
+                    let (support_levels_f64, resistance_levels_f64) = {
+                        let hist = history.read().await;
+                        let close_f = completed.close.to_f64().unwrap_or(0.0);
+                        let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
+                        let (supp_str, res_str) = crate::server::compute_support_resistance(&prices, close_f);
+                        let supp_f64: Vec<f64> = supp_str.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
+                        let res_f64: Vec<f64> = res_str.iter().filter_map(|r| r.parse::<f64>().ok()).collect();
+                        (supp_f64, res_f64)
+                    };
+
                     let indicators = normalize::build_indicator_map(normalize::NormalizeParams {
                         close: completed.close,
                         rsi: final_rsi,
@@ -543,8 +564,8 @@ pub async fn run_single(
                         average_volume: avg_vol,
                         fib: Some(&fib),
                         pattern: Some(&pattern_result),
-                        support_levels: &[],
-                        resistance_levels: &[],
+                        support_levels: &support_levels_f64,
+                        resistance_levels: &resistance_levels_f64,
                         active_position,
                         adx_consecutive_deceleration,
                     });
@@ -634,6 +655,14 @@ pub async fn run_single(
                 }
 
                 // BROADCAST: Flickering snapshot from live candle
+                let (live_supp_f64, live_res_f64) = {
+                    let hist = history.read().await;
+                    let close_f = live_candle.close.to_f64().unwrap_or(0.0);
+                    let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
+                    let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
+                    (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
+                     r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
+                };
                 broadcast_live_snapshot(
                     &broadcast_tx, &symbol, &live_candle, shadow_exchange,
                     shadow_bid, shadow_ask,
@@ -647,6 +676,8 @@ pub async fn run_single(
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
                     timeframe_secs,
+                    &live_supp_f64,
+                    &live_res_f64,
                 );
             }
 
@@ -671,6 +702,14 @@ pub async fn run_single(
                         trades_count: candle_gen.current_trades,
                     };
 
+                    let (ob_supp_f64, ob_res_f64) = {
+                        let hist = history.read().await;
+                        let close_f = shadow_candle.close.to_f64().unwrap_or(0.0);
+                        let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
+                        let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
+                        (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
+                         r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
+                    };
                     broadcast_live_snapshot(
                         &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
                         shadow_bid, shadow_ask,
@@ -684,6 +723,8 @@ pub async fn run_single(
                         &vwap_sum_tp_vol, &vwap_sum_vol,
                         &volume_history,
                         timeframe_secs,
+                        &ob_supp_f64,
+                        &ob_res_f64,
                     );
                 }
             }
@@ -759,6 +800,8 @@ fn broadcast_live_snapshot(
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
     timeframe_secs: u64,
+    support_levels: &[f64],
+    resistance_levels: &[f64],
 ) {
     let val_ema_fast = ema_fast.clone().update(candle.close);
     let val_ema_medium = ema_medium.clone().update(candle.close);
@@ -862,8 +905,8 @@ fn broadcast_live_snapshot(
         average_volume: avg_vol,
         fib: None,
         pattern: None,
-        support_levels: &[],
-        resistance_levels: &[],
+        support_levels,
+        resistance_levels,
         active_position: None,
         adx_consecutive_deceleration: false,
     });

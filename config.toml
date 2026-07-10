@@ -120,39 +120,39 @@ micro_score_threshold = 60
 [scoring.indicator_enabled]
 
 [scoring.regime_weight_multipliers.RANGE]
-stochastic = 1.5
-rsi = 1.5
+bollinger = 1.4
+donchian = 0.5
 zscore = 1.5
 supertrend = 0.6
-bollinger = 1.4
-mfi = 1.2
-donchian = 0.5
 ema_stack = 0.7
+stochastic = 1.5
+rsi = 1.5
+mfi = 1.2
 
 [scoring.regime_weight_multipliers.COMPRESSION]
-bbwp = 1.3
-supertrend = 0.7
-rsi = 1.1
-stochastic = 1.1
 squeeze = 1.5
 donchian = 0.7
+rsi = 1.1
+bbwp = 1.3
+supertrend = 0.7
+stochastic = 1.1
 
 [scoring.regime_weight_multipliers.TRENDING]
+rsi = 0.7
 ema_stack = 1.5
 supertrend = 1.5
-macd = 1.2
-stochastic = 0.6
 donchian = 1.4
+macd = 1.2
 adx = 1.3
-rsi = 0.7
+stochastic = 0.6
 zscore = 0.5
 
 [scoring.regime_weight_multipliers.EXPANSION]
-patterns = 1.2
 donchian = 1.4
 supertrend = 1.4
 keltner = 1.3
 macd = 1.2
+patterns = 1.2
 
 [fees]
 maker_fee_pct = 0.02

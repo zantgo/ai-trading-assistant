@@ -173,15 +173,10 @@ impl NormalizationEngine {
             out.insert("zscore".into(), Self::normalize_zscore(z));
         }
 
-        // Dedicated divergence confluence factors (distinct from the RSI/MACD
-        // position folding) so the 8-factor scoring engine can weight them
-        // independently per the spec (RSI-Div ±20, MACD-Div ±10).
-        if let Some(v) = divergence_value(inputs.rsi_divergence) {
-            out.insert("rsi_divergence".into(), v);
-        }
-        if let Some(v) = divergence_value(inputs.macd_divergence) {
-            out.insert("macd_divergence".into(), v);
-        }
+        // Dedicated divergence confluence factors always present (neutral 0.0
+        // when no divergence is active) for consistent frontend rendering.
+        out.insert("rsi_divergence".into(), divergence_value(inputs.rsi_divergence));
+        out.insert("macd_divergence".into(), divergence_value(inputs.macd_divergence));
 
         if let (Some(line), Some(signal), Some(hist)) =
             (inputs.macd_line, inputs.macd_signal, inputs.macd_histogram)
@@ -241,47 +236,39 @@ impl NormalizationEngine {
             out.insert("vwap".into(), Self::normalize_vwap(ctx.price, vwap));
         }
 
-        if inputs.fib_gp_low.is_some()
-            || inputs.fib_gp_high.is_some()
-            || inputs.fib_ext_1618.is_some()
-            || inputs.fib_ext_2618.is_some()
-        {
-            out.insert(
-                "fibonacci".into(),
-                Self::normalize_fibonacci(
-                    ctx.price,
-                    inputs.fib_gp_low,
-                    inputs.fib_gp_high,
-                    inputs.fib_ext_1618,
-                    inputs.fib_ext_2618,
-                    ctx.trend_bias,
-                ),
-            );
-        }
+        // Always present (neutral when no swing leg exists) for consistent
+        // frontend rendering.
+        out.insert(
+            "fibonacci".into(),
+            Self::normalize_fibonacci(
+                ctx.price,
+                inputs.fib_gp_low,
+                inputs.fib_gp_high,
+                inputs.fib_ext_1618,
+                inputs.fib_ext_2618,
+                ctx.trend_bias,
+            ),
+        );
 
-        if inputs.pattern_bullish || inputs.pattern_bearish {
-            out.insert(
-                "patterns".into(),
-                Self::normalize_patterns(
-                    inputs.pattern_bullish,
-                    inputs.pattern_bearish,
-                    inputs.pattern_confidence.unwrap_or(0.0),
-                    ctx.rvol.unwrap_or(0.0),
-                ),
-            );
-        }
+        out.insert(
+            "patterns".into(),
+            Self::normalize_patterns(
+                inputs.pattern_bullish,
+                inputs.pattern_bearish,
+                inputs.pattern_confidence.unwrap_or(0.0),
+                ctx.rvol.unwrap_or(0.0),
+            ),
+        );
 
-        if !ctx.support_levels.is_empty() || !ctx.resistance_levels.is_empty() {
-            out.insert(
-                "support_resistance".into(),
-                Self::normalize_sr(
+        out.insert(
+            "support_resistance".into(),
+            Self::normalize_sr(
                     ctx.price,
                     &ctx.support_levels,
                     &ctx.resistance_levels,
                     ctx.rvol.unwrap_or(0.0),
                 ),
             );
-        }
 
         // Supplemental raw-only chart series (neutral normalized score so they
         // never influence the confluence engine).
@@ -326,8 +313,9 @@ impl NormalizationEngine {
             );
         }
 
-        // Generalized divergence scored entries (Phase 2). Each also pushes a
-        // Divergence signal onto its parent oscillator.
+        // Generalized divergence scored entries (Phase 2). Always present
+        // (neutral when no divergence is active) for consistent frontend
+        // rendering.
         for (parent, key, state) in [
             ("stochastic", "stochastic_divergence", inputs.stochastic_divergence),
             ("chandemo", "chandemo_divergence", inputs.chandemo_divergence),
@@ -336,9 +324,9 @@ impl NormalizationEngine {
             ("obv", "obv_divergence", inputs.obv_divergence),
             ("squeeze", "squeeze_divergence", inputs.squeeze_divergence),
         ] {
-            if let Some(v) = super::signals::divergence_entry(&mut out, parent, state) {
-                out.insert(key.into(), v);
-            }
+            let v = super::signals::divergence_entry(&mut out, parent, state)
+                .unwrap_or_else(|| NormalizedIndicatorValue::neutral("NEUTRAL"));
+            out.insert(key.into(), v);
         }
 
         // Derive state-based discrete signals (threshold/breakout/etc.) from
@@ -357,14 +345,14 @@ impl NormalizationEngine {
 }
 
 /// Map a divergence classification to a dedicated normalized confluence value.
-/// Confirmed divergences map to ±1.0, potential to ±0.5, none is omitted.
-fn divergence_value(state: DivergenceState) -> Option<NormalizedIndicatorValue> {
+/// Confirmed divergences map to ±1.0, potential to ±0.5, none to neutral 0.0.
+fn divergence_value(state: DivergenceState) -> NormalizedIndicatorValue {
     let (norm, label) = match state {
         DivergenceState::ConfirmedBullish => (1.0, "CONFIRMED_BULLISH_DIVERGENCE"),
         DivergenceState::PotentialBullish => (0.5, "POTENTIAL_BULLISH_DIVERGENCE"),
         DivergenceState::ConfirmedBearish => (-1.0, "CONFIRMED_BEARISH_DIVERGENCE"),
         DivergenceState::PotentialBearish => (-0.5, "POTENTIAL_BEARISH_DIVERGENCE"),
-        DivergenceState::None => return None,
+        DivergenceState::None => (0.0, "NEUTRAL"),
     };
-    Some(NormalizedIndicatorValue::scalar(norm, norm, label))
+    NormalizedIndicatorValue::scalar(norm, norm, label)
 }
