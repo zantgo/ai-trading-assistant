@@ -12,14 +12,12 @@ pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl In
     let currency = state.workspace.session.base_currency.read().await.clone();
     let exchange = state.workspace.session.exchange.read().await.clone();
     let instance_count = state.workspace.instance_count().await;
-    let max_instances = state.workspace.max_instances().await;
 
     Json(SessionStatusResponse {
         active,
         currency: currency.map(|c| c.as_str().to_string()),
         exchange: exchange.map(|e| e.as_str().to_string()),
         instance_count,
-        max_instances,
     })
 }
 

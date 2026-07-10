@@ -38,15 +38,6 @@ pub async fn add_instance(
         );
     }
 
-    let current_count = workspace.instance_count().await;
-    let max_count = workspace.max_instances().await;
-    if current_count >= max_count {
-        return Err(format!(
-            "Maximum instance count reached ({}/{}). Remove an instance first.",
-            current_count, max_count
-        ));
-    }
-
     // Resolve the active exchange and its settlement/quote currency from the
     // session. The quote is forced to the session currency so that frontend and
     // backend pair keys / native symbols always agree.

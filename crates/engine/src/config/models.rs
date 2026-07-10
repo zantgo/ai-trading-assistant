@@ -627,19 +627,15 @@ pub struct InstanceSpecificConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
-    #[serde(default = "default_max_instances")]
-    pub max_instances: usize,
     #[serde(default = "default_default_pair")]
     pub default_pair: String,
 }
 
-fn default_max_instances() -> usize { 100 }
 fn default_default_pair() -> String { "BTC/USDT".to_string() }
 
 impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
-            max_instances: default_max_instances(),
             default_pair: default_default_pair(),
         }
     }

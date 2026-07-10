@@ -57,6 +57,16 @@
     let stopLossLine: IPriceLine | null = null;
     let markersApi: any = null;
 
+    let _lastSupportsKey = '';
+    let _lastResistancesKey = '';
+    let _lastEntryPrice = -1;
+    let _lastSlLevel = -1;
+    let _lastDivKey = '';
+    let _lastFibGpTop = -1;
+    let _lastFibGpBottom = -1;
+    let _lastFibExt1618 = -1;
+    let _lastFibExt2618 = -1;
+
     // Track the active price-scale precision so we only reconfigure the chart
     // series when the asset crosses a decimal tier (not on every tick).
     let lastPriceDecimals = -1;
@@ -263,48 +273,34 @@
     });
 
     $effect(() => {
-        if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
-        ema10Series.applyOptions({ visible: pair.showEmaFast });
-        ema50Series.applyOptions({ visible: pair.showEmaMedium });
-        ema100Series.applyOptions({ visible: pair.showEmaSlow });
-        ema200Series.applyOptions({ visible: pair.showEmaLong });
-    });
-
-    $effect(() => {
-        if (!candleSeries || !priceLineSeries || !pair) return;
-        candleSeries.applyOptions({ visible: !pair.priceLineMode });
-        priceLineSeries.applyOptions({ visible: pair.priceLineMode });
-    });
-
-    $effect(() => {
-        if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries || !pair || !tf) return;
-        bbUpperSeries.applyOptions({ visible: tf.showBb });
-        bbMiddleSeries.applyOptions({ visible: tf.showBb });
-        bbLowerSeries.applyOptions({ visible: tf.showBb });
-    });
-
-    $effect(() => {
-        if (!vwapSeries || !pair || !tf) return;
-        vwapSeries.applyOptions({ visible: tf.showVwap });
-    });
-
-    $effect(() => {
-        if (!supertrendSeries || !pair || !tf) return;
-        supertrendSeries.applyOptions({ visible: tf.showSupertrend });
-    });
-
-    $effect(() => {
-        if (!keltnerUpperSeries || !keltnerMiddleSeries || !keltnerLowerSeries || !pair || !tf) return;
-        keltnerUpperSeries.applyOptions({ visible: tf.showKeltner });
-        keltnerMiddleSeries.applyOptions({ visible: tf.showKeltner });
-        keltnerLowerSeries.applyOptions({ visible: tf.showKeltner });
-    });
-
-    $effect(() => {
-        if (!donchianUpperSeries || !donchianMiddleSeries || !donchianLowerSeries || !pair || !tf) return;
-        donchianUpperSeries.applyOptions({ visible: tf.showDonchian });
-        donchianMiddleSeries.applyOptions({ visible: tf.showDonchian });
-        donchianLowerSeries.applyOptions({ visible: tf.showDonchian });
+        if (!pair || !tf) return;
+        if (ema10Series && ema50Series && ema100Series && ema200Series) {
+            ema10Series.applyOptions({ visible: pair.showEmaFast });
+            ema50Series.applyOptions({ visible: pair.showEmaMedium });
+            ema100Series.applyOptions({ visible: pair.showEmaSlow });
+            ema200Series.applyOptions({ visible: pair.showEmaLong });
+        }
+        if (candleSeries && priceLineSeries) {
+            candleSeries.applyOptions({ visible: !pair.priceLineMode });
+            priceLineSeries.applyOptions({ visible: pair.priceLineMode });
+        }
+        if (bbUpperSeries && bbMiddleSeries && bbLowerSeries) {
+            bbUpperSeries.applyOptions({ visible: tf.showBb });
+            bbMiddleSeries.applyOptions({ visible: tf.showBb });
+            bbLowerSeries.applyOptions({ visible: tf.showBb });
+        }
+        if (vwapSeries) vwapSeries.applyOptions({ visible: tf.showVwap });
+        if (supertrendSeries) supertrendSeries.applyOptions({ visible: tf.showSupertrend });
+        if (keltnerUpperSeries && keltnerMiddleSeries && keltnerLowerSeries) {
+            keltnerUpperSeries.applyOptions({ visible: tf.showKeltner });
+            keltnerMiddleSeries.applyOptions({ visible: tf.showKeltner });
+            keltnerLowerSeries.applyOptions({ visible: tf.showKeltner });
+        }
+        if (donchianUpperSeries && donchianMiddleSeries && donchianLowerSeries) {
+            donchianUpperSeries.applyOptions({ visible: tf.showDonchian });
+            donchianMiddleSeries.applyOptions({ visible: tf.showDonchian });
+            donchianLowerSeries.applyOptions({ visible: tf.showDonchian });
+        }
     });
 
     $effect(() => {
@@ -371,9 +367,12 @@
     // Support level price lines
     $effect(() => {
         if (!candleSeries) return;
+        const supports = pair ? app.markedSupportLevels : [];
+        const key = supports.join(',');
+        if (key === _lastSupportsKey) return;
+        _lastSupportsKey = key;
         supportLines.forEach(l => candleSeries.removePriceLine(l));
         supportLines = [];
-        const supports = pair ? app.markedSupportLevels : [];
         for (const level of supports.slice(0, 2)) {
             const pl = candleSeries.createPriceLine({
                 price: level,
@@ -390,9 +389,12 @@
     // Resistance level price lines
     $effect(() => {
         if (!candleSeries) return;
+        const resistances = pair ? app.markedResistanceLevels : [];
+        const key = resistances.join(',');
+        if (key === _lastResistancesKey) return;
+        _lastResistancesKey = key;
         resistanceLines.forEach(l => candleSeries.removePriceLine(l));
         resistanceLines = [];
-        const resistances = pair ? app.markedResistanceLevels : [];
         for (const level of resistances.slice(0, 2)) {
             const pl = candleSeries.createPriceLine({
                 price: level,
@@ -409,11 +411,12 @@
     // Entry price line (when position is active)
     $effect(() => {
         if (!candleSeries) return;
-        if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
         const pos = pair ? app.activePaperPosition as Record<string, unknown> | null : null;
-        if (pos?.entry_price) {
-            const price = parseFloat(String(pos.entry_price));
-            if (price > 0) {
+        const price = pos?.entry_price ? parseFloat(String(pos.entry_price)) : -1;
+        if (price === _lastEntryPrice) return;
+        _lastEntryPrice = price;
+        if (entryLine) { candleSeries.removePriceLine(entryLine); entryLine = null; }
+        if (price > 0) {
                 entryLine = candleSeries.createPriceLine({
                     price,
                     color: '#60a5fa',
@@ -422,15 +425,16 @@
                     axisLabelVisible: true,
                     title: 'Entry',
                 });
-            }
         }
     });
 
     // Stop-loss price line
     $effect(() => {
         if (!candleSeries) return;
+        const level = pair ? (app.paperInvalidationLevel as number) : 0;
+        if (level === _lastSlLevel) return;
+        _lastSlLevel = level;
         if (stopLossLine) { candleSeries.removePriceLine(stopLossLine); stopLossLine = null; }
-        const level = pair ? app.paperInvalidationLevel : 0;
         if (level > 0) {
             stopLossLine = candleSeries.createPriceLine({
                 price: level,
@@ -446,9 +450,13 @@
     // Divergence extrema price lines
     $effect(() => {
         if (!candleSeries) return;
+        if (!pair) return;
+        const rawCoords = (tf.latestSnapshot as Record<string, unknown> | null)?.rsi_divergence_coords ?? null;
+        const key = JSON.stringify(rawCoords);
+        if (key === _lastDivKey) return;
+        _lastDivKey = key;
         divergenceLines.forEach(l => candleSeries.removePriceLine(l));
         divergenceLines = [];
-        if (!pair) return;
 
         const rsiDivStatus = divStatus(tf.indicators, 'rsi_divergence');
         const parseCoords = (raw: unknown): { firstPrice: number; secondPrice: number; status: string } | null => {
@@ -492,20 +500,35 @@
     // Fibonacci Golden Pocket + Extension lines
     $effect(() => {
         if (!candleSeries) return;
-        if (fibGpTopLine) { candleSeries.removePriceLine(fibGpTopLine); fibGpTopLine = null; }
-        if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
-        if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
-        if (fibExt2618Line) { candleSeries.removePriceLine(fibExt2618Line); fibExt2618Line = null; }
-        if (!pair || !tf.showFib) return;
+        if (!pair || !tf.showFib) {
+            if (fibGpTopLine) { candleSeries.removePriceLine(fibGpTopLine); fibGpTopLine = null; }
+            if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
+            if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
+            if (fibExt2618Line) { candleSeries.removePriceLine(fibExt2618Line); fibExt2618Line = null; }
+            _lastFibGpTop = _lastFibGpBottom = _lastFibExt1618 = _lastFibExt2618 = -1;
+            return;
+        }
 
         const snap = tf.latestSnapshot;
         if (!snap) return;
 
         const fm = (snap.indicators ?? {}) as IndicatorMap;
-        const gpLow = iSub(fm, 'fibonacci', 'gp_bottom');
-        const gpHigh = iSub(fm, 'fibonacci', 'gp_top');
-        const ext1618 = iSub(fm, 'fibonacci', 'ext_1618');
-        const ext2618 = iSub(fm, 'fibonacci', 'ext_2618');
+        const gpLow = iSub(fm, 'fibonacci', 'gp_bottom') ?? -1;
+        const gpHigh = iSub(fm, 'fibonacci', 'gp_top') ?? -1;
+        const ext1618 = iSub(fm, 'fibonacci', 'ext_1618') ?? -1;
+        const ext2618 = iSub(fm, 'fibonacci', 'ext_2618') ?? -1;
+
+        if (gpHigh === _lastFibGpTop && gpLow === _lastFibGpBottom
+            && ext1618 === _lastFibExt1618 && ext2618 === _lastFibExt2618) return;
+        _lastFibGpTop = gpHigh;
+        _lastFibGpBottom = gpLow;
+        _lastFibExt1618 = ext1618;
+        _lastFibExt2618 = ext2618;
+
+        if (fibGpTopLine) { candleSeries.removePriceLine(fibGpTopLine); fibGpTopLine = null; }
+        if (fibGpBottomLine) { candleSeries.removePriceLine(fibGpBottomLine); fibGpBottomLine = null; }
+        if (fibExt1618Line) { candleSeries.removePriceLine(fibExt1618Line); fibExt1618Line = null; }
+        if (fibExt2618Line) { candleSeries.removePriceLine(fibExt2618Line); fibExt2618Line = null; }
 
         if (gpHigh != null && gpHigh > 0) {
             fibGpTopLine = candleSeries.createPriceLine({

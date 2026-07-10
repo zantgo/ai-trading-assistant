@@ -120,38 +120,38 @@ micro_score_threshold = 60
 [scoring.indicator_enabled]
 
 [scoring.regime_weight_multipliers.RANGE]
-rsi = 1.5
 donchian = 0.5
-ema_stack = 0.7
-supertrend = 0.6
-stochastic = 1.5
 zscore = 1.5
+stochastic = 1.5
+rsi = 1.5
 bollinger = 1.4
+supertrend = 0.6
+ema_stack = 0.7
 mfi = 1.2
 
 [scoring.regime_weight_multipliers.EXPANSION]
+donchian = 1.4
 macd = 1.2
 supertrend = 1.4
-donchian = 1.4
-patterns = 1.2
 keltner = 1.3
+patterns = 1.2
 
 [scoring.regime_weight_multipliers.COMPRESSION]
+donchian = 0.7
+supertrend = 0.7
 rsi = 1.1
 stochastic = 1.1
 bbwp = 1.3
-donchian = 0.7
-supertrend = 0.7
 squeeze = 1.5
 
 [scoring.regime_weight_multipliers.TRENDING]
 ema_stack = 1.5
-macd = 1.2
 rsi = 0.7
-stochastic = 0.6
+supertrend = 1.5
 zscore = 0.5
 adx = 1.3
-supertrend = 1.5
+stochastic = 0.6
+macd = 1.2
 donchian = 1.4
 
 [fees]
@@ -160,7 +160,6 @@ taker_fee_pct = 0.06
 funding_rate_8h = 0.01
 
 [workspace]
-max_instances = 100
 default_pair = "BTC/USDT"
 
 [safety]

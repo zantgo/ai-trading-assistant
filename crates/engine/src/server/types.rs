@@ -476,7 +476,7 @@ fn default_trigger() -> String { "MANUAL".to_string() }
 pub struct SessionInitRequest { pub exchange: String, pub currency: String }
 
 #[derive(Debug, Serialize)]
-pub struct SessionStatusResponse { pub active: bool, pub currency: Option<String>, pub exchange: Option<String>, pub instance_count: usize, pub max_instances: usize }
+pub struct SessionStatusResponse { pub active: bool, pub currency: Option<String>, pub exchange: Option<String>, pub instance_count: usize }
 
 // ─── Instance ──────────────────────────────────────────────────
 
@@ -484,7 +484,7 @@ pub struct SessionStatusResponse { pub active: bool, pub currency: Option<String
 pub struct AddInstanceRequest { pub base: String, pub quote: String }
 
 #[derive(Debug, Serialize)]
-pub struct InstanceListResponse { pub instances: Vec<crate::registry::InstanceSummary>, pub total_count: usize, pub max_count: usize }
+pub struct InstanceListResponse { pub instances: Vec<crate::registry::InstanceSummary>, pub total_count: usize }
 
 #[derive(Debug, Deserialize)]
 pub struct InstanceDetailQuery { #[serde(default)] pub id: String, #[serde(default)] pub pair_key: Option<String> }

@@ -10,10 +10,9 @@
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
 }
-.full-width { grid-column: span 2; }
 .settings-card {
-    background: #14142a;
-    border: 1px solid #2a2a4a;
+    background: #131722;
+    border: 1px solid #2a2e39;
     border-radius: 8px;
     padding: 1rem;
 }
@@ -27,44 +26,29 @@
 }
 .input-row label {
     font-size: 0.78rem;
-    color: #8888aa;
+    color: #64748b;
     min-width: 160px;
 }
 .input-row input {
     width: 100px;
     padding: 0.35rem 0.5rem;
-    background: #1e1e3a;
-    border: 1px solid #333355;
+    background: #0f111a;
+    border: 1px solid #1e293b;
     border-radius: 4px;
-    color: #e0e0ff;
+    color: #cbd5e1;
     font-size: 0.82rem;
     outline: none;
 }
-.input-row input:focus { border-color: #5b7fff; }
+.input-row input:focus { border-color: #3b82f6; }
 .hint {
     font-size: 0.68rem;
-    color: #556;
+    color: #4a5568;
     width: 100%;
 }
-.prompt-editor {
-    width: 100%;
-    margin-top: 0.5rem;
-    padding: 0.6rem;
-    background: #1e1e3a;
-    border: 1px solid #333355;
-    border-radius: 4px;
-    color: #e0e0ff;
-    font-family: monospace;
-    font-size: 0.75rem;
-    resize: vertical;
-    outline: none;
-    box-sizing: border-box;
-}
-.prompt-editor:focus { border-color: #5b7fff; }
 .save-btn {
     margin-top: 0.75rem;
     padding: 0.45rem 1rem;
-    background: #5b7fff;
+    background: #3b82f6;
     border: none;
     border-radius: 6px;
     color: white;
@@ -73,5 +57,5 @@
     cursor: pointer;
 }
 .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.save-btn:hover:not(:disabled) { background: #4a6eef; }
+.save-btn:hover:not(:disabled) { background: #2563eb; }
 .loading-row { text-align: center; padding: 2rem; color: #64748b; }

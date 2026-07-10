@@ -12,7 +12,6 @@
     const app = useAppStore();
     let instances = $state<InstanceSummary[]>([]);
     let totalCount = $state(0);
-    let maxCount = $state(100);
     let loading = $state(true);
     let error = $state<string | null>(null);
     let actionLoading = $state<Record<string, string>>({});
@@ -30,7 +29,6 @@
                 const data = await res.json();
                 instances = data.instances || [];
                 totalCount = data.total_count || instances.length;
-                maxCount = data.max_count || 100;
             } else {
                 error = 'Failed to fetch instances';
             }
@@ -106,7 +104,7 @@
 <div class={styles.instancesView}>
     <div class={styles.instancesHeader}>
         <h2>Instances</h2>
-        <span class={styles.instancesCount}>{totalCount} / {maxCount}</span>
+        <span class={styles.instancesCount}>{totalCount} instances</span>
     </div>
 
     <!-- Add Instance -->

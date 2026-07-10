@@ -4,12 +4,33 @@ import { getDecimalCount } from './telemetry';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
 
+const WS_MAX_RETRIES = 30;
+const WS_INITIAL_DELAY_MS = 1000;
+const WS_MAX_DELAY_MS = 30000;
+
+interface WsBackoff {
+    retries: number;
+    delayMs: number;
+}
+
 export interface WsState {
     wsMicro: WebSocket | null;
     wsFast: WebSocket | null;
     wsSlow: WebSocket | null;
     wsMacro: WebSocket | null;
     currentWsSymbol: string;
+    backoff: Record<WsKey, WsBackoff>;
+}
+
+function freshBackoff(): WsBackoff {
+    return { retries: 0, delayMs: WS_INITIAL_DELAY_MS };
+}
+
+function nextBackoff(b: WsBackoff): WsBackoff {
+    return {
+        retries: b.retries + 1,
+        delayMs: Math.min(b.delayMs * 2, WS_MAX_DELAY_MS),
+    };
 }
 
 export function createWsState(): WsState {
@@ -19,6 +40,12 @@ export function createWsState(): WsState {
         wsSlow: null,
         wsMacro: null,
         currentWsSymbol: '',
+        backoff: {
+            wsMicro: freshBackoff(),
+            wsFast: freshBackoff(),
+            wsSlow: freshBackoff(),
+            wsMacro: freshBackoff(),
+        },
     };
 }
 
@@ -61,14 +88,12 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
             : raw;
         if (!snapshot || typeof snapshot !== 'object') return;
 
-        // Authoritative nested indicator map.
         tf.indicators = (snapshot.indicators && typeof snapshot.indicators === 'object')
             ? (snapshot.indicators as IndicatorMap)
             : {};
         tf.latestSnapshot = snapshot;
         tf.isCompleted = snapshot.is_completed === true;
 
-        // Core (non-indicator) market data.
         const mid = num(snapshot.mid_price);
         if (mid != null) tf.priceText = mid.toFixed(getDecimalCount(mid));
         const vol = num(snapshot.volume);
@@ -93,18 +118,25 @@ export function connectWebsocketForTimeframe(
     const newWs = new WebSocket(url);
     state[wsKey] = newWs;
 
-    newWs.onopen = () => { app.isConnected = true; };
+    newWs.onopen = () => {
+        app.isConnected = true;
+        state.backoff[wsKey] = freshBackoff();
+    };
     newWs.onmessage = (event) => applySnapshotToTimeframe(tf, event);
     newWs.onclose = () => {
         app.isConnected = false;
         if (state[wsKey] === newWs) {
             state[wsKey] = null;
         }
-        setTimeout(() => {
-            if (app.activeTab === state.currentWsSymbol) {
-                connectWebsocketForTimeframe(app, state, tf, wsKey, tfSecs);
-            }
-        }, 3000);
+        const bo = state.backoff[wsKey];
+        state.backoff[wsKey] = nextBackoff(bo);
+        if (bo.retries < WS_MAX_RETRIES) {
+            setTimeout(() => {
+                if (app.activeTab === state.currentWsSymbol) {
+                    connectWebsocketForTimeframe(app, state, tf, wsKey, tfSecs);
+                }
+            }, bo.delayMs);
+        }
     };
     newWs.onerror = () => { newWs.close(); };
 }
@@ -123,8 +155,20 @@ export function connectWebsocket(app: AppStore, state: WsState): void {
     connectWebsocketForTimeframe(app, state, pair.macroTerm, 'wsMacro', pair.macroTerm.barDurationSec);
 }
 
-/** Returns true if the active tab has changed since the last connect, meaning a reconnect is needed. */
 export function shouldReconnect(app: AppStore, state: WsState): boolean {
-    const tab = app.activeTab;
-    return !!(tab && tab !== state.currentWsSymbol);
+    const symbol = app.activeTab;
+    if (!symbol) return false;
+    if (symbol !== state.currentWsSymbol) return true;
+
+    const pair = app.instancesMap[symbol];
+    if (!pair) return false;
+
+    const connectionsNeeded = 4;
+    let activeConnections = 0;
+    if (state.wsMicro && state.wsMicro.readyState === WebSocket.OPEN) activeConnections++;
+    if (state.wsFast && state.wsFast.readyState === WebSocket.OPEN) activeConnections++;
+    if (state.wsSlow && state.wsSlow.readyState === WebSocket.OPEN) activeConnections++;
+    if (state.wsMacro && state.wsMacro.readyState === WebSocket.OPEN) activeConnections++;
+
+    return activeConnections < connectionsNeeded;
 }

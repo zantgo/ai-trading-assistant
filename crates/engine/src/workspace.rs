@@ -129,10 +129,6 @@ impl Workspace {
         }
     }
 
-    pub async fn max_instances(&self) -> usize {
-        self.config.read().await.workspace.max_instances
-    }
-
     pub async fn instance_count(&self) -> usize {
         self.instances.read().await.len()
     }

@@ -171,10 +171,69 @@
         text-transform: uppercase;
     }
     .paper-reset-btn:hover { background: rgba(239, 68, 68, 0.18); }
-    .exchange-container {
-        margin-top: 16px;
+
+    /* ─── Timeframe Configuration Cards ────────────────────────────── */
+    .tf-cards-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-top: 12px;
+    }
+    @media (max-width: 1200px) {
+        .tf-cards-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 700px) {
+        .tf-cards-grid { grid-template-columns: 1fr; }
+    }
+    .tf-card {
         background-color: #131722;
         border: 1px solid #2a2e39;
         border-radius: 8px;
-        padding: 16px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
     }
+    .tf-card-title {
+        font-size: 11px;
+        font-weight: 700;
+        color: #f1f5f9;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin: 0 0 8px 0;
+    }
+    .tf-row {
+        margin-bottom: 8px;
+    }
+    .tf-select {
+        width: 100%;
+        padding: 6px 8px;
+        background-color: #0f111a;
+        border: 1px solid #2a2e39;
+        border-radius: 4px;
+        color: #3b82f6;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        outline: none;
+    }
+    .tf-select:focus { border-color: #3b82f6; }
+    .tf-input-scroll {
+        background-color: #0e111a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 400px;
+        overflow-y: auto;
+        flex: 1;
+    }
+    .tf-input-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
+    .tf-input-row label { font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+    .tf-input-row input {
+        background-color: #171b26; border: 1px solid #2a2e39; color: #cbd5e1;
+        font-family: ui-monospace, monospace; font-size: 10px; padding: 3px 6px;
+        border-radius: 3px; width: 64px; text-align: right; outline: none;
+    }
+    .tf-input-row input:focus { border-color: #3b82f6; }

@@ -4,7 +4,6 @@ export class SessionStore {
     sessionExchange = $state<string>('Hyperliquid');
     sessionCapital = $state(10000);
     sessionInstanceCount = $state(0);
-    sessionMaxInstances = $state(100);
     sessionLoading = $state(false);
     sessionChecked = $state(false);
     sessionError = $state<string | null>(null);
@@ -22,7 +21,6 @@ export class SessionStore {
                 this.sessionExchange = data.exchange || 'Hyperliquid';
                 this.sessionCapital = data.capital || 10000;
                 this.sessionInstanceCount = data.instance_count || 0;
-                this.sessionMaxInstances = data.max_instances || 100;
             }
         } catch (_) { /* backend may not be ready yet */ } finally { this.sessionChecked = true; }
     }

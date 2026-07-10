@@ -24,10 +24,8 @@ pub async fn serve_list_instances(
     } else {
         all_summaries
     };
-    let max_count = state.workspace.max_instances().await;
     Json(InstanceListResponse {
         total_count: summaries.len(),
-        max_count,
         instances: summaries,
     })
 }

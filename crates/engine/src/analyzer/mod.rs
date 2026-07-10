@@ -319,6 +319,8 @@ pub async fn run_single(
     #[allow(unused_assignments)]
     let mut shadow_exchange: Option<Exchange> = None;
 
+    let mut last_broadcast = std::time::Instant::now();
+
     loop {
         let event = tokio::select! {
             biased;
@@ -612,16 +614,19 @@ pub async fn run_single(
                     }
                 }
 
-                // BROADCAST: Flickering snapshot from live candle
-                let (live_supp_f64, live_res_f64) = {
-                    let hist = history.read().await;
-                    let close_f = live_candle.close.to_f64().unwrap_or(0.0);
-                    let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
-                    let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
-                    (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
-                     r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
-                };
-                broadcast_live_snapshot(
+                // BROADCAST: Flickering snapshot from live candle (throttled)
+                let now = std::time::Instant::now();
+                if now.duration_since(last_broadcast) >= std::time::Duration::from_millis(250) {
+                    last_broadcast = now;
+                    let (live_supp_f64, live_res_f64) = {
+                        let hist = history.read().await;
+                        let close_f = live_candle.close.to_f64().unwrap_or(0.0);
+                        let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
+                        let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
+                        (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
+                         r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
+                    };
+                    broadcast_live_snapshot(
                     &broadcast_tx, &symbol, &live_candle, shadow_exchange,
                     shadow_bid, shadow_ask,
                     &ema_fast, &ema_medium, &ema_slow, &ema_long,
@@ -637,6 +642,7 @@ pub async fn run_single(
                     &live_supp_f64,
                     &live_res_f64,
                 );
+                }
             }
 
             NormalizedEvent::OrderBook(ref book) => {
@@ -647,43 +653,47 @@ pub async fn run_single(
                 }
 
                 if candle_gen.current_candle.is_some() {
-                    let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
-                    let shadow_candle = NormalizedCandle {
-                        symbol: symbol.clone(),
-                        start_time_ms: candle_gen.current_start_ms,
-                        duration_ms: candle_gen.duration_ms,
-                        open: candle_gen.current_open,
-                        high: candle_gen.current_high.max(mid),
-                        low: candle_gen.current_low.min(mid),
-                        close: mid,
-                        volume: candle_gen.current_volume,
-                        trades_count: candle_gen.current_trades,
-                    };
+                    let now = std::time::Instant::now();
+                    if now.duration_since(last_broadcast) >= std::time::Duration::from_millis(250) {
+                        last_broadcast = now;
+                        let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
+                        let shadow_candle = NormalizedCandle {
+                            symbol: symbol.clone(),
+                            start_time_ms: candle_gen.current_start_ms,
+                            duration_ms: candle_gen.duration_ms,
+                            open: candle_gen.current_open,
+                            high: candle_gen.current_high.max(mid),
+                            low: candle_gen.current_low.min(mid),
+                            close: mid,
+                            volume: candle_gen.current_volume,
+                            trades_count: candle_gen.current_trades,
+                        };
 
-                    let (ob_supp_f64, ob_res_f64) = {
-                        let hist = history.read().await;
-                        let close_f = shadow_candle.close.to_f64().unwrap_or(0.0);
-                        let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
-                        let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
-                        (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
-                         r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
-                    };
-                    broadcast_live_snapshot(
-                        &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
-                        shadow_bid, shadow_ask,
-                        &ema_fast, &ema_medium, &ema_slow, &ema_long,
-                        &rsi_14, &macd, &adx_14, &sqz_mom,
-                        &bollinger, &atr_standalone, &bbwp_indicator,
-                        &stochastic_indicator, &chandemo_indicator,
-                        &supertrend_indicator, &keltner_indicator, &donchian_indicator,
-                        &obv_indicator, &cmf_indicator, &mfi_indicator, &hv_indicator,
-                        &aroon_indicator, &choppiness_indicator, &linreg_indicator, &zscore_indicator,
-                        &vwap_sum_tp_vol, &vwap_sum_vol,
-                        &volume_history,
-                        timeframe_secs,
-                        &ob_supp_f64,
-                        &ob_res_f64,
-                    );
+                        let (ob_supp_f64, ob_res_f64) = {
+                            let hist = history.read().await;
+                            let close_f = shadow_candle.close.to_f64().unwrap_or(0.0);
+                            let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
+                            let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
+                            (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
+                             r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
+                        };
+                        broadcast_live_snapshot(
+                            &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
+                            shadow_bid, shadow_ask,
+                            &ema_fast, &ema_medium, &ema_slow, &ema_long,
+                            &rsi_14, &macd, &adx_14, &sqz_mom,
+                            &bollinger, &atr_standalone, &bbwp_indicator,
+                            &stochastic_indicator, &chandemo_indicator,
+                            &supertrend_indicator, &keltner_indicator, &donchian_indicator,
+                            &obv_indicator, &cmf_indicator, &mfi_indicator, &hv_indicator,
+                            &aroon_indicator, &choppiness_indicator, &linreg_indicator, &zscore_indicator,
+                            &vwap_sum_tp_vol, &vwap_sum_vol,
+                            &volume_history,
+                            timeframe_secs,
+                            &ob_supp_f64,
+                            &ob_res_f64,
+                        );
+                    }
                 }
             }
 
@@ -761,6 +771,9 @@ fn broadcast_live_snapshot(
     support_levels: &[f64],
     resistance_levels: &[f64],
 ) {
+    if broadcast_tx.receiver_count() == 0 {
+        return;
+    }
     let val_ema_fast = ema_fast.clone().update(candle.close);
     let val_ema_medium = ema_medium.clone().update(candle.close);
     let val_ema_slow = ema_slow.clone().update(candle.close);

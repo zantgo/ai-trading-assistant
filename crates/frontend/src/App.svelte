@@ -7,7 +7,6 @@
     import TerminalMonitor from './components/TerminalMonitor.svelte';
     import DecisionTrading from './components/DecisionTrading.svelte';
     import CommissionCalculator from './components/CommissionCalculator.svelte';
-    import TimeframeSettings from './components/TimeframeSettings.svelte';
     import GeneralDashboard from './components/GeneralDashboard.svelte';
     import GeneralSettings from './components/GeneralSettings.svelte';
     import WorkspaceSettings from './components/WorkspaceSettings.svelte';
@@ -31,13 +30,12 @@
     let showProfileMenu = $state(false);
 
     // ─── Flat sub-tab config ────────────────────────────────────────────────
-    const SUB_TABS: { view: CurrentView; label: string }[] = [
-        { view: 'terminal', label: '📈 Live Terminal' },
-        { view: 'monitor', label: '🖥️ Terminal Monitor' },
-        { view: 'decision', label: '🎯 Decision Trading' },
-        { view: 'commission', label: '💸 Fee Projection' },
-        { view: 'timeframe_settings', label: '🕐 Timeframe Settings' },
-        { view: 'settings', label: '⚙️ Workspace Settings' },
+    const SUB_TABS: { view: CurrentView; label: string; svg: string }[] = [
+        { view: 'terminal',   label: 'Live Panel',        svg: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>' },
+        { view: 'monitor',    label: 'Metrics Panel',     svg: '<line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line>' },
+        { view: 'decision',   label: 'Decision Panel',    svg: '<circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line>' },
+        { view: 'commission', label: 'Fee Projection',    svg: '<line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>' },
+        { view: 'settings',   label: 'Workspace Settings', svg: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>' },
     ];
 
     function selectView(pair: InstanceState, view: CurrentView) {
@@ -153,6 +151,7 @@
                                 class:sub-tab-active={pair.currentView === tab.view}
                                 onclick={() => selectView(pair, tab.view)}
                             >
+                                <svg class="sub-tab-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{@html tab.svg}</svg>
                                 {tab.label}
                             </button>
                         {/each}
@@ -163,17 +162,17 @@
                     <span class={styles.pairBannerTitle}>{app.pairDisplayFor(pair.symbol)}</span>
                 </div>
 
-                <!-- Live Terminal -->
+                <!-- Live Panel -->
                 {#if pair.currentView === 'terminal'}
                     <div class={styles.mainLayout + " " + 'animate-fade'}>
                         <LiveTerminal pairKey={tabKey} />
                     </div>
 
-                <!-- Terminal Monitor -->
+                <!-- Metrics Panel -->
                 {:else if pair.currentView === 'monitor'}
                     <TerminalMonitor pairKey={tabKey} />
 
-                <!-- Decision Trading -->
+                <!-- Decision Panel -->
                 {:else if pair.currentView === 'decision'}
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <DecisionTrading />
@@ -184,10 +183,6 @@
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <CommissionCalculator />
                     </div>
-
-                <!-- Timeframe Settings -->
-                {:else if pair.currentView === 'timeframe_settings'}
-                    <TimeframeSettings {pair} {tabKey} onApplied={() => connectWs(app, wsState)} />
 
                 <!-- Workspace Settings -->
                 {:else if pair.currentView === 'settings'}

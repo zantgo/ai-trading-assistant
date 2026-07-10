@@ -58,7 +58,6 @@
                     <option value="Hyperliquid">Hyperliquid</option>
                     <option value="Bitget">Bitget</option>
                 </select>
-                <span class={styles.formHint}>Perpetual futures. Hyperliquid settles in USDC; Bitget supports USDT and USDC.</span>
             </div>
 
             <!-- Settlement Currency -->

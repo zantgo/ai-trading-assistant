@@ -160,7 +160,7 @@ export interface IndicatorSignal {
     points?: SignalPoint[] | null;
 }
 
-// ── Market context + Terminal Monitor (meta-intelligence) ──
+// ── Market context + Metrics Panel (meta-intelligence) ──
 export interface ContextDimension {
     score: number;
     confidence: number;
@@ -319,7 +319,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'decision' | 'commission' | 'settings' | 'timeframe_settings';
+export type CurrentView = 'terminal' | 'monitor' | 'decision' | 'commission' | 'settings' | 'positions' | 'costs' | 'assistant' | 'ledger';
 
 export interface InstanceState {
     symbol: string;

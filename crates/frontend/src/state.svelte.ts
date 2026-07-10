@@ -68,12 +68,28 @@ export class AppStore {
     activeTab = $state<string>('BTC-USDT');
     currentGlobalView = $state<string>('dashboard');
 
+    // ─── Legacy State ─────────────────────────────────────────────────
+    _currentPosition = $state<string>('None');
+    get currentPosition(): string { return this._currentPosition; }
+    set currentPosition(v: string) {
+        this._currentPosition = v;
+        if (v === 'None') this.entryPriceVal = '';
+    }
+    entryPriceVal = $state<string>('');
+    analysisPhase = $state<string>('idle');
+    chatHistory = $state<Array<{ role: string; content: string }>>([]);
+    isAssistantModalOpen = $state(false);
+    currentLevel2Mode = $state<string>('user');
+    pendingOperationalMode = $state<string | null>(null);
+    _modeViews: Record<string, string> = {};
+    _lastMode: string = '';
+
     constructor() {
         this.session.onSessionActivated = () => { this.currentGlobalView = 'dashboard'; };
 
         this._delegate(this.session, [
             'sessionActive', 'sessionCurrency', 'sessionExchange',
-            'sessionCapital', 'sessionInstanceCount', 'sessionMaxInstances',
+            'sessionCapital', 'sessionInstanceCount',
             'sessionLoading', 'sessionChecked', 'sessionError',
         ]);
 
@@ -109,6 +125,31 @@ export class AppStore {
         this._delegateMethods(this.analytics,
             'fetchTradeLedger', 'fetchTradeJournal', 'updateJournalNotes',
             'fetchDashboardStats');
+    }
+
+    switchMode(mode: string) {
+        const modes: Record<string, { l2: string; op: string | null }> = {
+            general: { l2: 'general', op: null },
+            user: { l2: 'user', op: 'ManualOnly' },
+            rule: { l2: 'rule', op: 'DeterministicHeuristics' },
+            ai: { l2: 'ai', op: 'HybridAiCopilot' },
+        };
+        const defaultViews: Record<string, string> = {
+            user: 'positions',
+            ai: 'assistant',
+            rule: 'assistant',
+            general: 'ledger',
+        };
+        if (this._lastMode) {
+            this._modeViews[this._lastMode] = this.currentView;
+        }
+        const m = modes[mode];
+        if (m) {
+            this.currentLevel2Mode = m.l2;
+            this.pendingOperationalMode = m.op;
+            this.currentView = this._modeViews[mode] ?? (defaultViews[mode] ?? 'terminal') as any;
+            this._lastMode = mode;
+        }
     }
 
     private _delegate(target: any, props: string[]) {

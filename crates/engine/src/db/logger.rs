@@ -44,7 +44,44 @@ pub async fn run_telemetry_logger(
     mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>,
 ) {
     println!("Telemetry & Logging Worker: Background log thread running.");
+
+    // Initial cleanup on startup — delete snapshots older than 7 days.
+    let cutoff = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .saturating_sub(7 * 86400) as i64;
+    if let Err(e) = sqlx::query(
+        "DELETE FROM market_snapshots WHERE timestamp < ?1",
+    )
+    .bind(cutoff)
+    .execute(&pool)
+    .await
+    {
+        eprintln!("DB cleanup error on startup: {}", e);
+    }
+
+    let mut last_cleanup = tokio::time::Instant::now();
+
     while let Some(msg) = rx.recv().await {
+        // Periodic cleanup every hour — delete snapshots older than 7 days.
+        if last_cleanup.elapsed() >= tokio::time::Duration::from_secs(3600) {
+            let cutoff = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                .saturating_sub(7 * 86400) as i64;
+            if let Err(e) = sqlx::query(
+                "DELETE FROM market_snapshots WHERE timestamp < ?1",
+            )
+            .bind(cutoff)
+            .execute(&pool)
+            .await
+            {
+                eprintln!("DB cleanup error: {}", e);
+            }
+            last_cleanup = tokio::time::Instant::now();
+        }
         match msg {
             TelemetryMsg::InsertSnapshot(snapshot) => {
                 crate::db::queries::snapshots::insert_snapshot_internal(&pool, &snapshot).await;

@@ -3,17 +3,17 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+    background: #0f111a;
     padding: 1rem;
 }
 .welcome-card {
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
-    border-radius: 16px;
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 12px;
     padding: 2.5rem;
     width: 100%;
     max-width: 480px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 .welcome-header {
     text-align: center;
@@ -26,7 +26,7 @@
     margin: 0 0 0.5rem 0;
 }
 .welcome-subtitle {
-    color: #8888aa;
+    color: #64748b;
     font-size: 0.9rem;
     margin: 0;
 }
@@ -41,7 +41,7 @@
     gap: 0.4rem;
 }
 .form-label {
-    color: #aaaacc;
+    color: #64748b;
     font-size: 0.8rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -57,26 +57,26 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.65rem 0.8rem;
-    background: #252540;
-    border: 1px solid #333355;
-    border-radius: 8px;
+    background: #0f111a;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s;
 }
 .radio-option.active {
-    border-color: #5b7fff;
-    background: #2a2a50;
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.08);
 }
 .radio-option.disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
 }
 .radio-option input[type="radio"] {
-    accent-color: #5b7fff;
+    accent-color: #3b82f6;
     margin: 0;
 }
 .radio-label {
-    color: #d0d0ee;
+    color: #cbd5e1;
     font-size: 0.85rem;
     font-weight: 500;
 }
@@ -88,72 +88,54 @@
     font-weight: 600;
 }
 .radio-badge.enabled {
-    background: #1a3a1a;
-    color: #4caf50;
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e;
 }
 .radio-badge.disabled {
-    background: #3a2a1a;
-    color: #ff9800;
+    background: rgba(100, 100, 100, 0.12);
+    color: #64748b;
 }
 .form-select {
     padding: 0.65rem 0.8rem;
-    background: #252540;
-    border: 1px solid #333355;
-    border-radius: 8px;
-    color: #d0d0ee;
+    background: #0f111a;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    color: #cbd5e1;
     font-size: 0.9rem;
     cursor: pointer;
 }
-.form-select:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-.form-input {
-    padding: 0.65rem 0.8rem;
-    background: #252540;
-    border: 1px solid #333355;
-    border-radius: 8px;
-    color: #e0e0ff;
-    font-size: 1rem;
+.form-select:focus {
+    border-color: #3b82f6;
     outline: none;
-    transition: border-color 0.2s;
-}
-.form-input:focus {
-    border-color: #5b7fff;
-}
-.form-hint {
-    color: #666688;
-    font-size: 0.7rem;
 }
 .form-error {
-    background: #3a1a1a;
-    border: 1px solid #663333;
-    color: #ff6666;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #ef4444;
     padding: 0.6rem 0.8rem;
-    border-radius: 8px;
+    border-radius: 6px;
     font-size: 0.8rem;
 }
 .enter-button {
     padding: 0.8rem;
-    background: linear-gradient(135deg, #5b7fff, #7b5fff);
+    background: #3b82f6;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     color: white;
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
-    transition: opacity 0.2s, transform 0.1s;
+    transition: background 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
 }
 .enter-button:hover:not(:disabled) {
-    opacity: 0.9;
-    transform: translateY(-1px);
+    background: #2563eb;
 }
 .enter-button:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
 }
 .spinner {

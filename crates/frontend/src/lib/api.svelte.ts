@@ -68,9 +68,12 @@ export function applyConfigToStore(app: AppStore, config: Record<string, unknown
 
     for (const item of symbols) {
         const baseSymbol = item.includes(':') ? item.split(':')[1] : item;
-        app.initInstance(baseSymbol);
-
         const pairKey = app.pairKeyFor(baseSymbol);
+        const existing = !!app.instancesMap[pairKey];
+        if (!existing) {
+            app.initInstance(baseSymbol);
+        }
+
         const specific = pairConfigs[pairKey];
         const targetState = app.instancesMap[pairKey];
 

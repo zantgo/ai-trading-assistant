@@ -11,8 +11,14 @@ declare module './state.svelte' {
     interface AppStore {
         sessionActive: boolean; sessionMode: string; sessionCurrency: string;
         sessionExchange: string; sessionCapital: number; sessionInstanceCount: number;
-        sessionMaxInstances: number; sessionLoading: boolean; sessionChecked: boolean;
+        sessionLoading: boolean; sessionChecked: boolean;
         sessionError: string | null;
+
+        currentPosition: string; entryPriceVal: string;
+        analysisPhase: string; chatHistory: Array<{ role: string; content: string }>;
+        isAssistantModalOpen: boolean; currentLevel2Mode: string;
+        pendingOperationalMode: string | null;
+        switchMode(mode: string): void;
 
         activeDecisionProfileId: number; decisionProfiles: DecisionProfile[];
         calculatedDecisionScore: DecisionScore | null; decisionLoading: boolean;

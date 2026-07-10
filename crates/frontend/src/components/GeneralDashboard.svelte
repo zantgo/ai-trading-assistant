@@ -1,38 +1,12 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { useAppStore } from '../state.svelte';
-    import type { DashboardStats, SystemHeartbeat, InstanceSummary } from '../types';
-    import { createChart, LineSeries } from 'lightweight-charts';
-    import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+    import type { InstanceSummary } from '../types';
     import styles from './GeneralDashboard.module.css';
 
     const app = useAppStore();
-    let stats = $state<DashboardStats | null>(null);
-    let recommendations = $state<any[]>([]);
-    let heartbeat = $state<SystemHeartbeat | null>(null);
     let instances = $state<InstanceSummary[]>([]);
     let loading = $state(true);
-
-    interface PaperPosition {
-        symbol: string;
-        direction: string;
-        entryPrice: number;
-        size: number;
-        unrealizedPnl: number;
-        unrealizedRoi: number;
-    }
-    let paperPositions = $state<PaperPosition[]>([]);
-
-    let totalRealizedPnl = $state(0);
-    let totalUnrealizedPnl = $state(0);
-    let totalPortfolioValue = $state(app.sessionCapital);
-    let selectedTimeframe = $state<'1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL'>('ALL');
-    let lastTimeframe = $state('');
-
-    let showModal = $state(false);
-    let modalChartContainer = $state<HTMLDivElement | null>(null);
-    let modalChart: IChartApi | null = null;
-    let modalSeries: ISeriesApi<'Line'> | null = null;
 
     let utcTime = $state('');
     let clockInterval: ReturnType<typeof setInterval>;
@@ -42,615 +16,342 @@
         utcTime = now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
     }
 
-    let compoundedContainer = $state<HTMLDivElement | null>(null);
-    let compoundedChart: IChartApi | null = null;
-    let compoundedSeries: ISeriesApi<'Line'> | null = null;
+    interface ConfluenceData {
+        bullish: number;
+        bearish: number;
+        total: number;
+        avgRsi: number;
+        strongTrends: number;
+        dominantRegime: string;
+        overallConviction: number;
+    }
 
-    let ro: ResizeObserver;
-    let pollInterval: ReturnType<typeof setInterval>;
+    interface PairSnapshot {
+        pair: string;
+        symbol: string;
+        price: string;
+        rsi: number | null;
+        adx: number | null;
+        regime: string;
+        trend: string;
+        overall: string;
+    }
 
-    async function fetchAll() {
+    let confluence = $derived.by<ConfluenceData | null>(() => {
+        const pairs = Object.keys(app.instancesMap);
+        const snapshots: Record<string, unknown>[] = [];
+        for (const key of pairs) {
+            const snap = app.instancesMap[key].fastTerm.latestSnapshot;
+            if (snap) snapshots.push(snap);
+        }
+        if (snapshots.length === 0) return null;
+
+        let bullish = 0;
+        let bearish = 0;
+        let rsiSum = 0;
+        let rsiCount = 0;
+        let strongTrends = 0;
+        const regimeCounts: Record<string, number> = {};
+        let convictionSum = 0;
+        let convictionCount = 0;
+
+        for (const s of snapshots) {
+            const indicators = s.indicators as Record<string, any> | undefined;
+            const ctx = s.context as Record<string, any> | undefined;
+
+            if (ctx?.trend?.score !== undefined) {
+                if (ctx.trend.score > 0) bullish++;
+                else if (ctx.trend.score < 0) bearish++;
+            }
+
+            if (indicators?.rsi?.raw_value !== undefined) {
+                rsiSum += indicators.rsi.raw_value;
+                rsiCount++;
+            }
+
+            if (indicators?.adx?.values?.adx !== undefined) {
+                if (indicators.adx.values.adx > 25) strongTrends++;
+            }
+
+            if (ctx?.regime) {
+                const r = ctx.regime as string;
+                regimeCounts[r] = (regimeCounts[r] || 0) + 1;
+            }
+
+            if (ctx?.overall_score !== undefined) {
+                convictionSum += ctx.overall_score;
+                convictionCount++;
+            }
+        }
+
+        let dominantRegime = '';
+        let maxCount = 0;
+        for (const [r, c] of Object.entries(regimeCounts)) {
+            if (c > maxCount) { dominantRegime = r; maxCount = c; }
+        }
+
+        return {
+            bullish,
+            bearish,
+            total: snapshots.length,
+            avgRsi: rsiCount > 0 ? rsiSum / rsiCount : 0,
+            strongTrends,
+            dominantRegime,
+            overallConviction: convictionCount > 0 ? convictionSum / convictionCount : 0,
+        };
+    });
+
+    let pairSnapshots = $derived.by<PairSnapshot[]>(() => {
+        const pairs = Object.keys(app.instancesMap);
+        const result: PairSnapshot[] = [];
+        for (const key of pairs) {
+            const snap = app.instancesMap[key].fastTerm.latestSnapshot;
+            if (!snap) continue;
+            const indicators = snap.indicators as Record<string, any> | undefined;
+            const ctx = snap.context as Record<string, any> | undefined;
+
+            result.push({
+                pair: key,
+                symbol: app.instancesMap[key].symbol,
+                price: snap.mid_price != null ? String(snap.mid_price) : '--',
+                rsi: indicators?.rsi?.raw_value ?? null,
+                adx: indicators?.adx?.values?.adx ?? null,
+                regime: ctx?.regime ?? '--',
+                trend: ctx?.trend?.label ?? '--',
+                overall: ctx?.overall_label ?? '--',
+            });
+        }
+        return result;
+    });
+
+    async function fetchInstances() {
         try {
-            const [statsRes, recsRes, statusRes, instancesRes, paperPerfRes] = await Promise.all([
-                fetch(`/api/dashboard/stats?initial_capital=${app.sessionCapital}`),
-                fetch('/api/historical-recommendations'),
-                fetch('/api/system/status'),
-                fetch('/api/instances'),
-                fetch('/api/paper/performance'),
-            ]);
-
-            if (statsRes.ok) stats = await statsRes.json();
-            if (recsRes.ok) {
-                const data = await recsRes.json();
-                recommendations = data.recommendations || [];
-            }
-            if (statusRes.ok) heartbeat = await statusRes.json();
-
-            let paperPnl = 0;
-            if (paperPerfRes.ok) {
-                const data = await paperPerfRes.json();
-                paperPnl = data.total_pnl ?? 0;
-            }
-            totalRealizedPnl = paperPnl;
-
-            if (instancesRes.ok) {
-                const data = await instancesRes.json();
+            const res = await fetch('/api/instances');
+            if (res.ok) {
+                const data = await res.json();
                 instances = data.instances || [];
-
-                const positions: PaperPosition[] = [];
-                const paperResults = await Promise.allSettled(
-                    instances.map((inst: InstanceSummary) =>
-                        fetch(`/api/paper/status?symbol=${encodeURIComponent(inst.symbol)}`)
-                            .then(r => r.ok ? r.json() : null)
-                    )
-                );
-
-                let totalUnrealized = 0;
-                for (let i = 0; i < instances.length; i++) {
-                    const result = paperResults[i];
-                    if (result.status === 'fulfilled' && result.value) {
-                        const val = result.value;
-                        totalUnrealized += val.unrealized_pnl ?? 0;
-                        if (val.active_position) {
-                            const pos = val.active_position;
-                            positions.push({
-                                symbol: instances[i].symbol,
-                                direction: pos.direction || '',
-                                entryPrice: pos.entry_price ?? 0,
-                                size: pos.size ?? 0,
-                                unrealizedPnl: val.unrealized_pnl ?? 0,
-                                unrealizedRoi: val.unrealized_roi_pct ?? 0,
-                            });
-                        }
-                    }
-                }
-                paperPositions = positions;
-                totalUnrealizedPnl = totalUnrealized;
-                totalPortfolioValue = app.sessionCapital + paperPnl + totalUnrealized;
             }
         } catch (e) {
-            console.error('Error polling dashboard metrics:', e);
+            console.error('Error fetching instances:', e);
         } finally {
             loading = false;
         }
     }
 
-    function filterCurveData(curve: [number, number][]) {
-        if (!curve || curve.length === 0) {
-            const nowMs = Date.now();
-            let startMs = nowMs;
-            if (selectedTimeframe === '1H') startMs = nowMs - 3600 * 1000;
-            else if (selectedTimeframe === '1D') startMs = nowMs - 86400 * 1000;
-            else if (selectedTimeframe === '1W') startMs = nowMs - 604800 * 1000;
-            else if (selectedTimeframe === '1M') startMs = nowMs - 2592000 * 1000;
-            else if (selectedTimeframe === '1Y') startMs = nowMs - 31536000 * 1000;
-            else startMs = nowMs - 86400 * 1000;
-            return [{ time: Math.floor(startMs / 1000) as Time, value: app.sessionCapital }];
-        }
-
-        const nowMs = Date.now();
-        let cutoffMs = 0;
-
-        if (selectedTimeframe === '1H') {
-            cutoffMs = nowMs - 60 * 60 * 1000;
-        } else if (selectedTimeframe === '1D') {
-            cutoffMs = nowMs - 24 * 60 * 60 * 1000;
-        } else if (selectedTimeframe === '1W') {
-            cutoffMs = nowMs - 7 * 24 * 60 * 60 * 1000;
-        } else if (selectedTimeframe === '1M') {
-            cutoffMs = nowMs - 30 * 24 * 60 * 60 * 1000;
-        } else if (selectedTimeframe === '1Y') {
-            cutoffMs = nowMs - 365 * 24 * 60 * 60 * 1000;
-        }
-
-        const normalizedCurve = curve.map(([ts, val]) => {
-            const normalizedTs = ts > 9_000_000_000 ? ts : ts * 1000;
-            return [normalizedTs, val] as [number, number];
-        });
-
-        let filtered = selectedTimeframe === 'ALL'
-            ? normalizedCurve
-            : normalizedCurve.filter(([ts, _]) => ts >= cutoffMs);
-
-        const beforeCutoff = normalizedCurve.filter(([ts, _]) => ts < cutoffMs);
-
-        if (selectedTimeframe !== 'ALL') {
-            if (beforeCutoff.length > 0) {
-                const lastBefore = beforeCutoff[beforeCutoff.length - 1];
-                filtered = [[cutoffMs, lastBefore[1]], ...filtered];
-            } else if (filtered.length === 0) {
-                filtered = [[cutoffMs, app.sessionCapital], [nowMs, app.sessionCapital]];
-            } else {
-                const first = filtered[0];
-                filtered = [[cutoffMs, first[1]], ...filtered];
-            }
-        } else if (filtered.length > 0) {
-            const first = filtered[0];
-            filtered = [[first[0] - 60000, app.sessionCapital], ...filtered];
-        }
-
-        return filtered.map(([ts, val]) => ({
-            time: Math.floor(ts / 1000) as Time,
-            value: val,
-        }));
-    }
-
-    function buildCompoundedChart() {
-        if (!compoundedContainer) return;
-
-        const curve = stats?.compounded_curve || [];
-        const filteredData = filterCurveData(curve);
-        const nowSec = Math.floor(Date.now() / 1000) as Time;
-        filteredData.push({ time: nowSec, value: totalPortfolioValue });
-
-        const timeframeChanged = lastTimeframe !== selectedTimeframe;
-        lastTimeframe = selectedTimeframe;
-
-        if (!compoundedChart) {
-            compoundedChart = createChart(compoundedContainer, {
-                autoSize: true,
-                layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 10 },
-                grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-                rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
-                timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
-                handleScale: true,
-                handleScroll: true,
-            });
-
-            compoundedSeries = compoundedChart.addSeries(LineSeries, {
-                color: '#3b82f6',
-                lineWidth: 3,
-                priceLineVisible: false,
-                crosshairMarkerVisible: true,
-            });
-
-            compoundedSeries.setData(filteredData);
-            compoundedChart.timeScale().fitContent();
-
-            compoundedChart.subscribeDblClick(() => {
-                showModal = true;
-            });
-        } else {
-            if (compoundedSeries) {
-                compoundedSeries.setData(filteredData);
-            }
-            if (timeframeChanged) {
-                compoundedChart.timeScale().fitContent();
-            }
-        }
-    }
+    let pollInterval: ReturnType<typeof setInterval>;
 
     onMount(() => {
-        fetchAll();
-        pollInterval = setInterval(fetchAll, 5000);
+        fetchInstances();
+        pollInterval = setInterval(fetchInstances, 5000);
         updateUtcClock();
         clockInterval = setInterval(updateUtcClock, 1000);
-
-        ro = new ResizeObserver(() => {
-            if (compoundedContainer && compoundedChart) {
-                const w = compoundedContainer.clientWidth;
-                const h = compoundedContainer.clientHeight;
-                if (w > 0 && h > 0) compoundedChart.resize(w, h);
-            }
-            if (modalChartContainer && modalChart) {
-                const w = modalChartContainer.clientWidth;
-                const h = modalChartContainer.clientHeight;
-                if (w > 0 && h > 0) modalChart.resize(w, h);
-            }
-        });
-
-        if (compoundedContainer?.parentElement) {
-            ro.observe(compoundedContainer.parentElement);
-        }
     });
 
     onDestroy(() => {
         clearInterval(pollInterval);
         clearInterval(clockInterval);
-        ro?.disconnect();
-        if (compoundedChart) {
-            compoundedChart.remove();
-            compoundedChart = null;
-            compoundedSeries = null;
-        }
-        if (modalChart) {
-            modalChart.remove();
-            modalChart = null;
-            modalSeries = null;
-        }
     });
 
-    $effect(() => {
-        if (!loading && stats?.compounded_curve) {
-            requestAnimationFrame(() => buildCompoundedChart());
+    function navigateToInstances() {
+        app.currentGlobalView = 'instances';
+    }
+
+    function regimeClass(regime: string): string {
+        switch (regime) {
+            case 'TRENDING': return styles.regimeTrending;
+            case 'RANGE': return styles.regimeRange;
+            case 'EXPANSION': return styles.regimeExpansion;
+            case 'COMPRESSION': return styles.regimeCompression;
+            default: return '';
         }
-    });
+    }
 
-    $effect(() => {
-        if (showModal && modalChartContainer && !modalChart) {
-            requestAnimationFrame(() => {
-                if (!modalChartContainer || modalChart) return;
-                modalChart = createChart(modalChartContainer, {
-                    autoSize: true,
-                    layout: { background: { color: 'transparent' }, textColor: '#8f929d', fontSize: 11 },
-                    grid: { vertLines: { color: '#1e1e3a' }, horzLines: { color: '#1e1e3a' } },
-                    rightPriceScale: { borderColor: '#2a2a4a', scaleMargins: { top: 0.15, bottom: 0.15 } },
-                    timeScale: { borderColor: '#2a2a4a', visible: true, timeVisible: true, secondsVisible: false },
-                    handleScale: true,
-                    handleScroll: true,
-                });
+    function trendClass(label: string): string {
+        if (label.includes('BULL')) return styles.bullish;
+        if (label.includes('BEAR')) return styles.bearish;
+        return '';
+    }
 
-                modalSeries = modalChart.addSeries(LineSeries, {
-                    color: '#3b82f6',
-                    lineWidth: 3,
-                    priceLineVisible: false,
-                    crosshairMarkerVisible: true,
-                });
+    function overallClass(label: string): string {
+        if (label.includes('BULL')) return styles.bullish;
+        if (label.includes('BEAR')) return styles.bearish;
+        return '';
+    }
 
-                const curve = stats?.compounded_curve || [];
-                const filteredData = filterCurveData(curve);
-                const nowSec = Math.floor(Date.now() / 1000) as Time;
-                filteredData.push({ time: nowSec, value: totalPortfolioValue });
+    function rsiClass(rsi: number | null): string {
+        if (rsi === null) return '';
+        if (rsi > 70) return styles.rsiOverbought;
+        if (rsi < 30) return styles.rsiOversold;
+        return '';
+    }
 
-                modalSeries.setData(filteredData);
-                modalChart.timeScale().fitContent();
-            });
-        }
+    function formatPrice(p: string): string {
+        const n = parseFloat(p);
+        if (isNaN(n)) return '--';
+        if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        if (n >= 1) return n.toFixed(2);
+        if (n >= 0.01) return n.toFixed(4);
+        if (n >= 0.0001) return n.toFixed(6);
+        return n.toFixed(8);
+    }
 
-        return () => {
-            if (modalChart) {
-                modalChart.remove();
-                modalChart = null;
-                modalSeries = null;
-            }
-        };
-    });
+    function formatRsi(r: number | null): string {
+        if (r === null) return '--';
+        return r.toFixed(1);
+    }
 
-    $effect(() => {
-        if (showModal && modalSeries && stats?.compounded_curve) {
-            const curve = stats.compounded_curve;
-            const filteredData = filterCurveData(curve);
-            const nowSec = Math.floor(Date.now() / 1000) as Time;
-            filteredData.push({ time: nowSec, value: totalPortfolioValue });
-            modalSeries.setData(filteredData);
-        }
-    });
+    function formatAdx(a: number | null): string {
+        if (a === null) return '--';
+        return a.toFixed(1);
+    }
 
-    function handleTimeframeChange(tf: '1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL') {
-        selectedTimeframe = tf;
-        buildCompoundedChart();
+    function formatConviction(s: number): string {
+        const pct = Math.round(s);
+        return pct >= 0 ? `+${pct}` : `${pct}`;
     }
 </script>
 
 <div class={styles.dashboardView}>
     <div class={styles.headerRow}>
-        <h2 class={styles.dashboardTitle}>Dashboard</h2>
+        <h2 class={styles.dashboardTitle}>Market Dashboard</h2>
         <div class={styles.utcClock}>{utcTime}</div>
     </div>
 
     {#if loading}
-        <div class={styles.loadingRow}>Loading dashboard metrics...</div>
+        <div class={styles.loadingRow}>Loading...</div>
+    {:else if instances.length === 0}
+        <div class={styles.emptyState}>
+            <div class={styles.emptyIcon}>📊</div>
+            <h3 class={styles.emptyTitle}>No trading pairs configured</h3>
+            <p class={styles.emptyText}>
+                Create instances from the Instances tab to start monitoring markets in real-time.
+            </p>
+            <button class={styles.emptyBtn} onclick={navigateToInstances}>
+                Go to Instances
+            </button>
+        </div>
     {:else}
-        <div class={styles.portfolioHeaderPanel}>
-            <div class={styles.portfolioSummaryDetails}>
-                <div class={styles.hudHeader}>
-                    <span class={styles.hudLabel}>Total Account Value ({app.quote})</span>
+        <!-- Market Confluence Bar -->
+        {#if confluence}
+            <div class={styles.confluenceBar}>
+                <div class={styles.confluenceCard}>
+                    <span class={styles.confluenceLabel}>Trend Breadth</span>
+                    <span class={styles.confluenceValue}>
+                        <span class={styles.bullish}>{confluence.bullish}</span>
+                        <span class={styles.confluenceSep}> / </span>
+                        <span class={styles.bearish}>{confluence.bearish}</span>
+                        <span class={styles.confluenceSep}> / </span>
+                        <span class={styles.confluenceDim}>{confluence.total}</span>
+                    </span>
+                    <span class={styles.confluenceSub}>Bullish / Bearish / Total</span>
                 </div>
-                <div class={styles.hudValue}>
-                    ${totalPortfolioValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div class={styles.confluenceCard}>
+                    <span class={styles.confluenceLabel}>Avg RSI</span>
+                    <span class={styles.confluenceValue} class:rsiOverbought={confluence.avgRsi > 70} class:rsiOversold={confluence.avgRsi < 30}>
+                        {confluence.avgRsi.toFixed(1)}
+                    </span>
+                    <span class={styles.confluenceSub}>Across {confluence.total} pairs</span>
                 </div>
-                <div class={styles.hudSubRow}>
-                    <div class={styles.hudSubItem}>
-                        <span class={styles.hudSubLabel}>Realized P&L</span>
-                        <span class="{styles.hudSubValue} {totalRealizedPnl >= 0 ? styles.positive : styles.negative}">
-                            {totalRealizedPnl >= 0 ? '+' : ''}${totalRealizedPnl.toFixed(2)}
-                            ({totalRealizedPnl >= 0 ? '+' : ''}{(totalRealizedPnl / app.sessionCapital * 100).toFixed(2)}%)
-                        </span>
-                    </div>
-                    <div class={styles.hudSubItem}>
-                        <span class={styles.hudSubLabel}>Unrealized P&L</span>
-                        <span class="{styles.hudSubValue} {totalUnrealizedPnl >= 0 ? styles.positive : styles.negative}">
-                            {totalUnrealizedPnl >= 0 ? '+' : ''}${totalUnrealizedPnl.toFixed(2)}
-                            ({totalUnrealizedPnl >= 0 ? '+' : ''}{(totalUnrealizedPnl / app.sessionCapital * 100).toFixed(2)}%)
-                        </span>
-                    </div>
+                <div class={styles.confluenceCard}>
+                    <span class={styles.confluenceLabel}>Strong Trends</span>
+                    <span class={styles.confluenceValue}>
+                        {confluence.strongTrends} / {confluence.total}
+                    </span>
+                    <span class={styles.confluenceSub}>ADX &gt; 25</span>
+                </div>
+                <div class={styles.confluenceCard}>
+                    <span class={styles.confluenceLabel}>Dominant Regime</span>
+                    <span class={styles.confluenceValue}>
+                        {confluence.dominantRegime || '--'}
+                    </span>
+                    <span class={styles.confluenceSub}>Most common regime</span>
+                </div>
+                <div class={styles.confluenceCard}>
+                    <span class={styles.confluenceLabel}>Conviction</span>
+                    <span class="{styles.confluenceValue} {confluence.overallConviction > 0 ? styles.bullish : ''} {confluence.overallConviction < 0 ? styles.bearish : ''}">
+                        {formatConviction(confluence.overallConviction)}
+                    </span>
+                    <span class={styles.confluenceSub}>Avg overall score</span>
                 </div>
             </div>
+        {/if}
 
-            <div class={styles.portfolioChartContainer}>
-                <div class={styles.chartControlBar}>
-                    <span class={styles.chartTitle}>Portfolio Performance Curve</span>
-                    <div class={styles.timeframeTabs}>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1H' ? styles.active : ''}" onclick={() => handleTimeframeChange('1H')}>1H</button>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1D' ? styles.active : ''}" onclick={() => handleTimeframeChange('1D')}>1D</button>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1W' ? styles.active : ''}" onclick={() => handleTimeframeChange('1W')}>1W</button>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1M' ? styles.active : ''}" onclick={() => handleTimeframeChange('1M')}>1M</button>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === '1Y' ? styles.active : ''}" onclick={() => handleTimeframeChange('1Y')}>1Y</button>
-                        <button class="{styles.timeframeBtn} {selectedTimeframe === 'ALL' ? styles.active : ''}" onclick={() => handleTimeframeChange('ALL')}>ALL</button>
-                    </div>
-                </div>
-                <div class={styles.equityChartContainer} bind:this={compoundedContainer}></div>
-            </div>
-        </div>
-
-        <!-- Overview Cards -->
-        <div class={styles.statsGrid}>
-            <div class={styles.statCard}>
-                <span class={styles.statLabel}>Win Rate</span>
-                <span class={styles.statValue}>{((stats?.core_stats?.win_rate ?? 0) * 100).toFixed(1)}%</span>
-            </div>
-            <div class={styles.statCard}>
-                <span class={styles.statLabel}>Total Trades</span>
-                <span class={styles.statValue}>{stats?.core_stats?.total_trades ?? 0}</span>
-            </div>
-            <div class={styles.statCard}>
-                <span class={styles.statLabel}>Expectancy</span>
-                <span class="{styles.statValue} {(stats?.core_stats?.expectancy ?? 0) >= 0 ? styles.positive : ''} {(stats?.core_stats?.expectancy ?? 0) < 0 ? styles.negative : ''}">
-                    {stats?.core_stats?.expectancy != null ? `$${Math.abs(stats!.core_stats.expectancy).toFixed(2)}` : '--'}
-                </span>
-            </div>
-            <div class={styles.statCard}>
-                <span class={styles.statLabel}>Profit Factor</span>
-                <span class={styles.statValue}>{(stats?.core_stats?.profit_factor ?? 0).toFixed(2)}</span>
-            </div>
-            <div class={styles.statCard}>
-                <span class={styles.statLabel}>Avg R:R Ratio</span>
-                <span class={styles.statValue}>{(stats?.core_stats?.avg_risk_reward_ratio ?? 0).toFixed(2)}</span>
-            </div>
-        </div>
-
-        <!-- Portfolio Overview -->
-        {#if heartbeat || instances.length > 0}
+        <!-- Pair Confluence Table -->
+        {#if pairSnapshots.length > 0 && confluence}
             <div class={styles.sectionHeader}>
-                <h3>Portfolio Overview</h3>
+                <h3>Pair Overview</h3>
             </div>
-            <div class={styles.portfolioGrid}>
-                <div class="{styles.statCard} {styles.portfolioCard}">
-                    <span class={styles.statLabel}>Session Capital</span>
-                    <span class={styles.statValue}>{app.sessionCurrency} {app.sessionCapital.toLocaleString()}</span>
-                </div>
-                <div class="{styles.statCard} {styles.portfolioCard}">
-                    <span class={styles.statLabel}>Active Pairs</span>
-                    <span class={styles.statValue}>{heartbeat?.active_pairs_count ?? instances.length}</span>
-                </div>
-                <div class="{styles.statCard} {styles.portfolioCard}">
-                    <span class={styles.statLabel}>Allocated Margin</span>
-                    <span class={styles.statValue}>${(heartbeat?.total_allocated_margin ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
-            </div>
-
-            <!-- Active Instances -->
-            {#if instances.length > 0}
-                <div class={styles.instancesTableWrapper}>
-                    <table class={styles.instancesTable}>
-                        <thead>
+            <div class={styles.confluenceTableWrapper}>
+                <table class={styles.confluenceTable}>
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Price</th>
+                            <th>RSI</th>
+                            <th>ADX</th>
+                            <th>Regime</th>
+                            <th>Trend</th>
+                            <th>Overall</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each pairSnapshots as ps}
                             <tr>
-                                <th>Pair</th>
-                                <th>Status</th>
-                                <th>Initial Capital</th>
-                                <th>Equity</th>
-                                <th>Consec. Losses</th>
-                                <th>Caution</th>
+                                <td class={styles.colPair}>{ps.symbol}</td>
+                                <td class={styles.colMono}>{formatPrice(ps.price)}</td>
+                                <td class="{styles.colMono} {rsiClass(ps.rsi)}">{formatRsi(ps.rsi)}</td>
+                                <td class="{styles.colMono} {ps.adx !== null && ps.adx > 25 ? styles.adxStrong : ''}">{formatAdx(ps.adx)}</td>
+                                <td><span class="{styles.regimeBadge} {regimeClass(ps.regime)}">{ps.regime}</span></td>
+                                <td class="{trendClass(ps.trend)}">{ps.trend}</td>
+                                <td class="{overallClass(ps.overall)}">{ps.overall}</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            {#each instances as inst}
-                                <tr>
-                                    <td class={styles.colPair}>{inst.symbol}</td>
-                                    <td>
-                                        <span class="{styles.statusBadge} {inst.status === 'running' ? styles.statusRunning : ''} {inst.status === 'paused' ? styles.statusPaused : ''} {inst.status === 'stopped' ? styles.statusStopped : ''}">
-                                            {inst.status}
-                                        </span>
-                                    </td>
-                                    <td class={styles.colMono}>${inst.initial_capital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td class="{styles.colMono} {inst.current_equity >= 0 ? styles.positive : ''} {inst.current_equity < 0 ? styles.negative : ''}">${inst.current_equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td class={styles.colMono}>{inst.consecutive_losses}</td>
-                                    <td>
-                                        <span class="{styles.cautionBadge} {inst.caution_level === 'normal' ? styles.cautionNormal : ''} {inst.caution_level === 'cautious' ? styles.cautionCautious : ''} {(inst.caution_level === 'suspended' || inst.caution_level === 'drawdown_stop') ? styles.cautionWarn : ''}">
-                                            {inst.caution_level}
-                                        </span>
-                                    </td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                </div>
-            {/if}
-
-            <!-- Open Positions -->
-            {#if paperPositions.length > 0}
-                <div class={styles.sectionHeader} style="margin-top: 1.5rem;">
-                    <h3>Open Positions</h3>
-                </div>
-                <div class={styles.instancesTableWrapper}>
-                    <table class={styles.instancesTable}>
-                        <thead>
-                            <tr>
-                                <th>Symbol</th>
-                                <th>Direction</th>
-                                <th>Entry Price</th>
-                                <th>Size</th>
-                                <th>Unrealized P&L</th>
-                                <th>ROI</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {#each paperPositions as pos}
-                                <tr>
-                                    <td class={styles.colPair}>{pos.symbol}</td>
-                                    <td>
-                                        <span class="{styles.statusBadge} {pos.direction === 'LONG' ? styles.statusRunning : ''} {pos.direction === 'SHORT' ? styles.statusStopped : ''}">
-                                            {pos.direction}
-                                        </span>
-                                    </td>
-                                    <td class={styles.colMono}>${pos.entryPrice.toFixed(2)}</td>
-                                    <td class={styles.colMono}>{pos.size.toFixed(4)}</td>
-                                    <td class="{styles.colMono} {pos.unrealizedPnl >= 0 ? styles.positive : ''} {pos.unrealizedPnl < 0 ? styles.negative : ''}">
-                                        {pos.unrealizedPnl >= 0 ? '+' : ''}${pos.unrealizedPnl.toFixed(2)}
-                                    </td>
-                                    <td class="{styles.colMono} {pos.unrealizedRoi >= 0 ? styles.positive : ''} {pos.unrealizedRoi < 0 ? styles.negative : ''}">
-                                        {pos.unrealizedRoi >= 0 ? '+' : ''}{pos.unrealizedRoi.toFixed(2)}%
-                                    </td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                </div>
-            {/if}
-        {/if}
-
-        <!-- Detailed Stats -->
-        {#if stats?.core_stats}
-            <div class={styles.detailGrid}>
-                <div class={styles.detailCard}>
-                    <h4>Trade Outcomes</h4>
-                    <div class={styles.detailRow}>
-                        <span>Wins</span>
-                        <span class={styles.positive}>{stats.core_stats.wins}</span>
-                    </div>
-                    <div class={styles.detailRow}>
-                        <span>Losses</span>
-                        <span class={styles.negative}>{stats.core_stats.losses}</span>
-                    </div>
-                    <div class={styles.detailRow}>
-                        <span>Avg Win</span>
-                        <span>${stats.core_stats.avg_gain.toFixed(2)}</span>
-                    </div>
-                    <div class={styles.detailRow}>
-                        <span>Avg Loss</span>
-                        <span>${Math.abs(stats.core_stats.avg_loss).toFixed(2)}</span>
-                    </div>
-                    <div class={styles.detailRow}>
-                        <span>Largest Win</span>
-                        <span class={styles.positive}>${stats.core_stats.largest_gain.toFixed(2)}</span>
-                    </div>
-                    <div class={styles.detailRow}>
-                        <span>Largest Loss</span>
-                        <span class={styles.negative}>${Math.abs(stats.core_stats.largest_loss).toFixed(2)}</span>
-                    </div>
-                </div>
-
-                <div class={styles.detailCard}>
-                    <h4>Direction Breakdown</h4>
-                    {#if stats.direction_breakdown}
-                        <div class={styles.detailRow}>
-                            <span>Longs</span>
-                            <span>{stats.direction_breakdown.longs}</span>
-                        </div>
-                        <div class={styles.detailRow}>
-                            <span>Shorts</span>
-                            <span>{stats.direction_breakdown.shorts}</span>
-                        </div>
-                        <div class={styles.detailRow}>
-                            <span>Long Expectancy</span>
-                            <span>${stats.direction_breakdown.long_expectancy.toFixed(2)}</span>
-                        </div>
-                        <div class={styles.detailRow}>
-                            <span>Short Expectancy</span>
-                            <span>${stats.direction_breakdown.short_expectancy.toFixed(2)}</span>
-                        </div>
-                        <div class={styles.dirSubTable}>
-                            <table class={styles.dirTable}>
-                                <thead>
-                                    <tr>
-                                        <th>Dir</th>
-                                        <th>Wins</th>
-                                        <th>Losses</th>
-                                        <th>WR%</th>
-                                        <th>AvgG%</th>
-                                        <th>AvgL%</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td class={styles.positive}>LONG</td>
-                                        <td class={styles.positive}>{stats.direction_breakdown.long_wins}</td>
-                                        <td class={styles.negative}>{stats.direction_breakdown.long_losses}</td>
-                                        <td>{stats.direction_breakdown.long_win_rate.toFixed(1)}%</td>
-                                        <td class={styles.positive}>{stats.direction_breakdown.long_avg_gain.toFixed(2)}%</td>
-                                        <td class={styles.negative}>-{stats.direction_breakdown.long_avg_loss.toFixed(2)}%</td>
-                                    </tr>
-                                    <tr>
-                                        <td class={styles.negative}>SHORT</td>
-                                        <td class={styles.positive}>{stats.direction_breakdown.short_wins}</td>
-                                        <td class={styles.negative}>{stats.direction_breakdown.short_losses}</td>
-                                        <td>{stats.direction_breakdown.short_win_rate.toFixed(1)}%</td>
-                                        <td class={styles.positive}>{stats.direction_breakdown.short_avg_gain.toFixed(2)}%</td>
-                                        <td class={styles.negative}>-{stats.direction_breakdown.short_avg_loss.toFixed(2)}%</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    {/if}
-                </div>
-
-                <div class={styles.detailCard}>
-                    <h4>Streaks</h4>
-                    {#if stats.winning_streaks}
-                        <div class={styles.detailRow}>
-                            <span>Max Wins</span>
-                            <span class={styles.positive}>{stats.winning_streaks.max_streak_length}</span>
-                        </div>
-                        <div class={styles.detailRow}>
-                            <span>Max Losses</span>
-                            <span class={styles.negative}>{stats.losing_streaks.max_streak_length}</span>
-                        </div>
-                        <div class={styles.detailRow}>
-                            <span>Post-Loss Recovery</span>
-                            <span>{(stats.post_loss_recovery_pct * 100).toFixed(0)}%</span>
-                        </div>
-                    {/if}
-                </div>
+                        {/each}
+                    </tbody>
+                </table>
             </div>
-        {/if}
-
-        <!-- Historical Analyst Recommendations -->
-        {#if recommendations.length > 0}
+        {:else if instances.length > 0}
             <div class={styles.sectionHeader}>
-                <h3>Historical Analyst Recommendations</h3>
-            </div>
-            <div class={styles.recommendationsList}>
-                {#each recommendations.slice(0, 5) as rec}
-                    <div class={styles.recCard}>
-                        <div class={styles.recHeader}>
-                            <span class={styles.recSymbol}>{rec.symbol || rec.pair_key}</span>
-                            <span class={styles.recDate}>{rec.generated_at?.substring(0, 10)}</span>
-                            <span class={styles.recStats}>
-                                WR: {(rec.win_rate * 100).toFixed(0)}% |
-                                PF: {rec.profit_factor?.toFixed(2)} |
-                                R:R: {rec.avg_risk_reward?.toFixed(2)}
-                            </span>
-                        </div>
-                        {#if rec.key_improvements}
-                            <p class={styles.recText}><strong>Improvements:</strong> {rec.key_improvements}</p>
-                        {/if}
-                        {#if rec.risk_recommendation}
-                            <p class={styles.recText}><strong>Risk:</strong> {rec.risk_recommendation}</p>
-                        {/if}
-                        {#if rec.regime_analysis}
-                            <p class={styles.recText}><strong>Regimes:</strong> {rec.regime_analysis}</p>
-                        {/if}
-                    </div>
-                {/each}
-            </div>
-        {:else}
-            <div class={styles.sectionHeader}>
-                <p class={styles.noData}>No historical analyst recommendations yet. They appear after enough trades accumulate.</p>
+                <p class={styles.noData}>Waiting for market data...</p>
             </div>
         {/if}
+
+        <!-- Active Instances -->
+        <div class={styles.sectionHeader}>
+            <h3>Active Instances</h3>
+        </div>
+        <div class={styles.instancesTableWrapper}>
+            <table class={styles.instancesTable}>
+                <thead>
+                    <tr>
+                        <th>Pair</th>
+                        <th>Status</th>
+                        <th>Initial Capital</th>
+                        <th>Equity</th>
+                        <th>Consec. Losses</th>
+                        <th>Caution</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {#each instances as inst}
+                        <tr>
+                            <td class={styles.colPair}>{inst.symbol}</td>
+                            <td>
+                                <span class="{styles.statusBadge} {inst.status === 'running' ? styles.statusRunning : ''} {inst.status === 'paused' ? styles.statusPaused : ''} {inst.status === 'stopped' ? styles.statusStopped : ''}">
+                                    {inst.status}
+                                </span>
+                            </td>
+                            <td class={styles.colMono}>${inst.initial_capital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td class="{styles.colMono} {inst.current_equity >= 0 ? styles.positive : ''} {inst.current_equity < 0 ? styles.negative : ''}">${inst.current_equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td class={styles.colMono}>{inst.consecutive_losses}</td>
+                            <td>
+                                <span class="{styles.cautionBadge} {inst.caution_level === 'normal' ? styles.cautionNormal : ''} {inst.caution_level === 'cautious' ? styles.cautionCautious : ''} {(inst.caution_level === 'suspended' || inst.caution_level === 'drawdown_stop') ? styles.cautionWarn : ''}">
+                                    {inst.caution_level}
+                                </span>
+                            </td>
+                        </tr>
+                    {/each}
+                </tbody>
+            </table>
+        </div>
     {/if}
 </div>
-
-{#if showModal}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class={styles.modalOverlay} onclick={() => showModal = false} role="presentation">
-        <div class={styles.modalContent} onclick={e => e.stopPropagation()} role="dialog" tabindex="-1">
-            <div class={styles.modalHeader}>
-                <span class={styles.modalTitle}>Portfolio Performance Curve — Expanded View</span>
-                <button class={styles.modalCloseBtn} onclick={() => showModal = false}>✕</button>
-            </div>
-            <div class={styles.modalChartContainer} bind:this={modalChartContainer}></div>
-        </div>
-    </div>
-{/if}
