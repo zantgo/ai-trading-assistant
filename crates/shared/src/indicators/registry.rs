@@ -195,7 +195,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "stddev_channel", display_name: "StdDev Chnl", group: Volatility, class: Hybrid,
         render: PriceOverlay, directional: true, supports_divergence: false,
-        signal_types: &[Breakout, BandTouch], default_weight: 1.0, default_enabled: true,
+        signal_types: &[Breakout, BandTouch, LevelTest], default_weight: 1.0, default_enabled: true,
         config_params: &["stddev_channel_period"],
         value_format: "price", value_source: "sub:center", color: "#a1887f", guide_section: "32",
     },
