@@ -246,4 +246,103 @@ impl NormalizationEngine {
         };
         NormalizedIndicatorValue::scalar(z, norm, label.to_string())
     }
+
+    /// CCI: cyclical oscillator measuring deviation from statistical mean.
+    /// Values outside ±100 indicate overbought/oversold extremes; values
+    /// outside ±200 signal climactic exhaustion.
+    pub fn normalize_cci(cci: f64) -> NormalizedIndicatorValue {
+        let abs = cci.abs();
+        let norm = if abs >= 200.0 {
+            clamp_unit(-cci.signum() * 1.0)
+        } else if abs >= 100.0 {
+            clamp_unit(-cci.signum() * (0.6 + 0.4 * ((abs - 100.0) / 100.0)))
+        } else {
+            clamp_unit(cci / 100.0 * 0.5)
+        };
+        let label = if cci >= 200.0 {
+            "CCI_CLIMACTIC_BULL_EXHAUSTION"
+        } else if cci >= 100.0 {
+            "CCI_OVERBOUGHT"
+        } else if cci <= -200.0 {
+            "CCI_CLIMACTIC_BEAR_EXHAUSTION"
+        } else if cci <= -100.0 {
+            "CCI_OVERSOLD"
+        } else if cci > 0.0 {
+            "CCI_BULLISH_BIAS"
+        } else if cci < 0.0 {
+            "CCI_BEARISH_BIAS"
+        } else {
+            "CCI_NEUTRAL"
+        };
+        NormalizedIndicatorValue::scalar(cci, norm, label.to_string())
+    }
+
+    /// Williams %R: [-100, 0] oscillator. Overbought ≥ -20 (bearish), oversold ≤ -80 (bullish).
+    pub fn normalize_williams_r(wr: f64) -> NormalizedIndicatorValue {
+        let norm = if wr >= -20.0 {
+            clamp_unit(-((wr + 20.0) / 80.0))
+        } else if wr <= -80.0 {
+            clamp_unit(-(wr + 80.0) / 20.0)
+        } else {
+            clamp_unit(-wr / 100.0 * 1.2)
+        };
+        let label = if wr >= -20.0 {
+            "WILLIAMS_R_OVERBOUGHT"
+        } else if wr <= -80.0 {
+            "WILLIAMS_R_OVERSOLD"
+        } else if wr > -50.0 {
+            "WILLIAMS_R_BULLISH_BIAS"
+        } else {
+            "WILLIAMS_R_BEARISH_BIAS"
+        };
+        NormalizedIndicatorValue::scalar(wr, norm, label.to_string())
+    }
+
+    /// Awesome Oscillator: raw AO value, label from sign + direction.
+    pub fn normalize_awesome_oscillator(ao: f64, rising: bool) -> NormalizedIndicatorValue {
+        let norm = clamp_unit((ao / 100.0).tanh());
+        let label = if ao > 0.0 && rising {
+            "AO_BULLISH_RISING"
+        } else if ao > 0.0 {
+            "AO_BULLISH_FALLING"
+        } else if ao < 0.0 && !rising {
+            "AO_BEARISH_FALLING"
+        } else if ao < 0.0 {
+            "AO_BEARISH_RISING"
+        } else {
+            "AO_NEUTRAL"
+        };
+        NormalizedIndicatorValue::scalar(ao, norm, label.to_string())
+    }
+
+    /// Force Index: smoothed price×volume, sign = direction, magnitude = strength.
+    pub fn normalize_force_index(fi: f64) -> NormalizedIndicatorValue {
+        let norm = clamp_unit((fi / 5000.0).tanh());
+        let label = if fi > 0.0 { "FI_BULLISH" } else { "FI_BEARISH" };
+        NormalizedIndicatorValue::scalar(fi, norm, label.to_string())
+    }
+
+    /// Hull MA: single-line near-zero-lag overlay.
+    pub fn normalize_hull_ma(_hma: f64) -> NormalizedIndicatorValue {
+        NormalizedIndicatorValue::scalar(0.0, 0.0, "HULL_MA_OVERLAY")
+    }
+
+    /// StdDev Channel: linear regression center ±2σ.
+    pub fn normalize_stddev_channel(price: f64, upper: f64, center: f64, lower: f64) -> NormalizedIndicatorValue {
+        let (norm, label) = if price >= upper {
+            (1.0, "STDDEV_UPPER_BREAKOUT")
+        } else if price <= lower {
+            (-1.0, "STDDEV_LOWER_BREAKOUT")
+        } else {
+            let half = (upper - center).max(f64::EPSILON);
+            let n = (price - center) / half;
+            (clamp_unit(n * 0.8),
+             if n >= 0.0 { "STDDEV_UPPER_HALF" } else { "STDDEV_LOWER_HALF" })
+        };
+        let mut values = HashMap::new();
+        values.insert("upper".to_string(), upper);
+        values.insert("center".to_string(), center);
+        values.insert("lower".to_string(), lower);
+        NormalizedIndicatorValue::with_values(center, norm, label.to_string(), values)
+    }
 }

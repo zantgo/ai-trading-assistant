@@ -41,6 +41,14 @@ fn test_market_snapshot_json_roundtrip() {
         average_volume: Some(dec!(120.0)),
         indicators: sample_indicators(),
         context: None,
+        confluence: None,
+        decision: None,
+        decision_context: None,
+        statistical_context: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        prev_day_px: None,
+        risk_profile: None,
     };
 
     let json = serde_json::to_string(&snap).expect("serialization should succeed");
@@ -86,6 +94,14 @@ fn test_market_snapshot_empty_indicators() {
         average_volume: None,
         indicators: HashMap::new(),
         context: None,
+        confluence: None,
+        decision: None,
+        decision_context: None,
+        statistical_context: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        prev_day_px: None,
+        risk_profile: None,
     };
 
     let json = serde_json::to_string(&snap).expect("serialization of empty snap should succeed");

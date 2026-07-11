@@ -313,3 +313,72 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
+
+/* State Matrix Strip */
+.stateMatrixStrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+.smItem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: #1a1e2e;
+    border-radius: 6px;
+}
+.smLabel {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: #6b7280;
+    letter-spacing: 0.5px;
+}
+.smValue {
+    font-size: 13px;
+    font-weight: 700;
+    color: #d4d4d8;
+}
+.smBullish { color: #26a69a !important; }
+.smBearish { color: #ef5350 !important; }
+.smNeutral { color: #78909c !important; }
+
+.symbolDecisionsStrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.symDecision {
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.symName {
+    font-size: 13px;
+    font-weight: 700;
+    color: #d4d4d8;
+}
+.symBias {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #111;
+}
+.symBias.smBullish { background: #26a69a; }
+.symBias.smBearish { background: #ef5350; }
+.symBias.smNeutral { background: #78909c; }
+.symConf {
+    font-size: 10px;
+    color: #6b7280;
+}

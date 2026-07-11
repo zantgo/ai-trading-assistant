@@ -116,3 +116,43 @@
 @media (max-width: 768px) {
     .dt-layout { grid-template-columns: 1fr; }
 }
+
+/* DecisionMatrix Banner */
+.decisionMatrixBanner {
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 0 calc((100% - 1100px) / 2) 12px;
+    max-width: 1100px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    box-sizing: border-box;
+}
+.dmbBadge {
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #111;
+}
+.dmbBadge.bullish { background: #26a69a; }
+.dmbBadge.bearish { background: #ef5350; }
+.dmbBadge.neutral { background: #78909c; }
+.dmbInfo {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    color: #a0a0b0;
+}
+.dmbConfidence { font-weight: 600; color: #d4d4d8; }
+.dmbTfs { color: #6b7280; }
+.dmbRationale {
+    width: 100%;
+    font-size: 11px;
+    color: #6b7280;
+    line-height: 1.4;
+    margin-top: 4px;
+}

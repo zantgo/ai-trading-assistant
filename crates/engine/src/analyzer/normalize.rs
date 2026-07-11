@@ -12,6 +12,7 @@ use shared::indicators::{
     NormalizationEngine, NormalizedIndicatorValue, PatternResult, SeriesDivergenceResult,
     SqueezeOutput,
 };
+use shared::indicators::normalized::PreviousBarState;
 
 #[inline]
 fn d2f(d: Decimal) -> f64 {
@@ -25,8 +26,8 @@ fn od2f(d: Option<Decimal>) -> Option<f64> {
 
 /// Map an RSI [`DivergenceResult`] to the engine's [`DivergenceState`].
 pub fn rsi_divergence_state(div: &DivergenceResult) -> DivergenceState {
-    let bullish = matches!(div.rsi_divergence, DivergenceType::RsiBullish);
-    let bearish = matches!(div.rsi_divergence, DivergenceType::RsiBearish);
+    let bullish = matches!(div.rsi_divergence, DivergenceType::RsiBullish | DivergenceType::RsiBullishHidden);
+    let bearish = matches!(div.rsi_divergence, DivergenceType::RsiBearish | DivergenceType::RsiBearishHidden);
     match div.rsi_status {
         DivergenceStatus::Confirmed if bullish => DivergenceState::ConfirmedBullish,
         DivergenceStatus::Confirmed if bearish => DivergenceState::ConfirmedBearish,
@@ -38,8 +39,8 @@ pub fn rsi_divergence_state(div: &DivergenceResult) -> DivergenceState {
 
 /// Map a MACD [`DivergenceResult`] to the engine's [`DivergenceState`].
 pub fn macd_divergence_state(div: &DivergenceResult) -> DivergenceState {
-    let bullish = matches!(div.macd_divergence, DivergenceType::MacdBullish);
-    let bearish = matches!(div.macd_divergence, DivergenceType::MacdBearish);
+    let bullish = matches!(div.macd_divergence, DivergenceType::MacdBullish | DivergenceType::MacdBullishHidden);
+    let bearish = matches!(div.macd_divergence, DivergenceType::MacdBearish | DivergenceType::MacdBearishHidden);
     match div.macd_status {
         DivergenceStatus::Confirmed if bullish => DivergenceState::ConfirmedBullish,
         DivergenceStatus::Confirmed if bearish => DivergenceState::ConfirmedBearish,
@@ -92,6 +93,7 @@ pub struct NormalizeParams<'a> {
     pub atr: Option<&'a AtrOutput>,
     pub bbwp: Option<Decimal>,
     pub vwap: Option<Decimal>,
+    pub anchored_vwap: Option<shared::indicators::AvwapOutput>,
     pub ema_stack_state: Option<&'a str>,
     pub ema_fast: Option<Decimal>,
     pub ema_medium: Option<Decimal>,
@@ -106,6 +108,35 @@ pub struct NormalizeParams<'a> {
     pub resistance_levels: &'a [f64],
     pub active_position: Option<i8>,
     pub adx_consecutive_deceleration: bool,
+    pub supertrend_flipped: bool,
+    pub adx_di_crossover: Option<i8>,
+    /// Session pivot levels (P/R1-3/S1-3), None until the first session finalizes.
+    pub pivot_levels: Option<shared::indicators::PivotLevels>,
+    pub pivot_proximity_pct: f64,
+    /// Candlestick recognition reading for this bar (Stage 1 + Stage 3 output).
+    pub candlestick: Option<shared::indicators::CandlestickResult>,
+    pub candlestick_min_confidence: f64,
+    /// Ichimoku Cloud output for this bar.
+    pub ichimoku: Option<shared::indicators::IchimokuOutput>,
+    /// CCI reading for this bar.
+    pub cci: Option<Decimal>,
+    /// PSAR reading for this bar.
+    pub psar: Option<shared::indicators::PsarOutput>,
+    /// Williams %R reading for this bar.
+    pub williams_r: Option<Decimal>,
+    /// Awesome Oscillator reading for this bar.
+    pub awesome_oscillator: Option<shared::indicators::AoOutput>,
+    /// Force Index reading for this bar.
+    pub force_index: Option<Decimal>,
+    /// Hull MA reading for this bar.
+    pub hull_ma: Option<Decimal>,
+    /// StdDev Channel reading for this bar.
+    pub stddev_channel: Option<shared::indicators::SdChannelOutput>,
+    /// Volume Profile reading for this bar.
+    pub volume_profile: Option<shared::indicators::VolumeProfileOutput>,
+    /// Smart Money Concepts reading for this bar.
+    pub smc: Option<shared::indicators::SmcOutput>,
+    pub prev: PreviousBarState,
 }
 
 /// Convert a generic series-divergence direction into a (potential) engine
@@ -116,6 +147,51 @@ pub fn series_divergence_state(res: &SeriesDivergenceResult) -> DivergenceState 
         1 => DivergenceState::PotentialBullish,
         -1 => DivergenceState::PotentialBearish,
         _ => DivergenceState::None,
+    }
+}
+
+/// Generalized divergence confirmation: wraps `series_divergence_state` and
+/// upgrades `Potential → Confirmed` when the candle close decisively breaks
+/// the nearest support (bullish divergence) or resistance (bearish) level,
+/// matching the 0.2% tolerance used by `DivergenceDetector::check_divergence_confirmation`.
+pub fn series_divergence_confirmed(
+    res: &SeriesDivergenceResult,
+    close: Decimal,
+    supports: &[f64],
+    resistances: &[f64],
+) -> DivergenceState {
+    let potential = series_divergence_state(res);
+    let d = match potential {
+        DivergenceState::PotentialBullish => 1i8,
+        DivergenceState::PotentialBearish => -1i8,
+        _ => return potential,
+    };
+    let close_f = d2f(close);
+    if close_f <= 0.0 {
+        return potential;
+    }
+    let tolerance_pct = 0.002;
+    let confirmed = if d > 0 {
+        // Bullish: close decisively below a support level.
+        supports.iter().any(|s| {
+            let buf = s * tolerance_pct;
+            *s > 0.0 && close_f < *s && (*s - close_f) > buf
+        })
+    } else {
+        // Bearish: close decisively above a resistance level.
+        resistances.iter().any(|r| {
+            let buf = r * tolerance_pct;
+            *r > 0.0 && close_f > *r && (close_f - *r) > buf
+        })
+    };
+    if confirmed {
+        if d > 0 {
+            DivergenceState::ConfirmedBullish
+        } else {
+            DivergenceState::ConfirmedBearish
+        }
+    } else {
+        potential
     }
 }
 
@@ -148,6 +224,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         chandemo: od2f(p.chandemo),
         supertrend_line: od2f(p.supertrend_line),
         supertrend_dir: p.supertrend_dir,
+        supertrend_flipped: p.supertrend_flipped,
         keltner_upper: p.keltner.map(|k| d2f(k.0)),
         keltner_middle: p.keltner.map(|k| d2f(k.1)),
         keltner_lower: p.keltner.map(|k| d2f(k.2)),
@@ -183,9 +260,13 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         adx_plus_di: p.adx.map(|a| d2f(a.plus_di)),
         adx_minus_di: p.adx.map(|a| d2f(a.minus_di)),
         adx_slope: p.adx.map(|a| d2f(a.adx_slope)),
+        adx_di_crossover: p.adx_di_crossover,
         bbwp: od2f(p.bbwp),
         rvol: od2f(p.rvol),
         vwap: od2f(p.vwap),
+        avwap_weekly: p.anchored_vwap.as_ref().and_then(|a| a.vwap_weekly.map(|v| d2f(v))),
+        avwap_monthly: p.anchored_vwap.as_ref().and_then(|a| a.vwap_monthly.map(|v| d2f(v))),
+        avwap_swing: p.anchored_vwap.as_ref().and_then(|a| a.vwap_swing.map(|v| d2f(v))),
         fib_gp_low: p.fib.and_then(|f| od2f(f.golden_pocket_low)),
         fib_gp_high: p.fib.and_then(|f| od2f(f.golden_pocket_high)),
         fib_ext_1618: p.fib.and_then(|f| od2f(f.ext_1618)),
@@ -193,11 +274,66 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         pattern_bullish: p.pattern.map(|pt| pt.is_bullish).unwrap_or(false),
         pattern_bearish: p.pattern.map(|pt| pt.is_bearish).unwrap_or(false),
         pattern_confidence: p.pattern.map(|pt| pt.confidence),
+        pattern_upper_slope: p.pattern.and_then(|pt| pt.upper_slope),
+        pattern_upper_intercept: p.pattern.and_then(|pt| pt.upper_intercept),
+        pattern_lower_slope: p.pattern.and_then(|pt| pt.lower_slope),
+        pattern_lower_intercept: p.pattern.and_then(|pt| pt.lower_intercept),
         atr_14: p.atr.map(|a| d2f(a.atr_value)),
         atr_slope: p.atr.map(|a| d2f(a.atr_slope)),
         bb_upper: p.bb.map(|b| d2f(b.0)),
         bb_middle: p.bb.map(|b| d2f(b.1)),
         bb_lower: p.bb.map(|b| d2f(b.2)),
+        ema_fast: od2f(p.ema_fast),
+        ema_medium: od2f(p.ema_medium),
+        pivot: p.pivot_levels.map(|lv| d2f(lv.pivot)),
+        pivot_r1: p.pivot_levels.map(|lv| d2f(lv.r1)),
+        pivot_r2: p.pivot_levels.map(|lv| d2f(lv.r2)),
+        pivot_r3: p.pivot_levels.map(|lv| d2f(lv.r3)),
+        pivot_s1: p.pivot_levels.map(|lv| d2f(lv.s1)),
+        pivot_s2: p.pivot_levels.map(|lv| d2f(lv.s2)),
+        pivot_s3: p.pivot_levels.map(|lv| d2f(lv.s3)),
+        pivot_proximity_pct: p.pivot_proximity_pct,
+        candlestick: p.candlestick,
+        candlestick_min_confidence: p.candlestick_min_confidence,
+        ichimoku_tenkan: p.ichimoku.as_ref().map(|i| d2f(i.tenkan)),
+        ichimoku_kijun: p.ichimoku.as_ref().map(|i| d2f(i.kijun)),
+        ichimoku_senkou_a: p.ichimoku.as_ref().map(|i| d2f(i.senkou_a)),
+        ichimoku_senkou_b: p.ichimoku.as_ref().map(|i| d2f(i.senkou_b)),
+        ichimoku_chikou: p.ichimoku.as_ref().map(|i| d2f(i.chikou)),
+        ichimoku_senkou_a_current: p.ichimoku.as_ref().map(|i| d2f(i.senkou_a_current)),
+        ichimoku_senkou_b_current: p.ichimoku.as_ref().map(|i| d2f(i.senkou_b_current)),
+        cci: od2f(p.cci),
+        psar_sar: p.psar.as_ref().map(|p| d2f(p.sar)),
+        psar_direction: p.psar.map(|p| p.direction),
+        psar_flipped: p.psar.map(|p| p.flipped).unwrap_or(false),
+        williams_r: od2f(p.williams_r),
+        awesome_oscillator: p.awesome_oscillator.as_ref().map(|a| d2f(a.value)),
+        ao_rising: p.awesome_oscillator.map(|a| a.rising).unwrap_or(false),
+        force_index: od2f(p.force_index),
+        hull_ma: od2f(p.hull_ma),
+        stddev_upper: p.stddev_channel.as_ref().map(|s| d2f(s.upper)),
+        stddev_center: p.stddev_channel.as_ref().map(|s| d2f(s.center)),
+        stddev_lower: p.stddev_channel.as_ref().map(|s| d2f(s.lower)),
+        volprofile_poc: p.volume_profile.as_ref().map(|vp| d2f(vp.poc)),
+        volprofile_vah: p.volume_profile.as_ref().map(|vp| d2f(vp.vah)),
+        volprofile_val: p.volume_profile.as_ref().map(|vp| d2f(vp.val)),
+        volprofile_total_volume: p.volume_profile.as_ref().map(|vp| d2f(vp.total_volume)).unwrap_or(0.0),
+        smc_structure_bullish: p.smc.as_ref().map(|s| matches!(s.structure, shared::indicators::MarketStructure::Bullish)).unwrap_or(false),
+        smc_structure_bearish: p.smc.as_ref().map(|s| matches!(s.structure, shared::indicators::MarketStructure::Bearish)).unwrap_or(false),
+        smc_bos_bullish: p.smc.as_ref().map(|s| s.bos_bullish).unwrap_or(false),
+        smc_bos_bearish: p.smc.as_ref().map(|s| s.bos_bearish).unwrap_or(false),
+        smc_choch_bullish: p.smc.as_ref().map(|s| s.choch_bullish).unwrap_or(false),
+        smc_choch_bearish: p.smc.as_ref().map(|s| s.choch_bearish).unwrap_or(false),
+        smc_liq_sweep_buy: p.smc.as_ref().map(|s| s.liquidity_sweep_buy).unwrap_or(false),
+        smc_liq_sweep_sell: p.smc.as_ref().map(|s| s.liquidity_sweep_sell).unwrap_or(false),
+        smc_ob_bullish_high: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bullish_high)),
+        smc_ob_bullish_low: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bullish_low)),
+        smc_ob_bearish_high: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bearish_high)),
+        smc_ob_bearish_low: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bearish_low)),
+        smc_fvg_top: p.smc.as_ref().and_then(|s| od2f(s.fvg_top)),
+        smc_fvg_bottom: p.smc.as_ref().and_then(|s| od2f(s.fvg_bottom)),
+        smc_fvg_bullish: p.smc.as_ref().map(|s| s.fvg_bullish).unwrap_or(false),
+        smc_premium_discount: p.smc.as_ref().map(|s| s.premium_discount).unwrap_or(0.0),
     };
 
     let ctx = NormalizationContext {
@@ -211,6 +347,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         resistance_levels: p.resistance_levels.to_vec(),
         rvol: od2f(p.rvol),
         adx_consecutive_deceleration: p.adx_consecutive_deceleration,
+        prev: p.prev,
     };
 
     let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);

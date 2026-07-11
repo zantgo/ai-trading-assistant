@@ -10,5 +10,11 @@ pub mod jsonrpc_methods;
 pub mod market_context;
 pub mod models;
 pub mod normalized;
+pub mod alignment;
+pub mod risk;
+pub mod analysis;
+pub mod state_matrix;
+pub mod statistics;
+pub mod decision_context;
 
 pub use normalized::TriggerType;

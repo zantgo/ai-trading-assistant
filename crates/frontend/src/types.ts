@@ -202,6 +202,92 @@ export interface MonitorResponse {
     market_context: MarketContext | null;
 }
 
+// ── Confluence Matrix (cross-timeframe MTF alignment per symbol) ──
+export interface TfAlignmentInfo {
+    timeframe: string;
+    timeframe_secs: number;
+    trend_score: number;
+    momentum_score: number;
+    overall_score: number;
+    regime: string;
+    active_signals: number;
+    price: number;
+}
+
+export interface AlignmentMatrix {
+    symbol: string;
+    timeframes_present: number;
+    mtf_trend_alignment: number;
+    mtf_momentum_alignment: number;
+    mtf_volume_alignment: number;
+    mtf_volatility_alignment: number;
+    mtf_overall_score: number;
+    mtf_overall_label: string;
+    timeframe_alignments: TfAlignment[];
+    signal_cross_tf_count: number;
+    trend_agreement_pct: number;
+}
+
+// ── Decision Matrix (per-symbol market bias) ──
+export type MarketBias = 'Bullish' | 'Bearish' | 'Neutral';
+
+export interface AnalysisMatrix {
+    symbol: string;
+    bias: MarketBias;
+    confidence: number;
+    trade_readiness: string;
+    preferred_strategy: string;
+    market_quality: string;
+    warnings: string[];
+    rationale: string;
+    supporting_signals: string[];
+    contradicting_signals: string[];
+    timeframes_considered: number;
+}
+
+// ── Risk Matrix (per-symbol market risk assessment) ──
+export type RiskLevel = 'VeryLow' | 'Low' | 'Moderate' | 'High' | 'Extreme';
+export type TrendStability = 'Weak' | 'Developing' | 'Healthy' | 'Strong' | 'Exhausted';
+export type SignalReliability = 'Poor' | 'Fair' | 'Good' | 'Excellent';
+export type StopMethod = 'ATR' | 'SwingLow' | 'SwingHigh' | 'Support' | 'Resistance' | 'VWAP' | 'Supertrend' | 'StructureBased';
+export type TargetMethod = 'Fibonacci' | 'SwingHigh' | 'SwingLow' | 'ATRMultiple' | 'Resistance' | 'Support' | 'Donchian';
+
+export interface RiskMatrix {
+    symbol: string;
+    overall_market_risk: RiskLevel;
+    volatility_risk: RiskLevel;
+    liquidity_risk: RiskLevel;
+    trend_stability: TrendStability;
+    structural_risk: RiskLevel;
+    signal_reliability: SignalReliability;
+    suggested_stop_method: StopMethod;
+    suggested_stop_distance: number;
+    suggested_target_method: TargetMethod;
+    expected_rr: number;
+}
+
+// ── State Matrix (system-wide aggregation) ──
+export interface SymbolSummary {
+    symbol: string;
+    bias: MarketBias;
+    confidence: number;
+    mtf_overall_score: number;
+    timeframes_present: number;
+    regime: string;
+    supporting_signals_count: number;
+    contradicting_signals_count: number;
+}
+
+export interface StateMatrix {
+    instance_count: number;
+    active_symbols: string[];
+    total_timeframes_active: number;
+    regime_distribution: Record<string, number>;
+    global_bias_label: string;
+    per_symbol_summary: SymbolSummary[];
+    active_signals_total: number;
+}
+
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
 export type IndicatorGroup =
     | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Advanced';
@@ -319,7 +405,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'decision' | 'commission' | 'settings' | 'positions' | 'costs' | 'assistant' | 'ledger';
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'risk' | 'analysis' | 'commission' | 'settings' | 'positions' | 'costs' | 'assistant' | 'ledger';
 
 export interface InstanceState {
     symbol: string;
@@ -331,6 +417,9 @@ export interface InstanceState {
     macroTerm: TimeframeTelemetry;
     historyLatestClose: string;
     currentView: CurrentView;
+    alignment: AlignmentMatrix | null;
+    risk: RiskMatrix | null;
+    analysis: AnalysisMatrix | null;
 }
 
 export interface ScaleInPortion {

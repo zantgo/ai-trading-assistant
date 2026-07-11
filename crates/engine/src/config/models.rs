@@ -157,6 +157,36 @@ pub struct IndicatorsConfig {
     pub rvol_threshold_institutional: f64,
     #[serde(default = "default_rvol_threshold_climax")]
     pub rvol_threshold_climax: f64,
+    #[serde(default = "default_ichimoku_tenkan")]
+    pub ichimoku_tenkan: usize,
+    #[serde(default = "default_ichimoku_kijun")]
+    pub ichimoku_kijun: usize,
+    #[serde(default = "default_ichimoku_senkou_b")]
+    pub ichimoku_senkou_b: usize,
+    #[serde(default = "default_ichimoku_displacement")]
+    pub ichimoku_displacement: usize,
+    #[serde(default = "default_cci_period")]
+    pub cci_period: usize,
+    #[serde(default = "default_psar_af_step")]
+    pub psar_af_step: f64,
+    #[serde(default = "default_psar_af_max")]
+    pub psar_af_max: f64,
+    #[serde(default = "default_williams_r_period")]
+    pub williams_r_period: usize,
+    #[serde(default = "default_hull_ma_period")]
+    pub hull_ma_period: usize,
+    #[serde(default = "default_force_index_smoothing")]
+    pub force_index_smoothing: usize,
+    #[serde(default = "default_stddev_channel_period")]
+    pub stddev_channel_period: usize,
+    #[serde(default = "default_smc_lookback")]
+    pub smc_lookback: usize,
+    #[serde(default = "default_volume_profile_bins")]
+    pub volume_profile_bins: usize,
+    #[serde(default = "default_volume_profile_window")]
+    pub volume_profile_window: usize,
+    #[serde(default = "default_volume_profile_value_area")]
+    pub volume_profile_value_area: f64,
 }
 
 fn default_bbwp_lookback() -> usize { 252 }
@@ -195,6 +225,21 @@ fn default_atr_target_rr() -> f64 { 2.5 }
 fn default_volume_average_period() -> usize { 20 }
 fn default_rvol_threshold_institutional() -> f64 { 1.5 }
 fn default_rvol_threshold_climax() -> f64 { 3.0 }
+fn default_ichimoku_tenkan() -> usize { 9 }
+fn default_ichimoku_kijun() -> usize { 26 }
+fn default_ichimoku_senkou_b() -> usize { 52 }
+fn default_ichimoku_displacement() -> usize { 26 }
+fn default_cci_period() -> usize { 20 }
+fn default_psar_af_step() -> f64 { 0.02 }
+fn default_psar_af_max() -> f64 { 0.2 }
+fn default_williams_r_period() -> usize { 14 }
+fn default_hull_ma_period() -> usize { 21 }
+fn default_force_index_smoothing() -> usize { 13 }
+fn default_stddev_channel_period() -> usize { 20 }
+fn default_smc_lookback() -> usize { 20 }
+fn default_volume_profile_bins() -> usize { 50 }
+fn default_volume_profile_window() -> usize { 500 }
+fn default_volume_profile_value_area() -> f64 { 0.7 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FibonacciConfig {
@@ -227,6 +272,39 @@ fn default_retracement_coefficients() -> Vec<f64> {
 fn default_extension_coefficients() -> Vec<f64> {
     vec![1.272, 1.618, 2.000, 2.618]
 }
+
+/// Order book configuration for depth analysis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrderBookConfig {
+    #[serde(default = "default_ob_depth_levels")]
+    pub depth_levels: usize,
+    #[serde(default = "default_ob_imbalance_threshold")]
+    pub imbalance_threshold: f64,
+    #[serde(default = "default_ob_wall_threshold")]
+    pub wall_threshold: f64,
+    #[serde(default = "default_ob_spread_warning")]
+    pub spread_warning_pct: f64,
+    #[serde(default = "default_ob_spread_wide")]
+    pub spread_wide_threshold_pct: f64,
+}
+
+impl Default for OrderBookConfig {
+    fn default() -> Self {
+        Self {
+            depth_levels: default_ob_depth_levels(),
+            imbalance_threshold: default_ob_imbalance_threshold(),
+            wall_threshold: default_ob_wall_threshold(),
+            spread_warning_pct: default_ob_spread_warning(),
+            spread_wide_threshold_pct: default_ob_spread_wide(),
+        }
+    }
+}
+
+fn default_ob_depth_levels() -> usize { 20 }
+fn default_ob_imbalance_threshold() -> f64 { 0.3 }
+fn default_ob_wall_threshold() -> f64 { 5.0 }
+fn default_ob_spread_warning() -> f64 { 0.1 }
+fn default_ob_spread_wide() -> f64 { 0.05 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PivotsConfig {
@@ -299,22 +377,6 @@ fn default_cross_leverage() -> u32 { 20 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScoringConfig {
-    #[serde(default = "default_rsi_weight")]
-    pub rsi_weight: i32,
-    #[serde(default = "default_rsi_divergence_weight")]
-    pub rsi_divergence_weight: i32,
-    #[serde(default = "default_macd_weight")]
-    pub macd_weight: i32,
-    #[serde(default = "default_macd_divergence_weight")]
-    pub macd_divergence_weight: i32,
-    #[serde(default = "default_support_resistance_weight")]
-    pub support_resistance_weight: i32,
-    #[serde(default = "default_trend_weight")]
-    pub trend_weight: i32,
-    #[serde(default = "default_ema200_weight")]
-    pub ema200_weight: i32,
-    #[serde(default = "default_pattern_weight")]
-    pub pattern_weight: i32,
     #[serde(default = "default_base_allocation_pct")]
     pub base_allocation_pct: f64,
     #[serde(default = "default_micro_allocation_pct")]
@@ -325,90 +387,20 @@ pub struct ScoringConfig {
     pub base_score_threshold: u32,
     #[serde(default = "default_micro_score_threshold")]
     pub micro_score_threshold: u32,
-    /// Registry-driven per-indicator weights (default 1.0 each). Keyed by
-    /// indicator registry key; overrides the registry `default_weight`.
-    #[serde(default)]
-    pub indicator_weights: std::collections::HashMap<String, f64>,
-    /// Registry-driven per-indicator enable flags. Absent = registry default.
-    #[serde(default)]
-    pub indicator_enabled: std::collections::HashMap<String, bool>,
-    /// Regime-aware weight multipliers: regime label ("TRENDING"|"RANGE"|
-    /// "EXPANSION"|"COMPRESSION") → { indicator_key → multiplier }. Absent = 1.0.
-    #[serde(default = "default_regime_weight_multipliers")]
-    pub regime_weight_multipliers: std::collections::HashMap<String, std::collections::HashMap<String, f64>>,
 }
 
 impl Default for ScoringConfig {
     fn default() -> Self {
         Self {
-            rsi_weight: default_rsi_weight(),
-            rsi_divergence_weight: default_rsi_divergence_weight(),
-            macd_weight: default_macd_weight(),
-            macd_divergence_weight: default_macd_divergence_weight(),
-            support_resistance_weight: default_support_resistance_weight(),
-            trend_weight: default_trend_weight(),
-            ema200_weight: default_ema200_weight(),
-            pattern_weight: default_pattern_weight(),
             base_allocation_pct: default_base_allocation_pct(),
             micro_allocation_pct: default_micro_allocation_pct(),
             max_allocation_pct: default_max_allocation_pct(),
             base_score_threshold: default_base_score_threshold(),
             micro_score_threshold: default_micro_score_threshold(),
-            indicator_weights: std::collections::HashMap::new(),
-            indicator_enabled: std::collections::HashMap::new(),
-            regime_weight_multipliers: default_regime_weight_multipliers(),
         }
     }
 }
 
-/// Sensible default regime-aware weight multipliers. Trending regimes favor
-/// trend/breakout indicators; ranging regimes favor mean-reversion oscillators.
-fn default_regime_weight_multipliers(
-) -> std::collections::HashMap<String, std::collections::HashMap<String, f64>> {
-    use std::collections::HashMap;
-    let mk = |pairs: &[(&str, f64)]| -> HashMap<String, f64> {
-        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
-    };
-    let mut m = HashMap::new();
-    m.insert(
-        "TRENDING".to_string(),
-        mk(&[
-            ("ema_stack", 1.5), ("supertrend", 1.5), ("donchian", 1.4), ("adx", 1.3),
-            ("macd", 1.2), ("rsi", 0.7), ("stochastic", 0.6), ("zscore", 0.5),
-        ]),
-    );
-    m.insert(
-        "RANGE".to_string(),
-        mk(&[
-            ("rsi", 1.5), ("stochastic", 1.5), ("zscore", 1.5), ("bollinger", 1.4),
-            ("mfi", 1.2), ("supertrend", 0.6), ("donchian", 0.5), ("ema_stack", 0.7),
-        ]),
-    );
-    m.insert(
-        "EXPANSION".to_string(),
-        mk(&[
-            ("supertrend", 1.4), ("donchian", 1.4), ("keltner", 1.3), ("macd", 1.2),
-            ("patterns", 1.2),
-        ]),
-    );
-    m.insert(
-        "COMPRESSION".to_string(),
-        mk(&[
-            ("squeeze", 1.5), ("bbwp", 1.3), ("rsi", 1.1), ("stochastic", 1.1),
-            ("supertrend", 0.7), ("donchian", 0.7),
-        ]),
-    );
-    m
-}
-
-fn default_rsi_weight() -> i32 { 10 }
-fn default_rsi_divergence_weight() -> i32 { 20 }
-fn default_macd_weight() -> i32 { 10 }
-fn default_macd_divergence_weight() -> i32 { 10 }
-fn default_support_resistance_weight() -> i32 { 10 }
-fn default_trend_weight() -> i32 { 20 }
-fn default_ema200_weight() -> i32 { 10 }
-fn default_pattern_weight() -> i32 { 10 }
 fn default_base_allocation_pct() -> f64 { 1.0 }
 fn default_micro_allocation_pct() -> f64 { 2.0 }
 fn default_max_allocation_pct() -> f64 { 3.0 }
@@ -700,9 +692,6 @@ mod tests {
     #[test]
     fn test_default_scoring_config() {
         let cfg = ScoringConfig::default();
-        assert_eq!(cfg.rsi_weight, 10);
-        assert_eq!(cfg.rsi_divergence_weight, 20);
-        assert_eq!(cfg.trend_weight, 20);
         assert_eq!(cfg.base_allocation_pct, 1.0);
         assert_eq!(cfg.micro_allocation_pct, 2.0);
         assert_eq!(cfg.max_allocation_pct, 3.0);

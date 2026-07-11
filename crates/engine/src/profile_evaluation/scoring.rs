@@ -1,165 +1,11 @@
-use super::SnapshotValues;
 use crate::config::ScoringConfig;
 use std::collections::HashMap;
-
-// ─── Legacy hardcoded fallback weights (used when no config provided) ──
-const W_RSI_FB: f64 = 10.0;
-const W_RSI_DIV_FB: f64 = 20.0;
-const W_MACD_FB: f64 = 10.0;
-const W_MACD_DIV_FB: f64 = 10.0;
-const W_SR_FB: f64 = 10.0;
-const W_TREND_FB: f64 = 20.0;
-const W_EMA200_FB: f64 = 10.0;
-const W_PATTERN_FB: f64 = 10.0;
 
 /// Maximum possible magnitude of the confluence score (±90).
 pub const MAX_CONFLUENCE_SCORE: f64 = 90.0;
 
 /// Opposite-signal exit threshold: 60% of the maximum ±90 score.
 pub const OPPOSITE_EXIT_THRESHOLD: f64 = 54.0;
-
-/// Resolved weights for a confluence run.
-struct ResolvedWeights {
-    w_rsi: f64,
-    w_rsi_div: f64,
-    w_macd: f64,
-    w_macd_div: f64,
-    w_sr: f64,
-    w_trend: f64,
-    w_ema200: f64,
-    w_pattern: f64,
-}
-
-fn resolve_weights(
-    overrides: Option<&HashMap<String, i32>>,
-    global: Option<&ScoringConfig>,
-) -> ResolvedWeights {
-    let w = |key: &str, fb: f64| -> f64 {
-        if let Some(map) = overrides {
-            if let Some(&v) = map.get(key) {
-                return v as f64;
-            }
-        }
-        if let Some(cfg) = global {
-            match key {
-                "rsi" => return cfg.rsi_weight as f64,
-                "rsi_divergence" => return cfg.rsi_divergence_weight as f64,
-                "macd" => return cfg.macd_weight as f64,
-                "macd_divergence" => return cfg.macd_divergence_weight as f64,
-                "support_resistance" => return cfg.support_resistance_weight as f64,
-                "ema_stack" => return cfg.trend_weight as f64,
-                "ema200" => return cfg.ema200_weight as f64,
-                "patterns" => return cfg.pattern_weight as f64,
-                _ => {}
-            }
-        }
-        fb
-    };
-    ResolvedWeights {
-        w_rsi: w("rsi", W_RSI_FB),
-        w_rsi_div: w("rsi_divergence", W_RSI_DIV_FB),
-        w_macd: w("macd", W_MACD_FB),
-        w_macd_div: w("macd_divergence", W_MACD_DIV_FB),
-        w_sr: w("support_resistance", W_SR_FB),
-        w_trend: w("ema_stack", W_TREND_FB),
-        w_ema200: w("ema200", W_EMA200_FB),
-        w_pattern: w("patterns", W_PATTERN_FB),
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct EightFactorScore {
-    pub total_score: i32,
-    pub max_score: i32,
-    pub signals: EightFactorSignals,
-    pub allocated_capital_pct: f64,
-    pub weighted_contributions: EightFactorContributions,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct EightFactorContributions {
-    pub rsi_points: i32,
-    pub rsi_divergence_points: i32,
-    pub macd_points: i32,
-    pub macd_divergence_points: i32,
-    pub support_resistance_points: i32,
-    pub trend_points: i32,
-    pub ema200_points: i32,
-    pub pattern_points: i32,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct EightFactorSignals {
-    pub rsi_aligned: bool,
-    pub rsi_divergence_aligned: bool,
-    pub macd_crossover: bool,
-    pub macd_divergence_aligned: bool,
-    pub support_aligned: bool,
-    pub resistance_aligned: bool,
-    pub trend_aligned: bool,
-    pub ema200_aligned: bool,
-    pub pattern_aligned: bool,
-}
-
-/// Per-factor continuous contributions, before bias projection.
-struct FactorContributions {
-    rsi: f64,
-    rsi_div: f64,
-    macd: f64,
-    macd_div: f64,
-    sr: f64,
-    trend: f64,
-    ema200: f64,
-    pattern: f64,
-}
-
-/// Derived normalized `[-1.0, 1.0]` for the 200 EMA factor.
-fn ema200_normalized(snap: &SnapshotValues) -> f64 {
-    match snap.sub("ema_stack", "long") {
-        Some(ema) if ema > 0.0 => {
-            let rel = (snap.current_price - ema) / ema;
-            (rel / 0.005).clamp(-1.0, 1.0)
-        }
-        _ => 0.0,
-    }
-}
-
-/// Compute the continuous per-factor contributions with resolved weights.
-fn compute_factor_contributions(snap: &SnapshotValues, w: &ResolvedWeights) -> FactorContributions {
-    let rsi = snap.norm("rsi");
-    let rsi_div = snap.norm("rsi_divergence");
-    let macd = snap.norm("macd");
-    let macd_div = snap.norm("macd_divergence");
-    let sr = snap.norm("support_resistance");
-    let trend = snap.norm("ema_stack");
-    let ema200 = ema200_normalized(snap);
-    let pattern = snap.norm("patterns");
-
-    let adx_congested = snap.raw("adx").is_some_and(|a| a < 20.0)
-        || snap.label("adx") == "TRENDLESS_CONGESTION";
-    let trend_gate = if adx_congested { 0.0 } else { 1.0 };
-
-    let rvol = snap.raw("rvol").unwrap_or(1.0);
-    let breakout_active = snap.label("support_resistance").contains("FLIP")
-        || snap.label("squeeze").ends_with("VOLATILITY_RELEASE")
-        || snap.norm("patterns").abs() >= 1.0;
-    let breakout_gate = if breakout_active && rvol < 1.5 { 0.3 } else { 1.0 };
-
-    let bbwp_climax = snap.raw("bbwp").is_some_and(|b| b > 90.0);
-    let bias = trend.signum();
-    let climax_drag = if bbwp_climax { -0.1 * bias } else { 0.0 };
-
-    FactorContributions {
-        rsi: rsi * w.w_rsi,
-        rsi_div: rsi_div * w.w_rsi_div,
-        macd: macd * w.w_macd,
-        macd_div: macd_div * w.w_macd_div,
-        sr: sr * breakout_gate * w.w_sr,
-        trend: (trend * trend_gate + climax_drag) * w.w_trend,
-        ema200: (ema200 * trend_gate) * w.w_ema200,
-        pattern: pattern * breakout_gate * w.w_pattern,
-    }
-}
 
 /// Evaluate the allocation percentage from a confluence score using the given curve model.
 pub fn evaluate_allocation_curve(
@@ -198,225 +44,69 @@ pub fn evaluate_allocation_curve(
     }
 }
 
-/// Calculate the continuous 8-factor confluence score for a given bias.
-pub fn calculate_eight_factor_score(
-    bias: &str,
-    snap: &SnapshotValues,
-    _support_levels: &[f64],
-    _resistance_levels: &[f64],
-    _macro_trend: &str,
-) -> EightFactorScore {
-    calculate_eight_factor_score_with_weights(bias, snap, _support_levels, _resistance_levels, _macro_trend, None, None)
-}
-
-/// Calculate the score with optional weight overrides and global defaults.
-pub fn calculate_eight_factor_score_with_weights(
-    bias: &str,
-    snap: &SnapshotValues,
-    _support_levels: &[f64],
-    _resistance_levels: &[f64],
-    _macro_trend: &str,
-    weight_overrides: Option<&HashMap<String, i32>>,
-    scoring_config: Option<&ScoringConfig>,
-) -> EightFactorScore {
-    let w = resolve_weights(weight_overrides, scoring_config);
-    let is_bullish = bias == "BULLISH";
-    let c = compute_factor_contributions(snap, &w);
-
-    let signed_total = c.rsi + c.rsi_div + c.macd + c.macd_div + c.sr + c.trend + c.ema200 + c.pattern;
-    let projected = if is_bullish { signed_total } else { -signed_total };
-    let clamped = projected.clamp(-MAX_CONFLUENCE_SCORE, MAX_CONFLUENCE_SCORE);
-    let total_score = clamped.round() as i32;
-
-    let abs_score = total_score.unsigned_abs();
-
-    let (base_pct, max_pct, base_th, micro_th, model) = if let Some(cfg) = scoring_config {
-        (
-            cfg.base_allocation_pct,
-            cfg.max_allocation_pct,
-            cfg.base_score_threshold,
-            cfg.micro_score_threshold,
-            &crate::config::AllocationCurveModel::Stepped,
-        )
-    } else {
-        (1.0, 3.0, 40u32, 60u32, &crate::config::AllocationCurveModel::Stepped)
-    };
-    let allocated_capital_pct = evaluate_allocation_curve(abs_score, base_pct, max_pct, base_th, micro_th, model, 2.0);
-
-    let aligned = |contribution: f64| -> bool {
-        if is_bullish { contribution > 0.0 } else { contribution < 0.0 }
-    };
-    let signals = EightFactorSignals {
-        rsi_aligned: aligned(c.rsi),
-        rsi_divergence_aligned: aligned(c.rsi_div),
-        macd_crossover: aligned(c.macd),
-        macd_divergence_aligned: aligned(c.macd_div),
-        support_aligned: aligned(c.sr),
-        resistance_aligned: aligned(c.sr),
-        trend_aligned: aligned(c.trend),
-        ema200_aligned: aligned(c.ema200),
-        pattern_aligned: aligned(c.pattern),
-    };
-
-    let proj = |v: f64| -> i32 {
-        (if is_bullish { v } else { -v }).round() as i32
-    };
-
-    EightFactorScore {
-        total_score,
-        max_score: MAX_CONFLUENCE_SCORE as i32,
-        signals,
-        allocated_capital_pct,
-        weighted_contributions: EightFactorContributions {
-            rsi_points: proj(c.rsi),
-            rsi_divergence_points: proj(c.rsi_div),
-            macd_points: proj(c.macd),
-            macd_divergence_points: proj(c.macd_div),
-            support_resistance_points: proj(c.sr),
-            trend_points: proj(c.trend),
-            ema200_points: proj(c.ema200),
-            pattern_points: proj(c.pattern),
-        },
-    }
-}
-
-/// Registry-driven confluence over ALL directional indicators.
+/// Equal-weighted registry confluence over ALL directional indicators.
+///
+/// Every directional indicator present in the snapshot contributes equally
+/// (±1 weight). Non-directional gates (choppiness, ADX congestion) act as
+/// multiplicative dampening on the overall score. No per-indicator weighting,
+/// no regime-aware multipliers, no configurable weights.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RegistryConfluence {
-    /// Bias-projected confluence in `[-1.0, 1.0]` (weighted mean of directional
-    /// normalized values × gates).
+    /// Bias-projected confluence in `[-1.0, 1.0]`.
     pub normalized: f64,
     /// Scaled integer score in `[-100, 100]` for display/thresholds.
     pub score: i32,
-    /// Total active weight of enabled/present directional indicators.
-    pub active_weight: f64,
-    /// Non-directional gate multiplier applied this run (choppiness/adx).
+    /// Number of active directional indicators contributing.
+    pub active_count: u32,
+    /// Non-directional gate multiplier applied (choppiness/adx).
     pub regime_gate: f64,
-    /// Per-indicator signed contributions (`weight × normalized`).
-    pub contributions: Vec<(String, f64)>,
 }
 
-/// Compute the registry-driven confluence: `Σ(weight × normalized)` over every
-/// enabled, present, **directional** registry indicator, divided by the active
-/// weight, then dampened by non-directional regime gates (Choppiness / ADX
-/// congestion) and projected onto the trade bias.
-///
-/// `weights` / `enabled` override the registry defaults (weight 1.0, enabled).
-/// `regime_multipliers` (optional) scales each indicator's weight by the active
-/// regime's multiplier (regime derived from the snapshot's market context).
+/// Compute the equal-weighted registry confluence: simple arithmetic mean of
+/// every enabled, present, directional registry indicator, dampened by
+/// non-directional regime gates (Choppiness / ADX congestion) and projected
+/// onto the trade bias.
 pub fn calculate_registry_confluence(
     bias: &str,
-    snap: &SnapshotValues,
-    weights: &HashMap<String, f64>,
-    enabled: &HashMap<String, bool>,
-    regime_multipliers: Option<&HashMap<String, HashMap<String, f64>>>,
+    snap: &crate::profile_evaluation::SnapshotValues,
 ) -> RegistryConfluence {
     use shared::indicators::registry::INDICATORS;
-
-    // Active regime for regime-aware weighting (from BBWP/ADX/choppiness).
-    let regime = classify_regime_label(snap);
-    let regime_tbl = regime_multipliers.and_then(|m| m.get(&regime));
 
     // ── Non-directional regime gates (multiplicative confidence) ──
     let adx_congested = snap.raw("adx").is_some_and(|a| a < 20.0)
         || snap.label("adx") == "TRENDLESS_CONGESTION";
     let chop_gate = match snap.raw("choppiness") {
-        Some(c) if c >= 61.8 => 0.5, // choppy/range → halve conviction
-        Some(c) if c <= 38.2 => 1.0, // strong trend → full
+        Some(c) if c >= 61.8 => 0.5,
+        Some(c) if c <= 38.2 => 1.0,
         _ => 0.85,
     };
     let adx_gate = if adx_congested { 0.6 } else { 1.0 };
     let regime_gate = chop_gate * adx_gate;
 
     let mut sum = 0.0f64;
-    let mut active_weight = 0.0f64;
-    let mut contributions: Vec<(String, f64)> = Vec::new();
+    let mut count: u32 = 0;
 
     for meta in INDICATORS {
         if !meta.directional {
-            continue; // gates handled above
-        }
-        if !enabled.get(meta.key).copied().unwrap_or(meta.default_enabled) {
             continue;
         }
-        // Only count indicators actually present in this snapshot.
         if !snap.indicators.contains_key(meta.key) {
             continue;
         }
-        let base_w = weights.get(meta.key).copied().unwrap_or(meta.default_weight);
-        let regime_mult = regime_tbl.and_then(|t| t.get(meta.key)).copied().unwrap_or(1.0);
-        let w = base_w * regime_mult;
-        if w == 0.0 {
-            continue;
-        }
-        let contrib = snap.norm(meta.key) * w;
-        sum += contrib;
-        active_weight += w;
-        contributions.push((meta.key.to_string(), contrib));
+        sum += snap.norm(meta.key);
+        count += 1;
     }
 
-    let mean = if active_weight > 0.0 { sum / active_weight } else { 0.0 };
+    let mean = if count > 0 { sum / count as f64 } else { 0.0 };
     let gated = (mean * regime_gate).clamp(-1.0, 1.0);
     let projected = if bias == "BULLISH" { gated } else { -gated };
 
     RegistryConfluence {
         normalized: projected,
         score: (projected * 100.0).round() as i32,
-        active_weight,
+        active_count: count,
         regime_gate,
-        contributions,
     }
-}
-
-/// Coarse regime classifier used for regime-aware weighting (mirrors the market
-/// context synthesis thresholds).
-fn classify_regime_label(snap: &SnapshotValues) -> String {
-    let bbwp = snap.raw("bbwp").unwrap_or(50.0);
-    let chop = snap.raw("choppiness").unwrap_or(50.0);
-    let adx = snap.raw("adx").unwrap_or(0.0);
-    if bbwp <= 15.0 || chop >= 61.8 {
-        "COMPRESSION"
-    } else if bbwp >= 85.0 {
-        "EXPANSION"
-    } else if adx >= 25.0 || chop <= 38.2 {
-        "TRENDING"
-    } else {
-        "RANGE"
-    }
-    .to_string()
-}
-
-/// Continuous opposite-signal score with optional weight overrides.
-pub fn calculate_opposite_score(
-    position_direction: &str,
-    snap: &SnapshotValues,
-    _support_levels: &[f64],
-    _resistance_levels: &[f64],
-    _macro_trend: &str,
-) -> u32 {
-    calculate_opposite_score_with_weights(position_direction, snap, _support_levels, _resistance_levels, _macro_trend, None, None)
-}
-
-pub fn calculate_opposite_score_with_weights(
-    position_direction: &str,
-    snap: &SnapshotValues,
-    _support_levels: &[f64],
-    _resistance_levels: &[f64],
-    _macro_trend: &str,
-    weight_overrides: Option<&HashMap<String, i32>>,
-    scoring_config: Option<&ScoringConfig>,
-) -> u32 {
-    let w = resolve_weights(weight_overrides, scoring_config);
-    let c = compute_factor_contributions(snap, &w);
-    let holding_long = position_direction == "LONG";
-    let all = [
-        c.rsi, c.rsi_div, c.macd, c.macd_div, c.sr, c.trend, c.ema200, c.pattern,
-    ];
-    let opposing_sum: f64 = all
-        .iter()
-        .filter(|&&v| if holding_long { v < 0.0 } else { v > 0.0 })
-        .sum();
-    opposing_sum.abs().round() as u32
 }
 
 #[cfg(test)]
@@ -429,127 +119,12 @@ mod tests {
         NormalizedIndicatorValue::scalar(norm, norm, label)
     }
 
-    fn snap_with(entries: &[(&str, f64, &str)], price: f64) -> SnapshotValues {
+    fn snap_with(entries: &[(&str, f64, &str)]) -> crate::profile_evaluation::SnapshotValues {
         let mut map = HashMap::new();
         for (k, n, l) in entries {
             map.insert((*k).to_string(), niv(*n, l));
         }
-        SnapshotValues::from_map(map, price)
-    }
-
-    fn niv_raw(raw: f64, norm: f64, label: &str) -> NormalizedIndicatorValue {
-        NormalizedIndicatorValue::scalar(raw, norm, label)
-    }
-
-    #[test]
-    fn continuous_bullish_alignment_scores_high() {
-        let mut map = HashMap::new();
-        map.insert("rsi".into(), niv(0.8, "OVERSOLD_ACCUMULATION"));
-        map.insert("rsi_divergence".into(), niv(1.0, "CONFIRMED_BULLISH_DIVERGENCE"));
-        map.insert("macd".into(), niv(0.9, "BULLISH_CROSSOVER_ACCELERATING"));
-        map.insert("support_resistance".into(), niv(1.0, "SUPPORT_DEMAND_ZONE"));
-        map.insert("patterns".into(), niv(1.0, "BULLISH_PATTERN_BREAKOUT"));
-        map.insert("adx".into(), niv_raw(30.0, 0.7, "STRONG_BULL_TREND"));
-        map.insert("rvol".into(), niv_raw(2.0, 0.8, "INSTITUTIONAL_BREAKOUT_VOLUME"));
-        let mut ema_vals = HashMap::new();
-        ema_vals.insert("long".to_string(), 49000.0);
-        map.insert(
-            "ema_stack".into(),
-            NormalizedIndicatorValue::with_values(50000.0, 1.0, "ESTABLISHED_BULLISH_STACK", ema_vals),
-        );
-        let snap = SnapshotValues::from_map(map, 50000.0);
-
-        let score = calculate_eight_factor_score("BULLISH", &snap, &[], &[], "BULLISH");
-        assert!(score.total_score >= 60, "expected >=60, got {}", score.total_score);
-        assert_eq!(score.allocated_capital_pct, 3.0);
-        assert!(score.total_score <= 90);
-    }
-
-    #[test]
-    fn continuous_score_is_gradient_not_cliff() {
-        let weak = snap_with(&[("rsi", 0.3, "BULLISH_DISCOUNT")], 100.0);
-        let strong = snap_with(&[("rsi", 0.9, "OVERSOLD_ACCUMULATION")], 100.0);
-        let ws = calculate_eight_factor_score("BULLISH", &weak, &[], &[], "");
-        let ss = calculate_eight_factor_score("BULLISH", &strong, &[], &[], "");
-        assert!(ss.total_score > ws.total_score);
-    }
-
-    #[test]
-    fn adx_congestion_gate_dampens_trend() {
-        let entries = [
-            ("ema_stack", 1.0, "ESTABLISHED_BULLISH_STACK"),
-            ("adx", 0.0, "TRENDLESS_CONGESTION"),
-        ];
-        let mut map = HashMap::new();
-        for (k, n, l) in entries {
-            map.insert(k.to_string(), niv(n, l));
-        }
-        map.insert(
-            "adx".to_string(),
-            NormalizedIndicatorValue::scalar(15.0, 0.0, "TRENDLESS_CONGESTION"),
-        );
-        let snap = SnapshotValues::from_map(map, 100.0);
-        let score = calculate_eight_factor_score("BULLISH", &snap, &[], &[], "");
-        assert_eq!(score.total_score, 0);
-    }
-
-    #[test]
-    fn opposite_score_triggers_exit_above_threshold() {
-        let snap = snap_with(
-            &[
-                ("rsi", -0.8, "OVERBOUGHT_DISTRIBUTION"),
-                ("rsi_divergence", -1.0, "CONFIRMED_BEARISH_DIVERGENCE"),
-                ("macd", -0.9, "BEARISH_CROSSOVER_ACCELERATING"),
-                ("ema_stack", -1.0, "ESTABLISHED_BEARISH_STACK"),
-                ("support_resistance", -1.0, "RESISTANCE_SUPPLY_ZONE"),
-            ],
-            50000.0,
-        );
-        let opp = calculate_opposite_score("LONG", &snap, &[], &[], "");
-        assert!(opp > OPPOSITE_EXIT_THRESHOLD as u32, "expected >54, got {}", opp);
-    }
-
-    #[test]
-    fn opposite_score_minor_signals_no_exit() {
-        let snap = snap_with(&[("rsi", -0.2, "BEARISH_PREMIUM")], 50000.0);
-        let opp = calculate_opposite_score("LONG", &snap, &[], &[], "");
-        assert!(opp <= OPPOSITE_EXIT_THRESHOLD as u32);
-    }
-
-    #[test]
-    fn custom_weights_scale_score() {
-        let snap = snap_with(
-            &[
-                ("rsi", 1.0, "OVERSOLD_ACCUMULATION"),
-                ("ema_stack", 1.0, "ESTABLISHED_BULLISH_STACK"),
-            ],
-            100.0,
-        );
-        let mut overrides = HashMap::new();
-        overrides.insert("rsi".to_string(), 50i32);
-        overrides.insert("ema_stack".to_string(), 0i32);
-        let score = calculate_eight_factor_score_with_weights(
-            "BULLISH", &snap, &[], &[], "",
-            Some(&overrides), None,
-        );
-        assert!(score.total_score > 0, "RSI with weight 50 should dominate");
-        // With ema_stack weight = 0, trend contribution should be zero
-        assert_eq!(score.weighted_contributions.trend_points, 0);
-    }
-
-    #[test]
-    fn zero_weight_removes_indicator_influence() {
-        let snap = snap_with(&[("ema_stack", 1.0, "ESTABLISHED_BULLISH_STACK")], 100.0);
-        let mut overrides = HashMap::new();
-        overrides.insert("ema_stack".to_string(), 0i32);
-        let score = calculate_eight_factor_score_with_weights(
-            "BULLISH", &snap, &[], &[], "",
-            Some(&overrides), None,
-        );
-        assert_eq!(score.weighted_contributions.trend_points, 0);
-
-        let default_score = calculate_eight_factor_score("BULLISH", &snap, &[], &[], "");
-        assert!(default_score.weighted_contributions.trend_points > 0);
+        crate::profile_evaluation::SnapshotValues::from_map(map, 100.0)
     }
 
     #[test]
@@ -565,7 +140,7 @@ mod tests {
     fn allocation_linear_interpolates() {
         use crate::config::AllocationCurveModel;
         let pct = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
-        assert!((pct - 2.0).abs() < 0.01, "linear at 50% of max score should give midpoint; got {}", pct);
+        assert!((pct - 2.0).abs() < 0.01, "linear at 50% of max should give midpoint; got {}", pct);
     }
 
     #[test]
@@ -573,52 +148,50 @@ mod tests {
         use crate::config::AllocationCurveModel;
         let pct_linear = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
         let pct_exp = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Exponential, 3.0);
-        assert!(pct_exp <= pct_linear, "exponential (exp=3) at 50% score should be <= linear; exp={} linear={}", pct_exp, pct_linear);
+        assert!(pct_exp <= pct_linear, "exponential should be <= linear");
     }
 
     #[test]
     fn registry_confluence_bullish_alignment_positive() {
-        let snap = snap_with(
-            &[
-                ("rsi", 0.8, "OVERSOLD_ACCUMULATION"),
-                ("supertrend", 0.9, "SUPERTREND_BULLISH"),
-                ("mfi", 0.6, "MFI_BULLISH_FLOW"),
-                ("choppiness", 0.0, "CHOP_STRONG_TREND"),
-            ],
-            100.0,
-        );
-        let c = calculate_registry_confluence("BULLISH", &snap, &HashMap::new(), &HashMap::new(), None);
+        let snap = snap_with(&[
+            ("rsi", 0.8, "OVERSOLD_ACCUMULATION"),
+            ("supertrend", 0.9, "SUPERTREND_BULLISH"),
+            ("mfi", 0.6, "MFI_BULLISH_FLOW"),
+        ]);
+        let c = calculate_registry_confluence("BULLISH", &snap);
         assert!(c.normalized > 0.0, "aligned bulls → positive, got {}", c.normalized);
         assert!(c.normalized <= 1.0 && c.normalized >= -1.0);
+        assert_eq!(c.active_count, 3);
     }
 
     #[test]
-    fn registry_confluence_disabled_indicator_excluded() {
-        let snap = snap_with(&[("rsi", 1.0, "OVERSOLD_ACCUMULATION")], 100.0);
-        let mut enabled = HashMap::new();
-        enabled.insert("rsi".to_string(), false);
-        let c = calculate_registry_confluence("BULLISH", &snap, &HashMap::new(), &enabled, None);
-        assert_eq!(c.active_weight, 0.0, "disabled rsi contributes no weight");
-        assert_eq!(c.score, 0);
+    fn registry_confluence_equal_weighted_no_bias() {
+        let mut snap = snap_with(&[
+            ("rsi", 1.0, "OVERSOLD_ACCUMULATION"),
+            ("supertrend", 1.0, "SUPERTREND_BULLISH"),
+        ]);
+        // Inject low choppiness to remove the dampening gate.
+        snap.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(30.0, 0.0, "CHOP_STRONG_TREND"));
+        let c = calculate_registry_confluence("BULLISH", &snap);
+        assert!((c.normalized - 1.0).abs() < 1e-9, "two +1 should average to +1, got {}", c.normalized);
     }
 
     #[test]
     fn registry_confluence_choppy_regime_dampens() {
-        let trend = snap_with(
-            &[("supertrend", 1.0, "SUPERTREND_BULLISH"), ("choppiness", 0.0, "CHOP_STRONG_TREND")],
-            100.0,
-        );
-        let choppy = snap_with(
-            &[("supertrend", 1.0, "SUPERTREND_BULLISH"), ("choppiness", 0.0, "CHOP_CONSOLIDATION_RANGE")],
-            100.0,
-        );
-        // Inject raw choppiness value so the gate reads it.
-        let mut t = trend;
-        t.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(20.0, 0.0, "CHOP_STRONG_TREND"));
-        let mut ch = choppy;
-        ch.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(80.0, 0.0, "CHOP_CONSOLIDATION_RANGE"));
-        let ct = calculate_registry_confluence("BULLISH", &t, &HashMap::new(), &HashMap::new(), None);
-        let cc = calculate_registry_confluence("BULLISH", &ch, &HashMap::new(), &HashMap::new(), None);
+        let mut trend = snap_with(&[
+            ("supertrend", 1.0, "SUPERTREND_BULLISH"),
+            ("rsi", 0.8, "OVERSOLD_ACCUMULATION"),
+        ]);
+        trend.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(20.0, 0.0, "CHOP_STRONG_TREND"));
+
+        let mut choppy = snap_with(&[
+            ("supertrend", 1.0, "SUPERTREND_BULLISH"),
+            ("rsi", 0.8, "OVERSOLD_ACCUMULATION"),
+        ]);
+        choppy.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(80.0, 0.0, "CHOP_CONSOLIDATION_RANGE"));
+
+        let ct = calculate_registry_confluence("BULLISH", &trend);
+        let cc = calculate_registry_confluence("BULLISH", &choppy);
         assert!(cc.normalized < ct.normalized, "choppy regime should dampen conviction");
     }
 }

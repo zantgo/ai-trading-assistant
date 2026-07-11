@@ -3,6 +3,7 @@ use sqlx::SqlitePool;
 
 pub mod crypto;
 pub mod logger;
+pub mod paper;
 pub mod queries;
 pub mod seed;
 

@@ -6,6 +6,7 @@ import type {
     InstanceState, TimeframeTelemetry,
     ScaleInPortion, TakeProfitTarget, UserTrade,
     CurrentView,
+    AlignmentMatrix, AnalysisMatrix, StateMatrix,
 } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
@@ -53,6 +54,9 @@ function createInstanceState(symbol: string): InstanceState {
         macroTerm: createTimeframeTelemetry(symbol, 900),
         historyLatestClose: '0',
         currentView: 'terminal',
+        alignment: null,
+        risk: null,
+        analysis: null,
     };
 }
 
@@ -67,6 +71,7 @@ export class AppStore {
     instancesMap = $state<Record<string, InstanceState>>({});
     activeTab = $state<string>('BTC-USDT');
     currentGlobalView = $state<string>('dashboard');
+    stateMatrix = $state<StateMatrix | null>(null);
 
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');

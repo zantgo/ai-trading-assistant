@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
 use crate::config::TimeframeConfig;
@@ -6,8 +7,11 @@ use crate::config::FibonacciConfig;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, Exchange};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern, PivotPoints, PivotMethod, Candlestick, CandlestickConfig, Ichimoku, Cci, ParabolicSar, WilliamsR, HullMA, AwesomeOscillator, ForceIndex, StdDevChannel, VolumeProfile, SmartMoney, AnchoredVwap};
+use shared::indicators::normalized::PreviousBarState;
 use crate::analyzer::normalize::{series_divergence_state, ExtraDivergence};
+use crate::sr_engine::SrRoleTracker;
+use crate::analyzer::update_sr_levels;
 
 /// Maximum number of candles/snapshots retained in live memory buffers.
 /// Bootstrap fetches up to `analysis_limit` (default 500); live buffers grow
@@ -54,6 +58,20 @@ pub struct WarmedPipelineState {
     pub volume_history: VecDeque<Decimal>,
     pub history: Vec<NormalizedCandle>,
     pub last_day_index: Option<u64>,
+    pub sr_tracker: SrRoleTracker,
+    pub pivot_points_indicator: PivotPoints,
+    pub candlestick_indicator: Candlestick,
+    pub ichimoku_indicator: Ichimoku,
+    pub cci_indicator: Cci,
+    pub psar_indicator: ParabolicSar,
+    pub wr_indicator: WilliamsR,
+    pub hma_indicator: HullMA,
+    pub ao_indicator: AwesomeOscillator,
+    pub fi_indicator: ForceIndex,
+    pub sdc_indicator: StdDevChannel,
+    pub volume_profile_indicator: VolumeProfile,
+    pub smc_indicator: SmartMoney,
+    pub anchored_vwap_indicator: AnchoredVwap,
     pub latest_snapshot: Option<MarketSnapshot>,
     pub snapshot_history: Vec<MarketSnapshot>,
 }
@@ -123,6 +141,31 @@ pub fn warm_indicators_for_timeframe(
     let mut vwap_sum_vol = Decimal::ZERO;
     let mut last_day_index: Option<u64> = None;
     let mut volume_history: VecDeque<Decimal> = VecDeque::with_capacity(20);
+    // S/R role-reversal tracker, warmed through the full history so live
+    // ingestion inherits accurate flip-state (matches run_single tolerance).
+    let mut sr_tracker = SrRoleTracker::new(0.003);
+    // Session Pivot Points, warmed so live ingestion inherits published levels.
+    let mut pivot_points_indicator = PivotPoints::new(PivotMethod::Classic);
+    // Candlestick recognizer, warmed so its pending-confirmation buffer is live.
+    let mut candlestick_indicator = Candlestick::new(CandlestickConfig::default());
+    // Ichimoku Cloud, warmed so live ingestion inherits the 52-bar window.
+    let mut ichimoku_indicator = Ichimoku::new(
+        active_indicators.ichimoku_tenkan,
+        active_indicators.ichimoku_kijun,
+        active_indicators.ichimoku_senkou_b,
+        active_indicators.ichimoku_displacement,
+    );
+    let mut cci_indicator = Cci::new(active_indicators.cci_period);
+    let mut psar_indicator = ParabolicSar::new(active_indicators.psar_af_step, active_indicators.psar_af_max);
+    let mut wr_indicator = WilliamsR::new(active_indicators.williams_r_period);
+    let mut hma_indicator = HullMA::new(active_indicators.hull_ma_period);
+    let mut ao_indicator = AwesomeOscillator::new();
+    let mut fi_indicator = ForceIndex::new(active_indicators.force_index_smoothing);
+    let mut sdc_indicator = StdDevChannel::new(active_indicators.stddev_channel_period);
+    let mut volume_profile_indicator = VolumeProfile::new(active_indicators.volume_profile_window, active_indicators.volume_profile_bins, active_indicators.volume_profile_value_area);
+    let mut smc_indicator = SmartMoney::new(active_indicators.smc_lookback);
+
+    let mut anchored_vwap_indicator = AnchoredVwap::new();
 
     let mut latest_snapshot: Option<MarketSnapshot> = None;
 
@@ -144,6 +187,33 @@ pub fn warm_indicators_for_timeframe(
         }
         last_day_index = Some(day_index);
 
+        // Session Pivot Points: accumulate H/L/C; publish on day rollover.
+        let pivot_levels =
+            pivot_points_indicator.update(completed.high, completed.low, completed.close, day_index);
+
+        // Candlestick recognition (warmed through history).
+        let candlestick_reading =
+            candlestick_indicator.update(completed.open, completed.high, completed.low, completed.close);
+
+        // Ichimoku Cloud (warmed through history).
+        let ichimoku_reading =
+            ichimoku_indicator.update(completed.high, completed.low, completed.close);
+
+        // CCI (warmed through history).
+        let cci_reading = cci_indicator.update(completed.high, completed.low, completed.close);
+
+        // Parabolic SAR (warmed through history).
+        let psar_reading = psar_indicator.update(completed.high, completed.low);
+
+        let wr_reading = wr_indicator.update(completed.high, completed.low, completed.close);
+        let hma_reading = hma_indicator.update(completed.close);
+        let ao_reading = ao_indicator.update(completed.high, completed.low);
+        let fi_reading = fi_indicator.update(completed.close, completed.volume);
+        let sdc_reading = sdc_indicator.update(completed.close);
+
+        let volume_profile_reading = volume_profile_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+        let smc_reading = smc_indicator.update(completed.open, completed.high, completed.low, completed.close);
+
         let typical_price = (completed.high + completed.low + completed.close) / Decimal::from(3);
         vwap_sum_tp_vol += typical_price * completed.volume;
         vwap_sum_vol += completed.volume;
@@ -153,6 +223,12 @@ pub fn warm_indicators_for_timeframe(
         } else {
             None
         };
+
+        let avwap_reading = anchored_vwap_indicator.update(
+            completed.high, completed.low, completed.close, completed.volume,
+            day_index,
+            final_vwap.unwrap_or(Decimal::ZERO),
+        );
 
         let final_ema_fast = ema_fast.update(completed.close);
         let final_ema_medium = ema_medium.update(completed.close);
@@ -225,6 +301,7 @@ pub fn warm_indicators_for_timeframe(
             symbol,
             timeframe_secs,
             final_vwap,
+            avwap_reading,
             final_ema_fast, final_ema_medium, final_ema_slow, final_ema_long,
             ema_stack_state,
             final_rsi,
@@ -252,6 +329,15 @@ pub fn warm_indicators_for_timeframe(
             macd_divergence,
             &volume_history,
             fib_config,
+            &mut sr_tracker,
+            pivot_levels,
+            Some(candlestick_reading),
+            ichimoku_reading,
+            cci_reading,
+            psar_reading,
+            wr_reading, hma_reading, ao_reading, fi_reading, sdc_reading,
+            volume_profile_reading,
+            smc_reading,
         );
 
         latest_snapshot = Some(snapshot.clone());
@@ -307,6 +393,20 @@ pub fn warm_indicators_for_timeframe(
         volume_history,
         history,
         last_day_index,
+        sr_tracker,
+        pivot_points_indicator,
+        candlestick_indicator,
+        ichimoku_indicator,
+        cci_indicator,
+        psar_indicator,
+        wr_indicator,
+        hma_indicator,
+        ao_indicator,
+        fi_indicator,
+        sdc_indicator,
+        volume_profile_indicator,
+        smc_indicator,
+        anchored_vwap_indicator,
         latest_snapshot,
         snapshot_history,
     }
@@ -320,6 +420,7 @@ fn build_historical_snapshot(
     symbol: &str,
     timeframe_secs: u64,
     final_vwap: Option<Decimal>,
+    avwap_reading: shared::indicators::AvwapOutput,
     final_ema_fast: Decimal,
     final_ema_medium: Decimal,
     final_ema_slow: Decimal,
@@ -350,6 +451,19 @@ fn build_historical_snapshot(
     macd_divergence: shared::indicators::DivergenceState,
     volume_history: &VecDeque<Decimal>,
     fib_config: &FibonacciConfig,
+    sr_tracker: &mut SrRoleTracker,
+    pivot_levels: Option<shared::indicators::PivotLevels>,
+    candlestick: Option<shared::indicators::CandlestickResult>,
+    ichimoku: Option<shared::indicators::IchimokuOutput>,
+    cci: Option<Decimal>,
+    psar: Option<shared::indicators::PsarOutput>,
+    wr: Option<Decimal>,
+    hma: Option<Decimal>,
+    ao: Option<shared::indicators::AoOutput>,
+    fi: Option<Decimal>,
+    sdc: Option<shared::indicators::SdChannelOutput>,
+    volume_profile: Option<shared::indicators::VolumeProfileOutput>,
+    smc: Option<shared::indicators::SmcOutput>,
 ) -> MarketSnapshot {
     let candle_close_sec = completed.start_time_ms / 1000;
 
@@ -383,6 +497,11 @@ fn build_historical_snapshot(
     );
     let pattern_result = detect_pattern(&pivots);
 
+    // Support/Resistance zones: role-adjusted levels from the swing pivots,
+    // updating the flip tracker on this historical close.
+    let (sr_supports, sr_resistances) =
+        update_sr_levels(sr_tracker, &pivots, completed.close, candle_close_sec);
+
     let indicators = crate::analyzer::normalize::build_indicator_map(
         crate::analyzer::normalize::NormalizeParams {
             close: completed.close,
@@ -414,6 +533,7 @@ fn build_historical_snapshot(
             atr: final_atr,
             bbwp: final_bbwp,
             vwap: final_vwap,
+            anchored_vwap: Some(avwap_reading),
             ema_stack_state: ema_stack_state.as_deref(),
             ema_fast: Some(final_ema_fast),
             ema_medium: Some(final_ema_medium),
@@ -424,10 +544,27 @@ fn build_historical_snapshot(
             average_volume: avg_vol,
             fib: Some(&fib),
             pattern: Some(&pattern_result),
-            support_levels: &[],
-            resistance_levels: &[],
+            support_levels: &sr_supports,
+            resistance_levels: &sr_resistances,
             active_position: None,
             adx_consecutive_deceleration: false,
+            supertrend_flipped: false,
+            adx_di_crossover: None,
+            pivot_levels,
+            pivot_proximity_pct: 0.0015,
+            candlestick,
+            candlestick_min_confidence: 0.3,
+            ichimoku,
+            cci,
+            psar,
+            williams_r: wr,
+            awesome_oscillator: ao,
+            force_index: fi,
+            hull_ma: hma,
+            stddev_channel: sdc,
+            volume_profile,
+            smc,
+            prev: PreviousBarState::default(),
         },
     );
 
@@ -443,6 +580,9 @@ fn build_historical_snapshot(
         bid_size: Some(completed.volume),
         ask_size: Some(completed.volume),
         funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        prev_day_px: None,
         open: Some(completed.open),
         high: Some(completed.high),
         low: Some(completed.low),
@@ -450,6 +590,26 @@ fn build_historical_snapshot(
         volume: Some(completed.volume),
         average_volume: avg_vol,
         context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
+        decision_context: Some({
+            let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+        let mut sum = 0.0f64; let mut n = 0u32;
+        for meta in shared::indicators::registry::INDICATORS {
+            if meta.directional {
+                if let Some(v) = indicators.get(meta.key) {
+                    sum += v.normalized;
+                    n += 1;
+                }
+            }
+        }
+        let conf = if n > 0 { (sum / n as f64 * 100.0).clamp(-100.0, 100.0) } else { 0.0 };
+            let px = completed.close.to_f64().unwrap_or(0.0);
+            shared::decision_context::DecisionContext::compute(&indicators, px, atr_val, conf)
+        }),
+        statistical_context: None,
         indicators,
+        alignment: None,
+                        risk: None,
+        analysis: None,
+        risk_profile: None,
     }
 }

@@ -1,8 +1,8 @@
 # Market Monitor Dashboard
 
-> **High-performance market telemetry monitor and technical indicator dashboard for Hyperliquid and Bitget, built in Rust.**
+> **High-performance market telemetry monitor for Hyperliquid and Bitget, built in Rust.**
 
-The **Market Monitor** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. Rather than executing trades, it serves as a comprehensive market observation tool, computing 34+ technical indicators in Rust and streaming live data to a Svelte 5 dashboard via WebSocket.
+The **Market Monitor** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It serves as a comprehensive market observation tool — it does **not** execute trades — computing 43+ technical indicators (58 registry entries with 101 signal-type declarations) in Rust and streaming live data to a Svelte 5 dashboard via WebSocket.
 
 ## Quick Start Workflow
 
@@ -49,4 +49,8 @@ Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 |---|---|---|
 | **[User Manual](docs/user-manual.md)** | End Users | Installation, configuration, dashboard usage, troubleshooting |
 | **[Architecture](docs/architecture.md)** | Developers | System topology, data-flow diagrams, indicator pipeline |
-| **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions for LLM-based contributors |
+| **[Ontology](docs/ontology.md)** | Developers | Formal ontology: 5 ontological levels, 12 classification axes |
+| **[Metrics Matrix](docs/metrics-matrix.md)** | Developers | Complete 58-indicator × 12-signal reference table |
+| **[Monitor Matrices](docs/monitor-matrices.md)** | Developers | Metrics → State → Decision three-stage architecture |
+| **[Indicator Spec](docs/indicator-system-master-spec.md)** | Developers | Master specification: layers, registry, scoring, per-indicator specs |
+| **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions |

@@ -46,6 +46,52 @@ pub struct MarketSnapshot {
     /// volume/liquidity/regime + overall). Populated for completed snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<crate::market_context::MarketContext>,
+
+    /// Cross-timeframe Alignment Matrix per symbol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<crate::alignment::AlignmentMatrix>,
+
+    /// Market risk assessment per symbol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk: Option<crate::risk::RiskMatrix>,
+
+    /// Analysis Matrix per symbol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<crate::analysis::AnalysisMatrix>,
+
+    /// Open Interest value at snapshot time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_interest: Option<Decimal>,
+
+    /// 1-hour Open Interest delta.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oi_delta_1h: Option<Decimal>,
+
+    /// Previous day price (from asset context).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_day_px: Option<Decimal>,
+
+    /// Statistical intelligence context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statistical_context: Option<StatisticalContext>,
+
+    /// Decision context from the decision_context module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_context: Option<crate::decision_context::DecisionContext>,
+
+    /// Risk profile ID (if applicable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_profile: Option<i32>,
+}
+
+/// Placeholder for statistical intelligence context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatisticalContext {
+    pub close_z: Option<f64>,
+    pub rsi_z: Option<f64>,
+    pub macd_z: Option<f64>,
+    pub monte_carlo_expected: Option<f64>,
+    pub monte_carlo_stdev: Option<f64>,
 }
 
 /// Legacy-compatible read accessors that reconstruct flat indicator values

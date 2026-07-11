@@ -3,10 +3,6 @@
     import { createInstance } from '../lib/api.svelte';
     import type { InstanceState, PositionScalingConfig, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
-    import IndicatorWeightPanel from './settings/IndicatorWeightPanel.svelte';
-    import ScoringWeightsPanel from './settings/ScoringWeightsPanel.svelte';
-    import PositionScalingPanel from './settings/PositionScalingPanel.svelte';
-    import TriggerConfigPanel from './settings/TriggerConfigPanel.svelte';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -14,15 +10,6 @@
     const app = useAppStore();
 
     let identityError = $state<string | null>(null);
-
-    const panelToggles: Array<[string, string]> = [
-        ['showVolume', 'Volume'], ['showAdx', 'ADX'], ['showAtr', 'ATR'], ['showRsi', 'RSI'],
-        ['showMacd', 'MACD'], ['showSqueeze', 'Squeeze'], ['showBbwp', 'BBWP'], ['showRvol', 'RVOL'],
-        ['showFib', 'Fibonacci'], ['showStochastic', 'STOCH'], ['showChandeMo', 'CHANDE MO'],
-        ['showSupertrend', 'SUPERTREND'], ['showKeltner', 'KELTNER'], ['showDonchian', 'DONCHIAN'],
-        ['showObv', 'OBV'], ['showCmf', 'CMF'], ['showMfi', 'MFI'], ['showHv', 'HIST VOL'],
-        ['showAroon', 'AROON'], ['showChoppiness', 'CHOP'], ['showLinregSlope', 'LINREG'], ['showZscore', 'Z-SCORE'],
-    ];
 
     let draft = $state({
         symbol: '',
@@ -45,19 +32,7 @@
         rules: '' as string,
     });
 
-    let rulesStatus = $state<'idle' | 'loading' | 'saving' | 'success' | 'error'>('idle');
-    let draftCostInputPrice = $state(app.costPriceInput);
-    let draftCostOutputPrice = $state(app.costPriceOutput);
-    let costSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
-
-    let weightOverrides = $state<Record<string, number>>({});
-    let positionScaling = $state<PositionScalingConfig | null>(null);
-    let aiTriggerConfig = $state<{ trigger: import('../types').TriggerModeConfig } | null>(null);
-    let operationalMode = $state<import('../types').OperationalMode>('HybridAiCopilot');
-
     let saveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
-    let aiConfigSaveStatus = $state<'idle' | 'saving' | 'success' | 'error'>('idle');
-    let showTimeframeConfig = $state(false);
 
     // ─── Timeframe Indicator Configuration ──────────────────────────────────
 
@@ -234,70 +209,6 @@
         return val;
     });
 
-    function formatIntervalRemaining(totalSeconds: number): string {
-        const h = Math.floor(totalSeconds / 3600);
-        const m = Math.floor((totalSeconds % 3600) / 60);
-        const s = totalSeconds % 60;
-        if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
-        if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
-        return `${s}s`;
-    }
-
-    async function saveCostConfig() {
-        costSaveStatus = 'saving';
-        try {
-            const res = await fetch('/api/config/costs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    price_per_1m_input_tokens: Number(draftCostInputPrice),
-                    price_per_1m_output_tokens: Number(draftCostOutputPrice),
-                }),
-            });
-            costSaveStatus = res.ok ? 'success' : 'error';
-            if (res.ok) {
-                app.costPriceInput = Number(draftCostInputPrice);
-                app.costPriceOutput = Number(draftCostOutputPrice);
-                setTimeout(() => { costSaveStatus = 'idle'; }, 2000);
-            }
-        } catch (_) {
-            costSaveStatus = 'error';
-        }
-    }
-
-    async function fetchRules() {
-        rulesStatus = 'loading';
-        try {
-            const res = await fetch('/api/rules');
-            const data = await res.json();
-            draft.rules = data.content || '';
-            app.rulesContent = draft.rules;
-            rulesStatus = 'idle';
-        } catch (_) {
-            rulesStatus = 'error';
-        }
-    }
-
-    async function saveRules() {
-        rulesStatus = 'saving';
-        try {
-            const res = await fetch('/api/rules', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: draft.rules }),
-            });
-            if (res.ok) {
-                app.rulesContent = draft.rules;
-                rulesStatus = 'success';
-                setTimeout(() => { rulesStatus = 'idle'; }, 2000);
-            } else {
-                rulesStatus = 'error';
-            }
-        } catch (_) {
-            rulesStatus = 'error';
-        }
-    }
-
     function applyVisualsToTerm(term: Record<string, any>, vis: typeof draft.visuals) {
         Object.assign(term, {
             showEmas: vis.showEmas, showBb: vis.showBb, showVwap: vis.showVwap,
@@ -359,7 +270,6 @@
         target.automationIntervalValue = auto.intervalValue;
         target.automationIntervalUnit = auto.intervalUnit;
 
-        // POST timeframe indicator config to backend
         saveStatus = 'saving';
         try {
             const body = {
@@ -389,386 +299,140 @@
             saveStatus = 'error';
         }
     }
-
-    async function saveAiConfig() {
-        aiConfigSaveStatus = 'saving';
-        try {
-            const payload: Record<string, unknown> = {
-                operational_mode: operationalMode,
-                weight_overrides: weightOverrides && Object.keys(weightOverrides).length > 0 ? weightOverrides : null,
-                position_scaling: positionScaling,
-                ai_trigger: aiTriggerConfig,
-            };
-            const res = await fetch(`/api/instances/${encodeURIComponent(tabKey)}/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            aiConfigSaveStatus = res.ok ? 'success' : 'error';
-            if (res.ok) setTimeout(() => { aiConfigSaveStatus = 'idle'; }, 2000);
-        } catch (_) {
-            aiConfigSaveStatus = 'error';
-        }
-    }
 </script>
 
 <div class="{styles.settingsWorkspaceTab} animate-fade">
-    <div class={styles.settingsGrid}>
+    <!-- Timeframe Indicator Configuration -->
+    {#snippet indicatorInputs(p: string, t: TermDraft)}
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaFast} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Med')}>EMA Med</label><input id={fieldId(p, 'EMA Med')} type="number" bind:value={t.emaMedium} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Slow')}>EMA Slow</label><input id={fieldId(p, 'EMA Slow')} type="number" bind:value={t.emaSlow} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Long')}>EMA Long</label><input id={fieldId(p, 'EMA Long')} type="number" bind:value={t.emaLong} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'RSI Window')}>RSI Window</label><input id={fieldId(p, 'RSI Window')} type="number" bind:value={t.rsiPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Fast')}>MACD Fast</label><input id={fieldId(p, 'MACD Fast')} type="number" bind:value={t.macdFast} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Slow')}>MACD Slow</label><input id={fieldId(p, 'MACD Slow')} type="number" bind:value={t.macdSlow} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Signal')}>MACD Signal</label><input id={fieldId(p, 'MACD Signal')} type="number" bind:value={t.macdSignal} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Period')}>ADX Period</label><input id={fieldId(p, 'ADX Period')} type="number" bind:value={t.adxPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ATR Period')}>ATR Period</label><input id={fieldId(p, 'ATR Period')} type="number" bind:value={t.atrPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId(p, 'Squeeze Wave')} type="number" bind:value={t.squeezePeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'BBWP Period')}>BBWP Period</label><input id={fieldId(p, 'BBWP Period')} type="number" bind:value={t.bbwpPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId(p, 'BBWP Lookback')} type="number" bind:value={t.bbwpLookback} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch %K')}>Stoch %K Period</label><input id={fieldId(p, 'Stoch %K')} type="number" bind:value={t.stochKPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch %D')}>Stoch %D Period</label><input id={fieldId(p, 'Stoch %D')} type="number" bind:value={t.stochDPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch Slowing')}>Stoch Slowing</label><input id={fieldId(p, 'Stoch Slowing')} type="number" bind:value={t.stochSPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ChandeMO Period')}>ChandeMO Period</label><input id={fieldId(p, 'ChandeMO Period')} type="number" bind:value={t.chandemoPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Supertrend Period')}>Supertrend Period</label><input id={fieldId(p, 'Supertrend Period')} type="number" bind:value={t.supertrendPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Supertrend Mult')}>Supertrend Mult</label><input id={fieldId(p, 'Supertrend Mult')} type="number" step="0.1" bind:value={t.supertrendMultiplier} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner EMA')}>Keltner EMA</label><input id={fieldId(p, 'Keltner EMA')} type="number" bind:value={t.keltnerEmaPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner ATR')}>Keltner ATR</label><input id={fieldId(p, 'Keltner ATR')} type="number" bind:value={t.keltnerAtrPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner Mult')}>Keltner Mult</label><input id={fieldId(p, 'Keltner Mult')} type="number" step="0.1" bind:value={t.keltnerMultiplier} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Donchian Period')}>Donchian Period</label><input id={fieldId(p, 'Donchian Period')} type="number" bind:value={t.donchianPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'OBV Smoothing')}>OBV Smoothing</label><input id={fieldId(p, 'OBV Smoothing')} type="number" bind:value={t.obvSmoothing} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'CMF Period')}>CMF Period</label><input id={fieldId(p, 'CMF Period')} type="number" bind:value={t.cmfPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MFI Period')}>MFI Period</label><input id={fieldId(p, 'MFI Period')} type="number" bind:value={t.mfiPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'HV Period')}>HV Period</label><input id={fieldId(p, 'HV Period')} type="number" bind:value={t.hvPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Aroon Period')}>Aroon Period</label><input id={fieldId(p, 'Aroon Period')} type="number" bind:value={t.aroonPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Chop Period')}>Chop Period</label><input id={fieldId(p, 'Chop Period')} type="number" bind:value={t.chopPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'LinReg Period')}>LinReg Period</label><input id={fieldId(p, 'LinReg Period')} type="number" bind:value={t.linregPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ZScore Period')}>ZScore Period</label><input id={fieldId(p, 'ZScore Period')} type="number" bind:value={t.zscorePeriod} /></div>
+        <hr class={styles.sectionDivider} />
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Extr High')}>MACD Extr High</label><input id={fieldId(p, 'MACD Extr High')} type="number" step="0.01" bind:value={t.macdExtremeHigh} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId(p, 'MACD Extr Low')} type="number" step="0.01" bind:value={t.macdExtremeLow} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Contr %')}>MACD Contr %</label><input id={fieldId(p, 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={t.macdContraction} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId(p, 'ADX Trend Th')} type="number" bind:value={t.adxTrendThreshold} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId(p, 'ADX Exhaustion')} type="number" bind:value={t.adxExhaustionThreshold} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId(p, 'ADX Slope Lbk')} type="number" bind:value={t.adxSlopeLookback} /></div>
+        <hr class={styles.sectionDivider} />
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId(p, 'Sqz Min Dur')} type="number" bind:value={t.squeezeMinDuration} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId(p, 'Sqz BB Period')} type="number" bind:value={t.squeezeBbPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId(p, 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={t.squeezeBbStdDev} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId(p, 'Sqz KC Period')} type="number" bind:value={t.squeezeKcPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId(p, 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={t.squeezeKcAtrMult} /></div>
+        <hr class={styles.sectionDivider} />
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'ATR Mult')}>ATR Mult</label><input id={fieldId(p, 'ATR Mult')} type="number" step="0.1" bind:value={t.atrMultiplier} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Target R:R')}>Target R:R</label><input id={fieldId(p, 'Target R:R')} type="number" step="0.1" bind:value={t.atrTargetRR} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId(p, 'Vol Avg Period')} type="number" bind:value={t.volumeAvgPeriod} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Inst')}>RVOL Inst</label><input id={fieldId(p, 'RVOL Inst')} type="number" step="0.1" bind:value={t.rvolInstitutional} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
+        <div class={styles.tfInputRow}><label for={fieldId(p, 'Analysis Limit')}>Analysis Limit</label><input id={fieldId(p, 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={t.analysisLimit} /></div>
+    {/snippet}
 
-        <!-- Visual Layout Column -->
-        <div class={styles.settingsCol}>
-            <h3 class={styles.cardTitle}>Visual Overlays</h3>
-            <div class={styles.settingGroupBox}>
-                <span class={styles.selectorsLabel}>Chart Display Items</span>
-                <div class={styles.toggleGrid}>
-                    <button class="{styles.selectorBtn} {draft.visuals.showEmas ? styles.active : ''}" onclick={() => draft.visuals.showEmas = !draft.visuals.showEmas}>EMAs</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showBb ? styles.active : ''}" onclick={() => draft.visuals.showBb = !draft.visuals.showBb}>Bollinger</button>
-                    <button class="{styles.selectorBtn} {draft.visuals.showVwap ? styles.active : ''}" onclick={() => draft.visuals.showVwap = !draft.visuals.showVwap}>VWAP</button>
-                </div>
-            </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>Indicator Panels</span>
-                <div class={styles.toggleGrid}>
-                    {#each panelToggles as [key, lbl]}
-                        <button class="{styles.selectorBtn} {(draft.visuals as any)[key] ? styles.active : ''}" onclick={() => (draft.visuals as any)[key] = !(draft.visuals as any)[key]}>{lbl}</button>
+    <div class={styles.tfCardsGrid}>
+        <div class={styles.tfCard}>
+            <h3 class={styles.tfCardTitle}>Micro Term</h3>
+            <div class={styles.tfRow}>
+                <select class={styles.tfSelect}
+                    value={selectedOption(tfDraft.micro.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.micro.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.micro.durationSeconds)}</option>
+                    {#each TIMEFRAME_OPTIONS as opt}
+                        <option value={opt.seconds}>{opt.label}</option>
                     {/each}
-                </div>
+                </select>
             </div>
-
-            <div style="margin-top: 12px;">
-                <ScoringWeightsPanel />
-            </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>AI & Automation</span>
-                <div class={styles.toggleRow}>
-                    <span class={styles.toggleLabel}>Status</span>
-                    <button class="{styles.selectorBtn} {draft.automation.enabled ? styles.active : ''}"
-                            onclick={() => draft.automation.enabled = !draft.automation.enabled}>
-                        {draft.automation.enabled ? 'ON' : 'OFF'}
-                    </button>
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="opMode">Operational Mode:</label>
-                    <select id="opMode" bind:value={operationalMode} class={styles.tfUnitSelect}>
-                        <option value="HybridAiCopilot">AI Copilot</option>
-                        <option value="DeterministicHeuristics">Heuristics Only</option>
-                        <option value="ManualOnly">Manual Only</option>
-                    </select>
-                </div>
-                <p style="font-size: 8px; color: #64748b; margin: 4px 0 0 0;">
-                    AI Copilot: full LLM pipeline. Heuristics Only: local indicators, no AI calls. Manual Only: local indicators + on-demand AI via sidebar.
-                </p>
-                {#if draft.automation.enabled}
-                    <div class={styles.inputRow} style="margin-top: 8px;">
-                        <label for="autoInterval">Interval:</label>
-                        <div class={styles.tfSplitGroup}>
-                            <input id="autoInterval" type="number" bind:value={draft.automation.intervalValue} min="1" class={styles.tfNumberInput} />
-                            <select bind:value={draft.automation.intervalUnit} class={styles.tfUnitSelect}>
-                                <option value="seconds">Seconds</option>
-                                <option value="minutes">Minutes</option>
-                                <option value="hours">Hours</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class={styles.liveCounter} style="margin-top: 8px; font-size: 10px; color: #3b82f6;">
-                        Next evaluation in: {pair.nextEvaluationIn}
-                    </div>
-                {/if}
-            </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>Identity</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
-                    <label for="exchange">Exchange Source:</label>
-                    <select id="exchange" bind:value={draft.exchange} class={styles.tfUnitSelect}>
-                        <option value="Hyperliquid">Hyperliquid</option>
-                    </select>
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="symbol">Market Pair:</label>
-                    <input id="symbol" type="text" bind:value={draft.symbol} />
-                </div>
-            </div>
-
-            <div class="settings-footer-row" style="margin-top: 16px;">
-                <button class={styles.applyWorkspaceBtn} disabled={saveStatus === 'saving'} onclick={applySettings}>
-                    {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Workspace Configuration'}
-                </button>
-            </div>
-            {#if identityError}
-                <div class={styles.identityError} role="alert">{identityError}</div>
-            {/if}
-            {#if saveStatus === 'error'}
-                <div class={styles.identityError} role="alert">Save failed. Check console.</div>
-            {/if}
-        </div>
-
-        <!-- Backend & AI Prompts Column -->
-        <div class={styles.settingsCol}>
-            <h3 class={styles.cardTitle}>AI Configuration</h3>
-
-            <div class={styles.settingGroupBox}>
-                <div class={styles.inputRow}>
-                    <label for="wsAnalysisLimit">AI Analysis Lookback (Candles):</label>
-                    <input id="wsAnalysisLimit" type="number" bind:value={draft.analysisLimit} min="10" max="500" step="5" />
-                </div>
-            </div>
-
-            <div style="margin-top: 12px;">
-                <IndicatorWeightPanel initial={weightOverrides} onchange={(w) => { weightOverrides = w; }} />
-            </div>
-
-            <div style="margin-top: 12px;">
-                <PositionScalingPanel initial={positionScaling} onchange={(c) => { positionScaling = c; }} />
-            </div>
-
-            <div style="margin-top: 12px;">
-                <TriggerConfigPanel initial={aiTriggerConfig} onchange={(c) => { aiTriggerConfig = c; }} />
-            </div>
-
-            <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
-                    disabled={aiConfigSaveStatus === 'saving'} onclick={saveAiConfig}>
-                {aiConfigSaveStatus === 'saving' ? 'Saving...' : 'Save AI Configuration'}
-            </button>
-            {#if aiConfigSaveStatus === 'success'}
-                <div class="{styles.statusMsg} {styles.successMsg}">AI config saved.</div>
-            {/if}
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>Technical rules guide handbook (Markdown)</span>
-                <textarea class={styles.rulesEditor} rows="6" bind:value={draft.rules}></textarea>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-                    <button class={styles.keySaveBtn} onclick={fetchRules}>Fetch</button>
-                    <button class={styles.keySaveBtn} disabled={rulesStatus === 'saving'} onclick={saveRules}>
-                        {rulesStatus === 'saving' ? '...' : 'Update Rules'}
-                    </button>
-                </div>
+            <div class={styles.tfInputScroll}>
+                {@render indicatorInputs('micro', tfDraft.micro)}
             </div>
         </div>
-
-        <!-- Paper Trading Rules Column -->
-        <div class={styles.settingsCol}>
-            <h3 class={styles.cardTitle}>Paper Trading Rules</h3>
-
-            <div class={styles.settingGroupBox}>
-                <span class={styles.selectorsLabel}>Account Configuration</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
-                    <label for="paperUSD">Initial USD:</label>
-                    <input id="paperUSD" type="number" bind:value={app.paperInitialUSD} min="100" step="100" />
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="paperAlloc">Allocation %:</label>
-                    <input id="paperAlloc" type="number" bind:value={app.paperAllocationPct} min="1" max="100" step="1" />
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="paperMaxRisk">Max Risk %:</label>
-                    <input id="paperMaxRisk" type="number" bind:value={app.paperMaxRiskPct} min="0.5" max="10" step="0.1" />
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="paperLeverage">Leverage:</label>
-                    <input id="paperLeverage" type="number" bind:value={app.paperLeverage} min="1" max="20" step="1" />
-                </div>
-                <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
-                        onclick={() => app.savePaperConfig(app.paperInitialUSD, app.paperAllocationPct, app.paperAutoExecute)}>
-                    Save Paper Config
-                </button>
+        <div class={styles.tfCard}>
+            <h3 class={styles.tfCardTitle}>Fast Term</h3>
+            <div class={styles.tfRow}>
+                <select class={styles.tfSelect}
+                    value={selectedOption(tfDraft.fast.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.fast.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.fast.durationSeconds)}</option>
+                    {#each TIMEFRAME_OPTIONS as opt}
+                        <option value={opt.seconds}>{opt.label}</option>
+                    {/each}
+                </select>
             </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>AI Orchestrator Settings</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
-                    <label for="paperInterval">Eval Interval (min):</label>
-                    <input id="paperInterval" type="number" bind:value={app.paperAutoExecuteIntervals} min="1" max="1440" step="1" />
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="paperLookback">Lookback Trades:</label>
-                    <input id="paperLookback" type="number" bind:value={app.paperLookbackTrades} min="1" max="50" step="1" />
-                </div>
-                <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
-                    Number of past trades fed to the Master Orchestrator for context.
-                </p>
-            </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>Auto-Execution</span>
-                <div class={styles.toggleRow}>
-                    <span class={styles.toggleLabel}>Auto-Place Orders</span>
-                    <button class="{styles.selectorBtn} {app.paperAutoExecute ? styles.active : ''}"
-                            onclick={() => {
-                                app.paperAutoExecute = !app.paperAutoExecute;
-                                app.savePaperConfig(app.paperInitialUSD, app.paperAllocationPct, app.paperAutoExecute);
-                            }}>
-                        {app.paperAutoExecute ? 'ON' : 'OFF'}
-                    </button>
-                </div>
-                <p style="font-size: 9px; color: #64748b; margin: 6px 0 0 0;">
-                    When enabled, automated AI signals will automatically place paper orders.
-                </p>
-            </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <span class={styles.selectorsLabel}>AI Token Cost Calculator (per 1M tokens)</span>
-                <div class={styles.inputRow} style="margin-top: 4px;">
-                    <label for="costInput">Input Price $/1M:</label>
-                    <input id="costInput" type="number" bind:value={draftCostInputPrice} min="0" step="0.01" />
-                </div>
-                <div class={styles.inputRow} style="margin-top: 8px;">
-                    <label for="costOutput">Output Price $/1M:</label>
-                    <input id="costOutput" type="number" bind:value={draftCostOutputPrice} min="0" step="0.01" />
-                </div>
-                <button class={styles.keySaveBtn} style="margin-top: 8px; width: 100%;"
-                        disabled={costSaveStatus === 'saving'} onclick={saveCostConfig}>
-                    {costSaveStatus === 'saving' ? 'Saving...' : 'Save Cost Config'}
-                </button>
-                {#if costSaveStatus === 'success'}
-                    <div class="{styles.statusMsg} {styles.successMsg}">Pricing saved.</div>
-                {/if}
-            </div>
-
-            <div class={styles.settingGroupBox} style="margin-top: 12px;">
-                <button class={styles.paperResetBtn} onclick={() => {
-                    if (confirm('Reset paper account? This will close any active position and restore initial balance.')) {
-                        app.resetPaperAccount();
-                    }
-                }}>
-                    Reset Account Balance
-                </button>
+            <div class={styles.tfInputScroll}>
+                {@render indicatorInputs('small', tfDraft.fast)}
             </div>
         </div>
-
+        <div class={styles.tfCard}>
+            <h3 class={styles.tfCardTitle}>Slow Term</h3>
+            <div class={styles.tfRow}>
+                <select class={styles.tfSelect}
+                    value={selectedOption(tfDraft.slow.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.slow.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.slow.durationSeconds)}</option>
+                    {#each TIMEFRAME_OPTIONS as opt}
+                        <option value={opt.seconds}>{opt.label}</option>
+                    {/each}
+                </select>
+            </div>
+            <div class={styles.tfInputScroll}>
+                {@render indicatorInputs('medium', tfDraft.slow)}
+            </div>
+        </div>
+        <div class={styles.tfCard}>
+            <h3 class={styles.tfCardTitle}>Macro Term</h3>
+            <div class={styles.tfRow}>
+                <select class={styles.tfSelect}
+                    value={selectedOption(tfDraft.macro.durationSeconds)}
+                    onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.macro.durationSeconds = v; }}>
+                    <option value={-1} disabled>Custom: {durationLabel(tfDraft.macro.durationSeconds)}</option>
+                    {#each TIMEFRAME_OPTIONS as opt}
+                        <option value={opt.seconds}>{opt.label}</option>
+                    {/each}
+                </select>
+            </div>
+            <div class={styles.tfInputScroll}>
+                {@render indicatorInputs('large', tfDraft.macro)}
+            </div>
+        </div>
     </div>
 
-    <!-- Timeframe Configuration (collapsible) -->
     <div style="margin-top: 16px;">
-        <button class="{styles.selectorBtn} {showTimeframeConfig ? styles.active : ''}"
-                style="margin-bottom: 12px;"
-                onclick={() => showTimeframeConfig = !showTimeframeConfig}>
-            {showTimeframeConfig ? 'Hide' : 'Show'} Timeframe Indicator Configuration
+        <button class={styles.applyWorkspaceBtn} disabled={saveStatus === 'saving'} onclick={applySettings}>
+            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Workspace Configuration'}
         </button>
     </div>
-
-    {#if showTimeframeConfig}
-        {#snippet indicatorInputs(p: string, t: TermDraft)}
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Fast')}>EMA Fast</label><input id={fieldId(p, 'EMA Fast')} type="number" bind:value={t.emaFast} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Med')}>EMA Med</label><input id={fieldId(p, 'EMA Med')} type="number" bind:value={t.emaMedium} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Slow')}>EMA Slow</label><input id={fieldId(p, 'EMA Slow')} type="number" bind:value={t.emaSlow} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'EMA Long')}>EMA Long</label><input id={fieldId(p, 'EMA Long')} type="number" bind:value={t.emaLong} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'RSI Window')}>RSI Window</label><input id={fieldId(p, 'RSI Window')} type="number" bind:value={t.rsiPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Fast')}>MACD Fast</label><input id={fieldId(p, 'MACD Fast')} type="number" bind:value={t.macdFast} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Slow')}>MACD Slow</label><input id={fieldId(p, 'MACD Slow')} type="number" bind:value={t.macdSlow} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Signal')}>MACD Signal</label><input id={fieldId(p, 'MACD Signal')} type="number" bind:value={t.macdSignal} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Period')}>ADX Period</label><input id={fieldId(p, 'ADX Period')} type="number" bind:value={t.adxPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ATR Period')}>ATR Period</label><input id={fieldId(p, 'ATR Period')} type="number" bind:value={t.atrPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Squeeze Wave')}>Squeeze Wave</label><input id={fieldId(p, 'Squeeze Wave')} type="number" bind:value={t.squeezePeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'BBWP Period')}>BBWP Period</label><input id={fieldId(p, 'BBWP Period')} type="number" bind:value={t.bbwpPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'BBWP Lookback')}>BBWP Lookback</label><input id={fieldId(p, 'BBWP Lookback')} type="number" bind:value={t.bbwpLookback} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch %K')}>Stoch %K Period</label><input id={fieldId(p, 'Stoch %K')} type="number" bind:value={t.stochKPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch %D')}>Stoch %D Period</label><input id={fieldId(p, 'Stoch %D')} type="number" bind:value={t.stochDPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Stoch Slowing')}>Stoch Slowing</label><input id={fieldId(p, 'Stoch Slowing')} type="number" bind:value={t.stochSPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ChandeMO Period')}>ChandeMO Period</label><input id={fieldId(p, 'ChandeMO Period')} type="number" bind:value={t.chandemoPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Supertrend Period')}>Supertrend Period</label><input id={fieldId(p, 'Supertrend Period')} type="number" bind:value={t.supertrendPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Supertrend Mult')}>Supertrend Mult</label><input id={fieldId(p, 'Supertrend Mult')} type="number" step="0.1" bind:value={t.supertrendMultiplier} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner EMA')}>Keltner EMA</label><input id={fieldId(p, 'Keltner EMA')} type="number" bind:value={t.keltnerEmaPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner ATR')}>Keltner ATR</label><input id={fieldId(p, 'Keltner ATR')} type="number" bind:value={t.keltnerAtrPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Keltner Mult')}>Keltner Mult</label><input id={fieldId(p, 'Keltner Mult')} type="number" step="0.1" bind:value={t.keltnerMultiplier} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Donchian Period')}>Donchian Period</label><input id={fieldId(p, 'Donchian Period')} type="number" bind:value={t.donchianPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'OBV Smoothing')}>OBV Smoothing</label><input id={fieldId(p, 'OBV Smoothing')} type="number" bind:value={t.obvSmoothing} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'CMF Period')}>CMF Period</label><input id={fieldId(p, 'CMF Period')} type="number" bind:value={t.cmfPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MFI Period')}>MFI Period</label><input id={fieldId(p, 'MFI Period')} type="number" bind:value={t.mfiPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'HV Period')}>HV Period</label><input id={fieldId(p, 'HV Period')} type="number" bind:value={t.hvPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Aroon Period')}>Aroon Period</label><input id={fieldId(p, 'Aroon Period')} type="number" bind:value={t.aroonPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Chop Period')}>Chop Period</label><input id={fieldId(p, 'Chop Period')} type="number" bind:value={t.chopPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'LinReg Period')}>LinReg Period</label><input id={fieldId(p, 'LinReg Period')} type="number" bind:value={t.linregPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ZScore Period')}>ZScore Period</label><input id={fieldId(p, 'ZScore Period')} type="number" bind:value={t.zscorePeriod} /></div>
-            <hr class={styles.sectionDivider} />
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Extr High')}>MACD Extr High</label><input id={fieldId(p, 'MACD Extr High')} type="number" step="0.01" bind:value={t.macdExtremeHigh} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Extr Low')}>MACD Extr Low</label><input id={fieldId(p, 'MACD Extr Low')} type="number" step="0.01" bind:value={t.macdExtremeLow} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'MACD Contr %')}>MACD Contr %</label><input id={fieldId(p, 'MACD Contr %')} type="number" step="0.01" min="0.05" max="0.95" bind:value={t.macdContraction} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Trend Th')}>ADX Trend Th</label><input id={fieldId(p, 'ADX Trend Th')} type="number" bind:value={t.adxTrendThreshold} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Exhaustion')}>ADX Exhaustion</label><input id={fieldId(p, 'ADX Exhaustion')} type="number" bind:value={t.adxExhaustionThreshold} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ADX Slope Lbk')}>ADX Slope Lbk</label><input id={fieldId(p, 'ADX Slope Lbk')} type="number" bind:value={t.adxSlopeLookback} /></div>
-            <hr class={styles.sectionDivider} />
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz Min Dur')}>Sqz Min Dur</label><input id={fieldId(p, 'Sqz Min Dur')} type="number" bind:value={t.squeezeMinDuration} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz BB Period')}>Sqz BB Period</label><input id={fieldId(p, 'Sqz BB Period')} type="number" bind:value={t.squeezeBbPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz BB Std Dev')}>Sqz BB Std Dev</label><input id={fieldId(p, 'Sqz BB Std Dev')} type="number" step="0.1" bind:value={t.squeezeBbStdDev} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz KC Period')}>Sqz KC Period</label><input id={fieldId(p, 'Sqz KC Period')} type="number" bind:value={t.squeezeKcPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Sqz KC ATR Mult')}>Sqz KC ATR Mult</label><input id={fieldId(p, 'Sqz KC ATR Mult')} type="number" step="0.1" bind:value={t.squeezeKcAtrMult} /></div>
-            <hr class={styles.sectionDivider} />
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'ATR Mult')}>ATR Mult</label><input id={fieldId(p, 'ATR Mult')} type="number" step="0.1" bind:value={t.atrMultiplier} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Target R:R')}>Target R:R</label><input id={fieldId(p, 'Target R:R')} type="number" step="0.1" bind:value={t.atrTargetRR} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Vol Avg Period')}>Vol Avg Period</label><input id={fieldId(p, 'Vol Avg Period')} type="number" bind:value={t.volumeAvgPeriod} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Inst')}>RVOL Inst</label><input id={fieldId(p, 'RVOL Inst')} type="number" step="0.1" bind:value={t.rvolInstitutional} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'RVOL Climax')}>RVOL Climax</label><input id={fieldId(p, 'RVOL Climax')} type="number" step="0.1" bind:value={t.rvolClimax} /></div>
-            <div class={styles.tfInputRow}><label for={fieldId(p, 'Analysis Limit')}>Analysis Limit</label><input id={fieldId(p, 'Analysis Limit')} type="number" min="10" max="500" step="5" bind:value={t.analysisLimit} /></div>
-        {/snippet}
-
-        <div class={styles.tfCardsGrid}>
-            <div class={styles.tfCard}>
-                <h3 class={styles.tfCardTitle}>Micro Term</h3>
-                <div class={styles.tfRow}>
-                    <select class={styles.tfSelect}
-                        value={selectedOption(tfDraft.micro.durationSeconds)}
-                        onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.micro.durationSeconds = v; }}>
-                        <option value={-1} disabled>Custom: {durationLabel(tfDraft.micro.durationSeconds)}</option>
-                        {#each TIMEFRAME_OPTIONS as opt}
-                            <option value={opt.seconds}>{opt.label}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class={styles.tfInputScroll}>
-                    {@render indicatorInputs('micro', tfDraft.micro)}
-                </div>
-            </div>
-            <div class={styles.tfCard}>
-                <h3 class={styles.tfCardTitle}>Fast Term</h3>
-                <div class={styles.tfRow}>
-                    <select class={styles.tfSelect}
-                        value={selectedOption(tfDraft.fast.durationSeconds)}
-                        onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.fast.durationSeconds = v; }}>
-                        <option value={-1} disabled>Custom: {durationLabel(tfDraft.fast.durationSeconds)}</option>
-                        {#each TIMEFRAME_OPTIONS as opt}
-                            <option value={opt.seconds}>{opt.label}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class={styles.tfInputScroll}>
-                    {@render indicatorInputs('small', tfDraft.fast)}
-                </div>
-            </div>
-            <div class={styles.tfCard}>
-                <h3 class={styles.tfCardTitle}>Slow Term</h3>
-                <div class={styles.tfRow}>
-                    <select class={styles.tfSelect}
-                        value={selectedOption(tfDraft.slow.durationSeconds)}
-                        onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.slow.durationSeconds = v; }}>
-                        <option value={-1} disabled>Custom: {durationLabel(tfDraft.slow.durationSeconds)}</option>
-                        {#each TIMEFRAME_OPTIONS as opt}
-                            <option value={opt.seconds}>{opt.label}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class={styles.tfInputScroll}>
-                    {@render indicatorInputs('medium', tfDraft.slow)}
-                </div>
-            </div>
-            <div class={styles.tfCard}>
-                <h3 class={styles.tfCardTitle}>Macro Term</h3>
-                <div class={styles.tfRow}>
-                    <select class={styles.tfSelect}
-                        value={selectedOption(tfDraft.macro.durationSeconds)}
-                        onchange={(e) => { const v = parseInt(e.currentTarget.value); if (v > 0) tfDraft.macro.durationSeconds = v; }}>
-                        <option value={-1} disabled>Custom: {durationLabel(tfDraft.macro.durationSeconds)}</option>
-                        {#each TIMEFRAME_OPTIONS as opt}
-                            <option value={opt.seconds}>{opt.label}</option>
-                        {/each}
-                    </select>
-                </div>
-                <div class={styles.tfInputScroll}>
-                    {@render indicatorInputs('large', tfDraft.macro)}
-                </div>
-            </div>
-        </div>
+    {#if identityError}
+        <div class={styles.identityError} role="alert">{identityError}</div>
+    {/if}
+    {#if saveStatus === 'error'}
+        <div class={styles.identityError} role="alert">Save failed. Check console.</div>
     {/if}
 </div>

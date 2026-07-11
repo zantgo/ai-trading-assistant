@@ -71,11 +71,35 @@ pub enum ConnectionStatus {
 pub enum NormalizedEvent {
     Trade(NormalizedTrade),
     OrderBook(NormalizedOrderBook),
+    AssetContext(AssetContext),
+    OpenInterest(OpenInterestEvent),
+    FundingRate(FundingRateEvent),
     Status {
         exchange: Exchange,
         status: ConnectionStatus,
         message: String,
     },
+}
+
+/// Asset context information (e.g. previous day price).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetContext {
+    pub symbol: String,
+    pub prev_day_px: Decimal,
+}
+
+/// Open Interest event from derivatives exchange.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenInterestEvent {
+    pub symbol: String,
+    pub oi: Decimal,
+}
+
+/// Funding Rate event from derivatives exchange.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FundingRateEvent {
+    pub symbol: String,
+    pub rate: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -149,7 +149,7 @@ Within each instance, sub-tabs provide:
 |---|---|
 | **Live Terminal** | Price chart, Volume, ADX, ATR, RSI, MACD, Squeeze Momentum, and 20+ additional indicator panels |
 | **Terminal Monitor** | Multi-timeframe analysis with market context and regime classification |
-| **Decision Trading** | 8-factor confluence scoring with indicator weights, momentum bias, and market regime analysis |
+| **Decision Trading** | Market bias analysis with equal-weighted indicator confluence, momentum bias display |
 | **Fee Projection** | Commission calculator with fee tables, dual-entry projections, and viability checks |
 | **Performance Metrics** | Dashboard statistics, equity curves, daily activity |
 | **Trade Audit** | Trade analytics and audit tools |

@@ -2,40 +2,7 @@ use crate::config::AppConfig;
 use crate::server::types::{ConfigResponse, RulesResponse, SetRulesRequest};
 use crate::server::AppState;
 use axum::{extract::State, http::header, response::IntoResponse, Json};
-use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Registry-driven scoring weights + enable flags + regime multipliers.
-#[derive(Debug, serde::Deserialize)]
-pub struct ScoringWeightsRequest {
-    #[serde(default)]
-    pub indicator_weights: HashMap<String, f64>,
-    #[serde(default)]
-    pub indicator_enabled: HashMap<String, bool>,
-    #[serde(default)]
-    pub regime_weight_multipliers: Option<HashMap<String, HashMap<String, f64>>>,
-}
-
-/// POST /api/config/scoring-weights — merge registry scoring weights/enables
-/// (and optional regime multipliers) into the global `[scoring]` config and
-/// persist config.toml.
-pub async fn serve_set_scoring_weights(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<ScoringWeightsRequest>,
-) -> impl IntoResponse {
-    {
-        let mut config = state.config.write().await;
-        config.scoring.indicator_weights = payload.indicator_weights;
-        config.scoring.indicator_enabled = payload.indicator_enabled;
-        if let Some(rm) = payload.regime_weight_multipliers {
-            config.scoring.regime_weight_multipliers = rm;
-        }
-        if let Ok(toml_str) = toml::to_string_pretty(&*config) {
-            let _ = std::fs::write("config.toml", toml_str);
-        }
-    }
-    (axum::http::StatusCode::OK, "Scoring weights saved").into_response()
-}
 
 
 pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {

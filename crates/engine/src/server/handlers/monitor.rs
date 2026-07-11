@@ -47,14 +47,7 @@ fn tf_summary(label: &str, secs: u64, snap: &Option<MarketSnapshot>, sv: &Option
     let confluence_score = sv
         .as_ref()
         .map(|s| {
-            calculate_registry_confluence(
-                "BULLISH",
-                s,
-                &std::collections::HashMap::new(),
-                &std::collections::HashMap::new(),
-                None,
-            )
-            .score
+            calculate_registry_confluence("BULLISH", s).score
         })
         .unwrap_or(0);
     MonitorTimeframe {

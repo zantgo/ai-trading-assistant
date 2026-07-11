@@ -17,6 +17,7 @@ mod all;
 mod context;
 mod extended;
 mod signals;
+pub mod signal_lifecycle;
 
 pub use all::IndicatorInputs;
 
@@ -203,6 +204,46 @@ pub enum DivergenceState {
     ConfirmedBearish,
 }
 
+/// Previous completed-bar indicator values, used to detect crossovers and
+/// zero-line crosses (state transitions require the prior value as reference).
+/// All fields optional so partially-warmed pipelines degrade gracefully.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PreviousBarState {
+    pub rsi: Option<f64>,
+    pub stoch_k: Option<f64>,
+    pub stoch_d: Option<f64>,
+    pub cmf: Option<f64>,
+    pub chandemo: Option<f64>,
+    pub aroon_up: Option<f64>,
+    pub aroon_down: Option<f64>,
+    pub macd_line: Option<f64>,
+    pub linreg_slope: Option<f64>,
+    pub zscore: Option<f64>,
+    pub obv: Option<f64>,
+    pub obv_sma: Option<f64>,
+    pub mfi: Option<f64>,
+    pub adx_plus_di: Option<f64>,
+    pub adx_minus_di: Option<f64>,
+    pub price: Option<f64>,
+    pub ema_fast: Option<f64>,
+    pub ema_medium: Option<f64>,
+    pub supertrend_line: Option<f64>,
+    // ── Deferred-indicator transition state (pivots / ichimoku) ──
+    /// Signed position vs the nearest active pivot level: +1 above pivot,
+    /// -1 below pivot, 0 unknown — used to detect pivot crossovers.
+    pub pivot_active_level: Option<f64>,
+    /// Previous Ichimoku Tenkan-sen (conversion line) for TK crossover.
+    pub ichimoku_tenkan: Option<f64>,
+    /// Previous Ichimoku Kijun-sen (base line) for TK crossover.
+    pub ichimoku_kijun: Option<f64>,
+    /// Previous price-vs-cloud position: +1 above cloud, -1 below, 0 inside —
+    /// used to detect cloud breakouts and price entering/leaving the cloud.
+    pub price_vs_cloud: Option<f64>,
+    /// Previous future-cloud colour sign (Senkou A − Senkou B) for twist detection.
+    pub ichimoku_future_bias: Option<f64>,
+    pub hull_ma: Option<f64>,
+}
+
 /// Stateful context bridging the pure calculators to signed normalization.
 #[derive(Debug, Clone, Default)]
 pub struct NormalizationContext {
@@ -228,6 +269,8 @@ pub struct NormalizationContext {
     /// bars while in the extreme regime — triggers the hard hook exit. Tracked
     /// statefully by the analyzer from the historical ADX buffer.
     pub adx_consecutive_deceleration: bool,
+    /// Previous completed-bar indicator values for crossover/zero-line detection.
+    pub prev: PreviousBarState,
 }
 
 /// Clamp a value into the `[-1.0, 1.0]` unit interval.
@@ -438,7 +481,6 @@ mod meta_tests {
 
     #[test]
     fn derive_signals_boosts_confidence() {
-        use std::collections::HashMap;
         let mut inputs = IndicatorInputs::default();
         inputs.rsi = Some(15.0); // deep oversold → strong normalized + OB/OS threshold signal
         let ctx = NormalizationContext::default();
@@ -446,5 +488,38 @@ mod meta_tests {
         let rsi = map.get("rsi").expect("rsi present");
         assert!(!rsi.signals.is_empty(), "oversold RSI should emit a threshold signal");
         assert!(rsi.confidence >= rsi.normalized.abs(), "signals should not lower confidence");
+    }
+
+    #[test]
+    fn inactive_fill_populates_absent_directional_indicators() {
+        // With no divergence/fibonacci/pattern/S-R inputs, those event-driven
+        // directional keys must be present with an explicit INACTIVE placeholder.
+        let inputs = IndicatorInputs::default();
+        let ctx = NormalizationContext::default();
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        for key in [
+            "rsi_divergence", "macd_divergence", "stochastic_divergence",
+            "chandemo_divergence", "mfi_divergence", "cmf_divergence",
+            "obv_divergence", "squeeze_divergence", "fibonacci",
+            "support_resistance", "patterns",
+        ] {
+            let v = map.get(key).unwrap_or_else(|| panic!("{key} must be present"));
+            assert_eq!(v.state_label, "INACTIVE", "{key} should be INACTIVE");
+            assert_eq!(v.normalized, 0.0);
+            assert_eq!(v.confidence, 0.0);
+            assert!(v.signals.is_empty());
+        }
+    }
+
+    #[test]
+    fn inactive_fill_skips_non_directional_gates() {
+        // Non-directional gates (adx/atr/bbwp/hv/volume/rvol/choppiness) must NOT
+        // be INACTIVE-filled (they are read by value by gate logic / context).
+        let inputs = IndicatorInputs::default();
+        let ctx = NormalizationContext::default();
+        let map = NormalizationEngine::normalize_all(&inputs, &ctx);
+        for key in ["adx", "atr", "bbwp", "hv", "rvol", "choppiness"] {
+            assert!(!map.contains_key(key), "{key} gate must remain absent, not INACTIVE-filled");
+        }
     }
 }

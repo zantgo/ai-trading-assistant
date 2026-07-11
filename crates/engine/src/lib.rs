@@ -13,6 +13,7 @@ pub mod db;
 pub mod event_detector;
 pub mod instance;
 pub mod registry;
+pub mod paper_trading;
 pub mod performance_evaluator;
 pub mod portfolio_equity;
 pub mod portfolio_risk;

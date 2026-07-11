@@ -80,7 +80,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/config",
             get(handlers::config::serve_config).post(handlers::config::update_config),
         )
-        .route("/api/config/scoring-weights", post(handlers::config::serve_set_scoring_weights))
         .route(
             "/api/rules",
             get(handlers::config::serve_get_rules).post(handlers::config::serve_set_rules),

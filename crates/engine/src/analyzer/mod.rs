@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{broadcast, RwLock};
 use rust_decimal::Decimal;
@@ -8,11 +8,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
 use crate::config::FibonacciConfig;
+use crate::config::OrderBookConfig;
 use crate::db;
 
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
-use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern};
+use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern, PivotPoints, PivotMethod, Candlestick, CandlestickConfig, Ichimoku, Cci, ParabolicSar, WilliamsR, HullMA, AwesomeOscillator, ForceIndex, StdDevChannel, VolumeProfile, SmartMoney, AnchoredVwap, OrderBookAnalysis};
+use shared::indicators::normalized::PreviousBarState;
+use shared::indicators::normalized::NormalizedIndicatorValue;
+use shared::statistics::{StatisticsEngine, StatisticsConfig};
 use crate::sr_engine::SrRoleTracker;
 
 pub mod normalize;
@@ -29,6 +33,10 @@ pub struct TimeframePipeline {
     pub divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     pub sr_tracker: Arc<tokio::sync::Mutex<SrRoleTracker>>,
     pub fibonacci: FibonacciConfig,
+    /// Latest Open Interest (shared across timeframes, updated by WS OI events).
+    pub latest_oi: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Funding Rate (shared across timeframes, updated by WS funding events).
+    pub latest_funding: Arc<RwLock<Option<Decimal>>>,
 }
 
 pub struct ActivePair {
@@ -39,31 +47,17 @@ pub struct ActivePair {
     pub r#macro: TimeframePipeline,
     pub snapshot_tx: tokio::sync::mpsc::Sender<NormalizedEvent>,
     pub cancel: CancellationToken,
+    /// Latest Open Interest (shared across all timeframes, updated by WS events).
+    pub latest_oi: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Funding Rate (shared across all timeframes, updated by WS events).
+    pub latest_funding: Arc<RwLock<Option<Decimal>>>,
 }
 
 impl ActivePair {
     fn pipeline_for(&self, timeframe_secs: u64) -> &TimeframePipeline {
-        if self.micro.timeframe_secs == timeframe_secs { return &self.micro; }
         if self.fast.timeframe_secs == timeframe_secs { return &self.fast; }
         if self.slow.timeframe_secs == timeframe_secs { return &self.slow; }
         if self.r#macro.timeframe_secs == timeframe_secs { return &self.r#macro; }
-        // Rate-limit the warning: log once per unique mismatch signature per
-        // pair, since this fires on every /api/history chart request.
-        {
-            static WARNED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<(String, u64, u64, u64, u64, u64)>>> =
-                std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-            let key = (self.symbol.clone(), timeframe_secs, self.micro.timeframe_secs, self.fast.timeframe_secs, self.slow.timeframe_secs, self.r#macro.timeframe_secs);
-            if WARNED.lock().ok().map_or(true, |mut set| set.insert(key)) {
-                eprintln!(
-                    "⚠️  pipeline_for: no pipeline matches timeframe_secs={} (micro={}, fast={}, slow={}, macro={}) — falling back to micro",
-                    timeframe_secs,
-                    self.micro.timeframe_secs,
-                    self.fast.timeframe_secs,
-                    self.slow.timeframe_secs,
-                    self.r#macro.timeframe_secs,
-                );
-            }
-        }
         &self.micro
     }
 
@@ -147,6 +141,7 @@ pub async fn run_single(
     broadcast_tx: broadcast::Sender<MarketSnapshot>,
     tf_config: TimeframeConfig,
     fib_config: FibonacciConfig,
+    statistics_config: StatisticsConfig,
     divergence_detector: Arc<tokio::sync::Mutex<DivergenceDetector>>,
     history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
@@ -158,7 +153,10 @@ pub async fn run_single(
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
-    _paper_pool: Option<sqlx::SqlitePool>,
+    paper_pool: Option<sqlx::SqlitePool>,
+    latest_oi: Arc<RwLock<Option<Decimal>>>,
+    latest_funding: Arc<RwLock<Option<Decimal>>>,
+    ob_config: OrderBookConfig,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -177,7 +175,9 @@ pub async fn run_single(
          mut aroon_indicator, mut choppiness_indicator, mut linreg_indicator, mut zscore_indicator,
          mut stoch_div, mut chandemo_div, mut mfi_div, mut cmf_div, mut obv_div, mut squeeze_div,
          mut vwap_sum_tp_vol, mut vwap_sum_vol,
-         mut last_day_index, mut volume_history);
+         mut last_day_index, mut volume_history, mut pivot_points_indicator, mut candlestick_indicator, mut ichimoku_indicator, mut cci_indicator, mut psar_indicator,
+         mut wr_indicator, mut hma_indicator, mut ao_indicator, mut fi_indicator, mut sdc_indicator,
+         mut volume_profile_indicator, mut smc_indicator, mut anchored_vwap_indicator);
 
     // Strict chronological handover boundary: the start time of the newest
     // historical (REST/DB) candle used for pre-warming. Live candles at or
@@ -188,6 +188,15 @@ pub async fn run_single(
         .as_ref()
         .and_then(|w| w.history.last().map(|c| c.start_time_ms))
         .unwrap_or(0);
+
+    // Support/Resistance role-reversal tracker (flip tolerance 0.3%). Persists
+    // across live bars; inherits warmed flip-state from the pre-warm pass.
+    let mut sr_tracker = SrRoleTracker::new(0.003);
+
+    // Statistical Intelligence Layer — per-timeframe engine.
+    let mut sil_engine = StatisticsEngine::new(statistics_config);
+    let mut prev_sil_close: f64 = 0.0;
+    let mut mc_counter: u64 = 0;
 
     if let Some(w) = warmed {
         ema_fast = w.ema_fast;
@@ -224,6 +233,20 @@ pub async fn run_single(
         vwap_sum_vol = w.vwap_sum_vol;
         last_day_index = w.last_day_index;
         volume_history = w.volume_history;
+        sr_tracker = w.sr_tracker;
+        pivot_points_indicator = w.pivot_points_indicator;
+        candlestick_indicator = w.candlestick_indicator;
+        ichimoku_indicator = w.ichimoku_indicator;
+        cci_indicator = w.cci_indicator;
+        psar_indicator = w.psar_indicator;
+        wr_indicator = w.wr_indicator;
+        hma_indicator = w.hma_indicator;
+        ao_indicator = w.ao_indicator;
+        fi_indicator = w.fi_indicator;
+        sdc_indicator = w.sdc_indicator;
+        volume_profile_indicator = w.volume_profile_indicator;
+        smc_indicator = w.smc_indicator;
+        anchored_vwap_indicator = w.anchored_vwap_indicator;
 
         // Pre-populate history from warmed state
         {
@@ -300,6 +323,24 @@ pub async fn run_single(
         vwap_sum_vol = Decimal::ZERO;
         last_day_index = None;
         volume_history = VecDeque::with_capacity(20);
+        pivot_points_indicator = PivotPoints::new(PivotMethod::Classic);
+        candlestick_indicator = Candlestick::new(CandlestickConfig::default());
+        ichimoku_indicator = Ichimoku::new(
+            active_indicators.ichimoku_tenkan,
+            active_indicators.ichimoku_kijun,
+            active_indicators.ichimoku_senkou_b,
+            active_indicators.ichimoku_displacement,
+        );
+        cci_indicator = Cci::new(active_indicators.cci_period);
+        psar_indicator = ParabolicSar::new(active_indicators.psar_af_step, active_indicators.psar_af_max);
+        wr_indicator = WilliamsR::new(active_indicators.williams_r_period);
+        hma_indicator = HullMA::new(active_indicators.hull_ma_period);
+        ao_indicator = AwesomeOscillator::new();
+        fi_indicator = ForceIndex::new(active_indicators.force_index_smoothing);
+        sdc_indicator = StdDevChannel::new(active_indicators.stddev_channel_period);
+        volume_profile_indicator = VolumeProfile::new(active_indicators.volume_profile_window, active_indicators.volume_profile_bins, active_indicators.volume_profile_value_area);
+        smc_indicator = SmartMoney::new(active_indicators.smc_lookback);
+        anchored_vwap_indicator = AnchoredVwap::new();
     }
 
     // ADX slope history for the 2-bar consecutive-deceleration hook exit.
@@ -311,15 +352,25 @@ pub async fn run_single(
     let mut signal_age_tracker: std::collections::HashMap<String, (u32, shared::indicators::SignalDirection)> =
         std::collections::HashMap::new();
     let mut live_bar: u32 = 0;
+    let mut prev_bar_state = PreviousBarState::default();
+    let mut last_pivot_count: usize = 0;
+
+    // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
+    let mut oi_history: VecDeque<f64> = VecDeque::with_capacity(60);
 
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
+
+    let mut order_book_analysis = OrderBookAnalysis::new(
+        ob_config.depth_levels,
+        ob_config.wall_threshold,
+    );
+    let spread_wide_threshold_pct = ob_config.spread_wide_threshold_pct;
 
     let mut shadow_bid = Decimal::ZERO;
     let mut shadow_ask = Decimal::ZERO;
     #[allow(unused_assignments)]
     let mut shadow_exchange: Option<Exchange> = None;
-
-    let mut last_broadcast = std::time::Instant::now();
+    let mut shadow_prev_day_px: Option<Decimal> = None;
 
     loop {
         let event = tokio::select! {
@@ -363,6 +414,34 @@ pub async fn run_single(
                     }
                     last_day_index = Some(day_index);
 
+                    // Session Pivot Points: accumulate this session's H/L/C and
+                    // recompute levels on UTC-day rollover.
+                    let pivot_levels =
+                        pivot_points_indicator.update(completed.high, completed.low, completed.close, day_index);
+
+                    // Candlestick recognition (Stage 1 geometry + Stage 3 confirm).
+                    let candlestick_reading =
+                        candlestick_indicator.update(completed.open, completed.high, completed.low, completed.close);
+
+                    // Ichimoku Cloud (Tenkan/Kijun/Senkou A/B/Chikou).
+                    let ichimoku_reading =
+                        ichimoku_indicator.update(completed.high, completed.low, completed.close);
+
+                    // CCI (Commodity Channel Index).
+                    let cci_reading = cci_indicator.update(completed.high, completed.low, completed.close);
+
+                    // Parabolic SAR.
+                    let psar_reading = psar_indicator.update(completed.high, completed.low);
+
+                    let wr_reading = wr_indicator.update(completed.high, completed.low, completed.close);
+                    let hma_reading = hma_indicator.update(completed.close);
+                    let ao_reading = ao_indicator.update(completed.high, completed.low);
+                    let fi_reading = fi_indicator.update(completed.close, completed.volume);
+                    let sdc_reading = sdc_indicator.update(completed.close);
+
+                    let volume_profile_reading = volume_profile_indicator.update(completed.high, completed.low, completed.close, completed.volume);
+                    let smc_reading = smc_indicator.update(completed.open, completed.high, completed.low, completed.close);
+
                     let typical_price = (completed.high + completed.low + completed.close) / Decimal::from(3);
                     vwap_sum_tp_vol += typical_price * completed.volume;
                     vwap_sum_vol += completed.volume;
@@ -372,6 +451,12 @@ pub async fn run_single(
                     } else {
                         None
                     };
+
+                    let avwap_reading = anchored_vwap_indicator.update(
+                        completed.high, completed.low, completed.close, completed.volume,
+                        day_index,
+                        final_vwap.unwrap_or(Decimal::ZERO),
+                    );
 
                     let final_ema_fast = ema_fast.update(completed.close);
                     let final_ema_medium = ema_medium.update(completed.close);
@@ -415,20 +500,18 @@ pub async fn run_single(
                     let final_linreg = linreg_indicator.update(completed.close);
                     let final_zscore = zscore_indicator.update(completed.close);
 
-                    let extra_div = normalize::ExtraDivergence {
-                        stochastic: final_stoch.as_ref().map(|s| normalize::series_divergence_state(&stoch_div.update(completed.close, s.k_value))).unwrap_or_default(),
-                        chandemo: final_cmo.map(|v| normalize::series_divergence_state(&chandemo_div.update(completed.close, v))).unwrap_or_default(),
-                        mfi: final_mfi.map(|v| normalize::series_divergence_state(&mfi_div.update(completed.close, v))).unwrap_or_default(),
-                        cmf: final_cmf.map(|v| normalize::series_divergence_state(&cmf_div.update(completed.close, v))).unwrap_or_default(),
-                        obv: final_obv.as_ref().map(|o| normalize::series_divergence_state(&obv_div.update(completed.close, o.obv))).unwrap_or_default(),
-                        squeeze: final_sqz.as_ref().map(|s| normalize::series_divergence_state(&squeeze_div.update(completed.close, s.momentum_value))).unwrap_or_default(),
-                    };
+                    // ── Generalized divergence detection ──
+                    // Each oscillator's SeriesDivergence is updated every bar
+                    // for the RSI/MACD confirmation path below. The 6 extra
+                    // divergence states are resolved inline inside NormalizeParams
+                    // (below) so sr_supports/resistances are in scope for the
+                    // S/R-confirmation gate.
 
-                    // Divergence detection (live — potential status)
-                    let div_result = {
+                    // Divergence detection (live — potential status; confirmation
+                    // applied after S/R levels are computed below).
+                    let mut div_result = {
                         if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
-                            let mut det = divergence_detector.lock().await;
-                            det.update_full(completed.close, rsi, macd_hist)
+                            divergence_detector.lock().await.update_full(completed.close, rsi, macd_hist)
                         } else {
                             shared::indicators::DivergenceResult::default_div()
                         }
@@ -471,18 +554,52 @@ pub async fn run_single(
                         )
                     };
 
-                    // Chart pattern detection from pivots
-                    let pattern_result = {
+                    // Chart pattern detection from pivots (reused for S/R zones)
+                    let pivots = {
                         let hist = history.read().await;
                         let candles_high: Vec<Decimal> = hist.iter().map(|c| c.high).collect();
                         let candles_low: Vec<Decimal> = hist.iter().map(|c| c.low).collect();
-                        let pivots = FibonacciRange::detect_pivots(
+                        FibonacciRange::detect_pivots(
                             &candles_high, &candles_low,
                             fib_config.swing_lookback,
                             fib_config.swing_scan_range,
-                        );
-                        detect_pattern(&pivots)
+                        )
                     };
+                    if pivots.len() > last_pivot_count {
+                        anchored_vwap_indicator.reset_swing();
+                    }
+                    last_pivot_count = pivots.len();
+                    let pattern_result = detect_pattern(&pivots);
+
+                    // Support/Resistance zones: derive role-adjusted levels from
+                    // the swing pivots and update the flip tracker on this close.
+                    let (sr_supports, sr_resistances) =
+                        update_sr_levels(&mut sr_tracker, &pivots, completed.close, candle_close_sec);
+
+                    // Upgrade RSI/MACD potential divergences to Confirmed when
+                    // the candle close decisively breaks the nearest S/R level.
+                    // check_divergence_confirmation is a &self method on the
+                    // DivergenceDetector — we lock it again briefly.
+                    {
+                        let near_sup = sr_supports
+                            .iter()
+                            .copied()
+                            .filter(|s| *s > 0.0 && *s <= completed.close.to_f64().unwrap_or(0.0))
+                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        let near_res = sr_resistances
+                            .iter()
+                            .copied()
+                            .filter(|r| *r > 0.0 && *r >= completed.close.to_f64().unwrap_or(0.0))
+                            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        if near_sup.is_some() || near_res.is_some() {
+                            let det = divergence_detector.lock().await;
+                            div_result = det.check_divergence_confirmation(
+                                &div_result, completed.close,
+                                near_sup.map(|s| Decimal::from_f64_retain(s).unwrap_or(Decimal::ZERO)),
+                                near_res.map(|r| Decimal::from_f64_retain(r).unwrap_or(Decimal::ZERO)),
+                            );
+                        }
+                    }
 
                     // Track ADX slope history for the 2-bar hook-exit rule.
                     if let Some(a) = final_adx.as_ref() {
@@ -498,22 +615,22 @@ pub async fn run_single(
                             .take(2)
                             .all(|s| *s < Decimal::ZERO);
 
-                    // Active position context: no paper trading, always neutral.
-                    let active_position: Option<i8> = Some(0);
-
-                    let ema_stack_str = ema_stack_state.as_deref();
-
-                    // Compute support/resistance levels from price history.
-                    let (support_levels_f64, resistance_levels_f64) = {
-                        let hist = history.read().await;
-                        let close_f = completed.close.to_f64().unwrap_or(0.0);
-                        let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
-                        let (supp_str, res_str) = crate::server::compute_support_resistance(&prices, close_f);
-                        let supp_f64: Vec<f64> = supp_str.iter().filter_map(|s| s.parse::<f64>().ok()).collect();
-                        let res_f64: Vec<f64> = res_str.iter().filter_map(|r| r.parse::<f64>().ok()).collect();
-                        (supp_f64, res_f64)
+                    // Active position context for direction-aware normalization.
+                    let active_position: Option<i8> = if let Some(ref pool) = paper_pool {
+                        match db::paper::queries::paper_get_active_position(pool, &symbol)
+                            .await
+                            .map(|p| p.direction)
+                            .as_deref()
+                        {
+                            Some("LONG") => Some(1),
+                            Some("SHORT") => Some(-1),
+                            _ => Some(0),
+                        }
+                    } else {
+                        Some(0)
                     };
 
+                    let ema_stack_str = ema_stack_state.as_deref();
                     let indicators = normalize::build_indicator_map(normalize::NormalizeParams {
                         close: completed.close,
                         rsi: final_rsi,
@@ -536,7 +653,14 @@ pub async fn run_single(
                         choppiness: final_chop,
                         linreg_slope: final_linreg,
                         zscore: final_zscore,
-                        extra_div,
+                        extra_div: normalize::ExtraDivergence {
+                            stochastic: final_stoch.as_ref().map(|s| normalize::series_divergence_confirmed(&stoch_div.update(completed.close, s.k_value), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            chandemo: final_cmo.map(|v| normalize::series_divergence_confirmed(&chandemo_div.update(completed.close, v), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            mfi: final_mfi.map(|v| normalize::series_divergence_confirmed(&mfi_div.update(completed.close, v), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            cmf: final_cmf.map(|v| normalize::series_divergence_confirmed(&cmf_div.update(completed.close, v), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            obv: final_obv.as_ref().map(|o| normalize::series_divergence_confirmed(&obv_div.update(completed.close, o.obv), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                            squeeze: final_sqz.as_ref().map(|s| normalize::series_divergence_confirmed(&squeeze_div.update(completed.close, s.momentum_value), completed.close, &sr_supports, &sr_resistances)).unwrap_or_default(),
+                        },
                         macd: &final_macd,
                         sqz: final_sqz.as_ref(),
                         adx: final_adx.as_ref(),
@@ -544,6 +668,7 @@ pub async fn run_single(
                         atr: final_atr.as_ref(),
                         bbwp: final_bbwp,
                         vwap: final_vwap,
+                        anchored_vwap: Some(avwap_reading),
                         ema_stack_state: ema_stack_str,
                         ema_fast: Some(final_ema_fast),
                         ema_medium: Some(final_ema_medium),
@@ -554,16 +679,156 @@ pub async fn run_single(
                         average_volume: avg_vol,
                         fib: Some(&fib),
                         pattern: Some(&pattern_result),
-                        support_levels: &support_levels_f64,
-                        resistance_levels: &resistance_levels_f64,
+                        support_levels: &sr_supports,
+                        resistance_levels: &sr_resistances,
                         active_position,
                         adx_consecutive_deceleration,
+                        supertrend_flipped: final_supertrend.as_ref().map(|s| s.flipped).unwrap_or(false),
+                        adx_di_crossover: final_adx.as_ref().and_then(|a| a.di_crossover.map(|c| match c { shared::indicators::DiCrossoverDir::Bullish => 1i8, shared::indicators::DiCrossoverDir::Bearish => -1i8 })),
+                        pivot_levels,
+                        pivot_proximity_pct: 0.0015,
+                        candlestick: Some(candlestick_reading),
+                        candlestick_min_confidence: 0.3,
+                        ichimoku: ichimoku_reading,
+                        cci: cci_reading,
+                        psar: psar_reading,
+                        williams_r: wr_reading,
+                        awesome_oscillator: ao_reading,
+                        force_index: fi_reading,
+                        hull_ma: hma_reading,
+                        stddev_channel: sdc_reading,
+                        volume_profile: volume_profile_reading,
+                        smc: smc_reading,
+                        prev: prev_bar_state,
                     });
+
+                    // ── Save current bar's indicator values for next bar's cross-over detection ──
+                    prev_bar_state = PreviousBarState {
+                        rsi: final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
+                        stoch_k: final_stoch.as_ref().map(|s| s.k_value.to_f64().unwrap_or(0.0)),
+                        stoch_d: final_stoch.as_ref().map(|s| s.d_value.to_f64().unwrap_or(0.0)),
+                        cmf: final_cmf.map(|d| d.to_f64().unwrap_or(0.0)),
+                        chandemo: final_cmo.map(|d| d.to_f64().unwrap_or(0.0)),
+                        aroon_up: final_aroon.as_ref().map(|a| a.up.to_f64().unwrap_or(0.0)),
+                        aroon_down: final_aroon.as_ref().map(|a| a.down.to_f64().unwrap_or(0.0)),
+                        macd_line: Some(final_macd.macd_line.to_f64().unwrap_or(0.0)),
+                        linreg_slope: final_linreg.map(|d| d.to_f64().unwrap_or(0.0)),
+                        zscore: final_zscore.map(|d| d.to_f64().unwrap_or(0.0)),
+                        obv: final_obv.as_ref().map(|o| o.obv.to_f64().unwrap_or(0.0)),
+                        obv_sma: final_obv.as_ref().map(|o| o.obv_sma.to_f64().unwrap_or(0.0)),
+                        mfi: final_mfi.map(|d| d.to_f64().unwrap_or(0.0)),
+                        adx_plus_di: final_adx.as_ref().map(|a| a.plus_di.to_f64().unwrap_or(0.0)),
+                        adx_minus_di: final_adx.as_ref().map(|a| a.minus_di.to_f64().unwrap_or(0.0)),
+                        price: Some(completed.close.to_f64().unwrap_or(0.0)),
+                        ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
+                        ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
+                        supertrend_line: final_supertrend.as_ref().map(|s| s.line.to_f64().unwrap_or(0.0)),
+                        // Populated in later phases (Pivots: P2, Ichimoku: P4).
+                        pivot_active_level: pivot_levels.map(|lv| {
+                            let p = lv.pivot.to_f64().unwrap_or(0.0);
+                            let c = completed.close.to_f64().unwrap_or(0.0);
+                            if c >= p { 1.0 } else { -1.0 }
+                        }),
+                        ichimoku_tenkan: ichimoku_reading.map(|r| r.tenkan.to_f64().unwrap_or(0.0)),
+                        ichimoku_kijun: ichimoku_reading.map(|r| r.kijun.to_f64().unwrap_or(0.0)),
+                        price_vs_cloud: ichimoku_reading.map(|r| {
+                            let top = r.senkou_a_current.to_f64().unwrap_or(0.0).max(r.senkou_b_current.to_f64().unwrap_or(0.0));
+                            let bot = r.senkou_a_current.to_f64().unwrap_or(0.0).min(r.senkou_b_current.to_f64().unwrap_or(0.0));
+                            let px = completed.close.to_f64().unwrap_or(0.0);
+                            if px > top { 1.0 } else if px < bot { -1.0 } else { 0.0 }
+                        }),
+                        ichimoku_future_bias: ichimoku_reading.map(|r| {
+                            (r.senkou_a - r.senkou_b).to_f64().unwrap_or(0.0).signum()
+                        }),
+                        hull_ma: hma_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+                    };
 
                     // Stamp signal freshness (age in completed bars).
                     let mut indicators = indicators;
                     live_bar = live_bar.wrapping_add(1);
                     stamp_signal_ages(&mut indicators, &mut signal_age_tracker, live_bar);
+
+                    // Inject Derivatives Data indicators (OI & Funding Rate).
+                    let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
+                    let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
+
+                    let oi_delta_f = match oi_f {
+                        Some(cur) => {
+                            oi_history.push_back(cur);
+                            if oi_history.len() > 60 { oi_history.pop_front(); }
+                            if oi_history.len() > 1 {
+                                Some(cur - oi_history.front().unwrap())
+                            } else { None }
+                        }
+                        None => None,
+                    };
+                    inject_derivatives_indicators(&mut indicators, oi_f, fund_f, oi_delta_f);
+
+                    // Inject order book depth analysis indicators
+                    inject_orderbook_indicators(
+                        &mut indicators,
+                        &order_book_analysis,
+                        spread_wide_threshold_pct,
+                    );
+
+                    // Compute quantitative decision-support context.
+                    let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+                    // Equal-weighted mean confluence from the indicator map.
+                    let confluence_score = {
+                        let mut sum = 0.0f64;
+                        let mut n = 0u32;
+                        for meta in shared::indicators::registry::INDICATORS {
+                            if meta.directional {
+                                if let Some(v) = indicators.get(meta.key) {
+                                    sum += v.normalized;
+                                    n += 1;
+                                }
+                            }
+                        }
+                        if n > 0 { (sum / n as f64 * 100.0).clamp(-100.0, 100.0) } else { 0.0 }
+                    };
+                    let dec_ctx = shared::decision_context::DecisionContext::compute(
+                        &indicators,
+                        completed.close.to_f64().unwrap_or(0.0),
+                        atr_val,
+                        confluence_score,
+                    );
+
+                    // Compute Statistical Intelligence Layer enrichment.
+                    let close_f = completed.close.to_f64().unwrap_or(0.0);
+                    let rsi_val = indicators.get("rsi").map(|v| v.raw_value).unwrap_or(50.0);
+                    let bbwp_val = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+                    let sqz_mom = indicators.get("squeeze")
+                        .and_then(|v| v.values.as_ref())
+                        .and_then(|vals| vals.get("momentum").copied())
+                        .unwrap_or(0.0);
+                    let sqz_on = indicators.get("squeeze")
+                        .map(|v| v.state_label.contains("ON"))
+                        .unwrap_or(false);
+                    let vol_f = completed.volume.to_f64().unwrap_or(0.0);
+                    let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
+                    let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
+                    let sil_ctx = sil_engine.advance_ext(
+                        close_f, atr_val, rsi_val, bbwp_val, sqz_mom,
+                        vol_f, rvol_f, adx_val, prev_sil_close, sqz_on,
+                        indicators.get("macd").map(|v| v.raw_value).unwrap_or(0.0),
+                        indicators.get("obv").map(|v| v.raw_value).unwrap_or(0.0),
+                        indicators.get("stochastic")
+                            .and_then(|v| v.values.as_ref())
+                            .and_then(|vals| vals.get("k_line").copied())
+                            .unwrap_or(50.0),
+                        indicators.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0),
+                        indicators.get("ema_stack")
+                            .and_then(|v| v.values.as_ref())
+                            .and_then(|vals| vals.get("medium").copied())
+                            .unwrap_or(close_f),
+                    );
+                    prev_sil_close = close_f;
+
+                    mc_counter += 1;
+                    if mc_counter % 10 == 0 {
+                        sil_engine.run_monte_carlo(close_f, atr_val);
+                    }
 
                     let completed_snapshot = MarketSnapshot {
                         exchange: shadow_exchange,
@@ -576,7 +841,10 @@ pub async fn run_single(
                         ask_price: shadow_ask,
                         bid_size: Some(completed.volume),
                         ask_size: Some(completed.volume),
-                        funding_rate: None,
+                        funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
+                        open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
+                        oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
+                        prev_day_px: shadow_prev_day_px,
                         open: Some(completed.open),
                         high: Some(completed.high),
                         low: Some(completed.low),
@@ -584,10 +852,74 @@ pub async fn run_single(
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
                         context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
+                        decision_context: Some(dec_ctx),
+                        statistical_context: Some(sil_ctx),
                         indicators,
+                        alignment: None,
+                        risk: None,
+                        analysis: None,
+                        risk_profile: None,
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
+
+                    // Decisive close invalidation: check at every 1-minute candle close
+                    if timeframe_secs == 60 {
+                        if let Some(ref pool) = paper_pool {
+                            if let Some(pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
+                                if let Some(inval_level) = pos.final_invalidation_level {
+                                    let tolerance = 0.002;
+                                    let close_f64 = completed.close.to_f64().unwrap_or(0.0);
+                                    let invalidated = match pos.direction.as_str() {
+                                        "LONG" => close_f64 < inval_level * (1.0 - tolerance),
+                                        "SHORT" => close_f64 > inval_level * (1.0 + tolerance),
+                                        _ => false,
+                                    };
+                                    if invalidated {
+                                        let _ = crate::paper_trading::invalidate_position(
+                                            pool,
+                                            &telemetry_tx,
+                                            &symbol,
+                                            close_f64,
+                                            "DECISIVE_CLOSE_1M",
+                                        ).await;
+                                        println!(
+                                            "🛑 Analyzer: {} position invalidated by 1m decisive close at ${:.2}",
+                                            symbol, close_f64
+                                        );
+                                    }
+                                }
+                            }
+
+                            // CHoCH + volume structural breakdown invalidation
+                            if let Some(_pos) = db::paper::queries::paper_get_active_position(pool, &symbol).await {
+                                let has_choch = completed_snapshot.indicators.get("smc_structure")
+                                    .and_then(|v| v.values.as_ref())
+                                    .map(|vals| {
+                                        vals.get("choch_bullish").copied().unwrap_or(0.0) > 0.0
+                                            || vals.get("choch_bearish").copied().unwrap_or(0.0) > 0.0
+                                    })
+                                    .unwrap_or(false);
+                                let rvol = completed_snapshot.indicators.get("rvol")
+                                    .map(|v| v.raw_value)
+                                    .unwrap_or(1.0);
+                                if has_choch && rvol >= 1.5 {
+                                    let close_f64 = completed.close.to_f64().unwrap_or(0.0);
+                                    let _ = crate::paper_trading::invalidate_position(
+                                        pool,
+                                        &telemetry_tx,
+                                        &symbol,
+                                        close_f64,
+                                        "STRUCTURAL_BREAKDOWN_CHOCH",
+                                    ).await;
+                                    println!(
+                                        "🛑 Analyzer: {} position invalidated — CHoCH detected with institutional volume (RVOL={})",
+                                        symbol, rvol
+                                    );
+                                }
+                            }
+                        }
+                    }
 
                     {
                         let mut snap = latest_snapshot.write().await;
@@ -614,19 +946,8 @@ pub async fn run_single(
                     }
                 }
 
-                // BROADCAST: Flickering snapshot from live candle (throttled)
-                let now = std::time::Instant::now();
-                if now.duration_since(last_broadcast) >= std::time::Duration::from_millis(250) {
-                    last_broadcast = now;
-                    let (live_supp_f64, live_res_f64) = {
-                        let hist = history.read().await;
-                        let close_f = live_candle.close.to_f64().unwrap_or(0.0);
-                        let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
-                        let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
-                        (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
-                         r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
-                    };
-                    broadcast_live_snapshot(
+                // BROADCAST: Flickering snapshot from live candle
+                broadcast_live_snapshot(
                     &broadcast_tx, &symbol, &live_candle, shadow_exchange,
                     shadow_bid, shadow_ask,
                     &ema_fast, &ema_medium, &ema_slow, &ema_long,
@@ -639,10 +960,8 @@ pub async fn run_single(
                     &vwap_sum_tp_vol, &vwap_sum_vol,
                     &volume_history,
                     timeframe_secs,
-                    &live_supp_f64,
-                    &live_res_f64,
+                    shadow_prev_day_px,
                 );
-                }
             }
 
             NormalizedEvent::OrderBook(ref book) => {
@@ -652,49 +971,61 @@ pub async fn run_single(
                     shadow_ask = best_ask.0;
                 }
 
-                if candle_gen.current_candle.is_some() {
-                    let now = std::time::Instant::now();
-                    if now.duration_since(last_broadcast) >= std::time::Duration::from_millis(250) {
-                        last_broadcast = now;
-                        let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
-                        let shadow_candle = NormalizedCandle {
-                            symbol: symbol.clone(),
-                            start_time_ms: candle_gen.current_start_ms,
-                            duration_ms: candle_gen.duration_ms,
-                            open: candle_gen.current_open,
-                            high: candle_gen.current_high.max(mid),
-                            low: candle_gen.current_low.min(mid),
-                            close: mid,
-                            volume: candle_gen.current_volume,
-                            trades_count: candle_gen.current_trades,
-                        };
-
-                        let (ob_supp_f64, ob_res_f64) = {
-                            let hist = history.read().await;
-                            let close_f = shadow_candle.close.to_f64().unwrap_or(0.0);
-                            let prices: Vec<f64> = hist.iter().filter_map(|c| c.close.to_f64()).collect();
-                            let (s, r) = crate::server::compute_support_resistance(&prices, close_f);
-                            (s.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>(),
-                             r.iter().filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>())
-                        };
-                        broadcast_live_snapshot(
-                            &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
-                            shadow_bid, shadow_ask,
-                            &ema_fast, &ema_medium, &ema_slow, &ema_long,
-                            &rsi_14, &macd, &adx_14, &sqz_mom,
-                            &bollinger, &atr_standalone, &bbwp_indicator,
-                            &stochastic_indicator, &chandemo_indicator,
-                            &supertrend_indicator, &keltner_indicator, &donchian_indicator,
-                            &obv_indicator, &cmf_indicator, &mfi_indicator, &hv_indicator,
-                            &aroon_indicator, &choppiness_indicator, &linreg_indicator, &zscore_indicator,
-                            &vwap_sum_tp_vol, &vwap_sum_vol,
-                            &volume_history,
-                            timeframe_secs,
-                            &ob_supp_f64,
-                            &ob_res_f64,
-                        );
-                    }
+                // Update order book depth analysis
+                {
+                    let bids_f64: Vec<(f64, f64)> = book.bids.iter().map(|(p, s)| {
+                        (p.to_f64().unwrap_or(0.0), s.to_f64().unwrap_or(0.0))
+                    }).collect();
+                    let asks_f64: Vec<(f64, f64)> = book.asks.iter().map(|(p, s)| {
+                        (p.to_f64().unwrap_or(0.0), s.to_f64().unwrap_or(0.0))
+                    }).collect();
+                    order_book_analysis.update(&bids_f64, &asks_f64);
                 }
+
+                if candle_gen.current_candle.is_some() {
+                    let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
+                    let shadow_candle = NormalizedCandle {
+                        symbol: symbol.clone(),
+                        start_time_ms: candle_gen.current_start_ms,
+                        duration_ms: candle_gen.duration_ms,
+                        open: candle_gen.current_open,
+                        high: candle_gen.current_high.max(mid),
+                        low: candle_gen.current_low.min(mid),
+                        close: mid,
+                        volume: candle_gen.current_volume,
+                        trades_count: candle_gen.current_trades,
+                    };
+
+                    broadcast_live_snapshot(
+                        &broadcast_tx, &symbol, &shadow_candle, shadow_exchange,
+                        shadow_bid, shadow_ask,
+                        &ema_fast, &ema_medium, &ema_slow, &ema_long,
+                        &rsi_14, &macd, &adx_14, &sqz_mom,
+                        &bollinger, &atr_standalone, &bbwp_indicator,
+                        &stochastic_indicator, &chandemo_indicator,
+                        &supertrend_indicator, &keltner_indicator, &donchian_indicator,
+                        &obv_indicator, &cmf_indicator, &mfi_indicator, &hv_indicator,
+                        &aroon_indicator, &choppiness_indicator, &linreg_indicator, &zscore_indicator,
+                        &vwap_sum_tp_vol, &vwap_sum_vol,
+                        &volume_history,
+                        timeframe_secs,
+                        shadow_prev_day_px,
+                    );
+                }
+            }
+
+            NormalizedEvent::AssetContext(ref ctx) => {
+                shadow_prev_day_px = Some(ctx.prev_day_px);
+            }
+
+            NormalizedEvent::OpenInterest(ref oi) => {
+                let mut guard = latest_oi.write().await;
+                *guard = Some(oi.oi);
+            }
+
+            NormalizedEvent::FundingRate(ref fr) => {
+                let mut guard = latest_funding.write().await;
+                *guard = Some(fr.rate);
             }
 
             NormalizedEvent::Status { exchange, status, message } => {
@@ -702,6 +1033,268 @@ pub async fn run_single(
             }
         }
     }
+}
+
+/// Inject Derivatives Data (OI & Funding) normalized indicator entries into
+/// the snapshot indicator map. Called after the main indicator map is built.
+fn inject_derivatives_indicators(
+    indicators: &mut HashMap<String, NormalizedIndicatorValue>,
+    oi: Option<f64>,
+    funding: Option<f64>,
+    oi_delta: Option<f64>,
+) {
+    use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+
+    // Open Interest
+    if let Some(o) = oi {
+        indicators.insert("open_interest".into(), NormalizedIndicatorValue {
+            raw_value: o,
+            normalized: 0.0,
+            state_label: format!("OI_{:.0}", o),
+            values: None,
+            signals: vec![],
+            confidence: 0.5,
+        });
+    }
+
+    // OI Delta (1h change)
+    if let Some(delta) = oi_delta {
+        let normalized = (delta / 1000.0).clamp(-1.0, 1.0);
+        let dir = if normalized > 0.1 { SignalDirection::Bullish }
+            else if normalized < -0.1 { SignalDirection::Bearish }
+            else { SignalDirection::Neutral };
+        let has_signal = delta.abs() > 500.0;
+        indicators.insert("oi_delta".into(), NormalizedIndicatorValue {
+            raw_value: delta,
+            normalized,
+            state_label: if delta > 0.0 { "OI_RISING".to_string() }
+                else if delta < 0.0 { "OI_FALLING".to_string() }
+                else { "OI_STABLE".to_string() },
+            values: None,
+            signals: if has_signal { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: dir,
+                status: SignalStatus::Active,
+                label: if delta > 500.0 { "OI_SURGE".to_string() } else { "OI_DRAIN".to_string() },
+                strength: (delta.abs() / 1000.0).min(1.0),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // Funding Rate (non-directional gate)
+    if let Some(f) = funding {
+        let extreme = f.abs() > 0.001;
+        let ann_pct = f * 1095.0 * 100.0; // annualized %
+        indicators.insert("funding_rate".into(), NormalizedIndicatorValue {
+            raw_value: f,
+            normalized: 0.0,
+            state_label: if f > 0.001 { "FUNDING_HIGH_POSITIVE".to_string() }
+                else if f < -0.001 { "FUNDING_HIGH_NEGATIVE".to_string() }
+                else { format!("FUNDING_{:.1}PCT", ann_pct.abs()) },
+            values: None,
+            signals: if extreme { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: if f > 0.0 { SignalDirection::Bearish } else { SignalDirection::Bullish },
+                status: SignalStatus::Active,
+                label: "FUNDING_EXTREME".to_string(),
+                strength: 0.7,
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // OI-Price Divergence
+    if let (Some(_o), Some(delta)) = (oi, oi_delta) {
+        let ema_bias = indicators.get("ema_stack").map(|v| v.normalized).unwrap_or(0.0);
+        let div = if delta > 0.0 && ema_bias < -0.3 { -0.7 }
+            else if delta < 0.0 && ema_bias > 0.3 { 0.7 }
+            else { 0.0 };
+        indicators.insert("oi_price_divergence".into(), NormalizedIndicatorValue {
+            raw_value: div,
+            normalized: div,
+            state_label: if div > 0.3 { "OI_BULLISH_DIV".to_string() }
+                else if div < -0.3 { "OI_BEARISH_DIV".to_string() }
+                else { "OI_PRICE_ALIGNED".to_string() },
+            values: None,
+            signals: if div.abs() > 0.3 { vec![IndicatorSignal {
+                kind: SignalKind::Divergence,
+                direction: if div > 0.0 { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                status: SignalStatus::Active,
+                label: "OI_PRICE_DIVERGENCE".to_string(),
+                strength: div.abs(),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+}
+
+/// Inject Order Book Depth Analysis normalized indicator entries into the
+/// snapshot indicator map. Called after the main indicator map is built.
+fn inject_orderbook_indicators(
+    indicators: &mut HashMap<String, NormalizedIndicatorValue>,
+    ob: &OrderBookAnalysis,
+    spread_wide_threshold_pct: f64,
+) {
+    use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+
+    // Order Flow Imbalance
+    if let Some(ofi) = ob.order_flow_imbalance() {
+        let (dir, sig_label) = if ofi > 0.7 {
+            (SignalDirection::Bullish, "BULLISH_IMBALANCE")
+        } else if ofi < -0.7 {
+            (SignalDirection::Bearish, "BEARISH_IMBALANCE")
+        } else if ofi > 0.0 {
+            (SignalDirection::Bullish, "BUY_PRESSURE")
+        } else if ofi < 0.0 {
+            (SignalDirection::Bearish, "SELL_PRESSURE")
+        } else {
+            (SignalDirection::Neutral, "BALANCED")
+        };
+        let has_signal = ofi.abs() > 0.7;
+        indicators.insert("order_flow_imbalance".into(), NormalizedIndicatorValue {
+            raw_value: ofi,
+            normalized: ofi,
+            state_label: sig_label.to_string(),
+            values: None,
+            signals: if has_signal { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: dir,
+                status: SignalStatus::Active,
+                label: sig_label.to_string(),
+                strength: ofi.abs(),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: ofi.abs(),
+        });
+    }
+
+    // Spread (non-directional gate)
+    if let Some(spread) = ob.spread_pct() {
+        let wide = spread > spread_wide_threshold_pct;
+        indicators.insert("spread".into(), NormalizedIndicatorValue {
+            raw_value: spread,
+            normalized: 0.0,
+            state_label: if wide { "SPREAD_WIDENING".to_string() } else { "TIGHT".to_string() },
+            values: None,
+            signals: if wide { vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: SignalDirection::Neutral,
+                status: SignalStatus::Active,
+                label: "SPREAD_WIDENING".to_string(),
+                strength: (spread / 5.0).min(1.0),
+                age_bars: 0,
+                points: None,
+            }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // Depth Bias (bid depth / ask depth ratio)
+    if let Some(ratio) = ob.depth_imbalance_ratio(1.0) {
+        if ratio.is_finite() {
+            let norm = ((ratio - 1.0) / (ratio + 1.0)).clamp(-1.0, 1.0);
+            let label = if ratio > 1.5 {
+                "DEEP_BIDS"
+            } else if ratio < 0.67 {
+                "DEEP_ASKS"
+            } else {
+                "BALANCED_DEPTH"
+            };
+            let has_signal = ratio > 2.0 || ratio < 0.5;
+            let dir = if norm > 0.0 {
+                SignalDirection::Bullish
+            } else if norm < 0.0 {
+                SignalDirection::Bearish
+            } else {
+                SignalDirection::Neutral
+            };
+            indicators.insert("depth_bias".into(), NormalizedIndicatorValue {
+                raw_value: ratio,
+                normalized: norm,
+                state_label: label.to_string(),
+                values: None,
+                signals: if has_signal { vec![IndicatorSignal {
+                    kind: SignalKind::Threshold,
+                    direction: dir,
+                    status: SignalStatus::Active,
+                    label: if ratio > 2.0 { "BID_DEPTH_SURGE".to_string() } else { "ASK_DEPTH_SURGE".to_string() },
+                    strength: norm.abs(),
+                    age_bars: 0,
+                    points: None,
+                }]} else { vec![] },
+                confidence: norm.abs(),
+            });
+        }
+    }
+
+    // Wall signals: attach to order_flow_imbalance entry if it exists
+    if let Some(ref wall) = ob.wall_detected() {
+        match wall.as_str() {
+            "BID_WALL" => {
+                if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
+                    ofier.signals.push(IndicatorSignal {
+                        kind: SignalKind::Threshold,
+                        direction: SignalDirection::Bullish,
+                        status: SignalStatus::Active,
+                        label: "BID_WALL".to_string(),
+                        strength: 0.8,
+                        age_bars: 0,
+                        points: None,
+                    });
+                }
+            }
+            "ASK_WALL" => {
+                if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
+                    ofier.signals.push(IndicatorSignal {
+                        kind: SignalKind::Threshold,
+                        direction: SignalDirection::Bearish,
+                        status: SignalStatus::Active,
+                        label: "ASK_WALL".to_string(),
+                        strength: 0.8,
+                        age_bars: 0,
+                        points: None,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Derive current support/resistance levels from swing pivots, updating the
+/// role-reversal tracker with the latest levels and candle close. Swing highs
+/// act as resistance, swing lows as support; the tracker flips a level's role
+/// when a candle closes decisively beyond it. Returns the current role-adjusted
+/// `(support_levels, resistance_levels)` for normalization.
+pub(crate) fn update_sr_levels(
+    tracker: &mut SrRoleTracker,
+    pivots: &[shared::indicators::PivotPoint],
+    close: Decimal,
+    timestamp_sec: u64,
+) -> (Vec<f64>, Vec<f64>) {
+    let mut raw_sup: Vec<f64> = Vec::new();
+    let mut raw_res: Vec<f64> = Vec::new();
+    for p in pivots {
+        let price = p.price.to_f64().unwrap_or(0.0);
+        if price <= 0.0 {
+            continue;
+        }
+        match p.pivot_type {
+            shared::indicators::PivotType::High => raw_res.push(price),
+            shared::indicators::PivotType::Low => raw_sup.push(price),
+        }
+    }
+    tracker.register_levels(&raw_sup, &raw_res);
+    let _ = tracker.process_candle_close(close.to_f64().unwrap_or(0.0), timestamp_sec);
+    (tracker.get_supports(), tracker.get_resistances())
 }
 
 /// Stamp `age_bars` on every signal using a persistent tracker keyed by
@@ -768,12 +1361,8 @@ fn broadcast_live_snapshot(
     vwap_sum_vol: &Decimal,
     volume_history: &VecDeque<Decimal>,
     timeframe_secs: u64,
-    support_levels: &[f64],
-    resistance_levels: &[f64],
+    prev_day_px: Option<Decimal>,
 ) {
-    if broadcast_tx.receiver_count() == 0 {
-        return;
-    }
     let val_ema_fast = ema_fast.clone().update(candle.close);
     let val_ema_medium = ema_medium.clone().update(candle.close);
     let val_ema_slow = ema_slow.clone().update(candle.close);
@@ -866,6 +1455,7 @@ fn broadcast_live_snapshot(
         atr: val_atr.as_ref(),
         bbwp: val_bbwp,
         vwap: val_vwap,
+        anchored_vwap: None,
         ema_stack_state,
         ema_fast: Some(val_ema_fast),
         ema_medium: Some(val_ema_medium),
@@ -876,10 +1466,27 @@ fn broadcast_live_snapshot(
         average_volume: avg_vol,
         fib: None,
         pattern: None,
-        support_levels,
-        resistance_levels,
+        support_levels: &[],
+        resistance_levels: &[],
         active_position: None,
         adx_consecutive_deceleration: false,
+        supertrend_flipped: false,
+        adx_di_crossover: None,
+        pivot_levels: None,
+        pivot_proximity_pct: 0.0015,
+        candlestick: None,
+        candlestick_min_confidence: 0.3,
+        ichimoku: None,
+        cci: None,
+        psar: None,
+        williams_r: None,
+        awesome_oscillator: None,
+        force_index: None,
+        hull_ma: None,
+        stddev_channel: None,
+        volume_profile: None,
+        smc: None,
+        prev: PreviousBarState::default(),
     });
 
     let snapshot = MarketSnapshot {
@@ -894,6 +1501,9 @@ fn broadcast_live_snapshot(
         bid_size: Some(candle.volume),
         ask_size: Some(candle.volume),
         funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        prev_day_px,
         open: Some(candle.open),
         high: Some(candle.high),
         low: Some(candle.low),
@@ -901,7 +1511,13 @@ fn broadcast_live_snapshot(
         volume: Some(candle.volume),
         average_volume: avg_vol,
         context: None,
+        decision_context: None,
+        statistical_context: None,
         indicators,
+        alignment: None,
+                        risk: None,
+        analysis: None,
+        risk_profile: None,
     };
 
     let _ = broadcast_tx.send(snapshot);

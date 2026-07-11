@@ -106,6 +106,8 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         fast: analyzer::TimeframePipeline {
             history: fast_history.clone(),
@@ -117,6 +119,8 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         slow: analyzer::TimeframePipeline {
             history: slow_history.clone(),
@@ -128,6 +132,8 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         r#macro: analyzer::TimeframePipeline {
             history: macro_history.clone(),
@@ -139,9 +145,13 @@ pub async fn build_pipelines(
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.003))),
             fibonacci: ctx.fib_config.clone(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
     });
 
     spawn_tasks(
@@ -427,6 +437,7 @@ async fn spawn_tasks(
                 bcast,
                 tf_cfg,
                 a_fib,
+                shared::statistics::StatisticsConfig::default(),
                 div_det,
                 hist,
                 snap,
@@ -439,6 +450,9 @@ async fn spawn_tasks(
                 candle_fwd,
                 warmed,
                 Some(a_pool),
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
+                crate::config::OrderBookConfig::default(),
             )
             .await;
         });

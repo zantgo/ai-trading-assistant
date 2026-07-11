@@ -2,101 +2,30 @@
     import { useAppStore } from '../state.svelte';
     import styles from './DecisionTrading.module.css';
     import MomentumMeter from './MomentumMeter.svelte';
-    import type { DecisionProfile, IndicatorRule } from '../types';
+    import type { DecisionProfile, IndicatorRule, AnalysisMatrix } from '../types';
 
     const app = useAppStore();
     const activePair = $derived(app.instancesMap[app.activeTab]);
     const microInd = $derived(activePair?.microTerm?.indicators ?? {});
+    const analysis = $derived(activePair?.analysis ?? null);
     let showNewIndicator = $state(false);
     let newIndicatorName = $state('');
-    let newIndicatorWeight = $state(10);
-
-    let eightFactorScore = $state(0);
-    let eightFactorMax = $state(90);
-    let eightFactorSignals = $state<Record<string, { passed: boolean; points: number; maxPoints: number; weight: number }>>({});
-    let computedAllocPct = $state(1);
-
-    const FACTOR_WEIGHTS: Record<string, number> = {
-        'RSI (Oversold/Overbought)': 12,
-        'MACD Crossover': 12,
-        'Divergence': 10,
-        'Support Level': 12,
-        'Resistance Level': 8,
-        '15m Trend': 12,
-        '200 EMA Position': 12,
-        'Chart Pattern': 12,
-    };
 
     $effect(() => {
         app.fetchDecisionProfiles();
     });
 
     function getActiveProfile(): DecisionProfile | undefined {
-        return app.decisionProfiles.find(p => p.id === app.activeDecisionProfileId);
-    }
-
-    function computeEightFactorScore() {
-        const snap = app.latestSnapshot || {};
-        const price = snap.mid_price ? parseFloat(String(snap.mid_price)) : 0;
-        const rsi = snap.rsi_14 ? parseFloat(String(snap.rsi_14)) : 50;
-        const macdLine = snap.macd_line ? parseFloat(String(snap.macd_line)) : 0;
-        const macdSignal = snap.macd_signal ? parseFloat(String(snap.macd_signal)) : 0;
-        const macdHist = snap.macd_hist ? parseFloat(String(snap.macd_hist)) : 0;
-        const squeezeOn = snap.squeeze_on ?? false;
-        const squeezeMom = snap.squeeze_momentum ? parseFloat(String(snap.squeeze_momentum)) : 0;
-        const emaLong = snap.ema_long ? parseFloat(String(snap.ema_long)) : price;
-
-        const supports = (app.markedSupportLevels.length > 0 ? app.markedSupportLevels : [price * 0.99, price * 0.98]);
-        const resistances = (app.markedResistanceLevels.length > 0 ? app.markedResistanceLevels : [price * 1.01, price * 1.02]);
-
-        const isBullish = app.currentPosition !== 'Short';
-
-        const rsiAligned = isBullish ? rsi < 30 : rsi > 70;
-        const macdAligned = isBullish ? macdLine > macdSignal : macdLine < macdSignal;
-        const divergence = isBullish ? (rsi < 40 || macdHist > 0) : (rsi > 60 || macdHist < 0);
-        const supportAligned = supports.some(s => Math.abs(price - s) < s * 0.005);
-        const resistanceAligned = resistances.some(r => Math.abs(price - r) < r * 0.005);
-        const trendAligned = isBullish;
-        const ema200Aligned = isBullish ? price > emaLong : price < emaLong;
-        const patternAligned = squeezeOn && (isBullish ? squeezeMom > 0 : squeezeMom < 0);
-
-        const factorResults: Record<string, boolean> = {
-            'RSI (Oversold/Overbought)': rsiAligned,
-            'MACD Crossover': macdAligned,
-            'Divergence': divergence,
-            'Support Level': supportAligned,
-            'Resistance Level': resistanceAligned,
-            '15m Trend': trendAligned,
-            '200 EMA Position': ema200Aligned,
-            'Chart Pattern': patternAligned,
-        };
-
-        eightFactorSignals = {};
-        eightFactorScore = 0;
-        for (const [name, passed] of Object.entries(factorResults)) {
-            const weight = FACTOR_WEIGHTS[name] ?? 10;
-            eightFactorSignals[name] = { passed, points: passed ? weight : 0, maxPoints: weight, weight };
-            if (passed) eightFactorScore += weight;
-        }
-
-        if (eightFactorScore >= 60) computedAllocPct = 3;
-        else if (eightFactorScore >= 40) computedAllocPct = 2;
-        else computedAllocPct = 1;
-
-        app.totalPointsScore = eightFactorScore;
-        app.allocatedCapitalPct = computedAllocPct;
-        app.markedSupportLevels = supports;
-        app.markedResistanceLevels = resistances;
+        return app.analysisProfiles.find(p => p.id === app.activeDecisionProfileId);
     }
 
     async function handleEvaluate() {
         await app.evaluateDecision(app.activeDecisionProfileId);
-        computeEightFactorScore();
     }
 
     async function addNewIndicator() {
         if (!newIndicatorName.trim()) return;
-        await app.addProfileIndicator(app.activeDecisionProfileId, newIndicatorName.trim(), newIndicatorWeight, 'NONE');
+        await app.addProfileIndicator(app.activeDecisionProfileId, newIndicatorName.trim(), 1, 'NONE');
         newIndicatorName = '';
         newIndicatorWeight = 10;
         showNewIndicator = false;
@@ -124,18 +53,31 @@
     }
 </script>
 
+{#if analysis}
+    <div class={styles.analysisMatrixBanner}>
+        <div class={styles.dmbBadge} class:bullish={analysis.bias === 'Bullish'} class:bearish={analysis.bias === 'Bearish'} class:neutral={analysis.bias === 'Neutral'}>
+            {analysis.bias.toUpperCase()}
+        </div>
+        <div class={styles.dmbInfo}>
+            <span class={styles.dmbConfidence}>Confidence: {(analysis.confidence * 100).toFixed(0)}%</span>
+            <span class={styles.dmbTfs}>· {analysis.timeframes_considered}/4 TFs</span>
+        </div>
+        <div class={styles.dmbRationale}>{analysis.rationale}</div>
+    </div>
+{/if}
+
 <div class={styles.dtLayout}>
     <!-- Left: Profiles column -->
     <div class={styles.dtSidebar}>
         <div class={styles.dtCard}>
             <h3 class={styles.dtCardTitle}>PROFILES</h3>
             <div class={styles.dtProfileList}>
-                {#each app.decisionProfiles as profile (profile.id)}
+                {#each app.analysisProfiles as profile (profile.id)}
                     <button class="{styles.dtProfileBtn} {profile.id === app.activeDecisionProfileId ? styles.active : ''}"
                         onclick={() => app.activeDecisionProfileId = profile.id}
                     >
                         <span>{profile.profile_name}</span>
-                        {#if app.decisionProfiles.length > 1}
+                        {#if app.analysisProfiles.length > 1}
                             <span class={styles.dtDeleteIcon} role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); app.deleteDecisionProfile(profile.id); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); app.deleteDecisionProfile(profile.id); } }}>×</span>
                         {/if}
                     </button>
@@ -175,8 +117,8 @@
                         <span class={styles.dtSliderLabel}>LONG</span>
                     </div>
                 </div>
-                <button class={styles.dtEvalBtn} onclick={handleEvaluate} disabled={app.decisionLoading}>
-                    {app.decisionLoading ? 'Evaluating...' : 'Evaluate Decision'}
+                <button class={styles.dtEvalBtn} onclick={handleEvaluate} disabled={app.analysisLoading}>
+                    {app.analysisLoading ? 'Evaluating...' : 'Evaluate Decision'}
                 </button>
             </div>
 

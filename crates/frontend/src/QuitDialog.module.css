@@ -1,62 +1,69 @@
-.quit-overlay {
+.quitOverlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.75);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(6px);
 }
-.quit-dialog {
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+.quitDialog {
+    background: #131722;
+    border: 1px solid #2a2e39;
     border-radius: 12px;
-    padding: 2rem;
+    padding: 2.5rem 2rem;
     width: 100%;
-    max-width: 400px;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+    max-width: 420px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     text-align: center;
+    font-family: 'Inter', system-ui, sans-serif;
 }
-.quit-icon {
-    font-size: 2.5rem;
-    margin-bottom: 0.5rem;
+.quitIcon {
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: center;
 }
-.quit-title {
+.quitTitle {
     color: #e0e0ff;
-    font-size: 1.2rem;
+    font-size: 1.4rem;
+    font-weight: 700;
     margin: 0 0 0.75rem 0;
 }
-.quit-message {
-    color: #aaaacc;
+.quitMessage {
+    color: #64748b;
     font-size: 0.85rem;
-    line-height: 1.5;
+    line-height: 1.6;
     margin: 0 0 1.5rem 0;
 }
-.quit-message strong {
-    color: #ff9999;
+.quitMessage strong {
+    color: #f87171;
+    font-weight: 600;
 }
-.quit-actions {
+.quitActions {
     display: flex;
     gap: 0.75rem;
     justify-content: center;
 }
-.quit-cancel {
+.quitCancel {
     padding: 0.6rem 1.5rem;
-    background: #333355;
-    border: 1px solid #444466;
+    background: transparent;
+    border: 1px solid #2a2e39;
     border-radius: 8px;
-    color: #aaaacc;
+    color: #cbd5e1;
     font-size: 0.9rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
+    font-family: inherit;
 }
-.quit-cancel:hover:not(:disabled) {
-    background: #3a3a5a;
+.quitCancel:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: #3e4451;
 }
-.quit-confirm {
+.quitConfirm {
     padding: 0.6rem 1.5rem;
-    background: #cc3333;
+    background: #ef4444;
     border: none;
     border-radius: 8px;
     color: white;
@@ -67,12 +74,13 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    font-family: inherit;
 }
-.quit-confirm:hover:not(:disabled) {
+.quitConfirm:hover:not(:disabled) {
     opacity: 0.85;
 }
-.quit-cancel:disabled,
-.quit-confirm:disabled {
+.quitCancel:disabled,
+.quitConfirm:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }

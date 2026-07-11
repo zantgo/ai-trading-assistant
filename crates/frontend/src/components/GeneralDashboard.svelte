@@ -217,6 +217,48 @@
         <div class={styles.utcClock}>{utcTime}</div>
     </div>
 
+    <!-- State Matrix Summary (system-wide) -->
+    {#if app.stateMatrix && app.stateMatrix.instance_count > 0}
+        <div class={styles.stateMatrixStrip}>
+            <div class={styles.smItem}>
+                <span class={styles.smLabel}>Instances</span>
+                <span class={styles.smValue}>{app.stateMatrix.instance_count}</span>
+            </div>
+            <div class={styles.smItem}>
+                <span class={styles.smLabel}>Symbols</span>
+                <span class={styles.smValue}>{app.stateMatrix.active_symbols.length}</span>
+            </div>
+            <div class={styles.smItem}>
+                <span class={styles.smLabel}>Global Bias</span>
+                <span class={styles.smValue} class:smBullish={app.stateMatrix.global_bias_label.includes('BULL')} class:smBearish={app.stateMatrix.global_bias_label.includes('BEAR')} class:smNeutral={app.stateMatrix.global_bias_label === 'NO_DATA' || app.stateMatrix.global_bias_label === 'NEUTRAL'}>
+                    {app.stateMatrix.global_bias_label.replace(/_/g, ' ')}
+                </span>
+            </div>
+            <div class={styles.smItem}>
+                <span class={styles.smLabel}>Active Signals</span>
+                <span class={styles.smValue}>{app.stateMatrix.active_signals_total}</span>
+            </div>
+            {#each Object.entries(app.stateMatrix.regime_distribution ?? {}) as [regime, count] (regime)}
+                <div class={styles.smItem}>
+                    <span class={styles.smLabel}>{regime}</span>
+                    <span class={styles.smValue}>{count}</span>
+                </div>
+            {/each}
+        </div>
+
+        <!-- Per-Symbol Decision Summary -->
+        <div class={styles.symbolDecisionsStrip}>
+            {#each app.stateMatrix.per_symbol_summary as sym (sym.symbol)}
+                {@const biasClass = sym.bias === 'Bullish' ? 'smBullish' : sym.bias === 'Bearish' ? 'smBearish' : 'smNeutral'}
+                <div class={styles.symDecision}>
+                    <span class={styles.symName}>{sym.symbol}</span>
+                    <span class={styles.symBias} class:smBullish={biasClass === 'smBullish'} class:smBearish={biasClass === 'smBearish'} class:smNeutral={biasClass === 'smNeutral'}>{sym.bias.toUpperCase()}</span>
+                    <span class={styles.symConf}>{(sym.confidence * 100).toFixed(0)}% · {sym.timeframes_present} TFs · {sym.regime}</span>
+                </div>
+            {/each}
+        </div>
+    {/if}
+
     {#if loading}
         <div class={styles.loadingRow}>Loading...</div>
     {:else if instances.length === 0}

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This project is configured as a Cargo Workspace containing an ingestion daemon and a Svelte 5 market monitoring dashboard. The goal is to act as a **Market Monitor** that provides real-time technical indicator visualization and market regime analysis.
+This project is a **Market Monitor** — an observational market analysis tool that streams live cryptocurrency data from exchanges, computes 43+ technical indicators across 4 timeframes, synthesizes market state, and produces directional bias output. It does **not** execute trades. Built as a Cargo Workspace containing an ingestion daemon and a Svelte 5 dashboard.
 
 ## Project overview
 Rust workspace with 2 crates (`shared`, `engine`) and a Svelte 5 frontend.

@@ -1,12 +1,31 @@
 # System Architecture
 
-The Market Monitor implements a real-time market telemetry pipeline combining multi-timeframe analysis, deterministic indicator computation, and interactive charting.
+The Market Monitor implements a real-time market telemetry pipeline combining
+multi-timeframe analysis, deterministic indicator computation, and interactive
+charting. It is an observational tool — it does not execute trades.
+
+For the formal ontology defining entities, metrics, signals, states, decisions,
+and the 12 classification axes, see [ontology.md](ontology.md).
+For the complete indicator reference, see [metrics-matrix.md](metrics-matrix.md).
+For the Metrics → State → Decision matrix flow, see [monitor-matrices.md](monitor-matrices.md).
 
 ## Core Crate Topology
 
-- `crates/shared`: Domain representations (`MarketSnapshot`), normalized exchange events, and functional indicator calculations (EMA, RSI, MACD, ADX, ATR, Bollinger, Squeeze, BBWP, Fibonacci, Chart Patterns, Divergence, +25 more).
-- `crates/engine`: High-performance daemon maintaining live Hyperliquid/Bitget WebSocket connections, multi-timeframe candle aggregation, SQLite telemetry persistence, and the Axum HTTP/WS dashboard server.
-- `crates/frontend`: Svelte 5 application providing interactive charting, real-time WebSocket snapshots, decision scoring, commission calculator, and market analysis tools.
+- `crates/shared`: Domain representations (`MarketSnapshot`), normalized exchange events, and 43+ functional indicator calculators (EMA, RSI, MACD, ADX, ATR, Bollinger, Squeeze, BBWP, +35 more) plus normalization engine, registry, and MarketContext synthesis.
+- `crates/engine`: High-performance daemon maintaining live Hyperliquid/Bitget WebSocket connections, multi-timeframe candle aggregation, indicator pipeline, SQLite telemetry persistence, and the Axum HTTP/WS dashboard server.
+- `crates/frontend`: Svelte 5 application providing interactive charting across 4 timeframes, real-time WebSocket snapshots, telemetry matrix, and MarketContext dashboard.
+
+## Data Flow (Ontological Levels)
+
+The architecture maps to the 5 ontological levels defined in [ontology.md](ontology.md):
+
+```
+Entity    → Ingestion Layer    (WebSocket → CandleGenerator)
+Metric    → Calculator + Normalization Layers
+Signal    → Normalization + Signal Derivation
+State     → MarketContext Synthesis
+Decision  → Confluence + Decision Matrix
+```
 
 ## 5-Layer Architecture
 
@@ -17,18 +36,19 @@ The Market Monitor implements a real-time market telemetry pipeline combining mu
 - **Normalization**: `SymbolMapper` translates exchange-specific symbols into normalized identifiers
 
 ### Layer 2 — Analysis
-- **Indicator Engine**: EMA(10/50/100/200), RSI(14), MACD(12/26/9), ADX(14) with DI+/DI- crossovers, ATR(14) with volatility regime, Bollinger Bands, Squeeze Momentum, BBWP(252/20), VWAP, Fibonacci retracement/extensions, Stochastic, ChandeMO, Supertrend, Keltner Channels, Donchian Channels, OBV, CMF, MFI, Historical Volatility, Aroon, Choppiness Index, Linear Regression Slope, Z-Score, RVOL
-- **Market Structure Engine**: Swing highs/lows, S/R role tracking with flip detection, chart pattern classification
-- **Volume Analysis**: RVOL (relative volume), average volume tracking, volume profile levels
-- **Regime Detection Engine**: Classifies market into Trending, Compression, Expansion, or Range using ADX, BBWP, Squeeze state, and ATR regime
+- **Indicator Engine**: 43+ calculator modules across 8 functional groups
+- **Normalization Engine**: Maps raw values → unified [-1,+1] scale with state labels and signals
+- **Derived Metrics**: MarketContext synthesis (trend/momentum/vol/vol/liquidity/regime per instance)
+- **Market Structure Engine**: Swing highs/lows, S/R role tracking, chart pattern classification
+- **Regime Detection**: Classifies market into Trending, Compression, Expansion, or Range
 
-### Layer 3 — Decision Scoring
-- **8-Factor Confluence Score**: RSI (10pt), RSI Divergence (20pt), MACD (10pt), MACD Divergence (10pt), Support/Resistance (10pt), Trend (20pt), 200EMA (10pt), Patterns (10pt)
-- **Registry-Based Scoring**: Weighted confluence scoring across all 34 registered indicators with per-regime multipliers
-- **Opposite-Signal Exit Evaluation**: Evaluates exit signals for existing positions
-- **Momentum Bias**: Directional bias computed from indicator alignment
+### Layer 3 — Market Intelligence Pipeline
+- **Alignment Matrix**: Cross-timeframe MTF agreement (micro×fast×slow×macro) per symbol
+- **Risk Matrix**: Market risk assessment (volatility, liquidity, trend, structural, signal reliability) + stop/target guidance
+- **Analysis Matrix**: Market bias, confidence, trade readiness, preferred strategy, warnings, opportunity scores
+- **State Matrix**: System-wide aggregation of all symbols and instances
 
-### Layer 4 — Risk & Commission Analysis
+### Layer 4 — Risk Analysis
 - **Risk Calculator**: `risk_calculator.rs` computes margin, liquidation price, position sizing, risk-reward ratios
 - **Commission & Fee Projection**: `commission.rs` calculates maker/taker fees, dual-entry projections, viability gates
 - **Profile-Based Configuration**: Decision profiles and risk profiles with per-indicator weight customization
