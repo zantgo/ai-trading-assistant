@@ -372,6 +372,7 @@ pub async fn query_latest_snapshot(
             alignment: None,
                         risk: None,
             analysis: None,
+                        advisory: None,
             decision_context: None,
             statistical_context: None,
             indicators,

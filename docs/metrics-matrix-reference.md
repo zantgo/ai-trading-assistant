@@ -263,7 +263,7 @@ context, not raw indicator values.
 ## Cross-References
 
 - **Formal ontology and axes**: [ontology.md](ontology.md)
-- **Three-matrix architecture**: [monitor-matrices.md](monitor-matrices.md)
+- **Six-matrix architecture**: [monitor-matrices-reference.md](monitor-matrices-reference.md)
 - **Master specification**: [indicator-system-master-spec.md](indicator-system-master-spec.md)
 - **Registry source**: `crates/shared/src/indicators/registry.rs` (single source of truth)
 - **Signal model**: `crates/shared/src/indicators/normalized/mod.rs` (SignalKind, IndicatorSignal)

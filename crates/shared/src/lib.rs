@@ -11,9 +11,10 @@ pub mod market_context;
 pub mod models;
 pub mod normalized;
 pub mod alignment;
-pub mod risk;
 pub mod analysis;
-pub mod state_matrix;
+pub mod risk;
+pub mod advisory;
+pub mod overview;
 pub mod statistics;
 pub mod decision_context;
 

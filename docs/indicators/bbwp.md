@@ -59,3 +59,28 @@ BBWP serves as a filter to validate or invalidate directional indicator signals.
 
 *   **Squeeze Confirmation:** A **Squeeze OFF** (release) breakout signal from the Squeeze Momentum indicator is only valid if BBWP has recently dipped below the $10\%$ compression threshold. This ensures the squeeze has sufficient coiled energy to sustain a directional breakout.
 *   **Wedge/Triangle Breakouts:** Chart pattern breakouts (such as triangles or wedges) are significantly more reliable when they occur while BBWP is below $15\%$, confirming that the pattern has consolidated volatility before breaking out.
+
+## 5. Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| CompressionRelease | MAX_VOLATILITY_COMPRESSION | BBWP > 90 (extreme compression — coiled energy before expansion) | Neutral |
+| Threshold | VOLATILITY_EXHAUSTION_REVERSION_WARNING | BBWP > 90 (volatility peak → mean-reversion is probable) | Neutral |
+
+Both signals fire simultaneously on the same extreme-compression bar — they are distinct `SignalKind` values generated from separate trigger patterns in the signal engine.
+
+## 6. Normalization
+
+The BBWP normalized score in [-1, 1] is computed as:
+
+```
+bias = +1 (bullish cycle), -1 (bearish cycle), 0 (neutral)
+
+BBWP < 10 OR bias == 0  → 0.0
+BBWP 10–30              → bias × (0.2 + (BBWP−10)/20 × 0.2)   // range 0.2–0.4
+BBWP 30–70              → bias × (0.5 + (BBWP−30)/40 × 0.2)   // range 0.5–0.7
+BBWP 70–90              → bias × 0.8                           // high-vol expansion
+BBWP > 90               → bias × −0.1                           // exhaustion reversion
+```
+
+BBWP never reaches ±1.0. Its maximum magnitude is 0.8. Confidence = |normalized|, boosted by signal presence (Active → +0.15).

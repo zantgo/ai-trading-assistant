@@ -1,8 +1,6 @@
-# 🧭 Technical Analysis Indicator Reference & AI Rulebook
+# 🧭 Technical Analysis Indicator Reference
 
 **Detailed human-readable guides**: See `docs/indicators/` for in-depth documentation per indicator (RSI divergence spotting, chart annotations, confirmation walkthroughs).
-
-This condensed reference is loaded by the LLM engine. It provides the minimum mathematical rules and thresholds needed for AI agent reasoning. Keep sections dense — avoid verbose background to minimize API token costs.
 
 ---
 
@@ -13,16 +11,6 @@ This condensed reference is loaded by the LLM engine. It provides the minimum ma
 RSI measures the speed and change of price movements using Wilder's smoothing
 method. It oscillates between 0 and 100. Detailed divergence spotting rules
 are in `docs/indicators/rsi.md`.
-
-### AI Input Schema
-
-```json
-{
-  "rsi_value": 58.4,
-  "rsi_divergence_status": "none | potential_bullish | potential_bearish | confirmed_bullish | confirmed_bearish",
-  "recent_closes": [3120.0, 3122.5, 3124.0, 3123.5]
-}
-```
 
 ### Signal Threshold Matrix
 
@@ -58,20 +46,6 @@ Moving Average Convergence Divergence tracks the relationship between two moving
 averages of the asset's price to determine trend strength and momentum shifts.
 Detailed histogram divergence rules are in `docs/indicators/macd.md`.
 
-### AI Input Schema
-
-```json
-{
-  "macd_line": 1.25,
-  "signal_line": 0.95,
-  "histogram_value": 0.30,
-  "histogram_trend": "accelerating | decelerating",
-  "histogram_peak": 0.45,
-  "macd_divergence_status": "none | potential_bullish | potential_bearish | confirmed_bullish | confirmed_bearish",
-  "crossover_detected": false,
-  "crossover_direction": "BULLISH | BEARISH"
-}
-```
 
 ### Signal Threshold Matrix
 
@@ -122,17 +96,6 @@ Squeeze Momentum tracks Bollinger Bands compression relative to Keltner Channels
 to identify volatility compression (Squeeze ON) and explosive momentum releases
 (Squeeze OFF). Detailed mechanics in `docs/indicators/squeeze_momentum.md`.
 
-### AI Input Schema
-
-```json
-{
-  "squeeze_on": true,
-  "momentum_value": 0.045,
-  "squeeze_duration": 7,
-  "squeeze_release_trigger": false,
-  "momentum_direction": "BullishAcceleration"
-}
-```
 
 ### Momentum Direction Phases (CRITICAL)
 
@@ -175,19 +138,6 @@ to identify volatility compression (Squeeze ON) and explosive momentum releases
 ADX quantifies trend strength without regard to trend direction, while +DI and
 -DI define the prevailing direction. Detailed regime mechanics in `docs/indicators/adx.md`.
 
-### AI Input Schema
-
-```json
-{
-  "adx_line": 28.5,
-  "di_plus": 24.2,
-  "di_minus": 15.1,
-  "adx_slope": 1.2,
-  "adx_regime": "strong",
-  "di_crossover_detected": false,
-  "di_crossover_direction": "NONE"
-}
-```
 
 ### Trend Strength Regimes (CRITICAL)
 
@@ -228,20 +178,6 @@ ADX quantifies trend strength without regard to trend direction, while +DI and
 
 Bollinger Bands plot standard deviation envelope channels while ATR measures
 systemic market volatility. Detailed ATR risk mechanics in `docs/indicators/atr.md`.
-
-### AI Input Schema
-
-```json
-{
-  "mid_price": 3125.0,
-  "bb_upper": 3140.0,
-  "bb_middle": 3120.0,
-  "bb_lower": 3100.0,
-  "atr_value": 12.5,
-  "atr_slope": 0.3,
-  "atr_volatility_regime": "expanding"
-}
-```
 
 ### BB Signal Threshold Matrix
 
@@ -284,21 +220,6 @@ Evaluates basic market structural health by matching price relative to major
 Exponential Moving Averages (10, 50, 100, 200) and volume expansion.
 Detailed RVOL mechanics in `docs/indicators/volume.md`.
 
-### AI Input Schema
-
-```json
-{
-  "close": 3125.0,
-  "ema_fast": 3130.0,
-  "ema_medium": 3120.0,
-  "ema_slow": 3100.0,
-  "ema_long": 3080.0,
-  "volume": 450.5,
-  "average_volume": 320.0,
-  "rvol": 1.41,
-  "ema_stack_state": "bullish"
-}
-```
 
 ### Signal Threshold Matrix
 
@@ -349,15 +270,6 @@ Detailed RVOL mechanics in `docs/indicators/volume.md`.
 VWAP represents the true intraday average price weighted by cumulative execution
 volume. Resets daily (86,400s). Detailed mechanics in `docs/indicators/vwap.md`.
 
-### AI Input Schema
-
-```json
-{
-  "close": 3125.0,
-  "vwap": 3122.0,
-  "vwap_bias": "premium"
-}
-```
 
 ### Signal Threshold Matrix
 
@@ -490,8 +402,6 @@ Momentum oscillator ranking the close within its recent high-low range. Slowed %
 with a %D signal line. **Leading** — identifies overbought/oversold pivots before price
 confirms. Class: Leading · Group: Momentum · Directional · Divergence-capable.
 
-### AI Input Schema
-- `stochastic.k_line`, `stochastic.d_line` (0–100), `stochastic.normalized` ([-1,1], `(k-50)/50`).
 
 ### Signal Threshold Matrix
 - `%K >= 80` → OVERBOUGHT_DISTRIBUTION (bearish reversion watch).
@@ -506,8 +416,6 @@ Raw momentum ratio of summed gains vs losses over the lookback, natively bounded
 `[-100, 100]`, with no intermediate smoothing. Class: Leading · Group: Momentum ·
 Directional · Divergence-capable.
 
-### AI Input Schema
-- `chandemo.raw_value` (-100..100), `chandemo.normalized` (`cmo/100`).
 
 ### Signal Threshold Matrix
 - `>= +50` → CLIMACTIC_BULL_EXHAUSTION; `<= -50` → CLIMACTIC_BEAR_EXHAUSTION.
@@ -520,9 +428,6 @@ Directional · Divergence-capable.
 ATR-based trailing-stop / trend-direction indicator. The line flips sides as trend
 reverses. Class: Lagging · Group: Trend · Directional · Render: price overlay.
 
-### AI Input Schema
-- `supertrend.line` (price), `supertrend.direction` (+1 up / -1 down), `supertrend.normalized` (dir × distance conviction).
-
 ### Signal Threshold Matrix
 - `direction = +1` → SUPERTREND_BULLISH (line is trailing support).
 - `direction = -1` → SUPERTREND_BEARISH (line is trailing resistance).
@@ -533,9 +438,6 @@ reverses. Class: Lagging · Group: Trend · Directional · Render: price overlay
 ### Description
 EMA middle band ± (multiplier × ATR). Volatility envelope; complements TTM Squeeze
 (BB-inside-KC). Class: Lagging · Group: Trend · Directional · Render: price overlay.
-
-### AI Input Schema
-- `keltner.upper`, `keltner.middle`, `keltner.lower` (prices), `keltner.normalized` (price position within/beyond channel).
 
 ### Signal Threshold Matrix
 - `price >= upper` → KELTNER_UPPER_BREAKOUT (+1). `price <= lower` → KELTNER_LOWER_BREAKOUT (-1).
@@ -548,9 +450,6 @@ EMA middle band ± (multiplier × ATR). Volatility envelope; complements TTM Squ
 Highest-high / lowest-low over N bars (Turtle breakout system). Class: Lagging ·
 Group: Trend · Directional · Render: price overlay.
 
-### AI Input Schema
-- `donchian.upper`, `donchian.middle`, `donchian.lower` (prices), `donchian.normalized`.
-
 ### Signal Threshold Matrix
 - `price >= upper` → DONCHIAN_UPPER_BREAKOUT (+1). `price <= lower` → DONCHIAN_LOWER_BREAKOUT (-1).
 - Signals: Breakout, BandTouch. Breakouts require RVOL confirmation before acting.
@@ -562,8 +461,6 @@ Running cumulative volume signed by close direction; detects accumulation/distri
 before price. Normalized off its slope vs a smoothed baseline (unbounded raw). Class:
 Lagging · Group: Volume · Directional · Divergence-capable.
 
-### AI Input Schema
-- `obv.raw_value` (cumulative), `obv.values.obv_sma` (smoothed), `obv.normalized` (slope, tanh-scaled).
 
 ### Signal Threshold Matrix
 - `obv > obv_sma` → OBV_ACCUMULATION; `obv < obv_sma` → OBV_DISTRIBUTION.
@@ -575,8 +472,6 @@ Lagging · Group: Volume · Directional · Divergence-capable.
 Volume-weighted accumulation/distribution over N bars, natively `[-1, 1]`. Class:
 Hybrid · Group: Volume · Directional · Divergence-capable.
 
-### AI Input Schema
-- `cmf.raw_value` (-1..1), `cmf.normalized` (amplified ×3, clamped).
 
 ### Signal Threshold Matrix
 - `>= +0.20` → CMF_STRONG_BUYING; `+0.05..0.20` → CMF_BUYING_PRESSURE.
@@ -589,8 +484,6 @@ Hybrid · Group: Volume · Directional · Divergence-capable.
 Volume-weighted RSI over N bars, bounded `[0, 100]`. Class: Hybrid · Group: Volume ·
 Directional · Divergence-capable.
 
-### AI Input Schema
-- `mfi.raw_value` (0..100), `mfi.normalized` (RSI-style mapping).
 
 ### Signal Threshold Matrix
 - `>= 80` → MFI_OVERBOUGHT_DISTRIBUTION; `<= 20` → MFI_OVERSOLD_ACCUMULATION.
@@ -604,8 +497,6 @@ Annualized standard deviation of log returns over N bars (statistical volatility
 distinct from ATR's average range). **Non-directional** — used as a volatility gate,
 never a directional score. Class: Lagging · Group: Volatility · Gate.
 
-### AI Input Schema
-- `hv.raw_value` (annualized %), `hv.normalized` (0.0 — non-directional).
 
 ### Signal Threshold Matrix
 - `>= 100%` → EXTREME_VOLATILITY; `>= 60%` → HIGH_VOLATILITY; `<= 20%` → LOW_VOLATILITY; else NORMAL_VOLATILITY.
@@ -617,9 +508,6 @@ never a directional score. Class: Lagging · Group: Volatility · Gate.
 Measures the number of periods since the highest high / lowest low over the window,
 signalling trend emergence vs consolidation. Aroon Oscillator = Up − Down ∈ [-100, 100].
 Class: Hybrid · Group: Market Regime · Directional.
-
-### AI Input Schema
-- `aroon.values.up`, `aroon.values.down` (0–100), `aroon.raw_value` (oscillator), `aroon.normalized` (`osc/100`).
 
 ### Signal Threshold Matrix
 - `Up >= 70 & Down <= 30` → AROON_STRONG_UPTREND; mirror → AROON_STRONG_DOWNTREND.
@@ -633,9 +521,6 @@ Quantifies whether the market is trending (low) or ranging/choppy (high) over N 
 Bounded `[0, 100]`. **Non-directional** — a regime gate that dampens directional
 conviction when high. Class: Hybrid · Group: Market Regime · Gate.
 
-### AI Input Schema
-- `choppiness.raw_value` (0–100), `choppiness.normalized` (0.0 — non-directional).
-
 ### Signal Threshold Matrix
 - `>= 61.8` → CHOP_CONSOLIDATION_RANGE (avoid trend entries, expect chop/mean-reversion).
 - `<= 38.2` → CHOP_STRONG_TREND (trend-following favored). Else CHOP_TRANSITIONAL.
@@ -648,9 +533,6 @@ Slope of the least-squares regression line over the last N closes, scaled by pri
 a per-bar percentage. Positive = uptrend, negative = downtrend. Class: Lagging · Group:
 Market Regime · Directional.
 
-### AI Input Schema
-- `linreg_slope.raw_value` (slope, price/bar), `linreg_slope.normalized` (tanh of %/bar).
-
 ### Signal Threshold Matrix
 - `normalized > 0.1` → LINREG_RISING_TREND; `< -0.1` → LINREG_FALLING_TREND; else FLAT.
 - Signals: ZeroLineCross (trend flip), Threshold (steep slope).
@@ -662,9 +544,6 @@ Number of standard deviations the close sits from its N-bar mean. **Mean-reversi
 oriented — a stretched-high reading is bearish (distribution), stretched-low is bullish
 (accumulation). Class: Leading · Group: Market Regime · Directional.
 
-### AI Input Schema
-- `zscore.raw_value` (σ from mean), `zscore.normalized` (`clamp(-z/3)`, mean-reversion sign).
-
 ### Signal Threshold Matrix
 - `>= +2` → ZSCORE_OVEREXTENDED_HIGH (fade / expect pullback).
 - `<= -2` → ZSCORE_OVEREXTENDED_LOW (expect bounce). Else ABOVE/BELOW/AT mean.
@@ -674,7 +553,7 @@ oriented — a stretched-high reading is bearish (distribution), stretched-low i
 
 ## 25. Meta-Intelligence Layer
 
-Built on top of the 29 indicators (not additional indicators). All are backend-authoritative
+Built on top of the 43 unique indicator calculators (58 registry entries). All are backend-authoritative
 and surfaced in the **Terminal Monitor** tab.
 
 ### Indicator Confidence

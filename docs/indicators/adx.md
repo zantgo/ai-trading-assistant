@@ -143,3 +143,27 @@ Colors:
   🟠 Orange = Decelerating (slope negative, ADX > 20)
   🔴 Red    = Extreme exhaustion (ADX > 40)
 ```
+
+## 5. Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| Threshold | CLIMACTIC_BULL_TREND | ADX > 40 + consecutive deceleration ≥ 2 bars | Bearish (exhaustion) |
+| Threshold | CLIMACTIC_BEAR_TREND | ADX > 40 + consecutive deceleration ≥ 2 bars | Bullish (exhaustion) |
+| TrendFlip | ADX DI crossover | +DI crosses above -DI (bullish) / -DI crosses above +DI (bearish) — transition bar only | Bullish / Bearish |
+
+## 6. Normalization
+
+The ADX normalized score in [-1, 1] is computed as follows:
+
+```
+sign = +1.0 if +DI ≥ -DI, else -1.0
+
+ADX < 20            → 0.0   (TRENDLESS_CONGESTION)
+ADX 20–25           → sign × 0.30 (EMERGING)
+ADX 25–40           → sign × (0.50 + (ADX−25)/15 × 0.30)  (STRONG, range 0.50–0.80)
+ADX 40–60           → sign × (0.90 + (ADX−40)/20 × 0.10)  (CLIMACTIC, range 0.90–1.00)
+ADX > 60            → sign × 1.0
+```
+
+A 2-bar consecutive-deceleration hook caps climactic ADX at sign × 0.10 (hard exit override). Confidence defaults to |normalized|, boosted by up to +0.25 when Confirmed or +0.15 when Active signals are present.

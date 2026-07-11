@@ -8,6 +8,7 @@
     import AlignmentPanel from './components/AlignmentPanel.svelte';
     import RiskPanel from './components/RiskPanel.svelte';
     import AnalysisPanel from './components/AnalysisPanel.svelte';
+    import AdvisoryPanel from './components/AdvisoryPanel.svelte';
     import CommissionCalculator from './components/CommissionCalculator.svelte';
     import GeneralDashboard from './components/GeneralDashboard.svelte';
     import GeneralSettings from './components/GeneralSettings.svelte';
@@ -38,6 +39,7 @@
         { view: 'alignment', label: 'Alignment Panel',  svg: '<path d="M17 18a5 5 0 0 0-10 0"></path><line x1="12" y1="9" x2="12" y2="2"></line><line x1="4.22" y1="10.22" x2="1.5" y2="8"></line><line x1="19.78" y1="10.22" x2="22.5" y2="8"></line>' },
         { view: 'risk',      label: 'Risk Panel',       svg: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>' },
         { view: 'analysis',  label: 'Analysis Panel',   svg: '<circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line>' },
+        { view: 'advisory',  label: 'Advisory Panel',   svg: '<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>' },
         { view: 'commission', label: 'Fee Projection',    svg: '<line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>' },
         { view: 'settings',   label: 'Workspace Settings', svg: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>' },
     ];
@@ -189,6 +191,10 @@
                     <div class={styles.workspaceInnerContent + " " + 'animate-fade'}>
                         <AnalysisPanel />
                     </div>
+
+                <!-- Advisory Panel -->
+                {:else if pair.currentView === 'advisory'}
+                    <AdvisoryPanel pairKey={tabKey} />
 
                 <!-- Commission Fee Projection -->
                 {:else if pair.currentView === 'commission'}

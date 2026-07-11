@@ -17,7 +17,6 @@ mod all;
 mod context;
 mod extended;
 mod signals;
-pub mod signal_lifecycle;
 
 pub use all::IndicatorInputs;
 
@@ -242,6 +241,10 @@ pub struct PreviousBarState {
     /// Previous future-cloud colour sign (Senkou A − Senkou B) for twist detection.
     pub ichimoku_future_bias: Option<f64>,
     pub hull_ma: Option<f64>,
+    pub awesome_oscillator: Option<f64>,
+    pub force_index: Option<f64>,
+    pub williams_r: Option<f64>,
+    pub cci: Option<f64>,
 }
 
 /// Stateful context bridging the pure calculators to signed normalization.

@@ -105,3 +105,29 @@ RSI:    ╲___         ← Higher Low (second trough)
 ```
 
 The dashed divergence line on the RSI chart slopes upward, while the dashed line on the price chart slopes downward. When S₁ is broken, both lines become solid and the status upgrades to **Confirmed Bullish Divergence**.
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| Divergence | BULLISH/BEARISH_DIVERGENCE | Price makes lower low, RSI makes higher low (bullish); price makes higher high, RSI makes lower high (bearish). Detected via 20-bar PeakTrough comparison. Status upgrades from Potential → Confirmed when candle close breaks nearest S/R level by >0.2%. | Bullish/Bearish |
+| Threshold | OVERBOUGHT_DISTRIBUTION | RSI ≥ 70 — overbought distribution zone | Bearish |
+| Threshold | OVERSOLD_ACCUMULATION | RSI ≤ 30 — oversold accumulation zone | Bullish |
+| Threshold | BULLISH_MOMENTUM | RSI between 50-70 with upward slope — building bullish momentum | Bullish |
+| Threshold | BEARISH_MOMENTUM | RSI between 30-50 with downward slope — building bearish momentum | Bearish |
+| Threshold | RSI_NEUTRAL_RANGE | RSI oscillating tightly between 45-55 with no clear slope over 10 bars — sideways momentum | Neutral |
+| ZeroLineCross | RSI_ZERO_CROSS_BULLISH/BEARISH | RSI crosses the 50 midline — transition bar only | Bullish/Bearish |
+
+## Normalization
+
+The RSI normalized score in [-1, 1] is computed via piecewise sigmoid centered at 50:
+
+```
+rsi ≤ 30:  norm = 0.7 + (30 − rsi) / 30 × 0.3   → [0.7, 1.0]
+rsi ≥ 70:  norm = −0.7 − (rsi − 70) / 30 × 0.3  → [−1.0, −0.7]
+rsi ≤ 50:  norm = (50 − rsi) / 20 × 0.7          → [0, 0.7]
+rsi > 50:  norm = −(rsi − 50) / 20 × 0.7         → [−0.7, 0)
+```
+
+Divergence overrides: Confirmed bullish → +1.0; Confirmed bearish → -1.0; Potential adds ±0.15 boost.
+Confidence = |normalized|, with up to +0.25 boost from Confirmed or +0.08 from Potential signal status.

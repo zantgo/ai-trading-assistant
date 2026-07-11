@@ -7,8 +7,8 @@ the per-indicator specifications.
 
 For the formal ontology (entities, metrics, signals, states, decisions, and the 12
 classification axes), see [ontology.md](ontology.md).
-For the complete 58-indicator reference table, see [metrics-matrix.md](metrics-matrix.md).
-For the three-matrix architecture, see [monitor-matrices.md](monitor-matrices.md).
+For the complete 58-indicator reference table, see [metrics-matrix-reference.md](metrics-matrix-reference.md).
+For the six-matrix architecture, see [monitor-matrices-reference.md](monitor-matrices-reference.md).
 
 ---
 
@@ -18,17 +18,17 @@ For the three-matrix architecture, see [monitor-matrices.md](monitor-matrices.md
 L0 Ingestion      Hyperliquid + Bitget WS → CandleGenerator (micro60 / fast180 / slow300 / macro900)
 L1 Calculators    crates/shared/src/indicators/<name>.rs  (pure math, Decimal, stateful update())
 L2 Normalize+Sig  crates/shared/src/indicators/normalized/*  → NormalizedIndicatorValue { raw, normalized[-1,1], state_label, values{}, signals[] }
-L2.5 Alignment    crates/shared/src/alignment.rs  → AlignmentMatrix { MTF alignment per symbol }
+L2.5 Alignment    crates/shared/src/alignment.rs  → AlignmentMatrix { MTF alignment per symbol — 10 dimensions }
 L3 Registry       crates/shared/src/indicators/registry.rs   (INDICATORS: &[IndicatorMeta] — SINGLE SOURCE OF TRUTH)
 L4 Assembly       crates/engine/src/analyzer/{normalize,warm,mod}.rs → MarketSnapshot.indicators: HashMap<String, NormalizedIndicatorValue>
-L4.25 Risk        crates/shared/src/risk.rs  → RiskMatrix { market risk assessment per symbol }
-L4.5 Analysis     crates/shared/src/analysis.rs  → AnalysisMatrix { market assessment per symbol }
+L4.5 Analysis     crates/shared/src/analysis.rs  → AnalysisMatrix { market interpretation per symbol — 10 components }
+L4.6 Risk         crates/shared/src/risk.rs  → RiskMatrix { contextual risk evaluation — 9 dimensions }
+L4.7 Advisory     crates/shared/src/advisory.rs  → AdvisoryMatrix { human-facing guidance — 10 components }
 L5 Persist+Transport  SQLite telemetry.db · WS /ws · REST /api/history · /api/config (registry manifest)
-L5.5 State        crates/shared/src/state_matrix.rs  → StateMatrix { system-wide aggregation }
+L5.5 Overview     crates/shared/src/overview.rs  → OverviewMatrix { global market synthesis — 9 components }
 L6 FE State       crates/frontend/src/state.svelte.ts + stores/settings + lib/api.svelte.ts
-L7 Render         GeneralDashboard · Metrics Panel · Alignment Panel · Risk Panel · Analysis Panel
+L7 Render         Dashboard · Metrics Panel · Alignment Panel · Analysis Panel · Risk Panel · Advisory Panel
 L8 Scoring        Equal-weighted: all directional indicators contribute equally to signed mean
-L9 Agent (future) crates/engine/src/llm/ + docs/indicators-guide.md
 ```
 
 Golden rule: adding/altering an indicator = one registry entry + its L1 calculator +
@@ -92,8 +92,8 @@ SignalKind = Divergence | Crossover | Threshold | Breakout | BandTouch
 
 Every signal an indicator produces this snapshot is recorded in `signals[]`,
 broadcast via WebSocket, persisted in the database JSON blob, and displayed as
-TelemetryTable badges + chart markers. See [monitor-matrices.md](monitor-matrices.md)
-for how signals flow through the Metrics → State → Decision pipeline.
+TelemetryTable badges + chart markers. See [monitor-matrices-reference.md](monitor-matrices-reference.md)
+for how signals flow through the Metrics → Alignment → Analysis → Risk → Advisory → Overview pipeline.
 
 ---
 
@@ -240,11 +240,12 @@ synthesis and confluence scoring are live.
 - [x] Documentation: ontology, metrics matrix, monitor matrices, interpretation guide
 
 ### In Progress (current build)
-- [ ] Alignment Matrix: cross-timeframe MTF agreement per symbol
-- [ ] Risk Matrix: market risk assessment per symbol
-- [ ] Analysis Matrix: market assessment per symbol from Alignment + Risk
-- [ ] State Matrix: system-wide instance + bias aggregation
-- [ ] Frontend panels: Metrics Panel, Alignment Panel, Risk Panel, Analysis Panel, General Dashboard update
+- [ ] Alignment Matrix: 10-dimension cross-timeframe MTF agreement
+- [ ] Analysis Matrix: market interpretation per symbol (10 components)
+- [ ] Risk Matrix: contextual risk evaluation per symbol (9 dimensions)
+- [ ] Advisory Matrix: human-facing guidance per symbol (10 components)
+- [ ] Overview Matrix: global market synthesis (9 components)
+- [ ] Frontend panels: Metrics, Alignment, Analysis, Risk, Advisory, Dashboard
 
 ### Future
 - [ ] Agent integration layer (L9)

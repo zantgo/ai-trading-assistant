@@ -218,27 +218,27 @@
     </div>
 
     <!-- State Matrix Summary (system-wide) -->
-    {#if app.stateMatrix && app.stateMatrix.instance_count > 0}
+    {#if app.overviewMatrix && app.overviewMatrix.instance_count > 0}
         <div class={styles.stateMatrixStrip}>
             <div class={styles.smItem}>
                 <span class={styles.smLabel}>Instances</span>
-                <span class={styles.smValue}>{app.stateMatrix.instance_count}</span>
+                <span class={styles.smValue}>{app.overviewMatrix.instance_count}</span>
             </div>
             <div class={styles.smItem}>
                 <span class={styles.smLabel}>Symbols</span>
-                <span class={styles.smValue}>{app.stateMatrix.active_symbols.length}</span>
+                <span class={styles.smValue}>{app.overviewMatrix.active_symbols.length}</span>
             </div>
             <div class={styles.smItem}>
                 <span class={styles.smLabel}>Global Bias</span>
-                <span class={styles.smValue} class:smBullish={app.stateMatrix.global_bias_label.includes('BULL')} class:smBearish={app.stateMatrix.global_bias_label.includes('BEAR')} class:smNeutral={app.stateMatrix.global_bias_label === 'NO_DATA' || app.stateMatrix.global_bias_label === 'NEUTRAL'}>
-                    {app.stateMatrix.global_bias_label.replace(/_/g, ' ')}
+                <span class={styles.smValue} class:smBullish={app.overviewMatrix.global_bias_label.includes('BULL')} class:smBearish={app.overviewMatrix.global_bias_label.includes('BEAR')} class:smNeutral={app.overviewMatrix.global_bias_label === 'NO_DATA' || app.overviewMatrix.global_bias_label === 'NEUTRAL'}>
+                    {app.overviewMatrix.global_bias_label.replace(/_/g, ' ')}
                 </span>
             </div>
             <div class={styles.smItem}>
                 <span class={styles.smLabel}>Active Signals</span>
-                <span class={styles.smValue}>{app.stateMatrix.active_signals_total}</span>
+                <span class={styles.smValue}>{app.overviewMatrix.active_signals_total}</span>
             </div>
-            {#each Object.entries(app.stateMatrix.regime_distribution ?? {}) as [regime, count] (regime)}
+            {#each Object.entries(app.overviewMatrix.regime_distribution ?? {}) as [regime, count] (regime)}
                 <div class={styles.smItem}>
                     <span class={styles.smLabel}>{regime}</span>
                     <span class={styles.smValue}>{count}</span>
@@ -248,7 +248,7 @@
 
         <!-- Per-Symbol Decision Summary -->
         <div class={styles.symbolDecisionsStrip}>
-            {#each app.stateMatrix.per_symbol_summary as sym (sym.symbol)}
+            {#each app.overviewMatrix.per_symbol_summary as sym (sym.symbol)}
                 {@const biasClass = sym.bias === 'Bullish' ? 'smBullish' : sym.bias === 'Bearish' ? 'smBearish' : 'smNeutral'}
                 <div class={styles.symDecision}>
                     <span class={styles.symName}>{sym.symbol}</span>

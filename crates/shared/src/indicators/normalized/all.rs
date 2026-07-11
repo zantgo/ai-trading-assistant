@@ -912,6 +912,23 @@ impl NormalizationEngine {
             }
         }
 
+        // ── StdDev Channel BandTouch (distinct from Breakout). ──
+        if let (Some(u), Some(l)) = (inputs.stddev_upper, inputs.stddev_lower) {
+            let price = ctx.price;
+            if price < u && price > l && u > l {
+                let pos = (price - l) / (u - l);
+                if pos > 0.85 {
+                    if let Some(e) = out.get_mut("stddev_channel") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bearish, SignalStatus::Active, "STDDEV_UPPER_BAND_TOUCH"));
+                    }
+                } else if pos < 0.15 {
+                    if let Some(e) = out.get_mut("stddev_channel") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, SignalDirection::Bullish, SignalStatus::Active, "STDDEV_LOWER_BAND_TOUCH"));
+                    }
+                }
+            }
+        }
+
         // ── EMA fast/medium Crossover (distinct from StackChange). ──
         if let (Some(f), Some(m), Some(pf), Some(pm)) =
             (inputs.ema_fast, inputs.ema_medium, ctx.prev.ema_fast, ctx.prev.ema_medium)
@@ -1049,11 +1066,12 @@ impl NormalizationEngine {
             }
         }
 
-        // ── LevelTest on band proximity (bollinger/donchian/keltner). ──
+        // ── LevelTest on band proximity (bollinger/donchian/keltner/stddev). ──
         for (key, upper, lower) in &[
             ("bollinger", inputs.bb_upper, inputs.bb_lower),
             ("keltner", inputs.keltner_upper, inputs.keltner_lower),
             ("donchian", inputs.donchian_upper, inputs.donchian_lower),
+            ("stddev_channel", inputs.stddev_upper, inputs.stddev_lower),
         ] {
             if let (Some(u), Some(l)) = (*upper, *lower) {
                 if ctx.price < u && ctx.price > l && u > l {
@@ -1082,6 +1100,105 @@ impl NormalizationEngine {
             } else if pprice >= prev_hma && ctx.price < hma {
                 if let Some(e) = out.get_mut("hull_ma") {
                     e.signals.push(IndicatorSignal::new(SignalKind::Crossover, SignalDirection::Bearish, SignalStatus::Active, "HMA_PRICE_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── Awesome Oscillator zero-line cross (ZeroLineCross). ──
+        if let (Some(ao), Some(pao)) = (inputs.awesome_oscillator, ctx.prev.awesome_oscillator) {
+            if pao <= 0.0 && ao > 0.0 {
+                if let Some(e) = out.get_mut("awesome_oscillator") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bullish, SignalStatus::Active, "AO_ZERO_CROSS_BULLISH"));
+                }
+            } else if pao >= 0.0 && ao < 0.0 {
+                if let Some(e) = out.get_mut("awesome_oscillator") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bearish, SignalStatus::Active, "AO_ZERO_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── Awesome Oscillator threshold (extreme values). ──
+        if let Some(ao) = inputs.awesome_oscillator {
+            if ao > 50.0 {
+                if let Some(e) = out.get_mut("awesome_oscillator") {
+                    if !e.signals.iter().any(|s| s.label == "AO_EXTREME_BULLISH") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Bullish, SignalStatus::Active, "AO_EXTREME_BULLISH"));
+                    }
+                }
+            } else if ao < -50.0 {
+                if let Some(e) = out.get_mut("awesome_oscillator") {
+                    if !e.signals.iter().any(|s| s.label == "AO_EXTREME_BEARISH") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Bearish, SignalStatus::Active, "AO_EXTREME_BEARISH"));
+                    }
+                }
+            }
+        }
+
+        // ── Force Index zero-line cross (ZeroLineCross). ──
+        if let (Some(fi), Some(pfi)) = (inputs.force_index, ctx.prev.force_index) {
+            if pfi <= 0.0 && fi > 0.0 {
+                if let Some(e) = out.get_mut("force_index") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bullish, SignalStatus::Active, "FI_ZERO_CROSS_BULLISH"));
+                }
+            } else if pfi >= 0.0 && fi < 0.0 {
+                if let Some(e) = out.get_mut("force_index") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bearish, SignalStatus::Active, "FI_ZERO_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── Force Index threshold (extreme values). ──
+        if let Some(fi) = inputs.force_index {
+            if fi > 1000.0 {
+                if let Some(e) = out.get_mut("force_index") {
+                    if !e.signals.iter().any(|s| s.label == "FI_EXTREME_BULLISH") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Bullish, SignalStatus::Active, "FI_EXTREME_BULLISH"));
+                    }
+                }
+            } else if fi < -1000.0 {
+                if let Some(e) = out.get_mut("force_index") {
+                    if !e.signals.iter().any(|s| s.label == "FI_EXTREME_BEARISH") {
+                        e.signals.push(IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Bearish, SignalStatus::Active, "FI_EXTREME_BEARISH"));
+                    }
+                }
+            }
+        }
+
+        // ── Williams %R zero-line cross (ZeroLineCross — midpoint at -50). ──
+        if let (Some(wr), Some(pwr)) = (inputs.williams_r, ctx.prev.williams_r) {
+            if pwr <= -50.0 && wr > -50.0 {
+                if let Some(e) = out.get_mut("williams_r") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bullish, SignalStatus::Active, "WR_50_CROSS_BULLISH"));
+                }
+            } else if pwr >= -50.0 && wr < -50.0 {
+                if let Some(e) = out.get_mut("williams_r") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bearish, SignalStatus::Active, "WR_50_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── CCI zero-line cross (ZeroLineCross). ──
+        if let (Some(cci), Some(pcci)) = (inputs.cci, ctx.prev.cci) {
+            if pcci <= 0.0 && cci > 0.0 {
+                if let Some(e) = out.get_mut("cci") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bullish, SignalStatus::Active, "CCI_ZERO_CROSS_BULLISH"));
+                }
+            } else if pcci >= 0.0 && cci < 0.0 {
+                if let Some(e) = out.get_mut("cci") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bearish, SignalStatus::Active, "CCI_ZERO_CROSS_BEARISH"));
+                }
+            }
+        }
+
+        // ── MACD zero-line cross (ZeroLineCross). ──
+        if let (Some(ml), Some(pml)) = (inputs.macd_line, ctx.prev.macd_line) {
+            if pml <= 0.0 && ml > 0.0 {
+                if let Some(e) = out.get_mut("macd") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bullish, SignalStatus::Active, "MACD_ZERO_CROSS_BULLISH"));
+                }
+            } else if pml >= 0.0 && ml < 0.0 {
+                if let Some(e) = out.get_mut("macd") {
+                    e.signals.push(IndicatorSignal::new(SignalKind::ZeroLineCross, SignalDirection::Bearish, SignalStatus::Active, "MACD_ZERO_CROSS_BEARISH"));
                 }
             }
         }

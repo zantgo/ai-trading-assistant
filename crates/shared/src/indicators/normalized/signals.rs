@@ -95,10 +95,10 @@ pub(super) fn derive_signals(map: &mut Map) {
                 else { SignalDirection::Neutral };
             sigs.push(IndicatorSignal::new(SignalKind::LevelTest, d, SignalStatus::Active, l));
         }
-        // Supertrend / SR flip trend changes.
+        // S/R flip confirmed → Breakout.
         if l.contains("FLIP_CONFIRMED") {
             let d = if l.contains("RESISTANCE_FLIP") { SignalDirection::Bullish } else { SignalDirection::Bearish };
-            sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, l));
+            sigs.push(IndicatorSignal::new(SignalKind::Breakout, d, SignalStatus::Active, l));
         }
         // Volume climax.
         if l.contains("CLIMAX") && (key == "rvol" || key == "volume") {
@@ -257,12 +257,14 @@ pub(super) fn derive_signals(map: &mut Map) {
             sigs.push(IndicatorSignal::new(SignalKind::CompressionRelease, SignalDirection::Neutral, SignalStatus::Active, l));
         }
 
-        // Volume Profile breakout / POC retest / value rejection.
+        // Volume Profile breakout / POC retest / value rejection + TrendFlip.
         if key == "volume_profile" {
             if l.contains("BREAKOUT_ABOVE") {
                 sigs.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bullish, SignalStatus::Active, l));
+                sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bullish, SignalStatus::Active, "VP_TRENDFLIP_BULLISH"));
             } else if l.contains("BREAKOUT_BELOW") {
                 sigs.push(IndicatorSignal::new(SignalKind::Breakout, SignalDirection::Bearish, SignalStatus::Active, l));
+                sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, SignalDirection::Bearish, SignalStatus::Active, "VP_TRENDFLIP_BEARISH"));
             } else if l.contains("POC_SUPPORT") {
                 sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bullish, SignalStatus::Active, l));
             } else if l.contains("POC_RESISTANCE") {
@@ -270,8 +272,7 @@ pub(super) fn derive_signals(map: &mut Map) {
             }
         }
 
-        // ── Pivot Points level test (support/resistance proximity). Support
-        // tests are bullish (demand), resistance tests bearish (supply). ──
+        // ── Pivot Points level test (support/resistance proximity) + Breakout. ──
         if key == "pivot_points" {
             if l.contains("SUPPORT_TEST") {
                 sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bullish, SignalStatus::Active, l));
@@ -279,6 +280,9 @@ pub(super) fn derive_signals(map: &mut Map) {
                 sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Bearish, SignalStatus::Active, l));
             } else if l.contains("CENTRAL_TEST") {
                 sigs.push(IndicatorSignal::new(SignalKind::LevelTest, SignalDirection::Neutral, SignalStatus::Active, l));
+            } else if l.contains("BREAKOUT") || l.contains("FLIP") {
+                let d = if l.contains("BULLISH") || l.contains("ABOVE") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+                sigs.push(IndicatorSignal::new(SignalKind::Breakout, d, SignalStatus::Active, l));
             }
         }
 
@@ -293,12 +297,12 @@ pub(super) fn derive_signals(map: &mut Map) {
             }
         }
 
-        // ── SMC Liquidity: sweep→PatternForming, sweep detected→Threshold. ──
+        // ── SMC Liquidity: sweep→PatternForming + Threshold. ──
         if key == "smc_liquidity" {
             if l.contains("BUY_SWEEP") || l.contains("SELL_SWEEP") {
-                sigs.push(IndicatorSignal::new(SignalKind::PatternForming,
-                    if l.contains("BUY") { SignalDirection::Bullish } else { SignalDirection::Bearish },
-                    SignalStatus::Active, l));
+                let d = if l.contains("BUY") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+                sigs.push(IndicatorSignal::new(SignalKind::PatternForming, d, SignalStatus::Active, l));
+                sigs.push(IndicatorSignal::new(SignalKind::Threshold, d, SignalStatus::Active, "SMC_LIQUIDITY_SWEEP"));
             }
         }
 
@@ -309,11 +313,13 @@ pub(super) fn derive_signals(map: &mut Map) {
                 SignalStatus::Active, l));
         }
 
-        // ── SMC Order Blocks: tested→LevelTest, active→LevelTest. ──
+        // ── SMC Order Blocks: tested→LevelTest + TrendFlip. ──
         if key == "smc_order_blocks" && l != "SMC_OB_NONE" {
-            sigs.push(IndicatorSignal::new(SignalKind::LevelTest,
-                if l.contains("BULLISH") { SignalDirection::Bullish } else if l.contains("BEARISH") { SignalDirection::Bearish } else { SignalDirection::Neutral },
-                SignalStatus::Active, l));
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else if l.contains("BEARISH") { SignalDirection::Bearish } else { SignalDirection::Neutral };
+            sigs.push(IndicatorSignal::new(SignalKind::LevelTest, d, SignalStatus::Active, l));
+            if l.contains("ACTIVE") {
+                sigs.push(IndicatorSignal::new(SignalKind::TrendFlip, d, SignalStatus::Active, "SMC_OB_TRENDFLIP"));
+            }
         }
 
         // ── Anchored VWAP level tests / crossovers ──

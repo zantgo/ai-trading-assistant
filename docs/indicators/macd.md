@@ -108,3 +108,34 @@ MACD Histogram Coloring:
 Zero Line ────────────────────────────────────────────────────
             Bearish zone (below)  |  Bullish zone (above)
 ```
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| Crossover | BULLISH_CROSSOVER_ACCELERATING | MACD line crosses above signal line (structured push from engine) + label contains "CROSSOVER" | Bullish |
+| Crossover | BEARISH_CROSSOVER_ACCELERATING | MACD line crosses below signal line | Bearish |
+| ZeroLineCross | MACD zero cross | MACD line crosses the zero line | Bullish/Bearish |
+| Divergence | CONFIRMED_BULLISH/BEARISH_DIVERGENCE | Regular price-vs-MACD divergence detected (PeakTrough comparison over 20 bars) | Bullish/Bearish |
+| Threshold | MOMENTUM_FLATLINE or EXHAUSTION_WARNING | Histogram flat or showing exhaustion — momentum stall warning | Neutral |
+
+The Crossover signal fires via two distinct paths: (1) a structured push in `normalize_all` when `inputs.macd_crossover` is Some, and (2) a label-based trigger in `derive_signals` matching "CROSSOVER". Duplicate badges from both sources are intentional — each represents a separate detection layer.
+
+## Normalization
+
+The MACD normalized score in [-1, 1] is computed from crossover state and histogram dynamics:
+
+**Crossover present:**
+- Bullish crossover, macd_line < 0: norm = 0.8 + 0.2 × tanh(|macd_line|) → [0.8, 1.0) (ACCELERATING)
+- Bullish crossover, macd_line ≥ 0: norm = 0.2 (FOMO_REJECTED)
+- Bearish crossover, macd_line > 0: norm = -(0.8 + 0.2 × tanh(|macd_line|)) → (-1.0, -0.8] (ACCELERATING)
+- Bearish crossover, macd_line ≤ 0: norm = -0.2 (PANIC_REJECTED)
+
+**No crossover:** determined by histogram expansion vs contraction (peak vs current):
+- |histogram| ≈ 0: 0.0 (FLATLINE)
+- Expanding, macd_line > signal: 0.4 + 0.3 × tanh(|histogram|) → [0.4, 0.7]
+- Contracting, macd_line > signal: 0.3
+- Expanding, macd_line < signal: -(0.4 + 0.3 × tanh(|histogram|)) → [-0.7, -0.4]
+- Contracting, macd_line < signal: -0.3
+
+Confirmed divergence hard-overrides to ±1.0. The `values` sub-map carries: `line`, `signal`, `histogram`, `histogram_peak`.

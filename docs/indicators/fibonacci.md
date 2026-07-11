@@ -85,3 +85,25 @@ The $2.618$ extension is used as your ultimate profit-taking target:
 *   **Bearish Target:** 
     $$\text{Target}_{\text{Ultimate}} = \text{Anchor}_{\text{High}} - (D \times 2.618)$$
 *   **Application:** This target is utilized during high-volatility regimes (expanding ATR) or parabolic market expansions. It represents the extreme boundary of trend continuation.
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| LevelTest | BULLISH_GOLDEN_POCKET_REBOUND | Price tested the Golden Pocket zone from above and rebounded | Bullish |
+| LevelTest | BEARISH_GOLDEN_POCKET_REJECTION | Price tested the Golden Pocket zone from below and was rejected | Bearish |
+| LevelTest | GOLDEN_POCKET_NEUTRAL | Price is inside the GP zone but no clear rejection/rebound | Neutral |
+
+Extension targets (EXT_1618/2618 reached) do not currently emit discrete signals — they are rendered as price lines on the chart.
+
+## Normalization
+
+The Fibonacci normalized score in [-1, 1] is assigned from discrete states:
+- **BULLISH_GOLDEN_POCKET_REBOUND**: +1.0
+- **BEARISH_GOLDEN_POCKET_REJECTION**: -1.0
+- **GOLDEN_POCKET_NEUTRAL**: 0.0
+- **BULLISH_EXT_1618 / 2618**: +0.1 / +0.2
+- **BEARISH_EXT_1618 / 2618**: -0.1 / -0.2
+- **FIBONACCI_NEUTRAL**: 0.0
+
+The `values` sub-map carries `gp_bottom`, `gp_top`, `ext_1618`, `ext_2618` for chart price-line rendering. Confidence = |normalized|.

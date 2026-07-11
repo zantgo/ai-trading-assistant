@@ -741,6 +741,10 @@ pub async fn run_single(
                             (r.senkou_a - r.senkou_b).to_f64().unwrap_or(0.0).signum()
                         }),
                         hull_ma: hma_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+                        awesome_oscillator: ao_reading.map(|d| d.value.to_f64().unwrap_or(0.0)),
+                        force_index: fi_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+                        williams_r: wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+                        cci: cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
                     };
 
                     // Stamp signal freshness (age in completed bars).
@@ -858,6 +862,7 @@ pub async fn run_single(
                         alignment: None,
                         risk: None,
                         analysis: None,
+                        advisory: None,
                         risk_profile: None,
                     };
 
@@ -1047,12 +1052,25 @@ fn inject_derivatives_indicators(
 
     // Open Interest
     if let Some(o) = oi {
+        let signals = if o > 1_000_000_000.0 {
+            vec![IndicatorSignal {
+                kind: SignalKind::Threshold,
+                direction: SignalDirection::Neutral,
+                status: SignalStatus::Active,
+                label: "OI_ELEVATED".to_string(),
+                strength: 0.5,
+                age_bars: 0,
+                points: None,
+            }]
+        } else {
+            vec![]
+        };
         indicators.insert("open_interest".into(), NormalizedIndicatorValue {
             raw_value: o,
             normalized: 0.0,
             state_label: format!("OI_{:.0}", o),
             values: None,
-            signals: vec![],
+            signals,
             confidence: 0.5,
         });
     }
@@ -1071,15 +1089,32 @@ fn inject_derivatives_indicators(
                 else if delta < 0.0 { "OI_FALLING".to_string() }
                 else { "OI_STABLE".to_string() },
             values: None,
-            signals: if has_signal { vec![IndicatorSignal {
-                kind: SignalKind::Threshold,
-                direction: dir,
-                status: SignalStatus::Active,
-                label: if delta > 500.0 { "OI_SURGE".to_string() } else { "OI_DRAIN".to_string() },
-                strength: (delta.abs() / 1000.0).min(1.0),
-                age_bars: 0,
-                points: None,
-            }]} else { vec![] },
+            signals: {
+                let mut sigs = Vec::new();
+                if has_signal {
+                    sigs.push(IndicatorSignal {
+                        kind: SignalKind::Threshold,
+                        direction: dir,
+                        status: SignalStatus::Active,
+                        label: if delta > 500.0 { "OI_SURGE".to_string() } else { "OI_DRAIN".to_string() },
+                        strength: (delta.abs() / 1000.0).min(1.0),
+                        age_bars: 0,
+                        points: None,
+                    });
+                }
+                if delta.abs() < 100.0 && delta != 0.0 {
+                    sigs.push(IndicatorSignal {
+                        kind: SignalKind::ZeroLineCross,
+                        direction: if delta > 0.0 { SignalDirection::Bullish } else { SignalDirection::Bearish },
+                        status: SignalStatus::Active,
+                        label: "OI_DELTA_ZERO_CROSS".to_string(),
+                        strength: 0.3,
+                        age_bars: 0,
+                        points: None,
+                    });
+                }
+                sigs
+            },
             confidence: 0.5,
         });
     }
@@ -1517,6 +1552,7 @@ fn broadcast_live_snapshot(
         alignment: None,
                         risk: None,
         analysis: None,
+                        advisory: None,
         risk_profile: None,
     };
 

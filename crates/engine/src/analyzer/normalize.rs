@@ -428,10 +428,14 @@ fn inject_volume(
         if let Some(avg) = avg_volume {
             values.insert("average".to_string(), avg);
         }
-        map.insert(
-            "volume".into(),
-            NormalizedIndicatorValue::with_values(vol, 0.0, label, values),
-        );
+        let mut niv = NormalizedIndicatorValue::with_values(vol, 0.0, label, values);
+        if label == "VOLUME_CLIMAX" {
+            use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+            niv.signals.push(IndicatorSignal::new(
+                SignalKind::VolumeClimax, SignalDirection::Neutral, SignalStatus::Active, "VOLUME_CLIMAX",
+            ));
+        }
+        map.insert("volume".into(), niv);
     }
 }
 

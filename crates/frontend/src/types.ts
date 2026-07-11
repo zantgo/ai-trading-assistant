@@ -202,7 +202,7 @@ export interface MonitorResponse {
     market_context: MarketContext | null;
 }
 
-// ── Confluence Matrix (cross-timeframe MTF alignment per symbol) ──
+// ── Alignment Matrix (cross-timeframe MTF — 10 dimensions) ──
 export interface TfAlignmentInfo {
     timeframe: string;
     timeframe_secs: number;
@@ -214,83 +214,144 @@ export interface TfAlignmentInfo {
     price: number;
 }
 
+export interface AlignmentDimension {
+    score: number;
+    state: string;
+    confidence: number;
+}
+
 export interface AlignmentMatrix {
     symbol: string;
     timeframes_present: number;
+    dimensions: AlignmentDimension[];
     mtf_trend_alignment: number;
     mtf_momentum_alignment: number;
     mtf_volume_alignment: number;
     mtf_volatility_alignment: number;
     mtf_overall_score: number;
     mtf_overall_label: string;
-    timeframe_alignments: TfAlignment[];
+    timeframe_alignments: TfAlignmentInfo[];
     signal_cross_tf_count: number;
     trend_agreement_pct: number;
 }
 
-// ── Decision Matrix (per-symbol market bias) ──
-export type MarketBias = 'Bullish' | 'Bearish' | 'Neutral';
+// ── Analysis Matrix (market interpretation — 10 components) ──
+export type MarketBias = 'StrongBullish' | 'Bullish' | 'Neutral' | 'Bearish' | 'StrongBearish';
+export type MarketRegime = 'TRENDING_BULL' | 'TRENDING_BEAR' | 'RANGE' | 'ACCUMULATION' | 'DISTRIBUTION' | 'EXPANSION' | 'CONTRACTION' | 'TRANSITION';
+export type TrendAssessment = 'Weak' | 'Developing' | 'Healthy' | 'Strong' | 'Exhausted';
+export type MomentumAssessment = 'Increasing' | 'Stable' | 'Weakening' | 'Exhausted' | 'Reversing';
+export type StructureAssessment = 'Strong' | 'Healthy' | 'Weak' | 'Broken' | 'Unclear';
+export type VolatilityAssessment = 'Compressed' | 'Normal' | 'Expanding' | 'Extreme' | 'Unstable';
+export type VolumeAssessment = 'Weak' | 'Normal' | 'Strong' | 'Exceptional';
+export type OpportunityType = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'NoClearOpportunity';
+export type QualityLevel = 'Poor' | 'Weak' | 'Average' | 'Good' | 'Excellent';
 
 export interface AnalysisMatrix {
     symbol: string;
     bias: MarketBias;
     confidence: number;
-    trade_readiness: string;
-    preferred_strategy: string;
-    market_quality: string;
-    warnings: string[];
+    market_regime: MarketRegime;
+    trend_assessment: TrendAssessment;
+    momentum_assessment: MomentumAssessment;
+    structure_assessment: StructureAssessment;
+    volatility_assessment: VolatilityAssessment;
+    volume_assessment: VolumeAssessment;
+    opportunity_analysis: OpportunityType;
+    market_quality: QualityLevel;
+    market_interpretation: string;
     rationale: string;
     supporting_signals: string[];
     contradicting_signals: string[];
     timeframes_considered: number;
 }
 
-// ── Risk Matrix (per-symbol market risk assessment) ──
+// ── Risk Matrix (risk evaluation — 9 dimensions) ──
 export type RiskLevel = 'VeryLow' | 'Low' | 'Moderate' | 'High' | 'Extreme';
-export type TrendStability = 'Weak' | 'Developing' | 'Healthy' | 'Strong' | 'Exhausted';
-export type SignalReliability = 'Poor' | 'Fair' | 'Good' | 'Excellent';
-export type StopMethod = 'ATR' | 'SwingLow' | 'SwingHigh' | 'Support' | 'Resistance' | 'VWAP' | 'Supertrend' | 'StructureBased';
-export type TargetMethod = 'Fibonacci' | 'SwingHigh' | 'SwingLow' | 'ATRMultiple' | 'Resistance' | 'Support' | 'Donchian';
+export type RiskState = 'Stable' | 'Increasing' | 'Elevated' | 'Critical' | 'Improving';
+
+export interface RiskDimension {
+    score: number;
+    level: RiskLevel;
+    state: RiskState;
+    confidence: number;
+}
 
 export interface RiskMatrix {
     symbol: string;
-    overall_market_risk: RiskLevel;
-    volatility_risk: RiskLevel;
-    liquidity_risk: RiskLevel;
-    trend_stability: TrendStability;
-    structural_risk: RiskLevel;
-    signal_reliability: SignalReliability;
-    suggested_stop_method: StopMethod;
-    suggested_stop_distance: number;
-    suggested_target_method: TargetMethod;
-    expected_rr: number;
+    market_risk: RiskDimension;
+    volatility_risk: RiskDimension;
+    liquidity_risk: RiskDimension;
+    structure_risk: RiskDimension;
+    momentum_risk: RiskDimension;
+    signal_risk: RiskDimension;
+    execution_risk: RiskDimension;
+    reward_risk: RiskDimension;
+    overall_risk: RiskDimension;
 }
 
-// ── State Matrix (system-wide aggregation) ──
-export interface SymbolSummary {
+// ── Advisory Matrix (human-facing guidance — 10 components) ──
+export type DirectionalGuidance = 'StrongLong' | 'Long' | 'Neutral' | 'Short' | 'StrongShort' | 'AvoidDirectionalExposure';
+export type MarketStance = 'Aggressive' | 'Constructive' | 'Neutral' | 'Cautious' | 'Avoid';
+export type OpportunityClass = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'NoClearOpportunity';
+export type StrategyEnvironment = 'TrendFollowing' | 'Breakout' | 'MeanReversion' | 'HighVolatility' | 'LowActivity' | 'Unfavorable';
+export type EntryGuidance = 'Immediate' | 'WaitForConfirmation' | 'Pullback' | 'Breakout' | 'NoEntryContext';
+export type ExitGuidance = 'TrendWeakening' | 'MomentumExhaustion' | 'StructureBreakdown' | 'RiskIncreasing' | 'NoWarning';
+export type StopLossGuidance = 'StructureBased' | 'VolatilityBased' | 'ATRBased' | 'SRBased' | 'NoRecommendation';
+export type TakeProfitGuidance = 'ResistanceBased' | 'RRBased' | 'VolatilityBased' | 'TrailingMethod' | 'NoRecommendation';
+
+export interface AdvisoryMatrix {
     symbol: string;
-    bias: MarketBias;
-    confidence: number;
-    mtf_overall_score: number;
-    timeframes_present: number;
-    regime: string;
-    supporting_signals_count: number;
-    contradicting_signals_count: number;
+    directional_guidance: DirectionalGuidance;
+    market_stance: MarketStance;
+    opportunity_classification: OpportunityClass;
+    strategy_environment: StrategyEnvironment;
+    entry_guidance: EntryGuidance;
+    exit_guidance: ExitGuidance;
+    stop_loss_guidance: StopLossGuidance;
+    take_profit_guidance: TakeProfitGuidance;
+    confidence_assessment: number;
+    final_recommendation: string;
 }
 
-export interface StateMatrix {
+// ── Overview Matrix (global market synthesis — 9 components) ──
+export type GlobalBias = 'StrongBullish' | 'Bullish' | 'Neutral' | 'Bearish' | 'StrongBearish' | 'Mixed';
+export type MarketBreadth = 'VeryWeak' | 'Weak' | 'Balanced' | 'Positive' | 'StrongPositive' | 'Negative' | 'StrongNegative';
+export type SyncLevel = 'HighlySynchronized' | 'Synchronized' | 'Mixed' | 'Fragmented' | 'HighlyFragmented';
+export type HealthLevel = 'Poor' | 'Weak' | 'Neutral' | 'Healthy' | 'Strong';
+
+export interface AssetRank {
+    symbol: string;
+    score: number;
+    bias: string;
+    confidence: number;
+    regime: string;
+    risk_level: string;
+}
+
+export interface RiskDistribution {
+    low_pct: number;
+    moderate_pct: number;
+    high_pct: number;
+    risk_environment: string;
+}
+
+export interface OverviewMatrix {
+    global_market_bias: GlobalBias;
+    market_breadth: MarketBreadth;
+    regime_distribution: Record<string, number>;
+    opportunity_distribution: Record<string, number>;
+    risk_distribution: RiskDistribution;
+    asset_ranking: AssetRank[];
+    market_synchronization: SyncLevel;
+    market_health: HealthLevel;
+    global_summary: string;
     instance_count: number;
     active_symbols: string[];
-    total_timeframes_active: number;
-    regime_distribution: Record<string, number>;
-    global_bias_label: string;
-    per_symbol_summary: SymbolSummary[];
-    active_signals_total: number;
 }
 
 // ── Indicator registry manifest (mirror Rust shared::indicators::registry) ──
 export type IndicatorGroup =
-    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Advanced';
+    | 'Trend' | 'Momentum' | 'Volume' | 'Volatility' | 'Structure' | 'Regime' | 'Institutional' | 'DerivativesData';
 export type IndicatorClass = 'Leading' | 'Hybrid' | 'Lagging';
 export type RenderKind = 'Pane' | 'PriceOverlay' | 'PriceLevels' | 'Marker';
 export interface IndicatorMeta {
@@ -405,7 +466,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'risk' | 'analysis' | 'commission' | 'settings' | 'positions' | 'costs' | 'assistant' | 'ledger';
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'analysis' | 'risk' | 'advisory' | 'commission' | 'settings';
 
 export interface InstanceState {
     symbol: string;
@@ -418,8 +479,9 @@ export interface InstanceState {
     historyLatestClose: string;
     currentView: CurrentView;
     alignment: AlignmentMatrix | null;
-    risk: RiskMatrix | null;
     analysis: AnalysisMatrix | null;
+    risk: RiskMatrix | null;
+    advisory: AdvisoryMatrix | null;
 }
 
 export interface ScaleInPortion {
@@ -456,7 +518,7 @@ export interface TimeframeOption {
     seconds: number;
 }
 
-export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
+export type MarketBias = "StrongBullish" | "Bullish" | "Neutral" | "Bearish" | "StrongBearish"; export type MarketRegime = "TRENDING_BULL" | "TRENDING_BEAR" | "RANGE" | "ACCUMULATION" | "DISTRIBUTION" | "EXPANSION" | "CONTRACTION" | "TRANSITION"; export type TrendAssessment = "Weak" | "Developing" | "Healthy" | "Strong" | "Exhausted"; export type MomentumAssessment = "Increasing" | "Stable" | "Weakening" | "Exhausted" | "Reversing"; export type StructureAssessment = "Strong" | "Healthy" | "Weak" | "Broken" | "Unclear"; export type VolatilityAssessment = "Compressed" | "Normal" | "Expanding" | "Extreme" | "Unstable"; export type VolumeAssessment = "Weak" | "Normal" | "Strong" | "Exceptional"; export type OpportunityType = "TrendContinuation" | "Breakout" | "Pullback" | "MeanReversion" | "Reversal" | "NoClearOpportunity"; export type QualityLevel = "Poor" | "Weak" | "Average" | "Good" | "Excellent"; export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
     { label: '1 sec', seconds: 1 },
     { label: '3 sec', seconds: 3 },
     { label: '5 sec', seconds: 5 },

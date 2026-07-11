@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Market Monitor is a desktop market analysis tool that streams live cryptocurrency data from Hyperliquid and Bitget, computes 34+ technical indicators in real time, and provides an interactive dashboard for market observation. It is a monitoring and analysis tool — it does **not** execute trades.
+The Market Monitor is a desktop market analysis tool that streams live cryptocurrency data from Hyperliquid and Bitget, computes technical indicators in real time, and provides an interactive dashboard for market observation. It is a monitoring and analysis tool — it does **not** execute trades.
 
 ---
 
@@ -147,16 +147,14 @@ Within each instance, sub-tabs provide:
 
 | Sub-Tab | Content |
 |---|---|
-| **Live Terminal** | Price chart, Volume, ADX, ATR, RSI, MACD, Squeeze Momentum, and 20+ additional indicator panels |
-| **Terminal Monitor** | Multi-timeframe analysis with market context and regime classification |
-| **Decision Trading** | Market bias analysis with equal-weighted indicator confluence, momentum bias display |
+| **Live Panel** | Price chart, Volume, ADX, ATR, RSI, MACD, Squeeze Momentum, and 20+ additional indicator panels |
+| **Metrics Panel** | Per-instance indicator telemetry, signal activity, and derived metrics |
+| **Alignment Panel** | Multi-timeframe agreement visualization across 10 alignment dimensions |
+| **Risk Panel** | Market risk assessment — 9 risk dimensions with score, level, state, and confidence |
+| **Analysis Panel** | Market interpretation — bias, regime, trend/momentum/structure/volatility/volume assessments |
+| **Advisory Panel** | Human-facing guidance — directional guidance, entry/exit, stop/take-profit recommendations |
 | **Fee Projection** | Commission calculator with fee tables, dual-entry projections, and viability checks |
-| **Performance Metrics** | Dashboard statistics, equity curves, daily activity |
-| **Trade Audit** | Trade analytics and audit tools |
-| **Trade Ledger** | Trade history and journaling |
-| **Decision HUD** | Live decision observability and market snapshot data |
-| **Timeframe Settings** | Configure candle duration and indicator periods per timeframe |
-| **Workspace Settings** | Per-instance configuration and automation settings |
+| **Workspace Settings** | Per-instance timeframe and indicator parameter configuration |
 
 ### Real-Time Data
 
@@ -166,21 +164,11 @@ The connection status dot in the header is blue when connected, grey when reconn
 
 ---
 
-## Decision Trading — 8-Factor Scoring
+## Market Bias — Equal-Weighted Confluence
 
-The Decision Trading panel provides a confluence-based market scoring system:
+All 49 directional indicators contribute equally to the Market Monitor's signed mean score. There is no per-indicator weighting, no regime-aware indicator multipliers, and no configurable scoring weights. The system is an observational tool — it does not optimize for trade signal quality, it describes the market objectively.
 
-The 8 factors scored are:
-1. **RSI** (10 points) — Oversold/overbought evaluation
-2. **RSI Divergence** (20 points) — Confirmed divergence detection
-3. **MACD** (10 points) — Crossover and momentum direction
-4. **MACD Divergence** (10 points) — Histogram divergence
-5. **Support/Resistance** (10 points) — Price proximity to key levels
-6. **Trend** (20 points) — EMA alignment and ADX strength
-7. **200EMA** (10 points) — Long-term trend relative to price
-8. **Patterns** (10 points) — Chart pattern signals
-
-Each indicator can be weighted and enabled/disabled per profile. Regime multipliers (Compression, Trending, Range, Expansion) further adjust indicator weights based on current market conditions.
+Non-directional gates (ADX, ATR, BBWP, HV, volume, RVOL, choppiness, funding rate, spread) act as multipliers on overall conviction but never enter the signed sum.
 
 ---
 
@@ -194,27 +182,6 @@ The **Fee Reference Table** shows, for any combination of leverage and capital, 
 
 **Formula:** `Fees = Fee% x Capital x Leverage x 2` (x2 for round-trip open + close).
 `Min Profit % = Fees / Capital x 100`.
-
-### Dual-Entry Projection
-
-The tool calculates projections for a **two-entry** strategy:
-
-| Parameter | Description |
-|---|---|
-| **Entry 1 / Entry 2** | Two price levels where you split your entry |
-| **Stop Loss 1 / Stop Loss 2** | Per-entry stop-loss levels |
-| **Take Profit 1 / Take Profit 2** | Per-entry take-profit targets |
-| **Capital Split** | Percentage of capital allocated to Entry 1 (Entry 2 gets the remainder) |
-| **Order Type** | Maker (limit order, lower fee) or Taker (market order, higher fee) |
-
-### Projection Output
-
-The tool returns:
-- **Combined Position:** Weighted average entry, effective stop-loss/take-profit, total notional, total margin, total risk
-- **Per-Entry Metrics:** Capital allocated, position size, notional value, margin required, risk amount, potential profit, fees, and net profit for each entry
-- **Fee Breakdown:** Maker vs taker fee rates, per-entry commission, total commission, funding costs, and the minimum profit % needed to break even
-- **Scenario Projections:** Maximum gain (gross and net), maximum loss (gross and net), required price move %
-- **Viability Gate:** A yes/no decision — if the maximum net gain after fees is negative or zero, the trade is flagged as **NOT VIABLE**
 
 ### Configuration
 

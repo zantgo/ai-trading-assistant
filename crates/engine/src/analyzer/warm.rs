@@ -610,6 +610,7 @@ fn build_historical_snapshot(
         alignment: None,
                         risk: None,
         analysis: None,
+                        advisory: None,
         risk_profile: None,
     }
 }

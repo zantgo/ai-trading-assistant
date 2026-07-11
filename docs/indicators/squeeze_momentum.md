@@ -116,3 +116,28 @@ Squeeze Momentum Chart:
 | `#00695c` Dark Green | Bullish Deceleration | EXIT Long |
 | `#b71c1c` Dark Red | Bearish Acceleration | Hold Short / Enter Short |
 | `#ff1744` Bright Red | Bearish Deceleration | EXIT Short |
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| CompressionRelease | COMPRESSION_COILING | Squeeze is ON (Bollinger bands inside Keltner channels) — coiled energy | Neutral |
+| CompressionRelease | BULLISH_VOLATILITY_RELEASE | Squeeze releases with positive momentum direction | Bullish |
+| CompressionRelease | BEARISH_VOLATILITY_RELEASE | Squeeze releases with negative momentum direction | Bearish |
+| Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-squeeze-momentum divergence detected via SeriesDivergence | Bullish/Bearish |
+| Threshold | BULLISH_EXPANSION_ACCELERATING | Momentum expanding in bullish direction | Bullish |
+| Threshold | BEARISH_EXPANSION_ACCELERATING | Momentum expanding in bearish direction | Bearish |
+| Threshold | BULLISH_MOMENTUM_EXHAUSTING / DECELERATING | Momentum decelerating (warning of stall) | Neutral |
+
+The Threshold signals for acceleration/deceleration are distinct from CompressionRelease — they capture momentum phase changes within an active trend, not the initial release from compression.
+
+## Normalization
+
+The Squeeze Momentum normalized score in [-1, 1] is computed from the squeeze state and momentum direction/strength:
+
+- **COMPRESSION_COILING** (squeeze on): 0.0 — no directional conviction during compression
+- **Release triggered:** ±1.0 in the direction of momentum
+- **Accelerating** (squeeze off): 0.5 + 0.4 × tanh(momentum_magnitude) → [0.5, 0.9] or [−0.9, −0.5]
+- **Decelerating** (squeeze off): 0.2 or −0.2
+
+The `values` sub-map carries the squeeze momentum direction and magnitude. Confidence = |normalized| with signal boosts.

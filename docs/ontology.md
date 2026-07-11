@@ -16,21 +16,21 @@ architecture, and future development.
 
 ## Ontological Levels
 
-The system models market information as a pipeline of seven ontological levels:
+The system models market information as a pipeline spanning **six analytical matrices** across **eight ontological levels** (Entity, Metric, and Signal are building-block levels that feed into the matrices):
 
 ```
-Entity → Metric → Signal → Alignment → Risk → Analysis → State
-  │        │        │        │          │       │         │
-  └────────┴────────┴────────┴──────────┴───────┴─────────┘
-                         described by AXES
+Entity → Metric → Signal → Alignment → Analysis → Risk → Advisory → Overview
+  │        │        │        │            │         │        │          │
+  └────────┴────────┴────────┴────────────┴─────────┴────────┴──────────┘
+                              described by AXES
 
-Instance level        Symbol level           System level
-(per symbol×TF)       (per symbol)          (all instances)
+Instance level             Symbol level                   System level
+(per symbol×TF)            (per symbol)                  (all instances)
 ```
 
-The levels ascend in aggregation scope: Entity and Metric are per-instance
-(one symbol on one timeframe), Signal is per-instance, Alignment and Risk and
-Analysis are per-symbol (cross-timeframe), and State is system-wide (all symbols).
+The levels ascend in aggregation scope: Entity, Metric, and Signal are
+per-instance (one symbol on one timeframe). Alignment, Analysis, Risk, and
+Advisory are per-symbol (cross-timeframe). Overview is system-wide (all symbols).
 
 ### Level 1: Entity
 
@@ -104,63 +104,111 @@ via MarketContext's local bias score.
 meaningful agreement. With 1 timeframe, Alignment is still defined but
 agreement metrics are N/A.
 
-### Level 5: Risk
+### Level 5: Analysis
 
-**Risk** assesses the market risk environment for a single symbol by consuming
-the Alignment Matrix. It does not know about portfolio or account state —
-it only evaluates market-derived risk factors. It answers: *given the current
-market conditions, how should risk be managed?*
-
-The Risk output contains:
-- `overall_market_risk`: VeryLow / Low / Moderate / High / Extreme
-- `volatility_risk`: derived from ATR + BBWP + Squeeze state
-- `liquidity_risk`: derived from volume + RVOL + VWAP + spread
-- `trend_stability`: Weak / Developing / Healthy / Strong / Exhausted
-- `structural_risk`: derived from S/R proximity + swing structure
-- `signal_reliability`: Poor / Fair / Good / Excellent
-- `suggested_stop_method`: ATR / SwingLow / Support / VWAP / Supertrend / StructureBased
-- `suggested_stop_distance`: in ATR multiples (e.g., 1.8)
-- `suggested_target_method`: Fibonacci / SwingHigh / ATRMultiple / Resistance
-- `expected_rr`: estimated risk/reward ratio
-
-Risk is computed by `compute_risk()` in `shared/src/risk.rs`.
-
-**Condition**: Requires an Alignment Matrix (≥2 timeframes).
-
-### Level 6: Analysis
-
-**Analysis** is the final per-symbol synthesis layer. It consumes the
-Alignment Matrix and Risk Matrix to produce a complete market assessment.
-It answers: *given all available evidence, what is the complete technical
-assessment for this symbol?*
-
-```
-Analysis = Bullish / Bearish / Neutral market bias
-```
+**Analysis** transforms structured observations and multi-timeframe
+relationships into a complete interpretation of current market conditions.
+It consumes the Metrics Matrices and Alignment Matrix. It answers: *given
+everything currently observed, what is the complete interpretation of
+this market?*
 
 The Analysis output contains:
-- `bias`: MarketBias (Bullish / Bearish / Neutral)
+- `bias`: MarketBias (StrongBullish / Bullish / Neutral / Bearish / StrongBearish)
+- `market_regime`: TrendingBull / TrendingBear / Range / Accumulation / Distribution / Expansion / Contraction / Transition
+- `trend_assessment`: TrendQuality (Weak / Developing / Healthy / Strong / Exhausted)
+- `momentum_assessment`: MomentumState (Increasing / Stable / Weakening / Exhausted / Reversing)
+- `structure_assessment`: StructureState (Strong / Healthy / Weak / Broken / Unclear)
+- `volatility_assessment`: VolatilityState (Compressed / Normal / Expanding / Extreme / Unstable)
+- `volume_assessment`: VolumeState (Weak / Normal / Strong / Exceptional)
+- `opportunity_analysis`: OpportunityType (TrendContinuation / Breakout / Pullback / MeanReversion / Reversal / NoClearOpportunity)
+- `market_quality`: QualityLevel (Poor / Weak / Average / Good / Excellent)
+- `market_interpretation`: human-readable summary
 - `confidence`: 0.0–1.0
-- `trade_readiness`: NotReady / Building / Ready / Confirmed / Late
-- `preferred_strategy`: TrendFollowing / Breakout / Pullback / RangeTrading / MeanReversion / Scalping / NoTrade
-- `market_quality`: Poor / Weak / Average / Good / Excellent
-- `warnings`: list of active risk warnings
-- `rationale`: human-readable explanation
-- `supporting_signals` / `contradicting_signals`
-- `opportunity_scores`: per-strategy 0–100 scores (trend, breakout, pullback, mean_reversion)
+- `rationale`, `supporting_signals`, `contradicting_signals`
 
 Analysis is computed by `derive_analysis()` in `shared/src/analysis.rs`.
 
-**Key distinction**: This is a **market assessment**, not a trade execution
-decision. The Market Monitor informs; it does not act.
+**Key distinction**: This is pure **market interpretation**. It does not
+evaluate risk, provide guidance, or recommend trading actions.
 
-**Condition**: Requires an Alignment Matrix + Risk Matrix (≥2 timeframes).
+**Condition**: Requires an Alignment Matrix (≥2 timeframes).
 
-### Level 7: State
+### Level 6: Risk
 
-**State** is the system-wide aggregation of all active Analysis Matrices
-and instance metadata. It provides the global dashboard overview. It answers:
-*what is the state of the entire Market Monitor right now?*
+**Risk** evaluates the level of uncertainty surrounding the current market
+interpretation. It consumes the Analysis Matrix — risk is a property of an
+interpretation, not of raw observations. You cannot evaluate how risky a
+bullish trend is without first determining that there IS a bullish trend
+and understanding its quality, regime, and structure.
+
+The Risk output evaluates 9 dimensions, each with Score (0-100), Level
+(VeryLow / Low / Moderate / High / Extreme), State (Stable / Increasing /
+Elevated / Critical / Improving), Confidence (0-100%), and Evidence:
+- `market_risk`: uncertainty from conflicting signals, weak structure, low confidence
+- `volatility_risk`: danger from abnormal price movement (ATR, BBWP, Squeeze)
+- `liquidity_risk`: quality of market participation (RVOL, VWAP, spread)
+- `structure_risk`: uncertainty from weak/damaged price structure
+- `momentum_risk`: vulnerability from exhausted/diverging momentum
+- `signal_risk`: uncertainty from conflicting/unreliable signals
+- `execution_risk`: practical difficulties (slippage, fast movement)
+- `reward_risk`: opportunity quality vs environmental uncertainty ratio
+- `overall_risk`: weighted aggregation of all dimensions
+
+Risk is computed by `compute_risk()` in `shared/src/risk.rs`.
+
+**Key distinction**: Risk is independent from market direction. A bullish
+market is not automatically safe; a bearish market is not automatically
+dangerous. Risk evaluates uncertainty, not direction.
+
+**Condition**: Requires an Analysis Matrix.
+
+### Level 7: Advisory
+
+**Advisory** transforms complete market intelligence and risk assessment into
+structured human-facing guidance. It consumes the Analysis Matrix and Risk
+Matrix. It answers: *given the current market condition and associated risk,
+what is the most reasonable interpretation and possible action direction?*
+
+The Advisory output contains:
+- `directional_guidance`: StrongLong / Long / Neutral / Short / StrongShort / AvoidDirectionalExposure
+- `market_stance`: Aggressive / Constructive / Neutral / Cautious / Avoid
+- `opportunity_classification`: TrendContinuation / Breakout / Pullback / MeanReversion / Reversal / NoClearOpportunity
+- `strategy_environment`: TrendFollowing / Breakout / MeanReversion / HighVolatility / LowActivity / Unfavorable
+- `entry_guidance`: Immediate / WaitForConfirmation / Pullback / Breakout / NoEntryContext
+- `exit_guidance`: TrendWeakening / MomentumExhaustion / StructureBreakdown / RiskIncreasing / NoWarning
+- `stop_loss_guidance`: StructureBased / VolatilityBased / ATRBased / SRBased / NoRecommendation
+- `take_profit_guidance`: ResistanceBased / RRBased / VolatilityBased / TrailingMethod / NoRecommendation
+- `confidence_assessment`: 0–100%
+- `final_recommendation`: human-readable summary
+
+Advisory is computed by `compute_advisory()` in `shared/src/advisory.rs`.
+
+**Key distinction**: Advisory provides guidance, not autonomous decisions.
+It explains and recommends; the final decision remains with the human trader.
+
+**Condition**: Requires an Analysis Matrix + Risk Matrix.
+
+### Level 8: Overview
+
+**Overview** is the system-wide aggregation of all Advisory Matrices and
+instance metadata. It provides a unified representation of the observed
+market environment. It answers: *what is happening across the entire
+monitored market?*
+
+The Overview output contains:
+- `global_market_bias`: StrongBullish / Bullish / Neutral / Bearish / StrongBearish / Mixed
+- `market_breadth`: VeryWeak / Weak / Balanced / Positive / StrongPositive / Negative / StrongNegative
+- `regime_distribution`: % of assets per regime
+- `opportunity_distribution`: count per opportunity type + quality level
+- `risk_distribution`: Low/Moderate/High % + RiskEnvironment classification
+- `asset_ranking`: scored ranking (opportunity × confidence × alignment / risk)
+- `market_synchronization`: HighlySynchronized / Synchronized / Mixed / Fragmented / HighlyFragmented
+- `market_health`: Poor / Weak / Neutral / Healthy / Strong
+- `global_summary`: human-readable overview
+
+Overview is computed by `compute_overview()` in `shared/src/overview.rs`.
+
+**Condition**: Requires at least one Advisory Matrix (one active instance).
 
 The State contains:
 - `instance_count`: number of active (symbol, timeframe) pipelines
@@ -299,20 +347,20 @@ are relevant at each level.
 
 ### Axis × Level Applicability Matrix
 
-| Axis | Entity | Metric | Signal | Alignment | Risk | Analysis | State |
-|---|---|---|---|---|---|---|---|
-| Entity | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Category | — | ✓ | — | — | — | — | — |
-| Information | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Predictive Class | — | ✓ | — | — | — | — | — |
-| Source | — | ✓ | — | — | — | — | — |
-| Scale | — | ✓ | — | — | — | — | — |
-| Scoring Role | — | ✓ | — | — | — | — | — |
-| Signal Kind | — | — | ✓ | — | — | — | — |
-| Signal Direction | — | — | ✓ | — | — | — | — |
-| Signal Status | — | — | ✓ | — | — | — | — |
-| Confidence | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Time | ✓ | ✓ | ✓ | ✓ | — | — | — |
+| Axis | Entity | Metric | Signal | Alignment | Analysis | Risk | Advisory | Overview |
+|---|---|---|---|---|---|---|---|---|
+| Entity | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Category | — | ✓ | — | — | — | — | — | — |
+| Information | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Predictive Class | — | ✓ | — | — | — | — | — | — |
+| Source | — | ✓ | — | — | — | — | — | — |
+| Scale | — | ✓ | — | — | — | — | — | — |
+| Scoring Role | — | ✓ | — | — | — | — | — | — |
+| Signal Kind | — | — | ✓ | — | — | — | — | — |
+| Signal Direction | — | — | ✓ | — | — | — | — | — |
+| Signal Status | — | — | ✓ | — | — | — | — | — |
+| Confidence | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Time | ✓ | ✓ | ✓ | ✓ | — | — | — | — |
 
 ---
 
@@ -325,10 +373,11 @@ The ontological levels map to the system's architectural layers:
 | Entity | Ingestion (WebSocket → CandleGenerator) | `engine/src/analyzer/mod.rs` (ActivePair, TimeframePipeline) |
 | Metric | L1 Calculators, L2 Normalization | `shared/src/indicators/`, `shared/src/indicators/normalized/` |
 | Signal | L2 Normalization+Signals | `shared/src/indicators/normalized/signals.rs` |
-| Alignment | L2.5 MTF Alignment | `shared/src/alignment.rs`, `engine/src/analyzer/mod.rs` |
+| Alignment | L2.5 Signal Correlation | `shared/src/alignment.rs`, `engine/src/analyzer/mod.rs` |
+| Analysis | L4.5 Market Intelligence | `shared/src/analysis.rs`, `engine/src/analyzer/mod.rs` |
 | Risk | L4.25 Risk Assessment | `shared/src/risk.rs`, `engine/src/analyzer/mod.rs` |
-| Analysis | Assembly (analysis derivation) | `shared/src/analysis.rs`, `engine/src/analyzer/mod.rs` |
-| State | Assembly (system aggregation) | `shared/src/state_matrix.rs`, `engine/src/analyzer/mod.rs` |
+| Advisory | L4.75 Decision Guidance | `shared/src/advisory.rs`, `engine/src/analyzer/mod.rs` |
+| Overview | L5.5 Market Synthesis | `shared/src/overview.rs`, `engine/src/analyzer/mod.rs` |
 
 The axes defined here are the **metadata vocabulary** that describes indicators
 in the registry (`shared/src/indicators/registry.rs`) and flows through every
@@ -338,8 +387,8 @@ in the registry (`shared/src/indicators/registry.rs`) and flows through every
 
 ## Cross-References
 
-- **Complete indicator reference**: [metrics-matrix.md](metrics-matrix.md) — 58 indicators × 12 axes × 101 signal declarations
-- **Five-matrix architecture**: [monitor-matrices.md](monitor-matrices.md) — Metrics Matrix → Alignment Matrix → Risk Matrix → Analysis Matrix → State Matrix
+- **Complete indicator reference**: [metrics-matrix-reference.md](metrics-matrix-reference.md) — 58 indicators × 12 axes × 101 signal declarations
+- **Six-matrix architecture**: [monitor-matrices-reference.md](monitor-matrices-reference.md) — Metrics → Alignment → Analysis → Risk → Advisory → Overview
 - **Master specification**: [indicator-system-master-spec.md](indicator-system-master-spec.md) — system layers, registry structure, scoring system
 - **AI interpretation guide**: [indicators-guide.md](indicators-guide.md) — per-indicator signal thresholds and rules
 - **System architecture**: [architecture.md](architecture.md) — deployment topology and data flow

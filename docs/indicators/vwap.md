@@ -52,3 +52,26 @@ During a strongly aligned trending market (confirmed by your 4-EMA stacking orde
 ### 4.2 Mean-Reversion Exits and Targets
 During ranging or sideways market regimes (confirmed by tangled EMAs and flat ADX), VWAP acts as a powerful magnetic target:
 *   **Reversion Target:** If you enter a position near extreme support or resistance levels during a range regime, set the VWAP line as your primary take-profit target ($TP_1$), as price has a high statistical probability of returning to value equilibrium.
+
+---
+
+## Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| LevelTest | EXTREME_DISCOUNT_REVERSION_ZONE | Price deeply discounted vs VWAP (≥2σ below) — mean-reversion expected | Bullish |
+| LevelTest | EXTREME_PREMIUM_REVERSION_ZONE | Price at extreme premium vs VWAP (≥2σ above) — mean-reversion expected | Bearish |
+
+VWAP institutional pullback labels (BULLISH_DISCOUNT_PULLBACK, BEARISH_PREMIUM_PULLBACK, INTRA_DAY_VALUE_EQUILIBRIUM) do not fire discrete signals — they influence the normalized score only.
+
+## Normalization
+
+The VWAP normalized score in [-1, 1] is assigned from 5 discrete states:
+
+- **EXTREME_DISCOUNT_REVERSION_ZONE**: +0.8
+- **BULLISH_DISCOUNT_PULLBACK**: +0.5
+- **INTRA_DAY_VALUE_EQUILIBRIUM**: 0.0
+- **BEARISH_PREMIUM_PULLBACK**: -0.5
+- **EXTREME_PREMIUM_REVERSION_ZONE**: -0.8
+
+VWAP never reaches ±1.0. Its max magnitude is 0.8. The `values` sub-map carries `vwap` (the raw VWAP level) for chart overlay rendering. Confidence = |normalized|.

@@ -51,13 +51,17 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alignment: Option<crate::alignment::AlignmentMatrix>,
 
+    /// Analysis Matrix per symbol.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<crate::analysis::AnalysisMatrix>,
+
     /// Market risk assessment per symbol.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub risk: Option<crate::risk::RiskMatrix>,
 
-    /// Analysis Matrix per symbol.
+    /// Advisory guidance per symbol.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub analysis: Option<crate::analysis::AnalysisMatrix>,
+    pub advisory: Option<crate::advisory::AdvisoryMatrix>,
 
     /// Open Interest value at snapshot time.
     #[serde(default, skip_serializing_if = "Option::is_none")]

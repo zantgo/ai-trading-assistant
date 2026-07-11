@@ -1,20 +1,24 @@
-//! # Risk Matrix — Market Risk Assessment
+//! # Risk Matrix — Risk Assessment Layer
 //!
-//! The Risk Matrix evaluates market-derived risk factors for a single symbol
-//! by consuming the Alignment Matrix and per-timeframe Metrics. It answers:
-//! *given the current market conditions, how should risk be managed?*
+//! The Risk Matrix evaluates the level of uncertainty surrounding the current
+//! market interpretation. Risk is a property of an interpretation, not of raw
+//! observations. It consumes the Analysis Matrix — you cannot evaluate how
+//! risky a bullish trend is without first determining that there IS a bullish
+//! trend.
 //!
-//! It does NOT know about portfolio state, account balance, or position size.
+//! Risk is independent from market direction. A bullish market can be high risk.
+//! A bearish market can be low risk.
 //!
-//! Layer: L4.25 in the architecture (between Alignment and Analysis).
+//! Layer: L4.25 in the architecture (Risk Assessment).
 
-use crate::alignment::AlignmentMatrix;
+use crate::analysis::AnalysisMatrix;
 use crate::indicators::normalized::NormalizedIndicatorValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Market risk level classification.
+/// Risk level classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RiskLevel {
     VeryLow,
     Low,
@@ -35,359 +39,267 @@ impl std::fmt::Display for RiskLevel {
     }
 }
 
-/// Trend stability assessment.
+/// Risk dimension state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TrendStability {
-    Weak,
-    Developing,
-    Healthy,
-    Strong,
-    Exhausted,
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RiskState {
+    Stable,
+    Increasing,
+    Elevated,
+    Critical,
+    Improving,
 }
 
-impl std::fmt::Display for TrendStability {
+impl std::fmt::Display for RiskState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TrendStability::Weak => write!(f, "WEAK"),
-            TrendStability::Developing => write!(f, "DEVELOPING"),
-            TrendStability::Healthy => write!(f, "HEALTHY"),
-            TrendStability::Strong => write!(f, "STRONG"),
-            TrendStability::Exhausted => write!(f, "EXHAUSTED"),
+            RiskState::Stable => write!(f, "STABLE"),
+            RiskState::Increasing => write!(f, "INCREASING"),
+            RiskState::Elevated => write!(f, "ELEVATED"),
+            RiskState::Critical => write!(f, "CRITICAL"),
+            RiskState::Improving => write!(f, "IMPROVING"),
         }
     }
 }
 
-/// Signal reliability assessment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SignalReliability {
-    Poor,
-    Fair,
-    Good,
-    Excellent,
+/// One risk dimension with score, level, state, confidence, and evidence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RiskDimension {
+    /// Risk score 0-100 (higher = riskier).
+    pub score: f64,
+    /// Risk level.
+    pub level: RiskLevel,
+    /// Risk state (trend).
+    pub state: RiskState,
+    /// Confidence in this measurement 0-100%.
+    pub confidence: f64,
+    /// Supporting evidence strings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
 }
 
-impl std::fmt::Display for SignalReliability {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SignalReliability::Poor => write!(f, "POOR"),
-            SignalReliability::Fair => write!(f, "FAIR"),
-            SignalReliability::Good => write!(f, "GOOD"),
-            SignalReliability::Excellent => write!(f, "EXCELLENT"),
-        }
+impl RiskDimension {
+    fn from_score(score: f64) -> Self {
+        let level = if score >= 80.0 { RiskLevel::Extreme }
+            else if score >= 60.0 { RiskLevel::High }
+            else if score >= 40.0 { RiskLevel::Moderate }
+            else if score >= 20.0 { RiskLevel::Low }
+            else { RiskLevel::VeryLow };
+        Self { score: score.max(0.0).min(100.0), level, state: RiskState::Stable, confidence: 50.0, evidence: Vec::new() }
+    }
+
+    fn with_evidence(mut self, evidence: Vec<String>) -> Self {
+        self.evidence = evidence;
+        self
     }
 }
 
-/// Suggested stop-loss method.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StopMethod {
-    ATR,
-    SwingLow,
-    SwingHigh,
-    Support,
-    Resistance,
-    VWAP,
-    Supertrend,
-    StructureBased,
-}
-
-impl std::fmt::Display for StopMethod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StopMethod::ATR => write!(f, "ATR"),
-            StopMethod::SwingLow => write!(f, "SWING_LOW"),
-            StopMethod::SwingHigh => write!(f, "SWING_HIGH"),
-            StopMethod::Support => write!(f, "SUPPORT"),
-            StopMethod::Resistance => write!(f, "RESISTANCE"),
-            StopMethod::VWAP => write!(f, "VWAP"),
-            StopMethod::Supertrend => write!(f, "SUPERTREND"),
-            StopMethod::StructureBased => write!(f, "STRUCTURE_BASED"),
-        }
-    }
-}
-
-/// Suggested take-profit method.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TargetMethod {
-    Fibonacci,
-    SwingHigh,
-    SwingLow,
-    ATRMultiple,
-    Resistance,
-    Support,
-    Donchian,
-}
-
-impl std::fmt::Display for TargetMethod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TargetMethod::Fibonacci => write!(f, "FIBONACCI"),
-            TargetMethod::SwingHigh => write!(f, "SWING_HIGH"),
-            TargetMethod::SwingLow => write!(f, "SWING_LOW"),
-            TargetMethod::ATRMultiple => write!(f, "ATR_MULTIPLE"),
-            TargetMethod::Resistance => write!(f, "RESISTANCE"),
-            TargetMethod::Support => write!(f, "SUPPORT"),
-            TargetMethod::Donchian => write!(f, "DONCHIAN"),
-        }
-    }
-}
-
-/// Market risk assessment for a single symbol.
+/// Market risk assessment for a single symbol — 9 dimensions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RiskMatrix {
     pub symbol: String,
-    pub overall_market_risk: RiskLevel,
-    pub volatility_risk: RiskLevel,
-    pub liquidity_risk: RiskLevel,
-    pub trend_stability: TrendStability,
-    pub structural_risk: RiskLevel,
-    pub signal_reliability: SignalReliability,
-    pub suggested_stop_method: StopMethod,
-    pub suggested_stop_distance: f64,
-    pub suggested_target_method: TargetMethod,
-    pub expected_rr: f64,
+    pub market_risk: RiskDimension,
+    pub volatility_risk: RiskDimension,
+    pub liquidity_risk: RiskDimension,
+    pub structure_risk: RiskDimension,
+    pub momentum_risk: RiskDimension,
+    pub signal_risk: RiskDimension,
+    pub execution_risk: RiskDimension,
+    pub reward_risk: RiskDimension,
+    pub overall_risk: RiskDimension,
 }
 
 impl RiskMatrix {
     pub fn empty(symbol: &str) -> Self {
+        let def = RiskDimension::from_score(50.0);
         Self {
             symbol: symbol.to_string(),
-            overall_market_risk: RiskLevel::Moderate,
-            volatility_risk: RiskLevel::Moderate,
-            liquidity_risk: RiskLevel::Moderate,
-            trend_stability: TrendStability::Developing,
-            structural_risk: RiskLevel::Moderate,
-            signal_reliability: SignalReliability::Fair,
-            suggested_stop_method: StopMethod::ATR,
-            suggested_stop_distance: 2.0,
-            suggested_target_method: TargetMethod::ATRMultiple,
-            expected_rr: 2.0,
+            market_risk: def.clone(), volatility_risk: def.clone(),
+            liquidity_risk: def.clone(), structure_risk: def.clone(),
+            momentum_risk: def.clone(), signal_risk: def.clone(),
+            execution_risk: def.clone(), reward_risk: def.clone(),
+            overall_risk: def.clone(),
         }
     }
 }
 
-/// Assess volatility risk from ATR and BBWP.
-fn assess_volatility_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskLevel {
-    let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
-    let squeeze_on = indicators.get("squeeze")
-        .map(|v| v.state_label.contains("COMPRESSION"))
-        .unwrap_or(false);
-
-    if bbwp >= 90.0 {
-        RiskLevel::Extreme
-    } else if bbwp >= 60.0 || squeeze_on {
-        RiskLevel::High
-    } else if bbwp <= 20.0 {
-        RiskLevel::Low
-    } else {
-        RiskLevel::Moderate
-    }
-}
-
-/// Assess liquidity risk from volume, RVOL, and spread.
-fn assess_liquidity_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskLevel {
-    let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
-    let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
-
-    if rvol >= 2.0 && spread < 0.05 {
-        RiskLevel::VeryLow
-    } else if rvol >= 1.5 {
-        RiskLevel::Low
-    } else if rvol < 0.5 || spread > 0.2 {
-        RiskLevel::High
-    } else if rvol < 0.8 {
-        RiskLevel::Moderate
-    } else {
-        RiskLevel::Low
-    }
-}
-
-/// Assess trend stability from ADX and EMA stack.
-fn assess_trend_stability(indicators: &HashMap<String, NormalizedIndicatorValue>) -> TrendStability {
-    let adx = indicators.get("adx").map(|v| v.raw_value).unwrap_or(20.0);
-    let ema_label = indicators.get("ema_stack")
-        .map(|v| v.state_label.as_str())
-        .unwrap_or("NEUTRAL");
-
-    let is_bull = ema_label.contains("BULLISH");
-    let is_bear = ema_label.contains("BEARISH");
-    let is_aligned = is_bull || is_bear;
-
-    if adx >= 40.0 && is_aligned {
-        TrendStability::Strong
-    } else if adx >= 50.0 {
-        TrendStability::Exhausted
-    } else if adx >= 25.0 && is_aligned {
-        TrendStability::Healthy
-    } else if adx >= 15.0 {
-        TrendStability::Developing
-    } else {
-        TrendStability::Weak
-    }
-}
-
-/// Assess structural risk from S/R proximity.
-fn assess_structural_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskLevel {
-    let sr_state = indicators.get("support_resistance")
-        .map(|v| v.state_label.as_str())
-        .unwrap_or("NEUTRAL");
-
-    if sr_state.contains("FLIP") || sr_state.contains("BREAKOUT") {
-        RiskLevel::High
-    } else if sr_state.contains("DEMAND_ZONE") || sr_state.contains("SUPPLY_ZONE") {
-        RiskLevel::Low
-    } else {
-        RiskLevel::Moderate
-    }
-}
-
-/// Assess signal reliability from the Alignment Matrix's trend agreement.
-fn assess_signal_reliability(alignment: &AlignmentMatrix) -> SignalReliability {
-    let pct = alignment.trend_agreement_pct;
-    let cross_tf = alignment.signal_cross_tf_count;
-
-    if pct >= 90.0 && cross_tf >= 4 {
-        SignalReliability::Excellent
-    } else if pct >= 75.0 {
-        SignalReliability::Good
-    } else if pct >= 50.0 {
-        SignalReliability::Fair
-    } else {
-        SignalReliability::Poor
-    }
-}
-
-/// Determine overall market risk by aggregating individual risk factors.
-fn overall_risk(
-    vol: RiskLevel, liq: RiskLevel, trend: TrendStability, structural: RiskLevel,
-) -> RiskLevel {
-    let score = |r: RiskLevel| -> f64 {
-        match r {
-            RiskLevel::VeryLow => 1.0, RiskLevel::Low => 2.0,
-            RiskLevel::Moderate => 3.0, RiskLevel::High => 4.0, RiskLevel::Extreme => 5.0,
-        }
-    };
-    let trend_score = match trend {
-        TrendStability::Weak => 4.0, TrendStability::Developing => 3.0,
-        TrendStability::Healthy => 2.0, TrendStability::Strong => 1.5, TrendStability::Exhausted => 4.5,
-    };
-    let avg = (score(vol) + score(liq) + trend_score + score(structural)) / 4.0;
-    if avg >= 4.0 { RiskLevel::High }
-    else if avg >= 3.0 { RiskLevel::Moderate }
-    else if avg >= 2.0 { RiskLevel::Low }
+/// Level from score 0-100.
+fn level_from(score: f64) -> RiskLevel {
+    if score >= 80.0 { RiskLevel::Extreme }
+    else if score >= 60.0 { RiskLevel::High }
+    else if score >= 40.0 { RiskLevel::Moderate }
+    else if score >= 20.0 { RiskLevel::Low }
     else { RiskLevel::VeryLow }
 }
 
-/// Determine the suggested stop method based on market conditions.
-fn determine_stop_method(indicators: &HashMap<String, NormalizedIndicatorValue>) -> StopMethod {
-    let adx = indicators.get("adx").map(|v| v.raw_value).unwrap_or(20.0);
-    let squeeze_on = indicators.get("squeeze")
-        .map(|v| v.state_label.contains("COMPRESSION"))
-        .unwrap_or(false);
-
-    if squeeze_on {
-        StopMethod::Supertrend
-    } else if adx >= 30.0 {
-        StopMethod::ATR
-    } else {
-        StopMethod::SwingLow
-    }
+/// Score from magnitude: maps raw values to 0-100 risk score.
+fn score_mag(value: f64, max: f64) -> f64 {
+    (value / max * 100.0).max(0.0).min(100.0)
 }
 
-/// Determine the suggested take-profit method based on market conditions.
-fn determine_target_method(indicators: &HashMap<String, NormalizedIndicatorValue>) -> TargetMethod {
-    let fib = indicators.get("fibonacci");
-    let has_fib = fib.map(|v| v.state_label != "INACTIVE").unwrap_or(false);
-    let adx = indicators.get("adx").map(|v| v.raw_value).unwrap_or(20.0);
-
-    if has_fib && adx >= 25.0 {
-        TargetMethod::Fibonacci
-    } else if adx >= 25.0 {
-        TargetMethod::ATRMultiple
-    } else {
-        TargetMethod::Resistance
-    }
+/// Assess market risk: general uncertainty from conflicting signals, weak structure.
+fn assess_market_risk(analysis: &AnalysisMatrix, indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+    let mut score: f64 = 50.0;
+    let mut evidence = Vec::new();
+    if analysis.trend_assessment == crate::analysis::TrendAssessment::Weak { score += 15.0; evidence.push("Weak trend".into()); }
+    if analysis.structure_assessment == crate::analysis::StructureAssessment::Broken { score += 15.0; evidence.push("Broken structure".into()); }
+    if analysis.market_quality == crate::analysis::QualityLevel::Poor { score += 10.0; evidence.push("Poor market quality".into()); }
+    if analysis.confidence < 0.4 { score += 10.0; evidence.push("Low confidence".into()); }
+    if !analysis.contradicting_signals.is_empty() { score += 10.0; evidence.push("Conflicting signals".into()); }
+    // Reduce risk if conditions are good
+    if analysis.trend_assessment == crate::analysis::TrendAssessment::Strong { score -= 10.0; }
+    if analysis.confidence > 0.7 { score -= 10.0; }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
 }
 
-/// Compute the Risk Matrix from per-timeframe indicator maps and the
-/// Alignment Matrix. Uses the slowest active timeframe for stability
-/// assessment and the fastest for volatility/liquidity.
+/// Assess volatility risk: danger from abnormal price movement.
+fn assess_volatility_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+    let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+    let atr = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
+    let squeeze_on = indicators.get("squeeze").map(|v| v.state_label.contains("COMPRESSION")).unwrap_or(false);
+    let mut evidence = Vec::new();
+    let mut score: f64 = 30.0;
+    if bbwp >= 90.0 { score += 30.0; evidence.push("BBWP extreme expansion".into()); }
+    else if bbwp >= 70.0 { score += 15.0; evidence.push("BBWP elevated".into()); }
+    else if squeeze_on { score += 10.0; evidence.push("Squeeze compression active".into()); }
+    if atr > 0.0 { let rel_atr = score_mag(atr, 500.0); score = (score + rel_atr) / 2.0; }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Assess liquidity risk: quality of market participation.
+fn assess_liquidity_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+    let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
+    let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
+    let mut evidence = Vec::new();
+    let mut score: f64 = 30.0;
+    if rvol < 0.5 { score += 30.0; evidence.push("Very low relative volume".into()); }
+    else if rvol < 0.8 { score += 15.0; evidence.push("Low relative volume".into()); }
+    else if rvol > 2.0 { score -= 15.0; evidence.push("Strong participation".into()); }
+    if spread > 0.2 { score += 20.0; evidence.push("Wide spread".into()); }
+    else if spread < 0.05 { score -= 10.0; evidence.push("Tight spread".into()); }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Assess structure risk: uncertainty from weak/damaged price structure.
+fn assess_structure_risk(analysis: &AnalysisMatrix, indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+    let mut score: f64 = 40.0;
+    let mut evidence = Vec::new();
+    match analysis.structure_assessment {
+        crate::analysis::StructureAssessment::Broken => { score += 30.0; evidence.push("Broken structure".into()); }
+        crate::analysis::StructureAssessment::Weak => { score += 15.0; evidence.push("Weak structure".into()); }
+        crate::analysis::StructureAssessment::Strong | crate::analysis::StructureAssessment::Healthy => { score -= 15.0; }
+        _ => {}
+    }
+    let sr_label = indicators.get("support_resistance").map(|v| v.state_label.as_str()).unwrap_or("");
+    if sr_label.contains("FLIP") { score += 15.0; evidence.push("S/R level flip".into()); }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Assess momentum risk: vulnerability from exhausted/diverging momentum.
+fn assess_momentum_risk(analysis: &AnalysisMatrix) -> RiskDimension {
+    let mut score: f64 = 30.0;
+    let mut evidence = Vec::new();
+    match analysis.momentum_assessment {
+        crate::analysis::MomentumAssessment::Exhausted => { score += 40.0; evidence.push("Momentum exhausted".into()); }
+        crate::analysis::MomentumAssessment::Reversing => { score += 30.0; evidence.push("Momentum reversing".into()); }
+        crate::analysis::MomentumAssessment::Weakening => { score += 15.0; evidence.push("Momentum weakening".into()); }
+        crate::analysis::MomentumAssessment::Increasing => { score -= 10.0; evidence.push("Momentum increasing".into()); }
+        _ => {}
+    }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Assess signal risk: uncertainty from conflicting/unreliable signals.
+fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
+    let mut score: f64 = 30.0;
+    let mut evidence = Vec::new();
+    if !analysis.contradicting_signals.is_empty() {
+        let n = analysis.contradicting_signals.len() as f64;
+        score += (n * 10.0).min(40.0);
+        evidence.push(format!("{} contradicting signals", analysis.contradicting_signals.len()));
+    }
+    if analysis.supporting_signals.is_empty() && analysis.contradicting_signals.is_empty() {
+        score += 10.0;
+        evidence.push("No signals active".into());
+    }
+    if analysis.confidence < 0.5 { score += 15.0; evidence.push("Low analysis confidence".into()); }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Assess execution risk: practical difficulties from spread/movement.
+fn assess_execution_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+    let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
+    let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
+    let mut evidence = Vec::new();
+    let mut score: f64 = 25.0;
+    if spread > 0.15 { score += 25.0; evidence.push("Wide spread".into()); }
+    else if spread > 0.08 { score += 10.0; evidence.push("Moderate spread".into()); }
+    if rvol < 0.7 { score += 15.0; evidence.push("Low participation".into()); }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Assess reward risk: opportunity quality vs environmental uncertainty.
+fn assess_reward_risk(analysis: &AnalysisMatrix) -> RiskDimension {
+    let mut score: f64 = 40.0;
+    let mut evidence = Vec::new();
+    let quality_score = match analysis.market_quality {
+        crate::analysis::QualityLevel::Excellent => 10.0,
+        crate::analysis::QualityLevel::Good => 20.0,
+        crate::analysis::QualityLevel::Average => 40.0,
+        crate::analysis::QualityLevel::Weak => 60.0,
+        crate::analysis::QualityLevel::Poor => 80.0,
+    };
+    score = (score + quality_score) / 2.0;
+    if analysis.opportunity_analysis == crate::analysis::OpportunityType::NoClearOpportunity { score += 20.0; evidence.push("No clear opportunity".into()); }
+    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+}
+
+/// Compute the Risk Matrix from the Analysis Matrix and per-timeframe indicators.
 pub fn compute_risk(
     symbol: &str,
-    alignment: &AlignmentMatrix,
-    fastest_indicators: &HashMap<String, NormalizedIndicatorValue>,
-    slowest_indicators: Option<&HashMap<String, NormalizedIndicatorValue>>,
+    analysis: &AnalysisMatrix,
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
 ) -> RiskMatrix {
-    if alignment.timeframes_present == 0 {
+    if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
     }
 
-    let stable = slowest_indicators.unwrap_or(fastest_indicators);
+    let market = assess_market_risk(analysis, indicators);
+    let volatility = assess_volatility_risk(indicators);
+    let liquidity = assess_liquidity_risk(indicators);
+    let structure = assess_structure_risk(analysis, indicators);
+    let momentum = assess_momentum_risk(analysis);
+    let signal = assess_signal_risk(analysis);
+    let execution = assess_execution_risk(indicators);
+    let reward = assess_reward_risk(analysis);
 
-    let vol_risk = assess_volatility_risk(fastest_indicators);
-    let liq_risk = assess_liquidity_risk(fastest_indicators);
-    let trend_stab = assess_trend_stability(stable);
-    let struct_risk = assess_structural_risk(fastest_indicators);
-    let sig_rel = assess_signal_reliability(alignment);
-    let overall = overall_risk(vol_risk, liq_risk, trend_stab, struct_risk);
-    let stop_method = determine_stop_method(fastest_indicators);
-    let target_method = determine_target_method(fastest_indicators);
+    // Overall: weighted average of all 8 dimensions
+    let overall_score = (market.score * 0.15 + volatility.score * 0.15 + liquidity.score * 0.15
+        + structure.score * 0.10 + momentum.score * 0.15 + signal.score * 0.10
+        + execution.score * 0.10 + reward.score * 0.10).max(0.0).min(100.0);
+    let overall = RiskDimension::from_score(overall_score);
 
-    // Stop distance: based on ATR or default 2.0x
-    let atr = fastest_indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
-    let stop_dist = if atr > 0.0 { 1.8 } else { 2.0 };
-
-    // Expected RR: rough estimate from target/stop ratio
-    let expected_rr = match target_method {
-        TargetMethod::Fibonacci => 3.0,
-        TargetMethod::ATRMultiple => 2.5,
-        _ => 2.0,
-    };
-
-    RiskMatrix {
-        symbol: symbol.to_string(),
-        overall_market_risk: overall,
-        volatility_risk: vol_risk,
-        liquidity_risk: liq_risk,
-        trend_stability: trend_stab,
-        structural_risk: struct_risk,
-        signal_reliability: sig_rel,
-        suggested_stop_method: stop_method,
-        suggested_stop_distance: stop_dist,
-        suggested_target_method: target_method,
-        expected_rr,
-    }
+    RiskMatrix { symbol: symbol.to_string(), market_risk: market, volatility_risk: volatility, liquidity_risk: liquidity, structure_risk: structure, momentum_risk: momentum, signal_risk: signal, execution_risk: execution, reward_risk: reward, overall_risk: overall }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn niv(raw: f64, label: &str) -> NormalizedIndicatorValue {
-        NormalizedIndicatorValue::scalar(raw, raw / 100.0, label)
-    }
-
-    fn build_indicators(adx_val: f64, bbwp_val: f64, rvol_val: f64, ema_label: &str) -> HashMap<String, NormalizedIndicatorValue> {
-        let mut m = HashMap::new();
-        m.insert("adx".into(), niv(adx_val, ""));
-        m.insert("bbwp".into(), niv(bbwp_val, ""));
-        m.insert("rvol".into(), niv(rvol_val, ""));
-        m.insert("ema_stack".into(), NormalizedIndicatorValue::scalar(0.0, 0.0, ema_label));
-        m.insert("atr".into(), niv(100.0, ""));
-        m
+    #[test]
+    fn empty_returns_default() {
+        let r = RiskMatrix::empty("BTC-USD");
+        assert!(matches!(r.overall_risk.level, RiskLevel::Moderate));
     }
 
     #[test]
-    fn weak_trend_is_developing() {
-        let indicators = build_indicators(18.0, 50.0, 1.0, "NEUTRAL");
-        let alignment = crate::alignment::AlignmentMatrix::empty("BTC-USD");
-        let risk = compute_risk("BTC-USD", &alignment, &indicators, None);
-        assert!(matches!(risk.trend_stability, TrendStability::Developing));
-    }
-
-    #[test]
-    fn empty_returns_moderate() {
-        let risk = RiskMatrix::empty("BTC-USD");
-        assert!(matches!(risk.overall_market_risk, RiskLevel::Moderate));
-        assert_eq!(risk.suggested_stop_distance, 2.0);
+    fn compute_with_analysis_produces_valid_dimensions() {
+        let analysis = AnalysisMatrix::empty("BTC-USD");
+        let indicators = HashMap::new();
+        let r = compute_risk("BTC-USD", &analysis, &indicators);
+        // Even with empty analysis, should produce valid scores
+        assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
+        assert!(r.liquidity_risk.score >= 0.0 && r.liquidity_risk.score <= 100.0);
     }
 }
+fn clamp01(x: f64) -> f64 { x.max(0.0).min(100.0) }

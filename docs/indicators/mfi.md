@@ -1,0 +1,42 @@
+# Money Flow Index (MFI) (14)
+
+## 1. Introduction — Trading Function
+The Money Flow Index is a volume-weighted RSI that oscillates between 0-100. Like RSI, it identifies overbought (>80) and oversold (<20) conditions, but incorporates volume to weigh the strength of price moves. It is often called the "volume-weighted RSI" and is used for divergence detection and overbought/oversold signals with institutional confirmation via volume weighting.
+
+## 2. Mathematical Formula
+```
+TP = (High + Low + Close) / 3
+MF = TP × Volume
+Positive MF = sum(MF where TP[i] > TP[i-1])
+Negative MF = sum(MF where TP[i] < TP[i-1])
+MR = Positive MF / Negative MF
+MFI = 100 - (100 / (1 + MR))
+```
+
+## 3. Normalization
+Same piecewise sigmoid as RSI, with thresholds at 20/80 instead of 30/70:
+```
+mfi ≥ 80: norm = -0.7 - (mfi-80)/20 × 0.3   → [-1.0, -0.7]
+mfi ≤ 20: norm = 0.7 + (20-mfi)/20 × 0.3     → [0.7, 1.0]
+mfi ≤ 50: norm = (50-mfi)/30 × 0.7             → [0, 0.7]
+mfi > 50: norm = -(mfi-50)/30 × 0.7            → [-0.7, 0)
+```
+Labels: `MFI_OVERBOUGHT_DISTRIBUTION`, `MFI_OVERSOLD_ACCUMULATION`, `MFI_BULLISH_FLOW`, `MFI_BEARISH_FLOW`, `MFI_NEUTRAL`.
+
+## 4. Signals
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| Threshold | MFI_OVERBOUGHT_DISTRIBUTION | MFI ≥ 80 — overbought distribution, potential reversal down | Bearish |
+| Threshold | MFI_OVERSOLD_ACCUMULATION | MFI ≤ 20 — oversold accumulation, potential reversal up | Bullish |
+| Threshold | MFI_BULLISH_FLOW | MFI between 50-80 with upward slope — institutional accumulation in progress | Bullish |
+| Threshold | MFI_BEARISH_FLOW | MFI between 20-50 with downward slope — institutional distribution in progress | Bearish |
+| Divergence | BULLISH_DIVERGENCE | Price makes lower low, MFI makes higher low — hidden volume-weighted accumulation. Detected via 20-bar SeriesDivergence. Potential → Confirmed when nearest Support level broken with 0.2% tolerance. | Bullish |
+| Divergence | BEARISH_DIVERGENCE | Price makes higher high, MFI makes lower high — volume-weighted distribution exhaustion. Potential → Confirmed when nearest Resistance level broken with 0.2% tolerance. | Bearish |
+
+**Divergence Lifecycle:** Potential (oscillator disagrees with price, no structural break) → Confirmed (candle close breaks nearest S/R boundary by >0.2% tolerance). Dedicated `mfi_divergence` scoring key. The MFI 50 midline cross is a configuration signal (not a formal SignalKind emission) — it contributes to the `MFI_BULLISH_FLOW` / `MFI_BEARISH_FLOW` state transitions.
+
+## 5. Configuration
+```toml
+[indicators]
+mfi_period = 14
+```

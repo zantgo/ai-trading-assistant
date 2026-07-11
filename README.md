@@ -50,7 +50,7 @@ Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 | **[User Manual](docs/user-manual.md)** | End Users | Installation, configuration, dashboard usage, troubleshooting |
 | **[Architecture](docs/architecture.md)** | Developers | System topology, data-flow diagrams, indicator pipeline |
 | **[Ontology](docs/ontology.md)** | Developers | Formal ontology: 5 ontological levels, 12 classification axes |
-| **[Metrics Matrix](docs/metrics-matrix.md)** | Developers | Complete 58-indicator × 12-signal reference table |
-| **[Monitor Matrices](docs/monitor-matrices.md)** | Developers | Metrics → State → Decision three-stage architecture |
+| **[Metrics Matrix](docs/metrics-matrix-reference.md)** | Developers | Complete 58-indicator × 12-signal reference table |
+| **[Monitor Matrices](docs/monitor-matrices-reference.md)** | Developers | Metrics → State → Decision three-stage architecture |
 | **[Indicator Spec](docs/indicator-system-master-spec.md)** | Developers | Master specification: layers, registry, scoring, per-indicator specs |
 | **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions |

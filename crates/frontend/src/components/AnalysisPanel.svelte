@@ -185,7 +185,6 @@
                 {#if showNewIndicator}
                     <div class={styles.dtNewIndicator}>
                         <input type="text" class={styles.dtInput} placeholder="Indicator name..." bind:value={newIndicatorName} />
-                        <input type="number" class="{styles.dtInput} {styles.dtInputSmall}" placeholder="Weight" bind:value={newIndicatorWeight} min="1" max="100" />
                         <button class={styles.dtSaveBtn} onclick={addNewIndicator} disabled={!newIndicatorName.trim()}>Add</button>
                     </div>
                 {/if}
