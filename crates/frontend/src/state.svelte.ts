@@ -74,6 +74,10 @@ export class AppStore {
     currentGlobalView = $state<string>('dashboard');
     overviewMatrix = $state<OverviewMatrix | null>(null);
 
+    // ─── Brutalist grid navigation state ──────────────────────────────
+    isManageModalOpen = $state(false);
+    activeMainTab = $state<'overview' | 'instances' | 'fee_projection'>('overview');
+
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');
     get currentPosition(): string { return this._currentPosition; }
