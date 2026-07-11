@@ -273,15 +273,6 @@ impl NormalizationEngine {
             out.insert("zscore".into(), Self::normalize_zscore(z));
         }
 
-        // Dedicated divergence confluence factors (distinct from the RSI/MACD
-        // position folding) so the 8-factor scoring engine can weight them
-        // independently per the spec (RSI-Div ±20, MACD-Div ±10).
-        if let Some(v) = divergence_value(inputs.rsi_divergence) {
-            out.insert("rsi_divergence".into(), v);
-        }
-        if let Some(v) = divergence_value(inputs.macd_divergence) {
-            out.insert("macd_divergence".into(), v);
-        }
 
         if let (Some(line), Some(signal), Some(hist)) =
             (inputs.macd_line, inputs.macd_signal, inputs.macd_histogram)
@@ -693,9 +684,7 @@ impl NormalizationEngine {
             ("obv", "obv_divergence", inputs.obv_divergence),
             ("squeeze", "squeeze_divergence", inputs.squeeze_divergence),
         ] {
-            if let Some(v) = super::signals::divergence_entry(&mut out, parent, state) {
-                out.insert(key.into(), v);
-            }
+            let _ = super::signals::divergence_entry(&mut out, parent, state);
         }
 
         // ── Structured cross-over / zero-cross detection ──
@@ -962,7 +951,7 @@ impl NormalizationEngine {
 
         // ── PSAR price/SAR line Crossover (distinct from TrendFlip). ──
         if let (Some(sar), Some(psar_prev), Some(pprice)) =
-            (inputs.psar_sar, ctx.prev.supertrend_line, ctx.prev.price)
+            (inputs.psar_sar, ctx.prev.psar_sar, ctx.prev.price)
         {
             let price = ctx.price;
             if pprice <= psar_prev && price > sar {
@@ -1028,14 +1017,14 @@ impl NormalizationEngine {
             }
         }
 
-        // ── Supertrend BandTouch (mean-reversion when price nears the ST line). ──
+        // ── Supertrend line proximity (LevelTest — price near dynamic S/R line). ──
         if let (Some(line), Some(dir)) = (inputs.supertrend_line, inputs.supertrend_dir) {
             let dist = if line.abs() > f64::EPSILON { (ctx.price - line).abs() / line } else { 0.0 };
             if dist < 0.005 {
                 if let Some(e) = out.get_mut("supertrend") {
                 let d = if dir == 1 { SignalDirection::Bearish } else { SignalDirection::Bullish };
-                    e.signals.push(IndicatorSignal::new(SignalKind::BandTouch, d, SignalStatus::Active,
-                        if d == SignalDirection::Bearish { "SUPERTREND_UPPER_BAND_TOUCH" } else { "SUPERTREND_LOWER_BAND_TOUCH" }));
+                    e.signals.push(IndicatorSignal::new(SignalKind::LevelTest, d, SignalStatus::Active,
+                        if d == SignalDirection::Bearish { "SUPERTREND_RESISTANCE_TEST" } else { "SUPERTREND_SUPPORT_TEST" }));
                 }
             }
         }

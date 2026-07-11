@@ -245,6 +245,7 @@ pub struct PreviousBarState {
     pub force_index: Option<f64>,
     pub williams_r: Option<f64>,
     pub cci: Option<f64>,
+    pub psar_sar: Option<f64>,
 }
 
 /// Stateful context bridging the pure calculators to signed normalization.
@@ -495,22 +496,23 @@ mod meta_tests {
 
     #[test]
     fn inactive_fill_populates_absent_directional_indicators() {
-        // With no divergence/fibonacci/pattern/S-R inputs, those event-driven
-        // directional keys must be present with an explicit INACTIVE placeholder.
+        // Event-driven directional indicators (fibonacci, S/R, patterns) that
+        // are not present when no trigger exists must have INACTIVE placeholder.
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
-        for key in [
+        let event_driven = ["fibonacci", "support_resistance", "patterns"];
+        let divergence_keys = [
             "rsi_divergence", "macd_divergence", "stochastic_divergence",
             "chandemo_divergence", "mfi_divergence", "cmf_divergence",
-            "obv_divergence", "squeeze_divergence", "fibonacci",
-            "support_resistance", "patterns",
-        ] {
+            "obv_divergence", "squeeze_divergence",
+        ];
+        for &key in &event_driven {
             let v = map.get(key).unwrap_or_else(|| panic!("{key} must be present"));
             assert_eq!(v.state_label, "INACTIVE", "{key} should be INACTIVE");
-            assert_eq!(v.normalized, 0.0);
-            assert_eq!(v.confidence, 0.0);
-            assert!(v.signals.is_empty());
+        }
+        for &key in &divergence_keys {
+            assert!(!map.contains_key(key), "{key} mirror should NOT be present");
         }
     }
 

@@ -296,8 +296,8 @@ export type OpportunityClass = 'TrendContinuation' | 'Breakout' | 'Pullback' | '
 export type StrategyEnvironment = 'TrendFollowing' | 'Breakout' | 'MeanReversion' | 'HighVolatility' | 'LowActivity' | 'Unfavorable';
 export type EntryGuidance = 'Immediate' | 'WaitForConfirmation' | 'Pullback' | 'Breakout' | 'NoEntryContext';
 export type ExitGuidance = 'TrendWeakening' | 'MomentumExhaustion' | 'StructureBreakdown' | 'RiskIncreasing' | 'NoWarning';
-export type StopLossGuidance = 'StructureBased' | 'VolatilityBased' | 'ATRBased' | 'SRBased' | 'NoRecommendation';
-export type TakeProfitGuidance = 'ResistanceBased' | 'RRBased' | 'VolatilityBased' | 'TrailingMethod' | 'NoRecommendation';
+export type ProtectionStrategy = 'StructureBased' | 'VolatilityBased' | 'ATRBased' | 'SRBased' | 'NoRecommendation';
+export type TargetStrategy = 'ResistanceBased' | 'RRBased' | 'VolatilityBased' | 'TrailingMethod' | 'NoRecommendation';
 
 export interface AdvisoryMatrix {
     symbol: string;
@@ -307,8 +307,8 @@ export interface AdvisoryMatrix {
     strategy_environment: StrategyEnvironment;
     entry_guidance: EntryGuidance;
     exit_guidance: ExitGuidance;
-    stop_loss_guidance: StopLossGuidance;
-    take_profit_guidance: TakeProfitGuidance;
+    protection_strategy: ProtectionStrategy;
+    target_strategy: TargetStrategy;
     confidence_assessment: number;
     final_recommendation: string;
 }

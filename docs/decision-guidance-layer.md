@@ -275,9 +275,9 @@ Advisory Matrix
 │
 ├── Exit Guidance
 │
-├── Stop Loss Guidance
+├── Protection Strategy
 │
-├── Take Profit Guidance
+├── Target Strategy
 │
 ├── Confidence Assessment
 │
@@ -575,7 +575,7 @@ Monitor Momentum Exhaustion
 
 ---
 
-# Component 7 — Stop Loss Guidance
+# Component 7 — Protection Strategy
 
 ## Purpose
 
@@ -618,7 +618,7 @@ High volatility environment
 
 ---
 
-# Component 8 — Take Profit Guidance
+# Component 8 — Target Strategy
 
 ## Purpose
 
@@ -780,11 +780,11 @@ Exit Guidance
 
 ↓
 
-Stop Loss Guidance
+Protection Strategy
 
 ↓
 
-Take Profit Guidance
+Target Strategy
 
 ↓
 
@@ -840,7 +840,7 @@ Signals:
 Breakout
 
 
-Derived Metrics:
+Features:
 
 Strong momentum
 ```

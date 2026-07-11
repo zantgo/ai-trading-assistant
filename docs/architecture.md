@@ -88,7 +88,7 @@ Market Telemetry Layer
 └── Metrics Matrix
 ```
 
-The system observes raw market behavior through indicators, signals, and derived metrics.
+The system observes raw market behavior through indicators, signals, and features.
 
 ---
 
@@ -414,7 +414,7 @@ Responsible for:
     
 - Signals
     
-- Derived metrics
+- Features
     
 - Local confluence
     

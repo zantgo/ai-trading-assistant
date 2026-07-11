@@ -409,7 +409,7 @@ MetricsMatrix
 │
 ├── Signals
 │
-├── Derived Metrics
+├── Features
 │
 └── Local Confluence
 ```
@@ -670,18 +670,19 @@ High
 
 ---
 
-# Derived Metric Model
+# Feature Model
 
 ## Purpose
 
-Represents higher-level interpretations created from multiple observations.
+Represents a reusable, high-level quantitative variable derived from indicators
+and signals.
 
 ---
 
 # Entity
 
 ```text
-DerivedMetric
+Feature
 ```
 
 ---
@@ -732,7 +733,7 @@ Range:
 
 ## Purpose
 
-Represents agreement between indicators, signals, and derived metrics inside one timeframe.
+Represents agreement between indicators, signals, and features inside one timeframe.
 
 ---
 
@@ -1070,8 +1071,8 @@ AdvisoryMatrix
 ├── Strategy Environment
 ├── Entry Guidance
 ├── Exit Guidance
-├── Stop Loss Guidance
-├── Take Profit Guidance
+├── Protection Strategy
+├── Target Strategy
 ├── Confidence Assessment
 └── Final Recommendation
 ```

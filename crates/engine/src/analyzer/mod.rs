@@ -745,6 +745,7 @@ pub async fn run_single(
                         force_index: fi_reading.map(|d| d.to_f64().unwrap_or(0.0)),
                         williams_r: wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
                         cci: cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
+                        psar_sar: psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
                     };
 
                     // Stamp signal freshness (age in completed bars).

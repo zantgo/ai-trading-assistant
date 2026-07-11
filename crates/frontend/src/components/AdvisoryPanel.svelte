@@ -95,12 +95,12 @@
                 </div>
             </div>
             <div class="ee-card">
-                <div class="ee-label">Stop Loss</div>
-                <div class="ee-value">{formatLabel(advisory.stop_loss_guidance)}</div>
+                <div class="ee-label">Protection Strategy</div>
+                <div class="ee-value">{formatLabel(advisory.protection_strategy)}</div>
             </div>
             <div class="ee-card">
-                <div class="ee-label">Take Profit</div>
-                <div class="ee-value">{formatLabel(advisory.take_profit_guidance)}</div>
+                <div class="ee-label">Target Strategy</div>
+                <div class="ee-value">{formatLabel(advisory.target_strategy)}</div>
             </div>
         </div>
 

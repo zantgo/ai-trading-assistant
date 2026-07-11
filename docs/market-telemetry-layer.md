@@ -210,7 +210,7 @@ Metrics Matrix
 │
 ├── Signals
 │
-├── Derived Metrics
+├── Features
 │
 └── Local Confluence
 ```
@@ -1059,27 +1059,151 @@ Low
 
 ---
 
-# Component 3 — Derived Metrics
+# Component 3 — Features
 
 ## Purpose
 
-Derived Metrics transform multiple low-level observations into higher-level analytical measurements.
+Features are high-level quantitative variables derived from indicators and
+signals that summarize market behavior and provide reusable analytical
+information for downstream layers.
 
-They are not directly calculated from a single indicator.
+They are not calculated directly from a single indicator, and they are not
+discrete events. They are normalized, aggregated, contextual, or probabilistic
+representations of market conditions.
 
-They represent combinations of market information.
+Features are intended to become the primary analytical outputs consumed by
+later matrices — and by future research, backtesting, optimization, and machine
+learning components.
 
 ---
 
-# Derived Metric Categories
+# Feature Categories
 
 ---
 
-## Market Regime
-
-Represents the current operating environment.
+## Trend Features
 
 Examples:
+
+```text
+Trend Score
+
+Trend Strength
+
+Trend Quality
+
+Trend Persistence
+```
+
+Scale:
+
+```text
+0 - 100
+```
+
+---
+
+## Momentum Features
+
+Examples:
+
+```text
+Momentum Score
+
+Momentum Strength
+
+Momentum Acceleration
+```
+
+Scale:
+
+```text
+0 - 100
+```
+
+---
+
+## Volatility Features
+
+Examples:
+
+```text
+Volatility Score
+
+ATR Percentile
+
+Expansion Rate
+
+Compression Rate
+```
+
+Scale:
+
+```text
+0 - 100
+```
+
+---
+
+## Volume Features
+
+Examples:
+
+```text
+Volume Score
+
+Relative Volume
+
+Participation Score
+
+Liquidity Score
+```
+
+Scale:
+
+```text
+0 - 100
+```
+
+---
+
+## Structure Features
+
+Examples:
+
+```text
+Structure Score
+
+Breakout Pressure
+
+Pullback Depth
+
+Distance to Support
+
+Distance to Resistance
+```
+
+Scale:
+
+```text
+0 - 100
+```
+
+---
+
+## Market Features
+
+Examples:
+
+```text
+Market Regime
+
+Market Phase
+
+Liquidity State
+```
+
+Market Regime represents the current operating environment:
 
 ```text
 Trending Bull
@@ -1095,69 +1219,35 @@ Distribution
 Transition
 ```
 
----
-
-## Trend Score
-
-Measures trend quality.
-
-Scale:
+Market Phase:
 
 ```text
-0 - 100
+Accumulation
+
+Markup
+
+Distribution
+
+Markdown
+```
+
+Liquidity State:
+
+```text
+Thin
+
+Low
+
+Normal
+
+High
+
+Institutional
 ```
 
 ---
 
-## Momentum Score
-
-Measures momentum quality.
-
-Scale:
-
-```text
-0 - 100
-```
-
----
-
-## Volume Score
-
-Measures participation quality.
-
-Scale:
-
-```text
-0 - 100
-```
-
----
-
-## Volatility Score
-
-Measures volatility condition.
-
-Scale:
-
-```text
-0 - 100
-```
-
----
-
-## Structure Score
-
-Measures market structure quality.
-
-Scale:
-
-```text
-0 - 100
-```
-
----
-
-## Probability Metrics
+## Probability Features
 
 Examples:
 
@@ -1179,37 +1269,41 @@ Scale:
 
 ---
 
-## Liquidity State
+## Confidence Features
 
 Examples:
 
 ```text
-Thin
+Overall Confidence
 
-Low
+Trend Confidence
 
-Normal
+Signal Confidence
+```
 
-High
+Scale:
 
-Institutional
+```text
+0 - 100%
 ```
 
 ---
 
-## Market Phase
+# Feature Principles
 
-Examples:
+- **Derived** — from indicators and/or signals, never directly from raw candles.
 
-```text
-Accumulation
+- **Reusable** — consumable by the Alignment, Analysis, Risk, and Advisory
+  matrices, plus the Research Engine, Backtesting Engine, and machine learning
+  models.
 
-Markup
+- **Explainable** — traceable to the indicators and signals that generated it.
 
-Distribution
+- **Normalized When Possible** — prefer normalized representations over raw
+  values to improve cross-asset comparability.
 
-Markdown
-```
+- **Quantitative** — describe measurable market properties, not subjective
+  opinions.
 
 ---
 
@@ -1219,13 +1313,13 @@ Markdown
 
 Local Confluence is the final output of the Metrics Matrix.
 
-It measures agreement between:
+It measures the internal agreement of the:
 
 - Indicators
     
 - Signals
     
-- Derived Metrics
+- Features
     
 
 inside one timeframe.
@@ -1262,7 +1356,7 @@ Signals:
 Bullish
 
 
-Derived Metrics:
+Features:
 
 Bullish
 
@@ -1308,7 +1402,7 @@ Signals
 
 ↓
 
-Derived Metrics
+Features
 
 ↓
 
@@ -1351,7 +1445,7 @@ Every metric must be traceable to market data.
 
 # Modular
 
-Indicators, signals, and derived metrics must be independently extendable.
+Indicators, signals, and features must be independently extendable.
 
 ---
 

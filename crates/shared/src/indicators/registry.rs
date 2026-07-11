@@ -89,7 +89,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "supertrend", display_name: "Supertrend", group: Trend, class: Lagging,
         render: PriceOverlay, directional: true, supports_divergence: false,
-        signal_types: &[TrendFlip, Crossover, BandTouch], default_weight: 1.0, default_enabled: true,
+        signal_types: &[TrendFlip, Crossover, LevelTest], default_weight: 1.0, default_enabled: true,
         config_params: &["supertrend_period", "supertrend_multiplier"],
         value_format: "price", value_source: "sub:line", color: "#26a69a", guide_section: "14",
     },
@@ -141,13 +141,6 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         render: Pane, directional: true, supports_divergence: true,
         signal_types: &[Divergence, Threshold, ZeroLineCross], default_weight: 1.0, default_enabled: true,
         config_params: &["rsi_period"],
-        value_format: "decimals2", value_source: "raw", color: "#7e57c2", guide_section: "1",
-    },
-    IndicatorMeta {
-        key: "rsi_divergence", display_name: "RSI Divergence", group: Momentum, class: Leading,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[],
         value_format: "decimals2", value_source: "raw", color: "#7e57c2", guide_section: "1",
     },
     IndicatorMeta {
@@ -209,16 +202,9 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "macd", display_name: "MACD", group: Momentum, class: Lagging,
         render: Pane, directional: true, supports_divergence: true,
-        signal_types: &[Crossover, ZeroLineCross, Divergence, Threshold, TrendFlip], default_weight: 1.0, default_enabled: true,
+        signal_types: &[Crossover, ZeroLineCross, Divergence, TrendFlip], default_weight: 1.0, default_enabled: true,
         config_params: &["macd_fast", "macd_slow", "macd_signal"],
         value_format: "decimals4", value_source: "raw", color: "#26a69a", guide_section: "2",
-    },
-    IndicatorMeta {
-        key: "macd_divergence", display_name: "MACD Divergence", group: Momentum, class: Lagging,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[],
-        value_format: "decimals2", value_source: "raw", color: "#26a69a", guide_section: "2",
     },
     // ─────────── VOLUME ───────────
     IndicatorMeta {
@@ -245,14 +231,14 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "obv", display_name: "OBV", group: Volume, class: Lagging,
         render: Pane, directional: true, supports_divergence: true,
-        signal_types: &[Divergence, TrendFlip, Threshold], default_weight: 1.0, default_enabled: true,
+        signal_types: &[Divergence, TrendFlip], default_weight: 1.0, default_enabled: true,
         config_params: &["obv_smoothing"],
         value_format: "decimals2", value_source: "raw", color: "#29b6f6", guide_section: "17",
     },
     IndicatorMeta {
         key: "cmf", display_name: "Chaikin MF", group: Volume, class: Hybrid,
         render: Pane, directional: true, supports_divergence: true,
-        signal_types: &[ZeroLineCross, Divergence, Threshold], default_weight: 1.0, default_enabled: true,
+        signal_types: &[ZeroLineCross, Divergence], default_weight: 1.0, default_enabled: true,
         config_params: &["cmf_period"],
         value_format: "decimals2", value_source: "raw", color: "#26c6da", guide_section: "18",
     },
@@ -281,14 +267,14 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "bbwp", display_name: "BBWP", group: Volatility, class: Leading,
         render: Pane, directional: false, supports_divergence: false,
-        signal_types: &[CompressionRelease, Threshold], default_weight: 1.0, default_enabled: true,
+        signal_types: &[CompressionRelease], default_weight: 1.0, default_enabled: true,
         config_params: &["bbwp_period", "bbwp_lookback"],
         value_format: "percent1", value_source: "raw", color: "#ffca28", guide_section: "9",
     },
     IndicatorMeta {
         key: "squeeze", display_name: "TTM Squeeze", group: Volatility, class: Hybrid,
         render: Pane, directional: true, supports_divergence: true,
-        signal_types: &[CompressionRelease, Divergence, Threshold], default_weight: 1.0, default_enabled: true,
+        signal_types: &[CompressionRelease, Divergence], default_weight: 1.0, default_enabled: true,
         config_params: &["squeeze_period"],
         value_format: "onoff", value_source: "state", color: "#b2ff59", guide_section: "3",
     },
@@ -360,7 +346,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     IndicatorMeta {
         key: "linreg_slope", display_name: "LinReg Slope", group: Regime, class: Lagging,
         render: Pane, directional: true, supports_divergence: false,
-        signal_types: &[ZeroLineCross, Threshold], default_weight: 1.0, default_enabled: true,
+        signal_types: &[ZeroLineCross], default_weight: 1.0, default_enabled: true,
         config_params: &["linreg_period"],
         value_format: "decimals4", value_source: "raw", color: "#42a5f5", guide_section: "23",
     },
@@ -399,43 +385,6 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         signal_types: &[LevelTest, TrendFlip], default_weight: 1.0, default_enabled: true,
         config_params: &["smc_lookback"],
         value_format: "decimals2", value_source: "sub:ob_bullish_high", color: "#8d6e63", guide_section: "34",
-    },
-    // ─────────── DIVERGENCE SCORED KEYS (Phase 2) ───────────
-    IndicatorMeta {
-        key: "stochastic_divergence", display_name: "Stoch Divergence", group: Momentum, class: Leading,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#2962ff", guide_section: "12",
-    },
-    IndicatorMeta {
-        key: "chandemo_divergence", display_name: "CMO Divergence", group: Momentum, class: Leading,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#e040fb", guide_section: "13",
-    },
-    IndicatorMeta {
-        key: "mfi_divergence", display_name: "MFI Divergence", group: Volume, class: Hybrid,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#ab47bc", guide_section: "19",
-    },
-    IndicatorMeta {
-        key: "cmf_divergence", display_name: "CMF Divergence", group: Volume, class: Hybrid,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#26c6da", guide_section: "18",
-    },
-    IndicatorMeta {
-        key: "obv_divergence", display_name: "OBV Divergence", group: Volume, class: Lagging,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#29b6f6", guide_section: "17",
-    },
-    IndicatorMeta {
-        key: "squeeze_divergence", display_name: "Squeeze Divergence", group: Volatility, class: Hybrid,
-        render: Marker, directional: true, supports_divergence: true,
-        signal_types: &[], default_weight: 1.0, default_enabled: true,
-        config_params: &[], value_format: "decimals2", value_source: "raw", color: "#b2ff59", guide_section: "3",
     },
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
     IndicatorMeta {

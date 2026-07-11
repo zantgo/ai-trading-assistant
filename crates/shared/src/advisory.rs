@@ -80,10 +80,10 @@ pub enum ExitGuidance {
     NoWarning,
 }
 
-/// Stop loss guidance.
+/// Protection strategy guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum StopLossGuidance {
+pub enum ProtectionStrategy {
     StructureBased,
     VolatilityBased,
     ATRBased,
@@ -91,10 +91,10 @@ pub enum StopLossGuidance {
     NoRecommendation,
 }
 
-/// Take profit guidance.
+/// Target strategy guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TakeProfitGuidance {
+pub enum TargetStrategy {
     ResistanceBased,
     RRBased,
     VolatilityBased,
@@ -112,8 +112,8 @@ pub struct AdvisoryMatrix {
     pub strategy_environment: StrategyEnvironment,
     pub entry_guidance: EntryGuidance,
     pub exit_guidance: ExitGuidance,
-    pub stop_loss_guidance: StopLossGuidance,
-    pub take_profit_guidance: TakeProfitGuidance,
+    pub protection_strategy: ProtectionStrategy,
+    pub target_strategy: TargetStrategy,
     pub confidence_assessment: f64,
     pub final_recommendation: String,
 }
@@ -128,8 +128,8 @@ impl AdvisoryMatrix {
             strategy_environment: StrategyEnvironment::LowActivity,
             entry_guidance: EntryGuidance::NoEntryContext,
             exit_guidance: ExitGuidance::NoWarning,
-            stop_loss_guidance: StopLossGuidance::NoRecommendation,
-            take_profit_guidance: TakeProfitGuidance::NoRecommendation,
+            protection_strategy: ProtectionStrategy::NoRecommendation,
+            target_strategy: TargetStrategy::NoRecommendation,
             confidence_assessment: 0.0,
             final_recommendation: "Insufficient data to provide guidance.".into(),
         }
@@ -231,22 +231,22 @@ pub fn compute_advisory(
     };
 
     // Stop loss from volatility + structure
-    let stop_loss = if analysis.volatility_assessment == crate::analysis::VolatilityAssessment::Compressed {
-        StopLossGuidance::StructureBased
+    let protection = if analysis.volatility_assessment == crate::analysis::VolatilityAssessment::Compressed {
+        ProtectionStrategy::StructureBased
     } else if risk.volatility_risk.score > 60.0 {
-        StopLossGuidance::VolatilityBased
+        ProtectionStrategy::VolatilityBased
     } else {
-        StopLossGuidance::ATRBased
+        ProtectionStrategy::ATRBased
     };
 
     // Take profit from structure + reward risk
-    let take_profit = if analysis.structure_assessment == crate::analysis::StructureAssessment::Strong
+    let target = if analysis.structure_assessment == crate::analysis::StructureAssessment::Strong
         || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy {
-        TakeProfitGuidance::ResistanceBased
+        TargetStrategy::ResistanceBased
     } else if risk.reward_risk.score < 40.0 {
-        TakeProfitGuidance::RRBased
+        TargetStrategy::RRBased
     } else {
-        TakeProfitGuidance::VolatilityBased
+        TargetStrategy::VolatilityBased
     };
 
     // Confidence: analysis.confidence × (1 - risk.overall/100)
@@ -294,12 +294,12 @@ pub fn compute_advisory(
             EntryGuidance::Breakout => "on breakout",
             EntryGuidance::NoEntryContext => "no entry context",
         },
-        match stop_loss {
-            StopLossGuidance::StructureBased => "structure-based",
-            StopLossGuidance::VolatilityBased => "volatility-based",
-            StopLossGuidance::ATRBased => "ATR-based",
-            StopLossGuidance::SRBased => "S/R-based",
-            StopLossGuidance::NoRecommendation => "no recommendation",
+        match protection {
+            ProtectionStrategy::StructureBased => "structure-based",
+            ProtectionStrategy::VolatilityBased => "volatility-based",
+            ProtectionStrategy::ATRBased => "ATR-based",
+            ProtectionStrategy::SRBased => "S/R-based",
+            ProtectionStrategy::NoRecommendation => "no recommendation",
         }
     );
 
@@ -311,8 +311,8 @@ pub fn compute_advisory(
         strategy_environment: strategy_env,
         entry_guidance: entry,
         exit_guidance: exit,
-        stop_loss_guidance: stop_loss,
-        take_profit_guidance: take_profit,
+        protection_strategy: protection,
+        target_strategy: target,
         confidence_assessment: confidence,
         final_recommendation: recommendation,
     }

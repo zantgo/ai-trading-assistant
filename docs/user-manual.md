@@ -148,7 +148,7 @@ Within each instance, sub-tabs provide:
 | Sub-Tab | Content |
 |---|---|
 | **Live Panel** | Price chart, Volume, ADX, ATR, RSI, MACD, Squeeze Momentum, and 20+ additional indicator panels |
-| **Metrics Panel** | Per-instance indicator telemetry, signal activity, and derived metrics |
+| **Metrics Panel** | Per-instance indicator telemetry, signal activity, and features |
 | **Alignment Panel** | Multi-timeframe agreement visualization across 10 alignment dimensions |
 | **Risk Panel** | Market risk assessment — 9 risk dimensions with score, level, state, and confidence |
 | **Analysis Panel** | Market interpretation — bias, regime, trend/momentum/structure/volatility/volume assessments |

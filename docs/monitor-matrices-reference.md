@@ -69,10 +69,12 @@ variants. Each signal carries: Type, Direction, Status, Strength, Freshness,
 Confirmation, Multi-Timeframe alignment, Confidence, Market Regime,
 Risk Level, Priority.
 
-**3. Derived Metrics** — Higher-level analytical summaries: Market Regime,
-Trend/Momentum/Volume/Volatility/Structure Scores, Overall Confidence,
-Breakout/Continuation/Reversal/Mean Reversion Probabilities, Liquidity State,
-Market Phase, Strategy Recommendation.
+**3. Features** — Reusable, high-level quantitative variables derived from
+indicators and signals, organized into eight groups: Trend, Momentum,
+Volatility, Volume, Structure, Market, Probability, and Confidence Features.
+Examples: Trend Score, Momentum Acceleration, ATR Percentile, Relative Volume,
+Breakout Pressure, Market Regime, Market Phase, Breakout/Continuation/Reversal/
+Mean Reversion Probabilities, Overall Confidence.
 
 ### Local Confluence (Intra-Timeframe)
 
@@ -88,7 +90,7 @@ This answers: _"What does THIS timeframe think?"_
 ### UI Panel: Metrics Panel
 
 `TerminalMonitor.svelte` — 58 indicator rows with raw/normalized/state_label/
-confidence, active signals with freshness badges, derived metrics section
+confidence, active signals with freshness badges, features section
 (MarketContext: trend, momentum, volatility, volume, liquidity, regime, overall).
 
 ---

@@ -233,30 +233,109 @@ metadata for downstream interpretation.
 
 ---
 
-## Derived Metrics
+## Features
 
-Derived Metrics are higher-level analytical summaries computed from indicators
-and signals within the Metrics Matrix. They represent interpreted market
-context, not raw indicator values.
+Features are high-level quantitative variables derived from indicators and
+signals that summarize market behavior and provide reusable analytical
+information for downstream layers.
 
-| Derived Metric | Description | Implementation |
+Unlike indicators, features are not calculated directly from market data.
+Unlike signals, features are not discrete events. They are normalized,
+aggregated, contextual, or probabilistic representations of market conditions,
+and are the primary analytical outputs consumed by later matrices
+(Alignment, Analysis, Risk, Advisory) as well as future research, backtesting,
+optimization, and machine learning components.
+
+Features are organized into eight logical groups.
+
+### Trend Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Trend Score** | Trend-group equal-weighted mean | `MarketContext.trend.score` |
+| **Trend Strength** | ADX-weighted intensity of the prevailing trend | `MarketContext.trend.strength` |
+| **Trend Quality** | ADX + EMA structure alignment assessment | `MarketContext.trend.quality` |
+| **Trend Persistence** | Consistency of trend direction across recent bars | `MarketContext.trend.persistence` |
+
+### Momentum Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Momentum Score** | Momentum-group equal-weighted mean | `MarketContext.momentum.score` |
+| **Momentum Strength** | Magnitude of the momentum reading | `MarketContext.momentum.strength` |
+| **Momentum Acceleration** | Rate of change of momentum (second derivative) | `MarketContext.momentum.acceleration` |
+
+### Volatility Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Volatility Score** | BBWP-derived volatility condition | `MarketContext.volatility.score` |
+| **ATR Percentile** | Current ATR ranked against historical distribution | `MarketContext.volatility.atr_percentile` |
+| **Expansion Rate** | Speed of volatility expansion | `MarketContext.volatility.expansion_rate` |
+| **Compression Rate** | Speed of volatility compression | `MarketContext.volatility.compression_rate` |
+
+### Volume Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Volume Score** | Volume magnitude relative to baseline | `MarketContext.volume.score` |
+| **Relative Volume** | Current volume vs rolling average (RVOL) | `MarketContext.volume.relative_volume` |
+| **Participation Score** | Breadth of market participation | `MarketContext.volume.participation` |
+| **Liquidity Score** | Depth/spread-derived liquidity quality | `MarketContext.volume.liquidity_score` |
+
+### Structure Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Structure Score** | Market structure quality assessment | `MarketContext.structure.score` |
+| **Breakout Pressure** | Compression + squeeze release build-up | `MarketContext.structure.breakout_pressure` |
+| **Pullback Depth** | Retracement depth vs prior impulse leg | `MarketContext.structure.pullback_depth` |
+| **Distance to Support** | Normalized % distance to nearest support | `MarketContext.structure.distance_to_support` |
+| **Distance to Resistance** | Normalized % distance to nearest resistance | `MarketContext.structure.distance_to_resistance` |
+
+### Market Features
+
+| Feature | Description | Implementation |
 |---|---|---|
 | **Market Regime** | TRENDING / RANGE / EXPANSION / COMPRESSION | `MarketContext.regime` |
-| **Trend Score** | Trend-group equal-weighted mean | `MarketContext.trend.score` |
-| **Momentum Score** | Momentum-group equal-weighted mean | `MarketContext.momentum.score` |
-| **Volume Score** | Volume magnitude | `MarketContext.volume.score` |
-| **Volatility Score** | BBWP-derived | `MarketContext.volatility.score` |
-| **Liquidity State** | VWAP + volume confidence proxy | `MarketContext.liquidity` |
-| **Overall Confidence** | Local equal-weighted bias | `MarketContext.overall_score` |
-| **Trend Quality** | ADX + EMA structure assessment | *deferred* |
-| **Breakout Probability** | Compression + squeeze release odds | *deferred* |
-| **Continuation Probability** | Trend strength persistence | *deferred* |
-| **Reversal Probability** | Exhaustion + divergence odds | *deferred* |
-| **Mean Reversion Probability** | BBWP + Z-Score extremes | *deferred* |
-| **Liquidity State** | Thin / Low / Normal / High / Institutional | *deferred* |
-| **Market Phase** | Accumulation / Markup / Distribution / Markdown | *deferred* |
-| **Strategy Recommendation** | Best-fit strategy for current conditions | Analysis Matrix |
-| **Trade Readiness** | Not Ready / Building / Ready / Confirmed / Late | Analysis Matrix |
+| **Market Phase** | Accumulation / Markup / Distribution / Markdown | `MarketContext.phase` |
+| **Liquidity State** | Thin / Low / Normal / High / Institutional | `MarketContext.liquidity` |
+
+### Probability Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Breakout Probability** | Compression + squeeze release odds | `MarketContext.probability.breakout` |
+| **Continuation Probability** | Trend strength persistence odds | `MarketContext.probability.continuation` |
+| **Reversal Probability** | Exhaustion + divergence odds | `MarketContext.probability.reversal` |
+| **Mean Reversion Probability** | BBWP + Z-Score extreme odds | `MarketContext.probability.mean_reversion` |
+
+### Confidence Features
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Overall Confidence** | Local equal-weighted bias conviction | `MarketContext.overall_score` |
+| **Trend Confidence** | Reliability of the trend feature set | `MarketContext.trend.confidence` |
+| **Signal Confidence** | Aggregate reliability of active signals | `MarketContext.signal_confidence` |
+
+---
+
+## Feature Principles
+
+Every feature satisfies the following principles.
+
+- **Derived** — Features are derived from indicators and/or signals, never
+  directly from raw candles.
+- **Reusable** — Features are generic enough to be consumed by the Alignment,
+  Analysis, Risk, and Advisory matrices, as well as the Research Engine,
+  Backtesting Engine, and machine learning models.
+- **Explainable** — Every feature is traceable to the indicators and signals
+  that generated it. No feature behaves as a black box.
+- **Normalized When Possible** — Prefer normalized representations
+  (ATR Percentile, Relative Volume, Distance from VWAP %, Distance from EMA200 %)
+  over raw values to improve cross-asset comparability.
+- **Quantitative** — Features describe measurable market properties rather than
+  subjective opinions.
 
 ---
 

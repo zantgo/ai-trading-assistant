@@ -27,6 +27,7 @@ pub struct CompletedTradesBufferRow {
 
 use serde::{Deserialize, Serialize};
 use shared::indicators::normalized::NormalizedIndicatorValue;
+use shared::indicators::normalized::{SignalKind, SignalStatus};
 use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, Deserialize)]
@@ -204,10 +205,10 @@ impl IndicatorSnapshot {
         })
     }
     pub fn rsi_divergence_status(&self) -> Option<String> {
-        divergence_status(self.lbl("rsi_divergence"))
+        divergence_from_signals(self.indicators.get("rsi"))
     }
     pub fn macd_divergence_status(&self) -> Option<String> {
-        divergence_status(self.lbl("macd_divergence"))
+        divergence_from_signals(self.indicators.get("macd"))
     }
     pub fn norm_of(&self, key: &str) -> f64 { self.norm(key).unwrap_or(0.0) }
 
@@ -220,14 +221,22 @@ impl IndicatorSnapshot {
     pub fn adx_di_crossover_direction(&self) -> Option<String> { None }
 }
 
-fn divergence_status(label: Option<&str>) -> Option<String> {
-    match label {
-        Some("CONFIRMED_BULLISH_DIVERGENCE") => Some("confirmed_bullish".into()),
-        Some("POTENTIAL_BULLISH_DIVERGENCE") => Some("potential_bullish".into()),
-        Some("CONFIRMED_BEARISH_DIVERGENCE") => Some("confirmed_bearish".into()),
-        Some("POTENTIAL_BEARISH_DIVERGENCE") => Some("potential_bearish".into()),
-        _ => None,
-    }
+/// Extract divergence status from a parent oscillator's signals array.
+/// Divergence lives as a secondary output on the parent (e.g., "rsi"), not
+/// as a separate mirror entry in the indicator map.
+fn divergence_from_signals(parent: Option<&NormalizedIndicatorValue>) -> Option<String> {
+    let signal = parent?.signals.iter().find(|s| s.kind == SignalKind::Divergence)?;
+    let direction = match signal.direction {
+        shared::indicators::normalized::SignalDirection::Bullish => "bullish",
+        shared::indicators::normalized::SignalDirection::Bearish => "bearish",
+        _ => return None,
+    };
+    let status = match signal.status {
+        SignalStatus::Confirmed => "confirmed",
+        SignalStatus::Potential => "potential",
+        _ => return None,
+    };
+    Some(format!("{}_{}", status, direction))
 }
 
 #[derive(Debug, Serialize)]

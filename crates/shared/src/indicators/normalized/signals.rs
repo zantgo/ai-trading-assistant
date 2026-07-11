@@ -107,15 +107,10 @@ pub(super) fn derive_signals(map: &mut Map) {
 
         // ── Extended patterns (indicators whose labels never matched before) ──
 
-        // MACD crossover + momentum exhaustion (primary signal for this indicator).
-        if key == "macd" {
-            if l.contains("CROSSOVER") {
-                let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
-                sigs.push(IndicatorSignal::new(SignalKind::Crossover, d, SignalStatus::Active, l));
-            }
-            if l.contains("FLATLINE") || l.contains("EXHAUSTION_WARNING") {
-                sigs.push(threshold(SignalDirection::Neutral, l));
-            }
+        // MACD crossover (primary signal for this indicator).
+        if key == "macd" && l.contains("CROSSOVER") {
+            let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
+            sigs.push(IndicatorSignal::new(SignalKind::Crossover, d, SignalStatus::Active, l));
         }
 
         // EMA ribbon stack alignment / retest (ribbon flip or retest trigger).
@@ -126,17 +121,6 @@ pub(super) fn derive_signals(map: &mut Map) {
             sigs.push(IndicatorSignal::new(SignalKind::StackChange, d, SignalStatus::Active, l));
         }
 
-        // OBV accumulation/distribution (smart-money flow).
-        if key == "obv" {
-            if l.contains("ACCUMULATION") { sigs.push(threshold(SignalDirection::Bullish, l)); }
-            else if l.contains("DISTRIBUTION") { sigs.push(threshold(SignalDirection::Bearish, l)); }
-        }
-
-        // CMF money-flow direction (zero-line proxy).
-        if key == "cmf" && (l.contains("BUYING") || l.contains("SELLING")) {
-            let d = if l.contains("BUYING") { SignalDirection::Bullish } else { SignalDirection::Bearish };
-            sigs.push(threshold(d, l));
-        }
 
         // Aroon trend strength (primary directional signal).
         if key == "aroon" {
@@ -149,31 +133,13 @@ pub(super) fn derive_signals(map: &mut Map) {
             sigs.push(threshold(SignalDirection::Neutral, l));
         }
 
-        // LinReg slope direction (rising/falling trend).
-        if key == "linreg_slope" {
-            if l.contains("RISING") { sigs.push(threshold(SignalDirection::Bullish, l)); }
-            else if l.contains("FALLING") { sigs.push(threshold(SignalDirection::Bearish, l)); }
-        }
 
-        // BBWP volatility exhaustion (mean-reversion warning).
-        if l.contains("EXHAUSTION_REVERSION") {
-            sigs.push(threshold(SignalDirection::Neutral, l));
-        }
 
         // HV extreme volatility (regime outlier warning).
         if key == "hv" && l.contains("EXTREME") {
             sigs.push(threshold(SignalDirection::Neutral, l));
         }
 
-        // Squeeze momentum acceleration / deceleration phases.
-        if key == "squeeze" {
-            if l.contains("ACCELERATING") {
-                let d = if l.contains("BULLISH") { SignalDirection::Bullish } else { SignalDirection::Bearish };
-                sigs.push(threshold(d, l));
-            } else if l.contains("DECELERATING") {
-                sigs.push(threshold(SignalDirection::Neutral, l));
-            }
-        }
 
         // RSI / Stochastic / MFI / ChandeMO directional momentum bias (non-extreme).
         const MOM_KEYS: &[&str] = &["rsi", "stochastic", "chandemo", "mfi"];

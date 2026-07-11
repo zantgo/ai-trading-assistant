@@ -803,7 +803,7 @@ Measures whether analytical confidence is consistent across timeframes.
     
 - Local Confluence
     
-- Derived metric confidence
+- Feature confidence
     
 
 ---
@@ -1111,7 +1111,7 @@ The Signal Correlation Layer does not calculate:
     
 - Signals
     
-- Derived metrics
+- Features
     
 
 It only compares existing outputs.

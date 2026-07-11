@@ -298,10 +298,15 @@ mod tests {
             v.insert("vwap".to_string(), 3130.0);
             NormalizedIndicatorValue::with_values(3130.0, 0.8, "EXTREME_DISCOUNT_REVERSION_ZONE", v)
         });
-        map.insert(
-            "rsi_divergence".into(),
-            NormalizedIndicatorValue::scalar(0.5, 0.5, "POTENTIAL_BULLISH_DIVERGENCE"),
-        );
+        // Push a Divergence signal onto the RSI entry (divergence lives on parent).
+        if let Some(rsi_entry) = map.get_mut("rsi") {
+            rsi_entry.signals.push(shared::indicators::normalized::IndicatorSignal::new(
+                shared::indicators::normalized::SignalKind::Divergence,
+                shared::indicators::normalized::SignalDirection::Bullish,
+                shared::indicators::normalized::SignalStatus::Potential,
+                "POTENTIAL_BULLISH_DIVERGENCE",
+            ));
+        }
         map.insert("atr".into(), {
             let mut v = HashMap::new();
             v.insert("atr_14".to_string(), 1.5);
