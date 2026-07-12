@@ -1,68 +1,204 @@
-.settingsView {
-    padding: 2rem;
-    color: rgba(255, 255, 255, 0.8);
-    max-width: 900px;
-    margin: 0 auto;
-}
-.settingsView h2 {
-    margin: 0 0 1.5rem 0;
+.profileLayout {
+    display: flex;
+    height: 100%;
+    background: #000;
     color: #fff;
-    font-size: 1.1rem;
+}
+
+/* ─── Sidebar ──────────────────────────────────────────────────────────── */
+.profileSidebar {
+    width: 220px;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.profileTitle {
+    font-size: 0.85rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 20px 0;
+    padding: 0 20px;
 }
-.settingsGrid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
+
+.sidebarItem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 20px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.45);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    letter-spacing: 0.03em;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
 }
-.settingsCard {
+
+.sidebarItem:hover {
+    color: rgba(255, 255, 255, 0.75);
     background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 1.5rem;
 }
-.settingsCard h3 {
-    margin: 0 0 1rem 0;
+
+.sidebarActive {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.06);
+    font-weight: 600;
+    border-right: 2px solid rgba(255, 255, 255, 0.5);
+}
+
+/* ─── Content ──────────────────────────────────────────────────────────── */
+.profileContent {
+    flex: 1;
+    padding: 32px 40px;
+    overflow-y: auto;
+}
+
+.profileCard {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 620px;
+}
+
+.profileCard h3 {
+    margin: 0 0 4px 0;
     color: #fff;
     font-size: 0.85rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
 }
+
+.cardSub {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.35);
+    margin: 0 0 20px 0;
+}
+
+/* ─── Fee Calculator ───────────────────────────────────────────────────── */
+.calcRow {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.calcField {
+    flex: 1;
+    min-width: 140px;
+}
+
+.calcField label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 5px;
+}
+
+.calcField input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 7px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    color: #fff;
+    font-family: ui-monospace, monospace;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease;
+}
+
+.calcField input:focus { border-color: rgba(255, 255, 255, 0.3); }
+
+.calcResults {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.calcResultItem {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.calcLabel {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.calcValue {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #fff;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.02em;
+}
+
+.calcResultSub {
+    font-size: 0.62rem;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.feeWarn { color: #ffd60a !important; }
+
+/* ─── API Failover ─────────────────────────────────────────────────────── */
 .inputRow {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 10px;
 }
+
 .inputRow label {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.45);
     min-width: 180px;
     font-weight: 500;
     letter-spacing: 0.03em;
 }
+
 .inputRow input {
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 6px;
     padding: 6px 10px;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: #fff;
     font-family: inherit;
     width: 80px;
     outline: none;
     transition: border-color 0.15s ease;
 }
-.inputRow input:focus {
-    border-color: rgba(255, 255, 255, 0.3);
-}
-.hint {
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.35);
+
+.inputRow input:focus { border-color: rgba(255, 255, 255, 0.3); }
+
+.fieldHint {
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.3);
     letter-spacing: 0.02em;
 }
+
 .saveBtn {
     margin-top: 8px;
     padding: 8px 20px;
@@ -70,23 +206,19 @@
     color: #000;
     border: none;
     border-radius: 7px;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     cursor: pointer;
     transition: opacity 0.15s ease;
 }
-.saveBtn:hover:not(:disabled) {
-    opacity: 0.85;
-}
-.saveBtn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-.loadingRow {
-    text-align: center;
-    padding: 2rem 0;
-    color: rgba(255, 255, 255, 0.4);
+
+.saveBtn:hover:not(:disabled) { opacity: 0.85; }
+.saveBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.loadingMsg {
+    color: rgba(255, 255, 255, 0.3);
     font-size: 0.8rem;
+    padding: 20px 0;
 }

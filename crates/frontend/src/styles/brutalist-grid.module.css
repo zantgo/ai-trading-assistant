@@ -39,7 +39,7 @@
 }
 
 .rowNavbar {
-    grid-template-columns: 2fr 2fr 2fr 1.5fr 1.5fr;
+    grid-template-columns: 1.5fr 1.5fr 3fr 1.5fr;
     height: 52px;
     background-color: var(--bg);
     border-bottom: 1px solid var(--line);
@@ -86,6 +86,7 @@
     letter-spacing: 0.10em;
     justify-content: flex-start;
     padding-left: 20px;
+    text-transform: uppercase;
 }
 
 .cellMono {
@@ -237,6 +238,87 @@
     color: #ff453a;
 }
 
+/* ── Lateral sidebar ─────────────────────────────────────────────────────── */
+.sidebarOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    background-color: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease;
+}
+
+.sidebarPanel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 240px;
+    height: 100vh;
+    background-color: var(--bg-elev);
+    border-right: 1px solid var(--line-strong);
+    z-index: 1600;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    animation: slideIn 0.25s ease;
+    box-shadow: 8px 0 40px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes slideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+}
+
+.sidebarBrand {
+    display: flex;
+    align-items: center;
+    height: 52px;
+    padding: 0 20px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+}
+
+.sidebarNav {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+}
+
+.sidebarItem {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
+}
+
+.sidebarItem:hover {
+    background-color: var(--hover);
+    color: var(--text);
+}
+
+.sidebarItemActive {
+    color: var(--text);
+    background-color: var(--active);
+}
+
 /* ── Loading state ─────────────────────────────────────────────────────── */
 .loading {
     position: fixed;
@@ -366,16 +448,19 @@
 }
 
 .modalCreateBtn {
-    padding: 8px 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
     background: var(--text);
     color: var(--bg);
     border: none;
     border-radius: 7px;
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 1;
     cursor: pointer;
     transition: opacity 0.15s ease;
 }
@@ -385,8 +470,36 @@
 }
 
 .modalCreateBtn:disabled {
-    opacity: 0.4;
+    opacity: 0.3;
     cursor: not-allowed;
+}
+
+/* ── Waving dots for loading ────────────────────────────────────────────── */
+.wavingDots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.wavingDot {
+    width: 3.5px;
+    height: 3.5px;
+    border-radius: 50%;
+    background-color: var(--bg);
+    animation: wave 0.8s ease-in-out infinite;
+}
+
+.wavingDot:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.wavingDot:nth-child(3) {
+    animation-delay: 0.30s;
+}
+
+@keyframes wave {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
 }
 
 /* ── Modal error ───────────────────────────────────────────────────────── */
@@ -429,6 +542,7 @@
     justify-content: center;
     cursor: pointer;
     height: 100%;
+    font-size: 14px;
     transition: background-color 0.15s ease;
 }
 
@@ -438,6 +552,49 @@
 
 .modalActionCell.danger:hover {
     background-color: rgba(255, 69, 58, 0.12);
+}
+
+/* ── Confirm row inside modal ───────────────────────────────────────────── */
+.confirmRow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 100%;
+    padding: 0 16px;
+}
+
+.confirmMsg {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+}
+
+.confirmBtn {
+    padding: 4px 14px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--text);
+    transition: all 0.15s ease;
+}
+
+.confirmBtn:hover {
+    background: var(--hover);
+}
+
+.confirmBtnDanger {
+    border-color: rgba(255, 69, 58, 0.35);
+    color: #ff453a;
+}
+
+.confirmBtnDanger:hover {
+    background: rgba(255, 69, 58, 0.12);
 }
 
 .modalEmpty {

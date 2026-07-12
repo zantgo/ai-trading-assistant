@@ -8,10 +8,10 @@
     import LiveTerminal from './components/LiveTerminal.svelte';
     import TerminalMonitor from './components/TerminalMonitor.svelte';
     import AlignmentPanel from './components/AlignmentPanel.svelte';
+    import OpportunitiesPanel from './components/OpportunitiesPanel.svelte';
     import RiskPanel from './components/RiskPanel.svelte';
     import AnalysisPanel from './components/AnalysisPanel.svelte';
     import AdvisoryPanel from './components/AdvisoryPanel.svelte';
-    import CommissionCalculator from './components/CommissionCalculator.svelte';
     import GeneralDashboard from './components/GeneralDashboard.svelte';
     import GeneralSettings from './components/GeneralSettings.svelte';
     import WorkspaceSettings from './components/WorkspaceSettings.svelte';
@@ -35,7 +35,7 @@
     // ─── Component-local UI state ───────────────────────────────────────
     let showQuitDialog = $state(false);
     let showInstancesDropdown = $state(false);
-    let showMenuDropdown = $state(false);
+    let isSidebarOpen = $state(false);
 
     // ─── Manage Workspaces modal state ──────────────────────────────────
     interface InstanceRow { id: string; pair: string; symbol: string; status: string; }
@@ -45,30 +45,40 @@
     let newBase = $state('');
     let createLoading = $state(false);
     let createError = $state<string | null>(null);
+    let confirmAction = $state<{ id: string; action: 'pause' | 'delete'; pair?: string } | null>(null);
 
-    // ─── Engines (Navbar 2) ─────────────────────────────────────────────
-    type EngineKey = 'portfolio' | 'market_monitor' | 'trade_automation' | 'performance';
-    const ENGINES: { key: EngineKey; label: string }[] = [
-        { key: 'portfolio',        label: 'Portfolio' },
-        { key: 'market_monitor',   label: 'Market' },
-        { key: 'trade_automation', label: 'Trading' },
-        { key: 'performance',      label: 'Analysis' },
+    // ─── Engines ────────────────────────────────────────────────────────
+    type EngineKey = 'profile' | 'portfolio' | 'market_monitor' | 'trade_automation' | 'performance';
+    const ENGINES_SIDEBAR: { key: EngineKey; label: string; icon: string }[] = [
+        { key: 'profile',        label: 'Home',     icon: '🏠' },
+        { key: 'portfolio',      label: 'Portfolio', icon: '📊' },
+        { key: 'market_monitor', label: 'Market',    icon: '📈' },
+        { key: 'trade_automation', label: 'Trading', icon: '💰' },
+        { key: 'performance',    label: 'Analysis',  icon: '🔍' },
     ];
 
-    // ─── Sub-tabs (Navbar 3, when inside an instance) ───────────────────
+    const MIDDLE_TABS: { key: string; label: string }[] = [
+        { key: 'overview',  label: 'Overview' },
+        { key: 'settings',  label: 'Settings' },
+    ];
+
+    // ─── Sub-tabs (Navbar 3, Market + workspace selected) ───────────────
     const SUB_TABS: { view: CurrentView; label: string }[] = [
-        { view: 'terminal',   label: 'Live Panel' },
-        { view: 'monitor',    label: 'Metrics Panel' },
-        { view: 'alignment',  label: 'Alignment' },
-        { view: 'risk',       label: 'Risk & Reward' },
-        { view: 'analysis',   label: 'Analysis' },
-        { view: 'advisory',   label: 'Advisory' },
-        { view: 'commission', label: 'Fee Projection' },
-        { view: 'settings',   label: 'Workspace Settings' },
+        { view: 'terminal',    label: 'Charts' },
+        { view: 'monitor',     label: 'Metrics' },
+        { view: 'alignment',   label: 'Alignment' },
+        { view: 'opportunity', label: 'Opportunities' },
+        { view: 'risk',        label: 'Risks' },
+        { view: 'analysis',    label: 'Analysis' },
+        { view: 'advisory',    label: 'Decision' },
     ];
 
     const activePair = $derived(app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined);
     const pairKeys = $derived(Object.keys(app.instancesMap));
+
+    // ─── Derived top label ───────────────────────────────────────────────
+    const topLabel = $derived(app.currentEngine === 'profile' ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
+    const isHome = $derived(app.currentEngine === 'profile');
 
     // ─── 24h change ─────────────────────────────────────────────────────
     const livePrice = $derived(activePair ? activePair.microTerm.priceText : '--');
@@ -88,10 +98,12 @@
         return styles.changeFlat;
     }
 
-    function closeDropdowns() {
+    function closeInstancesDropdown() {
         showInstancesDropdown = false;
-        showMenuDropdown = false;
     }
+
+    function toggleSidebar() { isSidebarOpen = !isSidebarOpen; }
+    function closeSidebar() { isSidebarOpen = false; }
 
     function selectSubView(view: CurrentView) {
         if (activePair) {
@@ -175,7 +187,16 @@
         if (e.key === 'Enter') handleCreateWorkspace();
     }
 
-    async function handleInstanceAction(id: string, action: 'pause' | 'stop' | 'delete', pair?: string) {
+    function requestConfirm(id: string, action: 'pause' | 'delete', pair?: string) {
+        confirmAction = { id, action, pair };
+    }
+
+    function cancelConfirm() { confirmAction = null; }
+
+    async function executeConfirmed() {
+        if (!confirmAction) return;
+        const { id, action, pair } = confirmAction;
+        confirmAction = null;
         const verb = action === 'delete' ? 'DELETE' : 'POST';
         const url = action === 'delete'
             ? `/api/instances/${encodeURIComponent(id)}`
@@ -207,14 +228,17 @@
     }
 
     function engineLabel(key: string): string {
-        return ENGINES.find(e => e.key === key)?.label ?? 'Coming Soon';
+        return ENGINES_SIDEBAR.find(e => e.key === key)?.label?.toUpperCase() ?? 'COMING SOON';
     }
 
-    function actionLabel(id: string, action: 'pause' | 'stop' | 'delete'): string {
-        if (actionLoading[id] === action) return '...';
-        if (action === 'pause') return '⏸';
-        if (action === 'stop') return '⏹';
-        return '🗑';
+    function sidebarItemClass(key: EngineKey): string {
+        const base = styles.sidebarItem;
+        return app.currentEngine === key ? `${base} ${styles.sidebarItemActive}` : base;
+    }
+
+    function navigateTo(engine: EngineKey) {
+        app.selectEngine(engine);
+        closeSidebar();
     }
 </script>
 
@@ -228,11 +252,17 @@
 {:else}
     <div class={styles.gridContainer}>
 
-        <!-- Navbar 1: Top bar -->
+        <!-- Navbar 1: Top bar (4 columns) -->
         <header class="{styles.row} {styles.rowNavbar}">
-            <div class="{styles.cell} {styles.cellBrand}">Trading Platform</div>
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="{styles.cell} {styles.cellBrand} {styles.cellClickable}" onclick={toggleSidebar}>
+                {topLabel}
+            </div>
             <div class="{styles.cell} {styles.cellMono}" style="justify-content: flex-start; padding-left: 4px;">
-                <span class={styles.exchangeChip}>{app.sessionExchange} · {app.sessionCurrency}</span>
+                {#if !isHome}
+                    <span class={styles.exchangeChip}>{app.sessionExchange} · {app.sessionCurrency}</span>
+                {/if}
             </div>
             <div class={styles.cell}></div>
 
@@ -241,7 +271,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
                 class="{styles.cell} {styles.cellClickable} {showInstancesDropdown ? styles.cellActive : ''}"
-                onclick={() => { showInstancesDropdown = !showInstancesDropdown; showMenuDropdown = false; }}
+                onclick={() => { showInstancesDropdown = !showInstancesDropdown; }}
             >
                 {#if app.selectedInstance && activePair}
                     <span class={styles.instanceDisplay}>
@@ -256,10 +286,8 @@
                 {:else}
                     <span class={styles.navLabel}>
                         <svg class={styles.navIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="3" width="7" height="7" rx="1"/>
-                            <rect x="14" y="3" width="7" height="7" rx="1"/>
-                            <rect x="3" y="14" width="7" height="7" rx="1"/>
-                            <rect x="14" y="14" width="7" height="7" rx="1"/>
+                            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                            <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
                         </svg>
                         Workspaces
                     </span>
@@ -267,12 +295,12 @@
 
                 {#if showInstancesDropdown}
                     <div class={styles.dropdownMenu}>
-                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.isManageModalOpen = true; closeDropdowns(); }}>Manage</button>
+                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.isManageModalOpen = true; closeInstancesDropdown(); }}>Manage</button>
                         {#if app.selectedInstance}
-                            <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.exitInstance(); closeDropdowns(); }}>Deselect</button>
+                            <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.exitInstance(); closeInstancesDropdown(); }}>Deselect</button>
                         {/if}
                         {#each pairKeys as pKey (pKey)}
-                            <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.enterInstance(pKey); closeDropdowns(); }}>{pKey}</button>
+                            <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.enterInstance(pKey); closeInstancesDropdown(); }}>{pKey}</button>
                         {/each}
                         {#if pairKeys.length === 0}
                             <span class={styles.dropdownItem}>No Workspaces</span>
@@ -280,71 +308,37 @@
                     </div>
                 {/if}
             </div>
-
-            <!-- Menu -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-                class="{styles.cell} {styles.cellClickable} {showMenuDropdown ? styles.cellActive : ''}"
-                onclick={() => { showMenuDropdown = !showMenuDropdown; showInstancesDropdown = false; }}
-            >
-                <span class={styles.navLabel}>
-                    <svg class={styles.navIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="4" y1="6" x2="20" y2="6"/>
-                        <line x1="4" y1="12" x2="20" y2="12"/>
-                        <line x1="4" y1="18" x2="20" y2="18"/>
-                    </svg>
-                    Menu
-                </span>
-                {#if showMenuDropdown}
-                    <div class={styles.dropdownMenu}>
-                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.selectEngine('profile'); closeDropdowns(); }}>Profile</button>
-                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.selectEngine('portfolio'); closeDropdowns(); }}>Portfolio</button>
-                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.selectEngine('market_monitor'); closeDropdowns(); }}>Market</button>
-                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.selectEngine('trade_automation'); closeDropdowns(); }}>Trading</button>
-                        <button class={styles.dropdownItem} onclick={(e) => { e.stopPropagation(); app.selectEngine('performance'); closeDropdowns(); }}>Analysis</button>
-                    </div>
-                {/if}
-            </div>
         </header>
 
-        <!-- Navbar 2: Engines -->
-        <nav class="{styles.row} {styles.rowTabs}">
-            {#each ENGINES as engine (engine.key)}
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                    class="{styles.cell} {styles.tabCell} {styles.cellClickable} {app.currentEngine === engine.key ? styles.cellActive : ''}"
-                    onclick={() => app.selectEngine(engine.key)}
-                >
-                    {engine.label}
-                </div>
-            {/each}
-        </nav>
+        <!-- Navbar 2: Middle tabs (Overview / Settings) — all engines except HOME -->
+        {#if !isHome}
+            <nav class="{styles.row} {styles.rowTabs}">
+                {#each MIDDLE_TABS as tab (tab.key)}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div
+                        class="{styles.cell} {styles.tabCell} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}"
+                        onclick={() => app.middleTab = tab.key}
+                    >
+                        {tab.label}
+                    </div>
+                {/each}
+            </nav>
+        {/if}
 
-        <!-- Navbar 3: Engine tabs (Market Monitor only) -->
-        {#if app.currentEngine === 'market_monitor'}
+        <!-- Navbar 3: Sub-tabs (only Market + Overview + workspace selected) -->
+        {#if app.currentEngine === 'market_monitor' && app.middleTab === 'overview' && app.selectedInstance && activePair}
             <nav class="{styles.row} {styles.rowTabs} {styles.rowSubTabs}">
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                    class="{styles.cell} {styles.tabCell} {styles.cellClickable} {app.activeEngineTab === 'overview' ? styles.cellActive : ''}"
-                    onclick={() => { app.activeEngineTab = 'overview'; }}
-                >
-                    Overview
-                </div>
-                {#if app.selectedInstance && activePair}
-                    {#each SUB_TABS as tab (tab.view)}
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div
-                            class="{styles.cell} {styles.tabCell} {styles.cellClickable} {app.activeEngineTab === 'instance' && activePair.currentView === tab.view ? styles.cellActive : ''}"
-                            onclick={() => selectSubView(tab.view)}
-                        >
-                            {tab.label}
-                        </div>
-                    {/each}
-                {/if}
+                {#each SUB_TABS as tab (tab.view)}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div
+                        class="{styles.cell} {styles.tabCell} {styles.cellClickable} {app.activeEngineTab === 'instance' && activePair.currentView === tab.view ? styles.cellActive : ''}"
+                        onclick={() => selectSubView(tab.view)}
+                    >
+                        {tab.label}
+                    </div>
+                {/each}
             </nav>
         {/if}
 
@@ -356,28 +350,28 @@
                     <button class={styles.btnQuit} onclick={() => showQuitDialog = true}>Quit Session</button>
                 </div>
             {:else if app.currentEngine === 'market_monitor'}
-                {#if app.activeEngineTab === 'overview'}
-                    <GeneralDashboard />
-                {:else if app.activeEngineTab === 'instance' && activePair}
-                    {#if activePair.currentView === 'terminal'}
-                        <LiveTerminal pairKey={app.activeTab} />
-                    {:else if activePair.currentView === 'monitor'}
-                        <TerminalMonitor pairKey={app.activeTab} />
-                    {:else if activePair.currentView === 'alignment'}
-                        <AlignmentPanel pairKey={app.activeTab} />
-                    {:else if activePair.currentView === 'risk'}
-                        <RiskPanel pairKey={app.activeTab} />
-                    {:else if activePair.currentView === 'analysis'}
-                        <AnalysisPanel />
-                    {:else if activePair.currentView === 'advisory'}
-                        <AdvisoryPanel pairKey={app.activeTab} />
-                    {:else if activePair.currentView === 'commission'}
-                        <CommissionCalculator />
-                    {:else if activePair.currentView === 'settings'}
-                        <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
+                {#if app.middleTab === 'overview'}
+                    {#if app.selectedInstance && activePair}
+                        {#if activePair.currentView === 'terminal'}
+                            <LiveTerminal pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'monitor'}
+                            <TerminalMonitor pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'alignment'}
+                            <AlignmentPanel pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'opportunity'}
+                            <OpportunitiesPanel pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'risk'}
+                            <RiskPanel pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'analysis'}
+                            <AnalysisPanel />
+                        {:else if activePair.currentView === 'advisory'}
+                            <AdvisoryPanel pairKey={app.activeTab} />
+                        {/if}
+                    {:else}
+                        <GeneralDashboard />
                     {/if}
                 {:else}
-                    <GeneralDashboard />
+                    <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
                 {/if}
             {:else}
                 <div class={styles.placeholder}>
@@ -389,23 +383,41 @@
 
     </div>
 
+    <!-- Lateral sidebar overlay -->
+    {#if isSidebarOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class={styles.sidebarOverlay} role="presentation" onclick={closeSidebar}></div>
+        <div class={styles.sidebarPanel}>
+            <div class={styles.sidebarBrand}>TRADING PLATFORM</div>
+            <div class={styles.sidebarNav}>
+                {#each ENGINES_SIDEBAR as engine (engine.key)}
+                    <button class={sidebarItemClass(engine.key)} onclick={() => navigateTo(engine.key)}>
+                        <span>{engine.icon}</span>
+                        {engine.label}
+                    </button>
+                {/each}
+            </div>
+        </div>
+    {/if}
+
     <!-- Dropdown click-outside backdrop -->
-    {#if showInstancesDropdown || showMenuDropdown}
-        <div class={styles.dropdownBackdrop} role="presentation" onclick={closeDropdowns}></div>
+    {#if showInstancesDropdown}
+        <div class={styles.dropdownBackdrop} role="presentation" onclick={closeInstancesDropdown}></div>
     {/if}
 
     <!-- Manage Workspaces modal -->
     {#if app.isManageModalOpen}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class={styles.backdrop} onclick={() => app.isManageModalOpen = false}>
+        <div class={styles.backdrop} onclick={() => { confirmAction = null; app.isManageModalOpen = false; }}>
             <div class={styles.modalWindow} role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()}>
                 <div class={styles.modalHeader}>
                     <div class={styles.cell}>::</div>
                     <div class="{styles.cell} {styles.modalTitle}">Manage Workspaces</div>
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="{styles.cell} {styles.cellClickable}" onclick={() => app.isManageModalOpen = false}>✕</div>
+                    <div class="{styles.cell} {styles.cellClickable}" onclick={() => { confirmAction = null; app.isManageModalOpen = false; }}>✕</div>
                 </div>
 
                 <!-- Create workspace bar -->
@@ -421,7 +433,15 @@
                     />
                     <span class={styles.modalQuoteChip}>{app.quote}</span>
                     <button class={styles.modalCreateBtn} onclick={handleCreateWorkspace} disabled={createLoading || !newBase.trim()}>
-                        {createLoading ? '...' : 'Create'}
+                        {#if createLoading}
+                            <span class={styles.wavingDots}>
+                                <span class={styles.wavingDot}></span>
+                                <span class={styles.wavingDot}></span>
+                                <span class={styles.wavingDot}></span>
+                            </span>
+                        {:else}
+                            +
+                        {/if}
                     </button>
                 </div>
 
@@ -443,13 +463,27 @@
                                 </div>
                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                                <div class={styles.modalActionCell} onclick={() => handleInstanceAction(inst.id, 'pause')}>
-                                    {actionLabel(inst.id, 'pause')}
+                                <div class={styles.modalActionCell} onclick={() => requestConfirm(inst.id, 'pause')}>
+                                    {#if confirmAction?.id === inst.id && confirmAction?.action === 'pause'}
+                                        <div class={styles.confirmRow}>
+                                            <button class="{styles.confirmBtn}" onclick={(e) => { e.stopPropagation(); cancelConfirm(); }}>Cancel</button>
+                                            <button class="{styles.confirmBtn}" onclick={(e) => { e.stopPropagation(); executeConfirmed(); }}>Pause</button>
+                                        </div>
+                                    {:else}
+                                        ⏸
+                                    {/if}
                                 </div>
                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                                <div class="{styles.modalActionCell} {styles.danger}" onclick={() => handleInstanceAction(inst.id, 'delete', inst.pair)}>
-                                    {actionLabel(inst.id, 'delete')}
+                                <div class="{styles.modalActionCell} {styles.danger}" onclick={() => requestConfirm(inst.id, 'delete', inst.pair)}>
+                                    {#if confirmAction?.id === inst.id && confirmAction?.action === 'delete'}
+                                        <div class={styles.confirmRow}>
+                                            <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelConfirm(); }}>Cancel</button>
+                                            <button class="{styles.confirmBtn} {styles.confirmBtnDanger}" onclick={(e) => { e.stopPropagation(); executeConfirmed(); }}>Delete</button>
+                                        </div>
+                                    {:else}
+                                        🗑
+                                    {/if}
                                 </div>
                             </div>
                         {/each}

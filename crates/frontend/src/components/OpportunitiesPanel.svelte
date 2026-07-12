@@ -1,21 +1,19 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import styles from './RiskPanel.module.css';
+    import styles from './OpportunitiesPanel.module.css';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
 </script>
 
-<div class={styles.panel}>
+<div class={styles.opportunitiesPanel}>
     <div class={styles.featurePlaceholder}>
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <line x1="9" y1="12" x2="11" y2="14"/>
-            <line x1="11" y1="14" x2="15" y2="10"/>
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
         </svg>
-        <h2 class={styles.featurePlaceholderTitle}>Risk Assessment</h2>
+        <h2 class={styles.featurePlaceholderTitle}>Opportunities</h2>
         <p class={styles.featurePlaceholderMsg}>
-            Multi-dimensional risk evaluation and position sizing.
+            Market opportunity scanning across timeframes.
             Coming in a future release.
         </p>
     </div>

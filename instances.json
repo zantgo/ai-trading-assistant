@@ -1,5 +1,5 @@
 {
-  "ETH-USDT": {
+  "BTC-USDT": {
     "micro_term": {
       "candles": {
         "duration_seconds": 60,
@@ -52,7 +52,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "fast_term": {
@@ -107,7 +122,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "slow_term": {
@@ -162,7 +192,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "macro_term": {
@@ -217,7 +262,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "automation": {
@@ -289,7 +349,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "fast_term": {
@@ -344,7 +419,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "slow_term": {
@@ -399,7 +489,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "macro_term": {
@@ -454,7 +559,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "automation": {
@@ -473,7 +593,7 @@
     "weight_overrides": null,
     "position_scaling": null
   },
-  "BTC-USDT": {
+  "ETH-USDT": {
     "micro_term": {
       "candles": {
         "duration_seconds": 60,
@@ -526,7 +646,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "fast_term": {
@@ -581,7 +716,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "slow_term": {
@@ -636,7 +786,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "macro_term": {
@@ -691,7 +856,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "automation": {
@@ -763,7 +943,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "fast_term": {
@@ -818,7 +1013,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "slow_term": {
@@ -873,7 +1083,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "macro_term": {
@@ -928,7 +1153,22 @@
         "atr_target_rr_ratio": 2.5,
         "volume_average_period": 20,
         "rvol_threshold_institutional": 1.5,
-        "rvol_threshold_climax": 3.0
+        "rvol_threshold_climax": 3.0,
+        "ichimoku_tenkan": 9,
+        "ichimoku_kijun": 26,
+        "ichimoku_senkou_b": 52,
+        "ichimoku_displacement": 26,
+        "cci_period": 20,
+        "psar_af_step": 0.02,
+        "psar_af_max": 0.2,
+        "williams_r_period": 14,
+        "hull_ma_period": 21,
+        "force_index_smoothing": 13,
+        "stddev_channel_period": 20,
+        "smc_lookback": 20,
+        "volume_profile_bins": 50,
+        "volume_profile_window": 500,
+        "volume_profile_value_area": 0.7
       }
     },
     "automation": {
