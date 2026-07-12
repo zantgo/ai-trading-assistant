@@ -230,7 +230,7 @@
 
         <!-- Navbar 1: Top bar -->
         <header class="{styles.row} {styles.rowNavbar}">
-            <div class="{styles.cell} {styles.cellBrand} {styles.cellClickable}" onclick={toggleSidebar}>
+            <div class="{styles.cell} {styles.cellBrand} {styles.cellNavbar} {styles.cellClickable}" onclick={toggleSidebar}>
                 {#if isHome}
                     <svg class={styles.navIcon} width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="opacity:0.6">
                         <path d="M12 17l-8-7h16z"/>
@@ -240,12 +240,12 @@
                 {/if}
                 {topLabel}
             </div>
-            <div class="{styles.cell} {styles.cellMono}" style="justify-content: flex-start; padding-left: 4px;">
+            <div class="{styles.cell} {styles.cellMono} {styles.cellNavbar}" style="justify-content: flex-start;">
                 <span class={styles.exchangeChip}>{app.sessionExchange} · {app.sessionCurrency}</span>
             </div>
-            <div class={styles.cell}></div>
+            <div class="{styles.cell} {styles.cellNavbar}"></div>
             <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div class="{styles.cell} {styles.cellClickable} {isWorkspacePanelOpen ? styles.cellActive : ''}" onclick={openWorkspacePanel}>
+            <div class="{styles.cell} {styles.cellNavbar} {styles.cellClickable} {isWorkspacePanelOpen ? styles.cellActive : ''}" onclick={openWorkspacePanel}>
                 {#if app.selectedInstance && activePair}
                     <span class={styles.instanceDisplay}>
                         <span class={styles.instancePair}>{app.pairDisplayFor(activePair.symbol)}</span>
@@ -266,6 +266,9 @@
         <!-- Navbar 2: Middle tabs -->
         {#if !isHome}
             <nav class="{styles.row} {styles.rowTabs}">
+                {#if app.currentEngine === 'market_monitor'}
+                    <div class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === 'workspace' ? styles.cellActive : ''}" onclick={() => app.middleTab = 'workspace'}>Workspace</div>
+                {/if}
                 {#each MIDDLE_TABS as tab (tab.key)}
                     <div class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}" onclick={() => app.middleTab = tab.key}>
                         {tab.label}
@@ -275,7 +278,7 @@
         {/if}
 
         <!-- Navbar 3: Sub-tabs -->
-        {#if app.currentEngine === 'market_monitor' && app.middleTab === 'overview' && app.selectedInstance && activePair}
+        {#if app.currentEngine === 'market_monitor' && app.middleTab === 'workspace' && app.selectedInstance && activePair}
             <nav class="{styles.row} {styles.rowTabs} {styles.rowSubTabs}">
                 {#each SUB_TABS as tab (tab.view)}
                     <div class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.activeEngineTab === 'instance' && activePair.currentView === tab.view ? styles.cellActive + ' ' + styles.cellActiveUnderline : ''}" onclick={() => selectSubView(tab.view)}>
@@ -290,7 +293,7 @@
             {#if app.currentEngine === 'profile'}
                 <GeneralSettings />
             {:else if app.currentEngine === 'market_monitor'}
-                {#if app.middleTab === 'overview'}
+                {#if app.middleTab === 'workspace'}
                     {#if app.selectedInstance && activePair}
                         {#if activePair.currentView === 'terminal'}
                             <LiveTerminal pairKey={app.activeTab} />
@@ -310,6 +313,8 @@
                     {:else}
                         <GeneralDashboard />
                     {/if}
+                {:else if app.middleTab === 'overview'}
+                    <GeneralDashboard />
                 {:else}
                     <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
                 {/if}
@@ -370,7 +375,7 @@
                     {#each wsInstances as inst (inst.id)}
                         {@const pk = inst.pair}
                         {@const chg = changeStr(pk)}
-                        <div class={styles.wsPanelRow}>
+                        <div class={styles.wsPanelRow} onclick={() => { app.enterInstance(pk); closeWorkspacePanel(); }}>
                             <div class={styles.wsPanelPair}>
                                 <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
                                 <span class={styles.wsPanelSym}>{pairDisplay(pk)}</span>
@@ -379,7 +384,7 @@
                                     <span class="{styles.change} {changeCls(chg)}">{chg}</span>
                                 {/if}
                             </div>
-                            <div class={styles.wsPanelActionBtn} title="Pause" onclick={() => requestRowConfirm(inst.id, 'pause')}>
+                            <div class={styles.wsPanelActionBtn} title="Pause" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'pause'); }}>
                                 {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'pause'}
                                     <div class={styles.confirmRow}>
                                         <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
@@ -387,7 +392,7 @@
                                     </div>
                                 {:else}⏸{/if}
                             </div>
-                            <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" onclick={() => requestRowConfirm(inst.id, 'delete', pk)}>
+                            <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'delete', pk); }}>
                                 {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'delete'}
                                     <div class={styles.confirmRow}>
                                         <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>

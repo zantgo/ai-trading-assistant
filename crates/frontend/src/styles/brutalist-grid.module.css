@@ -85,8 +85,11 @@
     font-size: 13px;
     letter-spacing: 0.10em;
     justify-content: flex-start;
-    padding-left: 20px;
     text-transform: uppercase;
+}
+
+.cellNavbar {
+    padding: 0 20px;
 }
 
 .cellMono {
@@ -895,6 +898,12 @@
     padding: 0 16px;
     border-bottom: 1px solid var(--line);
     gap: 10px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.wsPanelRow:hover {
+    background-color: var(--hover);
 }
 
 .wsPanelRow:last-child { border-bottom: none; }
