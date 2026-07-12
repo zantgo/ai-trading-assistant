@@ -5,13 +5,15 @@ use axum::{
 };
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::config::AppConfig;
-use crate::workspace::Workspace;
+use crate::instance::Instance;
+use crate::session::{Currency, ExchangeChoice, SessionState};
 
 pub mod handlers;
 pub mod helpers;
@@ -25,12 +27,108 @@ pub use telemetry::compile_deterministic_telemetry;
 pub use types::IndicatorSnapshot;
 
 pub struct AppState {
-    pub workspace: Arc<Workspace>,
+    pub instances: Arc<RwLock<HashMap<String, Arc<Instance>>>>,
+    pub session: SessionState,
     pub config: Arc<RwLock<AppConfig>>,
     pub pool: SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
     pub ws_url: String,
+    pub bitget_ws_url: String,
+}
+
+impl AppState {
+    pub async fn instance_count(&self) -> usize {
+        self.instances.read().await.len()
+    }
+
+    pub async fn get_all_instances(&self) -> Vec<Arc<Instance>> {
+        self.instances.read().await.values().cloned().collect()
+    }
+
+    pub async fn get_active_pair(
+        &self,
+        pair_key: &str,
+    ) -> Option<Arc<crate::analyzer::ActivePair>> {
+        self.instances
+            .read()
+            .await
+            .get(pair_key)
+            .map(|inst| inst.active_pair.clone())
+    }
+
+    pub async fn get_instance_by_id(&self, id: &str) -> Option<Arc<Instance>> {
+        self.instances
+            .read()
+            .await
+            .values()
+            .find(|i| i.id == id)
+            .cloned()
+    }
+
+    pub async fn init_session(
+        &self,
+        currency: Currency,
+        exchange: ExchangeChoice,
+    ) -> Result<(), String> {
+        if exchange != ExchangeChoice::Hyperliquid && exchange != ExchangeChoice::Bitget {
+            return Err("Unsupported exchange selected.".to_string());
+        }
+        if !exchange.supports_currency(&currency) {
+            return Err(format!(
+                "{} does not support {} settlement. {}",
+                exchange.as_str(),
+                currency.as_str(),
+                match exchange {
+                    ExchangeChoice::Hyperliquid =>
+                        "Hyperliquid perpetuals settle in USDC only.",
+                    ExchangeChoice::Bitget => "Select USDT or USDC.",
+                }
+            ));
+        }
+
+        *self.session.base_currency.write().await = Some(currency.clone());
+        *self.session.exchange.write().await = Some(exchange.clone());
+        self.session
+            .active
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        println!(
+            "✅ Session initialized: {} on {}",
+            currency.as_str(),
+            exchange.as_str(),
+        );
+        Ok(())
+    }
+
+    pub async fn quit_session(&self) -> Result<(), String> {
+        println!("🛑 Initiating graceful shutdown of all instances...");
+
+        let instance_ids: Vec<String> = {
+            let instances = self.instances.read().await;
+            instances.values().map(|i| i.id.clone()).collect()
+        };
+
+        for instance_id in &instance_ids {
+            let instances = self.instances.read().await;
+            if let Some(instance) = instances.values().find(|i| &i.id == instance_id) {
+                instance.cancel.cancel();
+            }
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        self.instances.write().await.clear();
+
+        self.session
+            .active
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        *self.session.base_currency.write().await = None;
+        *self.session.exchange.write().await = None;
+
+        println!("✅ Session terminated. All instances stopped.");
+        Ok(())
+    }
 }
 
 // ── Stratified state types for Axum FromRef ──────────────────────

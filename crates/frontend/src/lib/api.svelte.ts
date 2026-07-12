@@ -229,7 +229,7 @@ export async function createInstance(base: string, quote: string): Promise<{ ok:
             body: JSON.stringify({ base, quote }),
         });
         if (res.ok) return { ok: true };
-        return { ok: false, error: await readErrorMessage(res, 'Failed to add instance.') };
+        return { ok: false, error: await readErrorMessage(res, 'Failed to add workspace.') };
     } catch (e: any) {
         return { ok: false, error: e?.message || 'Network error. Please try again.' };
     }

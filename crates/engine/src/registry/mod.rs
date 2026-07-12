@@ -6,7 +6,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::TimeframeConfig;
 use crate::instance::{ConfigState, Instance, InstanceStatus};
-use crate::workspace::{Currency, ExchangeChoice, Workspace};
+use crate::server::AppState;
+use crate::session::{Currency, ExchangeChoice};
 use shared::normalized::Exchange;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -21,14 +22,14 @@ pub struct InstanceSummary {
     pub caution_level: String,
 }
 
-/// Add a new instance to the workspace, starting all pipeline tasks.
+/// Add a new instance to the state, starting all pipeline tasks.
 pub async fn add_instance(
-    workspace: &Arc<Workspace>,
+    state: &Arc<AppState>,
     pair: (String, String),
 ) -> Result<Arc<Instance>, String> {
     // Session-first gate: no pipelines may be spawned until the user has
     // initialized a session (exchange) via the Welcome Gate.
-    if !workspace
+    if !state
         .session
         .active
         .load(std::sync::atomic::Ordering::Relaxed)
@@ -41,14 +42,14 @@ pub async fn add_instance(
     // Resolve the active exchange and its settlement/quote currency from the
     // session. The quote is forced to the session currency so that frontend and
     // backend pair keys / native symbols always agree.
-    let exchange_choice = workspace
+    let exchange_choice = state
         .session
         .exchange
         .read()
         .await
         .clone()
         .unwrap_or(ExchangeChoice::Hyperliquid);
-    let quote = workspace
+    let quote = state
         .session
         .base_currency
         .read()
@@ -70,7 +71,7 @@ pub async fn add_instance(
 
     // Check for duplicate
     {
-        let instances = workspace.instances.read().await;
+        let instances = state.instances.read().await;
         if instances.contains_key(&pair_key) {
             return Err(format!("Instance for pair {} already exists", pair_key));
         }
@@ -82,7 +83,7 @@ pub async fn add_instance(
     // perpetual futures market before spawning any pipelines.
     {
         let (bitget_ticker_url, hl_info_url) = {
-            let cfg = workspace.config.read().await;
+            let cfg = state.config.read().await;
             (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
         };
         let availability = match exchange_choice {
@@ -128,13 +129,13 @@ pub async fn add_instance(
         ExchangeChoice::Bitget => Exchange::Bitget,
         ExchangeChoice::Hyperliquid => Exchange::Hyperliquid,
     };
-    workspace
+    state
         .symbol_mapper
         .register(exchange_enum, &raw_symbol, &normalized)
         .await;
 
     // Build pipeline configs
-    let config_guard = workspace.config.read().await;
+    let config_guard = state.config.read().await;
     let pair_cfg = config_guard.instances.get(&pair_key);
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
@@ -194,7 +195,7 @@ pub async fn add_instance(
         quote: quote.clone(),
         rest_url,
         exchange_choice: exchange_choice.clone(),
-        pool: workspace.pool.clone(),
+        pool: state.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -234,7 +235,7 @@ pub async fn add_instance(
 
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
-        workspace,
+        state,
         warmed_states.as_ref().ok().cloned(),
     )
     .await;
@@ -264,7 +265,7 @@ pub async fn add_instance(
 
     // Persist symbol to config
     {
-        let mut config = workspace.config.write().await;
+        let mut config = state.config.write().await;
         if !config.symbols.contains(&base) {
             config.symbols.push(base.clone());
             if let Ok(toml_str) = toml::to_string_pretty(&*config) {
@@ -274,7 +275,7 @@ pub async fn add_instance(
     }
 
     // Register instance
-    workspace
+    state
         .instances
         .write()
         .await
@@ -289,8 +290,8 @@ pub async fn add_instance(
 }
 
 /// Pause an instance (no new trades, keep open positions for TP/SL).
-pub async fn pause_instance(workspace: &Arc<Workspace>, instance_id: &str) -> Result<(), String> {
-    let instances = workspace.instances.read().await;
+pub async fn pause_instance(state: &Arc<AppState>, instance_id: &str) -> Result<(), String> {
+    let instances = state.instances.read().await;
     let instance = instances
         .values()
         .find(|i| i.id == instance_id)
@@ -312,8 +313,8 @@ pub async fn pause_instance(workspace: &Arc<Workspace>, instance_id: &str) -> Re
 }
 
 /// Stop an instance (close all positions immediately).
-pub async fn stop_instance(workspace: &Arc<Workspace>, instance_id: &str) -> Result<(), String> {
-    let instances = workspace.instances.read().await;
+pub async fn stop_instance(state: &Arc<AppState>, instance_id: &str) -> Result<(), String> {
+    let instances = state.instances.read().await;
     let instance = instances
         .values()
         .find(|i| i.id == instance_id)
@@ -332,9 +333,9 @@ pub async fn stop_instance(workspace: &Arc<Workspace>, instance_id: &str) -> Res
 }
 
 /// Delete an instance (stop first, then remove from registry).
-pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> Result<(), String> {
+pub async fn delete_instance(state: &Arc<AppState>, instance_id: &str) -> Result<(), String> {
     let (pair_key, instance) = {
-        let instances = workspace.instances.read().await;
+        let instances = state.instances.read().await;
         let (pk, inst) = instances
             .iter()
             .find(|(_, i)| i.id == instance_id)
@@ -346,14 +347,14 @@ pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> R
     {
         let is_stopped = instance.config_state.read().await.status == InstanceStatus::Stopped;
         if !is_stopped {
-            stop_instance(workspace, instance_id).await?;
+            stop_instance(state, instance_id).await?;
         }
     }
 
-    workspace.instances.write().await.remove(&pair_key);
+    state.instances.write().await.remove(&pair_key);
 
     {
-        let mut config = workspace.config.write().await;
+        let mut config = state.config.write().await;
         let base_symbol = &instance.pair.0;
         if let Some(pos) = config.symbols.iter().position(|s| s == base_symbol) {
             config.symbols.remove(pos);
@@ -377,11 +378,11 @@ pub async fn delete_instance(workspace: &Arc<Workspace>, instance_id: &str) -> R
 /// Cancels old tasks, flushes buffers, re-bootstraps, and re-spawns pipelines
 /// while preserving active paper positions, safety state, and token tracking.
 pub async fn recharge_instance(
-    workspace: &Arc<Workspace>,
+    state: &Arc<AppState>,
     pair_key: &str,
 ) -> Result<(), String> {
     let old_instance = {
-        let instances = workspace.instances.read().await;
+        let instances = state.instances.read().await;
         instances
             .get(pair_key)
             .cloned()
@@ -409,7 +410,7 @@ pub async fn recharge_instance(
 
     // Build fresh pipeline configs from saved TOML config
     let (base, _quote) = old_instance.pair.clone();
-    let config_guard = workspace.config.read().await;
+    let config_guard = state.config.read().await;
     let pair_cfg = config_guard
         .instances
         .get(pair_key)
@@ -419,8 +420,8 @@ pub async fn recharge_instance(
     let fib_config = config_guard.fibonacci.clone();
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
-    let exchange_choice = workspace.session.exchange.read().await.clone().unwrap_or(ExchangeChoice::Hyperliquid);
-    let quote = workspace
+    let exchange_choice = state.session.exchange.read().await.clone().unwrap_or(ExchangeChoice::Hyperliquid);
+    let quote = state
         .session
         .base_currency
         .read()
@@ -462,7 +463,7 @@ pub async fn recharge_instance(
         quote: quote.clone(),
         rest_url,
         exchange_choice: exchange_choice.clone(),
-        pool: workspace.pool.clone(),
+        pool: state.pool.clone(),
         micro_cfg: micro_cfg.clone(),
         fast_cfg: fast_cfg.clone(),
         slow_cfg: slow_cfg.clone(),
@@ -503,7 +504,7 @@ pub async fn recharge_instance(
 
     let artifacts = pipelines::build_pipelines(
         &pipeline_ctx,
-        workspace,
+        state,
         warmed_states.as_ref().ok().cloned(),
     )
     .await;
@@ -552,8 +553,8 @@ pub async fn recharge_instance(
         r#macro: artifacts.r#macro,
     });
 
-    // Swap in workspace map
-    workspace
+    // Swap in state map
+    state
         .instances
         .write()
         .await
@@ -572,8 +573,8 @@ pub async fn recharge_instance(
     Ok(())
 }
 
-pub async fn list_instances(workspace: &Arc<Workspace>) -> Vec<InstanceSummary> {
-    let instances = workspace.instances.read().await;
+pub async fn list_instances(state: &Arc<AppState>) -> Vec<InstanceSummary> {
+    let instances = state.instances.read().await;
     let mut summaries = Vec::new();
     for (_, inst) in instances.iter() {
         summaries.push(InstanceSummary {

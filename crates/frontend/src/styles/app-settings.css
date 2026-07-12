@@ -3,6 +3,14 @@
         padding: 16px;
         width: 100%;
         box-sizing: border-box;
+        color: rgba(255,255,255,0.8);
+    }
+    .settings-workspace-tab h2 {
+        margin: 0 0 1rem 0;
+        color: #fff;
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
     }
     .settings-grid {
         display: grid;
@@ -10,9 +18,9 @@
         gap: 16px;
     }
     .settings-col {
-        background-color: #131722;
-        border: 1px solid #2a2e39;
-        border-radius: 8px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
         padding: 16px;
         display: flex;
         flex-direction: column;

@@ -28,7 +28,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub fees: FeesConfig,
     #[serde(default)]
-    pub workspace: WorkspaceConfig,
+    pub defaults: DefaultsConfig,
     #[serde(default)]
     pub safety: SafetyConfig,
     #[serde(default)]

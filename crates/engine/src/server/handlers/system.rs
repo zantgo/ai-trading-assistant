@@ -8,7 +8,7 @@ use axum::{
 use std::sync::Arc;
 
 pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let active_pairs_count = state.workspace.instance_count().await;
+    let active_pairs_count = state.instance_count().await;
 
     let response = SystemStatusResponse {
         connected: true,

@@ -1,11 +1,11 @@
-# config.default.toml
-# Standard fallback configuration template. 
-# Do not modify this file directly; edit config.toml instead.
-
-symbols = ["Hyperliquid:BTC"]
+symbols = [
+    "Hyperliquid:BTC",
+    "BTC",
+]
 
 [candles]
 duration_seconds = 60
+analysis_limit = 500
 
 [indicators]
 ema_fast = 10
@@ -37,7 +37,106 @@ aroon_period = 25
 chop_period = 14
 linreg_period = 20
 zscore_period = 20
+bbwp_lookback = 252
+bbwp_period = 20
+macd_extreme_high_threshold = 1000.0
+macd_extreme_low_threshold = -1000.0
+macd_histogram_contraction_threshold = 0.3
+adx_trend_threshold = 20
+adx_exhaustion_threshold = 40
+adx_slope_lookback = 3
+squeeze_min_duration = 5
+squeeze_bb_period = 20
+squeeze_bb_std_dev = 2.0
+squeeze_kc_period = 20
+squeeze_kc_atr_multiplier = 1.5
+atr_multiplier_coefficient = 2.0
+atr_target_rr_ratio = 2.5
+volume_average_period = 20
+rvol_threshold_institutional = 1.5
+rvol_threshold_climax = 3.0
+ichimoku_tenkan = 9
+ichimoku_kijun = 26
+ichimoku_senkou_b = 52
+ichimoku_displacement = 26
+cci_period = 20
+psar_af_step = 0.02
+psar_af_max = 0.2
+williams_r_period = 14
+hull_ma_period = 21
+force_index_smoothing = 13
+stddev_channel_period = 20
+smc_lookback = 20
+volume_profile_bins = 50
+volume_profile_window = 500
+volume_profile_value_area = 0.7
+
+[hyperliquid]
+ws_url = "wss://api.hyperliquid.xyz/ws"
+
+[bitget]
+ws_url = "wss://ws.bitget.com/v2/ws/public"
+
+[fibonacci]
+swing_lookback = 10
+swing_scan_range = 120
+retracement_coefficients = [
+    0.236,
+    0.382,
+    0.5,
+    0.618,
+    0.66,
+    0.786,
+]
+extension_coefficients = [
+    1.272,
+    1.618,
+    2.0,
+    2.618,
+]
+
+[pivots]
+strength_n = 10
+scan_range_candles = 120
+sr_proximity_threshold_pct = 0.5
+sr_flip_tolerance_pct = 0.3
+pattern_slope_tolerance = 0.2
+
+[slow_timeframe]
+enabled = true
+duration_seconds = 300
+analysis_limit = 500
+
+[macro_timeframe]
+enabled = true
+duration_seconds = 300
+analysis_limit = 500
+
+[leverage]
+cross_leverage = 20
+
+[scoring]
+base_allocation_pct = 1.0
+micro_allocation_pct = 2.0
+max_allocation_pct = 3.0
+base_score_threshold = 40
+micro_score_threshold = 60
 
 [fees]
 maker_fee_pct = 0.02
 taker_fee_pct = 0.06
+funding_rate_8h = 0.01
+
+[defaults]
+default_pair = "BTC/USDT"
+
+[safety]
+consecutive_loss_caution = 3
+consecutive_loss_dropout = 5
+dropout_duration_hours = 8
+capital_drawdown_pct = 30.0
+
+[intervals]
+slow_seconds = 3600
+normal_seconds = 900
+fast_seconds = 300

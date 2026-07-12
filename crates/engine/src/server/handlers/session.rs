@@ -5,13 +5,12 @@ use std::sync::Arc;
 
 pub async fn serve_session_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let active = state
-        .workspace
         .session
         .active
         .load(std::sync::atomic::Ordering::Relaxed);
-    let currency = state.workspace.session.base_currency.read().await.clone();
-    let exchange = state.workspace.session.exchange.read().await.clone();
-    let instance_count = state.workspace.instance_count().await;
+    let currency = state.session.base_currency.read().await.clone();
+    let exchange = state.session.exchange.read().await.clone();
+    let instance_count = state.instance_count().await;
 
     Json(SessionStatusResponse {
         active,
@@ -26,8 +25,8 @@ pub async fn serve_session_init(
     Json(payload): Json<SessionInitRequest>,
 ) -> impl IntoResponse {
     let currency = match payload.currency.to_uppercase().as_str() {
-        "USDT" => crate::workspace::Currency::USDT,
-        "USDC" => crate::workspace::Currency::USDC,
+        "USDT" => crate::session::Currency::USDT,
+        "USDC" => crate::session::Currency::USDC,
         _ => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
@@ -38,8 +37,8 @@ pub async fn serve_session_init(
     };
 
     let exchange = match payload.exchange.to_lowercase().as_str() {
-        "hyperliquid" => crate::workspace::ExchangeChoice::Hyperliquid,
-        "bitget" => crate::workspace::ExchangeChoice::Bitget,
+        "hyperliquid" => crate::session::ExchangeChoice::Hyperliquid,
+        "bitget" => crate::session::ExchangeChoice::Bitget,
         _ => {
             return (
                 axum::http::StatusCode::BAD_REQUEST,
@@ -50,7 +49,6 @@ pub async fn serve_session_init(
     };
 
     match state
-        .workspace
         .init_session(currency, exchange)
         .await
     {
@@ -74,7 +72,7 @@ pub async fn serve_session_init(
 }
 
 pub async fn serve_session_quit(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match state.workspace.quit_session().await {
+    match state.quit_session().await {
         Ok(()) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({

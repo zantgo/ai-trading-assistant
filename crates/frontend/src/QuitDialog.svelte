@@ -30,7 +30,7 @@
         <h2 class={styles.quitTitle}>Quit Application</h2>
         <p class={styles.quitMessage}>
             Are you sure you want to quit?<br />
-            <strong>All running instances will be terminated</strong> and any open
+            <strong>All running workspaces will be terminated</strong> and any open
             positions will be closed at the current market price.
         </p>
         <div class={styles.quitActions}>

@@ -1,12 +1,12 @@
 use crate::analyzer;
-use crate::workspace::Workspace;
+use crate::server::AppState;
 use std::sync::Arc;
 
 pub async fn get_active_pair(
-    workspace: &Workspace,
+    state: &AppState,
     pair_key: &str,
 ) -> Option<Arc<analyzer::ActivePair>> {
-    workspace.get_active_pair(pair_key).await
+    state.get_active_pair(pair_key).await
 }
 
 /// Extract base symbol from a pair_key (e.g., "BTC-USDT" -> "BTC")

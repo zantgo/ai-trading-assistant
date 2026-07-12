@@ -32,7 +32,7 @@ async fn handle_ws_socket(
     pair_key: String,
     tf_secs: u64,
 ) {
-    let rx = match state.workspace.get_active_pair(&pair_key).await {
+    let rx = match state.get_active_pair(&pair_key).await {
         Some(pair) => pair.subscribe_broadcast(tf_secs),
         None => return,
     };

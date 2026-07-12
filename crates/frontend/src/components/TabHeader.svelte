@@ -26,7 +26,7 @@
         addLoading = false;
 
         if (!result.ok) {
-            addError = result.error || 'Failed to add instance.';
+            addError = result.error || 'Failed to add workspace.';
             return;
         }
 
@@ -87,7 +87,7 @@
                     {/if}
                 </div>
             {:else}
-                <button class="{styles.tabBtn} {styles.addTabBtn}" onclick={() => showAddInput = true}>[ + Add Instance ]</button>
+                <button class="{styles.tabBtn} {styles.addTabBtn}" onclick={() => showAddInput = true}>[ + Add Workspace ]</button>
             {/if}
         </div>
     </div>

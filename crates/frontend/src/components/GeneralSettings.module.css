@@ -1,200 +1,92 @@
 .settingsView {
-    padding: 1.5rem;
-    color: #cbd5e1;
+    padding: 2rem;
+    color: rgba(255, 255, 255, 0.8);
     max-width: 900px;
     margin: 0 auto;
 }
-.settingsView h2 { margin: 0 0 1rem 0; color: #e0e0ff; font-size: 1.2rem; }
+.settingsView h2 {
+    margin: 0 0 1.5rem 0;
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}
 .settingsGrid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
 }
 .settingsCard {
-    background: #131722;
-    border: 1px solid #2a2e39;
-    border-radius: 8px;
-    padding: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 1.5rem;
 }
-.settingsCard h3 { margin: 0 0 0.75rem 0; font-size: 0.9rem; color: #e0e0ff; }
+.settingsCard h3 {
+    margin: 0 0 1rem 0;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
 .inputRow {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
-    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 10px;
 }
 .inputRow label {
-    font-size: 0.78rem;
-    color: #64748b;
-    min-width: 160px;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    min-width: 180px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
 }
 .inputRow input {
-    width: 100px;
-    padding: 0.35rem 0.5rem;
-    background: #0f111a;
-    border: 1px solid #1e293b;
-    border-radius: 4px;
-    color: #cbd5e1;
-    font-size: 0.82rem;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    color: #fff;
+    font-family: inherit;
+    width: 80px;
     outline: none;
+    transition: border-color 0.15s ease;
 }
-.inputRow input:focus { border-color: #3b82f6; }
+.inputRow input:focus {
+    border-color: rgba(255, 255, 255, 0.3);
+}
 .hint {
-    font-size: 0.68rem;
-    color: #4a5568;
-    width: 100%;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.35);
+    letter-spacing: 0.02em;
 }
 .saveBtn {
-    margin-top: 0.75rem;
-    padding: 0.45rem 1rem;
-    background: #3b82f6;
+    margin-top: 8px;
+    padding: 8px 20px;
+    background: #fff;
+    color: #000;
     border: none;
-    border-radius: 6px;
-    color: white;
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-}
-.saveBtn:disabled { opacity: 0.5; cursor: not-allowed; }
-.saveBtn:hover:not(:disabled) { background: #2563eb; }
-.loadingRow { text-align: center; padding: 2rem; color: #64748b; }
-
-/* ── Session Reconfiguration ── */
-.formGroup {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin-bottom: 0.75rem;
-}
-.formLabel {
-    color: #64748b;
-    font-size: 0.78rem;
-    font-weight: 600;
+    border-radius: 7px;
+    font-size: 0.75rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.formSelect {
-    padding: 0.55rem 0.7rem;
-    background: #0f111a;
-    border: 1px solid #1e293b;
-    border-radius: 6px;
-    color: #cbd5e1;
-    font-size: 0.85rem;
+    letter-spacing: 0.06em;
     cursor: pointer;
-    outline: none;
+    transition: opacity 0.15s ease;
 }
-.formSelect:focus { border-color: #3b82f6; }
-.radioGroup {
-    display: flex;
-    gap: 0.5rem;
+.saveBtn:hover:not(:disabled) {
+    opacity: 0.85;
 }
-.radioOption {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0.7rem;
-    background: #0f111a;
-    border: 1px solid #1e293b;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.radioOption.active {
-    border-color: #3b82f6;
-    background: rgba(59, 130, 246, 0.08);
-}
-.radioOption.disabled {
+.saveBtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
 }
-.radioOption input[type="radio"] {
-    accent-color: #3b82f6;
-    margin: 0;
-}
-.radioLabel {
-    color: #cbd5e1;
-    font-size: 0.82rem;
-    font-weight: 500;
-}
-.radioBadge {
-    margin-left: auto;
-    font-size: 0.6rem;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    font-weight: 600;
-}
-.radioBadge.enabled {
-    background: rgba(34, 197, 94, 0.12);
-    color: #22c55e;
-}
-.radioBadge.disabled {
-    background: rgba(100, 100, 100, 0.12);
-    color: #64748b;
-}
-.warningText {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.4rem;
-    padding: 0.5rem 0.65rem;
-    margin: 0.75rem 0;
-    background: rgba(251, 191, 36, 0.06);
-    border: 1px solid rgba(251, 191, 36, 0.2);
-    border-radius: 6px;
-    color: #fbbf24;
-    font-size: 0.72rem;
-    line-height: 1.4;
-}
-.warningText svg {
-    flex-shrink: 0;
-    margin-top: 1px;
-}
-.formError {
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.25);
-    color: #ef4444;
-    padding: 0.45rem 0.65rem;
-    border-radius: 6px;
-    font-size: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-.formSuccess {
-    background: rgba(34, 197, 94, 0.08);
-    border: 1px solid rgba(34, 197, 94, 0.25);
-    color: #22c55e;
-    padding: 0.45rem 0.65rem;
-    border-radius: 6px;
-    font-size: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-.reinitBtn {
-    margin-top: 0.5rem;
-    padding: 0.55rem 1rem;
-    background: #f59e0b;
-    border: none;
-    border-radius: 6px;
-    color: #0f111a;
-    font-size: 0.82rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-}
-.reinitBtn:hover:not(:disabled) { background: #d97706; }
-.reinitBtn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid rgba(15, 17, 26, 0.3);
-    border-top-color: #0f111a;
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-}
-@keyframes spin {
-    to { transform: rotate(360deg); }
+.loadingRow {
+    text-align: center;
+    padding: 2rem 0;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.8rem;
 }

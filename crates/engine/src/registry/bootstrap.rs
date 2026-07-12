@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use crate::analyzer;
 use crate::config::{FibonacciConfig, TimeframeConfig};
 use crate::db;
-use crate::workspace::{Currency, ExchangeChoice};
+use crate::session::{Currency, ExchangeChoice};
 use shared::models::MarketSnapshot;
 use shared::normalized::NormalizedCandle;
 

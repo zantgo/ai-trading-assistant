@@ -2,7 +2,7 @@ use sqlx::{Row, SqlitePool};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use crate::workspace::Workspace;
+use crate::server::AppState;
 
 const LOG_INTERVAL_SECS: u64 = 60;
 const PURGE_OLDER_THAN_MS: i64 = 30 * 24 * 60 * 60 * 1000;
@@ -60,7 +60,7 @@ pub async fn purge_equity_history(pool: &SqlitePool, older_than_ms: i64) {
         .await;
 }
 
-async fn write_snapshot(pool: &SqlitePool, _workspace: &Arc<Workspace>) {
+async fn write_snapshot(pool: &SqlitePool, _state: &Arc<AppState>) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -82,7 +82,7 @@ async fn write_snapshot(pool: &SqlitePool, _workspace: &Arc<Workspace>) {
 
 pub async fn run_portfolio_equity_logger(
     pool: SqlitePool,
-    workspace: Arc<Workspace>,
+    state: Arc<AppState>,
     cancel: CancellationToken,
 ) {
     println!(
@@ -90,7 +90,7 @@ pub async fn run_portfolio_equity_logger(
         LOG_INTERVAL_SECS
     );
 
-    write_snapshot(&pool, &workspace).await;
+        write_snapshot(&pool, &state).await;
 
     let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(LOG_INTERVAL_SECS));
 
@@ -104,6 +104,6 @@ pub async fn run_portfolio_equity_logger(
             _ = ticker.tick() => {}
         }
 
-        write_snapshot(&pool, &workspace).await;
+    write_snapshot(&pool, &state).await;
     }
 }

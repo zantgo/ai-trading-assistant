@@ -74,9 +74,34 @@ export class AppStore {
     currentGlobalView = $state<string>('dashboard');
     overviewMatrix = $state<OverviewMatrix | null>(null);
 
-    // ─── Brutalist grid navigation state ──────────────────────────────
+    // ─── Grid cockpit navigation state ────────────────────────────────
     isManageModalOpen = $state(false);
-    activeMainTab = $state<'overview' | 'instances' | 'fee_projection'>('overview');
+    currentEngine = $state<'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile'>('market_monitor');
+    activeEngineTab = $state<'overview' | 'instance'>('overview');
+    selectedInstance = $state<string | null>(null);
+
+    selectEngine(engine: 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile') {
+        this.currentEngine = engine;
+        if (engine === 'market_monitor') {
+            this.activeEngineTab = this.selectedInstance ? 'instance' : 'overview';
+        }
+    }
+
+    enterInstance(pairKey: string) {
+        const base = pairKey.includes('-') ? pairKey.split('-')[0] : pairKey;
+        if (!this.instancesMap[pairKey]) this.initInstance(base);
+        this.selectedInstance = pairKey;
+        this.activeTab = pairKey;
+        this.currentEngine = 'market_monitor';
+        this.activeEngineTab = 'instance';
+        const pair = this.instancesMap[pairKey];
+        if (pair) pair.currentView = 'terminal';
+    }
+
+    exitInstance() {
+        this.selectedInstance = null;
+        this.activeEngineTab = 'overview';
+    }
 
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');
@@ -95,7 +120,11 @@ export class AppStore {
     _lastMode: string = '';
 
     constructor() {
-        this.session.onSessionActivated = () => { this.currentGlobalView = 'dashboard'; };
+        this.session.onSessionActivated = () => {
+            this.currentEngine = 'market_monitor';
+            this.activeEngineTab = 'overview';
+            this.selectedInstance = null;
+        };
 
         this._delegate(this.session, [
             'sessionActive', 'sessionCurrency', 'sessionExchange',

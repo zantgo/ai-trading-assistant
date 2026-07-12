@@ -26,7 +26,7 @@ pub async fn serve_history(
     let tf_secs = query.timeframe_secs.unwrap_or(60);
 
     let (prices, candles, indicator_history) =
-        match get_active_pair(&state.workspace, &pair_key).await {
+        match get_active_pair(&state, &pair_key).await {
             Some(pair) => {
                 let snap_hist = pair.snapshot_history_vec(tf_secs).await;
                 let count = snap_hist.len();

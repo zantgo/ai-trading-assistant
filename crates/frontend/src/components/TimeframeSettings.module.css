@@ -13,21 +13,13 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
 }
-@media (max-width: 1400px) {
-    .cards-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-@media (max-width: 800px) {
-    .cards-grid {
-        grid-template-columns: 1fr;
-    }
-}
+@media (max-width: 1400px) { .cards-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 800px) { .cards-grid { grid-template-columns: 1fr; } }
 .term-card {
-    background-color: #131722;
-    border: 1px solid #2a2e39;
-    border-radius: 8px;
-    padding: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -36,12 +28,12 @@
 .card-title {
     font-size: 12px;
     font-weight: 700;
-    color: #f1f5f9;
+    color: #fff;
     margin: 0;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid #1e293b;
-    padding-bottom: 6px;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 8px;
     text-align: center;
 }
 .timeframe-row {
@@ -49,26 +41,26 @@
     justify-content: center;
 }
 .tf-select {
-    background-color: #171b26;
-    border: 1px solid #3b82f6;
-    color: #cbd5e1;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
     font-size: 11px;
     font-weight: 700;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: 5px;
     outline: none;
     cursor: pointer;
     text-align: center;
     width: 140px;
 }
 .tf-select option {
-    background-color: #131722;
-    color: #cbd5e1;
+    background: #000;
+    color: #fff;
 }
 .indicator-inputs-scroll {
-    background-color: #0e111a;
-    border: 1px solid #1e293b;
-    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
     padding: 10px;
     display: flex;
     flex-direction: column;
@@ -85,14 +77,14 @@
 }
 .input-row label {
     font-size: 9px;
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.4);
     font-weight: 600;
     white-space: nowrap;
 }
 .input-row input {
-    background-color: #171b26;
-    border: 1px solid #2a2e39;
-    color: #cbd5e1;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
     font-family: ui-monospace, monospace;
     font-size: 10px;
     padding: 3px 6px;
@@ -100,13 +92,12 @@
     width: 70px;
     text-align: right;
     outline: none;
+    transition: border-color 0.15s ease;
 }
-.input-row input:focus {
-    border-color: #3b82f6;
-}
+.input-row input:focus { border-color: rgba(255, 255, 255, 0.3); }
 .section-divider {
     border: 0;
-    border-top: 1px solid #1e293b;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
     margin: 2px 0;
 }
 .apply-row {
@@ -116,26 +107,21 @@
     gap: 12px;
 }
 .apply-workspace-btn {
-    background: linear-gradient(135deg, #1e40af, #3b82f6);
-    border: 1px solid #3b82f6;
-    color: #f1f5f9;
+    background: #fff;
+    border: none;
+    color: #000;
     font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     padding: 12px 32px;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: opacity 0.15s ease;
 }
-.apply-workspace-btn:hover {
-    background: linear-gradient(135deg, #1e3a8a, #2563eb);
-}
-.apply-workspace-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
+.apply-workspace-btn:hover { opacity: 0.85; }
+.apply-workspace-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .error-msg {
     font-size: 10px;
-    color: #ef4444;
+    color: #ff453a;
     font-weight: 600;
 }

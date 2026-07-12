@@ -3,7 +3,7 @@ use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use shared::normalized::{
-    ConnectionStatus, Exchange, ExchangeAdapter, NormalizedEvent, NormalizedOrderBook,
+    AssetContext, ConnectionStatus, Exchange, ExchangeAdapter, NormalizedEvent, NormalizedOrderBook,
     NormalizedTrade, SymbolMapper, TradeSide,
 };
 use std::str::FromStr;
@@ -68,6 +68,27 @@ fn to_internal_symbol(raw: &str) -> String {
     format!("{}-USD", raw)
 }
 
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ActiveAssetCtxEnvelope {
+    channel: String,
+    data: Option<ActiveAssetCtxData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ActiveAssetCtxData {
+    coin: String,
+    ctx: Option<AssetCtxInner>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AssetCtxInner {
+    #[serde(rename = "prevDayPx")]
+    prev_day_px: Option<String>,
+}
+
 #[allow(dead_code)]
 #[async_trait]
 impl ExchangeAdapter for HyperliquidAdapter {
@@ -100,8 +121,9 @@ impl ExchangeAdapter for HyperliquidAdapter {
             if let Some(raw_sym) = mapper.get_raw(Exchange::Hyperliquid, sym).await {
                 subscriptions.push(serde_json::json!({"type": "trades", "coin": raw_sym}));
                 subscriptions.push(serde_json::json!({"type": "l2Book", "coin": raw_sym}));
+                subscriptions.push(serde_json::json!({"type": "activeAssetCtx", "coin": raw_sym}));
                 println!(
-                    "📡 Hyperliquid Adapter: Subscribed to trades + l2Book for {} ({})",
+                    "📡 Hyperliquid Adapter: Subscribed to trades + l2Book + activeAssetCtx for {} ({})",
                     sym, raw_sym
                 );
             }
@@ -198,6 +220,28 @@ impl ExchangeAdapter for HyperliquidAdapter {
                                 }
                             }
                         }
+                    } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
+                        if let Ok(envelope) =
+                            serde_json::from_str::<ActiveAssetCtxEnvelope>(&raw_text)
+                        {
+                            if let Some(data) = envelope.data {
+                                if let Some(ctx) = data.ctx {
+                                    if let Some(px) = ctx
+                                        .prev_day_px
+                                        .as_deref()
+                                        .and_then(|s| Decimal::from_str(s).ok())
+                                    {
+                                        let symbol = to_internal_symbol(&data.coin);
+                                        let _ = event_tx
+                                            .send(NormalizedEvent::AssetContext(AssetContext {
+                                                symbol,
+                                                prev_day_px: px,
+                                            }))
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Message::Ping(ping) => {
@@ -251,6 +295,7 @@ pub async fn run_for_symbol(
     let subscriptions = vec![
         serde_json::json!({"type": "trades", "coin": &symbol}),
         serde_json::json!({"type": "l2Book", "coin": &symbol}),
+        serde_json::json!({"type": "activeAssetCtx", "coin": &symbol}),
     ];
     for sub in &subscriptions {
         let sub_request = serde_json::json!({
@@ -354,6 +399,27 @@ pub async fn run_for_symbol(
                                     trade_id: t.tid.to_string(),
                                 });
                                 let _ = event_tx.send(event).await;
+                            }
+                        }
+                    }
+                } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
+                    if let Ok(envelope) =
+                        serde_json::from_str::<ActiveAssetCtxEnvelope>(&raw_text)
+                    {
+                        if let Some(data) = envelope.data {
+                            if let Some(ctx) = data.ctx {
+                                if let Some(px) = ctx
+                                    .prev_day_px
+                                    .as_deref()
+                                    .and_then(|s| Decimal::from_str(s).ok())
+                                {
+                                    let _ = event_tx
+                                        .send(NormalizedEvent::AssetContext(AssetContext {
+                                            symbol: internal_symbol.clone(),
+                                            prev_day_px: px,
+                                        }))
+                                        .await;
+                                }
                             }
                         }
                     }

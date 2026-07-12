@@ -10,7 +10,8 @@ use crate::config::{
 use crate::db;
 use crate::instance::{Instance, TimeframeBuffers};
 use crate::sr_engine::SrRoleTracker;
-use crate::workspace::{Currency, ExchangeChoice, Workspace};
+use crate::session::{Currency, ExchangeChoice};
+use crate::server::AppState;
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, NormalizedEvent};
@@ -18,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 pub struct PipelineContext {
     pub base: String,
-    /// Unified internal symbol (e.g. "BTC-USDT") used across the workspace.
+    /// Unified internal symbol (e.g. "BTC-USDT") used across the state.
     pub internal_symbol: String,
     /// Settlement/quote currency for this session.
     pub quote: Currency,
@@ -47,7 +48,7 @@ pub struct PipelineArtifacts {
 
 pub async fn build_pipelines(
     ctx: &PipelineContext,
-    workspace: &Arc<Workspace>,
+    state: &Arc<AppState>,
     warmed_states: Option<(
         analyzer::WarmedPipelineState,
         analyzer::WarmedPipelineState,
@@ -182,7 +183,7 @@ pub async fn build_pipelines(
         &slow_snapshot_history,
         &macro_snapshot_history,
         &active_pair,
-        workspace,
+        state,
         warmed_states,
         ctx.exchange_choice.clone(),
         ctx.quote.clone(),
@@ -214,8 +215,8 @@ pub async fn build_pipelines(
         format!("inst_{}", uuid_v4_simple()),
         (ctx.base.clone(), ctx.quote.as_str().to_string()),
         active_pair.clone(),
-        workspace.pool.clone(),
-        workspace.config.clone(),
+        state.pool.clone(),
+        state.config.clone(),
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
         micro_buf.clone(),
@@ -263,7 +264,7 @@ async fn spawn_tasks(
     slow_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     macro_snapshot_history: &Arc<RwLock<VecDeque<MarketSnapshot>>>,
     active_pair: &Arc<analyzer::ActivePair>,
-    workspace: &Arc<Workspace>,
+    state: &Arc<AppState>,
     warmed_states: Option<(
         analyzer::WarmedPipelineState,
         analyzer::WarmedPipelineState,
@@ -316,7 +317,7 @@ async fn spawn_tasks(
         agg_1d_tx,
     ));
 
-    let logger_agg_telemetry = workspace.telemetry_tx.clone();
+    let logger_agg_telemetry = state.telemetry_tx.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -426,10 +427,10 @@ async fn spawn_tasks(
     {
         let a_symbol = internal_symbol.to_string();
         let a_pair_key = pair_key.to_string();
-        let a_telemetry = workspace.telemetry_tx.clone();
+        let a_telemetry = state.telemetry_tx.clone();
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
-        let a_pool = workspace.pool.clone();
+        let a_pool = state.pool.clone();
         tokio::spawn(async move {
             analyzer::run_single(
                 rx,
@@ -468,9 +469,9 @@ async fn spawn_tasks(
     let ws_tx = active_pair.snapshot_tx.clone();
     let ws_cancel = cancel.clone();
     let ws_url = if exchange_choice == ExchangeChoice::Bitget {
-        workspace.bitget_ws_url.clone()
+        state.bitget_ws_url.clone()
     } else {
-        workspace.ws_url.clone()
+        state.ws_url.clone()
     };
     tokio::spawn(async move {
         if exchange_choice == ExchangeChoice::Bitget {

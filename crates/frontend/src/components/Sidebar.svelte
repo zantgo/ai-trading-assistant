@@ -28,7 +28,7 @@
         addLoading = false;
 
         if (!result.ok) {
-            addError = result.error || 'Failed to add instance.';
+            addError = result.error || 'Failed to add workspace.';
             return;
         }
 
@@ -71,7 +71,7 @@
 
     {#if !collapsed}
         <div class={styles.sidebarHeader}>
-            <span class={styles.sidebarLogo}>ACTIVE INSTANCES</span>
+            <span class={styles.sidebarLogo}>ACTIVE WORKSPACES</span>
             <span class={styles.sidebarStatus}>{@html app.isConnected ? '<span class="status-live">● LIVE</span>' : '<span class="status-offline">● OFFLINE</span>'}</span>
         </div>
     {:else}
@@ -92,7 +92,7 @@
                 {:else}
                     <span class={styles.pairName}>{@html pairLabel(pairKey)}</span>
                     <span class="{styles.pairStatusDot} {app.instancesMap[pairKey].isConnected ? styles.connected : ''}"></span>
-                    <span class={styles.pairRemoveBtn} role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removeInstance(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeInstance(pairKey); } }} title="Remove instance">×</span>
+                    <span class={styles.pairRemoveBtn} role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); removeInstance(pairKey); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeInstance(pairKey); } }} title="Remove workspace">×</span>
                 {/if}
             </button>
         {/each}
@@ -121,7 +121,7 @@
                 {/if}
             {:else}
                 <button class={styles.addPairBtn} onclick={() => showAddInput = true}>
-                    + Add Instance
+                    + Add Workspace
                 </button>
             {/if}
         </div>

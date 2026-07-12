@@ -618,14 +618,14 @@ pub struct InstanceSpecificConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WorkspaceConfig {
+pub struct DefaultsConfig {
     #[serde(default = "default_default_pair")]
     pub default_pair: String,
 }
 
 fn default_default_pair() -> String { "BTC/USDT".to_string() }
 
-impl Default for WorkspaceConfig {
+impl Default for DefaultsConfig {
     fn default() -> Self {
         Self {
             default_pair: default_default_pair(),

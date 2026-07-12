@@ -1,18 +1,18 @@
 /* ============================================================================
-   Brutalist Grid Cockpit — premium dark (Apple / OpenAI inspired)
-   Monolithic 1px grid structure, refined typography, subtle hairline borders.
+   Premium Dark Cockpit — Apple-inspired monochrome grid
+   Clean hairline structure, refined SF Pro typography.
    ========================================================================== */
 
 :root {
     --bg: #000000;
     --bg-elev: #0a0a0a;
     --bg-elev-2: #0f0f0f;
-    --line: rgba(255, 255, 255, 0.10);
-    --line-strong: rgba(255, 255, 255, 0.16);
+    --line: rgba(255, 255, 255, 0.06);
+    --line-strong: rgba(255, 255, 255, 0.12);
     --text: #f5f5f7;
     --text-dim: rgba(245, 245, 247, 0.55);
-    --hover: rgba(255, 255, 255, 0.045);
-    --active: rgba(255, 255, 255, 0.10);
+    --hover: rgba(255, 255, 255, 0.04);
+    --active: rgba(255, 255, 255, 0.08);
     --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
@@ -31,10 +31,9 @@
     -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Symmetrical grid rows ─────────────────────────────────────────────── */
+/* ── Grid rows ─────────────────────────────────────────────────────────── */
 .row {
     display: grid;
-    border-bottom: 1px solid var(--line);
     width: 100%;
     box-sizing: border-box;
 }
@@ -43,12 +42,7 @@
     grid-template-columns: 2fr 2fr 2fr 1.5fr 1.5fr;
     height: 52px;
     background-color: var(--bg);
-}
-
-.rowSplitHeader {
-    grid-template-columns: 7fr 1.5fr;
-    height: 44px;
-    background-color: var(--bg-elev);
+    border-bottom: 1px solid var(--line);
 }
 
 .rowTabs {
@@ -68,7 +62,6 @@
 
 /* ── Base grid cell ────────────────────────────────────────────────────── */
 .cell {
-    border-right: 1px solid var(--line);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -86,14 +79,13 @@
     white-space: nowrap;
 }
 
-.cell:last-child {
-    border-right: none;
-}
-
 .cellBrand {
     color: var(--text);
     font-weight: 700;
-    letter-spacing: 0.14em;
+    font-size: 13px;
+    letter-spacing: 0.10em;
+    justify-content: flex-start;
+    padding-left: 20px;
 }
 
 .cellMono {
@@ -104,6 +96,37 @@
     color: var(--text);
 }
 
+/* ── Exchange / currency chip ──────────────────────────────────────────── */
+.exchangeChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+/* ── Navbar label (icon + text) ────────────────────────────────────────── */
+.navLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+}
+
+.navIcon {
+    display: inline-flex;
+    opacity: 0.7;
+}
+
+/* ── Clickable ─────────────────────────────────────────────────────────── */
 .cellClickable {
     cursor: pointer;
     transition: background-color 0.15s ease, color 0.15s ease;
@@ -129,8 +152,8 @@
 .dropdownMenu {
     position: absolute;
     top: 100%;
-    left: -1px;
-    min-width: calc(100% + 2px);
+    left: 0;
+    min-width: 180px;
     background-color: var(--bg-elev);
     border: 1px solid var(--line-strong);
     border-top: none;
@@ -170,11 +193,6 @@
 .dropdownItem:hover {
     background-color: var(--hover);
     color: var(--text);
-}
-
-.dropdownItemDanger:hover {
-    background-color: rgba(255, 69, 58, 0.12);
-    color: #ff453a;
 }
 
 .dropdownBackdrop {
@@ -303,15 +321,123 @@
     overflow-y: auto;
 }
 
+/* ── Modal workspace creation bar ──────────────────────────────────────── */
+.modalCreateBar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+}
+
+.modalInput {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.modalInput:focus {
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.modalInput::placeholder {
+    color: var(--text-dim);
+}
+
+.modalQuoteChip {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+}
+
+.modalCreateBtn {
+    padding: 8px 18px;
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    border-radius: 7px;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.modalCreateBtn:hover:not(:disabled) {
+    opacity: 0.85;
+}
+
+.modalCreateBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ── Modal error ───────────────────────────────────────────────────────── */
+.modalError {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+    color: #ff453a;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+}
+
+/* ── Modal list rows ───────────────────────────────────────────────────── */
 .modalRow {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr;
+    grid-template-columns: 2fr 0.8fr 0.8fr;
     border-bottom: 1px solid var(--line);
     height: 46px;
+    align-items: center;
 }
 
 .modalRow:last-child {
     border-bottom: none;
+}
+
+.modalPairCell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+.modalActionCell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    height: 100%;
+    transition: background-color 0.15s ease;
+}
+
+.modalActionCell:hover {
+    background-color: var(--hover);
+}
+
+.modalActionCell.danger:hover {
+    background-color: rgba(255, 69, 58, 0.12);
 }
 
 .modalEmpty {
@@ -327,9 +453,100 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    margin-right: 8px;
 }
 
 .statusRunning { background-color: #30d158; box-shadow: 0 0 8px rgba(48, 209, 88, 0.6); }
 .statusPaused { background-color: #ffd60a; }
 .statusStopped { background-color: rgba(255, 255, 255, 0.3); }
+
+/* ── Selected-instance display (top-bar cell) ──────────────────────────── */
+.instanceDisplay {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.instancePair {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text);
+    letter-spacing: 0.02em;
+}
+
+.instancePrice {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.change {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 5px;
+}
+
+.changeUp { color: #30d158; background: rgba(48, 209, 88, 0.12); }
+.changeDown { color: #ff453a; background: rgba(255, 69, 58, 0.12); }
+.changeFlat { color: var(--text-dim); background: rgba(255, 255, 255, 0.06); }
+
+/* ── Empty engine placeholder ──────────────────────────────────────────── */
+.placeholder {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--text-dim);
+    font-family: var(--sans);
+}
+
+.placeholderTitle {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text);
+}
+
+.placeholderSub {
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+/* ── Feature placeholder (icon + heading + message) ────────────────────── */
+.featurePlaceholder {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim);
+}
+
+.featurePlaceholderIcon {
+    opacity: 0.18;
+    margin-bottom: 4px;
+}
+
+.featurePlaceholderTitle {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text);
+}
+
+.featurePlaceholderMsg {
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    line-height: 1.5;
+    max-width: 360px;
+}

@@ -2,17 +2,14 @@ use engine::analyzer::{ActivePair, TimeframePipeline};
 use engine::config::AppConfig;
 use engine::config::FibonacciConfig;
 use engine::db;
-use engine::llm::LlmClient;
 use engine::server::{self, AppState};
 use engine::instance::TimeframeBuffers;
 use engine::sr_engine::SrRoleTracker;
-use engine::workspace::Workspace;
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::SymbolMapper;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -39,11 +36,9 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         leverage: Default::default(),
         scoring: Default::default(),
         fees: Default::default(),
-        costs: Default::default(),
-        workspace: Default::default(),
+        defaults: Default::default(),
         safety: Default::default(),
         intervals: Default::default(),
-        api_failover: Default::default(),
         instances: HashMap::new(),
     }));
 
@@ -53,32 +48,18 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         .await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<db::TelemetryMsg>(100);
-    let (llm_client, _) = LlmClient::from_env();
-    let llm = Arc::new(llm_client);
-    let api_key_configured = Arc::new(AtomicBool::new(false));
     let ws_url = "ws://127.0.0.1:1".to_string();
 
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        db::run_telemetry_logger(logger_pool, telemetry_rx, llm).await;
+        db::run_telemetry_logger(logger_pool, telemetry_rx).await;
     });
 
-    let workspace = Arc::new(Workspace::new(
-        config.clone(),
-        pool.clone(),
-        symbol_mapper.clone(),
-        telemetry_tx.clone(),
-        api_key_configured.clone(),
-        ws_url.clone(),
-        ws_url.clone(),
-    ));
-
     let state = Arc::new(AppState {
-        workspace,
+        instances: Arc::new(RwLock::new(HashMap::new())),
+        session: engine::session::SessionState::new(),
         config,
         pool: pool.clone(),
-        llm_client: Arc::new(LlmClient::from_env().0),
-        api_key_configured,
         symbol_mapper,
         telemetry_tx,
         ws_url: ws_url.clone(),
@@ -188,11 +169,9 @@ async fn test_websocket_stream_with_active_pair() {
         leverage: Default::default(),
         scoring: Default::default(),
         fees: Default::default(),
-        costs: Default::default(),
-        workspace: Default::default(),
+        defaults: Default::default(),
         safety: Default::default(),
         intervals: Default::default(),
-        api_failover: Default::default(),
         instances: HashMap::new(),
     }));
 
@@ -202,25 +181,14 @@ async fn test_websocket_stream_with_active_pair() {
         .await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<db::TelemetryMsg>(100);
-    let (llm_client, _) = LlmClient::from_env();
-    let llm = Arc::new(llm_client);
-    let api_key_configured = Arc::new(AtomicBool::new(false));
     let ws_url = "ws://127.0.0.1:1".to_string();
 
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        db::run_telemetry_logger(logger_pool, telemetry_rx, llm).await;
+        db::run_telemetry_logger(logger_pool, telemetry_rx).await;
     });
 
-    let workspace = Arc::new(Workspace::new(
-        config.clone(),
-        pool.clone(),
-        symbol_mapper.clone(),
-        telemetry_tx.clone(),
-        api_key_configured.clone(),
-        ws_url.clone(),
-        ws_url.clone(),
-    ));
+    let instances = Arc::new(RwLock::new(HashMap::new()));
 
     // Create broadcast channels for the pair
     let (mid_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
@@ -298,18 +266,16 @@ async fn test_websocket_stream_with_active_pair() {
         TimeframeBuffers { history: pair.r#macro.history.clone(), latest: pair.r#macro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
         Default::default(),
     ));
-    workspace
-        .instances
+    instances
         .write()
         .await
         .insert("BTC-USDT".to_string(), instance);
 
     let state = Arc::new(AppState {
-        workspace,
+        instances,
+        session: engine::session::SessionState::new(),
         config,
         pool: pool.clone(),
-        llm_client: Arc::new(LlmClient::from_env().0),
-        api_key_configured,
         symbol_mapper,
         telemetry_tx,
         ws_url: "ws://127.0.0.1:1".to_string(),

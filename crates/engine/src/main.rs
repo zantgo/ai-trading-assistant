@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 use engine::{
     config, db, performance_evaluator, portfolio_equity, server,
-    strategy_optimizer, workspace,
+    strategy_optimizer,
 };
 use shared::normalized::SymbolMapper;
 
@@ -26,7 +26,7 @@ async fn main() {
     );
 
     println!(
-        "🚪 Session-first boot: workspace starts empty and inactive. Awaiting Welcome Gate session initialization before any pipelines spawn."
+        "🚪 Session-first boot: system starts empty and inactive. Awaiting Welcome Gate session initialization before any pipelines spawn."
     );
 
     println!("🗄️  Initializing local SQLite telemetry database...");
@@ -57,22 +57,15 @@ async fn main() {
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
-    let workspace = Arc::new(workspace::Workspace::new(
-        app_config.clone(),
-        db_pool.clone(),
-        symbol_mapper.clone(),
-        telemetry_tx.clone(),
-        hl_ws_url.clone(),
-        bg_ws_url.clone(),
-    ));
-
     let app_state = Arc::new(server::AppState {
-        workspace: workspace.clone(),
+        instances: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        session: engine::session::SessionState::new(),
         config: app_config.clone(),
         pool: db_pool.clone(),
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
         ws_url: hl_ws_url.clone(),
+        bitget_ws_url: bg_ws_url.clone(),
     });
 
     let app = server::build_router(app_state.clone());
@@ -106,10 +99,10 @@ async fn main() {
     }));
 
     let eq_pool = db_pool.clone();
-    let eq_workspace = workspace.clone();
+    let eq_state = app_state.clone();
     let eq_cancel = eval_cancel.clone();
     handles.push(tokio::spawn(async move {
-        portfolio_equity::run_portfolio_equity_logger(eq_pool, eq_workspace, eq_cancel).await;
+        portfolio_equity::run_portfolio_equity_logger(eq_pool, eq_state, eq_cancel).await;
     }));
 
     handles.push(tokio::spawn(async move {

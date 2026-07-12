@@ -2,7 +2,8 @@ use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use shared::normalized::{
-    ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook, NormalizedTrade, TradeSide,
+    AssetContext, ConnectionStatus, Exchange, NormalizedEvent, NormalizedOrderBook,
+    NormalizedTrade, TradeSide,
 };
 use std::str::FromStr;
 use tokio::sync::mpsc::Sender;
@@ -27,6 +28,13 @@ struct BookItem {
     asks: Vec<[String; 2]>,
     bids: Vec<[String; 2]>,
     ts: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct TickerItem {
+    #[serde(rename = "open24h")]
+    open_24h: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,11 +88,12 @@ pub async fn run_for_symbol(
         "op": "subscribe",
         "args": [
             {"instType": &product_type, "channel": "trade", "instId": &symbol},
-            {"instType": &product_type, "channel": "books5", "instId": &symbol}
+            {"instType": &product_type, "channel": "books5", "instId": &symbol},
+            {"instType": &product_type, "channel": "ticker", "instId": &symbol}
         ]
     });
     println!(
-        "📡 Bitget [{}]: Subscribing to trade + books5 streams ({})",
+        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker streams ({})",
         symbol, product_type
     );
     if let Err(e) = write
@@ -216,6 +225,28 @@ pub async fn run_for_symbol(
                                 timestamp_ms: ts_ms,
                             });
                             let _ = event_tx.send(event).await;
+                        }
+                    }
+                    "ticker" => {
+                        let tickers: Vec<TickerItem> = match serde_json::from_value(data_val) {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
+                        for tk in tickers {
+                            if let Some(px) = tk
+                                .open_24h
+                                .as_deref()
+                                .and_then(|s| Decimal::from_str(s).ok())
+                            {
+                                if px > Decimal::ZERO {
+                                    let _ = event_tx
+                                        .send(NormalizedEvent::AssetContext(AssetContext {
+                                            symbol: internal_symbol.clone(),
+                                            prev_day_px: px,
+                                        }))
+                                        .await;
+                                }
+                            }
                         }
                     }
                     _ => {}

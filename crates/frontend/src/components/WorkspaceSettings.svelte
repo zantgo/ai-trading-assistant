@@ -251,7 +251,7 @@
             const newPairKey = app.pairKeyFor(cleanedSymbol);
             const result = await createInstance(cleanedSymbol, app.quote);
             if (!result.ok) {
-                identityError = result.error || 'Failed to update instance.';
+                identityError = result.error || 'Failed to update workspace.';
                 return;
             }
             app.initInstance(cleanedSymbol, draft.exchange);

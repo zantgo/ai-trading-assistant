@@ -74,7 +74,7 @@ pub async fn serve_monitor(
         query.symbol.clone()
     };
 
-    let Some(pair) = get_active_pair(&state.workspace, &pair_key).await else {
+    let Some(pair) = get_active_pair(&state, &pair_key).await else {
         return Json(MonitorResponse {
             symbol: pair_key,
             timeframes: vec![],
