@@ -1,43 +1,46 @@
 .quitOverlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.75);
+    background: rgba(0, 0, 0, 0.92);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    backdrop-filter: blur(6px);
+    animation: fadeIn 0.15s ease;
 }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .quitDialog {
-    background: #131722;
-    border: 1px solid #2a2e39;
-    border-radius: 12px;
-    padding: 2.5rem 2rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 2.5rem 2rem 2rem;
     width: 100%;
-    max-width: 420px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    max-width: 400px;
     text-align: center;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+    animation: modalIn 0.18s ease;
 }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.97) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 .quitIcon {
-    margin-bottom: 1rem;
+    margin-bottom: 1.2rem;
     display: flex;
     justify-content: center;
 }
 .quitTitle {
-    color: #e0e0ff;
-    font-size: 1.4rem;
+    color: #fff;
+    font-size: 1.2rem;
     font-weight: 700;
     margin: 0 0 0.75rem 0;
+    letter-spacing: 0.04em;
 }
 .quitMessage {
-    color: #64748b;
-    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.82rem;
     line-height: 1.6;
-    margin: 0 0 1.5rem 0;
+    margin: 0 0 1.8rem 0;
 }
 .quitMessage strong {
-    color: #f87171;
+    color: rgba(255, 255, 255, 0.7);
     font-weight: 600;
 }
 .quitActions {
@@ -46,52 +49,52 @@
     justify-content: center;
 }
 .quitCancel {
-    padding: 0.6rem 1.5rem;
+    padding: 0.55rem 1.4rem;
     background: transparent;
-    border: 1px solid #2a2e39;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
-    color: #cbd5e1;
-    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.82rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s;
+    transition: all 0.15s ease;
     font-family: inherit;
+    letter-spacing: 0.03em;
 }
 .quitCancel:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.04);
-    border-color: #3e4451;
+    border-color: rgba(255, 255, 255, 0.25);
 }
 .quitConfirm {
-    padding: 0.6rem 1.5rem;
-    background: #ef4444;
+    padding: 0.55rem 1.4rem;
+    background: #fff;
     border: none;
     border-radius: 8px;
-    color: white;
-    font-size: 0.9rem;
+    color: #000;
+    font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: all 0.15s ease;
     display: flex;
     align-items: center;
     gap: 0.5rem;
     font-family: inherit;
+    letter-spacing: 0.03em;
 }
 .quitConfirm:hover:not(:disabled) {
-    opacity: 0.85;
+    background: #e5e5e5;
 }
 .quitCancel:disabled,
 .quitConfirm:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
 }
 .spinner {
     width: 14px;
     height: 14px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: white;
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-top-color: #000;
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
 }
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -123,7 +123,7 @@ export class AppStore {
 
     constructor() {
         this.session.onSessionActivated = () => {
-            this.currentEngine = 'market_monitor';
+            this.currentEngine = 'profile';
             this.activeEngineTab = 'overview';
             this.selectedInstance = null;
         };
