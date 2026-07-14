@@ -1,7 +1,7 @@
 //! # Indicator Registry — Single Source of Truth
 //!
 //! Every indicator in the system is declared exactly once here. The backend
-//! (normalization, persistence, scoring, AI agents) and the frontend (telemetry
+//! (normalization, persistence, scoring) and the frontend (telemetry
 //! matrix, chart toggles, scoring UI) all derive their behavior from this
 //! manifest, which is serialized to the frontend via `/api/config`.
 //!

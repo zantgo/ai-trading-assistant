@@ -52,8 +52,8 @@
 </script>
 
 <div class={styles.panel}>
-    <h4 class={styles.panelTitle}>AI Trigger Setup</h4>
-    <p class={styles.panelDesc}>Configure when the AI orchestrator is automatically invoked.</p>
+    <h4 class={styles.panelTitle}>Trigger Setup</h4>
+    <p class={styles.panelDesc}>Configure when policy triggers fire (time interval, candle close, or named events).</p>
 
     <div class={styles.fieldGroup}>
         <label class={styles.fieldLabel} for="tc-trigger-mode">Trigger Mode</label>

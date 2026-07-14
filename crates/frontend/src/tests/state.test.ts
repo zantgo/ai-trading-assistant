@@ -10,14 +10,11 @@ describe('TEST-UI: Global State Runes', () => {
         app.analysisPhase = 'idle';
         app.currentPosition = 'None';
         app.entryPriceVal = '';
-        app.isAssistantModalOpen = false;
-        app.chatHistory = [];
     });
 
     it('should initialize with default states', () => {
         expect(app.analysisPhase).toBe('idle');
         expect(app.currentPosition).toBe('None');
-        expect(app.isAssistantModalOpen).toBe(false);
     });
 
     it('should handle position changes and validate fields', () => {
@@ -39,12 +36,6 @@ describe('TEST-UI: Global State Runes', () => {
 
         app.analysisPhase = 'complete';
         expect(app.analysisPhase).toBe('complete');
-    });
-
-    it('should build chat history context correctly upon modal open', () => {
-        app.chatHistory.push({ role: 'assistant', content: 'Greeting message' });
-        expect(app.chatHistory.length).toBe(1);
-        expect(app.chatHistory[0].role).toBe('assistant');
     });
 
     it('should initialize instancesMap with exchange-symbol key', () => {
@@ -85,28 +76,27 @@ describe('TEST-UI: Global State Runes', () => {
         app.currentView = 'costs';
         expect(app.currentView).toBe('costs');
 
-        app.switchMode('ai');
-        expect(app.currentView).toBe('assistant');
+        app.switchMode('rule');
+        expect(app.currentView).toBe('rule');
+
         app.currentView = 'ledger';
 
         app.switchMode('user');
         expect(app.currentView).toBe('costs');
 
-        app.switchMode('ai');
+        app.switchMode('rule');
         expect(app.currentView).toBe('ledger');
     });
 
-    it('should map Level 2 paradigms to backend operational modes', () => {
+    it('should switch Level 2 modes without altering operational state', () => {
         app.initInstance('BTC');
         app.activeTab = 'BTC-USDT';
 
         app.switchMode('general');
-        expect(app.pendingOperationalMode).toBe(null);
+        expect(app.currentLevel2Mode).toBe('general');
         app.switchMode('user');
-        expect(app.pendingOperationalMode).toBe('ManualOnly');
+        expect(app.currentLevel2Mode).toBe('user');
         app.switchMode('rule');
-        expect(app.pendingOperationalMode).toBe('DeterministicHeuristics');
-        app.switchMode('ai');
-        expect(app.pendingOperationalMode).toBe('HybridAiCopilot');
+        expect(app.currentLevel2Mode).toBe('rule');
     });
 });

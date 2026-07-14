@@ -39,6 +39,16 @@ fn sample_snapshot() -> MarketSnapshot {
         average_volume: Some(dec!(100.0)),
         indicators,
         context: None,
+        alignment: None,
+        analysis: None,
+        risk: None,
+        advisory: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        prev_day_px: None,
+        statistical_context: None,
+        decision_context: None,
+        risk_profile: None,
     }
 }
 

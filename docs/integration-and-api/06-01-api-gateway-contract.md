@@ -143,7 +143,7 @@ Key properties:
 
 ### 3.3 JSON-RPC 2.0 Method Names
 
-The shared crate (`crates/shared/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-layer communication. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Other internal method constants (`indicator.analyze`, `agent.verdict`, `orchestrator.decide`, `chat.message`) and the request/response methods (`execution.open_position`, `safety.check`) are reserved in the shared crate for future inter-component RPC.
+The shared crate (`crates/shared/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.
 
 ---
 

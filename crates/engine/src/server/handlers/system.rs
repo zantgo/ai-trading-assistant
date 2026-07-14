@@ -15,7 +15,6 @@ pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl Int
         latency_ms: 12,
         journal_mode: "WAL".to_string(),
         total_allocated_margin: 0.0,
-        total_ai_token_costs_usd: 0.0,
         active_pairs_count,
     };
 
@@ -38,14 +37,7 @@ pub async fn serve_observability_buffers(
         .unwrap_or(&symbol)
         .to_string();
 
-    let recent_decisions: Vec<crate::server::types::DecisionMemoryBufferRow> = sqlx::query_as(
-        "SELECT id, symbol, timestamp, regime_classification, orchestrator_decision, confidence_score, eight_factor_score, portfolio_risk_pct \
-         FROM decision_memory_buffer WHERE symbol = ?1 ORDER BY id DESC LIMIT 5"
-    )
-    .bind(&raw_symbol)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let recent_decisions: Vec<crate::server::types::DecisionMemoryBufferRow> = Vec::new();
 
     let completed_trades: Vec<crate::server::types::CompletedTradesBufferRow> = sqlx::query_as(
         "SELECT \

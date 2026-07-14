@@ -60,4 +60,4 @@ The complete institutional documentation set lives under [`docs/`](docs/), organ
 | **[Performance Analytics Engine](docs/engines/performance-analytics-engine/)** | Developers | Trade + Strategy + Risk + Performance layer specs |
 | **[Integration & API](docs/integration-and-api/api-gateway-contract.md)** | Developers | REST/WebSocket/JSON-RPC contracts and database schema |
 | **[UI/UX](docs/ui-ux/ui-overview-spec.md)** | Frontend | Svelte 5 state management and dashboard layout specifications |
-| **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions |
+| **[AGENTS.md](AGENTS.md)** | Maintainers | Build instructions, runtime details, testing conventions |

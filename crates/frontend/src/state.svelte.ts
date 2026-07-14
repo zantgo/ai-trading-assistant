@@ -114,10 +114,7 @@ export class AppStore {
     }
     entryPriceVal = $state<string>('');
     analysisPhase = $state<string>('idle');
-    chatHistory = $state<Array<{ role: string; content: string }>>([]);
-    isAssistantModalOpen = $state(false);
     currentLevel2Mode = $state<string>('user');
-    pendingOperationalMode = $state<string | null>(null);
     _modeViews: Record<string, string> = {};
     _lastMode: string = '';
 
@@ -169,16 +166,14 @@ export class AppStore {
     }
 
     switchMode(mode: string) {
-        const modes: Record<string, { l2: string; op: string | null }> = {
-            general: { l2: 'general', op: null },
-            user: { l2: 'user', op: 'ManualOnly' },
-            rule: { l2: 'rule', op: 'DeterministicHeuristics' },
-            ai: { l2: 'ai', op: 'HybridAiCopilot' },
+        const modes: Record<string, { l2: string }> = {
+            general: { l2: 'general' },
+            user: { l2: 'user' },
+            rule: { l2: 'rule' },
         };
         const defaultViews: Record<string, string> = {
             user: 'positions',
-            ai: 'assistant',
-            rule: 'assistant',
+            rule: 'rule',
             general: 'ledger',
         };
         if (this._lastMode) {
@@ -187,7 +182,6 @@ export class AppStore {
         const m = modes[mode];
         if (m) {
             this.currentLevel2Mode = m.l2;
-            this.pendingOperationalMode = m.op;
             this.currentView = this._modeViews[mode] ?? (defaultViews[mode] ?? 'terminal') as any;
             this._lastMode = mode;
         }

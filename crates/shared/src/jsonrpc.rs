@@ -170,13 +170,13 @@ mod tests {
     #[test]
     fn test_request_serialization() {
         let req = JsonRpcRequest::new(
-            "indicator.analyze",
+            "broadcast.market_snapshot",
             Some(serde_json::json!({"rsi": 45.0})),
             1,
         );
         let json = req.to_json();
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
-        assert!(json.contains("\"method\":\"indicator.analyze\""));
+        assert!(json.contains("\"method\":\"broadcast.market_snapshot\""));
     }
 
     #[test]

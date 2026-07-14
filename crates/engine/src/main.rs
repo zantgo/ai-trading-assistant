@@ -87,11 +87,9 @@ async fn main() {
     handles.push(server_handle);
 
     let eval_cancel = CancellationToken::new();
-    let eval_pool = db_pool.clone();
     let eval_cancel1 = eval_cancel.clone();
     handles.push(tokio::spawn(async move {
         performance_evaluator::run_performance_evaluator(performance_evaluator::EvaluatorConfig {
-            pool: eval_pool,
             cancel: eval_cancel1,
             eval_interval_secs: 300,
         })

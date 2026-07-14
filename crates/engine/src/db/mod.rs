@@ -17,10 +17,6 @@ pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,
     update_journal_notes, TradeJournalRecord,
 };
-pub use queries::performance::{
-    insert_automated_performance_baseline, query_automated_performance,
-    query_pending_performance_entries, update_performance_tracker_prices, AutomatedPerformanceRow,
-};
 pub use queries::profiles::{
     decision_profile_delete, decision_profile_insert, decision_profile_update,
     decision_profiles_list, profile_indicator_delete, profile_indicator_insert,
@@ -32,7 +28,7 @@ pub use queries::snapshots::{
     query_indicator_snapshots, query_latest_snapshot, query_recent_candles, IndicatorSnapshotRow,
 };
 pub use queries::stats::{
-    dash_trade_detail, dash_trade_timestamps, get_daily_pnl, insert_optimization_report,
+    dash_trade_detail, dash_trade_timestamps, get_daily_pnl,
     query_all_closed_trades, ClosedTradeRow, TradeDetailRow,
 };
 pub use queries::trades::{

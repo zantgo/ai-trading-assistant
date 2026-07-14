@@ -286,13 +286,7 @@
       "use_scoring_allocation": false,
       "max_opposite_exit_signals": 5
     },
-    "operational_mode": "HybridAiCopilot",
-    "ai_trigger": {
-      "trigger": {
-        "mode": "interval",
-        "seconds": 900
-      }
-    },
+    "operational_mode": "DeterministicHeuristics",
     "weight_overrides": null,
     "position_scaling": null
   },
@@ -583,13 +577,7 @@
       "use_scoring_allocation": false,
       "max_opposite_exit_signals": 5
     },
-    "operational_mode": "HybridAiCopilot",
-    "ai_trigger": {
-      "trigger": {
-        "mode": "interval",
-        "seconds": 900
-      }
-    },
+    "operational_mode": "DeterministicHeuristics",
     "weight_overrides": null,
     "position_scaling": null
   },
@@ -880,13 +868,7 @@
       "use_scoring_allocation": false,
       "max_opposite_exit_signals": 5
     },
-    "operational_mode": "HybridAiCopilot",
-    "ai_trigger": {
-      "trigger": {
-        "mode": "interval",
-        "seconds": 900
-      }
-    },
+    "operational_mode": "DeterministicHeuristics",
     "weight_overrides": null,
     "position_scaling": null
   },
@@ -1177,13 +1159,7 @@
       "use_scoring_allocation": false,
       "max_opposite_exit_signals": 5
     },
-    "operational_mode": "HybridAiCopilot",
-    "ai_trigger": {
-      "trigger": {
-        "mode": "interval",
-        "seconds": 900
-      }
-    },
+    "operational_mode": "DeterministicHeuristics",
     "weight_overrides": null,
     "position_scaling": null
   }

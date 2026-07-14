@@ -21,6 +21,4 @@ export class SettingsStore {
     emaSlowLabel = $state('EMA-100'); emaLongLabel = $state('EMA-200');
     rsiLabel = $state('RSI (14)'); adxLabel = $state('ADX (14)');
     atrLabel = $state('ATR (14)'); macdLabel = $state('MACD (12,26,9)');
-
-    // Token cost tracking removed — no LLM service.
 }

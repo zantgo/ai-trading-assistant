@@ -165,8 +165,8 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
             recommendations,
         };
 
-        let report_json = serde_json::to_string_pretty(&report).unwrap_or_default();
-        db::insert_optimization_report(&cfg.pool, &report_json).await;
+        // OptimizationReport is composed in-memory and the report is
+        // logged via the `println!` line below. No persistence is performed.
         println!(
             "📊 Strategy Optimizer: Report generated — {} trades, {} regimes analyzed",
             report.total_trades,

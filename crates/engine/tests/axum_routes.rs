@@ -204,6 +204,8 @@ async fn test_websocket_stream_with_active_pair() {
     ));
     let pair = Arc::new(ActivePair {
         symbol: "BTC".to_string(),
+        latest_oi: Arc::new(RwLock::new(None)),
+        latest_funding: Arc::new(RwLock::new(None)),
         micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
@@ -214,6 +216,8 @@ async fn test_websocket_stream_with_active_pair() {
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         fast: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -225,6 +229,8 @@ async fn test_websocket_stream_with_active_pair() {
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         slow: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -236,6 +242,8 @@ async fn test_websocket_stream_with_active_pair() {
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         r#macro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -247,6 +255,8 @@ async fn test_websocket_stream_with_active_pair() {
             divergence_detector: Arc::new(tokio::sync::Mutex::new(DivergenceDetector::new(20))),
             sr_tracker: Arc::new(tokio::sync::Mutex::new(SrRoleTracker::new(0.3))),
             fibonacci: FibonacciConfig::default(),
+            latest_oi: Arc::new(RwLock::new(None)),
+            latest_funding: Arc::new(RwLock::new(None)),
         },
         snapshot_tx,
         cancel,

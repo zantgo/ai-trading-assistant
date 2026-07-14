@@ -63,28 +63,14 @@ pub async fn get_daily_pnl(pool: &SqlitePool) -> Option<f64> {
 }
 
 pub async fn query_all_closed_trades(pool: &SqlitePool) -> Vec<ClosedTradeRow> {
-    let query = "
-        SELECT
-            pt.id, pt.symbol, pt.direction, pt.realized_pnl, pt.roi_pct,
-            (pt.entry_price * pt.size) as allocated_usd,
-            (SELECT mar.market_regime
-             FROM master_assistant_records mar
-             WHERE mar.symbol = pt.symbol
-               AND mar.created_at <= datetime(pt.entry_timestamp / 1000, 'unixepoch')
-             ORDER BY mar.id DESC LIMIT 1) as market_regime
-        FROM paper_trades pt
-        ORDER BY pt.id DESC
-    ";
-    sqlx::query_as::<_, ClosedTradeRow>(query)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default()
-}
-
-pub async fn insert_optimization_report(pool: &SqlitePool, report_json: &str) {
-    let _ = sqlx::query(
-        "INSERT INTO agent_thought_logs (master_record_id, agent_name, thought_process, json_rpc_payload, confidence_score) \
-         VALUES (0, 'Optimizer', 'Periodic strategy weight optimization run', ?1, 0)"
+    sqlx::query_as::<_, ClosedTradeRow>(
+        "SELECT id, symbol, direction, realized_pnl, roi_pct,
+                (entry_price * size) as allocated_usd,
+                NULL as market_regime
+         FROM paper_trades
+         ORDER BY id DESC",
     )
-    .bind(report_json).execute(pool).await;
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
 }

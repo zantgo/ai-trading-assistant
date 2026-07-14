@@ -357,7 +357,6 @@ pub struct SystemStatusResponse {
     pub latency_ms: u64,
     pub journal_mode: String,
     pub total_allocated_margin: f64,
-    pub total_ai_token_costs_usd: f64,
     pub active_pairs_count: usize,
 }
 
@@ -517,8 +516,6 @@ pub struct InstanceConfigPayload {
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
     pub position_scaling: Option<crate::config::PositionScalingConfig>,
-    #[serde(default)]
-    pub ai_trigger: Option<crate::config::AiTriggerConfig>,
 }
 
 #[derive(Debug, Deserialize)]

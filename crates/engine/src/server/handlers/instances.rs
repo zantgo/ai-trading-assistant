@@ -160,7 +160,6 @@ pub async fn serve_update_instance_config(
                     macro_term: None,
                     automation: Default::default(),
                     operational_mode: Default::default(),
-                    ai_trigger: Default::default(),
                     weight_overrides: None,
                     position_scaling: None,
                 }
@@ -178,11 +177,9 @@ pub async fn serve_update_instance_config(
                     .and_then(|s| match s {
                         "ManualOnly" => Some(crate::config::OperationalMode::ManualOnly),
                         "DeterministicHeuristics" => Some(crate::config::OperationalMode::DeterministicHeuristics),
-                        "HybridAiCopilot" => Some(crate::config::OperationalMode::HybridAiCopilot),
                         _ => None,
                     })
                     .unwrap_or(existing.operational_mode),
-                ai_trigger: payload.ai_trigger.unwrap_or(existing.ai_trigger),
                 weight_overrides: payload.weight_overrides.or(existing.weight_overrides),
                 position_scaling: payload.position_scaling.or(existing.position_scaling),
             };
@@ -322,8 +319,6 @@ pub async fn serve_instance_manual_close(
     }
 }
 
-// ─── Removed: serve_set_instance_api_key, serve_delete_instance_api_key,
-// serve_instance_usage — functionality migrated out with LLM removal. ──
 // ─── Instance Intervals ───────────────────────────────────────────
 
 pub async fn serve_instance_intervals(
@@ -366,5 +361,3 @@ pub async fn serve_instance_intervals(
         None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
     }
 }
-
-// ─── Removed: serve_instance_usage — LLM functionality removed. ──

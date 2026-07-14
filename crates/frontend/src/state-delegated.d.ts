@@ -15,9 +15,8 @@ declare module './state.svelte' {
         sessionError: string | null;
 
         currentPosition: string; entryPriceVal: string;
-        analysisPhase: string; chatHistory: Array<{ role: string; content: string }>;
-        isAssistantModalOpen: boolean; currentLevel2Mode: string;
-        pendingOperationalMode: string | null;
+        analysisPhase: string;
+        currentLevel2Mode: string;
         switchMode(mode: string): void;
 
         activeDecisionProfileId: number; decisionProfiles: DecisionProfile[];
@@ -61,12 +60,6 @@ declare module './state.svelte' {
         indicatorRegistry: import('./types').IndicatorMeta[];
         emaFastLabel: string; emaMediumLabel: string; emaSlowLabel: string; emaLongLabel: string;
         rsiLabel: string; adxLabel: string; atrLabel: string; macdLabel: string;
-
-        costPriceInput: number; costPriceOutput: number; costIntervalSecs: number;
-        costRunsPerDay: number; costTokensPerRunInput: number; costTokensPerRunOutput: number;
-        costDailyProjected: number; costWeeklyProjected: number; costMonthlyProjected: number;
-        costActualInputTokens: number; costActualOutputTokens: number; costActualTotal: number;
-        costLoading: boolean;
 
         dashboardStats: DashboardStats | null; dashboardActiveFilter: string;
         dashboardPeriod: string; dashboardOrigin: string;

@@ -32,7 +32,7 @@ PRAGMA synchronous = NORMAL;
 
 ---
 
-## 3. Table Catalog (19 Active Tables)
+## 3. Table Catalog (15 Active Tables)
 
 ### 3.1 Core Telemetry
 
@@ -171,9 +171,6 @@ Automated trade telemetry.
 
 #### `trade_learning_journal`
 Human-annotated trade journal (FK → `trade_telemetry_history`).
-
-#### `automated_performance_tracker`
-Forward-testing performance signal accuracy at 3600 s / 14400 s / 86400 s horizons.
 
 ---
 

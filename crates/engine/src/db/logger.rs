@@ -155,7 +155,7 @@ async fn run_journaling_task(
     let exit_date = format_ts(_exit_timestamp);
     let asset = symbol.to_string();
 
-    let entry_reason = lookup_entry_reason(pool, symbol, _entry_timestamp).await;
+    let entry_reason = String::new();
 
     let notes = format!(
         "[Market Monitor trade journal. Trigger: {}]",
@@ -188,31 +188,5 @@ fn format_ts(ms: i64) -> String {
     match chrono::Utc.timestamp_opt(secs, 0) {
         chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
         _ => secs.to_string(),
-    }
-}
-
-async fn lookup_entry_reason(pool: &SqlitePool, symbol: &str, entry_timestamp: i64) -> String {
-    use sqlx::Row;
-    let row = sqlx::query(
-        "SELECT recommended_action, recommendation_rationale
-         FROM master_assistant_records
-         WHERE symbol = ?1 AND general_trend != 'PENDING'
-         ORDER BY ABS(id - (SELECT COALESCE(MAX(id),0) FROM master_assistant_records WHERE symbol = ?1 AND created_at <= datetime(?2 / 1000, 'unixepoch')))
-         LIMIT 1"
-    )
-    .bind(symbol)
-    .bind(entry_timestamp)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    match row {
-        Some(r) => {
-            let action: String = r.get(0);
-            let rationale: String = r.get(1);
-            format!("{} - {}", action, rationale)
-        }
-        None => "No prior analysis record found".to_string(),
     }
 }

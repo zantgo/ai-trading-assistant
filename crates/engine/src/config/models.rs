@@ -464,7 +464,6 @@ pub enum OperationalMode {
     #[default]
     ManualOnly,
     DeterministicHeuristics,
-    HybridAiCopilot,
 }
 
 impl OperationalMode {
@@ -472,12 +471,11 @@ impl OperationalMode {
         match self {
             OperationalMode::ManualOnly => "ManualOnly",
             OperationalMode::DeterministicHeuristics => "DeterministicHeuristics",
-            OperationalMode::HybridAiCopilot => "HybridAiCopilot",
         }
     }
 }
 
-// ─── AI Trigger Configuration ──────────────────────────────────
+// ─── Trigger Configuration ─────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mode")]
@@ -499,12 +497,6 @@ impl Default for TriggerMode {
     fn default() -> Self {
         TriggerMode::Interval { seconds: 900 }
     }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AiTriggerConfig {
-    #[serde(default)]
-    pub trigger: TriggerMode,
 }
 
 // ─── Position Sizing & Leverage Scaling ────────────────────────
@@ -609,8 +601,6 @@ pub struct InstanceSpecificConfig {
     pub automation: AutomationConfig,
     #[serde(default)]
     pub operational_mode: OperationalMode,
-    #[serde(default)]
-    pub ai_trigger: AiTriggerConfig,
     #[serde(default)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]

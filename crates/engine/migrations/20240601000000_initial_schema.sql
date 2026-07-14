@@ -54,31 +54,6 @@ CREATE TABLE IF NOT EXISTS individual_indicator_logs (
     timestamp INTEGER NOT NULL
 );
 
--- master_assistant_records (with all added columns)
-CREATE TABLE IF NOT EXISTS master_assistant_records (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT DEFAULT (datetime('now')),
-    position TEXT NOT NULL,
-    entry_price TEXT,
-    price_at_analysis TEXT NOT NULL,
-    general_trend TEXT NOT NULL,
-    support_levels TEXT NOT NULL,
-    resistance_levels TEXT NOT NULL,
-    indicator_synthesis_summary TEXT NOT NULL,
-    indicator_synthesis_evaluation TEXT NOT NULL,
-    recommended_action TEXT NOT NULL,
-    recommendation_rationale TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    trigger_type TEXT NOT NULL DEFAULT 'Manual',
-    stop_loss_trigger TEXT,
-    micro_term_signal TEXT,
-    long_term_signal TEXT,
-    score_points INTEGER NOT NULL DEFAULT 0,
-    signals_json TEXT NOT NULL DEFAULT '{}',
-    market_regime TEXT DEFAULT 'stable',
-    portfolio_allocation_pct REAL DEFAULT 0.0
-);
-
 -- user_trades
 CREATE TABLE IF NOT EXISTS user_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,22 +63,6 @@ CREATE TABLE IF NOT EXISTS user_trades (
     outcome TEXT NOT NULL,
     risk_multiplier REAL NOT NULL,
     reward_multiplier REAL NOT NULL
-);
-
--- automated_performance_tracker
-CREATE TABLE IF NOT EXISTS automated_performance_tracker (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    master_record_id INTEGER NOT NULL,
-    symbol TEXT NOT NULL,
-    price_at_signal TEXT NOT NULL,
-    price_at_1h TEXT,
-    price_at_4h TEXT,
-    price_at_24h TEXT,
-    direction_correct_1h INTEGER,
-    direction_correct_4h INTEGER,
-    direction_correct_24h INTEGER,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (master_record_id) REFERENCES master_assistant_records(id)
 );
 
 -- paper_balances (with all added columns)
@@ -269,26 +228,6 @@ CREATE TABLE IF NOT EXISTS support_resistance_levels (
     calculated_at INTEGER NOT NULL
 );
 
--- agent_thought_logs
-CREATE TABLE IF NOT EXISTS agent_thought_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    master_record_id INTEGER NOT NULL,
-    agent_name TEXT NOT NULL,
-    thought_process TEXT NOT NULL,
-    json_rpc_payload TEXT NOT NULL,
-    confidence_score INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (master_record_id) REFERENCES master_assistant_records(id)
-);
-
--- decision_memory_buffer
-CREATE TABLE IF NOT EXISTS decision_memory_buffer (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    regime_classification TEXT NOT NULL,
-    orchestrator_decision TEXT NOT NULL,
-    confidence_score INTEGER NOT NULL,
-    eight_factor_score INTEGER NOT NULL,
-    portfolio_risk_pct REAL NOT NULL
-);
+-- (AI tables: master_assistant_records, automated_performance_tracker,
+--  agent_thought_logs, decision_memory_buffer — removed; superseded by
+--  2026XXXX_drop_legacy_ai.sql for existing databases.)

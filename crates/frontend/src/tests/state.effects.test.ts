@@ -88,20 +88,6 @@ describe('TEST-UI: State Reactive Effects', () => {
         expect(snap.is_completed).toBe(true);
     });
 
-    it('should maintain chat history across messages', () => {
-        expect(app.chatHistory.length).toBe(0);
-
-        app.chatHistory = [
-            { role: 'user', content: 'What is the trend?' },
-            { role: 'assistant', content: 'The trend is bullish with strong momentum.' },
-        ];
-
-        expect(app.chatHistory.length).toBe(2);
-        expect(app.chatHistory[0].role).toBe('user');
-        expect(app.chatHistory[1].role).toBe('assistant');
-        expect(app.chatHistory[1].content).toContain('bullish');
-    });
-
     it('should snapshot per-timeframe state independently', () => {
         app.initInstance('ETH');
 
