@@ -1,0 +1,58 @@
+# Supertrend (10, 3.0)
+
+## 1. Introduction — Trading Function
+
+Supertrend is a trend-following overlay that plots a line above (bearish trend) or below (bullish trend) price based on the Average True Range. When price closes on the opposite side of the line, the trend is considered flipped and the line jumps to the other side. It is widely used for:
+
+- **Trend identification:** price above the line = bullish; below = bearish.
+- **Trailing stop:** the line acts as a dynamic stop-loss level that moves with the trend.
+- **Entry signals:** a close crossing the Supertrend line generates a Crossover signal; a line-side flip (direction change) generates a TrendFlip signal.
+
+## 2. Mathematical Formula
+
+```
+Upper Band = (High + Low) / 2 + multiplier × ATR
+Lower Band = (High + Low) / 2 - multiplier × ATR
+
+Supertrend = Upper Band  (if previous close ≤ previous Upper Band)
+           = Lower Band  (if previous close ≥ previous Lower Band)
+```
+
+The `flipped` boolean is set to `true` on the bar where the line side changes.
+
+## 3. Normalization
+
+The normalized score in [-1, 1] is computed from the distance between price and the Supertrend line, scaled by the line level:
+
+```
+dist = |price - line| / |line|
+mag = 0.6 + 0.4 × tanh(dist × 12)
+norm = direction × mag   [direction = +1 bullish, -1 bearish]
+```
+
+The magnitude floor is ±0.6 (Supertrend never produces a near-zero reading). Label: `SUPERTREND_BULLISH` or `SUPERTREND_BEARISH`. The `values` sub-map carries `line` (raw Supertrend level) and `direction` (±1).
+
+## 4. Signals
+
+| SignalKind | Label Pattern | Trigger Condition | Direction |
+|-----------|--------------|------------------|-----------|
+| TrendFlip | SUPERTREND_FLIP | Supertrend direction changed this bar (`flipped == true`). Structured push from engine. | Bullish (flip to up) / Bearish (flip to down) |
+| Crossover | SUPERTREND_PRICE_CROSS_BULLISH | Price crossed from below the Supertrend line to above. Detected via previous-bar price and line comparison (transition-only). | Bullish |
+| Crossover | SUPERTREND_PRICE_CROSS_BEARISH | Price crossed from above the Supertrend line to below. | Bearish |
+| BandTouch | SUPERTREND_LINE_TOUCH_BULLISH | Price tests the Supertrend line from above (acting as support) without crossing below. Confirms trend support. | Bullish |
+| BandTouch | SUPERTREND_LINE_TOUCH_BEARISH | Price tests the Supertrend line from below (acting as resistance) without crossing above. Confirms trend resistance. | Bearish |
+
+## 5. Scoring & AI Context
+
+`supertrend` is a `directional: true` indicator in the Trend group. It contributes `weight × normalized` to the confluence score. The AI receives the DTO with current line level, direction, and flip status.
+
+## 6. Configuration
+
+```json
+{
+  "indicators": {
+    "supertrend_period": 10,
+    "supertrend_multiplier": 3.0
+  }
+}
+```

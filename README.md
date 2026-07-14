@@ -2,7 +2,7 @@
 
 > **High-performance market telemetry monitor for Hyperliquid and Bitget, built in Rust.**
 
-The **Market Monitor** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It serves as a comprehensive market observation tool — it does **not** execute trades — computing 43+ technical indicators (58 registry entries with 101 signal-type declarations) in Rust and streaming live data to a Svelte 5 dashboard via WebSocket.
+The **Market Monitor** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It serves as a comprehensive market observation tool — it does **not** execute trades — computing 50 technical indicators across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data) with 100 signal-kind declarations across 12 SignalKind types (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming), 8 of which support bull/bear divergence detection. All computation runs in Rust, streaming live data to a Svelte 5 dashboard via WebSocket.
 
 ## Quick Start Workflow
 
@@ -39,18 +39,25 @@ chmod +x manage.sh
 Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 
 ## Workspace Structure
-- `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines (34+ indicators).
+- `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines (50 indicators across 8 groups).
 - `crates/engine`: Ingestion engine, WebSocket clients (Hyperliquid + Bitget), SQLite persistence, and HTTP/WS server serving dashboard assets.
 - `crates/frontend`: Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
 
 ## Documentation
 
+The complete institutional documentation set lives under [`docs/`](docs/), organized into conceptual foundations, matrix data contracts, per-engine specifications, integration/API references, and UI/UX layouts.
+
 | Document | Audience | Description |
 |---|---|---|
-| **[User Manual](docs/user-manual.md)** | End Users | Installation, configuration, dashboard usage, troubleshooting |
-| **[Architecture](docs/architecture.md)** | Developers | System topology, data-flow diagrams, indicator pipeline |
-| **[Ontology](docs/ontology.md)** | Developers | Formal ontology: 5 ontological levels, 12 classification axes |
-| **[Metrics Matrix](docs/metrics-matrix-reference.md)** | Developers | Complete 58-indicator × 12-signal reference table |
-| **[Monitor Matrices](docs/monitor-matrices-reference.md)** | Developers | Metrics → State → Decision three-stage architecture |
-| **[Indicator Spec](docs/indicator-system-master-spec.md)** | Developers | Master specification: layers, registry, scoring, per-indicator specs |
+| **[Global Architecture](docs/conceptual-foundations/global-architecture.md)** | Developers | Two-dimensional framework: 5 engines x sequenced analytical layers |
+| **[Ontology](docs/conceptual-foundations/ontology.md)** | Developers | Formal ontology: engines, layers, matrices, 12 evaluation axes |
+| **[Systemic Data Flow](docs/conceptual-foundations/systemic-data-flow.md)** | Developers | Chronological data-flow sequences across all engines |
+| **[Timeframe Model](docs/conceptual-foundations/timeframe-model.md)** | Developers | Configurable 4-tier timeframe model (micro/fast/slow/macro) |
+| **[Matrices](docs/matrices/)** | Developers | Physical schemas and JSON contracts for all 11 matrices (MME + DIE) |
+| **[Market Monitoring Engine](docs/engines/market-monitoring-engine/)** | Developers | 7 layer specs, indicator guide, signal guide, per-indicator specs |
+| **[Trade Automation Engine](docs/engines/trade-automation-engine/)** | Developers | Policy + Execution layer specs, paper trading, execution policy spec |
+| **[Portfolio Management Engine](docs/engines/portfolio-management-engine/)** | Developers | Position + Exposure + Capital + Portfolio layer specs |
+| **[Performance Analytics Engine](docs/engines/performance-analytics-engine/)** | Developers | Trade + Strategy + Risk + Performance layer specs |
+| **[Integration & API](docs/integration-and-api/api-gateway-contract.md)** | Developers | REST/WebSocket/JSON-RPC contracts and database schema |
+| **[UI/UX](docs/ui-ux/ui-overview-spec.md)** | Frontend | Svelte 5 state management and dashboard layout specifications |
 | **[AGENTS.md](AGENTS.md)** | AI Agents | Build instructions, runtime details, testing conventions |

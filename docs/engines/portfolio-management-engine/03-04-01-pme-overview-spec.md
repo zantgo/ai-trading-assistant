@@ -1,0 +1,86 @@
+# Portfolio Management Engine — Overview Specification
+
+**Version:** 2.0
+**Status:** Approved
+**Engine:** Portfolio Management Engine (PME)
+**Purpose:** This document specifies the boundaries, ledger model, margin/leverage restrictions, and safety architecture of the Portfolio Management Engine — the engine responsible for capital preservation, position tracking, exposure control, and the systemic safety veto.
+
+---
+
+## 1. Mission & Boundaries
+
+The PME is the platform's **capital custodian and safety authority**. It tracks active positions, aggregates exposure, manages capital and margin, and enforces account-level safety through the Ontological Priority Veto. It performs **no market interpretation** and **no order construction** (it supplies capital data to the TAE and receives fills back).
+
+```
+[Fills & Fails] ──► PME ──► [Capital Matrix] ──► [TAE sizing]
+                     │
+                     └──(veto)──► [TAE stances]
+```
+
+### 1.1 Layer Structure
+
+| Layer | Name | Output |
+|-------|------|--------|
+| L1 | [Position Layer](03-04-02-pme-layer1-position.md) | Position Matrix |
+| L2 | [Exposure Layer](03-04-03-pme-layer2-exposure.md) | Exposure Matrix |
+| L3 | [Capital Layer](03-04-04-pme-layer3-capital.md) | Capital Matrix |
+| L4 | [Portfolio Layer](03-04-05-pme-layer4-portfolio.md) | Portfolio Matrix + Veto |
+
+---
+
+## 2. Ledger Model
+
+The PME maintains the authoritative financial state:
+
+| Concept | Storage |
+|---------|---------|
+| Active positions | `active_positions` (one per symbol). |
+| Position scaling | `position_slots` (4-slot dynamic margin). |
+| Capital config | `paper_balances` (initial/current/allocation/leverage). |
+| Equity history | `portfolio_equity_history`, `position_equity_snapshots`. |
+| Closed trades | `paper_trades`, `trade_telemetry_history`. |
+
+Equity snapshots are logged periodically (60 s cadence, `portfolio_equity.rs`) with a 30-day retention purge.
+
+---
+
+## 3. Margin & Leverage Restrictions
+
+| Restriction | Default | Source |
+|-------------|---------|--------|
+| Cross leverage | 20× | `config.json` `leverage.cross_leverage` |
+| Max single-pair exposure | 20% of capital | `PortfolioRiskState` |
+| Max portfolio exposure | 50% of capital | `PortfolioRiskState` |
+| Max correlation | 0.8 | `PortfolioRiskState` |
+| Max daily drawdown | 5% | `PortfolioRiskState` |
+
+---
+
+## 4. Safety Circuit Breakers
+
+The `SafetyManager` (`crates/engine/src/safety.rs`) tracks four escalating states:
+
+```
+Normal ──(losses ≥ caution_threshold)──► Cautious
+       ──(losses ≥ dropout_threshold)──► Suspended (timed)
+       ──(equity drawdown ≥ limit)────► DrawdownStop
+```
+
+Defaults (`config.json` `safety`): caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30%. A win resets the consecutive-loss counter.
+
+---
+
+## 5. The Ontological Priority Veto
+
+The PME holds **veto power** over the TAE: when a systemic threshold is breached (daily drawdown, aggregate margin, or the MME Systemic Risk Score), the Portfolio Layer forces affected symbol stances to `Avoid` / `Close Only` at the execution boundary. See [PME Layer 4](03-04-05-pme-layer4-portfolio.md).
+
+---
+
+## 6. Cross-References
+
+- [PME Layer 1 — Position](03-04-02-pme-layer1-position.md)
+- [PME Layer 2 — Exposure](03-04-03-pme-layer2-exposure.md)
+- [PME Layer 3 — Capital](03-04-04-pme-layer3-capital.md)
+- [PME Layer 4 — Portfolio](03-04-05-pme-layer4-portfolio.md)
+- [Systemic Data Flow — Sequences C & D](../../conceptual-foundations/01-03-systemic-data-flow.md)
+- [TAE Overview](../trade-automation-engine/03-03-01-tae-overview-spec.md)

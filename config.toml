@@ -7,6 +7,10 @@ symbols = [
 duration_seconds = 60
 analysis_limit = 500
 
+[fast_timeframe]
+enabled = true
+duration_seconds = 180
+
 [indicators]
 ema_fast = 10
 ema_medium = 50
@@ -109,7 +113,7 @@ analysis_limit = 500
 
 [macro_timeframe]
 enabled = true
-duration_seconds = 300
+duration_seconds = 900
 analysis_limit = 500
 
 [leverage]

@@ -1,6 +1,37 @@
 use shared::normalized::NormalizedCandle;
 use tokio::sync::{broadcast, mpsc};
 
+// TODO(doc-followup): The platform specification (see
+//   docs/conceptual-foundations/01-global-architecture.md §2.1,
+//   docs/conceptual-foundations/03-timeframe-model.md §3.1,
+//   docs/engines/data-infrastructure-engine/die-layer2-market-data.md §3.1)
+//   requires:
+//
+//     1. All candles (micro/fast/slow/macro) to close at the exact UTC interval
+//        boundary (e.g. macro900 closes at `:14:59.999`, `:29:59.999`,
+//        `:44:59.999`, `:59:59.999`).
+//     2. The local host clock to maintain drift of <= 50 microseconds against
+//        UTC via continuous NTP polling.
+//
+//   Current behaviour in this module: interval alignment is already UTC-correct
+//   via epoch-bucket flooring (see `process_1m_candle`). What is NOT yet
+//   implemented is the <=50µs clock-drift monitoring/assertion. The candle
+//   close itself is event-driven (it fires when the next source candle crosses
+//   the boundary), not by a wall-clock timer at the exact millisecond.
+//
+//   Action items to align code with spec:
+//     - Add a `ClockMonitor` (startup + periodic) that reads the OS clock and
+//       compares against an NTP peer; warn / panic / slow ingestion if drift
+//       exceeds 50µs over the monitoring window.
+//     - Optionally add a wall-clock-timer flush so the boundary close emits at
+//       the exact `interval_start + duration_ms` even if no source trade
+//       triggers a crossing (currently waits for the next source candle).
+//     - Hook the `ClockMonitor` into the engine `main.rs` startup so NTP drift
+//       is enforced before live trading.
+//
+//   This must be addressed before NTP-strict UTC alignment can be claimed as an
+//   enforced guarantee rather than a documented aspiration.
+
 /// Aggregated macro candle event from 1-minute source candles.
 #[derive(Debug, Clone)]
 pub struct AggregatedCandle {
