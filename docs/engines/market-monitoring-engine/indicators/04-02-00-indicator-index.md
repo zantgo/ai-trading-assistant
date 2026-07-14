@@ -118,13 +118,13 @@
 
 | Metric | Count |
 |--------|-------|
-| Authoritative Registry Entries | 50 |
+| Authoritative Registry Entries | 50 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) |
 | Files in this directory | 51 (50 entries + this master index) |
-| Directional (scoring contributors) | 41 |
-| Non-Directional Gates | 9 (ADX, Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread) |
+| Directional (scoring contributors) | 40 |
+| Non-Directional Gates | 10 (ADX, Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest) |
 | Divergence-Bearing Indicators (`supports_divergence: true`) | 8 (RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze) |
 | Standalone Divergence Indicators | 1 (`oi_price_divergence` — own registry entry & JSON key) |
-| Total Signal-Kind × Indicator Declarations | 100 (registry-verified) |
+| Total Signal-Kind × Indicator Declarations | **102** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown: Divergence 9, Crossover 10, Threshold 26, Breakout 9, BandTouch 5, ZeroLineCross 12, CompressionRelease 4, LevelTest 13, TrendFlip 8, VolumeClimax 2, StackChange 1, PatternForming 3 (registry-verified; sums to 102). |
 | SignalKind Types | 12 (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming) |
 
 Divergence companions do **not** appear as separate rows or JSON keys — a divergence is an `IndicatorSignal { kind: Divergence, ... }` in the parent indicator's `signals` array.

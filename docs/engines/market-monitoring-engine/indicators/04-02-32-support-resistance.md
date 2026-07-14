@@ -105,6 +105,6 @@ As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fu
   * `SUPPORT_DEMAND_ZONE` (`LevelTest`, bullish) / `RESISTANCE_SUPPLY_ZONE` (`LevelTest`, bearish) on proximity (≤ 0.5%).
   * `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` (`TrendFlip`) on RVOL-confirmed breaks.
   * `STRUCTURE_NEUTRAL` otherwise.
-* **Scoring & AI:** As a `directional` registry indicator, `support_resistance` now contributes to the registry-driven confluence score and is surfaced in the AI Structure Agent / orchestrator context (previously it reported `INACTIVE` because no levels were wired).
+* **Scoring:** As a `directional` registry indicator, `support_resistance` contributes to the registry-driven confluence score (previously it reported `INACTIVE` because no levels were wired).
 * **Telemetry:** The `support_resistance` row in the Telemetry Monitor renders its live state, normalized value, confidence, and signal badges automatically.
 

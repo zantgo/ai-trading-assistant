@@ -40,9 +40,9 @@ The `values` sub-map carries: `ob_bullish_high/low`, `ob_bearish_high/low` (the 
 | TrendFlip | SMC_OB_BULLISH_MITIGATED | Bullish OB broken below — demand absorbed, zone becomes potential resistance (breaker block). Trend continuation downside. | Bearish |
 | TrendFlip | SMC_OB_BEARISH_MITIGATED | Bearish OB broken above — supply absorbed, zone becomes potential support (breaker block). Trend continuation upside. | Bullish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
-`smc_order_blocks` is `directional: true`. Active OBs provide high-probability reaction zones. Mitigated OBs become Breaker Block references. The AI treats OB tests as confirmation events and OB breaks as invalidation events.
+`smc_order_blocks` is `directional: true`. Active OBs provide high-probability reaction zones. Mitigated OBs become Breaker Block references. OB tests act as confirmation events and OB breaks as invalidation events.
 
 ## 6. Configuration
 

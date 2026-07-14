@@ -2,6 +2,7 @@
 
 use super::super::squeeze::MomentumDirection;
 use super::super::candlestick::{CandlestickResult, CandlestickStatus};
+use super::super::atr::VolatilityRegime;
 use super::{
     DivergenceState, IndicatorSignal, NormalizationContext, NormalizationEngine,
     NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
@@ -104,6 +105,9 @@ pub struct IndicatorInputs {
     // Supplemental raw-only series preserved for frontend charts (normalized 0.0)
     pub atr_14: Option<f64>,
     pub atr_slope: Option<f64>,
+    /// Volatility regime classification (current ATR vs 5-period mean ATR). Drives
+    /// `ATR_EXPANDING` / `ATR_CONTRACTING` signal emission in a scale-invariant way.
+    pub atr_regime: Option<VolatilityRegime>,
     pub bb_upper: Option<f64>,
     pub bb_middle: Option<f64>,
     pub bb_lower: Option<f64>,
@@ -849,18 +853,25 @@ impl NormalizationEngine {
             }
         }
 
-        // ATR expansion / contraction.
+        // ATR expansion / contraction — driven by the scale-invariant regime
+        // classifier (current ATR vs 5-period mean ATR; 1.02/0.98 bands), not
+        // by a raw slope threshold of ±0.01 which was non-portable across
+        // assets of different price scales.
         if inputs.atr_14.is_some() {
-            if let Some(slope) = inputs.atr_slope {
-                let label = if slope > 0.01 { "ATR_EXPANDING" }
-                    else if slope < -0.01 { "ATR_CONTRACTING" }
-                    else { "ATR_STABLE" };
+            if let Some(regime) = inputs.atr_regime {
+                let label = match regime {
+                    VolatilityRegime::Expanding => "ATR_EXPANDING",
+                    VolatilityRegime::Contracting => "ATR_CONTRACTING",
+                    VolatilityRegime::Stable => "ATR_STABLE",
+                };
                 if let Some(entry) = out.get_mut("atr") {
                     entry.state_label = label.into();
-                    if slope > 0.01 {
-                        entry.signals.push(IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Neutral, SignalStatus::Active, "ATR_EXPANDING"));
-                    } else if slope < -0.01 {
-                        entry.signals.push(IndicatorSignal::new(SignalKind::CompressionRelease, SignalDirection::Neutral, SignalStatus::Active, "ATR_CONTRACTING"));
+                    match regime {
+                        VolatilityRegime::Expanding => entry.signals.push(
+                            IndicatorSignal::new(SignalKind::Threshold, SignalDirection::Neutral, SignalStatus::Active, "ATR_EXPANDING")),
+                        VolatilityRegime::Contracting => entry.signals.push(
+                            IndicatorSignal::new(SignalKind::CompressionRelease, SignalDirection::Neutral, SignalStatus::Active, "ATR_CONTRACTING")),
+                        VolatilityRegime::Stable => {}
                     }
                 }
             }

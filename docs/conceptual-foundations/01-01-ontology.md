@@ -185,7 +185,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Confidence:** The historical or statistical probability score associated with the trigger's reliability (0-100%).
 *   **Freshness:** The chronological distance (measured in elapsed intervals or candles) since the signal triggered (e.g., Just Triggered, 3 candles ago, Expired).
 *   **Confirmation:** The validation state of the event, indicating whether supporting conditions have validated the trigger (e.g., Confirmed, Waiting, Rejected).
-*   **Market Regime:** The macro regime context in which the signal occurred, determining its localized baseline reliability (e.g., Trending Bull, Trending Bear, Range Bound).
+*   **Market Regime:** The macro regime context in which the signal occurred, determining its localized baseline reliability (e.g., `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`).
 *   **Multi-Timeframe Agreement:** A boolean matrix mapping horizontal consensus across neighboring time horizons (micro, fast, slow, macro).
 *   **Risk:** The localized threat classification associated with entering a trade on this specific trigger (e.g., Low, Medium, High).
 *   **Priority:** The structural execution urgency assigned to the event (e.g., Critical, High, Medium, Low).
@@ -482,13 +482,13 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Responsibility:** The **convergence (synthesis) boundary** where the two parallel branches merge. Synthesize the Analysis Matrix (Regime/Bias), the Opportunity Matrix (Layer 4), and the Risk Matrix (Layer 5) into structured, strategy-agnostic Decision Matrix profiles. It determines market compatibility and protection parameters.
 *   **Output (Decision Matrix):** Unified tactical blueprint for a single symbol.
 *   **Key Elements:**
-    *   *Trade Readiness:* `Not Ready`, `Developing`, `Ready`, `High Quality`.
-    *   *Strategy Compatibility Matrix:* Score mapping current conditions to strategies (e.g., Trend Following: `High`, Mean Reversion: `Low`).
-    *   *Stop Loss/Protection Environment:* Recommended invalidation methodology (`Structure Based`, `Volatility Based`, `ATR Based`).
-    *   *Take Profit Environment:* Target-rich environments (`Resistance Zones`, `Liquidity Areas`, `Volatility Expansion`).
+    *   *Trade Readiness:* `READY`, `FORMING`, `WATCH`, `STAND_ASIDE` (canonical vocabulary; see [Decision Matrix §4](../matrices/02-04-decision-matrix.md)).
+    *   *Strategy Compatibility Matrix:* Score mapping current conditions to strategies (e.g., Trend Following: `HIGH`, Mean Reversion: `LOW`).
+    *   *Stop Loss/Protection Environment:* Recommended invalidation methodology (`STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`).
+    *   *Take Profit Environment:* Target-rich environments (`RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`).
     *   *Scenario Analysis:*
-        *   `Primary Scenario:` Most probable path (e.g., Bullish Continuation).
-        *   `Alternative Scenario:` Most probable failure path (e.g., Breakdown & Liquidity Sweep).
+        *   `Primary Scenario:` Most probable path (e.g., `BULLISH_CONTINUATION`).
+        *   `Alternative Scenario:` Most probable failure path (e.g., `BREAKDOWN_AND_LIQUIDITY_SWEEP`).
         *   `Invalidation Trigger:` Concrete market parameters that nullify the primary scenario.
 
 ### 6.7 Overview Layer (Layer 7)
@@ -689,11 +689,11 @@ The Trading Platform views a trade not as a single action, but as a sequential p
 
 ### 10.1 Phase 1: Inception / Discovery
 *   **Description:** The market is continuously monitored. Technical indicators, signals, and multi-timeframe alignments are computed for all active symbols. 
-*   **Milestone:** The Market Monitoring Engine generates a fresh **Analysis Matrix**, establishing a clear directional bias and identifying an active regime (e.g., `Trending Bull` during a `Markup Phase`).
+*   **Milestone:** The Market Monitoring Engine generates a fresh **Analysis Matrix**, establishing a clear directional bias and identifying an active regime (e.g., `TRENDING_BULL` during a `MARKUP` cycle phase).
 
 ### 10.2 Phase 2: Evaluation / Tactical Support
 *   **Description:** The technical setup is evaluated to determine positive potential and environmental danger.
-*   **Milestone:** The **Opportunity Matrix** and **Risk Matrix** are generated. These are processed by the Decision Layer to produce a **Decision Matrix**, declaring the asset's *Trade Readiness* as `Ready` or `High Quality` and establishing concrete structural invalidation zones.
+*   **Milestone:** The **Opportunity Matrix** and **Risk Matrix** are generated. These are processed by the Decision Layer to produce a **Decision Matrix**, declaring the asset's *Trade Readiness* as `READY` or `FORMING` and establishing concrete structural invalidation zones.
 
 ### 10.3 Phase 3: Trigger Validation
 *   **Description:** The Trade Automation Engine's Policy Layer processes the **Decision Matrix**. It checks whether the symbol's readiness, opportunity scores, and risk classifications satisfy any active, user-configured execution policies.
@@ -1231,8 +1231,8 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 
 **Classification vocabularies:**
 - **MarketBias:** `STRONG_BULLISH` (>40), `BULLISH` (20–40), `NEUTRAL` (−20 to 20), `BEARISH` (−40 to −20), `STRONG_BEARISH` (<−40)
-- **MarketRegime:** `TrendingBull`, `TrendingBear`, `Range`, `Accumulation`, `Distribution`, `Expansion`, `Contraction`, `Transition`
-- **QualityLevel:** `Poor`, `Weak`, `Average`, `Good`, `Excellent`
+- **MarketRegime:** `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`
+- **QualityLevel:** `POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT`
 
 The continuous **market_bias_score ∈ [−1, +1]** is the Alignment Matrix's `mtf_overall_score` divided by 100.
 
@@ -1240,7 +1240,7 @@ The continuous **market_bias_score ∈ [−1, +1]** is the Alignment Matrix's `m
 
 ### A.4 Opportunity Matrix Schema (MME — Layer 4)
 
-Produced by the Opportunity Layer. Consumes the Analysis Matrix and underlying Metrics Matrix signals to profile strategy-agnostic setup viability.
+Produced by the Opportunity Layer. Consumes the Analysis Matrix and underlying Metrics Matrix signals to profile strategy-agnostic setup viability. The contract is **direction-neutral**: it does not emit a directional bias. Direction is the responsibility of the Decision Matrix and TAE.
 
 Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md).
 
@@ -1250,7 +1250,6 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
   "primary_opportunity": "BREAKOUT",
   "opportunity_score": 85.0,
   "setup_quality": "PRIME",
-  "direction": "LONG",
   "confidence": 0.81,
   "profiles": [
     {
@@ -1347,7 +1346,7 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 }
 ```
 
-**Trade Readiness** (`Ready` | `Forming` | `Watch` | `Stand Aside`) is derived from directional guidance × risk-discounted confidence × market stance. Confidence is always risk-attenuated:
+**Trade Readiness** (`READY` | `FORMING` | `WATCH` | `STAND_ASIDE`) is derived from directional guidance × risk-discounted confidence × market stance. Confidence is always risk-attenuated:
 
 $$\text{confidence\_assessment} = \text{clamp}\Big(\text{analysis.confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
 
@@ -1492,11 +1491,11 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 
 | Metric | Count |
 |--------|-------|
-| Total Registry Entries | **50** |
-| Directional (scoring contributors) | **41** |
-| Non-Directional Gates | **9** (`adx`, `volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`) |
+| Total Registry Entries | **50** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) |
+| Directional (scoring contributors) | **40** |
+| Non-Directional Gates | **10** (`adx`, `volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`, `open_interest`) |
 | Indicators Supporting Divergence | **8** (`rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) |
-| Total Signal-Kind × Indicator Declarations | **100** |
+| Total Signal-Kind × Indicator Declarations | **102** (one declaration per `(indicator, SignalKind)` pair; `×N` in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones) |
 | SignalKind Types | **12** |
 
 **Important:** Divergence companions (e.g., `rsi_divergence`, `macd_divergence`) are **NOT** separate registry entries and produce **NO** separate JSON keys. A divergence is an `IndicatorSignal { kind: Divergence, ... }` emitted on the parent indicator's `signals` array. Eight parent indicators are annotated with `supports_divergence: true` in the registry.
@@ -1505,21 +1504,23 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 
 ### B.3 SignalKind Frequency Table
 
+Canonical counts: one row per `(indicator, SignalKind)` pair. Cross-checked against the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md).
+
 | # | SignalKind | Declarations | Description |
 |---|-----------|-------------|-------------|
-| 1 | `Divergence` | 9 (+ 8 divergence-bearing parents) | Price/indicator directional disagreement. |
-| 2 | `Crossover` | 10 | Two series cross (e.g., MACD line × signal). |
-| 3 | `Threshold` | 21 | Value enters a named zone (e.g., RSI ≥ 70). |
-| 4 | `Breakout` | 9 | Price breaks a structural boundary. |
-| 5 | `BandTouch` | 4 | Price contacts a channel/band edge. |
-| 6 | `ZeroLineCross` | 13 | Oscillator crosses its zero/mid line. |
-| 7 | `CompressionRelease` | 4 | Volatility squeeze fires. |
-| 8 | `LevelTest` | 14 | Price tests a horizontal level (S/R, fib, pivot). |
-| 9 | `TrendFlip` | 10 | Directional regime reverses (Supertrend, PSAR). |
-| 10 | `VolumeClimax` | 2 | Abnormal volume surge. |
-| 11 | `StackChange` | 1 | EMA ribbon reorders. |
-| 12 | `PatternForming` | 3 | Chart/candlestick pattern detected. |
-| | **TOTAL** | **100** | |
+| 1 | `Divergence` | **9** | 8 nested on parent (`supports_divergence: true`: `rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) + 1 standalone (`oi_price_divergence`, own registry entry). Price/indicator directional disagreement. |
+| 2 | `Crossover` | **10** | Two series cross (e.g., MACD line × signal). |
+| 3 | `Threshold` | **26** | Value enters a named zone (e.g., RSI ≥ 70). |
+| 4 | `Breakout` | **9** | Price breaks a structural boundary. |
+| 5 | `BandTouch` | **5** | Price contacts a channel/band edge. |
+| 6 | `ZeroLineCross` | **12** | Oscillator crosses its zero/mid line. |
+| 7 | `CompressionRelease` | **4** | Volatility squeeze fires. |
+| 8 | `LevelTest` | **13** | Price tests a horizontal level (S/R, fib, pivot). |
+| 9 | `TrendFlip` | **8** | Directional regime reverses (Supertrend, PSAR). |
+| 10 | `VolumeClimax` | **2** | Abnormal volume surge. |
+| 11 | `StackChange` | **1** | EMA ribbon reorders. |
+| 12 | `PatternForming` | **3** | Chart/candlestick pattern detected. |
+| | **TOTAL** | **102** | |
 
 ---
 
@@ -1570,8 +1571,8 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
 *   **Execution Policy:** A deterministic, user-configured trigger rule evaluated by the Trade Automation Engine to govern order dispatch.
 *   **Layer:** An isolated sequential step within an engine's processing pipeline that transforms data to a higher level of abstraction.
 *   **Market Instance:** The pairing of a unique financial symbol and a defined temporal timeframe (e.g., ETHUSDT × 5 Minutes).
-*   **Market Phase:** The active stage of an asset within its broader market cycle (Accumulation, Markup, Distribution, Markdown).
-*   **Market Regime:** The underlying environmental behavior of an asset, defining the structural context (e.g., Volatility Expansion, Range Bound).
+*   **Market Phase:** The active stage of an asset within its broader market cycle (`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`).
+*   **Market Regime:** The underlying environmental behavior of an asset, defining the structural context (e.g., `EXPANSION`, `RANGE`).
 *   **Matrix:** The structured, immutable output produced by an analytical layer, serving as the interface contract between stages.
 *   **Opportunity Score:** A numeric representation from 0 to 100 expressing the density of high-probability entry criteria present in the market.
 *   **Risk Score:** A numeric representation from 0 to 100 expressing the structural, technical, and execution dangers inherent in the current market environment, independent of directional bias.

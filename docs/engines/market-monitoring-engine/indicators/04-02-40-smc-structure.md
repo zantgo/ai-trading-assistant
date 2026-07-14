@@ -37,9 +37,9 @@ The `values` sub-map carries: `structure` (±1), `bos_bullish/bearish` (0/1), `c
 | Breakout | SMC_STRUCTURE_BULLISH_BOS / BEARISH_BOS | BOS detected (structure break) | Bullish / Bearish |
 | TrendFlip | SMC_STRUCTURE_BULLISH_CHOCH / BEARISH_CHOCH | CHoCH detected (trend change) | Bullish / Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
-`smc_structure` is `directional: true`. BOS confirms existing directional bias; CHoCH provides early reversal warning. The AI uses structural state to identify whether the market is trending or transitioning.
+`smc_structure` is `directional: true`. BOS confirms existing directional bias; CHoCH provides early reversal warning. Structural state identifies whether the market is trending or transitioning.
 
 ## 6. Configuration
 

@@ -145,16 +145,22 @@ The Decision Matrix carries the structural invalidation and target context used 
     "protection_strategy": "ATR_BASED",
     "target_strategy": "RESISTANCE_BASED",
     "confidence_assessment": 72.0,
-    "final_recommendation": "Strong long bias: BULLISH bias with 72% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
+    "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 72% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
   },
   "decision_context": {
-    "score": 54.0,
-    "bias": "BULLISH",
-    "confidence": 0.54,
+    "score": 100.0,
+    "bias": "STRONG_BULLISH",
+    "confidence": 1.0,
     "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"]
   }
 }
 ```
+
+**Self-consistency check** (the example values satisfy the §4 formula):
+- Analysis Matrix `confidence` = 1.0; Risk Matrix `overall_risk.score` = 28 (matches the Risk Matrix JSON example).
+- `confidence_assessment = clamp(1.0 × (1 − 28/100) × 100, 0, 100) = clamp(72.0, 0, 100) = 72.0` ✓
+- `bias = STRONG_BULLISH` with `overall_risk = 28 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
+- `score = 100` and `bias_confidence = 1.0` ⇒ `decision_context.confidence = |score|/100 = 1.0` per the §2.2 mapping ✓
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

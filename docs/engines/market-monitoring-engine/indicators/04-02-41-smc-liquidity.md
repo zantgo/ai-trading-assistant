@@ -34,7 +34,7 @@ The `values` sub-map carries `sweep_buy` (0/1) and `sweep_sell` (0/1).
 | PatternForming | SMC_LIQUIDITY_BUY_SWEEP | Buy-side sweep detected | Bullish |
 | PatternForming | SMC_LIQUIDITY_SELL_SWEEP | Sell-side sweep detected | Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
 `smc_liquidity` is `directional: true`. Sweeps are high-probability reversal signals when confirmed by structural context and order-block reactions.
 

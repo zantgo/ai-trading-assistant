@@ -37,7 +37,7 @@ An **Execution Policy** is a deterministic, user-configured conditional rule. Ea
 | `direction` | `Direction` | `Long` / `Short`. |
 | `conditions` | `Condition[]` | Ordered set of AND/OR clauses. |
 | `trigger_mode` | `TriggerMode` | When the policy is evaluated. |
-| `stance` | `Stance` | `Active` / `CloseOnly` / `Avoid`. |
+| `stance` | `Stance` | `ACTIVE` / `CLOSE_ONLY` / `AVOID`. |
 | `risk_parameters` | `RiskParams` | Risk-per-trade, max position size, etc. |
 
 ### 2.2 Condition Structure
@@ -74,13 +74,13 @@ Stances control per-symbol execution authorization:
 
 | Stance | Behaviour |
 |--------|-----------|
-| `Active` | Full automated trading permitted — policies evaluate and may trigger orders. |
-| `CloseOnly` | Only exit or protection-tightening operations allowed; new entries blocked. Programmatically forces `reduce_only = true` on every order the Execution Layer generates (see [TAE Layer 2 §3.3](03-03-03-tae-layer2-execution.md#33-closeonly-stance--reduce_only-flag-handoff)). |
-| `Avoid` | All execution triggers blocked for this symbol. |
+| `ACTIVE` | Full automated trading permitted — policies evaluate and may trigger orders. |
+| `CLOSE_ONLY` | Only exit or protection-tightening operations allowed; new entries blocked. Programmatically forces `reduce_only = true` on every order the Execution Layer generates (see [TAE Layer 2 §3.3](03-03-03-tae-layer2-execution.md#33-closeonly-stance--reduce_only-flag-handoff)). |
+| `AVOID` | All execution triggers blocked for this symbol. |
 
 Stances may be changed manually by the operator or automatically by the **PME Veto** (see [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)).
 
-> **Stance vs. order flag:** The `CloseOnly` *stance* is a Policy-Layer scope restriction (evaluate exit rules only). It is distinct from — but deterministically maps onto — the Execution-Layer `reduce_only` order *attribute* (a per-order flag guaranteeing exposure only decreases). A `CloseOnly` stance ⇒ exit-only evaluation ⇒ `reduce_only = true` on all resulting order packets.
+> **Stance vs. order flag:** The `CLOSE_ONLY` *stance* is a Policy-Layer scope restriction (evaluate exit rules only). It is distinct from — but deterministically maps onto — the Execution-Layer `reduce_only` order *attribute* (a per-order flag guaranteeing exposure only decreases). A `CLOSE_ONLY` stance ⇒ exit-only evaluation ⇒ `reduce_only = true` on all resulting order packets.
 
 ---
 
@@ -118,7 +118,7 @@ The Policy Matrix is the set of all validated directives:
 Per [Systemic Data Flow — Sequence D](../../conceptual-foundations/01-03-systemic-data-flow.md#sequence-d-systemic-safety-veto-the-circuit-breaker-loop), if the PME asserts Ontological Priority:
 
 1. PME publishes a high-priority override message to TAE.
-2. Policy Layer processes the override: changes affected symbol stances to `Avoid` or `CloseOnly`.
+2. Policy Layer processes the override: changes affected symbol stances to `AVOID` or `CLOSE_ONLY`.
 3. Any pending trigger payloads for the affected symbol are discarded.
 4. Existing open orders are routed to the Execution Layer for cancellation.
 

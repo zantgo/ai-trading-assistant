@@ -39,9 +39,9 @@ The `values` sub-map carries: `poc`, `vah`, `val`, `total_volume`. HVN/LVN nodes
 | LevelTest | VP_POC_SUPPORT_TEST | Price approaches POC from above within 0.3% | Bullish |
 | LevelTest | VP_POC_RESISTANCE_TEST | Price approaches POC from below within 0.3% | Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
-`volume_profile` is `directional: true`. Contributes to confluence scoring. The AI receives POC/VAH/VAL levels and uses them as dynamic support/resistance for trade planning.
+`volume_profile` is `directional: true`. Contributes to confluence scoring. POC/VAH/VAL levels are exposed in the `values` sub-map as dynamic support/resistance for trade planning.
 
 ## 6. Configuration
 

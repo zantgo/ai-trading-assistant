@@ -65,7 +65,7 @@ The size is then converted to base-asset units using the current mid-price and r
 | `Limit` | Executes at specified price or better; used for entries with defined levels. |
 | `Stop` | Triggers a market order when a price threshold is breached; used for stop-loss exits. |
 
-> **`reduce_only` is an order *attribute*, not an order type.** Any of the three order types above may carry the `reduce_only = true` flag (§3.2), which guarantees the order can only decrease net exposure. This is distinct from the `CloseOnly` policy **stance** (L1) — see §3.3 for the stance→flag handoff.
+> **`reduce_only` is an order *attribute*, not an order type.** Any of the three order types above may carry the `reduce_only = true` flag (§3.2), which guarantees the order can only decrease net exposure. This is distinct from the `CLOSE_ONLY` policy **stance** (L1) — see §3.3 for the stance→flag handoff.
 
 ### 3.2 Order Packet Fields
 
@@ -77,7 +77,7 @@ The size is then converted to base-asset units using the current mid-price and r
 | `order_type` | `OrderType` | `Market` / `Limit` / `Stop`. |
 | `price` | `Decimal` | Limit/stop trigger price (null for market). |
 | `size` | `Decimal` | Base-asset quantity. |
-| `reduce_only` | `bool` | Whether the order carries the reduce-only flag (a per-order attribute, NOT an order type). Mirrors the exchange-native concept (Hyperliquid `reduceOnly`, Bitget/Binance `reduceOnly`). Independent of — but deterministically populated by — the Policy Layer's `CloseOnly` stance; see §3.3. |
+| `reduce_only` | `bool` | Whether the order carries the reduce-only flag (a per-order attribute, NOT an order type). Mirrors the exchange-native concept (Hyperliquid `reduceOnly`, Bitget/Binance `reduceOnly`). Independent of — but deterministically populated by — the Policy Layer's `CLOSE_ONLY` stance; see §3.3. |
 | `associated_position_id` | `u64` | Position this order relates to (for exits/modifications). |
 
 ---

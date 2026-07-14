@@ -45,9 +45,9 @@ Labels: `STDDEV_UPPER_BREAKOUT`, `STDDEV_LOWER_BREAKOUT`, `STDDEV_UPPER_HALF`, `
 | BandTouch | STDDEV_UPPER_BAND_TOUCH | Price inside channel, position > 0.85 (near upper edge — mean-reversion). Structured push from engine. | Bearish |
 | BandTouch | STDDEV_LOWER_BAND_TOUCH | Price inside channel, position < 0.15 (near lower edge). Structured push from engine. | Bullish |
 | LevelTest | STDDEV_UPPER/LOWER_LEVEL_TEST | Price in 60-85% or 15-40% of band range — proximity awareness without a full touch | Neutral |
+## 5. Scoring
 
-## 5. Scoring & AI Context
-`stddev_channel` is `directional: true`. Contributes to confluence scoring alongside Bollinger, Keltner, and Donchian for comprehensive volatility-channel analysis. The AI receives the centerline slope as a trend-strength indicator.
+`stddev_channel` is `directional: true`. Contributes to confluence scoring alongside Bollinger, Keltner, and Donchian for comprehensive volatility-channel analysis. The centerline slope serves as a trend-strength indicator.
 
 ## 6. Configuration
 ```json

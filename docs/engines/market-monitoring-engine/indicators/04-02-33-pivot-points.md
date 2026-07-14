@@ -48,8 +48,8 @@ The central-pivot crossover uses the previous bar's side-of-pivot (`PreviousBarS
 
 ---
 
-## 5. Scoring & AI Context
-`pivot_points` is a `directional` registry indicator, so it contributes to the registry-driven confluence score (`weight × normalized`). The Structure Agent and Master Orchestrator receive the seven levels in the DTO `values` map and treat them as static intraday reference levels for trade planning.
+## 5. Scoring
+`pivot_points` is a `directional` registry indicator, so it contributes to the registry-driven confluence score (`weight × normalized`). The seven levels are exposed in the `values` sub-map as static intraday reference levels for trade planning.
 
 ---
 

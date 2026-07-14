@@ -1,7 +1,7 @@
 # ☁️ Ichimoku Cloud (Ichimoku Kinko Hyo)
 
 ## 1. Introduction
-Ichimoku is a complete trend-following and dynamic support/resistance system that uses five concurrent lines derived from OHLC data. It is treated as **one unified system** rather than five independent indicators — the AI, scoring engine, and frontend all consume it as a single registry entry (`ichimoku`) with the 5 lines stored in its `values` sub-map.
+Ichimoku is a complete trend-following and dynamic support/resistance system that uses five concurrent lines derived from OHLC data. It is treated as **one unified system** rather than five independent indicators — the scoring engine and frontend consume it as a single registry entry (`ichimoku`) with the 5 lines stored in its `values` sub-map.
 
 This V1 implementation ships the five lines with full normalization, signals, and chart rendering. The shaded cloud fill between Senkou A/B is **deferred to a follow-up phase** (the indicator is fully functional without it).
 
@@ -49,9 +49,9 @@ Conviction factors: Tenkan-vs-Kijun alignment (fast line leading), current cloud
 
 ---
 
-## 5. Scoring & AI Context
+## 5. Scoring
 * `ichimoku` is a `directional` registry indicator → contributes to the registry-driven confluence score.
-* AI agents receive the full DTO with all 5 lines + `cloud_thickness` + `future_bias` in the `values` map and treat Ichimoku as a complete trend system.
+* The full DTO with all 5 lines + `cloud_thickness` + `future_bias` is exposed in the `values` sub-map; Ichimoku is treated as a complete trend system.
 
 ---
 

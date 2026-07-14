@@ -33,7 +33,7 @@
 |--------|------|---------|----------|
 | `GET` | `/api/config` | — | Full `AppConfig` (symbols, candles, indicators, instances, indicator_registry). |
 | `POST` | `/api/config` | `AppConfig` JSON | Writes to `config.json`. |
-| `GET` | `/api/rules` | — | `{ content: string }` (reads `docs/indicators-guide.md`). |
+| `GET` | `/api/rules` | — | `{ content: string }` (reads `docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md`). |
 | `POST` | `/api/rules` | `{ content: string }` | Writes indicator guide. |
 
 ### 2.3 History & Monitor
@@ -48,7 +48,7 @@
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/instances?pair_key=` | List running instance summaries. |
-| `POST` | `/api/instances` | Create instance (`{ base, quote }`). |
+| `POST` | `/api/instances` | Create instance (`{ symbol: string }` — unified internal symbol, e.g. `"BTC-USDT"`). |
 | `GET` | `/api/instances/:id` | Instance detail (equity, caution). |
 | `DELETE` | `/api/instances/:id` | Delete instance. |
 | `DELETE` | `/api/instances/by-pair/:pair_key` | Delete by pair key. |
@@ -103,7 +103,7 @@
 | Method | Path | Response |
 |--------|------|----------|
 | `GET` | `/api/dashboard/stats?initial_capital=` | `DashboardStats` (20+ stat categories). |
-| `GET` | `/api/system/status` | `{ connected, latency_ms, journal_mode, active_pairs_count, total_ai_token_costs_usd }`. |
+| `GET` | `/api/system/status` | `{ connected, latency_ms, journal_mode, active_pairs_count }`. |
 | `GET` | `/api/system/observability?symbol=` | `{ recent_decisions[], completed_trades[] }`. |
 
 ---
@@ -143,7 +143,7 @@ Key properties:
 
 ### 3.3 JSON-RPC 2.0 Method Names
 
-The shared crate (`crates/shared/src/jsonrpc_methods.rs`) defines 30+ RPC method constants for inter-layer communication. Currently only `broadcast.market_snapshot` is used by the engine; the full set (`indicator.analyze`, `agent.verdict`, `orchestrator.decide`, `execution.open_position`, `safety.check`, `chat.message`, etc.) is the designed multi-agent protocol.
+The shared crate (`crates/shared/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-layer communication. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Other internal method constants (`indicator.analyze`, `agent.verdict`, `orchestrator.decide`, `chat.message`) and the request/response methods (`execution.open_position`, `safety.check`) are reserved in the shared crate for future inter-component RPC.
 
 ---
 

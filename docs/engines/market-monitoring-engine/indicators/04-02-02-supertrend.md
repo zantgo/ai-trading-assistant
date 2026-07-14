@@ -42,9 +42,9 @@ The magnitude floor is ±0.6 (Supertrend never produces a near-zero reading). La
 | BandTouch | SUPERTREND_LINE_TOUCH_BULLISH | Price tests the Supertrend line from above (acting as support) without crossing below. Confirms trend support. | Bullish |
 | BandTouch | SUPERTREND_LINE_TOUCH_BEARISH | Price tests the Supertrend line from below (acting as resistance) without crossing above. Confirms trend resistance. | Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
-`supertrend` is a `directional: true` indicator in the Trend group. It contributes `weight × normalized` to the confluence score. The AI receives the DTO with current line level, direction, and flip status.
+`supertrend` is a `directional: true` indicator in the Trend group. It contributes `weight × normalized` to the confluence score.
 
 ## 6. Configuration
 

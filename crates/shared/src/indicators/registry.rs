@@ -389,7 +389,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
     IndicatorMeta {
         key: "open_interest", display_name: "Open Interest", group: DerivativesData, class: Hybrid,
-        render: Pane, directional: true, supports_divergence: false,
+        render: Pane, directional: false, supports_divergence: false,
         signal_types: &[Threshold], default_weight: 1.0, default_enabled: true,
         config_params: &["oi_lookback"],
         value_format: "decimals2", value_source: "raw", color: "#ffab40", guide_section: "35",
@@ -471,8 +471,8 @@ mod tests {
     #[test]
     fn test_directional_and_gate_counts() {
         let gates = INDICATORS.iter().filter(|m| !m.directional).count();
-        // adx, atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread
-        assert_eq!(gates, 9, "expected 9 non-directional gate indicators");
+        // adx, atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread, open_interest
+        assert_eq!(gates, 10, "expected 10 non-directional gate indicators");
     }
 
     #[test]

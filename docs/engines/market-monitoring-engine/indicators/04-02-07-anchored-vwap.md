@@ -44,9 +44,9 @@ The `values` sub-map carries: `weekly`, `monthly`, `swing` (each anchor's VWAP v
 | LevelTest | AVWAP_DISCOUNT_ZONE | Price at significant discount to active anchor | Bullish |
 | LevelTest | AVWAP_PREMIUM_ZONE | Price at significant premium to active anchor | Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
-`anchored_vwap` is `directional: true`. Contributes to confluence scoring. The AI receives all four anchor levels and treats the active anchor as the primary fair-value reference.
+`anchored_vwap` is `directional: true`. Contributes to confluence scoring. All four anchor levels are exposed in the `values` sub-map; the active anchor is the primary fair-value reference.
 
 ## 6. Configuration
 

@@ -43,7 +43,7 @@ Labels: `KELTNER_UPPER_BREAKOUT`, `KELTNER_LOWER_BREAKOUT`, `KELTNER_UPPER_HALF`
 | LevelTest | KELTNER_MIDDLE_BAND_TEST | Price approaches the EMA midline from either direction. Acts as dynamic equilibrium level — rejection signals continuation, crossing signals shift. | Direction depends on approach side |
 | LevelTest | KELTNER_MIDDLE_BAND_SUPPORT | Price bounces off the EMA midline after a pullback from a breakout. Confirms breakout integrity and trend continuation. | Aligned with breakout direction |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
 `keltner` is `directional: true`. Breakouts and band-touches both contribute to directional confluence.
 

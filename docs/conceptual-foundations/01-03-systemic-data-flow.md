@@ -76,7 +76,8 @@ Exchange                DIE                                    MME
    |                     |                                      └──[Layer 5: Unipolar Risk Scoring (L3 input)]
    |                     |                                      |
    |                     |                                      |  CONVERGENCE POINT
-   |                     |                                      |--[Layer 6: Decision Synthesis (L4+L5 input)]
+   |                     |                                      |  (L3 output also flows directly into L6, not only via L4/L5)
+   |                     |                                      |--[Layer 6: Decision Synthesis (L3+L4+L5 input)]
    |                     |                                      |--[Layer 7: Systemic Breadth (L6 input)]
    |                     |                                      |
    |                     |                                      |=====[Publish: Decision Matrix]====> [TAE]
@@ -89,7 +90,7 @@ Exchange                DIE                                    MME
 4. **Consensus & Regime Diagnosis:** Layer 2 measures cross-timeframe alignment scores. Layer 3 evaluates these inputs to determine the categorical `market_bias` and computes the continuous numeric `market_bias_score` (between $-1.0$ and $+1.0$).
 5. **Opportunity Scoring:** Layer 4 evaluates specific strategy-agnostic opportunities (0-100 score) based on the Analysis Matrix, running in parallel with Layer 5.
 6. **Risk Scoring:** Layer 5 consumes the Analysis Matrix (L3) and the underlying indicator map — running **in parallel with Layer 4 and independent of the opportunity score** — to evaluate multidimensional unipolar risk across nine dimensions (market, volatility, liquidity, structure, momentum, signal, execution, reward, and overall risk), compiling the overall risk score.
-7. **Guidance and Overview Compilation:** Layer 6 is the convergence boundary: it merges the parallel Opportunity and Risk branches (plus directional bias) into a single symbol's **Decision Matrix** (trade readiness, stop-loss distance, and scenario pathways). Layer 7 aggregates all symbols into the global **Overview Matrix** (breadth ratios and Systemic Risk Score).
+7. **Guidance and Overview Compilation:** Layer 6 is the convergence boundary: it merges the parallel Opportunity and Risk branches with the Analysis Matrix (L3) — the directional bias, market quality, regime, and analysis confidence feed directly into L6 alongside the L4/L5 outputs — into a single symbol's **Decision Matrix** (trade readiness, stop-loss distance, and scenario pathways). Layer 7 aggregates all symbols into the global **Overview Matrix** (breadth ratios and Systemic Risk Score).
 
 ---
 
@@ -172,7 +173,7 @@ This safety loop operates continuously in the background. It intercepts and over
 
 #### Detailed Operations:
 1. **Systemic Health Evaluation:** The PME Portfolio Layer continuously monitors total unrealized losses, aggregate margin usage, and account balance values. Concurrently, it reads the Systemic Risk Score from the MME **Overview Matrix**.
-2. **Veto Trigger:** If the portfolio drawdown limit is breached (e.g., net equity drops more than 5% within a defined rolling window) or the Systemic Risk Score exceeds safety tolerances:
+2. **Veto Trigger:** Any of: (a) **equity drawdown breach** — `current_equity / peak_equity < (1 − drawdown_limit_pct)` (default `drawdown_limit_pct = 30 %` per [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)); (b) **margin ceiling** — `margin_usage_ratio ≥ 95 %` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md); (c) **systemic risk** — the MME Overview Matrix `systemic_risk_score` exceeds the operator-configured `systemic_risk_threshold`. The 5 % `max_daily_drawdown_pct` is the *early-warning* threshold (warning only, does not trigger veto); the 30 % `drawdown_limit_pct` is the *hard veto* threshold. The two are distinct metrics; see README "Key Conventions".
    * PME asserts **Ontological Priority (Veto Power)**.
    * It publishes a high-priority state override message to the TAE.
 3. **Execution Blockade:** The TAE Policy Layer processes the override. It immediately changes the symbol stance states to `Avoid` or `Close Only`.

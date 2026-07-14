@@ -3,9 +3,9 @@
 **Version:** 2.0
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
-**Purpose:** This is the human- and AI-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
+**Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
 
-> This guide is served to consumers (including AI agents) via the `GET /api/rules` endpoint and is the readable companion to the authoritative registry in `crates/shared/src/indicators/registry.rs`.
+> This guide is served to consumers via the `GET /api/rules` endpoint and is the readable companion to the authoritative registry in `crates/shared/src/indicators/registry.rs`.
 
 ---
 
@@ -18,7 +18,7 @@ Every indicator is projected across 8 Evaluation Axes (see [Ontology](../../conc
 - **`state_label`** — a qualitative bucket (e.g. `OVERBOUGHT_DISTRIBUTION`).
 - **`signals[]`** — discrete events fired this bar.
 
-**Directional** indicators contribute a signed score to confluence. **Non-directional gates** (ADX, Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding, Spread) do not vote on direction — they modulate confidence.
+**Directional** indicators contribute a signed score to confluence. **Non-directional gates** (ADX, Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding, Spread, Open Interest) do not vote on direction — they modulate confidence.
 
 ---
 

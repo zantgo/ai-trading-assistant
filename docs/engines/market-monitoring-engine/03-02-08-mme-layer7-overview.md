@@ -35,11 +35,11 @@ This drives `global_market_bias` (STRONG_BULLISH … MIXED), `market_breadth` (S
 
 ## 3. Asset Rankings
 
-Each active Decision Matrix produces an `AssetRank`, scored to favour high-confidence, actionable assets:
+Each active Decision Matrix produces an `AssetRank`, scored to favour high-confidence, actionable assets using the canonical formula in [Overview Matrix §5](../../matrices/02-09-overview-matrix.md):
 
-$$\text{score} = 0.5 \cdot \text{confidence} + \big(100 - \min(\text{confidence}, 50)\cdot 0.5\big)$$
+$$\text{score} = 0.5 \cdot \text{confidence\_assessment} + 50$$
 
-Rankings sort descending — a leaderboard of relative strength/weakness for portfolio-level allocation.
+Range `[50, 100]`; monotonic in `confidence_assessment`. Rankings sort descending — a leaderboard of relative strength/weakness for portfolio-level allocation.
 
 ---
 

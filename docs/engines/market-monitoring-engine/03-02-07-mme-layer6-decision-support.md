@@ -25,14 +25,14 @@ Implementation: `crates/shared/src/advisory.rs::compute_advisory()`, `decision_c
 
 ## 2. Trade-Readiness State Management
 
-Trade readiness is derived from directional guidance, confidence, and stance:
+Trade readiness is derived from directional guidance, confidence, and stance. The canonical vocabulary is [Decision Matrix §4](../../matrices/02-04-decision-matrix.md):
 
 | Readiness | Condition |
 |-----------|-----------|
-| `Ready` | Non-neutral guidance + confidence ≥ 60 + stance ∈ {Aggressive, Constructive}. |
-| `Forming` | Directional guidance present, confidence 40–60, or entry = WaitForConfirmation. |
-| `Watch` | Neutral guidance or confidence 20–40. |
-| `Stand Aside` | Stance = Avoid or confidence < 20. |
+| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + stance ∈ {`AGGRESSIVE`, `CONSTRUCTIVE`}. |
+| `FORMING` | Directional guidance present, `confidence_assessment` 40–60, or entry = `WAIT_FOR_CONFIRMATION`. |
+| `WATCH` | Neutral guidance or `confidence_assessment` 20–40. |
+| `STAND_ASIDE` | Stance = `AVOID` or `confidence_assessment < 20`. |
 
 Confidence itself is risk-discounted:
 

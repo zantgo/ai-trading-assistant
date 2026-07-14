@@ -128,20 +128,20 @@ Multiple trigger modes may be active simultaneously on a single policy.
 
 | Stance | Behaviour |
 |--------|-----------|
-| `Active` | Policy evaluates normally; may trigger orders. |
-| `CloseOnly` | Only exit/protection operations; new entries blocked. Forces `reduce_only = true` on all dispatched orders (see [TAE Layer 2 §3.3](03-03-03-tae-layer2-execution.md#33-closeonly-stance--reduce_only-flag-handoff)). |
-| `Avoid` | Policy suspended; all triggers ignored. |
+| `ACTIVE` | Policy evaluates normally; may trigger orders. |
+| `CLOSE_ONLY` | Only exit/protection operations; new entries blocked. Forces `reduce_only = true` on all dispatched orders (see [TAE Layer 2 §3.3](03-03-03-tae-layer2-execution.md#33-closeonly-stance--reduce_only-flag-handoff)). |
+| `AVOID` | Policy suspended; all triggers ignored. |
 
 ### 5.1 Stance Transitions
 
 ```
-Active ──(operator disable)──► Avoid
-Active ──(PME veto)─────────► CloseOnly / Avoid
-CloseOnly ──(veto escalates)──► Avoid
-Avoid ──(operator re-enable)──► Active
+ACTIVE ──(operator disable)──► AVOID
+ACTIVE ──(PME veto)─────────► CLOSE_ONLY / AVOID
+CLOSE_ONLY ──(veto escalates)──► AVOID
+AVOID ──(operator re-enable)──► ACTIVE
 ```
 
-Transitions to `CloseOnly` or `Avoid` from PME veto are **irreversible by the policy itself** — only manual operator confirmation can restore `Active`.
+Transitions to `CLOSE_ONLY` or `AVOID` from PME veto are **irreversible by the policy itself** — only manual operator confirmation can restore `ACTIVE`.
 
 ---
 

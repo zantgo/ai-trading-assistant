@@ -12,7 +12,7 @@
 
 Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.15, **Risk** is the structural, technical, and environmental danger present in the market — **independent of directional bias**. A bullish market can be high risk; a bearish market can be low risk.
 
-Crucially, Risk is a property of an *interpretation*, not of raw observations: you cannot evaluate how risky a bullish trend is until you have first determined that a bullish trend exists. Therefore the Risk Matrix consumes the [Analysis Matrix](02-02-analysis-matrix.md) plus the underlying [Metrics Matrix](02-07-metrics-matrix.md) indicators.
+Crucially, Risk is a property of an *interpretation*, not of raw observations: you cannot evaluate how risky a bullish trend is until you have first determined that a bullish trend exists. The Risk Matrix therefore consumes the [Analysis Matrix](02-02-analysis-matrix.md) plus the underlying [Metrics Matrix](02-07-metrics-matrix.md) indicators. **The Risk Matrix does NOT consume the Opportunity Matrix (L4).** The only opportunity-derived evidence that enters `reward_risk` is the `opportunity_analysis` selector string (e.g. `NO_CLEAR_OPPORTUNITY`) and the `market_quality` enum — both of which are fields of the Analysis Matrix itself (L3), not of the L4 Opportunity Matrix. The Layer 4 (Opportunity) and Layer 5 (Risk) branches are orthogonal: each reads L3 directly and runs in parallel.
 
 ```
 [Analysis Matrix] ─┐
@@ -131,6 +131,8 @@ where M=market, V=volatility, L=liquidity, S_tr=structure, M_om=momentum, S_ig=s
 ---
 
 ## 5. JSON Serialization Contract
+
+A representative Risk Matrix frame. The example illustrates the JSON shape and the `score → level` band translation from §2.3. Per-dimension derivation rules are in §4.
 
 ```json
 {

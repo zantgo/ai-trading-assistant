@@ -51,7 +51,7 @@ docs/
 │   │   ├── indicators/                               (04-02 — 50 + 1 master index)
 │   │   │   ├── 04-02-00-indicator-index.md
 │   │   │   ├── 04-02-01-ema-stack.md
-│   │   │   ├── … (08 Trend + 07 Momentum + 07 Volume + 06 Volatility + 05 Structure + 04 Regime + 04 Institutional + 07 Derivatives = 50)
+│   │   │   ├── … (10 Trend + 07 Momentum + 07 Volume + 06 Volatility + 05 Structure + 04 Regime + 04 Institutional + 07 Derivatives = 50)
 │   │   │   └── 04-02-50-depth-bias.md
 │   │   └── signals/                                  (05-02 — 12 + 1 master index)
 │   │       ├── 05-02-00-signals-index.md
@@ -78,7 +78,7 @@ docs/
 │       └── 03-05-05-pae-layer4-performance.md
 ├── integration-and-api/                              (06 — 2 files)
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
-│   └── 06-02-database-schema-spec.md                 ← 22-table SQLite schema
+│   └── 06-02-database-schema-spec.md                 ← 19-table SQLite schema
 ├── ui-ux/                                            (07 — 2 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   └── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
@@ -88,7 +88,7 @@ docs/
     └── 08-03-regulatory-compliance-and-audit.md      ← DRAFT: compliance & audit trail (TBD)
 ```
 
-Total: **112 numbered documentation files** (4 + 11 + 29 engines + 51 indicators + 13 signals + 2 + 2 + 3 = 115, with 50 indicators in the registry counted as 51 entries in the indicators subdir because the master index file is the 51st).
+Total: **117 numbered documentation files** (4 conceptual + 11 matrix + 29 engine + 51 indicator + 13 signal + 2 integration + 2 UI + 3 ops = 115; the 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; the actual `find docs -name "*.md"` count is 117 because the README itself, this file, is also counted).
 
 ## The Five Engines
 
@@ -137,8 +137,13 @@ Total: **112 numbered documentation files** (4 + 11 + 29 engines + 51 indicators
 - Every engine **layer** produces exactly one immutable **Matrix** as its output contract.
 - The platform is **strategy-agnostic** — engines interpret markets; execution policies are user-defined.
 - MME Layers 4 (Opportunity) and 5 (Risk) execute **in parallel** from L3 (Analysis) and converge at L6 (Decision Support).
-- All candle aggregation aligns to **UTC** interval boundaries (see `01-04-timeframe-model.md §3.1`); local clock drift budget is ≤ 50 µs of UTC (enforcement pending — see TODO in `crates/engine/src/candle_aggregator.rs`).
+- All candle aggregation closes candles at the **exact epoch-duration multiple of UTC** (a 60 s candle for a trade at 123456 ms aligns to `[120000, 180000)`, closing at 180000 ms = `:00.000` of the next minute) — see `01-04-timeframe-model.md §3.1`. Local clock drift budget is ≤ 50 µs of UTC (enforcement pending — see TODO in `crates/engine/src/candle_aggregator.rs`).
 - Position sizing uses **available margin** (`available_margin`), not raw equity, with formula `S = E·R / (D_sl / 100)` (see `03-03-03-tae-layer2-execution.md §2`).
 - Divergences are nested `Divergence` signals on the parent indicator key — there are no separate `*_divergence` registry entries (see `04-02-00-indicator-index.md`).
 - Monte Carlo significance uses **sign-randomization** (±1 on each PnL), not order-shuffling (see `03-05-03-pae-layer2-strategy-analytics.md §3.3`).
-- The PME vetoes new entries by setting a symbol's **stance** to `CloseOnly` (Policy-Layer scope restriction, *not* an order attribute). Every order packet generated from a `CloseOnly` stance is forced to carry the Execution-Layer **`reduce_only` flag** (a per-order boolean, exchange-native term) — see `03-03-03-tae-layer2-execution.md §3.3`. The DB column `is_reduce_only` and the wire field `reduce_only` mirror Hyperliquid/Bitget/Binance and are intentionally unchanged for exchange-protocol parity.
+- The PME vetoes new entries by switching the affected symbol's **stance** to `AVOID` *or* `CLOSE_ONLY` per trigger severity (see `03-04-05-pme-layer4-portfolio.md §4.1` and `01-03-systemic-data-flow.md Sequence D`). A `CLOSE_ONLY` stance is a Policy-Layer scope restriction, *not* an order attribute. Every order packet generated from a `CLOSE_ONLY` stance is forced to carry the Execution-Layer **`reduce_only` flag** (a per-order boolean, exchange-native term) — see `03-03-03-tae-layer2-execution.md §3.3`. The DB column `is_reduce_only` and the wire field `reduce_only` mirror Hyperliquid/Bitget/Binance and are intentionally unchanged for exchange-protocol parity.
+- Two drawdown metrics exist and are **distinct**:
+  - `max_daily_drawdown_pct` — cumulative PnL decline within the trading session; default 5 %; used as an early-warning threshold.
+  - `drawdown_limit_pct` — equity peak-to-trough ratio; default 30 %; this is the **hard veto** threshold.
+  See `03-04-05-pme-layer4-portfolio.md §3–§4` and `03-04-01-pme-overview-spec.md §3`.
+- The registry contains **50 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) and **102 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). See Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.

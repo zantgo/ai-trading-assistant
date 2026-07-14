@@ -32,7 +32,7 @@ PRAGMA synchronous = NORMAL;
 
 ---
 
-## 3. Table Catalog (22 Active Tables)
+## 3. Table Catalog (19 Active Tables)
 
 ### 3.1 Core Telemetry
 
@@ -130,25 +130,6 @@ Closed paper-trade history.
 
 ### 3.3 Decision & Intelligence
 
-#### `master_assistant_records`
-Analyst run records.
-
-| Column | Type |
-|--------|------|
-| `position` / `entry_price` / `price_at_analysis` | TEXT / REAL / REAL |
-| `general_trend` / `support_levels` / `resistance_levels` | TEXT / TEXT / TEXT |
-| `indicator_synthesis_summary` / `indicator_synthesis_evaluation` | TEXT / TEXT |
-| `recommended_action` / `recommendation_rationale` | TEXT / TEXT |
-| `symbol` / `trigger_type` | TEXT / TEXT |
-| `stop_loss_trigger` | TEXT |
-| `micro_term_signal` / `long_term_signal` | TEXT / TEXT |
-| `score_points` | REAL |
-| `signals_json` | TEXT |
-| `market_regime` | TEXT |
-| `portfolio_allocation_pct` | REAL |
-| `operational_mode` / `trigger_type_detail` | TEXT / TEXT |
-| `indicator_weights_json` | TEXT |
-
 #### `decision_profiles`
 Scoring profiles.
 
@@ -194,19 +175,8 @@ Human-annotated trade journal (FK → `trade_telemetry_history`).
 #### `automated_performance_tracker`
 Forward-testing performance signal accuracy at 3600 s / 14400 s / 86400 s horizons.
 
-#### `decision_memory_buffer`
-Recent decision tracking.
-
-| Column | Type |
-|--------|------|
-| `symbol` / `timestamp` | TEXT / INTEGER |
-| `regime_classification` / `orchestrator_decision` | TEXT / TEXT |
-| `confidence_score` / `eight_factor_score` / `portfolio_risk_pct` | REAL / REAL / REAL |
-
-#### `agent_thought_logs`
-Agent reasoning and optimization report persistence.
-
 ---
+
 
 ### 3.5 Strategy Configuration
 

@@ -35,7 +35,7 @@ Labels include: `CMO_CLIMACTIC_BULL_EXHAUSTION` (CMO extreme positive), `CMO_CLI
 | Threshold | CMO_BULLISH_BIAS / BEARISH_BIAS | CMO between extremes with directional bias | Bullish / Bearish |
 | Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-CMO divergence via SeriesDivergence (20-bar lookback). | Bullish / Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
 `chandemo` is `directional: true`. Its divergence is emitted as a nested `Divergence` signal on the `chandemo` key — there is no separate `chandemo_divergence` registry entry or JSON key.
 

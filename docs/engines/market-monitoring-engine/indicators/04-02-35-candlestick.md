@@ -90,7 +90,7 @@ Final `confidence = quality × context_mult`, gated by `min_confidence` (default
 
 * **Persistence:** pattern name, category, direction, quality, confidence, and status flow through the JSON blob — no migration.
 * **Frontend:** confirmed patterns render as directional arrow markers on the candle (green ▲ below / red ▼ above); merely-formed patterns render as circles. Toggled via the `PATTERNS` chart pill (`showCandlestick`).
-* **AI Context:** the Analyst Agent receives the pattern DTO and treats candlesticks as contextual confluence, never standalone triggers.
+* **Scoring:** Candlestick patterns are treated as contextual confluence, never standalone triggers.
 
 ---
 

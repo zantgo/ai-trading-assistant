@@ -21,9 +21,9 @@ The divisor 5000.0 provides a reasonable saturation range. Labels: `FI_BULLISH` 
 |-----------|--------------|------------------|-----------|
 | ZeroLineCross | FI zero cross | FI crosses 0 (bullish/bearish flow flips). Transition-only via engine. | Bullish / Bearish |
 | Threshold | FI extreme | Significant |FI| magnitude indicating strong directional flow | Bullish / Bearish |
+## 5. Scoring
 
-## 5. Scoring & AI Context
-`force_index` is `directional: true`. Contributes to volume-weighted confluence scoring. The AI treats FI as a volume-momentum confirmation tool: positive FI with rising price confirms uptrend health; negative FI with falling price confirms downtrend; FI diverging from price warns of trend exhaustion.
+`force_index` is `directional: true`. Contributes to volume-weighted confluence scoring as a volume-momentum confirmation tool: positive FI with rising price confirms uptrend health; negative FI with falling price confirms downtrend; FI diverging from price warns of trend exhaustion.
 
 ## 6. Configuration
 ```json

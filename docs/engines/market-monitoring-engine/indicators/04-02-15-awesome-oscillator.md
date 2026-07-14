@@ -28,5 +28,5 @@ Labels: `AO_BULLISH_RISING` (AO > 0, rising), `AO_BULLISH_FALLING` (AO > 0, not 
 ## 5. Configuration
 AO uses fixed 5/34 periods (no configurable parameters). It is `directional: true`.
 
-## 6. AI Context
-The AI treats AO as a momentum confirmation tool — zero-line crosses validate MACD crossovers; twin peaks identify hidden divergences; saucer patterns signal early trend acceleration.
+## 6. Scoring
+AO serves as a momentum confirmation tool — zero-line crosses validate MACD crossovers; twin peaks identify hidden divergences; saucer patterns signal early trend acceleration.

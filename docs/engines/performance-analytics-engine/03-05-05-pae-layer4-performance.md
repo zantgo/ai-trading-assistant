@@ -48,20 +48,20 @@ The `RegimeCompatibility` grid maps each MME market regime to the strategy's per
 
 | Regime | Trades | Win Rate | Profit Factor | Avg Return | Sharpe | Mapping |
 |--------|--------|----------|---------------|------------|--------|---------|
-| `TrendingBull` | 45 | 72% | 2.8 | +1.2% | 2.1 | **Strong** |
-| `TrendingBear` | 12 | 25% | 0.6 | −0.8% | −0.5 | **Avoid** |
-| `Range` | 30 | 48% | 1.3 | +0.3% | 0.7 | **Marginal** |
-| `Expansion` | 18 | 65% | 1.9 | +0.9% | 1.4 | **Favorable** |
-| `Contraction` | 8 | 35% | 0.8 | −0.4% | −0.2 | **Avoid** |
+| `TRENDING_BULL` | 45 | 72% | 2.8 | +1.2% | 2.1 | `STRONG` |
+| `TRENDING_BEAR` | 12 | 25% | 0.6 | −0.8% | −0.5 | `AVOID` |
+| `RANGE` | 30 | 48% | 1.3 | +0.3% | 0.7 | `MARGINAL` |
+| `EXPANSION` | 18 | 65% | 1.9 | +0.9% | 1.4 | `FAVORABLE` |
+| `CONTRACTION` | 8 | 35% | 0.8 | −0.4% | −0.2 | `AVOID` |
 
 ### 3.1 Compatibility Classifications
 
 | Label | Interpretation |
 |-------|---------------|
-| **Strong** | Primary regime — highest win rate, profit factor, and Sharpe. |
-| **Favorable** | Positive performance but less consistent than Strong. |
-| **Marginal** | Near-zero edge; deploy with caution. |
-| **Avoid** | Negative expectancy — strategy should be disabled in this regime. |
+| `STRONG` | Primary regime — highest win rate, profit factor, and Sharpe. |
+| `FAVORABLE` | Positive performance but less consistent than `STRONG`. |
+| `MARGINAL` | Near-zero edge; deploy with caution. |
+| `AVOID` | Negative expectancy — strategy should be disabled in this regime. |
 
 ---
 
@@ -73,7 +73,7 @@ The Performance Layer generates metric-driven recommendations:
 |-----------|---------------|
 | Win rate > 60% but profit factor < 1.2 | "Average loss exceeds average win. Tighten stop-loss or reduce risk per trade." |
 | Win rate < 40% but profit factor > 2.0 | "Trend-following profile: losses are small, wins are large. Increase risk per trade within drawdown limits." |
-| Strong in TrendingBull, weak in TrendingBear | "Consider directional filter: only trigger longs in bullish regimes." |
+| Strong performance in `TRENDING_BULL`, weak in `TRENDING_BEAR` | "Consider directional filter: only trigger longs in bullish regimes." |
 | Regime-specific drawdown > 2× average | "Apply tighter position sizing in [regime]." |
 | Slippage overhead > 15% of gross PnL | "Review order routing — excessive execution friction." |
 

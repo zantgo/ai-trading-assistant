@@ -67,12 +67,19 @@ Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `
 
 ### 3.1 GlobalBias
 `STRONG_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `STRONG_BEARISH`, `MIXED`.
+
 ```
-long/total  ≥ 0.6 → BULLISH
-short/total ≥ 0.6 → BEARISH
-neutral/total ≥ 0.6 → NEUTRAL
-long > short → BULLISH · short > long → BEARISH · else MIXED
+priority 1: long_count/total ≥ 0.8  AND market_synchronization ∈ { HIGHLY_SYNCHRONIZED, SYNCHRONIZED } → STRONG_BULLISH
+priority 1: short_count/total ≥ 0.8 AND market_synchronization ∈ { HIGHLY_SYNCHRONIZED, SYNCHRONIZED } → STRONG_BEARISH
+priority 2: long_count/total  ≥ 0.6                                → BULLISH
+priority 2: short_count/total ≥ 0.6                                → BEARISH
+priority 3: neutral_count/total ≥ 0.6                              → NEUTRAL
+priority 4: long_count > short_count                              → BULLISH
+priority 4: short_count > long_count                              → BEARISH
+priority 5: else                                                 → MIXED
 ```
+
+All six variants are reachable from this rule.
 
 ### 3.2 MarketBreadth
 `VERY_WEAK`, `WEAK`, `BALANCED`, `POSITIVE`, `STRONG_POSITIVE`, `NEGATIVE`, `STRONG_NEGATIVE`.
@@ -127,11 +134,16 @@ The resulting `risk_environment` label gates the PME [Ontological Priority Veto]
 
 ## 5. Asset Ranking
 
-Each active Decision Matrix produces an `AssetRank`. The composite score favours high-confidence, actionable assets:
+Each active Decision Matrix produces an `AssetRank`. The composite score is monotonically increasing with `confidence_assessment ∈ [0, 100]` and maps to a sortable `[50, 100]` range so even no-confidence assets remain orderable:
 
-$$\text{score} = 0.5 \cdot \text{confidence} + \big(100 - \min(\text{confidence}, 50) \cdot 0.5\big)$$
+$$\text{score} = 0.5 \cdot \text{confidence\_assessment} + 50$$
 
-Rankings sort descending, producing a leaderboard of relative strength/weakness for portfolio-level allocation.
+Properties:
+- `confidence_assessment = 0` ⇒ `score = 50` (worst, neutral baseline).
+- `confidence_assessment = 100` ⇒ `score = 100` (best).
+- `confidence_assessment = 75` ⇒ `score = 87.5` ≈ `87` (matches §6 example).
+
+Rankings sort descending, producing a leaderboard of relative strength/weakness for portfolio-level allocation. The formula input is `confidence_assessment` from the Decision Matrix (§4), normalized to `[0, 100]`.
 
 ---
 
@@ -145,7 +157,7 @@ Rankings sort descending, producing a leaderboard of relative strength/weakness 
   "opportunity_distribution": { "BREAKOUT": 2, "TREND_CONTINUATION": 1 },
   "risk_distribution": { "low_pct": 60.0, "moderate_pct": 40.0, "high_pct": 0.0, "risk_environment": "LOW_RISK" },
   "asset_ranking": [
-    { "symbol": "BTC-USDT", "score": 87.0, "bias": "Long", "confidence": 75.0, "regime": "TrendFollowing", "risk_level": "MODERATE" }
+    { "symbol": "BTC-USDT", "score": 87.5, "bias": "STRONG_LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
   ],
   "market_synchronization": "SYNCHRONIZED",
   "market_health": "HEALTHY",

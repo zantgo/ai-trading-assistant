@@ -28,11 +28,11 @@ The headline `market_bias_score` is the alignment `mtf_overall_score` (range `[-
 
 | `mtf_overall_score` | MarketBias |
 |---------------------|-----------|
-| `> 40` | `StrongBullish` |
-| `20 … 40` | `Bullish` |
-| `-20 … 20` | `Neutral` |
-| `-40 … -20` | `Bearish` |
-| `< -40` | `StrongBearish` |
+| `> 40` | `STRONG_BULLISH` |
+| `20 … 40` | `BULLISH` |
+| `-20 … 20` | `NEUTRAL` |
+| `-40 … -20` | `BEARISH` |
+| `< -40` | `STRONG_BEARISH` |
 
 ### 2.1 Confidence Model
 
@@ -49,16 +49,20 @@ confidence = clamp(base, 0, 1)
 
 ## 3. Real-Time Regime Detection
 
-The layer classifies the structural regime from the alignment score and per-timeframe context:
+The layer classifies the structural regime from the alignment score and per-timeframe context using the canonical decision tree in [Analysis Matrix §3.2](../../matrices/02-02-analysis-matrix.md):
 
 | Regime | Trigger |
 |--------|---------|
-| `TrendingBull` | score `> 20` |
-| `TrendingBear` | score `< -20` |
-| `Range` | `-20 ≤ score ≤ 20` |
-| `Accumulation` / `Distribution` / `Expansion` / `Contraction` / `Transition` | Derived from volatility + structure assessments and prior regime. |
+| `EXPANSION` | `bbwp ≥ 85` (priority 1) |
+| `CONTRACTION` | `bbwp ≤ 10` (priority 1) |
+| `TRENDING_BULL` | `adx ≥ 25` AND `score > +20` (priority 2) |
+| `TRENDING_BEAR` | `adx ≥ 25` AND `score < -20` (priority 2) |
+| `ACCUMULATION` | bullish slope (score rising over 3 bars) AND `score ≥ 0` AND no expansion (priority 3) |
+| `DISTRIBUTION` | bearish slope (score falling over 3 bars) AND `score ≤ 0` AND no expansion (priority 4) |
+| `TRANSITION` | `adx < 25` AND `bbwp` in `(10, 85)` AND regime shifted within last 3 bars (priority 5) |
+| `RANGE` | default — none of the above (priority 6) |
 
-Regime detection is continuous — it re-evaluates on every completed candle, enabling downstream layers to adapt (e.g. the Decision Layer's strategy environment).
+The full decision tree with detailed conditions lives in the canonical Analysis Matrix spec; this layer is a thin executor of that tree. Regime detection is continuous — it re-evaluates on every completed candle, enabling downstream layers to adapt (e.g. the Decision Layer's strategy environment).
 
 ---
 
@@ -68,13 +72,13 @@ Each is derived from a specific alignment dimension score (see [Analysis Matrix 
 
 | Assessment | Source dim | Vocabulary |
 |-----------|-----------|-----------|
-| Trend | 0 | Weak / Developing / Healthy / Strong / Exhausted |
-| Momentum | 1 | Increasing / Stable / Weakening / Exhausted / Reversing |
-| Volume | 2 | Weak / Normal / Strong / Exceptional |
-| Volatility | 3 | Compressed / Normal / Expanding / Extreme / Unstable |
-| Structure | 4 | Strong / Healthy / Weak / Broken / Unclear |
+| Trend | 0 | `WEAK` / `DEVELOPING` / `HEALTHY` / `STRONG` / `EXHAUSTED` |
+| Momentum | 1 | `INCREASING` / `STABLE` / `WEAKENING` / `REVERSING` |
+| Volume | 2 | `WEAK` / `NORMAL` / `STRONG` / `EXCEPTIONAL` |
+| Volatility | 3 | `COMPRESSED` / `NORMAL` / `EXPANDING` / `EXTREME` / `UNSTABLE` |
+| Structure | 4 | `STRONG` / `HEALTHY` / `WEAK` / `BROKEN` / `UNCLEAR` |
 | Opportunity | 9 | (selects `OpportunityType`) |
-| Quality | mean(0,1,2,4) | Poor / Weak / Average / Good / Excellent |
+| Quality | mean(0,1,2,4) | `POOR` / `WEAK` / `AVERAGE` / `GOOD` / `EXCELLENT` |
 
 ---
 

@@ -280,6 +280,7 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         pattern_lower_intercept: p.pattern.and_then(|pt| pt.lower_intercept),
         atr_14: p.atr.map(|a| d2f(a.atr_value)),
         atr_slope: p.atr.map(|a| d2f(a.atr_slope)),
+        atr_regime: p.atr.map(|a| a.volatility_regime),
         bb_upper: p.bb.map(|b| d2f(b.0)),
         bb_middle: p.bb.map(|b| d2f(b.1)),
         bb_lower: p.bb.map(|b| d2f(b.2)),

@@ -35,7 +35,7 @@ Labels include: `STOCH_OVERBOUGHT` (%K ≥ 80), `STOCH_OVERSOLD` (%K ≤ 20), `S
 | Threshold | STOCH_BULLISH_BIAS / BEARISH_BIAS | %K between 20-80 with directional momentum bias | Bullish / Bearish |
 | Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-stochastic divergence via SeriesDivergence (20-bar lookback). S/R gating upgrades Potential → Confirmed. | Bullish / Bearish |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
 `stochastic` is `directional: true`. Contributes to confluence scoring. Its divergence is emitted as a nested `Divergence` signal on the `stochastic` key — there is no separate `stochastic_divergence` registry entry or JSON key.
 

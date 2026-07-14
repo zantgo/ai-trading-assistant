@@ -71,18 +71,26 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 
 `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`.
 
-Derivation from the alignment score:
-```
-score >  20 → TRENDING_BULL
-score < -20 → TRENDING_BEAR
-otherwise   → RANGE
-```
+**Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx = Alignment Matrix dimension 0 score ∈ [0, 100]`, `bbwp = Context.volatility-derived BBWP score ∈ [0, 100]`, and `regime_one_bar_ago = prior Assessment Layer regime`.
+
+| Priority | Condition | Regime |
+|----------|-----------|--------|
+| 1 | `bbwp ≥ 85` | `EXPANSION` |
+| 1 | `bbwp ≤ 10` | `CONTRACTION` |
+| 2 | `adx ≥ 25` AND `score > +20` | `TRENDING_BULL` |
+| 2 | `adx ≥ 25` AND `score < -20` | `TRENDING_BEAR` |
+| 3 | Rising score (positive 3-bar slope) AND `score ≥ 0` AND not in priority 1 | `ACCUMULATION` |
+| 4 | Falling score (negative 3-bar slope) AND `score ≤ 0` AND not in priority 1 | `DISTRIBUTION` |
+| 5 | `adx < 25` AND `bbwp ∈ (10, 85)` AND `regime_one_bar_ago ≠ current_priority_resolution` | `TRANSITION` |
+| 6 | default (none of the above) | `RANGE` |
+
+The decision tree deterministically produces all 8 variants. Empty/initial state defaults to `TRANSITION` (§6).
 
 ### 3.3 TrendAssessment
 `WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED` — derived from alignment dimension 0 (trend).
 
 ### 3.4 MomentumAssessment
-`INCREASING`, `STABLE`, `WEAKENING`, `EXHAUSTED`, `REVERSING` — derived from alignment dimension 1 (momentum).
+`INCREASING`, `STABLE`, `WEAKENING`, `REVERSING` — derived from alignment dimension 1 (momentum).
 
 ### 3.5 StructureAssessment
 `STRONG`, `HEALTHY`, `WEAK`, `BROKEN`, `UNCLEAR` — derived from alignment dimension 4 (structure).
@@ -118,22 +126,25 @@ confidence = clamp(confidence, 0, 1)
 
 | Assessment | Source dim | Bands |
 |-----------|-----------|-------|
-| Trend | dim 0 | `≥90` Strong · `≥75` Healthy · `≥50` Developing · `≥25` Weak · else Exhausted |
-| Momentum | dim 1 | `≥80` Increasing · `≥60` Stable · `≥40` Weakening · else Reversing |
-| Structure | dim 4 | `≥80` Strong · `≥60` Healthy · `≥40` Weak · `≥20` Broken · else Unclear |
-| Volatility | dim 3 | `≥90` Extreme · `≥70` Expanding · `≥40` Normal · `≥20` Compressed · else Unstable |
-| Volume | dim 2 | `≥90` Exceptional · `≥70` Strong · `≥40` Normal · else Weak |
+| Trend | dim 0 | `≥90` `STRONG` · `≥75` `HEALTHY` · `≥50` `DEVELOPING` · `≥25` `WEAK` · else `EXHAUSTED` |
+| Momentum | dim 1 | `≥80` `INCREASING` · `≥60` `STABLE` · `≥40` `WEAKENING` · else `REVERSING` |
+| Structure | dim 4 | `≥80` `STRONG` · `≥60` `HEALTHY` · `≥40` `WEAK` · `≥20` `BROKEN` · else `UNCLEAR` |
+| Volatility | dim 3 | `≥90` `EXTREME` · `≥70` `EXPANDING` · `≥40` `NORMAL` · `≥20` `COMPRESSED` · else `UNSTABLE` |
+| Volume | dim 2 | `≥90` `EXCEPTIONAL` · `≥70` `STRONG` · `≥40` `NORMAL` · else `WEAK` |
 
 ### 4.3 Opportunity Selection
 
 ```
-IF trend ≥ 75 AND bias bullish        → TrendContinuation
-ELIF volatility ≥ 70 AND structure≥60 → Breakout
-ELIF trend ≥ 60 AND momentum weakening→ Pullback
-ELIF volatility ≤ 30                  → MeanReversion
-ELIF opportunity_dim < 30             → NoClearOpportunity
-ELSE                                  → TrendContinuation
+IF trend ≥ 75 AND bias bullish                              → TREND_CONTINUATION
+ELIF volatility ≥ 70 AND structure ≥ 60                     → BREAKOUT
+ELIF confirmed_divergence AND structure_broken AND momentum_exhausted → REVERSAL
+ELIF trend ≥ 60 AND momentum weakening                       → PULLBACK
+ELIF volatility ≤ 30                                         → MEAN_REVERSION
+ELIF opportunity_dim < 30                                    → NO_CLEAR_OPPORTUNITY
+ELSE                                                          → TREND_CONTINUATION
 ```
+
+Where `confirmed_divergence` is true when at least one `Divergence` indicator signal has reached `status = CONFIRMED` (§4.2 of [Metrics Matrix](02-07-metrics-matrix.md)), `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40 (per §4.2), and `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25. All six values of `OpportunityType` are reachable from this rule.
 
 ### 4.4 Explainability
 

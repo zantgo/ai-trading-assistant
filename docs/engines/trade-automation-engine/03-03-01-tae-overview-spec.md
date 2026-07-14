@@ -36,7 +36,6 @@ The TAE operates in one of several configured modes (`OperationalMode`):
 |------|-----------|
 | `ManualOnly` | No automated order dispatch; operator triggers manually. |
 | `DeterministicHeuristics` | Rule-based policy evaluation drives automated triggers. |
-| `HybridAiCopilot` | Deterministic policies augmented with AI decision support input. |
 
 Trigger cadence is governed by `TriggerMode`:
 

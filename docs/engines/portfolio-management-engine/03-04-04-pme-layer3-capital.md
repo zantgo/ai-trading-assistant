@@ -95,7 +95,7 @@ The Capital Layer continuously monitors `margin_usage_ratio`:
 | Threshold | Action |
 |-----------|--------|
 | `margin_usage_ratio > 80%` | Warning published to Portfolio Layer (L4). |
-| `margin_usage_ratio > 95%` | Alert: automatic CloseOnly stance for all symbols. |
+| `margin_usage_ratio > 95%` | Alert: automatic `CLOSE_ONLY` stance for all symbols. |
 | `margin_usage_ratio ≥ 100%` | Potential liquidation — emergency position reduction. |
 
 ---

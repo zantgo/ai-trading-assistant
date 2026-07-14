@@ -25,9 +25,9 @@ Labels: `WILLIAMS_R_OVERBOUGHT`, `WILLIAMS_R_OVERSOLD`, `WILLIAMS_R_BULLISH_BIAS
 | Threshold | WILLIAMS_R_OVERBOUGHT | %R ≥ -20 | Bearish |
 | Threshold | WILLIAMS_R_OVERSOLD | %R ≤ -80 | Bullish |
 | ZeroLineCross | Williams %R zero cross | %R crosses 0 (or -50 midline). Transition-only via prev-bar comparison in engine. | Bullish / Bearish |
+## 5. Scoring
 
-## 5. Scoring & AI Context
-`williams_r` is `directional: true`. Contributes to confluence scoring. The AI receives it as a momentum oscillator alongside RSI, Stochastic, and MACD for multi-oscillator divergence analysis.
+`williams_r` is `directional: true`. Contributes to confluence scoring as a momentum oscillator alongside RSI, Stochastic, and MACD for multi-oscillator divergence analysis.
 
 ## 6. Configuration
 ```json

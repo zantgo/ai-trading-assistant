@@ -71,7 +71,7 @@ $$\text{interval\_start} = \left\lfloor \frac{\text{timestamp\_ms}}{\text{durati
 
 For example, a 60 s candle for a trade at `123456 ms` aligns to `120000 ms`.
 
-**Strict UTC boundary map** (closing instant of each candle, by tier): `micro60` closes at `seconds = 59.999` of every minute; `fast180` closes when `minutes % 3 == 2` and `seconds = 59.999`; `slow300` closes when `minutes % 5 == 4` and `seconds = 59.999`; `macro900` closes when `minutes % 15 == 14` and `seconds = 59.999` (`:14:59.999`, `:29:59.999`, `:44:59.999`, `:59:59.999`).
+**UTC boundary map** (closing instant of each candle, by tier): candle boundaries are *exact epoch-duration multiples of UTC*. `micro60` closes at `:00.000` of every minute (the next minute's start); `fast180` closes at `:03:00.000`, `:06:00.000`, `:09:00.000`, … (top of every third minute); `slow300` closes at `:05:00.000`, `:10:00.000`, `:15:00.000`, … (top of every fifth minute); `macro900` closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000` of every hour. The aggregator formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` deterministically produces these boundaries, so candles always close on the integer epoch multiple, never at a `.999` sub-second offset.
 
 **Clock-drift budget:** Local server system clocks execute continuous NTP polling to keep local time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring locally computed indicator values match exchange historical benchmarks to the millisecond. See [Global Architecture §2.1](../../conceptual-foundations/01-02-global-architecture.md) and [Timeframe Model §3.1](../../conceptual-foundations/01-04-timeframe-model.md).
 

@@ -50,7 +50,7 @@ Per [PME Overview](../portfolio-management-engine/03-04-01-pme-overview-spec.md)
 When a limit is approached:
 1. New position requests for the affected symbol/sector are held.
 2. The Portfolio Layer (L4) is notified.
-3. If breached, existing positions may be flagged for reduction (CloseOnly stance).
+3. If breached, existing positions may be flagged for reduction (`CLOSE_ONLY` stance).
 
 ---
 

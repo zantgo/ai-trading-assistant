@@ -142,7 +142,7 @@ Fee calculator, commission projection, exchange settings (API key configuration 
 Instance-specific configuration:
 
 - **`TimeframeSettings`** — Indicator periods per timeframe (40+ params from config).
-- **`TriggerConfigPanel`** — AI trigger mode (Interval / CandleClose / EventDriven) and frequency.
+- **`TriggerConfigPanel`** — Trigger mode (Interval / CandleClose / EventDriven) and frequency.
 - **`PositionScalingPanel`** — 4-slot dynamic margin allocation, allocation-curve model selection (Stepped / Linear / Exponential).
 
 ---

@@ -37,7 +37,6 @@ The PAE reads from the shared telemetry store (see [Database Schema](../../integ
 | `trade_learning_journal` | Human-annotated trade journal. |
 | `portfolio_equity_history` | Equity time-series for drawdown/Sharpe. |
 | `market_snapshots` | Regime context at trade time. |
-| `agent_thought_logs` | Optimization report persistence. |
 
 ---
 

@@ -20,7 +20,7 @@ The Opportunity Matrix consumes the [Analysis Matrix](02-02-analysis-matrix.md) 
 [Metrics Matrix ]  ┘        (profile + score 0-100)
 ```
 
-This is a **strategy-agnostic** contract: it describes the shape and quality of the opportunity, leaving the decision of whether to act to external consumers.
+This is a **strategy-agnostic, direction-neutral** contract: it describes only the shape, quality, and precondition satisfaction of the opportunity. Directional bias, entry price, position sizing, and execution authorization are *not* the Opportunity Matrix's responsibility; those belong to the [Decision Matrix](02-04-decision-matrix.md) and the Trade Automation Engine.
 
 ---
 
@@ -35,7 +35,6 @@ This is a **strategy-agnostic** contract: it describes the shape and quality of 
 | `opportunity_score` | `f64` | Overall setup viability in `[0, 100]`. |
 | `setup_quality` | `SetupQuality` | Categorical quality band (§4). |
 | `profiles` | `OpportunityProfile[]` | Per-setup-type scored profiles (§3). |
-| `direction` | `OpportunityDirection` | `Long` / `Short` / `Neutral` bias of the opportunity. |
 | `confidence` | `f64` | Confidence in the profiling `[0, 1]`. |
 | `contributing_signals` | `string[]` | Signal labels supporting the primary opportunity. |
 | `invalidation_note` | `string` | Condition that would nullify the opportunity. |
@@ -102,13 +101,14 @@ The primary opportunity is the profile with the highest score; ties resolve towa
 
 ## 6. JSON Serialization Contract
 
+A representative Opportunity Matrix frame. The example illustrates the JSON shape; the canonical scoring formula is in §5.
+
 ```json
 {
   "symbol": "BTC-USDT",
   "primary_opportunity": "BREAKOUT",
   "opportunity_score": 85.0,
   "setup_quality": "PRIME",
-  "direction": "LONG",
   "confidence": 0.81,
   "profiles": [
     { "opportunity_type": "BREAKOUT", "score": 85.0,

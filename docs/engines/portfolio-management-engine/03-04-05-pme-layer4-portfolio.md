@@ -36,11 +36,11 @@ The Portfolio Layer is the PME's **command authority**. It synthesizes Position,
 | `margin_usage_ratio` | `Decimal` | Percentage of equity committed to margin. |
 | `leverage_ratio` | `Decimal` | Effective leverage (`gross_exposure / equity`). |
 | `daily_pnl` | `Decimal` | PnL in current session. |
-| `max_daily_drawdown_pct` | `Decimal` | Peak-to-trough equity decline (since session start). |
-| `drawdown_limit_pct` | `Decimal` | Configurable drawdown stop threshold (default: 30%). |
-| `safety_state` | `SafetyState` | `Normal` / `Cautious` / `Suspended` / `DrawdownStop`. |
+| `max_daily_drawdown_pct` | `Decimal` | Cumulative PnL decline within the trading session. Distinct from `drawdown_limit_pct`; see §4 below. |
+| `drawdown_limit_pct` | `Decimal` | Equity peak-to-trough decline threshold. Default 30 %. This is the **hard veto** stop-loss denominator (see §4). |
+| `safety_state` | `SafetyState` | `NORMAL` / `CAUTIOUS` / `SUSPENDED` / `DRAWDOWN_STOP`. |
 | `systemic_risk_score` | `f64` | MME Overview Matrix Systemic Risk Score. |
-| `active_stances` | `map<string, Stance>` | Per-symbol authorization: `Active` / `CloseOnly` / `Avoid`. |
+| `active_stances` | `map<string, Stance>` | Per-symbol authorization: `ACTIVE` / `CLOSE_ONLY` / `AVOID`. |
 | `position_count` | `u32` | Number of active positions. |
 
 ---
@@ -50,17 +50,17 @@ The Portfolio Layer is the PME's **command authority**. It synthesizes Position,
 The `SafetyManager` (`crates/engine/src/safety.rs`) tracks four escalating safety states:
 
 ```
-Normal ──(consecutive losses ≥ caution)──► Cautious
-       ──(consecutive losses ≥ dropout)──► Suspended (timed cooldown)
-       ──(equity drawdown ≥ limit)──────► DrawdownStop
+NORMAL ──(consecutive losses ≥ caution)──► CAUTIOUS
+       ──(consecutive losses ≥ dropout)──► SUSPENDED (timed cooldown)
+       ──(equity drawdown ≥ limit)──────► DRAWDOWN_STOP
 ```
 
 | State | Trigger | Effect |
 |-------|---------|--------|
-| `Normal` | Default | Full trading permitted. |
-| `Cautious` | ≥ 3 consecutive losses | Warning only; no stance changes yet. |
-| `Suspended` | ≥ 5 consecutive losses | All stances → `CloseOnly`; 8-hour cooldown. A win resets the counter. |
-| `DrawdownStop` | Equity drawdown ≥ limit (30%) | All stances → `Avoid`; immediate veto. |
+| `NORMAL` | Default | Full trading permitted. |
+| `CAUTIOUS` | ≥ 3 consecutive losses | Warning only; no stance changes yet. |
+| `SUSPENDED` | ≥ 5 consecutive losses | All stances → `CLOSE_ONLY`; 8-hour cooldown. A win resets the counter. |
+| `DRAWDOWN_STOP` | Equity drawdown ≥ `drawdown_limit_pct` (default 30 %) | All stances → `AVOID`; immediate veto. |
 
 Defaults are configurable via `config.json` `safety`.
 
@@ -84,7 +84,7 @@ The Portfolio Layer holds **veto authority** over the TAE. This is the platform'
 When a veto triggers:
 
 1. Portfolio Layer publishes a high-priority `VetoMessage` to TAE.
-2. TAE Policy Layer sets affected symbol stances to `Avoid` or `CloseOnly`.
+2. TAE Policy Layer sets affected symbol stances to `AVOID` or `CLOSE_ONLY`.
 3. TAE Execution Layer nullifies pending entry triggers.
 4. TAE issues batch cancellation for outstanding orders.
 5. The veto is logged with timestamp and rationale for audit.
@@ -93,7 +93,7 @@ When a veto triggers:
 
 When the condition clears (e.g., equity recovers above drawdown limit):
 
-1. Safety state transitions back to `Normal` (or `Cautious` if recent losses).
+1. Safety state transitions back to `NORMAL` (or `CAUTIOUS` if recent losses).
 2. Stances are restored to user-configured defaults.
 3. Operator must manually re-enable automated trading (one-time confirmation).
 
@@ -104,7 +104,7 @@ When the condition clears (e.g., equity recovers above drawdown limit):
 The Portfolio Layer reads the MME [Overview Matrix](../../matrices/02-09-overview-matrix.md) `systemic_risk_score` on every update:
 
 - The Systemic Risk Score combines market-wide danger factors (see Overview Matrix §4).
-- When elevated, the Portfolio Layer may pre-emptively shift stances to `Cautious` even before a drawdown occurs.
+- When elevated, the Portfolio Layer may pre-emptively shift stances to `CAUTIOUS` even before a drawdown occurs.
 - The operator may configure a `systemic_risk_threshold` to gate fully automated trading.
 
 ---

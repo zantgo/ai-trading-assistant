@@ -88,7 +88,7 @@ The Position Layer reads updated invalidation levels from the MME [Decision Matr
 
 1. MME Decision Layer publishes updated `stop_loss_distance_pct` and `invalidation_levels`.
 2. Position Layer recomputes `stop_loss_price` from the new distance.
-3. If the new stop improves the position (closer to entry for profitable trades, further from entry for losing trades), the stop is tightened.
+3. **Tighten-only rule.** The new stop is adopted **only if its distance from the entry price is strictly less than the current stop's distance from the entry price** — i.e. the stop is ratcheted toward the favourable side of the position (down for longs, up for shorts). For a profitable trade the stop moves closer to the entry, locking in unrealized gains. For a losing trade the stop either stays put or tightens; it never widens. This guarantees stops only ever reduce risk distance.
 4. Updated stop is routed to the exchange via the TAE Execution Layer.
 
 ---

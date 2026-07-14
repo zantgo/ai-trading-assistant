@@ -42,7 +42,7 @@ Labels: `DONCHIAN_UPPER_BREAKOUT`, `DONCHIAN_LOWER_BREAKOUT`, `DONCHIAN_UPPER_RA
 | LevelTest | DONCHIAN_MIDDLE_BAND_TEST | Price approaches the channel midpoint from either direction. Acts as dynamic equilibrium level — rejection signals continuation, crossing signals shift. | Direction depends on approach side |
 | LevelTest | DONCHIAN_MIDDLE_BAND_SUPPORT | Price bounces off the middle band after a pullback from a breakout. Confirms breakout integrity. | Aligned with breakout direction |
 
-## 5. Scoring & AI Context
+## 5. Scoring
 
 `donchian` is a `directional: true` indicator. Contributes to confluence scoring with both breakout strength and band-touch reversal signals.
 

@@ -74,12 +74,16 @@ To maintain perfect synchronization with external exchange servers and prevent i
 
 - **Aggregator Triggering:** The `CandleAggregator` closes and emits completed candles at the exact millisecond of the UTC clock rollover for that timeframe.
 
-**Boundary Map:**
+**Boundary Map (epoch-duration multiples of UTC):**
 
-- `micro60` closes precisely at `seconds = 59.999` of every minute.
-- `fast180` closes precisely at `minutes % 3 == 2` and `seconds = 59.999` (top of every third minute).
-- `slow300` closes precisely at `minutes % 5 == 4` and `seconds = 59.999` (top of every fifth minute).
-- `macro900` closes precisely at `minutes % 15 == 14` and `seconds = 59.999` (top of every fifteenth minute: `:14:59.999`, `:29:59.999`, `:44:59.999`, `:59:59.999`).
+Each candle closes at the next exact UTC epoch-duration multiple:
+
+- `micro60` closes at the start of the next minute (`:00.000`).
+- `fast180` closes at the top of every third minute (`:03:00.000`, `:06:00.000`, `:09:00.000`, …).
+- `slow300` closes at the top of every fifth minute (`:05:00.000`, `:10:00.000`, `:15:00.000`, …).
+- `macro900` closes at the top of every fifteenth minute (`:00:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000`).
+
+The aggregator formula — `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` — deterministically produces these boundaries, so candles close on the integer epoch multiple, never at `:59.999`.
 
 - **Late-Trade Recovery:** Any late-arriving trade whose exchange-server timestamp belongs to a prior time boundary is processed as a retroactive update to the historical buffer. It must never cause the active candle boundary to shift or delay its close.
 - **Clock Drift:** Local server system clocks execute continuous NTP polling to keep local system time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring local indicator values align exactly with exchange historical benchmarks. See [Global Architecture §2.1](01-02-global-architecture.md).

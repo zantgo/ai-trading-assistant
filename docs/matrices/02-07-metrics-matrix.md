@@ -228,7 +228,7 @@ The `overall_score` blends `trend·0.6 + momentum·0.4`, dampened by a regime ga
 
 ## 6. JSON Serialization Contract
 
-A representative completed Metrics Matrix frame (abridged):
+A representative completed Metrics Matrix frame (abridged). The example illustrates the JSON shape and field set; **the exact numeric values are illustrative** — the canonical per-indicator normalization formulas live in the individual indicator specifications under [indicators/](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md). Each indicator file documents the precise mapping from `raw_value` to `normalized` to `state_label` (e.g. see [04-02-11-rsi.md §Normalization](../engines/market-monitoring-engine/indicators/04-02-11-rsi.md#normalization)).
 
 ```json
 {
