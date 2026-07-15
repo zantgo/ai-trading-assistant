@@ -280,12 +280,21 @@ export interface RiskMatrix {
     symbol: string;
     market_risk: RiskDimension;
     volatility_risk: RiskDimension;
-    liquidity_risk: RiskDimension;
+    /**
+     * Phase 3: renamed from `liquidity_risk` for clarity. This dimension
+     * covers execution liquidity / market depth, not positional
+     * liquidation liquidity.
+     */
+    execution_liquidity_risk?: RiskDimension;
+    /** @deprecated kept for backward compatibility */
+    liquidity_risk?: RiskDimension;
     structure_risk: RiskDimension;
     momentum_risk: RiskDimension;
     signal_risk: RiskDimension;
     execution_risk: RiskDimension;
     reward_risk: RiskDimension;
+    /** Phase 3: cascade risk — danger from forced liquidation cascades. */
+    cascade_risk?: RiskDimension;
     overall_risk: RiskDimension;
 }
 
@@ -390,6 +399,12 @@ export interface TimeframeTelemetry {
     isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
     historyPrices: number[];
+    /** Phase 1: per-candle liquidity flow (real liquidation events). */
+    liquidity?: LiquidityFlow;
+    /** Phase 2: estimated liquidation cluster matrix (5-min refresh). */
+    cluster?: LiquidationClusterMatrix;
+    /** Phase 3: liquidity signals derived from flow + cluster. */
+    liquiditySignals?: LiquiditySignal[];
     showEmas: boolean;
     showBb: boolean;
     showVwap: boolean;
@@ -466,7 +481,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'analysis' | 'advisory' | 'settings';
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'analysis' | 'advisory' | 'liquidity' | 'settings';
 
 export interface InstanceState {
     symbol: string;
@@ -534,3 +549,76 @@ export type MarketBias = "StrongBullish" | "Bullish" | "Neutral" | "Bearish" | "
     { label: '12 h', seconds: 43200 },
     { label: '1 day', seconds: 86400 },
 ];
+
+// ================================================================
+// Phase 1-3: Liquidity Intelligence types
+// ================================================================
+
+export type CascadeState = 'None' | 'Detected' | 'Sustained' | 'Exhausted';
+export type LiquidationSide = 'Long' | 'Short';
+export type ClusterKind = 'AboveCurrentPrice' | 'BelowCurrentPrice' | 'AtCurrentPrice' | 'Distant';
+export type LeverageDistributionSource = 'DefaultPowerLaw' | 'FundingAdaptive' | 'ConfigOverride';
+
+export interface LiquidityFlow {
+    long_liquidations_usd: number;
+    short_liquidations_usd: number;
+    net_liquidation_usd: number;
+    event_count: number;
+    largest_event_usd: number;
+    largest_event_price?: number;
+    largest_event_side?: LiquidationSide;
+    cascade_state: CascadeState;
+    cascade_intensity: number; // 0..100
+}
+
+export interface LeverageAssumptions {
+    buckets: number[];
+    weights: number[];
+    funding_modulation_active: boolean;
+    funding_extreme_pct: number;
+    source: LeverageDistributionSource;
+}
+
+export interface LiquidationCluster {
+    price_low: number;
+    price_high: number;
+    peak_price: number;
+    notional_usd: number;
+    dominant_leverage: number;
+    distance_from_mid_pct: number;
+    cluster_kind: ClusterKind;
+    magnet_strength: number; // 0..100
+}
+
+export interface LiquidationClusterMatrix {
+    symbol: string;
+    generated_at_ms: number;
+    valid_until_ms: number;
+    mid_price: number;
+    leverage_assumptions: LeverageAssumptions;
+    short_clusters: LiquidationCluster[];
+    long_clusters: LiquidationCluster[];
+    cascade_asymmetry: number;       // [-1, +1]
+    total_long_oi_usd: number;
+    total_short_oi_usd: number;
+    estimation_confidence: number;  // 0..1
+}
+
+export type LiquiditySignalKind =
+    | 'CascadeDetected'
+    | 'CascadeSustained'
+    | 'CascadeExhausted'
+    | 'LiquidityVacuum'
+    | 'FundingExtreme'
+    | 'OIFundingDivergence'
+    | 'MagnetActivated';
+
+export type LiquidityDirection = 'Bullish' | 'Bearish' | 'Neutral';
+
+export interface LiquiditySignal {
+    kind: LiquiditySignalKind;
+    direction: LiquidityDirection;
+    strength: number;     // 0..100
+    confidence: number;   // 0..1
+    evidence: string[];
+}

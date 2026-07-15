@@ -12,6 +12,7 @@
     import RiskPanel from './components/RiskPanel.svelte';
     import AnalysisPanel from './components/AnalysisPanel.svelte';
     import AdvisoryPanel from './components/AdvisoryPanel.svelte';
+    import LiquidityPanel from './components/LiquidityPanel.svelte';
     import GeneralDashboard from './components/GeneralDashboard.svelte';
     import GeneralSettings from './components/GeneralSettings.svelte';
     import WorkspaceSettings from './components/WorkspaceSettings.svelte';
@@ -70,6 +71,7 @@
         { view: 'risk',        label: 'Risks' },
         { view: 'analysis',    label: 'Analysis' },
         { view: 'advisory',    label: 'Decision' },
+        { view: 'liquidity',   label: 'Liquidity' },
     ];
 
     const activePair = $derived(app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined);
@@ -309,6 +311,8 @@
                             <AnalysisPanel />
                         {:else if activePair.currentView === 'advisory'}
                             <AdvisoryPanel pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'liquidity'}
+                            <LiquidityPanel pairKey={app.activeTab} />
                         {/if}
                     {:else}
                         <GeneralDashboard />

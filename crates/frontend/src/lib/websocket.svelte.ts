@@ -100,6 +100,19 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
         if (vol != null) tf.volText = vol.toFixed(2);
         const avgVol = num(snapshot.average_volume);
         if (avgVol != null) tf.avgVolText = avgVol.toFixed(2);
+
+        // Phase 1: per-candle liquidity flow.
+        if (snapshot.liquidity && typeof snapshot.liquidity === 'object') {
+            tf.liquidity = snapshot.liquidity;
+        }
+        // Phase 2: estimated liquidation cluster matrix.
+        if (snapshot.cluster && typeof snapshot.cluster === 'object') {
+            tf.cluster = snapshot.cluster;
+        }
+        // Phase 3: liquidity signals (computed server-side per snapshot).
+        if (Array.isArray(snapshot.liquidity_signals)) {
+            tf.liquiditySignals = snapshot.liquidity_signals;
+        }
     } catch (_) {}
 }
 
