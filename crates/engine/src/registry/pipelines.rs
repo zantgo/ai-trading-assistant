@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
+use rust_decimal::prelude::ToPrimitive;
 
 use crate::analyzer;
 use crate::config::{
-    FibonacciConfig, IntervalsConfig, OperationalMode, PositionScalingConfig,
+    FibonacciConfig, IntervalsConfig, LiquidityConfig, OperationalMode, PositionScalingConfig,
     SafetyConfig, TimeframeConfig,
 };
 use crate::db;
@@ -36,6 +37,7 @@ pub struct PipelineContext {
     pub operational_mode: OperationalMode,
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     pub position_scaling: Option<PositionScalingConfig>,
+    pub liquidity_config: LiquidityConfig,
 }
 
 pub struct PipelineArtifacts {
@@ -163,6 +165,7 @@ pub async fn build_pipelines(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+        cluster_matrix: Arc::new(RwLock::new(None)),
     });
 
     spawn_tasks(
@@ -197,6 +200,7 @@ pub async fn build_pipelines(
         warmed_states,
         ctx.exchange_choice.clone(),
         ctx.quote.clone(),
+        ctx.liquidity_config.clone(),
     )
     .await;
 
@@ -215,7 +219,7 @@ pub async fn build_pipelines(
         latest: slow_latest.clone(),
         snapshot_history: slow_snapshot_history.clone(),
     };
-    let macro_buf = TimeframeBuffers {
+let macro_buf = TimeframeBuffers {
         history: macro_history.clone(),
         latest: macro_latest.clone(),
         snapshot_history: macro_snapshot_history.clone(),
@@ -283,6 +287,7 @@ async fn spawn_tasks(
     )>,
     exchange_choice: ExchangeChoice,
     quote: Currency,
+    liquidity_config: LiquidityConfig,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -445,6 +450,7 @@ async fn spawn_tasks(
         let a_latest_funding = active_pair.latest_funding.clone();
         let a_latest_mark = active_pair.latest_mark_px.clone();
         let a_latest_index = active_pair.latest_index_px.clone();
+        let a_cluster_matrix = active_pair.cluster_matrix.clone();
         tokio::spawn(async move {
             analyzer::run_single(
                 rx,
@@ -469,6 +475,7 @@ async fn spawn_tasks(
                 a_latest_funding,
                 a_latest_mark,
                 a_latest_index,
+                a_cluster_matrix,
                 crate::config::OrderBookConfig::default(),
             )
             .await;
@@ -489,13 +496,113 @@ async fn spawn_tasks(
     } else {
         state.ws_url.clone()
     };
+    let exchange_for_spawn = exchange_choice.clone();
     tokio::spawn(async move {
-        if exchange_choice == ExchangeChoice::Bitget {
+        if exchange_for_spawn == ExchangeChoice::Bitget {
             crate::adapters::bitget::run_for_symbol(ws_symbol, ws_internal, ws_product_type, ws_tx, ws_cancel, &ws_url).await;
         } else {
             crate::adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, &ws_url).await;
         }
     });
+
+    // Phase 0: HL derivatives poller (mark price + OI + funding).
+    // Bitget already pushes these natively on the WS adapter above.
+    if liquidity_config.enabled && exchange_choice != ExchangeChoice::Bitget {
+        let hl_info_url = state.ws_url
+            .replace("wss://", "https://")
+            .replace("ws://", "http://")
+            .replace("/ws", "/info");
+        let poller_raw = exchange_choice.raw_symbol(base, &quote);
+        let poller_internal = internal_symbol.to_string();
+        let poller_tx = std::sync::Arc::new(active_pair.snapshot_tx.clone());
+        let poller_cancel = cancel.clone();
+        let poll_ms = liquidity_config.mark_price_poll_ms;
+        crate::adapters::hl_derivatives_poller::spawn_hl_derivatives_poller(
+            poller_raw,
+            poller_internal,
+            hl_info_url,
+            poller_tx,
+            poller_cancel,
+            poll_ms,
+        );
+    }
+
+    // Phase 2: Liquidation cluster-matrix refresh task. Runs every
+    // 5 minutes (configurable), computes an estimated cluster matrix
+    // from current OI + funding + price history, and writes it to the
+    // shared handle on the active pair.
+    if liquidity_config.enabled {
+        let cluster_handle = active_pair.cluster_matrix.clone();
+        let active_pair_clone = active_pair.clone();
+        let refresh_config = liquidity_config.clone();
+        let cancel_for_refresh = cancel.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                refresh_config.cluster_refresh_secs.max(30),
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await; // skip the immediate first tick
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = cancel_for_refresh.cancelled() => break,
+                    _ = interval.tick() => {}
+                }
+                if let Some(m) = compute_cluster_from_active_pair(
+                    &active_pair_clone,
+                    &refresh_config,
+                ).await {
+                    *cluster_handle.write().await = Some(m);
+                }
+            }
+        });
+    }
+}
+
+/// Compute a cluster matrix from an active pair's micro buffer (no
+/// full `Instance` needed). Used by the cluster refresh task spawned
+/// in `spawn_tasks`.
+async fn compute_cluster_from_active_pair(
+    active_pair: &Arc<analyzer::ActivePair>,
+    config: &crate::config::LiquidityConfig,
+) -> Option<shared::liquidity::LiquidationClusterMatrix> {
+    use shared::liquidity::{estimate_clusters, ClusterEstimateInput};
+
+    let micro = active_pair.micro.latest_snapshot.read().await.clone()?;
+    let mid = micro.mid_price.to_f64()?;
+    if mid <= 0.0 { return None; }
+    let funding = micro.funding_rate.and_then(|d| d.to_f64()).unwrap_or(0.0);
+    let oi = micro.open_interest.and_then(|d| d.to_f64()).unwrap_or(0.0);
+    if oi <= 0.0 { return None; }
+
+    let history_handle = active_pair.micro.history.read().await;
+    let price_history: Vec<f64> = history_handle
+        .iter()
+        .rev()
+        .take(200)
+        .filter_map(|c| c.close.to_f64())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    drop(history_handle);
+
+    let symbol = micro.symbol.clone();
+    let input = ClusterEstimateInput {
+        symbol: &symbol,
+        mid_price: mid,
+        price_history: &price_history,
+        total_oi_usd: oi,
+        funding_rate: funding,
+        long_oi_pct: None,
+        maintenance_margin_rate: config.maintenance_margin_rate,
+        funding_extreme_pct: config.funding_extreme_pct,
+        funding_modulation_active: true,
+        leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
+        leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
+        min_cluster_notional_usd: 50_000.0,
+    };
+    Some(estimate_clusters(&input))
 }
 
 fn uuid_v4_simple() -> String {

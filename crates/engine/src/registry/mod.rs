@@ -174,6 +174,7 @@ pub async fn add_instance(
         .unwrap_or_default();
     let weight_overrides = pair_cfg.and_then(|p| p.weight_overrides.clone());
     let position_scaling = pair_cfg.and_then(|p| p.position_scaling.clone());
+    let liquidity_config_first = config_guard.liquidity.clone();
     drop(config_guard);
 
     let cancel = CancellationToken::new();
@@ -231,6 +232,7 @@ pub async fn add_instance(
         operational_mode,
         weight_overrides,
         position_scaling,
+        liquidity_config: liquidity_config_first,
     };
 
     let artifacts = pipelines::build_pipelines(
@@ -435,6 +437,7 @@ pub async fn recharge_instance(
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
     let position_scaling = pair_cfg.position_scaling.clone();
+    let liquidity_config_recharge = config_guard.liquidity.clone();
     drop(config_guard);
 
     let micro_cfg = pair_cfg.micro_term.clone();
@@ -500,6 +503,7 @@ pub async fn recharge_instance(
         operational_mode,
         weight_overrides,
         position_scaling,
+        liquidity_config: liquidity_config_recharge,
     };
 
     let artifacts = pipelines::build_pipelines(

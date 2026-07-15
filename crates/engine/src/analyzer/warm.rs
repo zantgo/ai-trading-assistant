@@ -582,6 +582,9 @@ fn build_historical_snapshot(
         funding_rate: None,
         open_interest: None,
         oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
         prev_day_px: None,
         open: Some(completed.open),
         high: Some(completed.high),
@@ -613,5 +616,6 @@ fn build_historical_snapshot(
                         advisory: None,
         risk_profile: None,
         liquidity: None,
+        cluster: None,
     }
 }

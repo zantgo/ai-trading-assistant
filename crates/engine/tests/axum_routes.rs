@@ -210,6 +210,7 @@ async fn test_websocket_stream_with_active_pair() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
+            cluster_matrix: Arc::new(RwLock::new(None)),
         micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),

@@ -5,7 +5,7 @@
 //! dual-representation normalized indicator map (v2.0).
 
 use crate::indicators::normalized::NormalizedIndicatorValue;
-use crate::liquidity::LiquidityFlow;
+use crate::liquidity::{LiquidationClusterMatrix, LiquidityFlow};
 use crate::normalized::Exchange;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -72,6 +72,18 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oi_delta_1h: Option<Decimal>,
 
+    /// Mark price (perpetual mark for margin + liquidation price computation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark_price: Option<Decimal>,
+
+    /// Index price (underlying spot composite).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_price: Option<Decimal>,
+
+    /// Mark-vs-index spread in percent (positive = perp premium).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mark_index_spread_pct: Option<f64>,
+
     /// Previous day price (from asset context).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prev_day_px: Option<Decimal>,
@@ -93,6 +105,12 @@ pub struct MarketSnapshot {
     /// (flickering) snapshots; populated only for completed bars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liquidity: Option<LiquidityFlow>,
+
+    /// Estimated liquidation cluster matrix (Phase 2). Recomputed every
+    /// 5 minutes per symbol. `None` when the data is insufficient or
+    /// before the first refresh.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<LiquidationClusterMatrix>,
 }
 
 /// Placeholder for statistical intelligence context.

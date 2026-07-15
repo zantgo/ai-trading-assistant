@@ -361,6 +361,9 @@ pub async fn query_latest_snapshot(
             funding_rate: None,
             open_interest: None,
             oi_delta_1h: None,
+            mark_price: None,
+            index_price: None,
+            mark_index_spread_pct: None,
             prev_day_px: None,
             open: parse_dec(r.get::<Option<String>, _>(6)),
             high: parse_dec(r.get::<Option<String>, _>(7)),
@@ -378,6 +381,7 @@ pub async fn query_latest_snapshot(
             indicators,
             risk_profile: None,
             liquidity: None,
+            cluster: None,
         }
     })
 }

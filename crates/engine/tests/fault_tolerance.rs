@@ -84,6 +84,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
                 engine::config::OrderBookConfig::default(),
             )
             .await;

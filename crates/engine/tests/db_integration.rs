@@ -59,11 +59,15 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         advisory: None,
         open_interest: None,
         oi_delta_1h: None,
+                    mark_price: None,
+                    index_price: None,
+                    mark_index_spread_pct: None,
         prev_day_px: None,
         statistical_context: None,
         decision_context: None,
         risk_profile: None,
                     liquidity: None,
+                    cluster: None,
     };
 
     engine::db::insert_snapshot_internal(&pool, &snap).await;

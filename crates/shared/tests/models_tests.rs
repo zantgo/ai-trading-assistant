@@ -49,8 +49,12 @@ fn test_market_snapshot_json_roundtrip() {
         statistical_context: None,
         open_interest: None,
         oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
         prev_day_px: None,
         liquidity: None,
+                    cluster: None,
         risk_profile: None,
     };
 
@@ -105,8 +109,12 @@ fn test_market_snapshot_empty_indicators() {
         statistical_context: None,
         open_interest: None,
         oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
         prev_day_px: None,
         liquidity: None,
+                    cluster: None,
         risk_profile: None,
     };
 

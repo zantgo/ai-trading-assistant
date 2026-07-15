@@ -7,6 +7,7 @@
 pub mod adapters;
 pub mod analyzer;
 pub mod candle_aggregator;
+pub mod cluster_refresh;
 pub mod commission;
 pub mod config;
 pub mod db;

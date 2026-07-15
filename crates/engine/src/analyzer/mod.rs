@@ -12,6 +12,7 @@ use crate::config::OrderBookConfig;
 use crate::db;
 
 use shared::models::MarketSnapshot;
+use shared::liquidity::LiquidationClusterMatrix;
 use shared::normalized::{NormalizedEvent, NormalizedCandle, Exchange, CandleGenerator};
 use shared::indicators::{Ema, Rsi, Macd, Adx, SqueezeMomentum, BollingerBands, Atr, DivergenceDetector, SeriesDivergence, FibonacciRange, Bbwp, Stochastic, ChandeMO, Supertrend, Keltner, Donchian, Obv, Cmf, Mfi, HistoricalVolatility, Aroon, Choppiness, LinRegSlope, ZScore, detect_pattern, PivotPoints, PivotMethod, Candlestick, CandlestickConfig, Ichimoku, Cci, ParabolicSar, WilliamsR, HullMA, AwesomeOscillator, ForceIndex, StdDevChannel, VolumeProfile, SmartMoney, AnchoredVwap, OrderBookAnalysis};
 use shared::indicators::normalized::PreviousBarState;
@@ -57,8 +58,12 @@ pub struct ActivePair {
     pub latest_funding: Arc<RwLock<Option<Decimal>>>,
     /// Latest Mark Price (shared across all timeframes, updated by mark events).
     pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
-    /// Latest Index Price (shared across all timeframes, updated by mark events).
+    /// Latest Index Price (shared across all timeframes).
     pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
+    /// Latest LiquidationClusterMatrix (Phase 2). Updated by the
+    /// `cluster_refresh` task every 5 minutes. The analyzer reads this
+    /// when building each completed snapshot.
+    pub cluster_matrix: Arc<RwLock<Option<shared::liquidity::LiquidationClusterMatrix>>>,
 }
 
 impl ActivePair {
@@ -166,6 +171,7 @@ pub async fn run_single(
     latest_funding: Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     latest_index_px: Arc<RwLock<Option<Decimal>>>,
+    cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>,
     ob_config: OrderBookConfig,
 ) {
     println!(
@@ -770,6 +776,12 @@ pub async fn run_single(
                     // Inject Derivatives Data indicators (OI & Funding Rate).
                     let oi_f = latest_oi.read().await.and_then(|o| o.to_f64());
                     let fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
+                    let mark_f = latest_mark_px.read().await.and_then(|m| m.to_f64());
+                    let idx_f = latest_index_px.read().await.and_then(|i| i.to_f64());
+                    let spread_pct = match (mark_f, idx_f) {
+                        (Some(m), Some(i)) if i > 0.0 => Some((m - i) / i * 100.0),
+                        _ => None,
+                    };
 
                     let oi_delta_f = match oi_f {
                         Some(cur) => {
@@ -781,7 +793,7 @@ pub async fn run_single(
                         }
                         None => None,
                     };
-                    inject_derivatives_indicators(&mut indicators, oi_f, fund_f, oi_delta_f);
+                    inject_derivatives_indicators(&mut indicators, oi_f, fund_f, oi_delta_f, mark_f, spread_pct);
 
                     // Inject order book depth analysis indicators
                     inject_orderbook_indicators(
@@ -863,6 +875,9 @@ pub async fn run_single(
                         funding_rate: fund_f.map(|f| Decimal::from_f64_retain(f)).flatten(),
                         open_interest: oi_f.map(|o| Decimal::from_f64_retain(o)).flatten(),
                         oi_delta_1h: oi_delta_f.map(|d| Decimal::from_f64_retain(d)).flatten(),
+                        mark_price: latest_mark_px.read().await.clone(),
+                        index_price: latest_index_px.read().await.clone(),
+                        mark_index_spread_pct: spread_pct,
                         prev_day_px: shadow_prev_day_px,
                         open: Some(completed.open),
                         high: Some(completed.high),
@@ -880,6 +895,7 @@ pub async fn run_single(
                         advisory: None,
                         risk_profile: None,
                         liquidity: Some(liquidity_acc.flush_to_flow()),
+                        cluster: cluster_matrix.read().await.clone(),
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
@@ -1099,6 +1115,8 @@ fn inject_derivatives_indicators(
     oi: Option<f64>,
     funding: Option<f64>,
     oi_delta: Option<f64>,
+    mark_px: Option<f64>,
+    spread_pct: Option<f64>,
 ) {
     use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
 
@@ -1217,6 +1235,46 @@ fn inject_derivatives_indicators(
                 age_bars: 0,
                 points: None,
             }]} else { vec![] },
+            confidence: 0.5,
+        });
+    }
+
+    // Mark-Index Spread (Phase 0: derivatives telemetry activation).
+    // Positive spread = mark premium (perp trades above index, bullish bias).
+    // Negative spread = perp discount (bearish bias). Wide spread signals
+    // market stress and is a leading indicator of forced liquidations.
+    if let Some(spread) = spread_pct {
+        let abs_spread = spread.abs();
+        let wide = abs_spread > 0.3;
+        let extreme = abs_spread > 1.0;
+        let norm = (spread / 1.0).clamp(-1.0, 1.0);
+        let dir = if norm > 0.1 { SignalDirection::Bullish }
+            else if norm < -0.1 { SignalDirection::Bearish }
+            else { SignalDirection::Neutral };
+        let label = if extreme { "SPREAD_EXTREME" }
+            else if wide { "SPREAD_WIDE" }
+            else if norm > 0.0 { "PREMIUM" }
+            else if norm < 0.0 { "DISCOUNT" }
+            else { "ALIGNED" };
+        let signals = if wide { vec![IndicatorSignal {
+            kind: SignalKind::Threshold,
+            direction: dir,
+            status: SignalStatus::Active,
+            label: format!("MARK_INDEX_{}", label),
+            strength: norm.abs(),
+            age_bars: 0,
+            points: None,
+        }]} else { vec![] };
+        let mut vals = std::collections::HashMap::new();
+        if let Some(mark) = mark_px {
+            vals.insert("mark_px".to_string(), mark);
+        }
+        indicators.insert("mark_index_spread".into(), NormalizedIndicatorValue {
+            raw_value: spread,
+            normalized: norm,
+            state_label: label.to_string(),
+            values: Some(vals),
+            signals,
             confidence: 0.5,
         });
     }
@@ -1590,6 +1648,9 @@ fn broadcast_live_snapshot(
         funding_rate: None,
         open_interest: None,
         oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
         prev_day_px,
         open: Some(candle.open),
         high: Some(candle.high),
@@ -1607,6 +1668,7 @@ fn broadcast_live_snapshot(
                         advisory: None,
         risk_profile: None,
         liquidity: None,
+        cluster: None,
     };
 
     let _ = broadcast_tx.send(snapshot);
