@@ -86,9 +86,36 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 
 ---
 
-## 7. Cross-References
+## 7. Phase 3 Extension: Cascade Risk
+
+The 9th `RiskDimension` is `cascade_risk`, added by the Liquidity
+Intelligence extension. It quantifies the danger from forced
+liquidation cascades and is computed by `assess_cascade_risk` from:
+
+- `LiquidityFlow.cascade_intensity` (per-candle real event aggregate).
+- `LiquidityFlow.cascade_state` (None / Detected / Sustained /
+  Exhausted) — adds a 0..30 risk premium on top of intensity when
+  the state is elevated.
+- `LiquidationClusterMatrix.cascade_asymmetry` — forward-looking
+  pressure: `|asymmetry| > 0.3` adds up to 30 risk points.
+
+The 8 existing dimensions are re-weighted so the overall score
+remains 0..100:
+
+```
+overall_risk = 0.13·market + 0.13·volatility + 0.13·execution_liquidity
+             + 0.09·structure + 0.13·momentum + 0.09·signal
+             + 0.09·execution + 0.09·reward + 0.12·cascade
+```
+
+The legacy `liquidity_risk` field was renamed to
+`execution_liquidity_risk` (with a serde alias) to free the term
+"liquidity" for the new positional concept.
+
+## 8. Cross-References
 
 - [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) — Input.
 - [Risk Matrix](../../matrices/02-11-risk-matrix.md) — Output contract.
+- [LiquidityMatrix](../../matrices/02-12-liquidity-matrix.md) · [ClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md) — Cascade inputs.
 - [MME Layer 6 — Decision Support](03-02-07-mme-layer6-decision-support.md) — Consumer.
 - [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Systemic risk consumer.

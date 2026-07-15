@@ -130,8 +130,30 @@ else                     → RANGE
 
 ---
 
-## 9. Cross-References
+## 9. Phase 0-3 Extensions: Derivatives Telemetry
+
+The Phase 0-3 Liquidity Intelligence extension adds a parallel
+**derivatives telemetry** stream that runs alongside the price
+indicators:
+
+| New indicator group | Source | Field on `MarketSnapshot` |
+|---|---|---|
+| `mark_index_spread` | mark + index prices | `mark_index_spread_pct` |
+| Real OI (Hyperliquid via activeAssetCtx) | `MetaAndAssetCtxs` polling | `open_interest`, `oi_delta_1h` |
+| Real funding rate | WS push | `funding_rate` |
+| Real liquidation events (Phase 1) | `userFills` / `fill` channel | `liquidity: LiquidityFlow` |
+| Estimated heatmap (Phase 2) | Cluster estimator | `cluster: LiquidationClusterMatrix` |
+| Liquidity signals (Phase 3) | Signal derivation | `liquiditySignals: Vec<LiquiditySignal>` |
+
+These are not "indicators" in the strict sense (they are not
+normalised f64 signals in the indicator map) — they are
+*telemetry matrices* that ride the MarketSnapshot as optional
+fields and are consumed by L1.5, L2.5, L5, and the UI.
+
+## 10. Cross-References
 
 - [Metrics Matrix](../../matrices/02-07-metrics-matrix.md) — Output contract.
 - [Indicators Guide](03-02-09-mme-indicators-guide.md) · [Signals Guide](03-02-10-mme-signals-guide.md)
 - [MME Layer 2 — Alignment](03-02-03-mme-layer2-alignment.md) — Direct consumer.
+- [Liquidity Extension](03-02-11-mme-liquidity-extension.md) — Derivatives telemetry.
+- [LiquidityMatrix](../../matrices/02-12-liquidity-matrix.md) · [ClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md)

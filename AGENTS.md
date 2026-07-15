@@ -84,14 +84,25 @@ Full specification documents under `docs/`:
 
 Start at `docs/README.md` for a guided reading order.
 
-## Testing (228 tests across 3 boundaries)
+## Testing (284 tests across 3 boundaries)
 
 | Suite | Command | Boundary | Tests | Runtime |
 |-------|---------|----------|-------|---------|
-| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization | 154 | <3s |
-| TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover | ~50 | <5s |
-| TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots | 24 | <10s |
-| All | `./manage.sh test` | Core → Engine → UI sequentially | 228 | <18s |
+| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization, liquidity module | 210 | <3s |
+| TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation event e2e | ~50 | <5s |
+| TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots, LiquidityPanel | 24 | <10s |
+| All | `./manage.sh test` | Core → Engine → UI sequentially | 284 | <18s |
+
+### Liquidity Intelligence (Phases 0-4) test coverage
+
+| Phase | Test file | Tests | Boundary |
+|---|---|---|---|
+| 0 | `crates/engine/tests/phase0_derivatives.rs` | 11 | engine |
+| 1 | `crates/shared/tests/phase1_liquidity_flow.rs` + `crates/engine/tests/phase1_liquidation_e2e.rs` | 15 + 1 | core + engine |
+| 2 | `crates/shared/tests/phase2_cluster_matrix.rs` | 14 | core |
+| 3 | `crates/shared/tests/phase3_signals.rs` | 10 | core |
+| 4 | `crates/frontend/src/components/LiquidityPanel.test.ts` | 5 | ui |
+| **Total** | | **56** | |
 
 ### Specialized test selectors
 

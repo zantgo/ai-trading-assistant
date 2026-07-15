@@ -1,10 +1,10 @@
 # Risk Matrix Specification
 
-**Version:** 2.0
+**Version:** 2.1 (Phase 3 added `cascade_risk`; renamed `liquidity_risk` → `execution_liquidity_risk`)
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
-**Purpose:** This document defines the physical schema and unipolar scoring model of the **Risk Matrix** — the direction-independent threat-assessment object. It quantifies the danger surrounding the current market interpretation across **eight dimensions** on a `0–100` unipolar scale. *(Reduced from nine in the institutional redesign; `reward_risk` removed and moved to the Decision Layer as `environment_favorability`.)*
+**Purpose:** This document defines the physical schema and unipolar scoring model of the **Risk Matrix** — the direction-independent threat-assessment object. It quantifies the danger surrounding the current market interpretation across **nine dimensions** on a `0–100` unipolar scale. *(Phase 3 added `cascade_risk` for liquidation-cascade danger; the legacy `liquidity_risk` was renamed to `execution_liquidity_risk` to free the "liquidity" term for the positional concept.)*
 
 ---
 
@@ -155,7 +155,7 @@ Empty `evidence` arrays are omitted. Enum values serialize as `SCREAMING_SNAKE_C
 
 ## 6. Empty State
 
-When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all eight dimensions defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
+When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all nine dimensions defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
 
 ---
 
