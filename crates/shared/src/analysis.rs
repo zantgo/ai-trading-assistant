@@ -124,6 +124,8 @@ pub enum OpportunityType {
     Pullback,
     MeanReversion,
     Reversal,
+    /// Phase 3: a cascade or cluster setup signals a likely squeeze.
+    LiquiditySqueeze,
     NoClearOpportunity,
 }
 
@@ -257,6 +259,11 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
         OpportunityType::MeanReversion
     } else if opp_dim < 30.0 {
         OpportunityType::NoClearOpportunity
+    } else if opp_dim >= 90.0 && vol_dim >= 60.0 {
+        // Phase 3: very high opportunity score with elevated volatility
+        // can indicate a squeeze setup. Detailed cascade/squeeze logic
+        // lives in the Decision layer (which can override this).
+        OpportunityType::LiquiditySqueeze
     } else {
         OpportunityType::TrendContinuation
     };
@@ -312,6 +319,7 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
             OpportunityType::Pullback => "Pullback opportunity forming.",
             OpportunityType::MeanReversion => "Mean reversion conditions detected.",
             OpportunityType::Reversal => "Reversal signals emerging.",
+            OpportunityType::LiquiditySqueeze => "Liquidity squeeze setup (Phase 3).",
             OpportunityType::NoClearOpportunity => "No clear opportunity identified.",
         }
     );

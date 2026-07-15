@@ -101,6 +101,10 @@ pub struct OverviewMatrix {
     pub asset_ranking: Vec<AssetRank>,
     pub market_synchronization: SyncLevel,
     pub market_health: HealthLevel,
+    /// Phase 3: cross-symbol aggregate cascade risk (mean of all
+    /// per-symbol cascade_risk scores, 0..100).
+    #[serde(default)]
+    pub cascade_risk_index: f64,
     pub global_summary: String,
     pub instance_count: u32,
     pub active_symbols: Vec<String>,
@@ -117,6 +121,7 @@ impl OverviewMatrix {
             asset_ranking: Vec::new(),
             market_synchronization: SyncLevel::HighlyFragmented,
             market_health: HealthLevel::Neutral,
+            cascade_risk_index: 0.0,
             global_summary: "No active instances — no market data available.".into(),
             instance_count: 0,
             active_symbols: Vec::new(),
@@ -236,6 +241,7 @@ pub fn compute_overview(
         asset_ranking: rankings,
         market_synchronization: sync,
         market_health: health,
+        cascade_risk_index: 0.0, // populated by Phase 3 cross-symbol aggregator
         global_summary: summary,
         instance_count,
         active_symbols,

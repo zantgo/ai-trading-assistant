@@ -43,6 +43,7 @@ pub enum OpportunityClass {
     Pullback,
     MeanReversion,
     Reversal,
+    LiquiditySqueeze,
     NoClearOpportunity,
 }
 
@@ -191,6 +192,7 @@ pub fn compute_advisory(
         crate::analysis::OpportunityType::Pullback => OpportunityClass::Pullback,
         crate::analysis::OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
         crate::analysis::OpportunityType::Reversal => OpportunityClass::Reversal,
+        crate::analysis::OpportunityType::LiquiditySqueeze => OpportunityClass::LiquiditySqueeze,
         crate::analysis::OpportunityType::NoClearOpportunity => OpportunityClass::NoClearOpportunity,
     };
 
@@ -285,6 +287,7 @@ pub fn compute_advisory(
             OpportunityClass::Pullback => "Pullback",
             OpportunityClass::MeanReversion => "Mean reversion",
             OpportunityClass::Reversal => "Reversal",
+            OpportunityClass::LiquiditySqueeze => "Liquidity squeeze",
             OpportunityClass::NoClearOpportunity => "No clear",
         },
         match entry {

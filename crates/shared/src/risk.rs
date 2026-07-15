@@ -17,11 +17,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Risk level classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RiskLevel {
     VeryLow,
     Low,
+    #[default]
     Moderate,
     High,
     Extreme,
@@ -40,9 +41,10 @@ impl std::fmt::Display for RiskLevel {
 }
 
 /// Risk dimension state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RiskState {
+    #[default]
     Stable,
     Increasing,
     Elevated,
@@ -63,7 +65,7 @@ impl std::fmt::Display for RiskState {
 }
 
 /// One risk dimension with score, level, state, confidence, and evidence.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct RiskDimension {
     /// Risk score 0-100 (higher = riskier).
     pub score: f64,
@@ -94,18 +96,24 @@ impl RiskDimension {
     }
 }
 
-/// Market risk assessment for a single symbol — 9 dimensions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Market risk assessment for a single symbol — 10 dimensions.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct RiskMatrix {
     pub symbol: String,
     pub market_risk: RiskDimension,
     pub volatility_risk: RiskDimension,
-    pub liquidity_risk: RiskDimension,
+    /// Phase 3 rename: was `liquidity_risk` (execution-liquidity / slippage).
+    /// Now: execution liquidity / market depth.
+    #[serde(rename = "execution_liquidity_risk")]
+    pub execution_liquidity_risk: RiskDimension,
     pub structure_risk: RiskDimension,
     pub momentum_risk: RiskDimension,
     pub signal_risk: RiskDimension,
     pub execution_risk: RiskDimension,
     pub reward_risk: RiskDimension,
+    /// Phase 3: cascade risk — danger from forced liquidation cascades.
+    #[serde(default)]
+    pub cascade_risk: RiskDimension,
     pub overall_risk: RiskDimension,
 }
 
@@ -115,9 +123,10 @@ impl RiskMatrix {
         Self {
             symbol: symbol.to_string(),
             market_risk: def.clone(), volatility_risk: def.clone(),
-            liquidity_risk: def.clone(), structure_risk: def.clone(),
+            execution_liquidity_risk: def.clone(), structure_risk: def.clone(),
             momentum_risk: def.clone(), signal_risk: def.clone(),
             execution_risk: def.clone(), reward_risk: def.clone(),
+            cascade_risk: def.clone(),
             overall_risk: def.clone(),
         }
     }
@@ -167,7 +176,7 @@ fn assess_volatility_risk(indicators: &HashMap<String, NormalizedIndicatorValue>
 }
 
 /// Assess liquidity risk: quality of market participation.
-fn assess_liquidity_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+fn assess_execution_liquidity_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
     let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
     let mut evidence = Vec::new();
@@ -254,11 +263,56 @@ fn assess_reward_risk(analysis: &AnalysisMatrix) -> RiskDimension {
     RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
 }
 
+/// Assess cascade risk (Phase 3): danger from forced liquidation
+/// cascades. Reads `cascade_intensity` from the per-candle
+/// `LiquidityFlow` if present, plus `cascade_asymmetry` from the
+/// `LiquidationClusterMatrix` for forward-looking pressure. Higher
+/// intensity or larger absolute asymmetry → higher risk.
+fn assess_cascade_risk(
+    flow: Option<&crate::liquidity::LiquidityFlow>,
+    cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
+) -> RiskDimension {
+    let mut score: f64 = 30.0; // baseline
+    let mut evidence = Vec::new();
+    if let Some(f) = flow {
+        // The intensity is already 0..100; pull it in proportionally.
+        score = score.max(f.cascade_intensity);
+        match f.cascade_state {
+            crate::liquidity::CascadeState::Sustained => {
+                score = (score + 30.0).min(100.0);
+                evidence.push("Cascade sustained in rolling window".into());
+            }
+            crate::liquidity::CascadeState::Detected => {
+                score = (score + 15.0).min(100.0);
+                evidence.push("Cascade detected this bar".into());
+            }
+            crate::liquidity::CascadeState::Exhausted => {
+                evidence.push("Cascade exhausted (decaying)".into());
+            }
+            _ => {}
+        }
+    }
+    if let Some(c) = cluster {
+        // Forward-looking pressure: |asymmetry| contributes up to 20.
+        let asym = c.cascade_asymmetry.abs();
+        if asym > 0.3 {
+            score = (score + asym * 30.0).min(100.0);
+            evidence.push(format!(
+                "Cluster asymmetry {:.2} (significant one-sided pressure)",
+                c.cascade_asymmetry
+            ));
+        }
+    }
+    RiskDimension::from_score(score).with_evidence(evidence)
+}
+
 /// Compute the Risk Matrix from the Analysis Matrix and per-timeframe indicators.
 pub fn compute_risk(
     symbol: &str,
     analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
+    flow: Option<&crate::liquidity::LiquidityFlow>,
+    cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
 ) -> RiskMatrix {
     if analysis.timeframes_considered == 0 {
         return RiskMatrix::empty(symbol);
@@ -266,25 +320,67 @@ pub fn compute_risk(
 
     let market = assess_market_risk(analysis, indicators);
     let volatility = assess_volatility_risk(indicators);
-    let liquidity = assess_liquidity_risk(indicators);
+    let liquidity = assess_execution_liquidity_risk(indicators);
     let structure = assess_structure_risk(analysis, indicators);
     let momentum = assess_momentum_risk(analysis);
     let signal = assess_signal_risk(analysis);
     let execution = assess_execution_risk(indicators);
     let reward = assess_reward_risk(analysis);
+    let cascade = assess_cascade_risk(flow, cluster);
 
-    // Overall: weighted average of all 8 dimensions
-    let overall_score = (market.score * 0.15 + volatility.score * 0.15 + liquidity.score * 0.15
-        + structure.score * 0.10 + momentum.score * 0.15 + signal.score * 0.10
-        + execution.score * 0.10 + reward.score * 0.10).max(0.0).min(100.0);
+    // Overall: weighted average of all 9 dimensions. Cascade gets 0.10
+    // weight — comparable to the other dimensions because cascade events
+    // dominate short-term realized volatility.
+    let overall_score = (market.score * 0.13 + volatility.score * 0.13 + liquidity.score * 0.13
+        + structure.score * 0.09 + momentum.score * 0.13 + signal.score * 0.09
+        + execution.score * 0.09 + reward.score * 0.09 + cascade.score * 0.12)
+        .max(0.0).min(100.0);
     let overall = RiskDimension::from_score(overall_score);
 
-    RiskMatrix { symbol: symbol.to_string(), market_risk: market, volatility_risk: volatility, liquidity_risk: liquidity, structure_risk: structure, momentum_risk: momentum, signal_risk: signal, execution_risk: execution, reward_risk: reward, overall_risk: overall }
+    RiskMatrix {
+        symbol: symbol.to_string(),
+        market_risk: market,
+        volatility_risk: volatility,
+        execution_liquidity_risk: liquidity,
+        structure_risk: structure,
+        momentum_risk: momentum,
+        signal_risk: signal,
+        execution_risk: execution,
+        reward_risk: reward,
+        cascade_risk: cascade,
+        overall_risk: overall,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analysis::{
+        AnalysisMatrix, MarketBias, MarketRegime, MomentumAssessment, OpportunityType,
+        QualityLevel, StructureAssessment, TrendAssessment, VolumeAssessment,
+        VolatilityAssessment,
+    };
+
+    fn make_analysis_with_timeframes() -> AnalysisMatrix {
+        AnalysisMatrix {
+            symbol: "BTC-USD".to_string(),
+            bias: MarketBias::Neutral,
+            confidence: 0.5,
+            market_regime: MarketRegime::Range,
+            trend_assessment: TrendAssessment::Healthy,
+            momentum_assessment: MomentumAssessment::Stable,
+            structure_assessment: StructureAssessment::Healthy,
+            volatility_assessment: VolatilityAssessment::Normal,
+            volume_assessment: VolumeAssessment::Normal,
+            opportunity_analysis: OpportunityType::NoClearOpportunity,
+            market_quality: QualityLevel::Average,
+            market_interpretation: "Test".into(),
+            rationale: String::new(),
+            supporting_signals: Vec::new(),
+            contradicting_signals: Vec::new(),
+            timeframes_considered: 4,
+        }
+    }
 
     #[test]
     fn empty_returns_default() {
@@ -294,12 +390,39 @@ mod tests {
 
     #[test]
     fn compute_with_analysis_produces_valid_dimensions() {
-        let analysis = AnalysisMatrix::empty("BTC-USD");
+        let analysis = make_analysis_with_timeframes();
         let indicators = HashMap::new();
-        let r = compute_risk("BTC-USD", &analysis, &indicators);
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None);
         // Even with empty analysis, should produce valid scores
         assert!(r.volatility_risk.score >= 0.0 && r.volatility_risk.score <= 100.0);
-        assert!(r.liquidity_risk.score >= 0.0 && r.liquidity_risk.score <= 100.0);
+        assert!(r.execution_liquidity_risk.score >= 0.0 && r.execution_liquidity_risk.score <= 100.0);
+        assert!(r.cascade_risk.score >= 0.0 && r.cascade_risk.score <= 100.0);
+    }
+
+    #[test]
+    fn cascade_risk_does_not_crash_with_zero_inputs() {
+        let analysis = make_analysis_with_timeframes();
+        let indicators = HashMap::new();
+        let r = compute_risk("BTC-USD", &analysis, &indicators, None, None);
+        // Baseline (no flow, no cluster) → score = 30.0
+        assert!((r.cascade_risk.score - 30.0).abs() < 1e-9,
+            "expected 30.0, got {}", r.cascade_risk.score);
+    }
+
+    #[test]
+    fn cascade_risk_with_sustained_state_is_high() {
+        use crate::liquidity::{CascadeState, LiquidityFlow};
+        let flow = LiquidityFlow {
+            cascade_state: CascadeState::Sustained,
+            cascade_intensity: 90.0,
+            ..Default::default()
+        };
+        let analysis = make_analysis_with_timeframes();
+        let indicators = HashMap::new();
+        let r = compute_risk("BTC-USD", &analysis, &indicators, Some(&flow), None);
+        // Sustained + high intensity → cascade_risk >= 90 (capped at 100).
+        assert!(r.cascade_risk.score >= 90.0,
+            "sustained cascade should drive risk >= 90, got {}", r.cascade_risk.score);
     }
 }
 fn clamp01(x: f64) -> f64 { x.max(0.0).min(100.0) }

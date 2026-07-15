@@ -1040,3 +1040,464 @@ mod cluster_tests {
         }
     }
 }
+
+// =============================================================================
+// Phase 3 — Liquidity Signals
+// =============================================================================
+//
+// Discrete signals derived from the per-candle LiquidityFlow and the
+// LiquidationClusterMatrix. These signals ride into MME Layer 5 (Risk)
+// and Layer 6 (Decision) via the existing `IndicatorSignal` channel.
+
+/// Discrete liquidity-signal kinds. Serialized as SCREAMING_SNAKE_CASE
+/// for frontend consumption.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum LiquiditySignalKind {
+    /// A cascade was detected (single event above z-score).
+    CascadeDetected,
+    /// Cascade sustained (3+ events above z-score in rolling window).
+    CascadeSustained,
+    /// Cascade exhausted (bar intensity declining after elevated state).
+    CascadeExhausted,
+    /// Order book is thin AND dense liquidations behind price.
+    LiquidityVacuum,
+    /// Funding rate is extreme (|rate| > extreme threshold).
+    FundingExtreme,
+    /// OI and funding diverge (OI up + funding negative, or vice versa).
+    OIFundingDivergence,
+    /// Price is approaching a cluster zone (magnet active).
+    MagnetActivated,
+}
+
+impl std::fmt::Display for LiquiditySignalKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            LiquiditySignalKind::CascadeDetected => "CASCADE_DETECTED",
+            LiquiditySignalKind::CascadeSustained => "CASCADE_SUSTAINED",
+            LiquiditySignalKind::CascadeExhausted => "CASCADE_EXHAUSTED",
+            LiquiditySignalKind::LiquidityVacuum => "LIQUIDITY_VACUUM",
+            LiquiditySignalKind::FundingExtreme => "FUNDING_EXTREME",
+            LiquiditySignalKind::OIFundingDivergence => "OI_FUNDING_DIVERGENCE",
+            LiquiditySignalKind::MagnetActivated => "MAGNET_ACTIVATED",
+        };
+        f.write_str(s)
+    }
+}
+
+/// Direction of a liquidity signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum LiquidityDirection {
+    Bullish,
+    Bearish,
+    Neutral,
+}
+
+/// One discrete liquidity signal.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct LiquiditySignal {
+    pub kind: LiquiditySignalKind,
+    pub direction: LiquidityDirection,
+    /// 0..100 — signal strength.
+    pub strength: f64,
+    /// 0..1 — confidence in the signal (0 = low, 1 = high).
+    pub confidence: f64,
+    /// Free-form evidence strings.
+    pub evidence: Vec<String>,
+}
+
+/// Input bundle for `derive_liquidity_signals`.
+pub struct SignalInput<'a> {
+    pub flow: Option<&'a LiquidityFlow>,
+    pub cluster: Option<&'a LiquidationClusterMatrix>,
+    pub funding_rate: f64,
+    pub oi_delta_1h_pct: f64,
+    /// Avg book depth ratio (bid_depth / ask_depth) over recent window.
+    /// None if not available.
+    pub book_depth_ratio: Option<f64>,
+    pub funding_extreme_pct: f64,
+    pub oi_funding_divergence_pct: f64,
+    pub magnet_activation_distance_pct: f64,
+}
+
+impl<'a> Default for SignalInput<'a> {
+    fn default() -> Self {
+        Self {
+            flow: None,
+            cluster: None,
+            funding_rate: 0.0,
+            oi_delta_1h_pct: 0.0,
+            book_depth_ratio: None,
+            funding_extreme_pct: 0.0005,
+            oi_funding_divergence_pct: 2.0,
+            magnet_activation_distance_pct: 0.5,
+        }
+    }
+}
+
+/// Derive all liquidity signals from a snapshot. Returns an empty vec
+/// if no input data is available.
+pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
+    let mut out = Vec::new();
+
+    // 1. Cascade state signals.
+    if let Some(flow) = input.flow {
+        match flow.cascade_state {
+            CascadeState::Detected => {
+                out.push(LiquiditySignal {
+                    kind: LiquiditySignalKind::CascadeDetected,
+                    direction: if flow.net_liquidation_usd > 0.0 {
+                        LiquidityDirection::Bearish
+                    } else {
+                        LiquidityDirection::Bullish
+                    },
+                    strength: flow.cascade_intensity.clamp(0.0, 100.0),
+                    confidence: 0.8,
+                    evidence: vec![format!(
+                        "Single event of ${:.0} in last bar",
+                        flow.largest_event_usd
+                    )],
+                });
+            }
+            CascadeState::Sustained => {
+                out.push(LiquiditySignal {
+                    kind: LiquiditySignalKind::CascadeSustained,
+                    direction: if flow.net_liquidation_usd > 0.0 {
+                        LiquidityDirection::Bearish
+                    } else {
+                        LiquidityDirection::Bullish
+                    },
+                    strength: flow.cascade_intensity.clamp(0.0, 100.0),
+                    confidence: 0.9,
+                    evidence: vec![format!(
+                        "{} liquidation events in rolling window",
+                        flow.event_count
+                    )],
+                });
+            }
+            CascadeState::Exhausted => {
+                out.push(LiquiditySignal {
+                    kind: LiquiditySignalKind::CascadeExhausted,
+                    direction: LiquidityDirection::Neutral,
+                    strength: flow.cascade_intensity.clamp(0.0, 100.0),
+                    confidence: 0.7,
+                    evidence: vec!["Cascade intensity declining after elevated state".into()],
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // 2. Funding extreme.
+    if input.funding_rate.abs() > input.funding_extreme_pct {
+        let dir = if input.funding_rate > 0.0 {
+            LiquidityDirection::Bearish
+        } else {
+            LiquidityDirection::Bullish
+        };
+        let strength = ((input.funding_rate.abs() / input.funding_extreme_pct) * 50.0).min(100.0);
+        out.push(LiquiditySignal {
+            kind: LiquiditySignalKind::FundingExtreme,
+            direction: dir,
+            strength,
+            confidence: 0.95,
+            evidence: vec![format!(
+                "Funding rate {:.4}% ({} extreme threshold)",
+                input.funding_rate * 100.0,
+                if input.funding_rate > 0.0 { "above" } else { "below" }
+            )],
+        });
+    }
+
+    // 3. OI-funding divergence: OI rising sharply while funding goes
+    //    the other way, or vice versa.
+    if input.oi_delta_1h_pct.abs() > input.oi_funding_divergence_pct {
+        let div_dir = if input.oi_delta_1h_pct > 0.0 && input.funding_rate < 0.0 {
+            // OI up, funding negative → shorts loading.
+            LiquidityDirection::Bearish
+        } else if input.oi_delta_1h_pct < 0.0 && input.funding_rate > 0.0 {
+            // OI down, funding positive → longs closing.
+            LiquidityDirection::Bullish
+        } else {
+            LiquidityDirection::Neutral
+        };
+        if !matches!(div_dir, LiquidityDirection::Neutral) {
+            let strength = (input.oi_delta_1h_pct.abs()).min(100.0);
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::OIFundingDivergence,
+                direction: div_dir,
+                strength,
+                confidence: 0.7,
+                evidence: vec![format!(
+                    "OI Δ1h = {:.2}%, funding = {:.4}%",
+                    input.oi_delta_1h_pct, input.funding_rate * 100.0
+                )],
+            });
+        }
+    }
+
+    // 4. Liquidity vacuum: thin book + dense liquidations behind price.
+    if let (Some(depth), Some(flow)) = (input.book_depth_ratio, input.flow) {
+        let thin = depth < 0.5 || depth > 2.0;
+        let dense = flow.event_count >= 3 || flow.largest_event_usd > 50_000.0;
+        if thin && dense {
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::LiquidityVacuum,
+                direction: if flow.net_liquidation_usd > 0.0 {
+                    LiquidityDirection::Bearish
+                } else {
+                    LiquidityDirection::Bullish
+                },
+                strength: 80.0,
+                confidence: 0.6,
+                evidence: vec![format!(
+                    "Book depth ratio {:.2}, {} events in last bar",
+                    depth, flow.event_count
+                )],
+            });
+        }
+    }
+
+    // 5. Magnet activation: price approaching a cluster zone.
+    if let Some(cluster) = input.cluster {
+        for c in cluster.short_clusters.iter().chain(cluster.long_clusters.iter()) {
+            if c.distance_from_mid_pct <= input.magnet_activation_distance_pct
+                && c.notional_usd > 100_000.0
+            {
+                let dir = match c.cluster_kind {
+                    ClusterKind::BelowCurrentPrice => LiquidityDirection::Bullish,
+                    ClusterKind::AboveCurrentPrice => LiquidityDirection::Bearish,
+                    _ => LiquidityDirection::Neutral,
+                };
+                out.push(LiquiditySignal {
+                    kind: LiquiditySignalKind::MagnetActivated,
+                    direction: dir,
+                    strength: c.magnet_strength,
+                    confidence: cluster.estimation_confidence,
+                    evidence: vec![format!(
+                        "Cluster @ ${:.2} (${:.0}M, {:.2}% from mid)",
+                        c.peak_price,
+                        c.notional_usd / 1_000_000.0,
+                        c.distance_from_mid_pct
+                    )],
+                });
+            }
+        }
+    }
+
+    out
+}
+
+#[cfg(test)]
+mod signal_tests {
+    use super::*;
+    use crate::liquidity::CascadeState;
+    use rust_decimal_macros::dec;
+
+    fn empty_flow(state: CascadeState) -> LiquidityFlow {
+        LiquidityFlow {
+            cascade_state: state,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn empty_input_produces_no_signals() {
+        let input = SignalInput::default();
+        let sigs = derive_liquidity_signals(&input);
+        assert!(sigs.is_empty());
+    }
+
+    #[test]
+    fn cascade_detected_emits_bearish_signal_on_long_liqs() {
+        let flow = LiquidityFlow {
+            cascade_state: CascadeState::Detected,
+            net_liquidation_usd: 100_000.0,
+            cascade_intensity: 60.0,
+            ..empty_flow(CascadeState::Detected)
+        };
+        let input = SignalInput {
+            flow: Some(&flow),
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::CascadeDetected));
+        let det = sigs.iter().find(|s| s.kind == LiquiditySignalKind::CascadeDetected).unwrap();
+        assert_eq!(det.direction, LiquidityDirection::Bearish);
+    }
+
+    #[test]
+    fn cascade_detected_emits_bullish_signal_on_short_liqs() {
+        let flow = LiquidityFlow {
+            cascade_state: CascadeState::Detected,
+            net_liquidation_usd: -100_000.0,
+            cascade_intensity: 50.0,
+            ..Default::default()
+        };
+        let input = SignalInput {
+            flow: Some(&flow),
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        let det = sigs.iter().find(|s| s.kind == LiquiditySignalKind::CascadeDetected).unwrap();
+        assert_eq!(det.direction, LiquidityDirection::Bullish);
+    }
+
+    #[test]
+    fn funding_extreme_emits_signal() {
+        let input = SignalInput {
+            funding_rate: 0.001, // 0.1%, above 0.05% extreme
+            funding_extreme_pct: 0.0005,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::FundingExtreme));
+        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::FundingExtreme).unwrap();
+        assert_eq!(sig.direction, LiquidityDirection::Bearish);
+    }
+
+    #[test]
+    fn funding_extreme_negative_emits_bullish() {
+        let input = SignalInput {
+            funding_rate: -0.002,
+            funding_extreme_pct: 0.0005,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::FundingExtreme).unwrap();
+        assert_eq!(sig.direction, LiquidityDirection::Bullish);
+    }
+
+    #[test]
+    fn oi_funding_divergence_oi_up_funding_down_bearish() {
+        let input = SignalInput {
+            funding_rate: -0.0001,
+            oi_delta_1h_pct: 5.0, // OI up
+            oi_funding_divergence_pct: 2.0,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::OIFundingDivergence);
+        assert!(sig.is_some());
+        assert_eq!(sig.unwrap().direction, LiquidityDirection::Bearish);
+    }
+
+    #[test]
+    fn oi_funding_divergence_oi_down_funding_up_bullish() {
+        let input = SignalInput {
+            funding_rate: 0.0001,
+            oi_delta_1h_pct: -3.0, // OI down
+            oi_funding_divergence_pct: 2.0,
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::OIFundingDivergence);
+        assert!(sig.is_some());
+        assert_eq!(sig.unwrap().direction, LiquidityDirection::Bullish);
+    }
+
+    #[test]
+    fn liquidity_vacuum_requires_thin_book_and_dense_flow() {
+        let flow = LiquidityFlow {
+            event_count: 5,
+            largest_event_usd: 60_000.0,
+            ..Default::default()
+        };
+        // Thin book (depth ratio < 0.5) and dense flow.
+        let input = SignalInput {
+            flow: Some(&flow),
+            book_depth_ratio: Some(0.3),
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::LiquidityVacuum));
+    }
+
+    #[test]
+    fn magnet_activated_near_cluster() {
+        let cluster = LiquidationClusterMatrix {
+            symbol: "BTC".to_string(),
+            generated_at_ms: 0,
+            valid_until_ms: 0,
+            mid_price: 50_000.0,
+            leverage_assumptions: LeverageAssumptions {
+                buckets: vec![],
+                weights: vec![],
+                funding_modulation_active: false,
+                funding_extreme_pct: 0.0,
+                source: LeverageDistributionSource::DefaultPowerLaw,
+            },
+            short_clusters: vec![],
+            long_clusters: vec![LiquidationCluster {
+                price_low: 49_500.0,
+                price_high: 50_000.0,
+                peak_price: 49_700.0,
+                notional_usd: 1_000_000.0,
+                dominant_leverage: 10,
+                distance_from_mid_pct: 0.6, // within 0.5%? no, 0.6 > 0.5
+                cluster_kind: ClusterKind::BelowCurrentPrice,
+                magnet_strength: 50.0,
+            }],
+            cascade_asymmetry: 0.0,
+            total_long_oi_usd: 0.0,
+            total_short_oi_usd: 0.0,
+            estimation_confidence: 0.8,
+        };
+        let input = SignalInput {
+            cluster: Some(&cluster),
+            magnet_activation_distance_pct: 1.0, // 1% threshold catches 0.6%
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::MagnetActivated));
+    }
+
+    #[test]
+    fn signal_strength_bounded_zero_to_hundred() {
+        let flow = LiquidityFlow {
+            cascade_state: CascadeState::Sustained,
+            cascade_intensity: 250.0, // intentionally too high
+            net_liquidation_usd: 1_000_000.0,
+            event_count: 100,
+            ..Default::default()
+        };
+        let input = SignalInput {
+            flow: Some(&flow),
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        for s in &sigs {
+            assert!(s.strength >= 0.0 && s.strength <= 100.0,
+                "strength must be in [0, 100]: got {}", s.strength);
+        }
+        // Even though cascade_intensity was 250, signals use clamp.
+        let sustained = sigs.iter().find(|s| matches!(s.kind, LiquiditySignalKind::CascadeSustained));
+        assert!(sustained.is_some());
+        assert!(sustained.unwrap().strength <= 100.0);
+    }
+
+    #[test]
+    fn signal_kind_serializes_as_screaming_snake_case() {
+        let kind = LiquiditySignalKind::CascadeSustained;
+        let json = serde_json::to_string(&kind).unwrap();
+        assert_eq!(json, "\"CASCADE_SUSTAINED\"");
+    }
+
+    #[test]
+    fn empty_flow_with_default_state_emits_no_cascade_signal() {
+        let flow = LiquidityFlow::default();
+        assert_eq!(flow.cascade_state, CascadeState::None);
+        let input = SignalInput {
+            flow: Some(&flow),
+            ..Default::default()
+        };
+        let sigs = derive_liquidity_signals(&input);
+        assert!(!sigs.iter().any(|s| matches!(s.kind,
+            LiquiditySignalKind::CascadeDetected
+            | LiquiditySignalKind::CascadeSustained
+            | LiquiditySignalKind::CascadeExhausted
+        )));
+        let _ = dec!(0.0);
+    }
+}
