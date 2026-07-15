@@ -49,7 +49,20 @@ The Overview Layer publishes the single market-wide danger index consumed by the
 
 $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penalty}$$
 
-Correlated downside elevates `sync_penalty` (0–100), because synchronized declines are systemically dangerous. It is `0` unless the global bias is bearish, then it scales with the synchronization level: `HIGHLY_SYNCHRONIZED` → 100, `SYNCHRONIZED` → 60, `MIXED` → 30, `FRAGMENTED` → 10, `HIGHLY_FRAGMENTED` → 0 (see [Overview Matrix §4](../../matrices/02-09-overview-matrix.md) for the full table). The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK`) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+Correlated downside elevates `sync_penalty` (0–100), because synchronized declines are systemically dangerous. It is `0` unless the global bias is in the bearish family (`BEARISH` or `STRONG_BEARISH`), then it scales with the synchronization level:
+
+| Condition | `sync_penalty` |
+|-----------|----------------|
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_SYNCHRONIZED` | 100 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `SYNCHRONIZED` | 60 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `MIXED` | 30 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `FRAGMENTED` | 10 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_FRAGMENTED` | 0 |
+| `global_market_bias ∉ {BEARISH, STRONG_BEARISH}` | 0 |
+
+The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK`) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+
+> **STRONG_BEARISH coverage (correction).** A previous version of this section used the informal phrase "unless the global bias is bearish" — this excluded `STRONG_BEARISH`. The corrected condition is member-set inclusion over `GlobalBias`'s bearish family (`BEARISH` ∪ `STRONG_BEARISH`), matching the canonical table in [Overview Matrix §4](../../matrices/02-09-overview-matrix.md).
 
 ---
 

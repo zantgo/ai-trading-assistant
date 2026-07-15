@@ -89,7 +89,7 @@ Exchange                DIE                                    MME
 3. **MME Multi-Axis Projection:** The MME reads the Market Data Matrix. Layer 1 calculates indicators and signals, projecting them onto their standardized **Evaluation Axes** (e.g., converting RSI to a structured object containing Value, State, Direction, and Strength).
 4. **Consensus & Regime Diagnosis:** Layer 2 measures cross-timeframe alignment scores. Layer 3 evaluates these inputs to determine the categorical `market_bias` and computes the continuous numeric `market_bias_score` (between $-1.0$ and $+1.0$).
 5. **Opportunity Scoring:** Layer 4 evaluates specific strategy-agnostic opportunities (0-100 score) based on the Analysis Matrix, running in parallel with Layer 5.
-6. **Risk Scoring:** Layer 5 consumes the Analysis Matrix (L3) and the underlying indicator map — running **in parallel with Layer 4 and independent of the opportunity score** — to evaluate multidimensional unipolar risk across **eight** dimensions (market, volatility, liquidity, structure, momentum, signal, execution, and overall risk), compiling the overall risk score. *(Reduced from nine in the institutional redesign; `reward_risk` was removed and moved to the Decision Layer as `environment_favorability`.)*
+6. **Risk Scoring:** Layer 5 consumes the Analysis Matrix (L3) and the underlying indicator map — running **in parallel with Layer 4 and independent of the opportunity score** — to evaluate multidimensional unipolar risk. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total** (market, volatility, execution_liquidity, structure, momentum, signal, execution, cascade, overall_risk). `cascade_risk` is the 8th of the eight sub-dimensions (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `reward_risk`/`correlation_risk`). `overall_risk` is the weighted aggregate. The reward synthesis lives at L6 as `entry_danger` (renamed from `environment_favorability`).
 7. **Guidance and Overview Compilation:** Layer 6 is the convergence boundary: it merges the parallel Opportunity and Risk branches with the Analysis Matrix (L3) — the directional bias, market quality, regime, and analysis confidence feed directly into L6 alongside the L4/L5 outputs — into a single symbol's **Decision Matrix** (trade readiness, stop-loss distance, and scenario pathways). Layer 7 aggregates all symbols into the global **Overview Matrix** (breadth ratios and Systemic Risk Score).
 
 ---
@@ -160,6 +160,8 @@ Exchange                 PME (Position & Exposure)              MME (Decision Su
 
 This safety loop operates continuously in the background. It intercepts and overrides active trading stance authorizations when systemic thresholds are crossed.
 
+The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`CLOSE_ONLY`** triggers (margin ceiling, loss streak), steps 2a (Hard Exit dispatch) and 2b (Hard Exit acknowledgement) are **skipped** — no forced liquidation, existing positions are managed by protective stops.
+
 ```
  PME (Portfolio Layer)            TAE (Policy Layer)          MME (Overview Matrix)
          |                                |                            |
@@ -167,18 +169,55 @@ This safety loop operates continuously in the background. It intercepts and over
          |--[Compute Drawdown & Margin]   |                            |
          |                                |                            |
          |====[VETO TRIGGERED]===========>|                            |
-         |    (Stance forced to AVOID)    |                            |
-         |                                |--[Nullify Entry Triggers]  |
-         |                                |--[Cancel Pending Orders]   |
+         |    (target_stance = AVOID      |                            |
+         |     for drawdown / systemic;   |                            |
+         |     CLOSE_ONLY for margin /    |                            |
+         |     loss streak)               |                            |
+         |                                |--[2a. Hard Exit Dispatch]  |  (AVOID only)
+         |                                |  (Market order,            |
+         |                                |   reduce_only=true,        |
+         |                                |   emergency_liquidation=   |
+         |                                |   true → bypasses Gate 1)  |
+         |                                |--[2b. Await Ack]           |  (AVOID only;
+         |                                |  bounded by hard_exit_     |  CLOSE_ONLY
+         |                                |  ack_timeout_ms)           |  skips)
+         |                                |--[3. Commit Stance Change] |
+         |                                |  (AVOID / CLOSE_ONLY)      |
+         |                                |--[4. Cancel Pending Orders]|  (after Hard Exit ack)
+         |                                |--[5. Nullify Entry Triggers]
 ```
 
 #### Detailed Operations:
 1. **Systemic Health Evaluation:** The PME Portfolio Layer continuously monitors total unrealized losses, aggregate margin usage, and account balance values. Concurrently, it reads the Systemic Risk Score from the MME **Overview Matrix**.
-2. **Veto Trigger:** Any of: (a) **equity drawdown breach** — `current_equity / peak_equity < (1 − drawdown_limit_pct)` (default `drawdown_limit_pct = 30 %` per [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)); (b) **margin ceiling** — `margin_usage_ratio ≥ 95 %` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md); (c) **systemic risk** — the MME Overview Matrix `systemic_risk_score` exceeds the operator-configured `systemic_risk_threshold`. The 5 % `max_daily_drawdown_pct` is the *early-warning* threshold (warning only, does not trigger veto); the 30 % `drawdown_limit_pct` is the *hard veto* threshold. The two are distinct metrics; see README "Key Conventions".
-   * PME asserts **Ontological Priority (Veto Power)**.
-   * It publishes a high-priority state override message to the TAE.
-3. **Execution Blockade:** The TAE Policy Layer processes the override. It immediately changes the symbol stance states to `Avoid` or `Close Only`.
-4. **Order Cancellation:** The TAE Execution Layer intercepts any pending trigger messages, discards fresh entry attempts at the boundary, and issues batch cancellation orders for any outstanding limit orders on the exchange.
+
+2. **Veto Trigger and Stance Mapping** (per [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)):
+   - **(a) Equity drawdown breach** — `current_equity / peak_equity < 1 − drawdown_limit_pct` (default `drawdown_limit_pct = 0.30`) → target stance **`AVOID`**, Hard Exit Path active.
+   - **(b) Margin ceiling** — `margin_usage_ratio ≥ 0.95` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) → target stance **`CLOSE_ONLY`**, graceful wind-down (no Hard Exit).
+   - **(c) Systemic risk** — the MME Overview Matrix `systemic_risk_score ≥ systemic_risk_threshold` (default `0.80`) → target stance **`AVOID`**, Hard Exit Path active.
+   - **(d) Loss streak** — `consecutive_losses ≥ dropout_threshold` (default 5) per [PME Layer 4 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) → target stance **`CLOSE_ONLY`** (per-symbol), graceful wind-down.
+
+   The 5 % `max_daily_drawdown_pct` is the *early-warning* threshold (drives `safety_state = WARN` — see Early Warnings table below — but does **not** trigger a veto). The 30 % `drawdown_limit_pct` is the *hard veto* threshold. The two are distinct metrics; see README "Key Conventions".
+
+   **Early Warnings (NOT veto triggers):**
+   | Trigger | Effect |
+   |---------|--------|
+   | **`max_daily_drawdown_pct` breach** | Sets `safety_state = WARN` (no stance change), operator-visible banner, audit log entry. Cleared automatically when `daily_drawdown_pct` returns below the threshold or on session reset. |
+
+> **Unit convention (correction).** `drawdown_limit_pct` is a fraction (default `0.30`, meaning 30 %). The breach formula `(1 − drawdown_limit_pct)` evaluates to `1 − 0.30 = 0.70`. The comparison `current_equity / peak_equity < 0.70` triggers when `current_equity ≤ 70 % × peak_equity` — a 30 % peak-to-trough hit.
+
+3. **PME asserts Ontological Priority (Veto Power).** It publishes a high-priority `VetoMessage` to the TAE, including trigger type and target stance (`AVOID` or `CLOSE_ONLY`).
+
+4. **Hard Exit Dispatch (AVOID triggers only — Step 2a in diagram).** For each active position on the affected symbol, the TAE Policy Layer dispatches a liquidation directive to the Execution Layer. The Execution Layer constructs a `Market` order with `reduce_only = true` and `emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) and dispatches to the exchange. The directive fires **before** the stance transitions to `AVOID` so the liquidation order carries the pre-veto authorization (avoiding the Gate-1 deadlock).
+
+5. **Hard Exit Acknowledgement (AVOID triggers only — Step 2b in diagram).** The TAE Execution Layer waits for exchange acknowledgement of each Hard Exit fill (or bounded retry deadline `hard_exit_ack_timeout_ms`, default 2000 ms). If acknowledgement exceeds the timeout, the cancellation batch in step 6 still proceeds and the liquidation is flagged `unconfirmed_exit` in the audit trail.
+
+6. **Commit Stance Transition (Step 3 in diagram).** The TAE Policy Layer sets the target stance (`AVOID` or `CLOSE_ONLY`). Only after Hard Exit acknowledgement (for AVOID triggers) does the stance change commit and Gate 1 begin rejecting further dispatches.
+
+7. **Order Cancellation (Step 4 in diagram).** After Hard Exit is acknowledged (or timed out), the TAE Execution Layer intercepts any pending trigger messages, discards fresh entry attempts at the boundary, and issues batch cancellation orders for any remaining outstanding limit/stop orders on the exchange.
+
+8. **Nullify Entry Triggers (Step 5 in diagram).** TAE Execution Layer nullifies pending entry triggers.
+
+9. **Audit.** The veto is logged with timestamp, trigger, target stance, and rationale.
 
 ---
 

@@ -1,10 +1,10 @@
 # Risk Matrix Specification
 
-**Version:** 2.1 (Phase 3 added `cascade_risk`; renamed `liquidity_risk` → `execution_liquidity_risk`)
+**Version:** 2.2 (v2.2: aligned wording to "eight unipolar danger sub-dimensions + `overall_risk` — nine fields total")
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
-**Purpose:** This document defines the physical schema and unipolar scoring model of the **Risk Matrix** — the direction-independent threat-assessment object. It quantifies the danger surrounding the current market interpretation across **nine dimensions** on a `0–100` unipolar scale. *(Phase 3 added `cascade_risk` for liquidation-cascade danger; the legacy `liquidity_risk` was renamed to `execution_liquidity_risk` to free the "liquidity" term for the positional concept.)*
+**Purpose:** This document defines the physical schema and unipolar scoring model of the **Risk Matrix** — the direction-independent threat-assessment object. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total** on a `0–100` unipolar scale. *(Phase 3 added `cascade_risk` for liquidation-cascade danger; the legacy `liquidity_risk` was renamed to `execution_liquidity_risk` to free the "liquidity" term for the positional concept.)*
 
 ---
 
@@ -14,12 +14,12 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.15, **Risk**
 
 Crucially, Risk is a property of an *interpretation*, not of raw observations: you cannot evaluate how risky a bullish trend is until you have first determined that a bullish trend exists. The Risk Matrix therefore consumes the [Analysis Matrix](02-02-analysis-matrix.md) plus the underlying [Metrics Matrix](02-07-metrics-matrix.md) indicators.
 
-**L4/L5 strict orthogonality (institutional redesign).** L5 does **not** consume the L4 Opportunity Matrix. The Layer 4 (Opportunity) and Layer 5 (Risk) branches are strictly orthogonal at the matrix boundary: each reads L3 directly and runs in parallel. **Reward evaluation is a synthesis** and has been moved to the [Decision Matrix (L6)](02-04-decision-matrix.md) as the new `environment_favorability` field. The Risk Matrix contains only **8 unipolar danger dimensions** + `overall_risk` — no reward synthesis.
+**L4/L5 strict orthogonality (institutional redesign).** L5 does **not** consume the L4 Opportunity Matrix. The Layer 4 (Opportunity) and Layer 5 (Risk) branches are strictly orthogonal at the matrix boundary: each reads L3 directly and runs in parallel. **Reward evaluation is a synthesis** and has been moved to the [Decision Matrix (L6)](02-04-decision-matrix.md) as the new `entry_danger` field. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate) — nine fields total — no reward synthesis.
 
 ```
 [Analysis Matrix] ─┐
                    ├──► RISK LAYER (L5) ──► [Risk Matrix]
-[Metrics Matrix ]  ┘      compute_risk()      (8 unipolar dimensions)
+[Metrics Matrix ]  ┘      compute_risk()      (eight sub-dims + overall_risk)
 ```
 
 Implemented as `RiskMatrix` (`crates/shared/src/risk.rs`), produced by `compute_risk()`.
@@ -28,21 +28,20 @@ Implemented as `RiskMatrix` (`crates/shared/src/risk.rs`), produced by `compute_
 
 ## 2. Physical Schema
 
-### 2.1 RiskMatrix Fields (8 Dimensions)
+### 2.1 RiskMatrix Fields (9 Dimensions)
 
 | Field | Type | Threat Vector |
 |-------|------|---------------|
 | `symbol` | `string` | Entity under analysis. |
 | `market_risk` | `RiskDimension` | General uncertainty from conflicting signals / weak structure. |
 | `volatility_risk` | `RiskDimension` | Danger from abnormal price movement. |
-| `liquidity_risk` | `RiskDimension` | Poor market participation / thin volume. |
+| `execution_liquidity_risk` | `RiskDimension` | Poor market participation / thin volume. (Renamed from `liquidity_risk` in Phase 3 to free the term "liquidity" for the new positional concept.) |
 | `structure_risk` | `RiskDimension` | Weak or damaged price structure. |
 | `momentum_risk` | `RiskDimension` | Exhausted / diverging momentum. |
 | `signal_risk` | `RiskDimension` | Conflicting or unreliable signals. |
 | `execution_risk` | `RiskDimension` | Practical difficulty (spread, slippage, thin book). |
-| `overall_risk` | `RiskDimension` | Weighted aggregate of the seven dimensions above. |
-
-> **Removed in the institutional redesign.** The previous `reward_risk` dimension has been **removed** from the Risk Matrix. Reward synthesis is a Decision-Layer concept and now lives at [Decision Matrix `environment_favorability`](02-04-decision-matrix.md).
+| `cascade_risk` | `RiskDimension` | Forced liquidation cascade danger. *(Added in Phase 3 — computed from `LiquidityFlow.cascade_intensity`, `cascade_state`, and `LiquidationClusterMatrix.cascade_asymmetry`.)* |
+| `overall_risk` | `RiskDimension` | Weighted aggregate of the eight sub-dimensions above. |
 
 ### 2.2 RiskDimension
 
@@ -79,9 +78,11 @@ Each assessment starts from a baseline and adjusts by additive evidence. All fin
 ### 4.1 Market Risk (baseline 50)
 ```
 +15 weak trend · +15 broken structure · +10 poor quality
-+10 low confidence (<0.4) · +10 conflicting signals present
--10 strong trend · -10 high confidence (>0.7)
++10 low state_confidence (<0.4) · +10 conflicting signals present
+-10 strong trend · -10 high state_confidence (>0.7)
 ```
+
+> **Rename reminder (Issue 3.E).** "analysis confidence" was renamed to `state_confidence` in the institutional redesign (see [02-00b-confidence-hierarchy.md §3](../matrices/02-00b-confidence-hierarchy.md)). Implementations must read the L3 field as `state_confidence`, not `confidence`.
 
 ### 4.2 Volatility Risk (baseline 30)
 ```
@@ -90,7 +91,7 @@ Each assessment starts from a baseline and adjusts by additive evidence. All fin
 if ATR present: score = mean(score, relative_atr)
 ```
 
-### 4.3 Liquidity Risk (baseline 30)
+### 4.3 Execution Liquidity Risk (baseline 30)
 ```
 +30 RVOL < 0.5 · +15 RVOL < 0.8 · -15 RVOL > 2.0
 +20 spread > 0.2% · -10 spread < 0.05%
@@ -110,8 +111,10 @@ if ATR present: score = mean(score, relative_atr)
 ### 4.6 Signal Risk (baseline 30)
 ```
 +min(10·n, 40) for n contradicting signals
-+10 no signals active · +15 analysis confidence < 0.5
++10 no signals active · +15 state_confidence < 0.5
 ```
+
+> **Rename reminder (Issue 3.E).** "analysis confidence" was renamed to `state_confidence` in the institutional redesign (see [02-00b-confidence-hierarchy.md §3](../matrices/02-00b-confidence-hierarchy.md)). The trigger `state_confidence < 0.5` reads the L3 field directly.
 
 ### 4.7 Execution Risk (baseline 25)
 ```
@@ -119,15 +122,24 @@ if ATR present: score = mean(score, relative_atr)
 +15 RVOL < 0.7 (low participation)
 ```
 
-### 4.8 *(Removed in the institutional redesign)*
+### 4.8 Cascade Risk (baseline 30, Phase 3)
 
-The previous `Reward Risk` derivation has been **removed** from the Risk Matrix. Reward synthesis has moved to the Decision Layer as `environment_favorability` (see [Decision Matrix §3](02-04-decision-matrix.md)).
+Cascade risk quantifies the danger from forced liquidation cascades. It consumes the [Liquidity Matrix](02-12-liquidity-matrix.md) (`LiquidityFlow`) and the [Liquidation Cluster Matrix](02-13-liquidation-cluster-matrix.md) (`LiquidationClusterMatrix`). The derivation mirrors `crates/shared/src/risk.rs::assess_cascade_risk`:
+
+```
+score = baseline 30.0
+score = max(score, flow.cascade_intensity)                       // pull in 0..100 intensity
++30  if flow.cascade_state == Sustained                          // premium 0..30 per state
++15  if flow.cascade_state == Detected                           // premium 0..15 per state
+ +0  if flow.cascade_state == Exhausted                          // decaying, no premium
++0..30  if |cluster.cascade_asymmetry| > 0.3                     // forward-looking pressure
+```
+
+Evidence strings record both the cascade state (when active) and any significant cluster asymmetry.
 
 ### 4.9 Overall Risk (weighted aggregate)
 
-$$\text{overall} = 0.15\,M + 0.20\,V + 0.15\,L + 0.10\,S_{tr} + 0.15\,M_{om} + 0.15\,S_{ig} + 0.10\,E$$
-
-where M=market, V=volatility, L=liquidity, S_tr=structure, M_om=momentum, S_ig=signal, E=execution. (Weights re-normalized after `reward_risk` removal: total = 1.0.)
+The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `reward_risk` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`, renamed from `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/shared/src/risk.rs::compute_risk`.
 
 ---
 
@@ -140,11 +152,12 @@ A representative Risk Matrix frame. The example illustrates the JSON shape and t
   "symbol": "BTC-USDT",
   "market_risk":     { "score": 35.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0, "evidence": ["High confidence"] },
   "volatility_risk": { "score": 45.0, "level": "MODERATE", "state": "STABLE", "confidence": 50.0, "evidence": ["BBWP elevated"] },
-  "liquidity_risk":  { "score": 15.0, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong participation"] },
+  "execution_liquidity_risk": { "score": 15.0, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong participation"] },
   "structure_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "momentum_risk":   { "score": 20.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "signal_risk":     { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "execution_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
+  "cascade_risk":    { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "overall_risk":    { "score": 28.75, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
 }
 ```
@@ -155,7 +168,7 @@ Empty `evidence` arrays are omitted. Enum values serialize as `SCREAMING_SNAKE_C
 
 ## 6. Empty State
 
-When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all nine dimensions defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
+When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all **nine fields** (market, volatility, execution_liquidity, structure, momentum, signal, execution, cascade, overall_risk) defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
 
 ---
 

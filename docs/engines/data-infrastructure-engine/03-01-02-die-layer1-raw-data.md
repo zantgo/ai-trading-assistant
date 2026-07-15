@@ -95,7 +95,7 @@ The Raw Data Layer respects venue rate limits through:
 
 - **Request pacing:** REST historical fetches are chunked and spaced to stay within venue quotas.
 - **Subscription batching:** WebSocket subscriptions for multiple symbols are batched into minimal frames.
-- **Backoff coupling:** The supervisor's exponential backoff (2 s → 60 s) doubles as a rate-limit relief valve after `429`/rejection responses.
+- **Backoff coupling:** The supervisor's exponential backoff (1 s → 30 s, ±20 % jitter — see [08-03-connection-resilience.md §3](../operations-and-compliance/08-03-connection-resilience.md)) doubles as a rate-limit relief valve after `429`/rejection responses.
 
 ---
 

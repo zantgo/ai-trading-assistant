@@ -22,8 +22,20 @@ impl BarInput {
         }
     }
 
-    pub fn ohlcv(open: Decimal, high: Decimal, low: Decimal, close: Decimal, volume: Decimal) -> Self {
-        Self { open, high, low, close, volume }
+    pub fn ohlcv(
+        open: Decimal,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Self {
+        Self {
+            open,
+            high,
+            low,
+            close,
+            volume,
+        }
     }
 }
 

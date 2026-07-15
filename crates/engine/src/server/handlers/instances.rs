@@ -1,7 +1,7 @@
 use crate::registry;
 use crate::server::types::{
-    AddInstanceRequest, InstanceConfigPayload, InstanceDetailQuery,
-    InstanceIntervalsRequest, InstanceListResponse, InstanceManualRequest,
+    AddInstanceRequest, InstanceConfigPayload, InstanceDetailQuery, InstanceIntervalsRequest,
+    InstanceListResponse, InstanceManualRequest,
 };
 use crate::server::AppState;
 use axum::{
@@ -52,9 +52,7 @@ pub async fn serve_add_instance(
             .into_response();
     }
 
-    match registry::add_instance(&state, (base, quote))
-        .await
-    {
+    match registry::add_instance(&state, (base, quote)).await {
         Ok(instance) => (
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!({
@@ -176,7 +174,9 @@ pub async fn serve_update_instance_config(
                     .as_deref()
                     .and_then(|s| match s {
                         "ManualOnly" => Some(crate::config::OperationalMode::ManualOnly),
-                        "DeterministicHeuristics" => Some(crate::config::OperationalMode::DeterministicHeuristics),
+                        "DeterministicHeuristics" => {
+                            Some(crate::config::OperationalMode::DeterministicHeuristics)
+                        }
                         _ => None,
                     })
                     .unwrap_or(existing.operational_mode),
@@ -186,14 +186,12 @@ pub async fn serve_update_instance_config(
             config.instances.insert(pk.clone(), specific_config);
             crate::config::save_instances(&config.instances).await;
             drop(config);
-            println!("Instance config saved: {} — triggering pipeline recharge", pk);
+            println!(
+                "Instance config saved: {} — triggering pipeline recharge",
+                pk
+            );
 
-            match registry::recharge_instance(
-                &state,
-                &pk,
-            )
-            .await
-            {
+            match registry::recharge_instance(&state, &pk).await {
                 Ok(()) => (
                     axum::http::StatusCode::OK,
                     "Instance configuration saved and pipelines recharged",

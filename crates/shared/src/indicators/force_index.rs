@@ -20,11 +20,7 @@ impl ForceIndex {
         }
     }
 
-    pub fn update(
-        &mut self,
-        close: Decimal,
-        volume: Decimal,
-    ) -> Option<Decimal> {
+    pub fn update(&mut self, close: Decimal, volume: Decimal) -> Option<Decimal> {
         let raw = match self.prev_close {
             Some(pc) => (close - pc) * volume,
             None => {

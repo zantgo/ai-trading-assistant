@@ -31,14 +31,26 @@ Trade readiness is derived from directional guidance, confidence, and stance. Th
 
 | Readiness | Condition |
 |-----------|-----------|
-| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + stance ∈ {`AGGRESSIVE`, `CONSTRUCTIVE`}. |
+| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + `market_stance` ∈ {`AGGRESSIVE`, `CONSTRUCTIVE`}. |
 | `FORMING` | Directional guidance present, `confidence_assessment` 40–60, or entry = `WAIT_FOR_CONFIRMATION`. |
 | `WATCH` | Neutral guidance or `confidence_assessment` 20–40. |
-| `STAND_ASIDE` | Stance = `AVOID` or `confidence_assessment < 20`. |
+| `STAND_ASIDE` | `market_stance = AVOID` or `confidence_assessment < 20`. |
 
 Confidence itself is risk-discounted:
 
 $$\text{confidence} = \text{clamp}\Big(\text{analysis.state\_confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
+
+**L6 Confluence Score** (composite, separate from `confidence_assessment`, in `[0, 100]`):
+
+```
+confluence_score = clamp(
+    0.50 × alignment.tradability_dim
+  + 0.30 × analysis.market_quality
+  + 0.20 × opportunity.opportunity_score,
+  0, 100)
+```
+
+The three components are read from L2 (Alignment `tradability_dim`), L3 (Analysis `market_quality`), and L4 (Opportunity `opportunity_score`) respectively and weighted by their predictive power for entry timing. `confluence_score` is the **composite L6 output** distinct from the risk-discounted `confidence_assessment` (the latter is the safety-aware confidence, the former is the raw setup strength).
 
 ---
 
@@ -62,7 +74,7 @@ otherwise             → ATRBased
 ### 4.2 Target Strategy
 ```
 structure strong/healthy → ResistanceBased
-environment_favorability.score < 40  → RRBased
+entry_danger.score < 40  → RRBased
 otherwise                → VolatilityBased
 ```
 

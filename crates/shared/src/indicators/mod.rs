@@ -47,7 +47,7 @@ pub use adx::{Adx, AdxOutput, DiCrossoverDir, TrendRegime};
 pub use anchored_vwap::{AnchoredVwap, AvwapOutput};
 pub use aroon::{Aroon, AroonOutput};
 pub use atr::{Atr, AtrOutput, VolatilityRegime};
-pub use awesome_oscillator::{AwesomeOscillator, AoOutput};
+pub use awesome_oscillator::{AoOutput, AwesomeOscillator};
 pub use bbwp::Bbwp;
 pub use bollinger::BollingerBands;
 pub use candlestick::{

@@ -104,10 +104,10 @@ pub enum ClusterKind {
 
 `cascade_asymmetry = (short_above.notional - long_below.notional) / total_oi`
 
-- **Negative** = more short-side pressure → short squeeze risk → price
-  likely to rally.
-- **Positive** = more long-side pressure → long squeeze risk → price
-  likely to fall.
+- **Positive** = more short-side notional above the mid than long-side notional below the mid → **short squeeze risk** (shorts are vulnerable to forced buy-to-cover as price rises).
+- **Negative** = more long-side notional below the mid than short-side notional above the mid → **long squeeze risk** (longs are vulnerable to forced sell as price falls).
+
+> **Sign interpretation (v2.1).** The previous version of this section had the sign meanings inverted (stated "Positive = long squeeze risk" when the formula actually gives positive when short-side notional above mid is greater — i.e. short squeeze risk). The corrected interpretation aligns with the formula: **positive → short squeeze risk; negative → long squeeze risk.**
 
 ## Estimation confidence
 

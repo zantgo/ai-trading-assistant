@@ -28,8 +28,10 @@ pub struct PsarOutput {
 impl ParabolicSar {
     pub fn new(af_step: f64, af_max: f64) -> Self {
         Self {
-            af_step: Decimal::from_f64_retain(af_step).unwrap_or(Decimal::from_f64_retain(0.02).unwrap()),
-            af_max: Decimal::from_f64_retain(af_max).unwrap_or(Decimal::from_f64_retain(0.20).unwrap()),
+            af_step: Decimal::from_f64_retain(af_step)
+                .unwrap_or(Decimal::from_f64_retain(0.02).unwrap()),
+            af_max: Decimal::from_f64_retain(af_max)
+                .unwrap_or(Decimal::from_f64_retain(0.20).unwrap()),
             sar: Decimal::ZERO,
             ep: Decimal::ZERO,
             af: Decimal::from_f64_retain(0.02).unwrap(),
@@ -142,10 +144,7 @@ mod tests {
         for i in 1..5i64 {
             let h = 110 + i * 3;
             let l = 90 + i * 3;
-            psar.update(
-                Decimal::from(h),
-                Decimal::from(l),
-            );
+            psar.update(Decimal::from(h), Decimal::from(l));
         }
         assert!(psar.af > dec!(0.02));
     }

@@ -19,6 +19,8 @@ The engine uses a fixed 4-tier structure, but each tier's duration is **configur
 
 The `fast_timeframe`, `slow_timeframe`, and `macro_timeframe` objects each have an `enabled` toggle (`true`/`false`) and a `duration_seconds` parameter. The micro timeframe is always active (it is the base candle duration from `candles`).
 
+> **Sub-minute durations (v2.1).** The 4-tier model supports any positive integer duration via `config.json`. The micro tier default is 60 s, but operators may configure sub-minute durations (e.g. 15 s, 30 s) for high-frequency strategies by setting `candles.duration_seconds` to the desired value. Sub-minute timeframes are not documented in the standard 4-tier ladder because most institutional strategies operate at 1m+ resolution; they are supported by the underlying pipeline (and by the reconstruction engine — see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)) but require explicit configuration.
+
 ---
 
 ## 2. Configuration
@@ -83,10 +85,10 @@ Each candle closes at the next exact UTC epoch-duration multiple:
 - `slow300` closes at the top of every fifth minute (`:05:00.000`, `:10:00.000`, `:15:00.000`, …).
 - `macro900` closes at the top of every fifteenth minute (`:00:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000`).
 
-The aggregator formula — `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` — deterministically produces these boundaries, so candles close on the integer epoch multiple, never at `:59.999`.
+The aggregator formula — `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` — deterministically produces the **start of the candle interval** as the integer epoch multiple. The **closing instant** of the candle is `interval_start + duration_ms` (i.e. the start of the next interval). Candles close on the integer epoch multiple (e.g. a `micro60` candle closing at the start of the next minute), never at `:59.999`.
 
 - **Late-Trade Recovery:** Any late-arriving trade whose exchange-server timestamp belongs to a prior time boundary is processed as a retroactive update to the historical buffer. It must never cause the active candle boundary to shift or delay its close.
-- **Clock Drift:** Local server system clocks execute continuous NTP polling to keep local system time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring local indicator values align exactly with exchange historical benchmarks. See [Global Architecture §2.1](01-02-global-architecture.md).
+- **Clock Drift:** Local server system clocks execute continuous NTP polling to keep local system time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring local indicator values align exactly with exchange historical benchmarks. Drift is enforced at runtime by `crates/engine/src/clock_monitor.rs` (spawned from `main.rs`, configured via the `"clock_monitor"` block of `config.json`). See [Global Architecture §2.1](01-02-global-architecture.md).
 
 ---
 
@@ -94,9 +96,23 @@ The aggregator formula — `interval_start = ⌊timestamp_ms / duration_ms⌋ ×
 
 Higher timeframes carry more weight in the Alignment layer's consensus calculations:
 
-$$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{macro\_duration\_seconds}},\ 0.2,\ 1.0\right)$$
+$$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the session's **active Macro timeframe duration** (`macro_timeframe.duration_seconds`), not a fixed constant. This keeps the hierarchy intact for any configured session — the Macro tier always weights `1.0` and shorter tiers scale down proportionally, preserving the semantic ordering micro ≤ fast ≤ slow ≤ macro. With default durations (macro = 900 s) this yields:
+The divisor is the session's **slowest enabled tier's duration** (the slowest tier with `enabled = true`). This keeps the hierarchy intact for any configured session — the slowest active tier always weights `1.0` and shorter tiers scale down proportionally, preserving the semantic ordering micro ≤ fast ≤ slow ≤ macro.
+
+**Divisor selection rule (Issue 4.N — correction).** The denominator is determined by the **slowest active** tier, not unconditionally `macro_duration_seconds`:
+
+```
+divisor = max({duration_seconds for tier in enabled_tiers})  // slowest active tier wins
+```
+
+- Default config (micro=60, fast=180, slow=300, macro=900, all enabled): divisor = 900 s. Equivalent to the original definition.
+- If `macro_timeframe.enabled = false` (a swing trader running `micro / fast / slow / off`): divisor = 300 s. Slow tier still weights `1.0`, micro/fast scale below it.
+- If only `micro` is enabled (a single-tier config): divisor = 60 s. The lone micro tier still weights `1.0` (the clamp `min(w, 1.0)`); all other tiers are absent from the consensus.
+
+> **Why dynamic.** A previous version of this section used `macro_duration_seconds` as the divisor unconditionally. When the macro tier is disabled, the divisor stays at its default value (e.g. 900 s for a default session) even though no tier uses it. The slowest *actual* tier gets clamped to its minimum (0.20) and the weighting carries no information about the real consensus structure. The dynamic divisor preserves the semantic ordering for any active subset of tiers.
+
+With default durations (macro = 900 s, all enabled) this yields:
 
 | Tier | Duration | Weight |
 |------|----------|--------|
@@ -104,6 +120,8 @@ The divisor is the session's **active Macro timeframe duration** (`macro_timefra
 | fast | 180 s | 0.20 |
 | slow | 300 s | 0.33 |
 | macro | 900 s | 1.00 |
+
+This rule is shared by [Alignment Matrix §4.1](../matrices/02-01-alignment-matrix.md) and [MME Layer 2 §3](../../engines/market-monitoring-engine/03-02-03-mme-layer2-alignment.md) — the formula and divisor rule are identical at all three locations.
 
 ---
 

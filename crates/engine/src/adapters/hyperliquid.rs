@@ -3,8 +3,8 @@ use futures_util::{SinkExt, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use shared::normalized::{
-    AssetContext, ConnectionStatus, Exchange, ExchangeAdapter, NormalizedEvent, NormalizedOrderBook,
-    NormalizedTrade, SymbolMapper, TradeSide,
+    AssetContext, ConnectionStatus, Exchange, ExchangeAdapter, NormalizedEvent,
+    NormalizedOrderBook, NormalizedTrade, SymbolMapper, TradeSide,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -88,7 +88,7 @@ struct UserFill {
     coin: String,
     px: String,
     sz: String,
-    side: String,        // "A" (sell) or "B" (buy)
+    side: String, // "A" (sell) or "B" (buy)
     time: u64,
     #[serde(rename = "hash", default)]
     hash: String,
@@ -439,8 +439,7 @@ pub async fn run_for_symbol(
                         }
                     }
                 } else if raw_text.contains("\"channel\":\"activeAssetCtx\"") {
-                    if let Ok(envelope) =
-                        serde_json::from_str::<ActiveAssetCtxEnvelope>(&raw_text)
+                    if let Ok(envelope) = serde_json::from_str::<ActiveAssetCtxEnvelope>(&raw_text)
                     {
                         if let Some(data) = envelope.data {
                             if let Some(ctx) = data.ctx {

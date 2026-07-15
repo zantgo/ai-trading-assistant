@@ -50,7 +50,11 @@ pub struct PivotPoint {
 
 /// Unified Fibonacci level calculator.
 /// Computes levels as: anchor_start + (anchor_end - anchor_start) * coeff
-fn calculate_fib_levels(anchor_start: Decimal, anchor_end: Decimal, coeffs: &[f64]) -> Vec<Decimal> {
+fn calculate_fib_levels(
+    anchor_start: Decimal,
+    anchor_end: Decimal,
+    coeffs: &[f64],
+) -> Vec<Decimal> {
     let range = anchor_end - anchor_start;
     coeffs
         .iter()
@@ -73,15 +77,18 @@ impl FibonacciRange {
             return Self::default();
         }
 
-        let mut retracement_levels = calculate_fib_levels(swing_high, swing_low, retracement_coeffs);
+        let mut retracement_levels =
+            calculate_fib_levels(swing_high, swing_low, retracement_coeffs);
         retracement_levels.sort_by(|a, b| b.cmp(a));
 
         let extension_levels = calculate_fib_levels(swing_low, swing_high, extension_coeffs);
 
-        let fib_levels =
-            calculate_fib_levels(swing_high, swing_low, &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786]);
-        let ext_levels =
-            calculate_fib_levels(swing_low, swing_high, &[1.272, 1.618, 2.000, 2.618]);
+        let fib_levels = calculate_fib_levels(
+            swing_high,
+            swing_low,
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+        );
+        let ext_levels = calculate_fib_levels(swing_low, swing_high, &[1.272, 1.618, 2.000, 2.618]);
 
         Self {
             swing_high: Some(swing_high),
@@ -119,15 +126,18 @@ impl FibonacciRange {
             return Self::default();
         }
 
-        let mut retracement_levels = calculate_fib_levels(swing_low, swing_high, retracement_coeffs);
+        let mut retracement_levels =
+            calculate_fib_levels(swing_low, swing_high, retracement_coeffs);
         retracement_levels.sort();
 
         let extension_levels = calculate_fib_levels(swing_high, swing_low, extension_coeffs);
 
-        let fib_levels =
-            calculate_fib_levels(swing_low, swing_high, &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786]);
-        let ext_levels =
-            calculate_fib_levels(swing_high, swing_low, &[1.272, 1.618, 2.000, 2.618]);
+        let fib_levels = calculate_fib_levels(
+            swing_low,
+            swing_high,
+            &[0.236, 0.382, 0.500, 0.618, 0.660, 0.786],
+        );
+        let ext_levels = calculate_fib_levels(swing_high, swing_low, &[1.272, 1.618, 2.000, 2.618]);
 
         Self {
             swing_high: Some(swing_high),

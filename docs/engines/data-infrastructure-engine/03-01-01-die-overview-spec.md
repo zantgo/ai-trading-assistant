@@ -88,7 +88,7 @@ Each adapter emits a `NormalizedEvent` enum:
 | Trade → live candle update | < 2 ms |
 | Observation loop (Raw → Market Data Matrix) | < 25 ms |
 | Event channel capacity | 10,000 buffered events |
-| Reconnect backoff | 2 s → 60 s (exponential) |
+| Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) |
 | Permanent disable threshold | 5 consecutive failures |
 
 > **Target Architecture (Not Yet Implemented).** The ≥ 50,000 events/sec sustained-ingestion target above assumes the DOD hot-path model: raw frames parsed into pre-allocated flat buffers and processed as contiguous `f64` slices, avoiding per-event heap allocation. The current millisecond targets are met by the struct-based pipeline.
@@ -121,7 +121,7 @@ The `MarketDataOrchestrator` (`crates/engine/src/orchestrator.rs`) supervises ev
 
 ### 4.1 Fault-Tolerance Rules
 
-- **Exponential backoff:** `retry_cooldown = min(retry_cooldown × 2, 60s)`, starting at 2 s.
+- **Exponential backoff:** `retry_cooldown = min(retry_cooldown × 2, 30s)`, starting at 1 s, with ±20 % jitter. *(Issue 5.C — correction.)* A previous revision of this section stated the backoff started at 2 s and capped at 60 s, but the canonical implementation in [08-03-connection-resilience.md](../operations-and-compliance/08-03-connection-resilience.md) starts at 1 s and caps at 30 s. The 1 s → 30 s range with ±20 % jitter is the authoritative behaviour.
 - **Failure window reset:** If > 300 s elapse since the last failure, the consecutive-failure counter resets to 0.
 - **Permanent disable:** After 5 consecutive failures, the adapter emits a terminal `Disconnected` status and the supervisor loop breaks.
 - **Dormant state:** With no configured symbols, the adapter idles (polling every 2 s) rather than failing.
@@ -147,7 +147,9 @@ The `SymbolMapper` (`crates/shared/src/normalized/symbol_mapper.rs`) maps exchan
 | `symbols` | Target instruments (`Exchange:Symbol` form). |
 | `candles.duration_seconds` | Base (micro) candle duration. |
 | `candles.analysis_limit` | Warm-up lookback depth. |
-| `slow_timeframe` / `macro_timeframe` | Additional timeframe pipelines. |
+| `fast_timeframe` | Fast tier object: `{ duration_seconds: 180, enabled: true }` (default; see [01-04-timeframe-model.md §1](../conceptual-foundations/01-04-timeframe-model.md)). |
+| `slow_timeframe` | Slow tier object: `{ duration_seconds: 300, enabled: true }` (default). |
+| `macro_timeframe` | Macro tier object: `{ duration_seconds: 900, enabled: true }` (default). |
 | `hyperliquid.ws_url` / `bitget.ws_url` | Venue WebSocket endpoints. |
 
 ---

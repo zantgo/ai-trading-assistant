@@ -1,7 +1,7 @@
+use rust_decimal::prelude::ToPrimitive;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use rust_decimal::prelude::ToPrimitive;
 
 use crate::analyzer;
 use crate::config::{
@@ -10,9 +10,9 @@ use crate::config::{
 };
 use crate::db;
 use crate::instance::{Instance, TimeframeBuffers};
-use crate::sr_engine::SrRoleTracker;
-use crate::session::{Currency, ExchangeChoice};
 use crate::server::AppState;
+use crate::session::{Currency, ExchangeChoice};
+use crate::sr_engine::SrRoleTracker;
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{NormalizedCandle, NormalizedEvent};
@@ -219,7 +219,7 @@ pub async fn build_pipelines(
         latest: slow_latest.clone(),
         snapshot_history: slow_snapshot_history.clone(),
     };
-let macro_buf = TimeframeBuffers {
+    let macro_buf = TimeframeBuffers {
         history: macro_history.clone(),
         latest: macro_latest.clone(),
         snapshot_history: macro_snapshot_history.clone(),
@@ -309,8 +309,7 @@ async fn spawn_tasks(
         .await;
     });
 
-    let (candle_fwd_tx, mut candle_fwd_rx) =
-        tokio::sync::mpsc::channel::<NormalizedCandle>(1000);
+    let (candle_fwd_tx, mut candle_fwd_rx) = tokio::sync::mpsc::channel::<NormalizedCandle>(1000);
     let (candle_bcast_tx, candle_bcast_rx) =
         tokio::sync::broadcast::channel::<NormalizedCandle>(1200);
 
@@ -365,7 +364,12 @@ async fn spawn_tasks(
     let fast_secs = fast_cfg.candles.duration_seconds;
     let micro_secs = micro_cfg.candles.duration_seconds;
     let (w_micro, w_fast, w_slow, w_macro) = match &warmed_states {
-        Some((m, s, med, l)) => (Some(m.clone()), Some(s.clone()), Some(med.clone()), Some(l.clone())),
+        Some((m, s, med, l)) => (
+            Some(m.clone()),
+            Some(s.clone()),
+            Some(med.clone()),
+            Some(l.clone()),
+        ),
         None => (None, None, None, None),
     };
 
@@ -499,16 +503,32 @@ async fn spawn_tasks(
     let exchange_for_spawn = exchange_choice.clone();
     tokio::spawn(async move {
         if exchange_for_spawn == ExchangeChoice::Bitget {
-            crate::adapters::bitget::run_for_symbol(ws_symbol, ws_internal, ws_product_type, ws_tx, ws_cancel, &ws_url).await;
+            crate::adapters::bitget::run_for_symbol(
+                ws_symbol,
+                ws_internal,
+                ws_product_type,
+                ws_tx,
+                ws_cancel,
+                &ws_url,
+            )
+            .await;
         } else {
-            crate::adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, &ws_url).await;
+            crate::adapters::hyperliquid::run_for_symbol(
+                ws_symbol,
+                ws_internal,
+                ws_tx,
+                ws_cancel,
+                &ws_url,
+            )
+            .await;
         }
     });
 
     // Phase 0: HL derivatives poller (mark price + OI + funding).
     // Bitget already pushes these natively on the WS adapter above.
     if liquidity_config.enabled && exchange_choice != ExchangeChoice::Bitget {
-        let hl_info_url = state.ws_url
+        let hl_info_url = state
+            .ws_url
             .replace("wss://", "https://")
             .replace("ws://", "http://")
             .replace("/ws", "/info");
@@ -548,10 +568,9 @@ async fn spawn_tasks(
                     _ = cancel_for_refresh.cancelled() => break,
                     _ = interval.tick() => {}
                 }
-                if let Some(m) = compute_cluster_from_active_pair(
-                    &active_pair_clone,
-                    &refresh_config,
-                ).await {
+                if let Some(m) =
+                    compute_cluster_from_active_pair(&active_pair_clone, &refresh_config).await
+                {
                     *cluster_handle.write().await = Some(m);
                 }
             }
@@ -570,10 +589,14 @@ async fn compute_cluster_from_active_pair(
 
     let micro = active_pair.micro.latest_snapshot.read().await.clone()?;
     let mid = micro.mid_price.to_f64()?;
-    if mid <= 0.0 { return None; }
+    if mid <= 0.0 {
+        return None;
+    }
     let funding = micro.funding_rate.and_then(|d| d.to_f64()).unwrap_or(0.0);
     let oi = micro.open_interest.and_then(|d| d.to_f64()).unwrap_or(0.0);
-    if oi <= 0.0 { return None; }
+    if oi <= 0.0 {
+        return None;
+    }
 
     let history_handle = active_pair.micro.history.read().await;
     let price_history: Vec<f64> = history_handle

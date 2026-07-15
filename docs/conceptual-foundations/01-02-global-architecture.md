@@ -50,7 +50,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 *   **Purpose:** Transform raw event-based feeds into structured, uniform temporal boundaries.
 *   **Processing:** Aggregate trade events and book snapshots into standardized OHLCV (Open, High, Low, Close, Volume) bars across target intervals.
 *   **Output (Market Data Matrix):** Uniform, multi-timeframe candle data per symbol.
-*   **Strict UTC-Alignment Constraint (Zero-Drift Synchronization):** All time-boundary candle aggregations synchronize strictly with the UTC daily clock. The closing instant of any candle aligns to the exact epoch-duration multiple of UTC, computed deterministically as `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` (so a `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:15:00.000`, `:30:00.000`, `:45:00.000`, or `:00:00.000`). Local server system clocks execute continuous NTP polling to maintain local system time drift under $\le 50 \text{ microseconds}$ of UTC. This prevents timezone, socket, or aggregation-time drift, ensuring local indicator values align exactly with exchange historical benchmarks.
+*   **Strict UTC-Alignment Constraint (Zero-Drift Synchronization):** All time-boundary candle aggregations synchronize strictly with the UTC daily clock. The closing instant of any candle aligns to the exact epoch-duration multiple of UTC, computed deterministically as `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` (so a `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:15:00.000`, `:30:00.000`, `:45:00.000`, or `:00:00.000`). Local server system clocks execute continuous NTP polling to maintain local system time drift under $\le 50 \text{ microseconds}$ of UTC. Drift enforcement is implemented in `crates/engine/src/clock_monitor.rs` (spawned as a continuous background task by `main.rs` after engine initialization and before live ingestion, polling NTP every 30 s; configured via the `"clock_monitor"` block of `config.json`). This prevents timezone, socket, or aggregation-time drift, ensuring local indicator values align exactly with exchange historical benchmarks. See [08-06-clock-monitor.md](../operations-and-compliance/08-06-clock-monitor.md) for the full lifecycle and breach handling.
 
 #### Layer 3: Data Quality Layer
 *   **Purpose:** Enforce data integrity and detect stream anomalies.
@@ -101,7 +101,7 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 #### Layer 5: Risk Layer
 *   **Purpose:** Quantify environmental danger and exposure conditions, independent of direction.
 *   **Processing:** Compute localized volatility parameters, measure book liquidity depth, evaluate proximity to major invalidation barriers, and assess signal divergence.
-*   **Output (Risk Matrix):** Comprehensive risk indices, factoring in volatility, liquidity, structure, signal, and correlation risk on a unipolar scale.
+*   **Output (Risk Matrix):** Comprehensive risk indices across **eight unipolar danger sub-dimensions** (`market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk`) plus `overall_risk`. *The previously-listed 8th sub-dimension was historically referred to as both "correlation risk" and "reward risk" — both terms are stale references to the same retired concept. The dimension was removed in the institutional redesign; its semantic successor is `entry_danger` (renamed from `environment_favorability`) in the Decision Matrix, and correlated-downside danger is now captured by the cross-symbol `systemic_risk_score` at L7 (see [Overview Matrix §4](../matrices/02-09-overview-matrix.md)).*
 
 #### Layer 6: Decision Layer
 *   **Purpose:** Synthesize bias, opportunity, and risk into strategic decision support.
@@ -239,6 +239,12 @@ Engines interact using two communication methods:
 ### 3.3 Zero Shared State
 Engines must run in separate memory structures or isolated processes. No engine is permitted to query another engine's private database tables or manipulate its internal runtime variables. All exchange of information is governed strictly by the public matrices defined.
 
+> **Documented exception: TAE–PME in-process sizing query.** The TAE Execution Layer and the PME Capital Layer share state via an in-process `tokio::sync::RwLock` over the in-memory `Capital Matrix` (no IPC, no SQLite round-trip on the sizing hot path). This is a deliberate latency-driven compromise — the Position Sizing Protocol must complete in microseconds, which is incompatible with cross-process RPC or DB round-trips. See [03-03-03-tae-layer2-execution.md §2.0](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) for the synchronization contract. Migration to out-of-process isolation is on the post-v2.2 roadmap.
+
+### 3.4 Documented Exception: MME L5 Multi-Source Input
+
+MME Layer 5 (Risk) consumes the L3 Analysis Matrix **and** the L2.5 LiquidationClusterMatrix (Phase 0-4 Liquidity Intelligence extension). The unidirectional invariant is preserved: L2.5 does not read from L5; L5 → L6 remains unidirectional. This is the only multi-source MME input. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the cascade invariant.
+
 ---
 
 ## 4. Platform Serialization and Dual-Execution Architecture (GUI vs. CLI)
@@ -290,6 +296,8 @@ Both modes write metrics, signals, orders, and execution events to a shared SQL/
 *   At any later point, the operator can boot the GUI application. The GUI reads these persisted records from the database, allowing the **Performance Analytics Engine (PAE)** to run retroactive trade reconstructions, significance tests ($P$-Values, $t$-statistics), and performance evaluations of the cloud-running strategy.
 
 > **Matrix invariance.** The CLI mode emits the **same** matrices as the GUI mode — the WebSocket `MarketSnapshot` envelope carries the full cascade (Metrics → Alignment → Analysis → Opportunity → Risk → Decision), and the Overview Matrix is broadcast on a separate channel. The CLI/GUI split is purely about the rendering / operator surface; the matrix contract is invariant across modes.
+
+> **Operational setup for cloud + local GUI.** When the CLI engine runs headlessly in the cloud (VPS, container, or remote server), the SQLite database (`./telemetry.db`) is local to that instance. The local GUI accesses the engine via **SSH port-forwarding** — e.g. `ssh -L 3000:127.0.0.1:3000 user@cloud-host` so the local browser sees `http://127.0.0.1:3000` as the engine's API. Alternatively, the operator can run a local engine instance with a synced copy of `telemetry.db` (via `rsync`, `scp`, or a cloud-synced volume like `rclone`) and point the local engine at the synced DB. The platform assumes one of these two operational setups when running in cloud-headless mode.
 
 ---
 
@@ -343,8 +351,11 @@ The transition occurs at **MME Layer 6 (Decision Support)**:
 
    ```rust
    // Type-boundary conversion (target design)
-   let d_sl = Decimal::from_f64_retain(stop_loss_distance_pct / 100.0)?; // 1.5 → 0.015
-   let size  = (available_margin * risk_pct) / d_sl;                     // all Decimal
+   let d_sl          = Decimal::from_f64_retain(stop_loss_distance_pct / 100.0)?; // 1.5 → 0.015
+   let risk_fraction = Decimal::from_f64_retain(risk_per_trade_pct     / 100.0)?; // 1.0 → 0.010
+   let size          = (available_margin * risk_fraction) / d_sl;                  // all Decimal
    ```
 
-   Equivalently, $S = \dfrac{E \times R}{D_{sl} / 100}$ with $E$ = available margin (Decimal), $R$ = risk-per-trade fraction, $D_{sl}$ = stop-loss distance as a raw percentage float.
+   Equivalently, $S = \dfrac{E \times R}{D_{sl} / 100}$ with $E$ = available margin (Decimal), $R = \text{risk\_per\_trade\_pct} / 100$ (the **fraction** form: $R \in [0, 1]$; the raw user-facing value `risk_per_trade_pct` is divided by `100` to obtain $R$), and $D_{sl}$ = stop-loss distance as a raw percentage float.
+
+   > **Variable-naming hazard (correction).** A previous snippet used `risk_pct` in the multiplication — this is a 100× over-size hazard if `risk_pct` carries the raw-percent float (`1.0`) instead of the fraction (`0.01`). The canonical variable name for the fraction is `risk_fraction`.

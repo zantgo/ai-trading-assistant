@@ -60,7 +60,10 @@ pub struct ConfigState {
 }
 
 impl ConfigState {
-    pub fn new(intervals: IntervalsConfig, operational_mode: crate::config::OperationalMode) -> Self {
+    pub fn new(
+        intervals: IntervalsConfig,
+        operational_mode: crate::config::OperationalMode,
+    ) -> Self {
         Self {
             status: InstanceStatus::Running,
             intervals,
@@ -323,11 +326,12 @@ impl Instance {
             safety: crate::config::SafetyConfig::default(),
             intervals: crate::config::IntervalsConfig::default(),
             liquidity: crate::config::LiquidityConfig::default(),
+            clock_monitor: None,
             instances: std::collections::HashMap::new(),
         }));
         // Use a no-op sqlite pool for tests. We never hit the DB.
-        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:")
-            .expect("lazy sqlite memory pool");
+        let pool =
+            sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
         Self {
             id,
             pair,
@@ -353,11 +357,11 @@ impl Instance {
 impl TimeframeBuffers {
     /// Default constructor for unit tests.
     pub fn new() -> Self {
+        use shared::models::MarketSnapshot;
+        use shared::normalized::NormalizedCandle;
         use std::collections::VecDeque;
         use std::sync::Arc;
         use tokio::sync::RwLock;
-        use shared::models::MarketSnapshot;
-        use shared::normalized::NormalizedCandle;
         Self {
             history: Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::new())),
             latest: Arc::new(RwLock::new(None::<MarketSnapshot>)),

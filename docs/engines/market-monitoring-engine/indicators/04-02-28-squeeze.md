@@ -121,15 +121,15 @@ Squeeze Momentum Chart:
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| CompressionRelease | COMPRESSION_COILING | Squeeze is ON (Bollinger bands inside Keltner channels) — coiled energy | Neutral |
-| CompressionRelease | BULLISH_VOLATILITY_RELEASE | Squeeze releases with positive momentum direction | Bullish |
-| CompressionRelease | BEARISH_VOLATILITY_RELEASE | Squeeze releases with negative momentum direction | Bearish |
+| VolatilityCycle | COMPRESSION_COILING | Squeeze is ON (Bollinger bands inside Keltner channels) — coiled energy | Neutral |
+| VolatilityCycle | BULLISH_VOLATILITY_RELEASE | Squeeze releases with positive momentum direction | Bullish |
+| VolatilityCycle | BEARISH_VOLATILITY_RELEASE | Squeeze releases with negative momentum direction | Bearish |
 | Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-squeeze-momentum divergence detected via SeriesDivergence | Bullish/Bearish |
 | Threshold | BULLISH_EXPANSION_ACCELERATING | Momentum expanding in bullish direction | Bullish |
 | Threshold | BEARISH_EXPANSION_ACCELERATING | Momentum expanding in bearish direction | Bearish |
 | Threshold | BULLISH_MOMENTUM_EXHAUSTING / DECELERATING | Momentum decelerating (warning of stall) | Neutral |
 
-The Threshold signals for acceleration/deceleration are distinct from CompressionRelease — they capture momentum phase changes within an active trend, not the initial release from compression.
+The Threshold signals for acceleration/deceleration are distinct from VolatilityCycle — they capture momentum phase changes within an active trend, not the initial release from compression.
 
 ## Normalization
 

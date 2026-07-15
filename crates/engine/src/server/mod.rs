@@ -12,6 +12,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::config::AppConfig;
+use crate::connection_quality::ConnectionQualityTracker;
 use crate::instance::Instance;
 use crate::session::{Currency, ExchangeChoice, SessionState};
 
@@ -33,6 +34,7 @@ pub struct AppState {
     pub pool: SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<crate::db::TelemetryMsg>,
+    pub connection_quality: Arc<ConnectionQualityTracker>,
     pub ws_url: String,
     pub bitget_ws_url: String,
 }
@@ -80,8 +82,7 @@ impl AppState {
                 exchange.as_str(),
                 currency.as_str(),
                 match exchange {
-                    ExchangeChoice::Hyperliquid =>
-                        "Hyperliquid perpetuals settle in USDC only.",
+                    ExchangeChoice::Hyperliquid => "Hyperliquid perpetuals settle in USDC only.",
                     ExchangeChoice::Bitget => "Select USDT or USDC.",
                 }
             ));
@@ -183,6 +184,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::config::serve_get_rules).post(handlers::config::serve_set_rules),
         )
         .route("/api/history", get(handlers::history::serve_history))
+        .route(
+            "/api/connection-quality",
+            get(handlers::connection_quality::get_connection_quality),
+        )
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
         .route(
             "/api/trades",
@@ -368,10 +373,22 @@ mod tests {
         use std::collections::HashMap;
 
         let mut map: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
-        map.insert("rsi".into(), NormalizedIndicatorValue::scalar(25.0, 0.8, "OVERSOLD_ACCUMULATION"));
-        map.insert("bbwp".into(), NormalizedIndicatorValue::scalar(5.0, 0.0, "MAX_VOLATILITY_COMPRESSION"));
-        map.insert("rvol".into(), NormalizedIndicatorValue::scalar(0.8, -0.5, "CONSOLIDATION_VOLUME"));
-        map.insert("squeeze".into(), NormalizedIndicatorValue::scalar(-0.05, -0.2, "BEARISH_MOMENTUM_EXHAUSTING"));
+        map.insert(
+            "rsi".into(),
+            NormalizedIndicatorValue::scalar(25.0, 0.8, "OVERSOLD_ACCUMULATION"),
+        );
+        map.insert(
+            "bbwp".into(),
+            NormalizedIndicatorValue::scalar(5.0, 0.0, "MAX_VOLATILITY_COMPRESSION"),
+        );
+        map.insert(
+            "rvol".into(),
+            NormalizedIndicatorValue::scalar(0.8, -0.5, "CONSOLIDATION_VOLUME"),
+        );
+        map.insert(
+            "squeeze".into(),
+            NormalizedIndicatorValue::scalar(-0.05, -0.2, "BEARISH_MOMENTUM_EXHAUSTING"),
+        );
         map.insert("macd".into(), {
             let mut v = HashMap::new();
             v.insert("line".to_string(), -0.5);
@@ -398,12 +415,14 @@ mod tests {
         });
         // Push a Divergence signal onto the RSI entry (divergence lives on parent).
         if let Some(rsi_entry) = map.get_mut("rsi") {
-            rsi_entry.signals.push(shared::indicators::normalized::IndicatorSignal::new(
-                shared::indicators::normalized::SignalKind::Divergence,
-                shared::indicators::normalized::SignalDirection::Bullish,
-                shared::indicators::normalized::SignalStatus::Potential,
-                "POTENTIAL_BULLISH_DIVERGENCE",
-            ));
+            rsi_entry
+                .signals
+                .push(shared::indicators::normalized::IndicatorSignal::new(
+                    shared::indicators::normalized::SignalKind::Divergence,
+                    shared::indicators::normalized::SignalDirection::Bullish,
+                    shared::indicators::normalized::SignalStatus::Potential,
+                    "POTENTIAL_BULLISH_DIVERGENCE",
+                ));
         }
         map.insert("atr".into(), {
             let mut v = HashMap::new();

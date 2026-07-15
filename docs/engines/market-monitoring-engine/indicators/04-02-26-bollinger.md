@@ -38,5 +38,11 @@ Both Breakout and BandTouch fire from distinct detection sources (structured eng
 
 ## 5. Configuration
 ```json
-{}
+{
+  "indicators": {
+    "bollinger_period": 20,
+    "bollinger_stddev_multiplier": 2.0,
+    "bollinger_source": "close"
+  }
+}
 ```

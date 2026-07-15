@@ -75,3 +75,33 @@ Declining intensity after `Sustained` → `Exhausted`.
 `MarketSnapshot.liquidity` rides the WebSocket frame to the frontend
 under `liquidity`. The LiquidityPanel (Phase 4) renders the Flow tab
 from this field.
+
+## 6. Configuration Surface
+
+The Liquidity Intelligence configuration is set in `config.json` under the `liquidity` block:
+
+```json
+{
+  "liquidity": {
+    "enabled": true,
+    "cascade_z_score_threshold": 2.0,
+    "cascade_rolling_window_bars": 10,
+    "cascade_sustained_min_events": 3,
+    "cluster_refresh_interval_secs": 300,
+    "funding_flip_threshold_pct": 0.01,
+    "oi_divergence_window_bars": 5
+  }
+}
+```
+
+| Field | Default | Description |
+|------|---------|-------------|
+| `enabled` | `true` | Master switch for the Liquidity Intelligence extension. |
+| `cascade_z_score_threshold` | `2.0` | Z-score above which a single event triggers `Detected` state. |
+| `cascade_rolling_window_bars` | `10` | Rolling window (in candles) for the z-score computation. |
+| `cascade_sustained_min_events` | `3` | Min events in the window to escalate to `Sustained`. |
+| `cluster_refresh_interval_secs` | `300` | Cluster matrix refresh interval (5 min default). |
+| `funding_flip_threshold_pct` | `0.01` | Funding rate change threshold for `LIQUIDITY_FUNDING_FLIP` signal. |
+| `oi_divergence_window_bars` | `5` | OI divergence detection window. |
+
+All fields have safe defaults. See [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical source.

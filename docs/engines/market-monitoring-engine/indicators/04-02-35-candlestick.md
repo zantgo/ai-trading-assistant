@@ -35,19 +35,7 @@ Each detection yields a `DetectedPattern { pattern, direction, quality }` where 
 
 ---
 
-## 3. Stage 3 — Confirmation (pending buffer)
-
-A geometrically-detected directional pattern is **armed** into a pending buffer with a trigger price (the signal candle's high for bullish, low for bearish). The recognizer is therefore lightly **stateful** and is warmed through history and carried via `WarmedPipelineState`.
-
-* **Confirmed** — the next candle closes beyond the trigger price → `CandlestickStatus::Confirmed`.
-* **Invalidated** — the next candle contradicts the pattern → discarded.
-* **Expiry** — unconfirmed after `max_confirm_age` (3 bars) → discarded.
-
-Neutral patterns (Doji, Spinning Top, Long-Legged Doji) never enter the confirmation pipeline.
-
----
-
-## 4. Stage 2 — Context Validation (normalization)
+## 3. Stage 2 — Context Validation (normalization)
 
 Applied in `normalize_all` where the full live indicator map is available. A context multiplier is computed from:
 
@@ -60,6 +48,18 @@ Applied in `normalize_all` where the full live indicator map is available. A con
 | **Volatility** (`bbwp`) | Extreme expansion (≥ 95) discounts noisy wicks |
 
 Final `confidence = quality × context_mult`, gated by `min_confidence` (default 0.3). The normalized score is `direction × confidence`, scaled ×1.0 for Confirmed and ×0.6 for merely Formed. Below-threshold or invalidated readings collapse to a neutral (0.0) entry.
+
+---
+
+## 4. Stage 3 — Confirmation (pending buffer)
+
+A geometrically-detected directional pattern is **armed** into a pending buffer with a trigger price (the signal candle's high for bullish, low for bearish). The recognizer is therefore lightly **stateful** and is warmed through history and carried via `WarmedPipelineState`.
+
+* **Confirmed** — the next candle closes beyond the trigger price → `CandlestickStatus::Confirmed`.
+* **Invalidated** — the next candle contradicts the pattern → discarded.
+* **Expiry** — unconfirmed after `max_confirm_age` (3 bars) → discarded.
+
+Neutral patterns (Doji, Spinning Top, Long-Legged Doji) never enter the confirmation pipeline.
 
 ---
 
@@ -86,6 +86,8 @@ Final `confidence = quality × context_mult`, gated by `min_confidence` (default
 
 **Scoring:** `candlestick` is a `directional` registry indicator contributing `weight × normalized` to the confluence engine. Confirmed patterns carry full weight (×1.0); Formed-only patterns carry reduced weight (×0.6). Below-threshold or invalidated readings collapse to neutral (0.0).
 
+**Independence from SMC.** Candlestick patterns are independent of the SMC family (`smc_structure`, `smc_liquidity`, `smc_fvg`, `smc_order_blocks`); the two coexist and are never conflated. Candlestick patterns render as `PatternForming` signals on the parent `candlestick` indicator key; SMC components render as `Breakout` / `TrendFlip` / `LevelTest` signals on their respective `smc_*` keys. They contribute to confluence independently and do not interact at the engine level.
+
 ## 7. Rendering & Persistence
 
 * **Persistence:** pattern name, category, direction, quality, confidence, and status flow through the JSON blob — no migration.
@@ -94,7 +96,7 @@ Final `confidence = quality × context_mult`, gated by `min_confidence` (default
 
 ---
 
-## 7. Configuration
+## 8. Configuration
 
 ```json
 {

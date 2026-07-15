@@ -8,7 +8,7 @@
 //! Layer: L4.75 in the architecture (Decision Guidance).
 
 use crate::analysis::AnalysisMatrix;
-use crate::risk::RiskMatrix;
+use crate::risk::{RiskDimension, RiskMatrix};
 use serde::{Deserialize, Serialize};
 
 /// Directional guidance classification.
@@ -116,6 +116,11 @@ pub struct AdvisoryMatrix {
     pub protection_strategy: ProtectionStrategy,
     pub target_strategy: TargetStrategy,
     pub confidence_assessment: f64,
+    /// Synoptic favorability of entering a position — semantic successor
+    /// of the old `Risk.reward_risk` (removed in the institutional redesign).
+    /// Synthesized from L3 `market_quality` and the L4 opportunity type —
+    /// lower score = more favorable environment.
+    pub environment_favorability: RiskDimension,
     pub final_recommendation: String,
 }
 
@@ -132,16 +137,38 @@ impl AdvisoryMatrix {
             protection_strategy: ProtectionStrategy::NoRecommendation,
             target_strategy: TargetStrategy::NoRecommendation,
             confidence_assessment: 0.0,
+            environment_favorability: RiskDimension::default(),
             final_recommendation: "Insufficient data to provide guidance.".into(),
         }
     }
 }
 
+/// Compute `environment_favorability` — synoptic favorability of entering
+/// a position. Synthesizes L3 `market_quality` and an opportunity proxy
+/// derived from `OpportunityType` (since the Opportunity Matrix's
+/// numeric `opportunity_score` is not yet available at L6 synthesis
+/// time). Lower score = more favorable environment.
+fn compute_environment_favorability(analysis: &AnalysisMatrix) -> RiskDimension {
+    let quality_penalty: f64 = match analysis.market_quality {
+        crate::analysis::QualityLevel::Excellent => 10.0,
+        crate::analysis::QualityLevel::Good => 25.0,
+        crate::analysis::QualityLevel::Average => 50.0,
+        crate::analysis::QualityLevel::Weak => 70.0,
+        crate::analysis::QualityLevel::Poor => 80.0,
+    };
+    let opportunity_score: f64 = match analysis.opportunity_analysis {
+        crate::analysis::OpportunityType::NoClearOpportunity => 20.0,
+        _ => 80.0,
+    };
+    let score: f64 = ((quality_penalty + (100.0 - opportunity_score)) / 2.0).clamp(0.0, 100.0);
+    RiskDimension {
+        score,
+        ..RiskDimension::default()
+    }
+}
+
 /// Compute Advisory Matrix from Analysis + Risk.
-pub fn compute_advisory(
-    analysis: &AnalysisMatrix,
-    risk: &RiskMatrix,
-) -> AdvisoryMatrix {
+pub fn compute_advisory(analysis: &AnalysisMatrix, risk: &RiskMatrix) -> AdvisoryMatrix {
     if analysis.timeframes_considered == 0 {
         return AdvisoryMatrix::empty(&analysis.symbol);
     }
@@ -149,20 +176,32 @@ pub fn compute_advisory(
     // Directional guidance from bias × risk
     let directional = match analysis.bias {
         crate::analysis::MarketBias::StrongBullish => {
-            if risk.overall_risk.score < 50.0 { DirectionalGuidance::StrongLong }
-            else { DirectionalGuidance::Long }
+            if risk.overall_risk.score < 50.0 {
+                DirectionalGuidance::StrongLong
+            } else {
+                DirectionalGuidance::Long
+            }
         }
         crate::analysis::MarketBias::Bullish => {
-            if risk.overall_risk.score < 40.0 { DirectionalGuidance::Long }
-            else { DirectionalGuidance::Neutral }
+            if risk.overall_risk.score < 40.0 {
+                DirectionalGuidance::Long
+            } else {
+                DirectionalGuidance::Neutral
+            }
         }
         crate::analysis::MarketBias::StrongBearish => {
-            if risk.overall_risk.score < 50.0 { DirectionalGuidance::StrongShort }
-            else { DirectionalGuidance::Short }
+            if risk.overall_risk.score < 50.0 {
+                DirectionalGuidance::StrongShort
+            } else {
+                DirectionalGuidance::Short
+            }
         }
         crate::analysis::MarketBias::Bearish => {
-            if risk.overall_risk.score < 40.0 { DirectionalGuidance::Short }
-            else { DirectionalGuidance::Neutral }
+            if risk.overall_risk.score < 40.0 {
+                DirectionalGuidance::Short
+            } else {
+                DirectionalGuidance::Neutral
+            }
         }
         crate::analysis::MarketBias::Neutral => DirectionalGuidance::Neutral,
     };
@@ -171,16 +210,25 @@ pub fn compute_advisory(
     let stance = match analysis.market_quality {
         crate::analysis::QualityLevel::Excellent => MarketStance::Aggressive,
         crate::analysis::QualityLevel::Good => {
-            if risk.overall_risk.score < 50.0 { MarketStance::Constructive }
-            else { MarketStance::Neutral }
+            if risk.overall_risk.score < 50.0 {
+                MarketStance::Constructive
+            } else {
+                MarketStance::Neutral
+            }
         }
         crate::analysis::QualityLevel::Average => {
-            if risk.overall_risk.score > 60.0 { MarketStance::Cautious }
-            else { MarketStance::Neutral }
+            if risk.overall_risk.score > 60.0 {
+                MarketStance::Cautious
+            } else {
+                MarketStance::Neutral
+            }
         }
         crate::analysis::QualityLevel::Weak => {
-            if risk.overall_risk.score > 40.0 { MarketStance::Avoid }
-            else { MarketStance::Cautious }
+            if risk.overall_risk.score > 40.0 {
+                MarketStance::Avoid
+            } else {
+                MarketStance::Cautious
+            }
         }
         crate::analysis::QualityLevel::Poor => MarketStance::Avoid,
     };
@@ -193,14 +241,15 @@ pub fn compute_advisory(
         crate::analysis::OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
         crate::analysis::OpportunityType::Reversal => OpportunityClass::Reversal,
         crate::analysis::OpportunityType::LiquiditySqueeze => OpportunityClass::LiquiditySqueeze,
-        crate::analysis::OpportunityType::NoClearOpportunity => OpportunityClass::NoClearOpportunity,
+        crate::analysis::OpportunityType::NoClearOpportunity => {
+            OpportunityClass::NoClearOpportunity
+        }
     };
 
     // Strategy environment from regime + volatility
     let strategy_env = match analysis.market_regime {
-        crate::analysis::MarketRegime::TrendingBull | crate::analysis::MarketRegime::TrendingBear => {
-            StrategyEnvironment::TrendFollowing
-        }
+        crate::analysis::MarketRegime::TrendingBull
+        | crate::analysis::MarketRegime::TrendingBear => StrategyEnvironment::TrendFollowing,
         crate::analysis::MarketRegime::Expansion => StrategyEnvironment::Breakout,
         crate::analysis::MarketRegime::Range | crate::analysis::MarketRegime::Contraction => {
             StrategyEnvironment::MeanReversion
@@ -211,12 +260,18 @@ pub fn compute_advisory(
     // Entry guidance from trend quality + risk
     let entry = match analysis.trend_assessment {
         crate::analysis::TrendAssessment::Strong | crate::analysis::TrendAssessment::Healthy => {
-            if risk.volatility_risk.score < 50.0 { EntryGuidance::Immediate }
-            else { EntryGuidance::WaitForConfirmation }
+            if risk.volatility_risk.score < 50.0 {
+                EntryGuidance::Immediate
+            } else {
+                EntryGuidance::WaitForConfirmation
+            }
         }
         crate::analysis::TrendAssessment::Developing => {
-            if risk.overall_risk.score < 50.0 { EntryGuidance::Pullback }
-            else { EntryGuidance::WaitForConfirmation }
+            if risk.overall_risk.score < 50.0 {
+                EntryGuidance::Pullback
+            } else {
+                EntryGuidance::WaitForConfirmation
+            }
         }
         _ => EntryGuidance::NoEntryContext,
     };
@@ -226,33 +281,42 @@ pub fn compute_advisory(
         crate::analysis::MomentumAssessment::Exhausted => ExitGuidance::MomentumExhaustion,
         crate::analysis::MomentumAssessment::Reversing => ExitGuidance::MomentumExhaustion,
         crate::analysis::MomentumAssessment::Weakening => {
-            if risk.overall_risk.score > 50.0 { ExitGuidance::RiskIncreasing }
-            else { ExitGuidance::TrendWeakening }
+            if risk.overall_risk.score > 50.0 {
+                ExitGuidance::RiskIncreasing
+            } else {
+                ExitGuidance::TrendWeakening
+            }
         }
         _ => ExitGuidance::NoWarning,
     };
 
     // Stop loss from volatility + structure
-    let protection = if analysis.volatility_assessment == crate::analysis::VolatilityAssessment::Compressed {
-        ProtectionStrategy::StructureBased
-    } else if risk.volatility_risk.score > 60.0 {
-        ProtectionStrategy::VolatilityBased
-    } else {
-        ProtectionStrategy::ATRBased
-    };
+    let protection =
+        if analysis.volatility_assessment == crate::analysis::VolatilityAssessment::Compressed {
+            ProtectionStrategy::StructureBased
+        } else if risk.volatility_risk.score > 60.0 {
+            ProtectionStrategy::VolatilityBased
+        } else {
+            ProtectionStrategy::ATRBased
+        };
 
-    // Take profit from structure + reward risk
+    // Environment favorability (synoptic L3+L4 favorability for entering)
+    let environment_favorability = compute_environment_favorability(analysis);
+
+    // Take profit from structure + environment favorability
     let target = if analysis.structure_assessment == crate::analysis::StructureAssessment::Strong
-        || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy {
+        || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy
+    {
         TargetStrategy::ResistanceBased
-    } else if risk.reward_risk.score < 40.0 {
+    } else if environment_favorability.score < 40.0 {
         TargetStrategy::RRBased
     } else {
         TargetStrategy::VolatilityBased
     };
 
     // Confidence: analysis.confidence × (1 - risk.overall/100)
-    let confidence = (analysis.confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0).clamp(0.0, 100.0);
+    let confidence =
+        (analysis.confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0).clamp(0.0, 100.0);
 
     let recommendation = format!(
         "{}: {} bias with {} confidence, {} stance in a {} environment. {} opportunity. Entry: {}. Stop: {}.",
@@ -317,6 +381,7 @@ pub fn compute_advisory(
         protection_strategy: protection,
         target_strategy: target,
         confidence_assessment: confidence,
+        environment_favorability,
         final_recommendation: recommendation,
     }
 }
@@ -330,7 +395,10 @@ mod tests {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
         let adv = compute_advisory(&analysis, &risk);
-        assert!(matches!(adv.directional_guidance, DirectionalGuidance::Neutral));
+        assert!(matches!(
+            adv.directional_guidance,
+            DirectionalGuidance::Neutral
+        ));
         assert_eq!(adv.confidence_assessment, 0.0);
     }
 }

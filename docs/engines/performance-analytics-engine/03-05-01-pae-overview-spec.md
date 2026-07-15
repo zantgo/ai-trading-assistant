@@ -37,6 +37,8 @@ The PAE reads from the shared telemetry store (see [Database Schema](../../integ
 | `trade_learning_journal` | Human-annotated trade journal. |
 | `portfolio_equity_history` | Equity time-series for drawdown/Sharpe. |
 | `market_snapshots` | Regime context at trade time. |
+| `performance_matrix_snapshots` | **Written by PAE** — Performance Matrix snapshots at scheduled cadence (default 300 s). |
+| `strategy_analytics_history` | **Written by PAE** — Statistical-significance history per execution policy. |
 
 ---
 

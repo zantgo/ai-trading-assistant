@@ -2,26 +2,16 @@ use crate::server::types::IndicatorSnapshot;
 
 /// Detects squeeze release: squeeze was active (coiling) in prev and is now
 /// released (volatility release label). Returns true only on the transition.
-pub fn check_squeeze_release(
-    prev: Option<&IndicatorSnapshot>,
-    curr: &IndicatorSnapshot,
-) -> bool {
-    let was_squeezing = prev
-        .and_then(|p| p.squeeze_on())
-        .unwrap_or(false);
-    let is_released = curr
-        .squeeze_release_trigger()
-        .unwrap_or(false);
+pub fn check_squeeze_release(prev: Option<&IndicatorSnapshot>, curr: &IndicatorSnapshot) -> bool {
+    let was_squeezing = prev.and_then(|p| p.squeeze_on()).unwrap_or(false);
+    let is_released = curr.squeeze_release_trigger().unwrap_or(false);
     was_squeezing && is_released
 }
 
 /// Detects a Support/Resistance role flip via the state label transition.
 /// An S/R flip is indicated when the support_resistance label transitions
 /// to a FLIP state.
-pub fn check_sr_flip(
-    prev: Option<&IndicatorSnapshot>,
-    curr: &IndicatorSnapshot,
-) -> bool {
+pub fn check_sr_flip(prev: Option<&IndicatorSnapshot>, curr: &IndicatorSnapshot) -> bool {
     let prev_has_flip = prev
         .and_then(|p| p.indicators.get("support_resistance"))
         .map(|v| v.state_label.contains("FLIP"))
@@ -36,19 +26,14 @@ pub fn check_sr_flip(
 
 /// Detects an EMA 200 cross: price crosses from one side of the 200 EMA to
 /// the other between prev and curr.
-pub fn check_ema200_cross(
-    prev: Option<&IndicatorSnapshot>,
-    curr: &IndicatorSnapshot,
-) -> bool {
+pub fn check_ema200_cross(prev: Option<&IndicatorSnapshot>, curr: &IndicatorSnapshot) -> bool {
     let prev_price = prev.and_then(|p| p.current_price);
     let prev_ema = prev.and_then(|p| p.ema_long());
     let curr_price = curr.current_price;
     let curr_ema = curr.ema_long();
 
     match (prev_price, prev_ema, curr_price, curr_ema) {
-        (Some(pp), Some(pe), Some(cp), Some(ce)) => {
-            (pp <= pe && cp > ce) || (pp >= pe && cp < ce)
-        }
+        (Some(pp), Some(pe), Some(cp), Some(ce)) => (pp <= pe && cp > ce) || (pp >= pe && cp < ce),
         _ => false,
     }
 }
@@ -77,8 +62,7 @@ pub fn check_confirmed_divergence(
         .map(|s| s.starts_with("confirmed"))
         .unwrap_or(false);
 
-    (prev_rsi_potential && curr_rsi_confirmed)
-        || (prev_macd_potential && curr_macd_confirmed)
+    (prev_rsi_potential && curr_rsi_confirmed) || (prev_macd_potential && curr_macd_confirmed)
 }
 
 /// Evaluate all enabled events against prev and curr snapshots.

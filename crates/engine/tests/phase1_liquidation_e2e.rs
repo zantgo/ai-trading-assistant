@@ -8,11 +8,13 @@ use tokio_util::sync::CancellationToken;
 
 use engine::analyzer;
 use engine::config::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
-use shared::indicators::DivergenceDetector;
-use shared::models::MarketSnapshot;
-use shared::normalized::{Exchange, LiquidationEvent, LiquidationSide, NormalizedEvent, NormalizedTrade, TradeSide};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use shared::indicators::DivergenceDetector;
+use shared::models::MarketSnapshot;
+use shared::normalized::{
+    Exchange, LiquidationEvent, LiquidationSide, NormalizedEvent, NormalizedTrade, TradeSide,
+};
 
 fn make_test_config() -> TimeframeConfig {
     use engine::config::IndicatorsConfig;
@@ -140,7 +142,11 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             symbol: "BTC-USDT".to_string(),
             price,
             size: dec!(0.5),
-            side: if i % 2 == 0 { TradeSide::Buy } else { TradeSide::Sell },
+            side: if i % 2 == 0 {
+                TradeSide::Buy
+            } else {
+                TradeSide::Sell
+            },
             timestamp_ms: i * 60_000,
             trade_id: format!("t_{}", i),
         };
@@ -157,7 +163,10 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
         timestamp_ms: 1_500_000,
         venue_order_id: Some("liq_001".to_string()),
     };
-    event_tx.send(NormalizedEvent::Liquidation(liq.clone())).await.unwrap();
+    event_tx
+        .send(NormalizedEvent::Liquidation(liq.clone()))
+        .await
+        .unwrap();
 
     // One more trade to close the next candle.
     let next_trade = NormalizedTrade {
@@ -169,7 +178,10 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
         timestamp_ms: 1_560_000, // 60s after the liquidation
         trade_id: "t_26".to_string(),
     };
-    event_tx.send(NormalizedEvent::Trade(next_trade)).await.unwrap();
+    event_tx
+        .send(NormalizedEvent::Trade(next_trade))
+        .await
+        .unwrap();
 
     // Wait for processing.
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
@@ -178,14 +190,22 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
     let snap = latest.read().await.clone();
     assert!(snap.is_some(), "expected at least one completed snapshot");
     let snap: MarketSnapshot = snap.unwrap();
-    assert!(snap.liquidity.is_some(), "liquidity must be populated on completed snapshot");
+    assert!(
+        snap.liquidity.is_some(),
+        "liquidity must be populated on completed snapshot"
+    );
     let liq_flow = snap.liquidity.unwrap();
     // The long liquidation we injected (50500 * 2 = 101000) should appear
     // in the per-bar flow.
-    assert!(liq_flow.long_liquidations_usd > 0.0,
+    assert!(
+        liq_flow.long_liquidations_usd > 0.0,
         "long liquidations must be > 0 after the injected event, got {}",
-        liq_flow.long_liquidations_usd);
-    assert!(liq_flow.event_count >= 1, "expected at least 1 event in this bar");
+        liq_flow.long_liquidations_usd
+    );
+    assert!(
+        liq_flow.event_count >= 1,
+        "expected at least 1 event in this bar"
+    );
 
     drop(event_tx);
     cancel.cancel();

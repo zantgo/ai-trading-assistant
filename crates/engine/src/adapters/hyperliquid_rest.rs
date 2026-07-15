@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use shared::normalized::{
     FundingRateEvent, MarkPriceEvent, NormalizedCandle, NormalizedEvent, OpenInterestEvent,
+    ReconstructionMethod,
 };
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +104,7 @@ pub async fn fetch_historical_candles(
                 close: parse_decimal(&cs.close)?,
                 volume: parse_decimal(&cs.volume)?,
                 trades_count: cs.trades_count,
+                reconstructed: Some(ReconstructionMethod::ExchangeHistorical),
             })
         })
         .collect()
@@ -149,7 +151,10 @@ pub async fn symbol_exists(coin: &str, info_url: &str) -> Result<bool, String> {
         .map_err(|e| format!("Failed to parse Hyperliquid meta JSON: {}", e))?;
 
     let target = coin.to_uppercase();
-    let ok = meta.universe.iter().any(|a| a.name.to_uppercase() == target);
+    let ok = meta
+        .universe
+        .iter()
+        .any(|a| a.name.to_uppercase() == target);
     Ok(ok)
 }
 

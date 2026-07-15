@@ -3,7 +3,7 @@
 **Component:** `crates/frontend/src/components/LiquidityPanel.svelte`
 **View key:** `liquidity` (in `CurrentView` enum)
 **Mounted under:** workspace tab bar (instance view), alongside Alignment/Opportunities/Risks/Analysis/Decision
-**Data sources:** `instance.microTerm.{liquidity, cluster, liquiditySignals}` on `TimeframeTelemetry`
+**Data sources:** `instance.microTerm.{liquidity, cluster, liquidity_signals}` on `TimeframeTelemetry`
 
 ## Purpose
 

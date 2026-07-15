@@ -97,7 +97,9 @@ impl CandlestickPattern {
         use CandlestickPattern::*;
         match self {
             Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | Hammer | InvertedHammer
-            | HangingMan | ShootingStar | BullishMarubozu | BearishMarubozu | SpinningTop => "single",
+            | HangingMan | ShootingStar | BullishMarubozu | BearishMarubozu | SpinningTop => {
+                "single"
+            }
             BullishEngulfing | BearishEngulfing | PiercingLine | DarkCloudCover | TweezerBottom
             | TweezerTop | BullishHarami | BearishHarami => "two",
             MorningStar | EveningStar | ThreeWhiteSoldiers | ThreeBlackCrows | ThreeInsideUp
@@ -257,7 +259,13 @@ impl Candlestick {
     }
 
     /// Feed a completed candle. Returns the recognition result for this bar.
-    pub fn update(&mut self, open: Decimal, high: Decimal, low: Decimal, close: Decimal) -> CandlestickResult {
+    pub fn update(
+        &mut self,
+        open: Decimal,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> CandlestickResult {
         let cur = C {
             o: open.to_f64().unwrap_or(0.0),
             h: high.to_f64().unwrap_or(0.0),
@@ -397,55 +405,105 @@ impl Candlestick {
             let lw_f = lw / range;
             // Dragonfly: long lower wick, negligible upper.
             if lw_f >= 0.6 && uw_f <= cfg.small_wick_max {
-                return Some(DetectedPattern { pattern: DragonflyDoji, direction: DragonflyDoji.direction(), quality: lw_f });
+                return Some(DetectedPattern {
+                    pattern: DragonflyDoji,
+                    direction: DragonflyDoji.direction(),
+                    quality: lw_f,
+                });
             }
             // Gravestone: long upper wick, negligible lower.
             if uw_f >= 0.6 && lw_f <= cfg.small_wick_max {
-                return Some(DetectedPattern { pattern: GravestoneDoji, direction: GravestoneDoji.direction(), quality: uw_f });
+                return Some(DetectedPattern {
+                    pattern: GravestoneDoji,
+                    direction: GravestoneDoji.direction(),
+                    quality: uw_f,
+                });
             }
             // Long-legged: both wicks substantial.
             if uw_f >= 0.3 && lw_f >= 0.3 {
-                return Some(DetectedPattern { pattern: LongLeggedDoji, direction: 0, quality: 1.0 - body_frac });
+                return Some(DetectedPattern {
+                    pattern: LongLeggedDoji,
+                    direction: 0,
+                    quality: 1.0 - body_frac,
+                });
             }
-            return Some(DetectedPattern { pattern: Doji, direction: 0, quality: 1.0 - body_frac });
+            return Some(DetectedPattern {
+                pattern: Doji,
+                direction: 0,
+                quality: 1.0 - body_frac,
+            });
         }
 
         // Marubozu: full body, negligible wicks.
         if uw / range <= cfg.marubozu_wick_max && lw / range <= cfg.marubozu_wick_max {
             let q = body_frac;
             if c.bullish() {
-                return Some(DetectedPattern { pattern: BullishMarubozu, direction: 1, quality: q });
+                return Some(DetectedPattern {
+                    pattern: BullishMarubozu,
+                    direction: 1,
+                    quality: q,
+                });
             } else {
-                return Some(DetectedPattern { pattern: BearishMarubozu, direction: -1, quality: q });
+                return Some(DetectedPattern {
+                    pattern: BearishMarubozu,
+                    direction: -1,
+                    quality: q,
+                });
             }
         }
 
         // Hammer / Hanging Man: long lower wick, small body near top, small upper.
-        if lw >= cfg.long_wick_body_mult * body && uw / range <= cfg.small_wick_max && body_frac <= 0.35 {
+        if lw >= cfg.long_wick_body_mult * body
+            && uw / range <= cfg.small_wick_max
+            && body_frac <= 0.35
+        {
             let q = (lw / range).min(1.0);
             // Bias by prior candle trend if available; default hammer (bullish reversal).
             let prior_down = self.prior_trend() < 0;
             if prior_down {
-                return Some(DetectedPattern { pattern: Hammer, direction: 1, quality: q });
+                return Some(DetectedPattern {
+                    pattern: Hammer,
+                    direction: 1,
+                    quality: q,
+                });
             } else {
-                return Some(DetectedPattern { pattern: HangingMan, direction: -1, quality: q });
+                return Some(DetectedPattern {
+                    pattern: HangingMan,
+                    direction: -1,
+                    quality: q,
+                });
             }
         }
 
         // Inverted Hammer / Shooting Star: long upper wick, small body near bottom.
-        if uw >= cfg.long_wick_body_mult * body && lw / range <= cfg.small_wick_max && body_frac <= 0.35 {
+        if uw >= cfg.long_wick_body_mult * body
+            && lw / range <= cfg.small_wick_max
+            && body_frac <= 0.35
+        {
             let q = (uw / range).min(1.0);
             let prior_up = self.prior_trend() > 0;
             if prior_up {
-                return Some(DetectedPattern { pattern: ShootingStar, direction: -1, quality: q });
+                return Some(DetectedPattern {
+                    pattern: ShootingStar,
+                    direction: -1,
+                    quality: q,
+                });
             } else {
-                return Some(DetectedPattern { pattern: InvertedHammer, direction: 1, quality: q });
+                return Some(DetectedPattern {
+                    pattern: InvertedHammer,
+                    direction: 1,
+                    quality: q,
+                });
             }
         }
 
         // Spinning Top: small body, wicks on both sides.
         if body_frac <= cfg.spinning_body_max && uw / range >= 0.2 && lw / range >= 0.2 {
-            return Some(DetectedPattern { pattern: SpinningTop, direction: 0, quality: 1.0 - body_frac });
+            return Some(DetectedPattern {
+                pattern: SpinningTop,
+                direction: 0,
+                quality: 1.0 - body_frac,
+            });
         }
 
         Option::None
@@ -477,37 +535,89 @@ impl Candlestick {
         let b_body = b.body();
 
         // Engulfing: current body fully engulfs prior body, opposite color.
-        if a.bearish() && b.bullish() && b.body_top() >= a.body_top() && b.body_bottom() <= a.body_bottom() && b_body > a_body {
-            return Some(DetectedPattern { pattern: BullishEngulfing, direction: 1, quality: (b_body / a_body.max(f64::EPSILON)).min(2.0) / 2.0 });
+        if a.bearish()
+            && b.bullish()
+            && b.body_top() >= a.body_top()
+            && b.body_bottom() <= a.body_bottom()
+            && b_body > a_body
+        {
+            return Some(DetectedPattern {
+                pattern: BullishEngulfing,
+                direction: 1,
+                quality: (b_body / a_body.max(f64::EPSILON)).min(2.0) / 2.0,
+            });
         }
-        if a.bullish() && b.bearish() && b.body_top() >= a.body_top() && b.body_bottom() <= a.body_bottom() && b_body > a_body {
-            return Some(DetectedPattern { pattern: BearishEngulfing, direction: -1, quality: (b_body / a_body.max(f64::EPSILON)).min(2.0) / 2.0 });
+        if a.bullish()
+            && b.bearish()
+            && b.body_top() >= a.body_top()
+            && b.body_bottom() <= a.body_bottom()
+            && b_body > a_body
+        {
+            return Some(DetectedPattern {
+                pattern: BearishEngulfing,
+                direction: -1,
+                quality: (b_body / a_body.max(f64::EPSILON)).min(2.0) / 2.0,
+            });
         }
 
         // Piercing Line: prior bearish, current bullish opens below prior low, closes above prior midpoint but below prior open.
         if a.bearish() && b.bullish() && b.o < a.l && b.c > a.mid() && b.c < a.o {
-            return Some(DetectedPattern { pattern: PiercingLine, direction: 1, quality: 0.7 });
+            return Some(DetectedPattern {
+                pattern: PiercingLine,
+                direction: 1,
+                quality: 0.7,
+            });
         }
         // Dark Cloud Cover: prior bullish, current bearish opens above prior high, closes below prior midpoint but above prior open.
         if a.bullish() && b.bearish() && b.o > a.h && b.c < a.mid() && b.c > a.o {
-            return Some(DetectedPattern { pattern: DarkCloudCover, direction: -1, quality: 0.7 });
+            return Some(DetectedPattern {
+                pattern: DarkCloudCover,
+                direction: -1,
+                quality: 0.7,
+            });
         }
 
         // Tweezer Bottom/Top: matching lows/highs across two candles.
         let eq = |x: f64, y: f64| (x - y).abs() / x.max(f64::EPSILON) <= cfg.tweezer_eq_tol;
         if eq(a.l, b.l) && a.bearish() && b.bullish() {
-            return Some(DetectedPattern { pattern: TweezerBottom, direction: 1, quality: 0.6 });
+            return Some(DetectedPattern {
+                pattern: TweezerBottom,
+                direction: 1,
+                quality: 0.6,
+            });
         }
         if eq(a.h, b.h) && a.bullish() && b.bearish() {
-            return Some(DetectedPattern { pattern: TweezerTop, direction: -1, quality: 0.6 });
+            return Some(DetectedPattern {
+                pattern: TweezerTop,
+                direction: -1,
+                quality: 0.6,
+            });
         }
 
         // Harami: current small body contained within prior large body, opposite color.
-        if a.bearish() && b.bullish() && a_body > b_body && b.body_top() <= a.body_top() && b.body_bottom() >= a.body_bottom() {
-            return Some(DetectedPattern { pattern: BullishHarami, direction: 1, quality: 1.0 - (b_body / a_body.max(f64::EPSILON)) });
+        if a.bearish()
+            && b.bullish()
+            && a_body > b_body
+            && b.body_top() <= a.body_top()
+            && b.body_bottom() >= a.body_bottom()
+        {
+            return Some(DetectedPattern {
+                pattern: BullishHarami,
+                direction: 1,
+                quality: 1.0 - (b_body / a_body.max(f64::EPSILON)),
+            });
         }
-        if a.bullish() && b.bearish() && a_body > b_body && b.body_top() <= a.body_top() && b.body_bottom() >= a.body_bottom() {
-            return Some(DetectedPattern { pattern: BearishHarami, direction: -1, quality: 1.0 - (b_body / a_body.max(f64::EPSILON)) });
+        if a.bullish()
+            && b.bearish()
+            && a_body > b_body
+            && b.body_top() <= a.body_top()
+            && b.body_bottom() >= a.body_bottom()
+        {
+            return Some(DetectedPattern {
+                pattern: BearishHarami,
+                direction: -1,
+                quality: 1.0 - (b_body / a_body.max(f64::EPSILON)),
+            });
         }
 
         Option::None
@@ -526,37 +636,107 @@ impl Candlestick {
 
         // Morning Star: bearish, small-body star, strong bullish closing above a's midpoint.
         if a.bearish() && small_mid && c.bullish() && c.c > a.mid() {
-            return Some(DetectedPattern { pattern: MorningStar, direction: 1, quality: 0.85 });
+            return Some(DetectedPattern {
+                pattern: MorningStar,
+                direction: 1,
+                quality: 0.85,
+            });
         }
         // Evening Star: bullish, small star, strong bearish closing below a's midpoint.
         if a.bullish() && small_mid && c.bearish() && c.c < a.mid() {
-            return Some(DetectedPattern { pattern: EveningStar, direction: -1, quality: 0.85 });
+            return Some(DetectedPattern {
+                pattern: EveningStar,
+                direction: -1,
+                quality: 0.85,
+            });
         }
 
         // Three White Soldiers: three rising bullish candles with higher closes.
-        if a.bullish() && b.bullish() && c.bullish() && b.c > a.c && c.c > b.c && b.o > a.o && c.o > b.o {
-            return Some(DetectedPattern { pattern: ThreeWhiteSoldiers, direction: 1, quality: 0.9 });
+        if a.bullish()
+            && b.bullish()
+            && c.bullish()
+            && b.c > a.c
+            && c.c > b.c
+            && b.o > a.o
+            && c.o > b.o
+        {
+            return Some(DetectedPattern {
+                pattern: ThreeWhiteSoldiers,
+                direction: 1,
+                quality: 0.9,
+            });
         }
         // Three Black Crows: three falling bearish candles with lower closes.
-        if a.bearish() && b.bearish() && c.bearish() && b.c < a.c && c.c < b.c && b.o < a.o && c.o < b.o {
-            return Some(DetectedPattern { pattern: ThreeBlackCrows, direction: -1, quality: 0.9 });
+        if a.bearish()
+            && b.bearish()
+            && c.bearish()
+            && b.c < a.c
+            && c.c < b.c
+            && b.o < a.o
+            && c.o < b.o
+        {
+            return Some(DetectedPattern {
+                pattern: ThreeBlackCrows,
+                direction: -1,
+                quality: 0.9,
+            });
         }
 
         // Three Inside Up/Down: harami (a,b) then confirmation candle c.
         // Inside Up: a bearish, b bullish harami inside a, c closes above a's open.
-        if a.bearish() && b.bullish() && b.body_top() <= a.body_top() && b.body_bottom() >= a.body_bottom() && c.bullish() && c.c > a.o {
-            return Some(DetectedPattern { pattern: ThreeInsideUp, direction: 1, quality: 0.8 });
+        if a.bearish()
+            && b.bullish()
+            && b.body_top() <= a.body_top()
+            && b.body_bottom() >= a.body_bottom()
+            && c.bullish()
+            && c.c > a.o
+        {
+            return Some(DetectedPattern {
+                pattern: ThreeInsideUp,
+                direction: 1,
+                quality: 0.8,
+            });
         }
-        if a.bullish() && b.bearish() && b.body_top() <= a.body_top() && b.body_bottom() >= a.body_bottom() && c.bearish() && c.c < a.o {
-            return Some(DetectedPattern { pattern: ThreeInsideDown, direction: -1, quality: 0.8 });
+        if a.bullish()
+            && b.bearish()
+            && b.body_top() <= a.body_top()
+            && b.body_bottom() >= a.body_bottom()
+            && c.bearish()
+            && c.c < a.o
+        {
+            return Some(DetectedPattern {
+                pattern: ThreeInsideDown,
+                direction: -1,
+                quality: 0.8,
+            });
         }
 
         // Three Outside Up/Down: engulfing (a,b) then confirmation candle c.
-        if a.bearish() && b.bullish() && b.body_top() >= a.body_top() && b.body_bottom() <= a.body_bottom() && c.bullish() && c.c > b.c {
-            return Some(DetectedPattern { pattern: ThreeOutsideUp, direction: 1, quality: 0.82 });
+        if a.bearish()
+            && b.bullish()
+            && b.body_top() >= a.body_top()
+            && b.body_bottom() <= a.body_bottom()
+            && c.bullish()
+            && c.c > b.c
+        {
+            return Some(DetectedPattern {
+                pattern: ThreeOutsideUp,
+                direction: 1,
+                quality: 0.82,
+            });
         }
-        if a.bullish() && b.bearish() && b.body_top() >= a.body_top() && b.body_bottom() <= a.body_bottom() && c.bearish() && c.c < b.c {
-            return Some(DetectedPattern { pattern: ThreeOutsideDown, direction: -1, quality: 0.82 });
+        if a.bullish()
+            && b.bearish()
+            && b.body_top() >= a.body_top()
+            && b.body_bottom() <= a.body_bottom()
+            && c.bearish()
+            && c.c < b.c
+        {
+            return Some(DetectedPattern {
+                pattern: ThreeOutsideDown,
+                direction: -1,
+                quality: 0.82,
+            });
         }
 
         Option::None
@@ -572,19 +752,31 @@ impl Candlestick {
         // Rising Three Methods: strong bullish, three small pullback candles held
         // within a's range, strong bullish close above a's close.
         if a.bullish()
-            && mid.iter().all(|m| m.body() < a.body() && m.h <= a.h && m.l >= a.l)
+            && mid
+                .iter()
+                .all(|m| m.body() < a.body() && m.h <= a.h && m.l >= a.l)
             && e.bullish()
             && e.c > a.c
         {
-            return Some(DetectedPattern { pattern: RisingThreeMethods, direction: 1, quality: 0.8 });
+            return Some(DetectedPattern {
+                pattern: RisingThreeMethods,
+                direction: 1,
+                quality: 0.8,
+            });
         }
         // Falling Three Methods: mirror.
         if a.bearish()
-            && mid.iter().all(|m| m.body() < a.body() && m.h <= a.h && m.l >= a.l)
+            && mid
+                .iter()
+                .all(|m| m.body() < a.body() && m.h <= a.h && m.l >= a.l)
             && e.bearish()
             && e.c < a.c
         {
-            return Some(DetectedPattern { pattern: FallingThreeMethods, direction: -1, quality: 0.8 });
+            return Some(DetectedPattern {
+                pattern: FallingThreeMethods,
+                direction: -1,
+                quality: 0.8,
+            });
         }
 
         Option::None

@@ -44,7 +44,7 @@ This document was introduced as part of the institutional-grade architectural re
                   │   Decision Matrix (L6)  │  ← only synthesis point
                   │   directional_guidance  │
                   │   trade_readiness        │
-                  │   environment_favorability│
+                  │   entry_danger│
                   │   expected_rr_ratio       │
                   └─────────────────────────┘
                                 │
@@ -82,7 +82,7 @@ Owns: cross-timeframe consensus scores for one symbol.
 | Field | Producer | Notes |
 |---|---|---|
 | `symbol`, `timeframes_present` | L2 | |
-| `dimensions` (`AlignmentDimension[10]`) | L2 | Ordered: Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, Opportunity |
+| `dimensions` (`AlignmentDimension[10]`) | L2 | Ordered: Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, **Tradability** (renamed from "Opportunity" in the institutional redesign — the L4 Opportunity Matrix is the canonical owner of opportunity concepts; this dimension measures TFs agreeing on tradability, see [Alignment Matrix §3](../matrices/02-01-alignment-matrix.md)) |
 | `mtf_trend_alignment`, `mtf_momentum_alignment`, `mtf_volume_alignment`, `mtf_volatility_alignment` | L2 | Signed consensus in [-1, 1] |
 | `mtf_overall_score`, `mtf_overall_label` | L2 | |
 | `timeframe_alignments` (`TfAlignmentInfo[]`) | L2 | Per-TF breakdown |
@@ -139,11 +139,11 @@ Owns: pure environmental danger. **No reward, no opportunity, no state.**
 | Field | Producer | Notes |
 |---|---|---|
 | `symbol` | L5 | |
-| `market_risk`, `volatility_risk`, `liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk` | L5 | Seven unipolar risk dimensions in [0, 100] |
-| `overall_risk` | L5 | Weighted aggregate: `0.15M + 0.20V + 0.15L + 0.10S + 0.15Mo + 0.15Sig + 0.10E` (weights re-normalized after `reward_risk` removal; total = 1.0) |
+| `market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk` | L5 | **Eight** unipolar risk sub-dimensions in [0, 100]. The legacy `liquidity_risk` was renamed to `execution_liquidity_risk` (with serde alias). `cascade_risk` is the 8th sub-dimension (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `reward_risk`/`correlation_risk`). |
+| `overall_risk` | L5 | Weighted aggregate of the **eight** sub-dimensions: `overall = 0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C` (total = 1.0; where `M`=market_risk, `V`=volatility_risk, `L_ex`=execution_liquidity_risk, `S`=structure_risk, `Mo`=momentum_risk, `Sig`=signal_risk, `E`=execution_risk, `C`=cascade_risk; see [Risk Matrix §4.9](02-11-risk-matrix.md) and [MME Layer 5 §3](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md)). **Nine fields total** (eight sub-dimensions + `overall_risk`). |
 
 **Removed (architectural redesign):**
-- ~~`reward_risk`~~ — moved to Decision Matrix (L6) as `environment_favorability`. The reward dimension is a **synthesis** concept and belongs in L6, not L5.
+- ~~`reward_risk`~~ — moved to Decision Matrix (L6) as `entry_danger`. The reward dimension is a **synthesis** concept and belongs in L6, not L5.
 
 **Ownership rules for L5:**
 - L5 reads from L3 (Analysis) for `bias`, `market_regime`, `market_quality`, and the qualitative assessments.
@@ -168,8 +168,8 @@ Owns: the **only synthesis point** in the pipeline. Combines L3 (state) + L4 (op
 | `target_strategy` (`TargetStrategy` 5-state) | L6 | |
 | `confidence_assessment` (`f64`, [0,100]) | L6 | Risk-attenuated: `clamp(L3.state_confidence × (1 − L5.overall_risk/100) × 100, 0, 100)` |
 | `trade_readiness` (`TradeReadiness` 4-state) | L6 | **Added in institutional redesign** — was documented in §4 but missing from §2.1 schema |
-| `environment_favorability` (`RiskDimension`) | L6 | **Added in institutional redesign** — semantic successor of `Risk.reward_risk` |
-| `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — synthesized from `L4.expected_rr` × `L5.overall_risk` |
+| `entry_danger` (`RiskDimension`) | L6 | **Renamed from `environment_favorability` in v2.1** (semantic successor of `Risk.reward_risk`). The RiskDimension convention is **high score = danger, low score = safe** — consistent with all other Risk Matrix dimensions. |
+| `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — risk-discounted synthesis: `L4.expected_rr_internal × (1 − L5.overall_risk)` (canonical: [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md)) |
 | `final_recommendation` (string) | L6 | Natural-language summary |
 
 **`DecisionContext` (quantitative metadata):**
@@ -206,7 +206,7 @@ Owns: cross-symbol aggregation.
 | Removed From | Old Field | New Location | Migration Note |
 |---|---|---|---|
 | Analysis Matrix (L3) | `opportunity_analysis` | Opportunity Matrix (L4) `primary_opportunity` | The setup selector moved to where it belongs: L4 owns forecasts. |
-| Risk Matrix (L5) | `reward_risk` | Decision Matrix (L6) `environment_favorability` | The reward dimension is a synthesis, not pure danger; moved to L6. |
+| Risk Matrix (L5) | `reward_risk` | Decision Matrix (L6) `entry_danger` | The reward dimension is a synthesis, not pure danger; moved to L6. |
 
 ---
 

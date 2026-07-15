@@ -37,7 +37,12 @@ fn dir_bucket(sv: &SnapshotValues, key: &str) -> i8 {
     }
 }
 
-fn tf_summary(label: &str, secs: u64, snap: &Option<MarketSnapshot>, sv: &Option<SnapshotValues>) -> MonitorTimeframe {
+fn tf_summary(
+    label: &str,
+    secs: u64,
+    snap: &Option<MarketSnapshot>,
+    sv: &Option<SnapshotValues>,
+) -> MonitorTimeframe {
     let (regime, overall_score, overall_label) = snap
         .as_ref()
         .and_then(|m| m.context.as_ref())
@@ -46,9 +51,7 @@ fn tf_summary(label: &str, secs: u64, snap: &Option<MarketSnapshot>, sv: &Option
     // Bull-bias confluence for display; sign shows net directional pressure.
     let confluence_score = sv
         .as_ref()
-        .map(|s| {
-            calculate_registry_confluence("BULLISH", s).score
-        })
+        .map(|s| calculate_registry_confluence("BULLISH", s).score)
         .unwrap_or(0);
     MonitorTimeframe {
         label: label.to_string(),
@@ -78,7 +81,11 @@ pub async fn serve_monitor(
         return Json(MonitorResponse {
             symbol: pair_key,
             timeframes: vec![],
-            mtf: MtfConfirmation { trend_agreement_pct: 0.0, structural_trend: "NEUTRAL".into(), rows: vec![] },
+            mtf: MtfConfirmation {
+                trend_agreement_pct: 0.0,
+                structural_trend: "NEUTRAL".into(),
+                rows: vec![],
+            },
             market_context: None,
         })
         .into_response();
@@ -132,7 +139,11 @@ pub async fn serve_monitor(
             agreement,
         });
     }
-    let trend_agreement_pct = if agree_n > 0.0 { (agree_accum / agree_n) * 100.0 } else { 0.0 };
+    let trend_agreement_pct = if agree_n > 0.0 {
+        (agree_accum / agree_n) * 100.0
+    } else {
+        0.0
+    };
 
     let mtf_align = evaluate_mtf_alignment(
         svm.as_ref().unwrap_or(&empty),

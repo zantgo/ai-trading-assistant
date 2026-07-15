@@ -74,8 +74,7 @@ impl SmartMoney {
         }
 
         let n = self.prices.len();
-        let bars: Vec<(Decimal, Decimal, Decimal, Decimal)> =
-            self.prices.iter().copied().collect();
+        let bars: Vec<(Decimal, Decimal, Decimal, Decimal)> = self.prices.iter().copied().collect();
 
         let mut structure = MarketStructure::Neutral;
         let mut bos_bull = false;
@@ -248,7 +247,9 @@ mod tests {
         for _ in 0..5 {
             smc.update(dec!(100), dec!(110), dec!(90), dec!(105));
         }
-        assert!(smc.update(dec!(100), dec!(110), dec!(90), dec!(105)).is_some());
+        assert!(smc
+            .update(dec!(100), dec!(110), dec!(90), dec!(105))
+            .is_some());
     }
 
     #[test]

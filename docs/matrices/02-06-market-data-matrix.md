@@ -34,6 +34,7 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
 | `close` | `Decimal` | Last trade price in the interval. |
 | `volume` | `Decimal` | Total base-asset volume traded. |
 | `trades_count` | `u64` | Number of trades aggregated. |
+| `reconstructed` | `Option<ReconstructionMethod>` | Provenance flag — `Some(ExchangeHistorical)` / `Some(ExponentialMovingAverage)` / `Some(LinearInterpolation)` for candles filled by the reconstruction engine (see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)); `None` (omitted on the wire) for live candles. The flag is forwarded through aggregation chains so a macro candle is marked `reconstructed` if any constituent sub-candle is reconstructed. |
 
 ---
 
@@ -50,7 +51,7 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
   "low": "63850.0",
   "close": "64012.5",
   "volume": "182.4",
-  "trade_count": 345
+  "trades_count": 345
 }
 ```
 

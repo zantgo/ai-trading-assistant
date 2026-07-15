@@ -120,7 +120,11 @@ Per [Systemic Data Flow — Sequence D](../../conceptual-foundations/01-03-syste
 1. PME publishes a high-priority override message to TAE.
 2. Policy Layer processes the override: changes affected symbol stances to `AVOID` or `CLOSE_ONLY`.
 3. Any pending trigger payloads for the affected symbol are discarded.
-4. Existing open orders are routed to the Execution Layer for cancellation.
+4. **Hard Exit Path (Issue 4.J)** — for any active positions on the affected symbol, the Policy Layer dispatches a **liquidation directive** (not a cancellation). The Execution Layer converts this directive into a `market order` whose `size` is sourced from the **Position Matrix** (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md)). Without this step, points 5–6 below would leave positions unhedged after stop cancellations.
+5. After the Hard Exit orders are submitted and acknowledged, **then** the Execution Layer issues batch cancellation orders for any remaining outstanding limit/stop orders on the exchange.
+6. The veto is logged with timestamp and rationale for audit.
+
+> **Veto loophole (correction).** A previous version of this section issued only **cancellations** in steps 4–5. Canceling outstanding protective stops was necessary, but without the Hard Exit path in step 4 it left active positions with **no stops on the exchange and no execution rights** (any subsequent fill would not be re-protected). The Hard Exit path ensures open exposure is closed on venue at the time the veto asserts, so the operator cannot end up with phantom exposure during a circuit-breaker event.
 
 ---
 

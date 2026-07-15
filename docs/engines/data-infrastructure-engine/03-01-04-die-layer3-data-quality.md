@@ -27,7 +27,15 @@ Warm-up and gap recovery use the local-DB-first strategy implemented in `bootstr
 
 ```
 IF timeframe_secs < 60:
-    return []                    # sub-minute: start clean from live ticks
+    # Sub-minute: try REST fetch for a small warm seed (best-effort).
+    # NOTE: sub-minute REST history is generally unavailable from
+    # venue APIs (Hyperliquid/Bitget both return ≥1m candles). The
+    # fetch is best-effort; if it returns an empty array, the buffer
+    # fills from live ticks. The reconstruction engine then operates
+    # on whatever buffer is available (≥2 closes for linear, ≥50 for
+    # EMA — see 08-04-candle-reconstruction.md).
+    rest_candles = fetch_historical_candles(symbol, secs, limit=200)  # best-effort
+    return dedup(rest_candles) if non-empty else []
 
 db_candles = query_recent_candles(symbol, secs, limit)   # local warm base
 
@@ -48,7 +56,7 @@ merged = db_candles ++ dedup(rest_candles)       # chronological, oldest-first
 | **DB-first** | Minimizes REST calls; the local store is authoritative for already-seen candles. |
 | **Gap-only REST** | Only the window between the last local candle and `now` is fetched. |
 | **Full-window fallback** | With no local data, the entire `secs × limit` lookback is fetched. |
-| **Sub-minute bypass** | Intervals under 60 s start cleanly from live ticks (REST granularity insufficient). |
+| **Sub-minute best-effort seed (Issue 4.I — correction)** | A previous version returned an empty array for sub-minute timeframes (`return []`). That left the EMA reconstruction ([08-04-candle-reconstruction.md §EMA Synthesis](../operations-and-compliance/08-04-candle-reconstruction.md)) starved of history on startup, so a network disconnect within minutes of launch would force a fallback to linear interpolation (or no reconstruction at all if history < 2). The corrected flow attempts a `limit=200` REST fetch (best-effort, may return empty for venues without sub-minute history), then falls back to live ticks. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed will use linear projection for the first few reconstructions until the buffer fills. |
 
 ---
 

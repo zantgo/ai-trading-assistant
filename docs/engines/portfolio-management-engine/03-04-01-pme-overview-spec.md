@@ -52,8 +52,8 @@ Equity snapshots are logged periodically (60 s cadence, `portfolio_equity.rs`) w
 | Max single-pair exposure | 20% of capital | `PortfolioRiskState` |
 | Max portfolio exposure | 50% of capital | `PortfolioRiskState` |
 | Max correlation | 0.8 | `PortfolioRiskState` |
-| `max_daily_drawdown_pct` (early-warning PnL decline within session) | 5% | `PortfolioRiskState` |
-| `drawdown_limit_pct` (equity peak-to-trough; the **hard veto** threshold) | 30% | `PortfolioRiskState` |
+| `max_daily_drawdown_pct` (configuration limit; live metric is `daily_drawdown_pct = -daily_pnl / starting_session_equity`) | 5% (= 0.05) | `PortfolioRiskState` |
+| `drawdown_limit_pct` (equity peak-to-trough; the **hard veto** threshold) | 30% (= 0.30) | `PortfolioRiskState` |
 
 These two drawdown metrics are distinct and are not synonyms. See §4.1 below and [PME Layer 4](03-04-05-pme-layer4-portfolio.md) §3–§4 for which trigger activates which veto.
 
@@ -61,15 +61,16 @@ These two drawdown metrics are distinct and are not synonyms. See §4.1 below an
 
 ## 4. Safety Circuit Breakers
 
-The `SafetyManager` (`crates/engine/src/safety.rs`) tracks four escalating states:
+The `SafetyManager` (`crates/engine/src/safety.rs`) tracks **five** escalating states:
 
 ```
-NORMAL ──(losses ≥ caution_threshold)──► CAUTIOUS
-       ──(losses ≥ dropout_threshold)──► SUSPENDED (timed)
-       ──(equity drawdown ≥ limit)────► DRAWDOWN_STOP
+NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
+       ──(consecutive_losses ≥ caution_threshold)──► CAUTIOUS
+       ──(consecutive_losses ≥ dropout_threshold)──► SUSPENDED (timed)
+       ──(equity drawdown ≥ drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
 
-Defaults (`config.json` `safety`): caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30 % (`drawdown_limit_pct`). A win resets the consecutive-loss counter. See README "Key Conventions" for the distinction between `max_daily_drawdown_pct` (5 % early-warning, session PnL) and `drawdown_limit_pct` (30 % equity peak-to-trough, hard veto).
+Defaults (`config.json` `safety`): WARN at 5 % daily drawdown (no stance change — pre-veto alert), caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30 % (`drawdown_limit_pct`). A win resets the consecutive-loss counter. See README "Key Conventions" for the distinction between `max_daily_drawdown_pct` (5 % early-warning, session PnL) and `drawdown_limit_pct` (30 % equity peak-to-trough, hard veto).
 
 ---
 

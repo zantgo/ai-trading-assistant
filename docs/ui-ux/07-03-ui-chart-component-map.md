@@ -4,7 +4,7 @@
 **Status:** Approved
 **Purpose:** Per-indicator mapping from registry key to frontend rendering location. Companion to [UI Overview](07-01-ui-overview-spec.md) and [Dashboard Layout](07-02-ui-dashboard-layout.md).
 
-The platform has **50 registered indicators** but **19 dedicated chart components** in `crates/frontend/src/lib/components/`. The remaining 31 indicators are rendered either as price-chart overlays on the main `PriceChart` component or via the indicator-pane reuse pattern (shared "Oscillator" pane). This file enumerates every indicator's rendering destination so the mapping is not implicit.
+The platform has **50 registered indicators** but **20 dedicated chart components** (or markers rendering on the main `PriceChart`) in `crates/frontend/src/lib/components/`. The remaining indicators are rendered either as price-chart overlays on the main `PriceChart` component or via the indicator-pane reuse pattern (shared "Oscillator" / "Derivatives" pane). This file enumerates every indicator's rendering destination so the mapping is not implicit. The §2 "Dedicated Pane Components" table lists 20 entries — the 18 single-purpose chart components plus the `patterns` and `candlestick` entries, which are marker overlays rendered directly on `PriceChart`.
 
 ---
 

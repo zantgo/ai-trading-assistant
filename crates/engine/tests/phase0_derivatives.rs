@@ -8,8 +8,8 @@
 
 use rust_decimal_macros::dec;
 use shared::normalized::{
-    Exchange, FundingRateEvent, LiquidationEvent, LiquidationSide, MarkPriceEvent,
-    NormalizedEvent, OpenInterestEvent,
+    Exchange, FundingRateEvent, LiquidationEvent, LiquidationSide, MarkPriceEvent, NormalizedEvent,
+    OpenInterestEvent,
 };
 
 #[test]
@@ -38,7 +38,11 @@ fn mark_price_event_omits_optional_index() {
     };
     let json = serde_json::to_string(&ev).unwrap();
     // index_px is None — must be skipped
-    assert!(!json.contains("index_px"), "index_px should be skipped: {}", json);
+    assert!(
+        !json.contains("index_px"),
+        "index_px should be skipped: {}",
+        json
+    );
     let parsed: MarkPriceEvent = serde_json::from_str(&json).unwrap();
     assert!(parsed.index_px.is_none());
 }
@@ -76,7 +80,11 @@ fn open_interest_event_omits_optional_prev() {
         prev_oi: None,
     };
     let json = serde_json::to_string(&ev).unwrap();
-    assert!(!json.contains("prev_oi"), "prev_oi should be skipped: {}", json);
+    assert!(
+        !json.contains("prev_oi"),
+        "prev_oi should be skipped: {}",
+        json
+    );
 }
 
 #[test]
@@ -91,7 +99,11 @@ fn liquidation_event_long_side() {
         venue_order_id: Some("0xabc123".to_string()),
     };
     let json = serde_json::to_string(&ev).unwrap();
-    assert!(json.contains("\"side\":\"LONG\""), "Long side should serialize as LONG: {}", json);
+    assert!(
+        json.contains("\"side\":\"LONG\""),
+        "Long side should serialize as LONG: {}",
+        json
+    );
     let parsed: LiquidationEvent = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.side, LiquidationSide::Long);
     assert_eq!(parsed.exchange, Exchange::Hyperliquid);
@@ -109,7 +121,11 @@ fn liquidation_event_short_side() {
         venue_order_id: None,
     };
     let json = serde_json::to_string(&ev).unwrap();
-    assert!(json.contains("\"side\":\"SHORT\""), "Short side should serialize as SHORT: {}", json);
+    assert!(
+        json.contains("\"side\":\"SHORT\""),
+        "Short side should serialize as SHORT: {}",
+        json
+    );
 }
 
 #[test]
@@ -149,9 +165,9 @@ fn liquidity_config_default_round_trips_via_toml() {
 
 #[test]
 fn hl_derivatives_poller_lookup_ctx_handles_case_variants() {
-    use std::collections::HashMap;
-    use engine::adapters::hyperliquid_rest::HlDerivativesCtx;
     use engine::adapters::hl_derivatives_poller::lookup_ctx;
+    use engine::adapters::hyperliquid_rest::HlDerivativesCtx;
+    use std::collections::HashMap;
 
     let mut m = HashMap::new();
     m.insert("BTC".to_string(), HlDerivativesCtx::default());

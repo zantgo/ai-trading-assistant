@@ -13,13 +13,13 @@
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|---------|----------|
 | 01 | `04-02-01-ema-stack.md` | `ema_stack` | EMA Ribbon | Lagging | Y | StackChange, Crossover×4 | [04-02-01-ema-stack.md](04-02-01-ema-stack.md) |
-| 02 | `04-02-02-supertrend.md` | `supertrend` | Supertrend | Lagging | Y | TrendFlip, Crossover×2, BandTouch | [04-02-02-supertrend.md](04-02-02-supertrend.md) |
+| 02 | `04-02-02-supertrend.md` | `supertrend` | Supertrend | Lagging | Y | TrendFlip, Crossover×2, BandTouch×2 | [04-02-02-supertrend.md](04-02-02-supertrend.md) |
 | 03 | `04-02-03-donchian.md` | `donchian` | Donchian | Lagging | Y | Breakout×2, BandTouch×2, LevelTest×2 | [04-02-03-donchian.md](04-02-03-donchian.md) |
 | 04 | `04-02-04-keltner.md` | `keltner` | Keltner | Lagging | Y | Breakout×2, BandTouch×2, LevelTest×2 | [04-02-04-keltner.md](04-02-04-keltner.md) |
-| 05 | `04-02-05-adx.md` | `adx` | ADX | Lagging | N (Gate) | TrendFlip, Threshold | [04-02-05-adx.md](04-02-05-adx.md) |
+| 05 | `04-02-05-adx.md` | `adx` | ADX | Lagging | Y | TrendFlip, Threshold | [04-02-05-adx.md](04-02-05-adx.md) |
 | 06 | `04-02-06-vwap.md` | `vwap` | VWAP | Lagging | Y | LevelTest | [04-02-06-vwap.md](04-02-06-vwap.md) |
 | 07 | `04-02-07-anchored-vwap.md` | `anchored_vwap` | Anchored VWAP | Lagging | Y | LevelTest×2, Crossover×2 | [04-02-07-anchored-vwap.md](04-02-07-anchored-vwap.md) |
-| 08 | `04-02-08-ichimoku.md` | `ichimoku` | Ichimoku Cloud | Hybrid | Y | Crossover×2, Breakout×2, LevelTest×3, TrendFlip×2 | [04-02-08-ichimoku.md](04-02-08-ichimoku.md) |
+| 08 | `04-02-08-ichimoku.md` | `ichimoku` | Ichimoku Cloud | Hybrid | Y | Crossover×3, Breakout×2, LevelTest×3, TrendFlip×1 | [04-02-08-ichimoku.md](04-02-08-ichimoku.md) |
 | 09 | `04-02-09-psar.md` | `psar` | Parabolic SAR | Lagging | Y | TrendFlip×2, Crossover×3 | [04-02-09-psar.md](04-02-09-psar.md) |
 | 10 | `04-02-10-hull-ma.md` | `hull_ma` | Hull MA | Lagging | Y | Crossover×2 | [04-02-10-hull-ma.md](04-02-10-hull-ma.md) |
 
@@ -30,7 +30,7 @@
 | # | Filename | Key | Display Name | Class | Dir | Div | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|-----|---------|----------|
 | 11 | `04-02-11-rsi.md` | `rsi` | RSI | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×5 | [04-02-11-rsi.md](04-02-11-rsi.md) |
-| 12 | `04-02-12-stochastic.md` | `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, ZeroLineCross×2, Divergence, Threshold×4 | [04-02-12-stochastic.md](04-02-12-stochastic.md) |
+| 12 | `04-02-12-stochastic.md` | `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, Divergence, Threshold×4 | [04-02-12-stochastic.md](04-02-12-stochastic.md) |
 | 13 | `04-02-13-chandemo.md` | `chandemo` | Chande MO | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×4 | [04-02-13-chandemo.md](04-02-13-chandemo.md) |
 | 14 | `04-02-14-williams-r.md` | `williams_r` | Williams %R | Leading | Y | — | Threshold, ZeroLineCross | [04-02-14-williams-r.md](04-02-14-williams-r.md) |
 | 15 | `04-02-15-awesome-oscillator.md` | `awesome_oscillator` | AO | Leading | Y | — | ZeroLineCross×2, Threshold×2 | [04-02-15-awesome-oscillator.md](04-02-15-awesome-oscillator.md) |
@@ -57,10 +57,10 @@
 
 | # | Filename | Key | Display Name | Class | Dir | Div | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|-----|---------|----------|
-| 25 | `04-02-25-atr.md` | `atr` | ATR | Lagging | N (Gate) | — | Threshold, CompressionRelease | [04-02-25-atr.md](04-02-25-atr.md) |
+| 25 | `04-02-25-atr.md` | `atr` | ATR | Lagging | N (Gate) | — | Threshold, VolatilityCycle | [04-02-25-atr.md](04-02-25-atr.md) |
 | 26 | `04-02-26-bollinger.md` | `bollinger` | Bollinger | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest×3 | [04-02-26-bollinger.md](04-02-26-bollinger.md) |
-| 27 | `04-02-27-bbwp.md` | `bbwp` | BBWP | Leading | N (Gate) | — | CompressionRelease, Threshold | [04-02-27-bbwp.md](04-02-27-bbwp.md) |
-| 28 | `04-02-28-squeeze.md` | `squeeze` | TTM Squeeze | Hybrid | Y | Y | CompressionRelease×3, Divergence, Threshold | [04-02-28-squeeze.md](04-02-28-squeeze.md) |
+| 27 | `04-02-27-bbwp.md` | `bbwp` | BBWP | Leading | N (Gate) | — | VolatilityCycle, Threshold | [04-02-27-bbwp.md](04-02-27-bbwp.md) |
+| 28 | `04-02-28-squeeze.md` | `squeeze` | TTM Squeeze | Hybrid | Y | Y | VolatilityCycle×3, Divergence, Threshold×3 | [04-02-28-squeeze.md](04-02-28-squeeze.md) |
 | 29 | `04-02-29-hv.md` | `hv` | Hist. Volatility | Lagging | N (Gate) | — | Threshold | [04-02-29-hv.md](04-02-29-hv.md) |
 | 30 | `04-02-30-stddev-channel.md` | `stddev_channel` | StdDev Chnl | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest | [04-02-30-stddev-channel.md](04-02-30-stddev-channel.md) |
 
@@ -82,10 +82,10 @@
 
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|---------|----------|
-| 36 | `04-02-36-aroon.md` | `aroon` | Aroon | Hybrid | Y | Crossover×2, TrendFlip×2, Threshold×2 | [04-02-36-aroon.md](04-02-36-aroon.md) |
-| 37 | `04-02-37-choppiness.md` | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease | [04-02-37-choppiness.md](04-02-37-choppiness.md) |
+| 36 | `04-02-36-aroon.md` | `aroon` | Aroon | Hybrid | Y | TrendFlip×2, Threshold×2 | [04-02-36-aroon.md](04-02-36-aroon.md) |
+| 37 | `04-02-37-choppiness.md` | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, VolatilityCycle | [04-02-37-choppiness.md](04-02-37-choppiness.md) |
 | 38 | `04-02-38-linreg-slope.md` | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 | [04-02-38-linreg-slope.md](04-02-38-linreg-slope.md) |
-| 39 | `04-02-39-zscore.md` | `zscore` | Z-Score | Leading | Y | Threshold, ZeroLineCross | [04-02-39-zscore.md](04-02-39-zscore.md) |
+| 39 | `04-02-39-zscore.md` | `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross | [04-02-39-zscore.md](04-02-39-zscore.md) |
 
 ---
 
@@ -122,12 +122,12 @@
 |--------|-------|
 | Authoritative Registry Entries | 50 (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) |
 | Files in this directory | 51 (50 entries + this master index) |
-| Directional (scoring contributors) | 40 |
-| Non-Directional Gates | 10 (ADX, Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest) |
+| Directional (scoring contributors) | 41 |
+| Non-Directional Gates | 9 (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest) |
 | Divergence-Bearing Indicators (`supports_divergence: true`) | 8 (RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze) |
 | Standalone Divergence Indicators | 1 (`oi_price_divergence` — own registry entry & JSON key) |
-| Total Signal-Kind × Indicator Declarations | **102** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown: Divergence 9, Crossover 10, Threshold 26, Breakout 9, BandTouch 5, ZeroLineCross 12, CompressionRelease 4, LevelTest 13, TrendFlip 8, VolumeClimax 2, StackChange 1, PatternForming 3 (registry-verified; sums to 102). |
-| SignalKind Types | 12 (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming) |
+| Total Signal-Kind × Indicator Declarations | **101** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown: Divergence 9, Crossover 10, Threshold 26, Breakout 9, BandTouch 5, ZeroLineCross 11, VolatilityCycle 4, LevelTest 13, TrendFlip 8, VolumeClimax 2, StackChange 1, PatternForming 3 (registry-verified; sums to 101). *(A previous version listed **102** with ZeroLineCross=12; the overcount came from attributing ZeroLineCross to `stochastic` and `mfi`, whose indicator docs do not actually declare ZeroLineCross signals in their Signals tables — see [04-02-12-stochastic.md](../engines/market-monitoring-engine/indicators/04-02-12-stochastic.md) and [04-02-23-mfi.md](../engines/market-monitoring-engine/indicators/04-02-23-mfi.md).)* |
+| SignalKind Types | 12 (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, VolatilityCycle, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming) |
 
 Divergence companions do **not** appear as separate rows or JSON keys — a divergence is an `IndicatorSignal { kind: Divergence, ... }` in the parent indicator's `signals` array.
 

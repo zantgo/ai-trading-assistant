@@ -149,6 +149,27 @@ pub struct LiquidationEvent {
     pub venue_order_id: Option<String>,
 }
 
+/// Indicates how a `NormalizedCandle` was sourced.
+///
+/// Live candles (constructed from the WebSocket trade stream) have
+/// `reconstructed = None`. When the engine detects a gap on reconnect and
+/// back-fills the missing candle from exchange history or a synthetic
+/// estimate, the resulting candle is tagged with the method that produced it
+/// so downstream consumers (indicators, signals, persistence) can decide
+/// whether to trust it the same way as a live candle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReconstructionMethod {
+    /// Filled from exchange REST history (used for intervals >= 1m).
+    ExchangeHistorical,
+    /// Filled by EMA projection of recent closes (used for sub-1m).
+    ExponentialMovingAverage,
+    /// Filled by linear interpolation of the two most recent closes.
+    LinearInterpolation,
+    /// Reconstruction was attempted but no source data was available.
+    Unavailable,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedCandle {
     pub symbol: String,
@@ -160,6 +181,11 @@ pub struct NormalizedCandle {
     pub close: Decimal,
     pub volume: Decimal,
     pub trades_count: u64,
+    /// `Some(_)` when the candle was synthesized to fill a WebSocket gap;
+    /// `None` for live candles. Defaulted to `None` on deserialization so
+    /// legacy payloads keep working unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reconstructed: Option<ReconstructionMethod>,
 }
 
 impl NormalizedCandle {
@@ -215,6 +241,7 @@ mod consistency_tests {
             close: dec!(50500.00),
             volume: dec!(1.5),
             trades_count: 5,
+            reconstructed: None,
         };
         assert!(candle.assert_validity().is_ok());
     }
@@ -231,6 +258,7 @@ mod consistency_tests {
             close: dec!(49500.00),
             volume: dec!(1.5),
             trades_count: 5,
+            reconstructed: None,
         };
         assert!(candle.assert_validity().is_err());
     }
@@ -247,6 +275,7 @@ mod consistency_tests {
             close: dec!(50500.00),
             volume: dec!(-1.0),
             trades_count: 1,
+            reconstructed: None,
         };
         assert!(candle.assert_validity().is_err());
     }
@@ -263,6 +292,7 @@ mod consistency_tests {
             close: dec!(50500.00),
             volume: dec!(1.0),
             trades_count: 1,
+            reconstructed: None,
         };
         assert!(candle.assert_validity().is_err());
     }

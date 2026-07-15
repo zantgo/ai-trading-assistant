@@ -75,7 +75,11 @@ mod tests {
         f.update(dec!(0.0001)); // 0.01% per 8h
         let ann = f.annualized_pct().unwrap();
         let ann_f = ann.to_f64().unwrap();
-        assert!((ann_f - 10.95).abs() < 0.01, "expected ~10.95, got {}", ann_f);
+        assert!(
+            (ann_f - 10.95).abs() < 0.01,
+            "expected ~10.95, got {}",
+            ann_f
+        );
     }
 
     #[test]

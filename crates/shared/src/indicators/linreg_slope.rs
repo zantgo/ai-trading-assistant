@@ -34,7 +34,12 @@ impl LinRegSlope {
         let n = self.period as f64;
         let sum_x = (0..self.period).map(|i| i as f64).sum::<f64>();
         let sum_y: f64 = self.closes.iter().sum();
-        let sum_xy: f64 = self.closes.iter().enumerate().map(|(i, y)| i as f64 * y).sum();
+        let sum_xy: f64 = self
+            .closes
+            .iter()
+            .enumerate()
+            .map(|(i, y)| i as f64 * y)
+            .sum();
         let sum_x2: f64 = (0..self.period).map(|i| (i as f64).powi(2)).sum();
         let denom = n * sum_x2 - sum_x * sum_x;
         if denom.abs() < f64::EPSILON {

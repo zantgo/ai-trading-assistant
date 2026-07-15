@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use shared::normalized::NormalizedCandle;
+use shared::normalized::{NormalizedCandle, ReconstructionMethod};
 
 #[derive(Debug, Deserialize)]
 struct BitgetCandleResponse {
@@ -74,10 +74,7 @@ pub async fn fetch_historical_candles(
     if candle_response.code != "00000" {
         return Err(format!(
             "Bitget API error for {} {}: code={} msg={:?}",
-            symbol,
-            interval,
-            candle_response.code,
-            candle_response.msg
+            symbol, interval, candle_response.code, candle_response.msg
         ));
     }
 
@@ -123,6 +120,7 @@ pub async fn fetch_historical_candles(
                 close,
                 volume,
                 trades_count: 0,
+                reconstructed: Some(ReconstructionMethod::ExchangeHistorical),
             })
         })
         .collect()

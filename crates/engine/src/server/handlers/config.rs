@@ -4,7 +4,6 @@ use crate::server::AppState;
 use axum::{extract::State, http::header, response::IntoResponse, Json};
 use std::sync::Arc;
 
-
 pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let current_config = state.config.read().await.clone();
     let response_body = ConfigResponse {
@@ -71,9 +70,7 @@ pub async fn serve_get_rules() -> impl IntoResponse {
     }
 }
 
-pub async fn serve_set_rules(
-    Json(payload): Json<SetRulesRequest>,
-) -> impl IntoResponse {
+pub async fn serve_set_rules(Json(payload): Json<SetRulesRequest>) -> impl IntoResponse {
     if let Err(e) = std::fs::write("docs/indicators-guide.md", &payload.content) {
         eprintln!("Failed to write indicators guide: {}", e);
         return (

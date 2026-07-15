@@ -3,16 +3,15 @@ use tokio::sync::{mpsc::channel, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use engine::{
-    config, db, performance_evaluator, portfolio_equity, server,
-    strategy_optimizer,
+    clock_monitor::{BreachAction, ClockMonitor, ClockMonitorConfig},
+    config, db, performance_evaluator, portfolio_equity, server, strategy_optimizer,
 };
 use shared::normalized::SymbolMapper;
 
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let _web_mode = args.is_empty()
-        || args.iter().any(|a| a == "--web" || a == "--gui");
+    let _web_mode = args.is_empty() || args.iter().any(|a| a == "--web" || a == "--gui");
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -50,6 +49,7 @@ async fn main() {
     });
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
+    let connection_quality = Arc::new(engine::connection_quality::ConnectionQualityTracker::new());
 
     let app_config = Arc::new(RwLock::new(app_config));
     let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
@@ -64,6 +64,7 @@ async fn main() {
         pool: db_pool.clone(),
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
+        connection_quality: connection_quality.clone(),
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
     });
@@ -94,6 +95,50 @@ async fn main() {
             eval_interval_secs: 300,
         })
         .await;
+    }));
+
+    // Spawn the clock-drift monitor if enabled in config.toml. This enforces the
+    // platform's <=50µs UTC drift budget via continuous NTP polling.
+    if let Some(clock_cfg) = app_config.read().await.clock_monitor.clone() {
+        if clock_cfg.is_active() {
+            let monitor_cfg = ClockMonitorConfig {
+                ntp_servers: clock_cfg.ntp_servers.clone(),
+                poll_interval: std::time::Duration::from_secs(clock_cfg.poll_interval_secs),
+                threshold: std::time::Duration::from_micros(
+                    clock_cfg.threshold_micros.max(0) as u64
+                ),
+                breach_action: match clock_cfg.breach_action {
+                    engine::config::ClockMonitorBreachAction::Warn => BreachAction::Warn,
+                    engine::config::ClockMonitorBreachAction::Panic => BreachAction::Panic,
+                },
+                warn_on_breach: clock_cfg.warn_on_breach,
+                jitter_window_size: clock_cfg.jitter_window_size,
+                query_timeout: std::time::Duration::from_secs(clock_cfg.query_timeout_secs),
+            };
+            let monitor = ClockMonitor::new(monitor_cfg);
+            let clock_cancel = CancellationToken::new();
+            println!(
+                "🕒 Clock Monitor: starting NTP polling ({} servers, threshold={}µs)",
+                clock_cfg.ntp_servers.len(),
+                clock_cfg.threshold_micros
+            );
+            handles.push(tokio::spawn(async move {
+                monitor.run_until_cancelled(clock_cancel).await;
+            }));
+        } else {
+            println!("🕒 Clock Monitor: disabled by config (enabled=false or no NTP servers)");
+        }
+    } else {
+        println!("🕒 Clock Monitor: no [clock_monitor] section in config.toml — drift enforcement disabled");
+    }
+
+    let quality_pool = db_pool.clone();
+    let quality_tracker = connection_quality;
+    let quality_cancel = eval_cancel.clone();
+    handles.push(tokio::spawn(async move {
+        quality_tracker
+            .run_persistence_loop(quality_pool, quality_cancel)
+            .await;
     }));
 
     let eq_pool = db_pool.clone();

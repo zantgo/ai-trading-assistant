@@ -44,6 +44,7 @@
 |--------|------|--------|----------|
 | `GET` | `/api/history` | `symbol`, `timeframe_secs` | `{ symbol, prices[], candles[], indicator_histories }` |
 | `GET` | `/api/monitor` | `symbol` | Multi-TF meta-intelligence (per-TF regime, MTF agreement matrix, MarketContext). |
+| `GET` | `/api/connection-quality` | `window=one_hour\|six_hour\|twenty_four_hour` (default `one_hour`) | `ConnectionQualityReport` JSON (`window`, `window_start_ms`, `window_end_ms`, `uptime_pct`, `disconnect_count`, `avg_reconnect_ms`, `total_data_loss_secs`, `reconstructed_candles`, `score`). See [08-05-connection-quality.md](../operations-and-compliance/08-05-connection-quality.md) for the full schema and source-of-truth behaviour. |
 
 ### 2.4 Instances (Workspaces)
 
@@ -57,7 +58,8 @@
 | `POST` | `/api/instances/:id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
 | `POST` | `/api/instances/:id/pause` | Pause event loop. |
 | `POST` | `/api/instances/:id/stop` | Stop instance. |
-| `POST` | `/api/instances/:id/safety/reset` | Reset consecutive loss counter. |
+| `POST` | `/api/instances/:id/safety/reset` | Reset consecutive loss counter (clears `loss_streak`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
+| `POST` | `/api/instances/:id/safety/release-veto` | **Release a hard drawdown / systemic veto** (Issue 4.O). The endpoint checks that the underlying veto condition (drawdown below threshold *and* `systemic_risk_score < systemic_risk_threshold`) has cleared, then restores the operator-configured default stances and clears the operator one-time-acknowledge flag. Returns `400` if the veto condition is still active, `200` on success. Distinct from `/safety/reset` (which only clears the consecutive-loss counter). |
 | `POST` | `/api/instances/:id/manual/open` | Log manual position open. |
 | `POST` | `/api/instances/:id/manual/close` | Log manual position close. |
 | `POST` | `/api/instances/:id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |

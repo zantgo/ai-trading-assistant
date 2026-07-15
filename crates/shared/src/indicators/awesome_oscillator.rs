@@ -32,22 +32,10 @@ impl AwesomeOscillator {
         if self.medians.len() < 34 {
             return None;
         }
-        let sma5: Decimal = self
-            .medians
-            .iter()
-            .rev()
-            .take(5)
-            .copied()
-            .sum::<Decimal>()
-            / Decimal::from(5);
-        let sma34: Decimal = self
-            .medians
-            .iter()
-            .rev()
-            .take(34)
-            .copied()
-            .sum::<Decimal>()
-            / Decimal::from(34);
+        let sma5: Decimal =
+            self.medians.iter().rev().take(5).copied().sum::<Decimal>() / Decimal::from(5);
+        let sma34: Decimal =
+            self.medians.iter().rev().take(34).copied().sum::<Decimal>() / Decimal::from(34);
         let ao = sma5 - sma34;
         let prev_ao = if self.medians.len() >= 35 {
             let prev_sma5: Decimal = self

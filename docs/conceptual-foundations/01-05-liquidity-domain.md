@@ -72,10 +72,16 @@ The unidirectional invariant is preserved because:
 
 ## Risk integration
 
-`RiskMatrix` gained a 9th dimension: `cascade_risk`. It is computed
+`RiskMatrix` contains an **8th** sub-dimension: `cascade_risk`. It is computed
 from `LiquidityFlow.cascade_intensity` and `LiquidationClusterMatrix.
-cascade_asymmetry`. The existing 8 dimensions are unchanged, with
-weights re-normalized so the overall score is still 0..100.
+cascade_asymmetry`. The legacy 8th sub-dimension `reward_risk` was removed and
+moved to the Decision Matrix as `entry_danger` (synthesis belongs
+at L6, not pure danger L5). The new `cascade_risk` slot **replaces** `reward_risk`
+in count: the matrix still has 8 unipolar danger sub-dimensions + `overall_risk`,
+not 9. Weights were re-normalized so the overall score is still 0..100. See
+[02-11-risk-matrix.md §2.1](../matrices/02-11-risk-matrix.md) for the
+authoritative field list and [02-00-matrix-field-ownership.md §2.5](../matrices/02-00-matrix-field-ownership.md)
+for the canonical producer mapping.
 
 The legacy `liquidity_risk` field was renamed to
 `execution_liquidity_risk` (with a serde alias) to free the
@@ -83,9 +89,7 @@ The legacy `liquidity_risk` field was renamed to
 
 ## Decision integration
 
-A 7th `OpportunityType::LiquiditySqueeze` variant was added. The
-AdvisoryMatrix maps it through to `OpportunityClass::LiquiditySqueeze`
-so the existing decision rendering pipeline picks it up.
+A 7th `OpportunityType::LiquiditySqueeze` variant was added in L4 ([02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). The L4 Opportunity Matrix now publishes `primary_opportunity = LIQUIDITY_SQUEEZE` when its preconditions are satisfied (cascade_state in `Detected`/`Sustained` plus `|cascade_asymmetry| > 0.3` plus `EXPANSION`/`TRANSITION` regime). The Decision Layer reads the value from L4's `primary_opportunity` directly — there is no separate `opportunity_classification` field on the Advisory Matrix (that field was removed in the institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) and [02-04-decision-matrix.md §2](../matrices/02-04-decision-matrix.md)). The TAE Policy Layer can therefore match on `opportunity.primary_opportunity` to dispatch `CLOSE_ONLY`-stance reduce-only orders (see [03-03-03-tae-layer2-execution.md §3.3](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 
 ## Backward compatibility
 
@@ -96,24 +100,29 @@ without the new fields deserialize cleanly. The legacy
 
 ## Configuration
 
-`config.toml` has a new `[liquidity]` section:
+The platform uses **`config.json`** as the single source of configuration truth — no `config.toml` exists. The Liquidity Intelligence extension contributes a `"liquidity"` sub-section inside `config.json` (see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md)):
 
-```toml
-[liquidity]
-enabled = true                       # master switch
-mark_price_poll_ms = 60000           # HL mark/OI/funding poll cadence
-funding_refresh_ms = 60000           # Bitget funding refresh floor
-event_retention_days = 90            # raw liquidation_events retention
-bucket_retention_days = 7            # aggregated buckets retention
-cluster_refresh_secs = 300           # cluster matrix refresh
-maintenance_margin_rate = 0.005      # 0.5% (industry standard for perps)
-cascade_detected_zscore = 2.5        # single-event cascade trigger
-cascade_sustained_events = 3         # events in window for Sustained
-funding_extreme_pct = 0.0005         # 0.05% / 8h
-magnet_activation_distance_pct = 0.5 # 0.5% from mid
-liquidity_vacuum_threshold = 0.3
-oi_funding_divergence_pct = 2.0
+```json
+{
+  "liquidity": {
+    "enabled": true,                          // master switch
+    "mark_price_poll_ms": 60000,              // HL mark/OI/funding poll cadence
+    "funding_refresh_ms": 60000,              // Bitget funding refresh floor
+    "event_retention_days": 90,               // raw liquidation_events retention
+    "bucket_retention_days": 7,               // aggregated buckets retention
+    "cluster_refresh_secs": 300,              // cluster matrix refresh
+    "maintenance_margin_rate": 0.005,         // 0.5% (industry standard for perps)
+    "cascade_detected_zscore": 2.5,           // single-event cascade trigger
+    "cascade_sustained_events": 3,            // events in window for Sustained
+    "funding_extreme_pct": 0.0005,            // 0.05% / 8h
+    "magnet_activation_distance_pct": 0.5,    // 0.5% from mid
+    "liquidity_vacuum_threshold": 0.3,
+    "oi_funding_divergence_pct": 2.0
+  }
+}
 ```
+
+> **Single source of truth (Issue 5.A — correction).** A previous version of this section showed the same fields as a `[liquidity]` block of a `config.toml` file. The platform does not use `config.toml` — every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.json` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The TOML form was retained from an early prototype that never shipped.
 
 ## Performance
 

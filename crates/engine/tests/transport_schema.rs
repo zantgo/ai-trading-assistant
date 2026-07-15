@@ -45,15 +45,15 @@ fn sample_snapshot() -> MarketSnapshot {
         advisory: None,
         open_interest: None,
         oi_delta_1h: None,
-                    mark_price: None,
-                    index_price: None,
-                    mark_index_spread_pct: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
         prev_day_px: None,
         statistical_context: None,
         decision_context: None,
         risk_profile: None,
-                    liquidity: None,
-                    cluster: None,
+        liquidity: None,
+        cluster: None,
     }
 }
 
@@ -94,7 +94,10 @@ fn history_arrays_serialize_nested_and_aligned() {
     let mut indicators: HashMap<String, HistoricalIndicatorArrays> = HashMap::new();
     let mut rsi = HistoricalIndicatorArrays::default();
     // Two aligned time steps: one present, one missing.
-    rsi.push_value(&NormalizationEngine::normalize_rsi(25.0, DivergenceState::None));
+    rsi.push_value(&NormalizationEngine::normalize_rsi(
+        25.0,
+        DivergenceState::None,
+    ));
     rsi.push_none();
     indicators.insert("rsi".to_string(), rsi);
 

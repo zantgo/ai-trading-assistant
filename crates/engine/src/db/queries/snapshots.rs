@@ -197,7 +197,17 @@ pub async fn query_recent_candles(
     timeframe_secs: u64,
     limit: u32,
 ) -> Vec<NormalizedCandle> {
-    let rows = sqlx::query_as::<_, (i64, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         "SELECT timestamp, open, high, low, close, volume
          FROM market_snapshots
          WHERE symbol = ?1
@@ -236,6 +246,7 @@ pub async fn query_recent_candles(
                 close: close_dec,
                 volume: parse(volume),
                 trades_count: 0,
+                reconstructed: None,
             }
         })
         .collect();
@@ -300,7 +311,8 @@ pub async fn query_latest_snapshot(
         let parse_dec =
             |val: Option<String>| val.and_then(|s| rust_decimal::Decimal::from_str_exact(&s).ok());
         let f = |i: usize| -> Option<f64> {
-            r.get::<Option<String>, _>(i).and_then(|s| s.parse::<f64>().ok())
+            r.get::<Option<String>, _>(i)
+                .and_then(|s| s.parse::<f64>().ok())
         };
         let close = parse_dec(r.get::<Option<String>, _>(9));
 
@@ -371,11 +383,13 @@ pub async fn query_latest_snapshot(
             close,
             volume: parse_dec(r.get::<Option<String>, _>(10)),
             average_volume: parse_dec(r.get::<Option<String>, _>(11)),
-            context: Some(shared::market_context::MarketContext::synthesize(&indicators)),
+            context: Some(shared::market_context::MarketContext::synthesize(
+                &indicators,
+            )),
             alignment: None,
-                        risk: None,
+            risk: None,
             analysis: None,
-                        advisory: None,
+            advisory: None,
             decision_context: None,
             statistical_context: None,
             indicators,

@@ -6,13 +6,13 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
+use shared::indicators::normalized::PreviousBarState;
 use shared::indicators::{
     AdxOutput, AtrOutput, CrossoverDir, DivergenceResult, DivergenceState, DivergenceStatus,
     DivergenceType, FibonacciRange, IndicatorInputs, MacdOutput, NormalizationContext,
     NormalizationEngine, NormalizedIndicatorValue, PatternResult, SeriesDivergenceResult,
     SqueezeOutput,
 };
-use shared::indicators::normalized::PreviousBarState;
 
 #[inline]
 fn d2f(d: Decimal) -> f64 {
@@ -26,8 +26,14 @@ fn od2f(d: Option<Decimal>) -> Option<f64> {
 
 /// Map an RSI [`DivergenceResult`] to the engine's [`DivergenceState`].
 pub fn rsi_divergence_state(div: &DivergenceResult) -> DivergenceState {
-    let bullish = matches!(div.rsi_divergence, DivergenceType::RsiBullish | DivergenceType::RsiBullishHidden);
-    let bearish = matches!(div.rsi_divergence, DivergenceType::RsiBearish | DivergenceType::RsiBearishHidden);
+    let bullish = matches!(
+        div.rsi_divergence,
+        DivergenceType::RsiBullish | DivergenceType::RsiBullishHidden
+    );
+    let bearish = matches!(
+        div.rsi_divergence,
+        DivergenceType::RsiBearish | DivergenceType::RsiBearishHidden
+    );
     match div.rsi_status {
         DivergenceStatus::Confirmed if bullish => DivergenceState::ConfirmedBullish,
         DivergenceStatus::Confirmed if bearish => DivergenceState::ConfirmedBearish,
@@ -39,8 +45,14 @@ pub fn rsi_divergence_state(div: &DivergenceResult) -> DivergenceState {
 
 /// Map a MACD [`DivergenceResult`] to the engine's [`DivergenceState`].
 pub fn macd_divergence_state(div: &DivergenceResult) -> DivergenceState {
-    let bullish = matches!(div.macd_divergence, DivergenceType::MacdBullish | DivergenceType::MacdBullishHidden);
-    let bearish = matches!(div.macd_divergence, DivergenceType::MacdBearish | DivergenceType::MacdBearishHidden);
+    let bullish = matches!(
+        div.macd_divergence,
+        DivergenceType::MacdBullish | DivergenceType::MacdBullishHidden
+    );
+    let bearish = matches!(
+        div.macd_divergence,
+        DivergenceType::MacdBearish | DivergenceType::MacdBearishHidden
+    );
     match div.macd_status {
         DivergenceStatus::Confirmed if bullish => DivergenceState::ConfirmedBullish,
         DivergenceStatus::Confirmed if bearish => DivergenceState::ConfirmedBearish,
@@ -264,9 +276,18 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         bbwp: od2f(p.bbwp),
         rvol: od2f(p.rvol),
         vwap: od2f(p.vwap),
-        avwap_weekly: p.anchored_vwap.as_ref().and_then(|a| a.vwap_weekly.map(|v| d2f(v))),
-        avwap_monthly: p.anchored_vwap.as_ref().and_then(|a| a.vwap_monthly.map(|v| d2f(v))),
-        avwap_swing: p.anchored_vwap.as_ref().and_then(|a| a.vwap_swing.map(|v| d2f(v))),
+        avwap_weekly: p
+            .anchored_vwap
+            .as_ref()
+            .and_then(|a| a.vwap_weekly.map(|v| d2f(v))),
+        avwap_monthly: p
+            .anchored_vwap
+            .as_ref()
+            .and_then(|a| a.vwap_monthly.map(|v| d2f(v))),
+        avwap_swing: p
+            .anchored_vwap
+            .as_ref()
+            .and_then(|a| a.vwap_swing.map(|v| d2f(v))),
         fib_gp_low: p.fib.and_then(|f| od2f(f.golden_pocket_low)),
         fib_gp_high: p.fib.and_then(|f| od2f(f.golden_pocket_high)),
         fib_ext_1618: p.fib.and_then(|f| od2f(f.ext_1618)),
@@ -318,15 +339,35 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         volprofile_poc: p.volume_profile.as_ref().map(|vp| d2f(vp.poc)),
         volprofile_vah: p.volume_profile.as_ref().map(|vp| d2f(vp.vah)),
         volprofile_val: p.volume_profile.as_ref().map(|vp| d2f(vp.val)),
-        volprofile_total_volume: p.volume_profile.as_ref().map(|vp| d2f(vp.total_volume)).unwrap_or(0.0),
-        smc_structure_bullish: p.smc.as_ref().map(|s| matches!(s.structure, shared::indicators::MarketStructure::Bullish)).unwrap_or(false),
-        smc_structure_bearish: p.smc.as_ref().map(|s| matches!(s.structure, shared::indicators::MarketStructure::Bearish)).unwrap_or(false),
+        volprofile_total_volume: p
+            .volume_profile
+            .as_ref()
+            .map(|vp| d2f(vp.total_volume))
+            .unwrap_or(0.0),
+        smc_structure_bullish: p
+            .smc
+            .as_ref()
+            .map(|s| matches!(s.structure, shared::indicators::MarketStructure::Bullish))
+            .unwrap_or(false),
+        smc_structure_bearish: p
+            .smc
+            .as_ref()
+            .map(|s| matches!(s.structure, shared::indicators::MarketStructure::Bearish))
+            .unwrap_or(false),
         smc_bos_bullish: p.smc.as_ref().map(|s| s.bos_bullish).unwrap_or(false),
         smc_bos_bearish: p.smc.as_ref().map(|s| s.bos_bearish).unwrap_or(false),
         smc_choch_bullish: p.smc.as_ref().map(|s| s.choch_bullish).unwrap_or(false),
         smc_choch_bearish: p.smc.as_ref().map(|s| s.choch_bearish).unwrap_or(false),
-        smc_liq_sweep_buy: p.smc.as_ref().map(|s| s.liquidity_sweep_buy).unwrap_or(false),
-        smc_liq_sweep_sell: p.smc.as_ref().map(|s| s.liquidity_sweep_sell).unwrap_or(false),
+        smc_liq_sweep_buy: p
+            .smc
+            .as_ref()
+            .map(|s| s.liquidity_sweep_buy)
+            .unwrap_or(false),
+        smc_liq_sweep_sell: p
+            .smc
+            .as_ref()
+            .map(|s| s.liquidity_sweep_sell)
+            .unwrap_or(false),
         smc_ob_bullish_high: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bullish_high)),
         smc_ob_bullish_low: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bullish_low)),
         smc_ob_bearish_high: p.smc.as_ref().and_then(|s| od2f(s.active_ob_bearish_high)),
@@ -431,9 +472,14 @@ fn inject_volume(
         }
         let mut niv = NormalizedIndicatorValue::with_values(vol, 0.0, label, values);
         if label == "VOLUME_CLIMAX" {
-            use shared::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
+            use shared::indicators::normalized::{
+                IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
+            };
             niv.signals.push(IndicatorSignal::new(
-                SignalKind::VolumeClimax, SignalDirection::Neutral, SignalStatus::Active, "VOLUME_CLIMAX",
+                SignalKind::VolumeClimax,
+                SignalDirection::Neutral,
+                SignalStatus::Active,
+                "VOLUME_CLIMAX",
             ));
         }
         map.insert("volume".into(), niv);

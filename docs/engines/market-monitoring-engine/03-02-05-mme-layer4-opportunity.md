@@ -28,7 +28,7 @@ The Opportunity Layer identifies **positive** market configurations and scores t
 
 ## 2. Candidate Setup Types
 
-The layer profiles each candidate `OpportunityType`:
+The layer profiles each candidate `OpportunityType`. The canonical enum is **seven-valued** — the original six plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension:
 
 | Setup | Precondition Signature |
 |-------|------------------------|
@@ -37,7 +37,8 @@ The layer profiles each candidate `OpportunityType`:
 | `Pullback` | Established trend + weakening momentum + retrace to dynamic level. |
 | `MeanReversion` | Volatility compression + range regime + oscillator extreme. |
 | `Reversal` | Confirmed divergence + structure break + reversing momentum. |
-| `NoClearOpportunity` | Opportunity dimension < 30 or conflicting evidence. |
+| `LiquiditySqueeze` | `LiquidityFlow.cascade_state ∈ {Detected, Sustained}` AND `|LiquidationClusterMatrix.cascade_asymmetry| > 0.3` AND `regime ∈ {EXPANSION, TRANSITION}`. Surface as a defensive opportunity — drives `CLOSE_ONLY` stance policy and tightens stops. |
+| `NoClearOpportunity` | No candidate met its preconditions (and no `LiquiditySqueeze` is active). |
 
 ---
 
@@ -54,7 +55,7 @@ $$\text{score} = 0.35\,Q_{ctx} + 0.30\,S_{sig} + 0.20\,A_{mtf} + 0.15\,F_{fresh}
 | `A_mtf` — MTF agreement | Alignment `trend_agreement_pct` for directional setups. |
 | `F_fresh` — freshness | Inverse of youngest contributing signal `age_bars`. |
 
-The **primary opportunity** is the highest-scoring profile; ties resolve toward the highest-precondition-satisfaction profile.
+The **primary opportunity** is determined by the priority-ordered decision tree in [02-08-opportunity-matrix.md §4](../../matrices/02-08-opportunity-matrix.md) (first match wins). The `opportunity_score` and `profiles[]` array expose the full scoring breakdown for downstream consumers but do **not** override the tree selection. In a tie, the profile with the higher `preconditions_met / preconditions_total` ratio wins.
 
 ---
 

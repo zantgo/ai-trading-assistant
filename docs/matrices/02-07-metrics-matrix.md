@@ -68,6 +68,9 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/sh
 | `open_interest` | `Decimal` | Yes | Open interest at snapshot time. |
 | `oi_delta_1h` | `Decimal` | Yes | 1-hour rolling open-interest change. |
 | `prev_day_px` | `Decimal` | Yes | Prior-day reference price (from asset context). |
+| `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). NULL when liquidity extension disabled. |
+| `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). NULL when liquidity extension disabled. |
+| `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). Empty array when liquidity extension disabled. |
 | `indicators` | `map<string, IndicatorEvaluation>` | No | The unified dual-representation indicator map (see §3). |
 | `context` | `MarketContext` | Yes | Synthesized per-timeframe context (see §5). |
 | `alignment` | `AlignmentMatrix` | Yes | Attached Alignment Matrix (populated on completed snapshots). |
@@ -128,7 +131,7 @@ Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry 
 | `signal_types` | The `SignalKind`s this indicator may emit. |
 | `default_weight` | Baseline scoring weight. |
 
-See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, **102 signal-kind declarations**).
+See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, **101 signal-kind declarations**).
 
 ---
 
@@ -158,7 +161,7 @@ Each `IndicatorSignal` in an indicator's `signals` array is a discrete detected 
 | `Breakout` | Price breaks a structural boundary. | [breakout.md](../engines/market-monitoring-engine/signals/05-02-04-breakout.md) |
 | `BandTouch` | Price contacts a channel/band edge. | [band-touch.md](../engines/market-monitoring-engine/signals/05-02-05-band-touch.md) |
 | `ZeroLineCross` | Oscillator crosses its zero/mid line. | [zero-line-cross.md](../engines/market-monitoring-engine/signals/05-02-06-zero-line-cross.md) |
-| `CompressionRelease` | Volatility squeeze fires. | [compression-release.md](../engines/market-monitoring-engine/signals/05-02-07-compression-release.md) |
+| `VolatilityCycle` | Volatility cycle phase transition (coiling + release). | [volatility-cycle.md](../engines/market-monitoring-engine/signals/05-02-07-volatility-cycle.md) |
 | `LevelTest` | Price tests a horizontal level (S/R, fib, pivot). | [level-test.md](../engines/market-monitoring-engine/signals/05-02-08-level-test.md) |
 | `TrendFlip` | Directional regime reverses (Supertrend, PSAR). | [trend-flip.md](../engines/market-monitoring-engine/signals/05-02-09-trend-flip.md) |
 | `VolumeClimax` | Abnormal volume surge. | [volume-climax.md](../engines/market-monitoring-engine/signals/05-02-10-volume-climax.md) |
@@ -192,6 +195,26 @@ Each `IndicatorSignal` in an indicator's `signals` array is a discrete detected 
 
 The `context` field carries the **`MarketContext`** synthesis (`crates/shared/src/market_context.rs`) — a per-timeframe aggregation of the indicator map into higher-level dimensions. It is meta-intelligence built on the indicators, not a standalone indicator.
 
+### 5.0 Local-Regime vs Canonical-Regime Vocabulary
+
+> **Vocabulary mapping (Issue 4.U — clarification).** The platform uses **two distinct regime vocabularies** at different layers — they are not interchangeable:
+
+| Layer | Vocabulary | Cardinality | Use |
+|-------|------------|-------------|------|
+| L1 `MarketContext.regime` (per-timeframe coarse gating) | `COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE` | **4-state** | Local confluence / per-timeframe indicator normalization; used to gate confidence in `overall_score`. The `EXPANSION` state aligns with the L3 `MarketRegime.EXPANSION`; `COMPRESSION` here is the canonical-term counterpart to `MarketRegime.CONTRACTION` — they describe the same concept with slightly different naming conventions because `COMPRESSION` is the in-place volume/BBWP-labelled state for the per-timeframe indicator aggregator. |
+| L3 `AnalysisMatrix.market_regime` (cross-TF canonical) | `TRENDING_BULL` / `TRENDING_BEAR` / `RANGE` / `ACCUMULATION` / `DISTRIBUTION` / `EXPANSION` / `CONTRACTION` / `TRANSITION` | **8-state** | Canonical regime for downstream layers (L4 opportunity, L5 risk, L6 decision, L7 overview); canonical source: [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md). |
+
+The 4-state → 8-state mapping is:
+
+| `MarketContext.regime` (L1) | Maps to (any of) `MarketRegime` (L3) |
+|-----------------------------|-------------------------------------|
+| `COMPRESSION` | `CONTRACTION` (volatile compression — BBWP low, choppiness high) |
+| `EXPANSION` | `EXPANSION` (volatility release — BBWP high) |
+| `TRENDING` | `TRENDING_BULL` / `TRENDING_BEAR` / `ACCUMULATION` / `DISTRIBUTION` (depending on directional bias) |
+| `RANGE` | `RANGE` / `TRANSITION` (no directional commitment, ADX < 25, BBWP in mid-band) |
+
+Implementations must not compare the two enum values directly across layers — always go through the L3 Analysis Matrix's `market_regime` for cross-TF / cross-layer logic.
+
 ### 5.1 MarketContext Fields
 
 | Field | Type | Description |
@@ -201,7 +224,7 @@ The `context` field carries the **`MarketContext`** synthesis (`crates/shared/sr
 | `volatility` | `ContextDimension` | Magnitude from BBWP/HV (expansion vs compression). |
 | `volume` | `ContextDimension` | RVOL-derived participation magnitude. |
 | `liquidity` | `ContextDimension` | VWAP proximity + participation proxy. |
-| `regime` | `string` | `TRENDING` / `RANGE` / `EXPANSION` / `COMPRESSION`. *(Note: the cross-TF Analysis `MarketRegime` uses the related but distinct `CONTRACTION` instead of `COMPRESSION` for the same concept; see [Analysis Matrix §3.2](../matrices/02-02-analysis-matrix.md).)* |
+| `regime` | `string` (4-state) | `COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE` — local 4-state regime (see §5.0 for the cross-layer mapping). |
 | `overall_score` | `i32` | Directional conviction in `[-100, 100]`. |
 | `overall_label` | `string` | `STRONG_BULL` / `WEAK_BULL` / `NEUTRAL` / `WEAK_BEAR` / `STRONG_BEAR`. |
 
@@ -249,7 +272,7 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
       "state_label": "BULLISH_MOMENTUM",
       "confidence": 0.42,
       "signals": [
-        { "kind": "Threshold", "direction": "Bearish", "status": "Active",
+        { "kind": "THRESHOLD", "direction": "BEARISH", "status": "ACTIVE",
           "label": "OVERBOUGHT_DISTRIBUTION", "strength": 0.6, "age_bars": 2 }
       ]
     },
@@ -260,7 +283,7 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
       "values": { "line": 12.3, "signal": 9.8, "histogram": 2.5 },
       "confidence": 0.7,
       "signals": [
-        { "kind": "Crossover", "direction": "Bullish", "status": "Confirmed",
+        { "kind": "CROSSOVER", "direction": "BULLISH", "status": "CONFIRMED",
           "label": "MACD_BULLISH_CROSSOVER", "strength": 0.8, "age_bars": 0 }
       ]
     }

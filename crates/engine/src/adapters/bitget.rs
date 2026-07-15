@@ -104,10 +104,7 @@ pub async fn run_for_symbol(
         .send(Message::Text(sub_request.to_string().into()))
         .await
     {
-        eprintln!(
-            "❌ Bitget [{}]: Failed to send subscription: {}",
-            symbol, e
-        );
+        eprintln!("❌ Bitget [{}]: Failed to send subscription: {}", symbol, e);
         return;
     }
 
@@ -156,11 +153,10 @@ pub async fn run_for_symbol(
 
                 match channel {
                     "trade" => {
-                        let trades: Vec<TradeItem> =
-                            match serde_json::from_value(data_val) {
-                                Ok(t) => t,
-                                Err(_) => continue,
-                            };
+                        let trades: Vec<TradeItem> = match serde_json::from_value(data_val) {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
                         for t in trades {
                             let price = Decimal::from_str(&t.price).unwrap_or(Decimal::ZERO);
                             let size = Decimal::from_str(&t.size).unwrap_or(Decimal::ZERO);
@@ -168,13 +164,12 @@ pub async fn run_for_symbol(
                                 "buy" => TradeSide::Buy,
                                 _ => TradeSide::Sell,
                             };
-                            let ts_ms: u64 =
-                                t.ts.parse::<u64>().unwrap_or(
-                                    std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64,
-                                );
+                            let ts_ms: u64 = t.ts.parse::<u64>().unwrap_or(
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64,
+                            );
 
                             let event = NormalizedEvent::Trade(NormalizedTrade {
                                 exchange: Exchange::Bitget,
@@ -189,11 +184,10 @@ pub async fn run_for_symbol(
                         }
                     }
                     "books5" => {
-                        let books: Vec<BookItem> =
-                            match serde_json::from_value(data_val) {
-                                Ok(b) => b,
-                                Err(_) => continue,
-                            };
+                        let books: Vec<BookItem> = match serde_json::from_value(data_val) {
+                            Ok(b) => b,
+                            Err(_) => continue,
+                        };
                         for book in books {
                             let bids: Vec<(Decimal, Decimal)> = book
                                 .bids
@@ -213,13 +207,12 @@ pub async fn run_for_symbol(
                                     Some((p, s))
                                 })
                                 .collect();
-                            let ts_ms: u64 =
-                                book.ts.parse::<u64>().unwrap_or(
-                                    std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64,
-                                );
+                            let ts_ms: u64 = book.ts.parse::<u64>().unwrap_or(
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_millis() as u64,
+                            );
 
                             let event = NormalizedEvent::OrderBook(NormalizedOrderBook {
                                 exchange: Exchange::Bitget,
@@ -351,11 +344,7 @@ async fn emit_bitget_fill_liquidations(
             Some(p) => p,
             None => continue,
         };
-        let size = match fill
-            .size
-            .as_deref()
-            .and_then(|s| Decimal::from_str(s).ok())
-        {
+        let size = match fill.size.as_deref().and_then(|s| Decimal::from_str(s).ok()) {
             Some(s) => s,
             None => continue,
         };

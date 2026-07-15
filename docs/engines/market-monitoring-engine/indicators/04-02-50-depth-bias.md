@@ -53,6 +53,18 @@ state_label = DEEP_BIDS | DEEP_ASKS | BALANCED_DEPTH
 confidence = |normalized|
 ```
 
+## Risk Integration (depth-bias-specific)
+
+The `RiskMatrix.execution_liquidity_risk` dimension incorporates Depth Bias in addition to RVOL and spread:
+
+| Condition | Effect on `execution_liquidity_risk` |
+|-----------|--------------------------------------|
+| Depth Bias ratio < 0.5 (`DEEP_ASKS`, strong ask wall) | +15 (large resting sell orders → harder to lift for long entries) |
+| Depth Bias ratio > 2.0 (`DEEP_BIDS`, strong bid wall) | -10 (large resting buy orders → easier to fill long entries, structural support beneath) |
+| Ratio ∈ [0.5, 2.0] (`BALANCED_DEPTH`) | 0 (no adjustment) |
+
+The Depth Bias adjustment is **distinct from** the spread-based adjustment in `execution_risk` (which captures per-fill cost) and the RVOL-based adjustment in `execution_liquidity_risk` (which captures participation regime). Depth Bias captures **structural book support/resistance** — large resting orders that may act as price barriers.
+
 ---
 
 ## Cross-References

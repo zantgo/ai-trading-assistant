@@ -33,8 +33,16 @@ impl WilliamsR {
         if self.highs.is_empty() || self.lows.is_empty() {
             return None;
         }
-        let hh = self.highs.iter().copied().fold(Decimal::MIN, |a, b| a.max(b));
-        let ll = self.lows.iter().copied().fold(Decimal::MAX, |a, b| a.min(b));
+        let hh = self
+            .highs
+            .iter()
+            .copied()
+            .fold(Decimal::MIN, |a, b| a.max(b));
+        let ll = self
+            .lows
+            .iter()
+            .copied()
+            .fold(Decimal::MAX, |a, b| a.min(b));
         if hh == Decimal::MIN || ll == Decimal::MAX {
             return Some(Decimal::from(-50));
         }

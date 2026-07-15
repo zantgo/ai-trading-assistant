@@ -63,7 +63,12 @@ impl NormalizationEngine {
     }
 
     /// Keltner Channels: price position within / breakout beyond the channel.
-    pub fn normalize_keltner(price: f64, upper: f64, middle: f64, lower: f64) -> NormalizedIndicatorValue {
+    pub fn normalize_keltner(
+        price: f64,
+        upper: f64,
+        middle: f64,
+        lower: f64,
+    ) -> NormalizedIndicatorValue {
         let (norm, label) = if price >= upper {
             (1.0, "KELTNER_UPPER_BREAKOUT")
         } else if price <= lower {
@@ -73,7 +78,11 @@ impl NormalizationEngine {
             let n = (price - middle) / half;
             (
                 clamp_unit(n * 0.8),
-                if n >= 0.0 { "KELTNER_UPPER_HALF" } else { "KELTNER_LOWER_HALF" },
+                if n >= 0.0 {
+                    "KELTNER_UPPER_HALF"
+                } else {
+                    "KELTNER_LOWER_HALF"
+                },
             )
         };
         let mut values = HashMap::new();
@@ -84,7 +93,12 @@ impl NormalizationEngine {
     }
 
     /// Donchian Channels: breakout at the extremes, else position within range.
-    pub fn normalize_donchian(price: f64, upper: f64, middle: f64, lower: f64) -> NormalizedIndicatorValue {
+    pub fn normalize_donchian(
+        price: f64,
+        upper: f64,
+        middle: f64,
+        lower: f64,
+    ) -> NormalizedIndicatorValue {
         let (norm, label) = if price >= upper {
             (1.0, "DONCHIAN_UPPER_BREAKOUT")
         } else if price <= lower {
@@ -94,7 +108,11 @@ impl NormalizationEngine {
             let n = (price - middle) / half;
             (
                 clamp_unit(n * 0.7),
-                if n >= 0.0 { "DONCHIAN_UPPER_RANGE" } else { "DONCHIAN_LOWER_RANGE" },
+                if n >= 0.0 {
+                    "DONCHIAN_UPPER_RANGE"
+                } else {
+                    "DONCHIAN_LOWER_RANGE"
+                },
             )
         };
         let mut values = HashMap::new();
@@ -328,7 +346,12 @@ impl NormalizationEngine {
     }
 
     /// StdDev Channel: linear regression center ±2σ.
-    pub fn normalize_stddev_channel(price: f64, upper: f64, center: f64, lower: f64) -> NormalizedIndicatorValue {
+    pub fn normalize_stddev_channel(
+        price: f64,
+        upper: f64,
+        center: f64,
+        lower: f64,
+    ) -> NormalizedIndicatorValue {
         let (norm, label) = if price >= upper {
             (1.0, "STDDEV_UPPER_BREAKOUT")
         } else if price <= lower {
@@ -336,8 +359,14 @@ impl NormalizationEngine {
         } else {
             let half = (upper - center).max(f64::EPSILON);
             let n = (price - center) / half;
-            (clamp_unit(n * 0.8),
-             if n >= 0.0 { "STDDEV_UPPER_HALF" } else { "STDDEV_LOWER_HALF" })
+            (
+                clamp_unit(n * 0.8),
+                if n >= 0.0 {
+                    "STDDEV_UPPER_HALF"
+                } else {
+                    "STDDEV_LOWER_HALF"
+                },
+            )
         };
         let mut values = HashMap::new();
         values.insert("upper".to_string(), upper);

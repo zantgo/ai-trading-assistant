@@ -1,22 +1,22 @@
 # MME Layer 5 — Risk Layer
 
-**Version:** 2.0
+**Version:** 2.1 (Phase 3: added `cascade_risk`; renamed `liquidity_risk` → `execution_liquidity_risk`)
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7
 **Output Contract:** [Risk Matrix](../../matrices/02-11-risk-matrix.md)
-**Purpose:** This document specifies the Risk Layer — the process that quantifies ex-ante threat dimensions (volatility, liquidity, structure, momentum, signal, execution) on a direction-independent unipolar 0–100 scale.
+**Purpose:** This document specifies the Risk Layer — the process that quantifies ex-ante threat dimensions (**market_risk**, volatility, execution liquidity, structure, momentum, signal, execution, cascade) on a direction-independent unipolar 0–100 scale.
 
 ---
 
 ## 1. Purpose
 
-The Risk Layer measures **danger**, independent of direction. It consumes the [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) plus the underlying indicator map and produces the **eight-dimensional** [Risk Matrix](../../matrices/02-11-risk-matrix.md). *(Reduced from nine in the institutional redesign; `reward_risk` moved to Decision Layer as `environment_favorability`.)*
+The Risk Layer measures **danger**, independent of direction. It consumes the [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) plus the underlying indicator map and produces the [Risk Matrix](../../matrices/02-11-risk-matrix.md). The matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total** — pure environmental danger, no reward synthesis (which lives at the [Decision Layer](03-02-07-mme-layer6-decision-support.md) as `entry_danger`).
 
 ```
 [Analysis Matrix (L3)] ─┐
                          ├──► RISK LAYER (L5) ──► [Risk Matrix]
-[Metrics indicators (L1)]┘      compute_risk()      (8 unipolar dimensions)
+[Metrics indicators (L1)]┘      compute_risk()      (eight sub-dims + overall_risk)
                                                 │
                                                 ▼
                                           L6 (Decision)
@@ -36,24 +36,25 @@ Risk is a property of an *interpretation*: it consumes the Analysis Matrix becau
 |-----------|---------------|
 | `market_risk` | General uncertainty from conflict / weak structure. |
 | `volatility_risk` | Abnormal price movement (BBWP, ATR, squeeze). |
-| `liquidity_risk` | Thin participation (RVOL, spread). |
+| `execution_liquidity_risk` | Thin participation (RVOL, spread). *(Renamed from `liquidity_risk` in Phase 3 to free the term "liquidity" for the new positional concept; serialized via serde rename — backward-compatible.)* |
 | `structure_risk` | Weak / damaged / flipped structure. |
 | `momentum_risk` | Exhausted / diverging momentum. |
 | `signal_risk` | Conflicting / unreliable signals. |
 | `execution_risk` | Spread / slippage / thin-book difficulty. |
-| `overall_risk` | Weighted aggregate. |
+| `cascade_risk` | Forced liquidation cascade danger *(Phase 3, computed from `LiquidityFlow` + `LiquidationClusterMatrix`)*. |
+| `overall_risk` | Weighted aggregate of the eight sub-dimensions. |
 
 All scores are **unipolar** in `[0, 100]` (higher = riskier). Per-dimension additive scoring contracts are specified in [Risk Matrix §4](../../matrices/02-11-risk-matrix.md).
-
-> **Removed in the institutional redesign.** The previous `reward_risk` dimension has been **removed** from the Risk Matrix. Reward synthesis now lives at [Decision Matrix `environment_favorability`](02-04-decision-matrix.md) (semantic successor).
 
 ---
 
 ## 3. Overall Aggregation
 
-$$\text{overall} = 0.15M + 0.20V + 0.15L + 0.10S_{tr} + 0.15M_{om} + 0.15S_{ig} + 0.10E$$
+The overall risk score is a weighted aggregate of the **eight unipolar sub-dimensions** (no `reward_risk` — reward synthesis is a Decision-Layer concern). Final normalized weights summing to 1.0 are defined in the producing code at `crates/shared/src/risk.rs::compute_risk` and reflected here:
 
-where M=market, V=volatility, L=liquidity, S_tr=structure, M_om=momentum, S_ig=signal, E=execution. Weights re-normalized after `reward_risk` removal: total = 1.0.
+$$\text{overall} = 0.14\,M + 0.14\,V + 0.14\,L_{ex} + 0.10\,S_{tr} + 0.14\,M_{om} + 0.10\,S_{ig} + 0.10\,E + 0.14\,C$$
+
+where M=market, V=volatility, L_ex=execution_liquidity, S_tr=structure, M_om=momentum, S_ig=signal, E=execution, C=cascade. Total = 1.0.
 
 RiskLevel banding: `≥80` Extreme · `≥60` High · `≥40` Moderate · `≥20` Low · else VeryLow.
 
@@ -69,7 +70,7 @@ Each `RiskDimension` carries an `evidence` list of the specific factors that rai
 
 The Risk Layer (L5) and the Opportunity Layer (L4) are **strictly orthogonal branches** of the MME pipeline. L5 does **not** consume the L4 Opportunity Matrix; both layers read the [Analysis Matrix (L3)](../../matrices/02-02-analysis-matrix.md) directly and execute in parallel. Evaluating risk must never depend on the opportunity score, and scoring an opportunity must never be limited by risk.
 
-**With the institutional redesign (Option α):** the previous `reward_risk` dimension (which synthesized L3 + L4 fields) has been **removed** from the Risk Matrix — reward evaluation is a synthesis concept and belongs in the [Decision Layer (L6)](03-02-07-mme-layer6-decision-support.md) as the new `environment_favorability` field. The Risk Matrix now contains **8 unipolar danger dimensions** + `overall_risk` — pure environmental danger, no reward synthesis.
+The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate) — **nine fields total** — pure environmental danger, no reward synthesis. Reward evaluation lives at the [Decision Layer (L6)](03-02-07-mme-layer6-decision-support.md) as `entry_danger`.
 
 The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)](03-02-07-mme-layer6-decision-support.md), where L6 combines the orthogonal L3 + L4 + L5 vectors to produce guidance — a high-opportunity, high-risk configuration yields a cautious stance even with strong bias. L6 is the **only** synthesis point.
 
@@ -83,34 +84,21 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 | **Unipolar bounding** | Every score ∈ `[0, 100]`. |
 | **Explainability** | Every dimension exposes contributing evidence. |
 | **Empty safety** | Zero timeframes → all dimensions default to 50 (Moderate). |
+| **Orthogonality** | L5 reads L3 only — never L4. L5 does not influence opportunity scoring. |
 
 ---
 
-## 7. Phase 3 Extension: Cascade Risk
+## 7. Cascade Risk (Phase 3)
 
-The 9th `RiskDimension` is `cascade_risk`, added by the Liquidity
-Intelligence extension. It quantifies the danger from forced
-liquidation cascades and is computed by `assess_cascade_risk` from:
+`cascade_risk` is the 9th dimension of the Risk Matrix, added by the Liquidity Intelligence extension. It quantifies the danger from forced liquidation cascades and is computed by `crates/shared/src/risk.rs::assess_cascade_risk` from:
 
-- `LiquidityFlow.cascade_intensity` (per-candle real event aggregate).
-- `LiquidityFlow.cascade_state` (None / Detected / Sustained /
-  Exhausted) — adds a 0..30 risk premium on top of intensity when
-  the state is elevated.
-- `LiquidationClusterMatrix.cascade_asymmetry` — forward-looking
-  pressure: `|asymmetry| > 0.3` adds up to 30 risk points.
+- `LiquidityFlow.cascade_intensity` (per-candle real event aggregate, already 0..100).
+- `LiquidityFlow.cascade_state` (`None` / `Detected` / `Sustained` / `Exhausted`) — adds a 0..30 risk premium on top of intensity when the state is elevated.
+- `LiquidationClusterMatrix.cascade_asymmetry` — forward-looking pressure: `|asymmetry| > 0.3` adds up to 30 risk points.
 
-The 8 existing dimensions are re-weighted so the overall score
-remains 0..100:
+Per-dimension scoring rules are documented in [Risk Matrix §4.8](../../matrices/02-11-risk-matrix.md). The overall aggregation formula is in §3 above.
 
-```
-overall_risk = 0.13·market + 0.13·volatility + 0.13·execution_liquidity
-             + 0.09·structure + 0.13·momentum + 0.09·signal
-             + 0.09·execution + 0.09·reward + 0.12·cascade
-```
-
-The legacy `liquidity_risk` field was renamed to
-`execution_liquidity_risk` (with a serde alias) to free the term
-"liquidity" for the new positional concept.
+---
 
 ## 8. Cross-References
 

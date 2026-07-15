@@ -117,7 +117,12 @@ impl OverviewMatrix {
             market_breadth: MarketBreadth::Balanced,
             regime_distribution: HashMap::new(),
             opportunity_distribution: HashMap::new(),
-            risk_distribution: RiskDistribution { low_pct: 0.0, moderate_pct: 100.0, high_pct: 0.0, risk_environment: "NO_DATA".into() },
+            risk_distribution: RiskDistribution {
+                low_pct: 0.0,
+                moderate_pct: 100.0,
+                high_pct: 0.0,
+                risk_environment: "NO_DATA".into(),
+            },
             asset_ranking: Vec::new(),
             market_synchronization: SyncLevel::HighlyFragmented,
             market_health: HealthLevel::Neutral,
@@ -151,8 +156,12 @@ pub fn compute_overview(
     let instance_count = active_instances.len() as u32;
 
     let mut symbols_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for inst in &active_instances { symbols_set.insert(inst.symbol.clone()); }
-    for a in advisories { symbols_set.insert(a.symbol.clone()); }
+    for inst in &active_instances {
+        symbols_set.insert(inst.symbol.clone());
+    }
+    for a in advisories {
+        symbols_set.insert(a.symbol.clone());
+    }
     let mut active_symbols: Vec<String> = symbols_set.into_iter().collect();
     active_symbols.sort();
 
@@ -168,43 +177,72 @@ pub fn compute_overview(
         }
     }
     let total = (long_count + short_count + neutral_count).max(1) as f64;
-    let global_bias = if long_count as f64 / total >= 0.6 { GlobalBias::Bullish }
-        else if short_count as f64 / total >= 0.6 { GlobalBias::Bearish }
-        else if neutral_count as f64 / total >= 0.6 { GlobalBias::Neutral }
-        else if long_count > short_count { GlobalBias::Bullish }
-        else if short_count > long_count { GlobalBias::Bearish }
-        else { GlobalBias::Mixed };
+    let global_bias = if long_count as f64 / total >= 0.6 {
+        GlobalBias::Bullish
+    } else if short_count as f64 / total >= 0.6 {
+        GlobalBias::Bearish
+    } else if neutral_count as f64 / total >= 0.6 {
+        GlobalBias::Neutral
+    } else if long_count > short_count {
+        GlobalBias::Bullish
+    } else if short_count > long_count {
+        GlobalBias::Bearish
+    } else {
+        GlobalBias::Mixed
+    };
 
     // Market breadth
     let breadth_pct = (long_count as f64 - short_count as f64) / total * 100.0;
-    let breadth = if breadth_pct > 60.0 { MarketBreadth::StrongPositive }
-        else if breadth_pct > 20.0 { MarketBreadth::Positive }
-        else if breadth_pct < -60.0 { MarketBreadth::StrongNegative }
-        else if breadth_pct < -20.0 { MarketBreadth::Negative }
-        else if breadth_pct.abs() < 10.0 { MarketBreadth::Balanced }
-        else if breadth_pct > 0.0 { MarketBreadth::Weak }
-        else { MarketBreadth::VeryWeak };
+    let breadth = if breadth_pct > 60.0 {
+        MarketBreadth::StrongPositive
+    } else if breadth_pct > 20.0 {
+        MarketBreadth::Positive
+    } else if breadth_pct < -60.0 {
+        MarketBreadth::StrongNegative
+    } else if breadth_pct < -20.0 {
+        MarketBreadth::Negative
+    } else if breadth_pct.abs() < 10.0 {
+        MarketBreadth::Balanced
+    } else if breadth_pct > 0.0 {
+        MarketBreadth::Weak
+    } else {
+        MarketBreadth::VeryWeak
+    };
 
     // Asset ranking
-    let mut rankings: Vec<AssetRank> = advisories.iter().map(|a| {
-        let score = a.confidence_assessment * 0.5 + (100.0 - a.confidence_assessment.min(50.0) * 0.5);
-        AssetRank {
-            symbol: a.symbol.clone(),
-            score,
-            bias: format!("{:?}", a.directional_guidance),
-            confidence: a.confidence_assessment,
-            regime: format!("{:?}", a.strategy_environment),
-            risk_level: "MODERATE".into(),
-        }
-    }).collect();
-    rankings.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    let mut rankings: Vec<AssetRank> = advisories
+        .iter()
+        .map(|a| {
+            let score =
+                a.confidence_assessment * 0.5 + (100.0 - a.confidence_assessment.min(50.0) * 0.5);
+            AssetRank {
+                symbol: a.symbol.clone(),
+                score,
+                bias: format!("{:?}", a.directional_guidance),
+                confidence: a.confidence_assessment,
+                regime: format!("{:?}", a.strategy_environment),
+                risk_level: "MODERATE".into(),
+            }
+        })
+        .collect();
+    rankings.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Synchronization
-    let sync = if breadth_pct.abs() > 75.0 { SyncLevel::HighlySynchronized }
-        else if breadth_pct.abs() > 50.0 { SyncLevel::Synchronized }
-        else if breadth_pct.abs() > 25.0 { SyncLevel::Mixed }
-        else if breadth_pct.abs() > 10.0 { SyncLevel::Fragmented }
-        else { SyncLevel::HighlyFragmented };
+    let sync = if breadth_pct.abs() > 75.0 {
+        SyncLevel::HighlySynchronized
+    } else if breadth_pct.abs() > 50.0 {
+        SyncLevel::Synchronized
+    } else if breadth_pct.abs() > 25.0 {
+        SyncLevel::Mixed
+    } else if breadth_pct.abs() > 10.0 {
+        SyncLevel::Fragmented
+    } else {
+        SyncLevel::HighlyFragmented
+    };
 
     let health = match global_bias {
         GlobalBias::StrongBullish | GlobalBias::StrongBearish => HealthLevel::Strong,
@@ -215,7 +253,10 @@ pub fn compute_overview(
 
     let summary = format!(
         "{} active instances across {} symbols. Global bias: {} with {} market breadth.",
-        instance_count, active_symbols.len(), global_bias, match breadth {
+        instance_count,
+        active_symbols.len(),
+        global_bias,
+        match breadth {
             MarketBreadth::StrongPositive | MarketBreadth::Positive => "positive",
             MarketBreadth::StrongNegative | MarketBreadth::Negative => "negative",
             _ => "balanced",
@@ -224,8 +265,18 @@ pub fn compute_overview(
 
     // Risk distribution: approximate from advisories
     let total_adv = advisories.len().max(1) as f64;
-    let low_risk = advisories.iter().filter(|a| a.confidence_assessment > 70.0).count() as f64 / total_adv * 100.0;
-    let high_risk = advisories.iter().filter(|a| a.confidence_assessment < 30.0).count() as f64 / total_adv * 100.0;
+    let low_risk = advisories
+        .iter()
+        .filter(|a| a.confidence_assessment > 70.0)
+        .count() as f64
+        / total_adv
+        * 100.0;
+    let high_risk = advisories
+        .iter()
+        .filter(|a| a.confidence_assessment < 30.0)
+        .count() as f64
+        / total_adv
+        * 100.0;
 
     OverviewMatrix {
         global_market_bias: global_bias,
@@ -236,7 +287,13 @@ pub fn compute_overview(
             low_pct: low_risk.round(),
             moderate_pct: (100.0 - low_risk - high_risk).max(0.0).round(),
             high_pct: high_risk.round(),
-            risk_environment: if high_risk > 50.0 { "HIGH_RISK".into() } else if low_risk > 50.0 { "LOW_RISK".into() } else { "MODERATE".into() },
+            risk_environment: if high_risk > 50.0 {
+                "HIGH_RISK".into()
+            } else if low_risk > 50.0 {
+                "LOW_RISK".into()
+            } else {
+                "MODERATE".into()
+            },
         },
         asset_ranking: rankings,
         market_synchronization: sync,
@@ -268,8 +325,10 @@ mod tests {
             ..AdvisoryMatrix::empty("BTC-USD")
         };
         let instances = vec![InstanceMeta {
-            symbol: "BTC-USD".into(), timeframe_secs: 180,
-            timeframe_label: "fast180".into(), is_active: true,
+            symbol: "BTC-USD".into(),
+            timeframe_secs: 180,
+            timeframe_label: "fast180".into(),
+            is_active: true,
         }];
         let o = compute_overview(&[adv], &instances);
         assert!(matches!(o.global_market_bias, GlobalBias::Bullish));

@@ -56,7 +56,10 @@ pub fn funding_to_event(
     internal_symbol: &str,
     data: &BitgetFundingData,
 ) -> Option<NormalizedEvent> {
-    let rate = data.fundingRate.as_deref().and_then(|s| s.parse::<Decimal>().ok())?;
+    let rate = data
+        .fundingRate
+        .as_deref()
+        .and_then(|s| s.parse::<Decimal>().ok())?;
     Some(NormalizedEvent::FundingRate(FundingRateEvent {
         symbol: internal_symbol.to_string(),
         rate,

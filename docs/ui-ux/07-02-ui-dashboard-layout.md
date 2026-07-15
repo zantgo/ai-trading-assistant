@@ -44,9 +44,9 @@ Brutalist-grid lightweight layout optimized for the 127.0.0.1:3000 local-only co
 | Engine context | Tabs |
 |----------------|------|
 | Market — root | Workspace · Overview · Settings |
-| Market — workspace + instance | Charts · Metrics · Alignment · Opportunities · Risks · Analysis · Decision |
+| Market — workspace + instance | Charts · Metrics · Alignment · Opportunities · Risks · Analysis · Decision · Liquidity |
 
-Active tab drives which panel component renders in the main viewport.
+Active tab drives which panel component renders in the main viewport. The **`Liquidity`** tab is mounted for any Market Instance when the Phase 0-4 Liquidity Intelligence extension is enabled; it renders `LiquidityPanel.svelte` (see [07-04-ui-liquidity-panel-spec.md](07-04-ui-liquidity-panel-spec.md)).
 
 ---
 
@@ -90,7 +90,7 @@ Per-setup-type opportunity profiling display. Shows scored candidate setups (Bre
 
 ### 4.5 Risk Panel (`RiskPanel.svelte`)
 
-9-dimension unipolar risk display — per-dimension gauges/traffic lights with evidence lists. Overall risk score with trend indicator. Risk distribution across volatility / liquidity / structure / momentum / signal / execution / reward vectors.
+9-dimension unipolar risk display — per-dimension gauges/traffic lights with evidence lists. Overall risk score with trend indicator. Risk distribution across **eight unipolar danger sub-dimensions** (`market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk`) plus `overall_risk`. *The "liquidity" sub-dimension is rendered as `execution_liquidity_risk` (the legacy `liquidity_risk` term was renamed to free "liquidity" for positional/liquidation concepts in the Phase 3 extension; see [01-05-liquidity-domain.md](../conceptual-foundations/01-05-liquidity-domain.md) §Risk integration and [02-00-matrix-field-ownership.md §2.5](../matrices/02-00-matrix-field-ownership.md)).* The reward / R:R vector is **not** on the Risk Panel — it lives on the Decision Panel as `entry_danger` and `expected_reward_risk_ratio` (see [02-04-decision-matrix.md §2.1](../matrices/02-04-decision-matrix.md)).
 
 ### 4.6 Analysis Panel (`AnalysisPanel.svelte`)
 
@@ -143,7 +143,7 @@ Instance-specific configuration:
 
 - **`TimeframeSettings`** — Indicator periods per timeframe (40+ params from config).
 - **`TriggerConfigPanel`** — Trigger mode (Interval / CandleClose / EventDriven) and frequency.
-- **`PositionScalingPanel`** — 4-slot dynamic margin allocation, allocation-curve model selection (Stepped / Linear / Exponential).
+- **`PositionScalingPanel`** — 4-slot dynamic margin allocation, allocation-curve model selection (Constant / Stepped / Linear / Exponential / Hard-Tanh / Tanh — **six** canonical curves per [01-00-introduction-to-quantitative-trading.md §8](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md)).
 
 ---
 

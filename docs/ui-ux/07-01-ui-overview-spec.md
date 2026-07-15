@@ -64,6 +64,9 @@ The application uses a module-level singleton `AppStore` (`state.svelte.ts`) acc
 
 - `fetchConfigFromServer()` — GET `/api/config` with cache busting.
 - `applyConfigToStore()` — Parses config, initializes instances, applies 40+ indicator parameters per timeframe.
+- `fetchHistory(symbol, timeframe_secs, limit=100)` — GET `/api/history` with cache busting. Called on chart mount before subscribing to WebSocket to seed the historical series; the response shape is `{ symbol, prices[], candles[], indicator_histories }` (see [06-01-api-gateway-contract.md §2.3](../../integration-and-api/06-01-api-gateway-contract.md)).
+- `fetchMonitor(symbol)` — GET `/api/monitor` for per-TF regime, MTF agreement, MarketContext.
+- `fetchConnectionQuality(window='one_hour')` — GET `/api/connection-quality?window=…` for the Connection Quality panel.
 - `createInstance()`, `postInstanceConfig()`, `readDraftFromPair()` — workspace management.
 - `saveRulesCall()` / `fetchRulesCall()` — indicator guide CRUD.
 
@@ -77,9 +80,11 @@ Routing is **state-driven** (no URL-based routing). Navigation model:
 |-------|------|-----------|
 | Engine (sidebar) | Home / Portfolio (placeholder) / Market / Trading (placeholder) / Analysis (placeholder) | `Sidebar` |
 | Middle (Market) | Workspace / Overview / Settings | `TabHeader` |
-| Inner (Workspace + instance) | Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Decision | `TabHeader` |
+| Inner (Workspace + instance) | Charts / Metrics / Alignment / Opportunities / Risks / **Connection Quality** / Analysis / Decision / **Liquidity** | `TabHeader` |
 
-The `currentEngine` field selects the active engine; `middleTab` and `activeEngineTab` control sub-navigation.
+The `currentEngine` field selects the active engine; `middleTab` and `activeEngineTab` control sub-navigation. The **`Liquidity`** tab is mounted for any Market Instance when the Phase 0-4 Liquidity Intelligence extension is enabled ([07-04-ui-liquidity-panel-spec.md](07-04-ui-liquidity-panel-spec.md)); it renders the `LiquidityPanel` component at view key `liquidity` on the workspace tab bar. The **`Connection Quality`** tab is mounted for any active Market Instance; it renders the `ConnectionQualityPanel` component per [08-05-connection-quality.md](../operations-and-compliance/08-05-connection-quality.md) and sits between the Risks and Analysis tabs.
+
+> **Tab-routing update.** A previous version of this section omitted the Liquidity tab; it now reflects Phase 4 and is consistent with [07-02-ui-dashboard-layout.md §3 Tab Header](07-02-ui-dashboard-layout.md) and [07-04-ui-liquidity-panel-spec.md §Mounted under](07-04-ui-liquidity-panel-spec.md).
 
 ---
 

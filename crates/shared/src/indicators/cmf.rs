@@ -20,7 +20,13 @@ impl Cmf {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal, volume: Decimal) -> Option<Decimal> {
+    pub fn update(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Option<Decimal> {
         if self.period == 0 {
             return None;
         }

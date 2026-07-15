@@ -42,6 +42,7 @@ Implemented as `AnalysisMatrix` (`crates/shared/src/analysis.rs`), produced by `
 | `volatility_assessment` | `VolatilityAssessment` | Volatility-state classification (§3.6). |
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
 | `market_quality` | `QualityLevel` | Aggregate environment quality (§3.9). |
+| `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: `ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN` (§3.10). |
 | `market_interpretation` | `string` | Human-readable natural-language summary. |
 | `rationale` | `string` | Explainability trace of the derivation. |
 | `supporting_signals` | `string[]` | Per-TF observations agreeing with `bias`. |
@@ -58,13 +59,15 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 
 ### 3.1 MarketBias
 
-| Variant | `mtf_overall_score` band | Meaning |
+| Variant | `mtf_overall_score ∈ [-100, 100]` band | Meaning |
 |---------|--------------------------|---------|
 | `STRONG_BULLISH` | `> 40` | Dominant bullish conviction. |
-| `BULLISH` | `20 … 40` | Moderate bullish lean. |
-| `NEUTRAL` | `-20 … 20` | No directional edge. |
-| `BEARISH` | `-40 … -20` | Moderate bearish lean. |
+| `BULLISH` | `> 20 AND ≤ 40` | Moderate bullish lean. |
+| `NEUTRAL` | `≥ -20 AND ≤ 20` | No directional edge. |
+| `BEARISH` | `≥ -40 AND < -20` | Moderate bearish lean. |
 | `STRONG_BEARISH` | `< -40` | Dominant bearish conviction. |
+
+> **Half-open intervals (Issue 7.A — correction).** A previous version of this table expressed the boundaries informally (`"20 … 40"`, `"-20 … 20"`) without specifying whether each integer endpoint belongs to the upper band or the lower band. The decision can be deterministic if we pin each band to a **half-open interval**: `STRONG_BULLISH = (40, 100]`, `BULLISH = (20, 40]`, `NEUTRAL = [-20, 20]`, `BEARISH = [-40, -20)`, `STRONG_BEARISH = [-100, -40)`. Under this scheme, the same score never maps to two bands. (A previous double-mapping at `score = 20.0`, `40.0`, etc. is now resolved.)
 
 ### 3.2 MarketRegime
 
@@ -80,7 +83,7 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 | 2 | `adx ≥ 25` AND `score < -20` | `TRENDING_BEAR` |
 | 3 | Rising score (positive 3-bar slope) AND `score ≥ 0` AND not in priority 1 | `ACCUMULATION` |
 | 4 | Falling score (negative 3-bar slope) AND `score ≤ 0` AND not in priority 1 | `DISTRIBUTION` |
-| 5 | `adx < 25` AND `bbwp ∈ (10, 85)` AND `regime_one_bar_ago ≠ current_priority_resolution` | `TRANSITION` |
+| 5 | `adx < 25` AND `bbwp ∈ (10, 85)` AND regime shifted within last **3** bars | `TRANSITION` |
 | 6 | default (none of the above) | `RANGE` |
 
 The decision tree deterministically produces all 8 variants. Empty/initial state defaults to `TRANSITION` (§6).
@@ -101,7 +104,25 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 `WEAK`, `NORMAL`, `STRONG`, `EXCEPTIONAL` — derived from alignment dimension 2 (volume).
 
 ### 3.8 QualityLevel
-`POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT` — computed as the mean of the trend, momentum, structure, and volume dimension scores.
+`POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT` — computed as the mean of the trend, momentum, structure, and volume dimension scores. Numeric bands:
+
+| QualityLevel | `mean(0,1,2,4)` Score |
+|--------------|------------------------|
+| `POOR` | **< 30** |
+| `WEAK` | **≥ 30 AND < 50** |
+| `AVERAGE` | **≥ 50 AND < 70** |
+| `GOOD` | **≥ 70 AND < 85** |
+| `EXCELLENT` | **≥ 85** |
+
+### 3.10 MarketPhase
+`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN` — Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
+
+| Phase | Condition |
+|-------|-----------|
+| `ACCUMULATION` | price ranging (low volatility) + rising volume_assessment (WEAK → STRONG) + structure healthy |
+| `MARKUP` | price trending up + volume STRONG/EXCEPTIONAL + bias BULLISH/STRONG_BULLISH |
+| `DISTRIBUTION` | price ranging (low volatility) + falling volume_assessment (STRONG → WEAK) + structure weakening |
+| `MARKDOWN` | price trending down + volume STRONG/EXCEPTIONAL + bias BEARISH/STRONG_BEARISH |
 
 ---
 
@@ -110,7 +131,8 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 ### 4.1 Confidence Model
 
 ```
-base_state_confidence = |mtf_overall_score| / 100
+base = |mtf_overall_score| / 100
+state_confidence = base
 IF trend_agreement_pct ≥ 75  → state_confidence += 0.15
 IF trend_agreement_pct < 50  → state_confidence  = min(state_confidence, 0.5)
 IF signal_cross_tf_count ≥ 3 → state_confidence += 0.10

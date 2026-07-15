@@ -10,6 +10,7 @@
     import AlignmentPanel from './components/AlignmentPanel.svelte';
     import OpportunitiesPanel from './components/OpportunitiesPanel.svelte';
     import RiskPanel from './components/RiskPanel.svelte';
+    import ConnectionQualityPanel from './components/ConnectionQualityPanel.svelte';
     import AnalysisPanel from './components/AnalysisPanel.svelte';
     import AdvisoryPanel from './components/AdvisoryPanel.svelte';
     import LiquidityPanel from './components/LiquidityPanel.svelte';
@@ -69,6 +70,7 @@
         { view: 'alignment',   label: 'Alignment' },
         { view: 'opportunity', label: 'Opportunities' },
         { view: 'risk',        label: 'Risks' },
+        { view: 'connection',  label: 'Connection' },
         { view: 'analysis',    label: 'Analysis' },
         { view: 'advisory',    label: 'Decision' },
         { view: 'liquidity',   label: 'Liquidity' },
@@ -307,6 +309,8 @@
                             <OpportunitiesPanel pairKey={app.activeTab} />
                         {:else if activePair.currentView === 'risk'}
                             <RiskPanel pairKey={app.activeTab} />
+                        {:else if activePair.currentView === 'connection'}
+                            <ConnectionQualityPanel />
                         {:else if activePair.currentView === 'analysis'}
                             <AnalysisPanel />
                         {:else if activePair.currentView === 'advisory'}

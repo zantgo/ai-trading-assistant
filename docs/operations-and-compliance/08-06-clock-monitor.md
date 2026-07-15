@@ -1,0 +1,137 @@
+# Clock Monitor (NTP Drift Enforcement)
+
+**Status:** Implemented
+**Module:** `crates/engine/src/clock_monitor.rs`
+**Spec version:** 1.0
+
+## Purpose
+
+The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC (a 1m candle closes at `:00.000` of the next minute; a 15m candle at `:14:59.999`, etc.). This alignment is only correct if the local system clock is within the **≤50 µs drift budget** of true UTC.
+
+The `ClockMonitor` enforces this budget by polling NTP servers at a configurable interval and reacting to threshold breaches.
+
+## Public API
+
+```rust
+pub struct ClockMonitorConfig {
+    pub ntp_servers: Vec<String>,         // default: ["pool.ntp.org", "time.aws.com"]
+    pub poll_interval: Duration,          // default: 30s
+    pub threshold: Duration,              // default: 50µs
+    pub breach_action: BreachAction,      // Warn (default) | Panic
+    pub warn_on_breach: bool,            // default: true
+    pub jitter_window_size: usize,       // default: 20
+}
+
+pub enum BreachAction { Warn, Panic }
+
+pub enum DriftVerdict {
+    WithinThreshold { offset_us: i64, rtt_us: u64, server: String },
+    BreachThreshold { offset_us: i64, rtt_us: u64, server: String, threshold_us: i64 },
+    NetworkError { message: String, retry_after: Duration },
+}
+
+pub async fn run_until_cancelled(self, cancel: CancellationToken);
+```
+
+## Configuration
+
+In `config.json` (the platform's single source of configuration truth — *no* `config.toml` exists):
+```json
+{
+  "clock_monitor": {
+    "enabled": true,
+    "ntp_servers": ["time.aws.com", "pool.ntp.org"],
+    "poll_interval_secs": 30,
+    "threshold_micros": 50,
+    "breach_action": "warn",        // or "panic"
+    "warn_on_breach": true
+  }
+}
+```
+
+> **Single source of truth (Issue 5.A — correction).** The TOML block shown in a previous revision of this file was an artifact of an early prototype. All clock-monitor fields live in `config.json` and can be edited via `POST /api/config` or directly in the file at the workspace root.
+
+## NTP Measurement
+
+Uses the [`sntpc`](https://crates.io/crates/sntpc) crate (pure-Rust NTPv4 client) wrapped in `tokio::task::spawn_blocking` for async-friendly execution. For each poll:
+
+1. Iterate through `ntp_servers` in order.
+2. Send an NTP request to the first reachable server.
+3. Compute offset and RTT using the standard NTP formula:
+   ```
+   offset = ((T2 − T1) + (T3 − T4)) / 2
+   RTT    = (T4 − T1) − (T3 − T2)
+   ```
+4. Compare |offset| against `threshold`.
+
+If no server is reachable, return `DriftVerdict::NetworkError` and continue polling on the next interval — the monitor never panics on transport errors.
+
+## State Machine
+
+```
+            ┌────────────────────┐
+            │  Every poll        │
+            └─────────┬──────────┘
+                      │
+                      ▼
+        ┌─────────────────────────────┐
+        │  Measure via sntpc          │
+        └─────────┬───────────────────┘
+                  │
+        ┌─────────┴──────────┬────────────────┐
+        ▼                    ▼                ▼
+  WithinThreshold    BreachThreshold    NetworkError
+        │                    │                │
+  log info!          log error!        log warn!
+        │             if warn_on_breach      │
+        │                    │                │
+        │             if breach_action=Panic  │
+        │                    │                │
+        │                    ▼                │
+        │              panic!                 │
+        │                                     │
+        └──────────────► wait poll_interval ◄─┘
+```
+
+## Jitter Window
+
+The monitor maintains a rolling window of the last N=20 `ClockSample`s and computes **RMS jitter** as the standard deviation of the offset series:
+
+```
+jitter_rms = sqrt(mean((offset_i − mean_offsets)²))
+```
+
+A high jitter indicates an unstable clock even if the absolute offset is within threshold. The jitter is exposed via `ClockMonitor::rms_jitter_us()` for diagnostics.
+
+## Failure Mode Configuration
+
+The user controls what happens on breach via `breach_action`:
+
+| Setting | Behavior | Recommended for |
+|---------|----------|-----------------|
+| `warn` (default) | Log error and continue | Production |
+| `panic` | Log error and panic | Local dev / CI validation |
+
+The system is **resilient to network crashes**: if NTP servers are unreachable, the monitor logs a warning, retries with backoff (exponential, capped at the poll interval), and never panics on transport errors. Only an actual clock drift breach triggers a panic when configured.
+
+## Integration
+
+`main.rs` spawns `ClockMonitor::run_until_cancelled(clock_cancel)` after engine initialization and before live ingestion. The cancel token is shared with the rest of the engine, so clean shutdown stops the monitor too. The TODO comment that previously marked this as unimplemented in `candle_aggregator.rs` has been replaced with a 3-line cross-reference to this module.
+
+## Testing
+
+7 unit tests in `clock_monitor.rs`:
+- `default_config_has_sane_values`
+- `rms_jitter_with_insufficient_samples_returns_none`
+- `rms_jitter_with_constant_samples_is_zero`
+- `rms_jitter_with_known_samples` (verifies [10, 20, 30, 40, 50] → RMS ≈ 14.14)
+- `verdict_from_sample_within_threshold`
+- `verdict_from_sample_breach_threshold`
+- `measure_once_with_unreachable_server_returns_network_error`
+
+## Cross-References
+
+- [Global Architecture §2.1](../conceptual-foundations/01-02-global-architecture.md) — original spec
+- [Timeframe Model §3.1](../conceptual-foundations/01-04-timeframe-model.md) — UTC alignment requirements
+- [DIE Layer 2 §3.1](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — downstream consumer of correct clock
+- [Connection Resilience](08-03-connection-resilience.md) — sibling module, different concern

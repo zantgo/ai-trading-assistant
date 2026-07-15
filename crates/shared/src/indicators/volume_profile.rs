@@ -192,7 +192,9 @@ mod tests {
         for _ in 0..15 {
             vp.update(dec!(110), dec!(90), dec!(100), dec!(200));
         }
-        assert!(vp.update(dec!(110), dec!(90), dec!(100), dec!(200)).is_some());
+        assert!(vp
+            .update(dec!(110), dec!(90), dec!(100), dec!(200))
+            .is_some());
     }
 
     #[test]
@@ -206,10 +208,16 @@ mod tests {
         for _ in 0..10 {
             vp.update(dec!(125), dec!(115), dec!(120), dec!(100));
         }
-        let out = vp.update(dec!(105), dec!(95), dec!(100), dec!(500)).unwrap();
+        let out = vp
+            .update(dec!(105), dec!(95), dec!(100), dec!(500))
+            .unwrap();
         // POC should be near 100 where the most volume is.
         let poc_f: f64 = out.poc.to_f64().unwrap();
-        assert!(poc_f >= 95.0 && poc_f <= 105.0, "POC should be near 100, got {}", poc_f);
+        assert!(
+            poc_f >= 95.0 && poc_f <= 105.0,
+            "POC should be near 100, got {}",
+            poc_f
+        );
         // VAH > VAL.
         assert!(out.vah > out.val, "VAH should be above VAL");
     }

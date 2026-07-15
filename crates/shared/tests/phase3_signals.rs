@@ -1,8 +1,8 @@
 //! Phase 3 tests: Liquidity signals + risk integration.
 
 use shared::liquidity::{
-    derive_liquidity_signals, CascadeState, LiquidityFlow, LiquiditySignalKind,
-    LiquidityDirection, SignalInput,
+    derive_liquidity_signals, CascadeState, LiquidityDirection, LiquidityFlow, LiquiditySignalKind,
+    SignalInput,
 };
 
 fn empty_flow(state: CascadeState) -> LiquidityFlow {
@@ -32,10 +32,15 @@ fn sustained_cascade_emits_one_signal() {
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
-    let sustained: Vec<_> = sigs.iter()
+    let sustained: Vec<_> = sigs
+        .iter()
         .filter(|s| s.kind == LiquiditySignalKind::CascadeSustained)
         .collect();
-    assert_eq!(sustained.len(), 1, "expected exactly one sustained-cascade signal");
+    assert_eq!(
+        sustained.len(),
+        1,
+        "expected exactly one sustained-cascade signal"
+    );
     assert_eq!(sustained[0].direction, LiquidityDirection::Bearish);
     assert!(sustained[0].strength > 0.0);
     assert!(sustained[0].strength <= 100.0);
@@ -56,7 +61,10 @@ fn detected_cascade_uses_correct_direction_for_short_squeeze() {
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
-    let det = sigs.iter().find(|s| s.kind == LiquiditySignalKind::CascadeDetected).unwrap();
+    let det = sigs
+        .iter()
+        .find(|s| s.kind == LiquiditySignalKind::CascadeDetected)
+        .unwrap();
     assert_eq!(det.direction, LiquidityDirection::Bullish);
 }
 
@@ -72,7 +80,9 @@ fn exhausted_cascade_emits_neutral_signal() {
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
-    let exh = sigs.iter().find(|s| s.kind == LiquiditySignalKind::CascadeExhausted);
+    let exh = sigs
+        .iter()
+        .find(|s| s.kind == LiquiditySignalKind::CascadeExhausted);
     assert!(exh.is_some());
     assert_eq!(exh.unwrap().direction, LiquidityDirection::Neutral);
 }
@@ -88,15 +98,19 @@ fn multiple_signals_can_coexist() {
     // OI up + funding down (shorts loading) is a divergence.
     let input = SignalInput {
         flow: Some(&flow),
-        funding_rate: -0.001,  // extreme negative (shorts getting paid)
-        oi_delta_1h_pct: 3.0,   // OI up sharply
+        funding_rate: -0.001, // extreme negative (shorts getting paid)
+        oi_delta_1h_pct: 3.0, // OI up sharply
         funding_extreme_pct: 0.0005,
         oi_funding_divergence_pct: 2.0,
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
     let kinds: std::collections::HashSet<_> = sigs.iter().map(|s| s.kind).collect();
-    assert!(kinds.len() >= 3, "expected ≥3 distinct signals, got {:?}", kinds);
+    assert!(
+        kinds.len() >= 3,
+        "expected ≥3 distinct signals, got {:?}",
+        kinds
+    );
 }
 
 #[test]
@@ -117,10 +131,16 @@ fn signal_evidence_strings_are_non_empty() {
     };
     let sigs = derive_liquidity_signals(&input);
     for s in &sigs {
-        assert!(!s.evidence.is_empty(),
-            "signal {:?} must have evidence", s.kind);
-        assert!(s.confidence > 0.0 && s.confidence <= 1.0,
-            "confidence out of range: {}", s.confidence);
+        assert!(
+            !s.evidence.is_empty(),
+            "signal {:?} must have evidence",
+            s.kind
+        );
+        assert!(
+            s.confidence > 0.0 && s.confidence <= 1.0,
+            "confidence out of range: {}",
+            s.confidence
+        );
     }
 }
 
@@ -139,16 +159,21 @@ fn all_signal_kinds_have_display() {
         let s = kind.to_string();
         assert!(!s.is_empty());
         // SCREAMING_SNAKE_CASE convention.
-        assert!(s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
-            "kind {:?} did not serialize to SCREAMING_SNAKE_CASE: {}", kind, s);
+        assert!(
+            s.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+            "kind {:?} did not serialize to SCREAMING_SNAKE_CASE: {}",
+            kind,
+            s
+        );
     }
 }
 
 #[test]
 fn magnet_activates_only_near_close_cluster() {
     use shared::liquidity::{
-        ClusterKind, LeverageAssumptions, LeverageDistributionSource,
-        LiquidationCluster, LiquidationClusterMatrix,
+        ClusterKind, LeverageAssumptions, LeverageDistributionSource, LiquidationCluster,
+        LiquidationClusterMatrix,
     };
     let cluster_near = LiquidationClusterMatrix {
         symbol: "BTC".to_string(),
@@ -184,14 +209,16 @@ fn magnet_activates_only_near_close_cluster() {
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
-    assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::MagnetActivated));
+    assert!(sigs
+        .iter()
+        .any(|s| s.kind == LiquiditySignalKind::MagnetActivated));
 }
 
 #[test]
 fn magnet_does_not_activate_for_far_cluster() {
     use shared::liquidity::{
-        ClusterKind, LeverageAssumptions, LeverageDistributionSource,
-        LiquidationCluster, LiquidationClusterMatrix,
+        ClusterKind, LeverageAssumptions, LeverageDistributionSource, LiquidationCluster,
+        LiquidationClusterMatrix,
     };
     let cluster_far = LiquidationClusterMatrix {
         symbol: "BTC".to_string(),
@@ -227,15 +254,19 @@ fn magnet_does_not_activate_for_far_cluster() {
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
-    assert!(!sigs.iter().any(|s| s.kind == LiquiditySignalKind::MagnetActivated),
-        "far cluster should not trigger magnet signal");
+    assert!(
+        !sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::MagnetActivated),
+        "far cluster should not trigger magnet signal"
+    );
 }
 
 #[test]
 fn magnet_ignores_low_notional_cluster() {
     use shared::liquidity::{
-        ClusterKind, LeverageAssumptions, LeverageDistributionSource,
-        LiquidationCluster, LiquidationClusterMatrix,
+        ClusterKind, LeverageAssumptions, LeverageDistributionSource, LiquidationCluster,
+        LiquidationClusterMatrix,
     };
     let cluster_tiny = LiquidationClusterMatrix {
         symbol: "BTC".to_string(),
@@ -271,6 +302,10 @@ fn magnet_ignores_low_notional_cluster() {
         ..Default::default()
     };
     let sigs = derive_liquidity_signals(&input);
-    assert!(!sigs.iter().any(|s| s.kind == LiquiditySignalKind::MagnetActivated),
-        "tiny cluster should not trigger magnet signal");
+    assert!(
+        !sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::MagnetActivated),
+        "tiny cluster should not trigger magnet signal"
+    );
 }

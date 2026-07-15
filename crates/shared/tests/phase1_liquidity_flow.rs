@@ -39,12 +39,18 @@ fn flow_net_sign_convention() {
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 1.0, 1));
     let flow = acc.flush_to_flow();
-    assert!(flow.net_liquidation_usd > 0.0, "net should be positive for long liqs (sign convention)");
+    assert!(
+        flow.net_liquidation_usd > 0.0,
+        "net should be positive for long liqs (sign convention)"
+    );
 
     let mut acc = LiquidityEventAccumulator::new("BTC-USDT");
     acc.record_event(ev(LiquidationSide::Short, 50_000.0, 1.0, 1));
     let flow = acc.flush_to_flow();
-    assert!(flow.net_liquidation_usd < 0.0, "net should be negative for short liqs");
+    assert!(
+        flow.net_liquidation_usd < 0.0,
+        "net should be negative for short liqs"
+    );
 }
 
 #[test]
@@ -144,7 +150,11 @@ fn flow_intensity_capped_at_100() {
     // Huge event.
     acc.record_event(ev(LiquidationSide::Long, 50_000.0, 100.0, 9999));
     let flow = acc.flush_to_flow();
-    assert!(flow.cascade_intensity <= 100.0, "intensity must be capped at 100, got {}", flow.cascade_intensity);
+    assert!(
+        flow.cascade_intensity <= 100.0,
+        "intensity must be capped at 100, got {}",
+        flow.cascade_intensity
+    );
     assert!(flow.cascade_intensity >= 0.0, "intensity must be >= 0");
 }
 
@@ -201,8 +211,16 @@ fn flow_serialization_uses_screaming_snake_case_cascade() {
         cascade_intensity: 75.0,
     };
     let json = serde_json::to_string(&flow).unwrap();
-    assert!(json.contains("\"cascade_state\":\"SUSTAINED\""), "cascade_state must be SCREAMING_SNAKE_CASE: {}", json);
-    assert!(json.contains("\"largest_event_side\":\"LONG\""), "LiquidationSide must be SCREAMING_SNAKE_CASE: {}", json);
+    assert!(
+        json.contains("\"cascade_state\":\"SUSTAINED\""),
+        "cascade_state must be SCREAMING_SNAKE_CASE: {}",
+        json
+    );
+    assert!(
+        json.contains("\"largest_event_side\":\"LONG\""),
+        "LiquidationSide must be SCREAMING_SNAKE_CASE: {}",
+        json
+    );
 }
 
 #[test]

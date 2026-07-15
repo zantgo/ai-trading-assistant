@@ -62,12 +62,10 @@ pub async fn run_telemetry_logger(
         .unwrap_or_default()
         .as_secs()
         .saturating_sub(7 * 86400) as i64;
-    if let Err(e) = sqlx::query(
-        "DELETE FROM market_snapshots WHERE timestamp < ?1",
-    )
-    .bind(cutoff)
-    .execute(&pool)
-    .await
+    if let Err(e) = sqlx::query("DELETE FROM market_snapshots WHERE timestamp < ?1")
+        .bind(cutoff)
+        .execute(&pool)
+        .await
     {
         eprintln!("DB cleanup error on startup: {}", e);
     }
@@ -82,12 +80,10 @@ pub async fn run_telemetry_logger(
                 .unwrap_or_default()
                 .as_secs()
                 .saturating_sub(7 * 86400) as i64;
-            if let Err(e) = sqlx::query(
-                "DELETE FROM market_snapshots WHERE timestamp < ?1",
-            )
-            .bind(cutoff)
-            .execute(&pool)
-            .await
+            if let Err(e) = sqlx::query("DELETE FROM market_snapshots WHERE timestamp < ?1")
+                .bind(cutoff)
+                .execute(&pool)
+                .await
             {
                 eprintln!("DB cleanup error: {}", e);
             }
@@ -199,10 +195,7 @@ async fn run_journaling_task(
 
     let entry_reason = String::new();
 
-    let notes = format!(
-        "[Market Monitor trade journal. Trigger: {}]",
-        trigger
-    );
+    let notes = format!("[Market Monitor trade journal. Trigger: {}]", trigger);
 
     crate::db::queries::journals::insert_trade_journal(
         pool,
@@ -218,10 +211,7 @@ async fn run_journaling_task(
     )
     .await;
 
-    println!(
-        "Trade Journal: {} {} recorded",
-        symbol, direction
-    );
+    println!("Trade Journal: {} {} recorded", symbol, direction);
 }
 
 fn format_ts(ms: i64) -> String {

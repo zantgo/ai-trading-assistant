@@ -15,7 +15,10 @@ fn sample_indicators() -> HashMap<String, NormalizedIndicatorValue> {
         "macd".to_string(),
         NormalizationEngine::normalize_macd(20.0, 15.0, 5.0, 8.0, None),
     );
-    map.insert("rvol".to_string(), NormalizationEngine::normalize_rvol(1.25));
+    map.insert(
+        "rvol".to_string(),
+        NormalizationEngine::normalize_rvol(1.25),
+    );
     map
 }
 
@@ -54,7 +57,7 @@ fn test_market_snapshot_json_roundtrip() {
         mark_index_spread_pct: None,
         prev_day_px: None,
         liquidity: None,
-                    cluster: None,
+        cluster: None,
         risk_profile: None,
     };
 
@@ -114,7 +117,7 @@ fn test_market_snapshot_empty_indicators() {
         mark_index_spread_pct: None,
         prev_day_px: None,
         liquidity: None,
-                    cluster: None,
+        cluster: None,
         risk_profile: None,
     };
 

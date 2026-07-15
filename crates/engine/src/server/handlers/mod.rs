@@ -1,4 +1,5 @@
 pub mod config;
+pub mod connection_quality;
 pub mod dashboard;
 pub mod history;
 pub mod instances;

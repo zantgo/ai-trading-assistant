@@ -9,6 +9,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use rust_decimal::prelude::*;
+use rust_decimal_macros::dec;
 use std::sync::Arc;
 
 // ─── Decision Profiles ───────────────────────────────────────────
@@ -227,29 +229,28 @@ pub async fn serve_risk_calculate(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RiskCalculateRequest>,
 ) -> impl IntoResponse {
-    let (capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread) =
-        {
-            let pid = payload.profile_id;
-            if let Some(profile) = crate::db::risk_profile_by_id(&state.pool, pid).await {
-                (
-                    profile.capital,
-                    profile.max_risk_pct,
-                    profile.leverage,
-                    profile.commission_pct,
-                    profile.funding_rate_8h,
-                    profile.spread,
-                )
-            } else {
-                (
-                    payload.capital.unwrap_or(1000.0),
-                    payload.max_risk_pct.unwrap_or(2.0),
-                    payload.leverage.unwrap_or(20),
-                    payload.commission_pct.unwrap_or(0.06),
-                    payload.funding_rate_8h.unwrap_or(0.0),
-                    payload.spread.unwrap_or(0.0),
-                )
-            }
-        };
+    let (capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread) = {
+        let pid = payload.profile_id;
+        if let Some(profile) = crate::db::risk_profile_by_id(&state.pool, pid).await {
+            (
+                profile.capital,
+                profile.max_risk_pct,
+                profile.leverage,
+                profile.commission_pct,
+                profile.funding_rate_8h,
+                profile.spread,
+            )
+        } else {
+            (
+                payload.capital.unwrap_or(dec!(1000)),
+                payload.max_risk_pct.unwrap_or(dec!(2)),
+                payload.leverage.unwrap_or(20),
+                payload.commission_pct.unwrap_or(dec!(0.06)),
+                payload.funding_rate_8h.unwrap_or(dec!(0)),
+                payload.spread.unwrap_or(dec!(0)),
+            )
+        }
+    };
 
     let input = crate::risk_calculator::RiskCalculationInput {
         capital,
@@ -257,8 +258,8 @@ pub async fn serve_risk_calculate(
         leverage,
         direction: payload.direction,
         entry_price: payload.entry_price,
-        stop_loss_price: payload.stop_loss_price.unwrap_or(0.0),
-        take_profit_price: payload.take_profit_price.unwrap_or(0.0),
+        stop_loss_price: payload.stop_loss_price.unwrap_or(payload.stop_loss),
+        take_profit_price: payload.take_profit_price.unwrap_or(payload.take_profit),
         commission_pct,
         funding_rate_8h,
         spread,
@@ -266,6 +267,7 @@ pub async fn serve_risk_calculate(
         atr_multiplier: payload.atr_multiplier,
         atr_target_rr: payload.atr_target_rr,
         use_dynamic_atr: payload.use_dynamic_atr.unwrap_or(false),
+        min_tick_size: None,
     };
 
     let result = if payload.use_dynamic_atr.unwrap_or(false) && payload.atr_value.is_some() {
@@ -290,8 +292,12 @@ pub async fn serve_fee_table(
         .capitals
         .unwrap_or_else(|| vec![10.0, 50.0, 100.0, 500.0]);
     let order_type = params.order_type;
-    let table =
-        crate::commission::generate_fee_table(&config.fees, &leverages.iter().map(|&l| l as u32).collect::<Vec<u32>>(), &capitals, &order_type);
+    let table = crate::commission::generate_fee_table(
+        &config.fees,
+        &leverages.iter().map(|&l| l as u32).collect::<Vec<u32>>(),
+        &capitals,
+        &order_type,
+    );
     Json(table).into_response()
 }
 
@@ -299,41 +305,48 @@ pub async fn serve_commission_projection(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CommissionProjectionPayload>,
 ) -> impl IntoResponse {
-    let (capital, leverage, max_risk_pct, commission_pct, funding_rate_8h) =
-        {
-            let pid = payload.profile_id;
-            if let Some(profile) = crate::db::risk_profile_by_id(&state.pool, pid).await {
-                (
-                    profile.capital,
-                    profile.leverage,
-                    profile.max_risk_pct,
-                    Some(profile.commission_pct),
-                    Some(profile.funding_rate_8h),
-                )
-            } else {
-                (
-                    payload.capital.unwrap_or(1000.0),
-                    payload.leverage.unwrap_or(20),
-                    payload.max_risk_pct.unwrap_or(2.0),
-                    payload.commission_pct,
-                    payload.funding_rate_8h,
-                )
-            }
-        };
+    let (capital, leverage, max_risk_pct, commission_pct, funding_rate_8h) = {
+        let pid = payload.profile_id;
+        if let Some(profile) = crate::db::risk_profile_by_id(&state.pool, pid).await {
+            (
+                profile.capital.to_f64().unwrap_or(0.0),
+                profile.leverage,
+                profile.max_risk_pct.to_f64().unwrap_or(0.0),
+                Some(profile.commission_pct.to_f64().unwrap_or(0.0)),
+                Some(profile.funding_rate_8h.to_f64().unwrap_or(0.0)),
+            )
+        } else {
+            (
+                payload
+                    .capital
+                    .unwrap_or(dec!(1000))
+                    .to_f64()
+                    .unwrap_or(1000.0),
+                payload.leverage.unwrap_or(20),
+                payload
+                    .max_risk_pct
+                    .unwrap_or(dec!(2))
+                    .to_f64()
+                    .unwrap_or(2.0),
+                payload.commission_pct.and_then(|d| d.to_f64()),
+                payload.funding_rate_8h.and_then(|d| d.to_f64()),
+            )
+        }
+    };
 
     let config = state.config.read().await;
     let input = crate::commission::CommissionProjectionRequest {
         direction: payload.direction,
-        entry_1: payload.entry_1,
-        entry_2: payload.entry_2,
-        stop_loss_1: payload.stop_loss_1,
-        stop_loss_2: payload.stop_loss_2,
-        take_profit_1: payload.take_profit_1,
-        take_profit_2: payload.take_profit_2,
+        entry_1: payload.entry_1.to_f64().unwrap_or(0.0),
+        entry_2: payload.entry_2.to_f64().unwrap_or(0.0),
+        stop_loss_1: payload.stop_loss_1.to_f64().unwrap_or(0.0),
+        stop_loss_2: payload.stop_loss_2.to_f64().unwrap_or(0.0),
+        take_profit_1: payload.take_profit_1.to_f64().unwrap_or(0.0),
+        take_profit_2: payload.take_profit_2.to_f64().unwrap_or(0.0),
         capital,
         leverage,
         max_risk_pct,
-        capital_entry_1_pct: payload.capital_entry_1_pct,
+        capital_entry_1_pct: payload.capital_entry_1_pct.to_f64().unwrap_or(0.0),
         order_type: payload.order_type,
         commission_pct,
         funding_rate_8h,

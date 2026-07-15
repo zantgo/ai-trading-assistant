@@ -38,7 +38,12 @@ impl Stochastic {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<StochasticOutput> {
+    pub fn update(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<StochasticOutput> {
         if self.k_period == 0 {
             return None;
         }

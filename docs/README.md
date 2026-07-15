@@ -13,12 +13,14 @@ This directory contains the full specification for the Trading Platform — a co
 ```
 docs/
 ├── README.md                                         ← you are here
-├── conceptual-foundations/                           (01 — 4 files)
+├── conceptual-foundations/                           (01 — 6 files)
+│   ├── 01-00-introduction-to-quantitative-trading.md ← textbook foundations: EV, returns, Sharpe, sizing curves, non-goals
 │   ├── 01-01-ontology.md                             ← formal vocabulary, core concepts, lifecycle
 │   ├── 01-02-global-architecture.md                  ← 5-engine blueprint, 2D framework, hybrid memory/math model
 │   ├── 01-03-systemic-data-flow.md                   ← chronological event sequences across engines
-│   └── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
-├── matrices/                                         (02 — 13 files)
+│   ├── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
+│   └── 01-05-liquidity-domain.md                     ← Phase 0-4 Liquidity Intelligence architecture
+├── matrices/                                         (02 — 15 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
 │   ├── 02-01-alignment-matrix.md                     ← 10-dimension cross-TF agreement
@@ -28,10 +30,12 @@ docs/
 │   ├── 02-05-distribution-matrix.md
 │   ├── 02-06-market-data-matrix.md
 │   ├── 02-07-metrics-matrix.md                       ← MarketSnapshot schema (dual hot/cold rep)
-│   ├── 02-08-opportunity-matrix.md                   ← canonical OpportunityType producer
+│   ├── 02-08-opportunity-matrix.md                   ← canonical OpportunityType producer (incl. LiquiditySqueeze)
 │   ├── 02-09-overview-matrix.md                      ← global breadth, systemic risk (graded sync_penalty)
 │   ├── 02-10-raw-data-matrix.md
-│   └── 02-11-risk-matrix.md                          ← 8 unipolar risk dimensions (pure danger)
+│   ├── 02-11-risk-matrix.md                          ← 8 unipolar risk dimensions (pure danger)
+│   ├── 02-12-liquidity-matrix.md                     ← Phase 1 LiquidityFlow matrix
+│   └── 02-13-liquidation-cluster-matrix.md            ← Phase 2 LiquidationClusterMatrix
 ├── engines/
 │   ├── data-infrastructure-engine/                   (03-01 — 5 files)
 │   │   ├── 03-01-01-die-overview-spec.md             ← DIE boundaries, adapters, fault tolerance
@@ -39,7 +43,7 @@ docs/
 │   │   ├── 03-01-03-die-layer2-market-data.md
 │   │   ├── 03-01-04-die-layer3-data-quality.md
 │   │   └── 03-01-05-die-layer4-data-distribution.md
-│   ├── market-monitoring-engine/                     (03-02 — 10 files)
+│   ├── market-monitoring-engine/                     (03-02 — 11 files)
 │   │   ├── 03-02-01-mme-overview-spec.md             ← MME boundaries, pipeline, bifurcation model
 │   │   ├── 03-02-02-mme-layer1-metrics.md
 │   │   ├── 03-02-03-mme-layer2-alignment.md
@@ -50,6 +54,7 @@ docs/
 │   │   ├── 03-02-08-mme-layer7-overview.md
 │   │   ├── 03-02-09-mme-indicators-guide.md          ← indicator interpretation rulebook
 │   │   ├── 03-02-10-mme-signals-guide.md             ← 12 SignalKind detection rulebook
+│   │   ├── 03-02-11-mme-liquidity-extension.md        ← Phase 0-4 Liquidity Intelligence (L1.5 + L2.5)
 │   │   ├── indicators/                               (04-02 — 50 + 1 master index)
 │   │   │   ├── 04-02-00-indicator-index.md
 │   │   │   ├── 04-02-01-ema-stack.md
@@ -63,7 +68,7 @@ docs/
 │   ├── trade-automation-engine/                      (03-03 — 5 files)
 │   │   ├── 03-03-01-tae-overview-spec.md             ← TAE boundaries, order lifecycle
 │   │   ├── 03-03-02-tae-layer1-policy.md
-│   │   ├── 03-03-03-tae-layer2-execution.md          ← f64→Decimal type-boundary cast
+│   │   ├── 03-03-03-tae-layer2-execution.md          ← f64→Decimal type-boundary cast + §3.3 stance→flag
 │   │   ├── 03-03-04-tae-execution-policy-spec.md     ← policy syntax and semantics
 │   │   └── 03-03-05-tae-paper-trading-spec.md        ← simulated matching engine
 │   ├── portfolio-management-engine/                  (03-04 — 5 files)
@@ -80,17 +85,24 @@ docs/
 │       └── 03-05-05-pae-layer4-performance.md
 ├── integration-and-api/                              (06 — 2 files)
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
-│   └── 06-02-database-schema-spec.md                 ← 18-table SQLite schema
-├── ui-ux/                                            (07 — 3 files)
+│   └── 06-02-database-schema-spec.md                 ← 22-table SQLite schema
+├── ui-ux/                                            (07 — 4 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
-│   └── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
-└── operations-and-compliance/                        (08 — 2 files)
+│   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 20 dedicated components)
+│   └── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
+└── operations-and-compliance/                        (08 — 6 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
-    └── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
+    ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
+    ├── 08-03-connection-resilience.md                ← WebSocket reconnect policy + backoff state machine
+    ├── 08-04-candle-reconstruction.md                ← gap detection + exchange historical fetch + sub-1m synthesis
+    ├── 08-05-connection-quality.md                   ← rolling 1h/6h/24h quality score + dashboard panel
+    └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
 ```
 
-Total: **119 numbered documentation files** (4 conceptual + 13 matrix + 29 engine + 51 indicator + 13 signal + 2 integration + 3 UI + 2 ops = 117; the 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; the actual `find docs -name "*.md"` count is 119 because the README itself, this file, is also counted).
+Total: **129 markdown files** (1 README + 6 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops = **128** numbered docs + README; 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension).
+
+> **File-count corrections (Issue 6.A–D).** A previous version of this line claimed 117 / 119 with the breakdown `4 conceptual + 13 matrix + 29 engine + 51 indicator + 13 signal + 2 integration + 3 UI + 2 ops = 117`. That sum is internally inconsistent (the file counts in the directory map do not sum to 117). The canonical breakdown is the one in the directory map above and in the equation `6 + 15 + 31 + 51 + 13 + 2 + 4 + 6 = 128` numbered docs. The README itself brings the total to **129**.
 
 ## The Five Engines
 
@@ -127,8 +139,8 @@ Total: **119 numbered documentation files** (4 conceptual + 13 matrix + 29 engin
 7. **UI/UX (`07-`)** — frontend architecture and dashboard layout
    - `07-01-ui-overview-spec.md` → `07-02-ui-dashboard-layout.md`
 
-8. **Operations & Compliance (`08-`)** — operator procedures, pre-trade risk gating, and audit (DRAFT)
-   - `08-01-user-manual.md` → `08-02-pre-trade-risk-controls.md` → `08-03-regulatory-compliance-and-audit.md`
+8. **Operations & Compliance (`08-`)** — operator procedures, pre-trade risk gating, and audit
+   - `08-01-user-manual.md` → `08-02-pre-trade-risk-controls.md` → `08-03-connection-resilience.md` (followed by `08-04-candle-reconstruction.md` → `08-05-connection-quality.md` → `08-06-clock-monitor.md`)
 
 ## Key Conventions
 
@@ -139,7 +151,7 @@ Total: **119 numbered documentation files** (4 conceptual + 13 matrix + 29 engin
 - Every engine **layer** produces exactly one immutable **Matrix** as its output contract.
 - The platform is **strategy-agnostic** — engines interpret markets; execution policies are user-defined.
 - MME Layers 4 (Opportunity) and 5 (Risk) execute **in parallel** from L3 (Analysis) and converge at L6 (Decision Support).
-- All candle aggregation closes candles at the **exact epoch-duration multiple of UTC** (a 60 s candle for a trade at 123456 ms aligns to `[120000, 180000)`, closing at 180000 ms = `:00.000` of the next minute) — see `01-04-timeframe-model.md §3.1`. Local clock drift budget is ≤ 50 µs of UTC (enforcement pending — see TODO in `crates/engine/src/candle_aggregator.rs`).
+- All candle aggregation closes candles at the **exact epoch-duration multiple of UTC** (a 60 s candle for a trade at 123456 ms aligns to `[120000, 180000)`, closing at 180000 ms = `:00.000` of the next minute) — see `01-04-timeframe-model.md §3.1`. Local clock drift budget is ≤ 50 µs of UTC, enforced at runtime by `crates/engine/src/clock_monitor.rs` (configurable via the `"clock_monitor"` block of `config.json`).
 - Position sizing uses **available margin** (`available_margin`), not raw equity, with formula `S = E·R / (D_sl / 100)` (see `03-03-03-tae-layer2-execution.md §2`).
 - Divergences are nested `Divergence` signals on the parent indicator key — there are no separate `*_divergence` registry entries (see `04-02-00-indicator-index.md`).
 - Monte Carlo significance uses **sign-randomization** (±1 on each PnL), not order-shuffling (see `03-05-03-pae-layer2-strategy-analytics.md §3.3`).
@@ -148,4 +160,4 @@ Total: **119 numbered documentation files** (4 conceptual + 13 matrix + 29 engin
   - `max_daily_drawdown_pct` — cumulative PnL decline within the trading session; default 5 %; used as an early-warning threshold.
   - `drawdown_limit_pct` — equity peak-to-trough ratio; default 30 %; this is the **hard veto** threshold.
   See `03-04-05-pme-layer4-portfolio.md §3–§4` and `03-04-01-pme-overview-spec.md §3`.
-- The registry contains **50 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) and **102 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). See Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.
+- The registry contains **50 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) and **101 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). See Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.

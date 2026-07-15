@@ -86,7 +86,11 @@ mod tests {
             cci.update(dec!(101), dec!(99), dec!(100));
         }
         let out = cci.update(dec!(101), dec!(99), dec!(100)).unwrap();
-        assert!(out.abs() < dec!(1), "flat prices should produce near-zero CCI, got {}", out);
+        assert!(
+            out.abs() < dec!(1),
+            "flat prices should produce near-zero CCI, got {}",
+            out
+        );
     }
 
     #[test]
@@ -94,9 +98,7 @@ mod tests {
         let mut cci = Cci::new(20);
         feed(&mut cci, 20, 100.0);
         // Strong uptrend spike at the end → positive CCI.
-        let out = cci
-            .update(dec!(140), dec!(119), dec!(135))
-            .unwrap();
+        let out = cci.update(dec!(140), dec!(119), dec!(135)).unwrap();
         assert!(out > dec!(0));
     }
 }

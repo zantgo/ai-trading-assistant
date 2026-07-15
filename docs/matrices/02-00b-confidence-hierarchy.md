@@ -6,7 +6,7 @@
 
 ---
 
-## 1. The Four Confidence Fields
+## 1. The Five Confidence Fields
 
 | Field | Matrix | Producer | Range | Meaning |
 |---|---|---|---|---|
@@ -57,7 +57,7 @@ For unambiguous layer identification, three of the four `confidence` fields have
 
 ---
 
-## 4. Why Four Confidence Fields?
+## 4. Why Five Confidence Fields?
 
 In a real institutional quant system, "confidence" means different things at different layers:
 
@@ -68,6 +68,8 @@ In a real institutional quant system, "confidence" means different things at dif
 5. **Risk-attenuated confidence** (L6 advisory) — *"how confident am I that an operator should act?"*
 
 Conflating these (e.g. the old `Analysis.confidence` vs `DecisionContext.confidence` vs `AdvisoryMatrix.confidence_assessment`) made policy evaluation ambiguous. The renames disambiguate.
+
+> **Title-history note.** The file is titled *"The Four Confidence Fields"* in older revisions; the canonical count is **five** (indicator + state + forecast + score + risk-attenuated). The other four columns above (1–4) flow forward as the **pipeline-level** hierarchy; indicator confidence is the per-component origin that gets aggregated into state_confidence (see §5).
 
 ---
 
@@ -80,10 +82,12 @@ The four-level hierarchy above is the **pipeline-level** confidence flow — the
 | `IndicatorEvaluation.confidence` | L1 | Per-indicator conviction in [0, 1]. Base = `\|normalized\|`, boosted by confirmed signals. | Aggregated into L3 `state_confidence` via MTF weighting. |
 | `ContextDimension.confidence` | L1 | Mean confidence of contributing indicators in a context dimension. | Aggregated into L3 `state_confidence`. |
 | `AlignmentDimension.confidence` | L2 | Per-dimension confidence in [0, 100] for the 10 dimensions. | Used to weight dimension contributions; not passed to L3. |
-| `RiskDimension.confidence` | L5 | Per-dimension confidence in [0, 100] for the 7 risk dimensions. | Used to weight dimension contributions; not passed to L6. |
+| `RiskDimension.confidence` | L5 | Per-dimension confidence in [0, 100] for the **8 risk sub-dimensions** (including `cascade_risk`). | Used to weight dimension contributions; not passed to L6. |
 | `AssetRank.confidence` | L7 | Mirror of `Decision.confidence_assessment` for the asset ranking. | Not a new computation; a mirror. |
 
 These per-component confidence values are **local reliability measures** for individual data points. They do not flow forward; they modulate the contribution of their parent field. The four pipeline-level `state_confidence` / `forecast_confidence` / `score_confidence` / `confidence_assessment` fields are the only ones that flow forward and are used by the TAE Policy Layer for condition evaluation.
+
+**Duplicate-signal deduplication (v2.1).** When the same `(kind, direction, label, parent_indicator)` triple is emitted multiple times in a single snapshot (e.g. MACD structured-push + label-based trigger, Bollinger Bands similar), the confidence aggregator counts it **once**, not per emission. This applies to all indicators that intentionally emit duplicates. The `age_bars` of the first emission is preserved. This prevents double-counting duplicate signals in the confidence aggregation pipeline.
 
 ---
 

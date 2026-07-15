@@ -36,14 +36,14 @@ struct IndicatorSignal {
 | **Breakout** | Price breaks a structural boundary (channel, level). | [breakout.md](signals/05-02-04-breakout.md) |
 | **BandTouch** | Price contacts a channel/band edge. | [band-touch.md](signals/05-02-05-band-touch.md) |
 | **ZeroLineCross** | An oscillator crosses its zero/mid line. | [zero-line-cross.md](signals/05-02-06-zero-line-cross.md) |
-| **CompressionRelease** | A volatility squeeze fires. | [compression-release.md](signals/05-02-07-compression-release.md) |
+| **VolatilityCycle** | A volatility cycle phase transition (coiling + release). | [volatility-cycle.md](signals/05-02-07-volatility-cycle.md) |
 | **LevelTest** | Price tests a horizontal level (S/R, fib, pivot, VWAP). | [level-test.md](signals/05-02-08-level-test.md) |
 | **TrendFlip** | A directional regime reverses (Supertrend, PSAR, Aroon). | [trend-flip.md](signals/05-02-09-trend-flip.md) |
 | **VolumeClimax** | Abnormal volume surge. | [volume-climax.md](signals/05-02-10-volume-climax.md) |
 | **StackChange** | The EMA ribbon reorders. | [stack-change.md](signals/05-02-11-stack-change.md) |
 | **PatternForming** | A chart or candlestick pattern is detected. | [pattern-forming.md](signals/05-02-12-pattern-forming.md) |
 
-There are **102 signal-kind declarations** across 50 registry entries — i.e. most indicators declare several SignalKinds.
+There are **101 signal-kind declarations** across 50 registry entries — i.e. most indicators declare several SignalKinds.
 
 ---
 

@@ -42,7 +42,10 @@ pub struct MonteCarloOutput {
 
 impl StatisticsEngine {
     pub fn new(config: StatisticsConfig) -> Self {
-        Self { config, bar_count: 0 }
+        Self {
+            config,
+            bar_count: 0,
+        }
     }
 
     /// Advance the engine with a full indicator snapshot.

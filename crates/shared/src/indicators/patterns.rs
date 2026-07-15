@@ -140,13 +140,11 @@ fn detect_triangle(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<Patter
         ),
         upper_slope: high_slope.to_f64(),
         upper_intercept: recent_highs.last().map(|p| {
-            p.price.to_f64().unwrap_or(0.0)
-                - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
+            p.price.to_f64().unwrap_or(0.0) - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
         }),
         lower_slope: low_slope.to_f64(),
         lower_intercept: recent_lows.last().map(|p| {
-            p.price.to_f64().unwrap_or(0.0)
-                - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
+            p.price.to_f64().unwrap_or(0.0) - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
         }),
     })
 }
@@ -201,13 +199,11 @@ fn detect_wedge(highs: &[&PivotPoint], lows: &[&PivotPoint]) -> Option<PatternRe
         description: format!("Wedge pattern detected — {:.2}% convergence", confidence),
         upper_slope: high_slope.to_f64(),
         upper_intercept: recent_highs.last().map(|p| {
-            p.price.to_f64().unwrap_or(0.0)
-                - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
+            p.price.to_f64().unwrap_or(0.0) - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
         }),
         lower_slope: low_slope.to_f64(),
         lower_intercept: recent_lows.last().map(|p| {
-            p.price.to_f64().unwrap_or(0.0)
-                - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
+            p.price.to_f64().unwrap_or(0.0) - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
         }),
     })
 }
@@ -292,13 +288,11 @@ fn detect_channel(
         description: format!("Channel pattern detected — {:.2}% confidence", confidence),
         upper_slope: high_slope.to_f64(),
         upper_intercept: recent_highs.last().map(|p| {
-            p.price.to_f64().unwrap_or(0.0)
-                - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
+            p.price.to_f64().unwrap_or(0.0) - high_slope.to_f64().unwrap_or(0.0) * p.index as f64
         }),
         lower_slope: low_slope.to_f64(),
         lower_intercept: recent_lows.last().map(|p| {
-            p.price.to_f64().unwrap_or(0.0)
-                - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
+            p.price.to_f64().unwrap_or(0.0) - low_slope.to_f64().unwrap_or(0.0) * p.index as f64
         }),
     })
 }

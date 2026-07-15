@@ -66,10 +66,7 @@ pub async fn run_hl_derivatives_poller(
                     }
                     for ev in events {
                         if event_tx.send(ev).await.is_err() {
-                            eprintln!(
-                                "⚠️  HL Derivatives Poller: {} event_tx closed",
-                                raw_symbol
-                            );
+                            eprintln!("⚠️  HL Derivatives Poller: {} event_tx closed", raw_symbol);
                             return;
                         }
                     }
@@ -125,7 +122,15 @@ pub fn spawn_hl_derivatives_poller(
         return None;
     }
     Some(tokio::spawn(async move {
-        run_hl_derivatives_poller(raw_symbol, internal_symbol, info_url, event_tx.as_ref().clone(), cancel, poll_ms).await;
+        run_hl_derivatives_poller(
+            raw_symbol,
+            internal_symbol,
+            info_url,
+            event_tx.as_ref().clone(),
+            cancel,
+            poll_ms,
+        )
+        .await;
     }))
 }
 

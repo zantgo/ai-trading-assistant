@@ -144,3 +144,16 @@ capital_drawdown_pct = 30.0
 slow_seconds = 3600
 normal_seconds = 900
 fast_seconds = 300
+
+# Clock-drift monitor: enforces the platform's <=50µs UTC drift budget via
+# continuous NTP polling. Set `enabled = false` to disable drift enforcement
+# (the engine will still run, but no NTP liveness check is performed).
+[clock_monitor]
+enabled = true
+ntp_servers = ["pool.ntp.org", "time.aws.com", "time.google.com"]
+poll_interval_secs = 30
+threshold_micros = 50
+query_timeout_secs = 5
+jitter_window_size = 20
+breach_action = "warn"
+warn_on_breach = true

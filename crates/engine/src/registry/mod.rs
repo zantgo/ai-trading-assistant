@@ -35,7 +35,8 @@ pub async fn add_instance(
         .load(std::sync::atomic::Ordering::Relaxed)
     {
         return Err(
-            "No active session. Initialize a session (select exchange) before adding pairs.".to_string(),
+            "No active session. Initialize a session (select exchange) before adding pairs."
+                .to_string(),
         );
     }
 
@@ -235,12 +236,9 @@ pub async fn add_instance(
         liquidity_config: liquidity_config_first,
     };
 
-    let artifacts = pipelines::build_pipelines(
-        &pipeline_ctx,
-        state,
-        warmed_states.as_ref().ok().cloned(),
-    )
-    .await;
+    let artifacts =
+        pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
+            .await;
 
     // Populates buffers directly if warmed states are present
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -379,10 +377,7 @@ pub async fn delete_instance(state: &Arc<AppState>, instance_id: &str) -> Result
 /// Recharge an existing instance with new timeframe/indicator configurations.
 /// Cancels old tasks, flushes buffers, re-bootstraps, and re-spawns pipelines
 /// while preserving active paper positions, safety state, and token tracking.
-pub async fn recharge_instance(
-    state: &Arc<AppState>,
-    pair_key: &str,
-) -> Result<(), String> {
+pub async fn recharge_instance(state: &Arc<AppState>, pair_key: &str) -> Result<(), String> {
     let old_instance = {
         let instances = state.instances.read().await;
         instances
@@ -391,7 +386,11 @@ pub async fn recharge_instance(
             .ok_or_else(|| format!("Instance for pair {} not found", pair_key))?
     };
 
-    println!("🔄 Recharging instance: {} ({})", old_instance.pair_display(), old_instance.id);
+    println!(
+        "🔄 Recharging instance: {} ({})",
+        old_instance.pair_display(),
+        old_instance.id
+    );
 
     // Cancel all active tasks for old instance
     old_instance.cancel.cancel();
@@ -422,7 +421,13 @@ pub async fn recharge_instance(
     let fib_config = config_guard.fibonacci.clone();
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
-    let exchange_choice = state.session.exchange.read().await.clone().unwrap_or(ExchangeChoice::Hyperliquid);
+    let exchange_choice = state
+        .session
+        .exchange
+        .read()
+        .await
+        .clone()
+        .unwrap_or(ExchangeChoice::Hyperliquid);
     let quote = state
         .session
         .base_currency
@@ -442,12 +447,14 @@ pub async fn recharge_instance(
 
     let micro_cfg = pair_cfg.micro_term.clone();
     let fast_cfg = pair_cfg.fast_term.clone();
-    let slow_cfg = pair_cfg.slow_term.clone().unwrap_or_else(|| {
-        TimeframeConfig::new(300, default_indicators.clone())
-    });
-    let macro_cfg = pair_cfg.macro_term.clone().unwrap_or_else(|| {
-        TimeframeConfig::new(900, default_indicators.clone())
-    });
+    let slow_cfg = pair_cfg
+        .slow_term
+        .clone()
+        .unwrap_or_else(|| TimeframeConfig::new(300, default_indicators.clone()));
+    let macro_cfg = pair_cfg
+        .macro_term
+        .clone()
+        .unwrap_or_else(|| TimeframeConfig::new(900, default_indicators.clone()));
 
     let micro_secs = micro_cfg.candles.duration_seconds;
     let fast_secs = fast_cfg.candles.duration_seconds;
@@ -506,12 +513,9 @@ pub async fn recharge_instance(
         liquidity_config: liquidity_config_recharge,
     };
 
-    let artifacts = pipelines::build_pipelines(
-        &pipeline_ctx,
-        state,
-        warmed_states.as_ref().ok().cloned(),
-    )
-    .await;
+    let artifacts =
+        pipelines::build_pipelines(&pipeline_ctx, state, warmed_states.as_ref().ok().cloned())
+            .await;
 
     // Populate buffers from warmed states
     if let Ok((ref wm, ref ws, ref wmed, ref wl)) = warmed_states {
@@ -545,7 +549,10 @@ pub async fn recharge_instance(
             let old_trading = old_instance.trading.read().await;
             tokio::sync::RwLock::new(old_trading.clone())
         },
-        config_state: tokio::sync::RwLock::new(ConfigState::new(intervals_config, pair_cfg.operational_mode.clone())),
+        config_state: tokio::sync::RwLock::new(ConfigState::new(
+            intervals_config,
+            pair_cfg.operational_mode.clone(),
+        )),
         safety_config,
         safety: old_instance.safety.clone(),
         active_pair: artifacts.instance.active_pair.clone(),

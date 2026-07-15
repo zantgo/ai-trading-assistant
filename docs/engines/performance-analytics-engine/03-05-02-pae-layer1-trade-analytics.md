@@ -41,6 +41,7 @@ The Trade Analytics Layer is the PAE's **trade reconstruction engine**. It consu
 | `mae` | `Decimal` | Maximum Adverse Excursion — peak unrealized loss during the trade. |
 | `trigger_source` | `string` | The execution policy or manual action that initiated the trade. |
 | `exit_reason` | `string` | `STOP_LOSS` / `TAKE_PROFIT` / `SIGNAL_EXIT` / `MANUAL` / `VETO`. |
+| `flat_trade` | `bool` | `true` if the trade's gross PnL was zero before fees (avoids division-by-zero in `fee_efficiency`); see §4 guard. |
 
 ---
 
@@ -66,7 +67,9 @@ The Trade Analytics Layer is the PAE's **trade reconstruction engine**. It consu
 | **Slippage bps** | `(|fill_price − target_price| / target_price) × 10000` | Execution quality. |
 | **MAE ratio** | `|MAE| / |gross_pnl|` | How much the trade moved against before succeeding. |
 | **MFE capture** | `gross_pnl / MFE` | How much of the available profit was captured. |
-| **Fee efficiency** | `(gross_pnl − net_pnl) / gross_pnl` | Fee drag as percentage of gross profit. |
+| **Fee efficiency** | `(gross_pnl − net_pnl) / |gross_pnl|` if `|gross_pnl| > 0`, else `0.0` with `flat_trade: true` flag set | Fee drag as a non-negative percentage of `|gross_pnl|`. Using `|gross_pnl|` as the denominator (rather than `gross_pnl`) keeps the metric non-negative for both winning and losing trades — a fee-increased loss yields a positive fee_efficiency, not a negative one. |
+
+> **Division-by-zero guard (Issue 4.G — correction).** A previous version of this row was the bare formula `(gross_pnl − net_pnl) / gross_pnl`. When `gross_pnl = 0` (a flat-then-fee round-trip — entry fills cancel exit fills exactly before fees, so the trade closes at zero before fees are deducted), the formula evaluates `0 / 0 = NaN`. The corrected guard returns `0.0` and sets the `flat_trade: true` flag on the trade record so downstream consumers can detect and exclude the trade from aggregate ratio calculations (e.g. expectancy, profit factor). The flag is also useful for audit: a `flat_trade=true` record indicates that the trade fully round-tripped price-wise but lost the fee component — the strategy had zero directional edge on that bar.
 
 ---
 

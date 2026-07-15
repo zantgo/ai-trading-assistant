@@ -32,8 +32,10 @@ Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `
 | `global_market_bias` | `GlobalBias` | Universe-wide directional bias (§3.1). |
 | `market_breadth` | `MarketBreadth` | Breadth classification (§3.2). |
 | `regime_distribution` | `map<string, f64>` | Fraction of assets per regime. |
-| `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type. |
+| `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` since the Phase 0-4 extension — see [02-08-opportunity-matrix.md](../matrices/02-08-opportunity-matrix.md)). |
 | `risk_distribution` | `RiskDistribution` | Low/moderate/high risk share + environment label (§4). |
+| `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). *Currently a placeholder carried at the L7 envelope for downstream consumers; not yet wired into `systemic_risk_score` aggregation — see [01-05-liquidity-domain.md §Open questions](../conceptual-foundations/01-05-liquidity-domain.md).* |
+| `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty`. The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-portfolio.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
 | `asset_ranking` | `AssetRank[]` | Assets ranked by composite score (§5). |
 | `market_synchronization` | `SyncLevel` | Cross-asset correlation of direction (§3.3). |
 | `market_health` | `HealthLevel` | Overall market health (§3.4). |
@@ -127,18 +129,24 @@ The **Systemic Risk Score** is the market-wide danger index published for the Po
 
 $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penalty}$$
 
-`sync_penalty` (0–100) captures the danger of **correlated downside** — synchronized declines are systemically dangerous. It is `0` unless the global bias is bearish, then it scales with the synchronization level:
+`sync_penalty` (0–100) captures the danger of **correlated downside** — synchronized declines are systemically dangerous. It is `0` unless the global bias is in the bearish family, then it scales with the synchronization level:
 
 | Condition | `sync_penalty` |
 |-----------|----------------|
-| `global_market_bias != BEARISH` | 0 |
-| `BEARISH` + `HIGHLY_SYNCHRONIZED` | 100 |
-| `BEARISH` + `SYNCHRONIZED` | 60 |
-| `BEARISH` + `MIXED` | 30 |
-| `BEARISH` + `FRAGMENTED` | 10 |
-| `BEARISH` + `HIGHLY_FRAGMENTED` | 0 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_SYNCHRONIZED` | 100 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `SYNCHRONIZED` | 60 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `MIXED` | 30 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `FRAGMENTED` | 10 |
+| `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_FRAGMENTED` | 0 |
+| `global_market_bias ∉ {BEARISH, STRONG_BEARISH}` (any bullish / neutral / mixed state) | 0 |
+
+> **STRONG_BEARISH coverage (correction).** `GlobalBias` is a 6-state enum that includes both `BEARISH` and `STRONG_BEARISH` as separate bearish-class members (see §3.1). A previous version of this table used `global_market_bias != BEARISH`, which silently excluded `STRONG_BEARISH` — the regime with the worst correlated downside would have bypassed the safety penalty entirely. The corrected condition is `∈ {BEARISH, STRONG_BEARISH}` (member-set inclusion).
 
 The resulting `risk_environment` label gates the PME [Ontological Priority Veto](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+
+#### 4.0.1 Cross-Reference
+
+The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-portfolio.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). The `cascade_risk_index` field (§2.1) is **not yet aggregated into `systemic_risk_score`**; see [01-05-liquidity-domain.md §Open questions](../conceptual-foundations/01-05-liquidity-domain.md) for the deferred work item.
 
 ---
 

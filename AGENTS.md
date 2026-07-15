@@ -62,9 +62,17 @@ npm run check        # svelte-check + tsc typecheck
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
 - Config API: `GET /api/config` (returns parsed `config.json`)
 - History API: `GET /api/history` (returns last 100 close prices)
+- Connection Quality API: `GET /api/connection-quality?window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`) and Bitget WebSocket (`wss://ws.bitget.com/v2/ws/public`)
 - Static assets served from `crates/frontend/dist`
+
+### Connection Resilience & Quality
+
+- **Reconnect policy**: `crates/engine/src/adapters/resilience.rs` — exponential backoff (1s→30s, ±20% jitter) on WS disconnect; resilient to network crashes with auto-reconnect.
+- **Candle reconstruction**: `crates/engine/src/adapters/reconstruction.rs` — detects ingestion gaps on reconnect; ≥1m candles fetched from exchange REST historical, <1m candles synthesized via EMA/last-N closes. Reconstructed candles carry a `reconstructed: Some(ReconstructionMethod)` flag.
+- **Clock drift**: `crates/engine/src/clock_monitor.rs` — NTP polling enforces ≤50µs UTC drift budget; default warn loudly on breach, configurable to panic via `[clock_monitor].breach_action`.
+- **Quality tracking**: `crates/engine/src/connection_quality.rs` — rolling 1h/6h/24h windows with composite score formula: `0.5×uptime_pct + 30×(1 - min(disconnects/10, 1)) + 20×(1 - min(avg_reconnect_ms/5000, 1))`, clamped to 0..100.
 
 ## Configuration
 
@@ -81,6 +89,7 @@ Full specification documents under `docs/`:
 | `docs/matrices/` | Matrix schema contracts (Metrics, Alignment, Analysis, Opportunity, Risk, Decision, Overview, etc.) |
 | `docs/integration-and-api/` | API gateway contract, database schema |
 | `docs/ui-ux/` | Dashboard layout, component specifications |
+| `docs/operations-and-compliance/` | Pre-trade risk controls, user manual, connection resilience, candle reconstruction, connection quality, clock monitor |
 
 Start at `docs/README.md` for a guided reading order.
 

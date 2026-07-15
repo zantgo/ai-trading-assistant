@@ -273,7 +273,8 @@ impl MarketSnapshot {
 
     // ── Boolean accessors ──
     pub fn squeeze_on(&self) -> Option<bool> {
-        self.ind_label("squeeze").map(|l| l == "COMPRESSION_COILING")
+        self.ind_label("squeeze")
+            .map(|l| l == "COMPRESSION_COILING")
     }
     pub fn squeeze_release_trigger(&self) -> Option<bool> {
         self.ind_label("squeeze")
@@ -351,7 +352,14 @@ impl MarketSnapshot {
         if !v.state_label.contains("CROSSOVER") {
             return None;
         }
-        Some(if v.normalized >= 0.0 { "BULLISH" } else { "BEARISH" }.to_string())
+        Some(
+            if v.normalized >= 0.0 {
+                "BULLISH"
+            } else {
+                "BEARISH"
+            }
+            .to_string(),
+        )
     }
     pub fn chart_pattern(&self) -> Option<String> {
         self.ind("patterns").and_then(|v| {

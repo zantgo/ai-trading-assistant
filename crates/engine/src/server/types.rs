@@ -25,10 +25,92 @@ pub struct CompletedTradesBufferRow {
     pub closed_at: i64,
 }
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use shared::indicators::normalized::NormalizedIndicatorValue;
 use shared::indicators::normalized::{SignalKind, SignalStatus};
 use std::collections::{BTreeSet, HashMap};
+use std::str::FromStr;
+
+/// Accept JSON number OR numeric string for a `Decimal` field.
+/// Clients using TypeScript `number` will send `1000.0`, clients using
+/// `Decimal.js` will send `"1000.00"`. Both must be supported.
+fn deserialize_decimal_flexible<'de, D>(deserializer: D) -> Result<Decimal, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct FlexibleDecimal;
+
+    impl<'de> Visitor<'de> for FlexibleDecimal {
+        type Value = Decimal;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "a number or numeric string")
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Ok(Decimal::from(v))
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Ok(Decimal::from(v))
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
+            Decimal::from_f64(v).ok_or_else(|| de::Error::custom("invalid f64 for Decimal"))
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Decimal::from_str(v).map_err(de::Error::custom)
+        }
+    }
+
+    deserializer.deserialize_any(FlexibleDecimal)
+}
+
+/// Same as `deserialize_decimal_flexible` but for `Option<Decimal>` fields
+/// that may be missing from the JSON payload entirely.
+fn deserialize_optional_decimal_flexible<'de, D>(
+    deserializer: D,
+) -> Result<Option<Decimal>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct OptionalFlexibleDecimal;
+
+    impl<'de> Visitor<'de> for OptionalFlexibleDecimal {
+        type Value = Option<Decimal>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "null, a number, or a numeric string")
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D: serde::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<Self::Value, D::Error> {
+            deserialize_decimal_flexible(deserializer).map(Some)
+        }
+    }
+
+    deserializer.deserialize_option(OptionalFlexibleDecimal)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SetKeyRequest {
@@ -87,8 +169,16 @@ pub struct IndicatorSnapshot {
 }
 
 impl IndicatorSnapshot {
-    pub fn new(indicators: HashMap<String, NormalizedIndicatorValue>, current_price: Option<f64>) -> Self {
-        Self { indicators, current_price, volume: None, average_volume: None }
+    pub fn new(
+        indicators: HashMap<String, NormalizedIndicatorValue>,
+        current_price: Option<f64>,
+    ) -> Self {
+        Self {
+            indicators,
+            current_price,
+            volume: None,
+            average_volume: None,
+        }
     }
 
     fn raw(&self, k: &str) -> Option<f64> {
@@ -109,45 +199,110 @@ impl IndicatorSnapshot {
     }
 
     // ── Scalar accessors (flat-equivalent) ──
-    pub fn rsi(&self) -> Option<f64> { self.raw("rsi") }
-    pub fn stoch_k(&self) -> Option<f64> { self.sub("stochastic", "k_line") }
-    pub fn stoch_d(&self) -> Option<f64> { self.sub("stochastic", "d_line") }
-    pub fn chandemo(&self) -> Option<f64> { self.raw("chandemo") }
-    pub fn supertrend(&self) -> Option<f64> { self.sub("supertrend", "line") }
-    pub fn keltner_middle(&self) -> Option<f64> { self.sub("keltner", "middle") }
-    pub fn donchian_upper(&self) -> Option<f64> { self.sub("donchian", "upper") }
-    pub fn obv(&self) -> Option<f64> { self.raw("obv") }
-    pub fn cmf(&self) -> Option<f64> { self.raw("cmf") }
-    pub fn mfi(&self) -> Option<f64> { self.raw("mfi") }
-    pub fn hv(&self) -> Option<f64> { self.raw("hv") }
-    pub fn macd_line(&self) -> Option<f64> { self.sub("macd", "line") }
-    pub fn macd_signal(&self) -> Option<f64> { self.sub("macd", "signal") }
-    pub fn macd_histogram(&self) -> Option<f64> { self.sub("macd", "histogram") }
-    pub fn macd_histogram_peak(&self) -> Option<f64> { self.sub("macd", "histogram_peak") }
-    pub fn adx(&self) -> Option<f64> { self.sub("adx", "adx") }
-    pub fn adx_plus(&self) -> Option<f64> { self.sub("adx", "plus_di") }
-    pub fn adx_minus(&self) -> Option<f64> { self.sub("adx", "minus_di") }
-    pub fn adx_slope(&self) -> Option<f64> { self.sub("adx", "adx_slope") }
-    pub fn atr(&self) -> Option<f64> { self.sub("atr", "atr_14") }
-    pub fn bb_upper(&self) -> Option<f64> { self.sub("bollinger", "upper") }
-    pub fn bb_middle(&self) -> Option<f64> { self.sub("bollinger", "middle") }
-    pub fn bb_lower(&self) -> Option<f64> { self.sub("bollinger", "lower") }
-    pub fn bbwp(&self) -> Option<f64> { self.raw("bbwp") }
-    pub fn rvol(&self) -> Option<f64> { self.raw("rvol") }
-    pub fn vwap(&self) -> Option<f64> { self.sub("vwap", "vwap") }
-    pub fn squeeze_momentum(&self) -> Option<f64> { self.raw("squeeze") }
-    pub fn ema_fast(&self) -> Option<f64> { self.sub("ema_stack", "fast") }
-    pub fn ema_medium(&self) -> Option<f64> { self.sub("ema_stack", "medium") }
-    pub fn ema_slow(&self) -> Option<f64> { self.sub("ema_stack", "slow") }
-    pub fn ema_long(&self) -> Option<f64> { self.sub("ema_stack", "long") }
-    pub fn chart_pattern_confidence(&self) -> Option<f64> { self.raw("patterns") }
+    pub fn rsi(&self) -> Option<f64> {
+        self.raw("rsi")
+    }
+    pub fn stoch_k(&self) -> Option<f64> {
+        self.sub("stochastic", "k_line")
+    }
+    pub fn stoch_d(&self) -> Option<f64> {
+        self.sub("stochastic", "d_line")
+    }
+    pub fn chandemo(&self) -> Option<f64> {
+        self.raw("chandemo")
+    }
+    pub fn supertrend(&self) -> Option<f64> {
+        self.sub("supertrend", "line")
+    }
+    pub fn keltner_middle(&self) -> Option<f64> {
+        self.sub("keltner", "middle")
+    }
+    pub fn donchian_upper(&self) -> Option<f64> {
+        self.sub("donchian", "upper")
+    }
+    pub fn obv(&self) -> Option<f64> {
+        self.raw("obv")
+    }
+    pub fn cmf(&self) -> Option<f64> {
+        self.raw("cmf")
+    }
+    pub fn mfi(&self) -> Option<f64> {
+        self.raw("mfi")
+    }
+    pub fn hv(&self) -> Option<f64> {
+        self.raw("hv")
+    }
+    pub fn macd_line(&self) -> Option<f64> {
+        self.sub("macd", "line")
+    }
+    pub fn macd_signal(&self) -> Option<f64> {
+        self.sub("macd", "signal")
+    }
+    pub fn macd_histogram(&self) -> Option<f64> {
+        self.sub("macd", "histogram")
+    }
+    pub fn macd_histogram_peak(&self) -> Option<f64> {
+        self.sub("macd", "histogram_peak")
+    }
+    pub fn adx(&self) -> Option<f64> {
+        self.sub("adx", "adx")
+    }
+    pub fn adx_plus(&self) -> Option<f64> {
+        self.sub("adx", "plus_di")
+    }
+    pub fn adx_minus(&self) -> Option<f64> {
+        self.sub("adx", "minus_di")
+    }
+    pub fn adx_slope(&self) -> Option<f64> {
+        self.sub("adx", "adx_slope")
+    }
+    pub fn atr(&self) -> Option<f64> {
+        self.sub("atr", "atr_14")
+    }
+    pub fn bb_upper(&self) -> Option<f64> {
+        self.sub("bollinger", "upper")
+    }
+    pub fn bb_middle(&self) -> Option<f64> {
+        self.sub("bollinger", "middle")
+    }
+    pub fn bb_lower(&self) -> Option<f64> {
+        self.sub("bollinger", "lower")
+    }
+    pub fn bbwp(&self) -> Option<f64> {
+        self.raw("bbwp")
+    }
+    pub fn rvol(&self) -> Option<f64> {
+        self.raw("rvol")
+    }
+    pub fn vwap(&self) -> Option<f64> {
+        self.sub("vwap", "vwap")
+    }
+    pub fn squeeze_momentum(&self) -> Option<f64> {
+        self.raw("squeeze")
+    }
+    pub fn ema_fast(&self) -> Option<f64> {
+        self.sub("ema_stack", "fast")
+    }
+    pub fn ema_medium(&self) -> Option<f64> {
+        self.sub("ema_stack", "medium")
+    }
+    pub fn ema_slow(&self) -> Option<f64> {
+        self.sub("ema_stack", "slow")
+    }
+    pub fn ema_long(&self) -> Option<f64> {
+        self.sub("ema_stack", "long")
+    }
+    pub fn chart_pattern_confidence(&self) -> Option<f64> {
+        self.raw("patterns")
+    }
 
     // ── Boolean accessors ──
     pub fn squeeze_on(&self) -> Option<bool> {
         self.lbl("squeeze").map(|l| l == "COMPRESSION_COILING")
     }
     pub fn squeeze_release_trigger(&self) -> Option<bool> {
-        self.lbl("squeeze").map(|l| l.ends_with("VOLATILITY_RELEASE"))
+        self.lbl("squeeze")
+            .map(|l| l.ends_with("VOLATILITY_RELEASE"))
     }
     pub fn macd_crossover_detected(&self) -> Option<bool> {
         self.lbl("macd").map(|l| l.contains("CROSSOVER"))
@@ -156,52 +311,89 @@ impl IndicatorSnapshot {
     // ── State-string accessors (legacy vocabulary) ──
     pub fn ema_stack_state(&self) -> Option<String> {
         self.lbl("ema_stack").map(|l| {
-            if l.contains("BULLISH") { "bullish".into() }
-            else if l.contains("BEARISH") { "bearish".into() }
-            else { "tangled".into() }
+            if l.contains("BULLISH") {
+                "bullish".into()
+            } else if l.contains("BEARISH") {
+                "bearish".into()
+            } else {
+                "tangled".into()
+            }
         })
     }
     pub fn vwap_bias(&self) -> Option<String> {
         self.lbl("vwap").map(|l| {
-            if l.contains("PREMIUM") { "premium".into() }
-            else if l.contains("DISCOUNT") { "discount".into() }
-            else { "equilibrium".into() }
+            if l.contains("PREMIUM") {
+                "premium".into()
+            } else if l.contains("DISCOUNT") {
+                "discount".into()
+            } else {
+                "equilibrium".into()
+            }
         })
     }
     pub fn adx_regime(&self) -> Option<String> {
         self.lbl("adx").map(|l| {
-            if l.contains("CONGESTION") { "congestion".into() }
-            else if l.contains("EMERGING") { "emerging".into() }
-            else if l.contains("CLIMACTIC") { "extreme".into() }
-            else if l.contains("STRONG") { "strong".into() }
-            else { "congestion".into() }
+            if l.contains("CONGESTION") {
+                "congestion".into()
+            } else if l.contains("EMERGING") {
+                "emerging".into()
+            } else if l.contains("CLIMACTIC") {
+                "extreme".into()
+            } else if l.contains("STRONG") {
+                "strong".into()
+            } else {
+                "congestion".into()
+            }
         })
     }
     pub fn macd_crossover_direction(&self) -> Option<String> {
         let v = self.indicators.get("macd")?;
-        if !v.state_label.contains("CROSSOVER") { return None; }
-        Some(if v.normalized >= 0.0 { "BULLISH" } else { "BEARISH" }.to_string())
+        if !v.state_label.contains("CROSSOVER") {
+            return None;
+        }
+        Some(
+            if v.normalized >= 0.0 {
+                "BULLISH"
+            } else {
+                "BEARISH"
+            }
+            .to_string(),
+        )
     }
     pub fn macd_trend_state(&self) -> Option<String> {
         let hist = self.sub("macd", "histogram")?.abs();
         let peak = self.sub("macd", "histogram_peak")?.abs();
-        Some(if peak > 0.0 && hist < peak { "decelerating".into() } else { "accelerating".into() })
+        Some(if peak > 0.0 && hist < peak {
+            "decelerating".into()
+        } else {
+            "accelerating".into()
+        })
     }
     pub fn squeeze_momentum_direction(&self) -> Option<String> {
         self.indicators.get("squeeze").map(|v| {
             let l = v.state_label.as_str();
-            if l.contains("BULLISH") && v.normalized >= 0.5 { "BullishAcceleration".into() }
-            else if l.contains("BULLISH") { "BullishDeceleration".into() }
-            else if l.contains("BEARISH") && v.normalized <= -0.5 { "BearishAcceleration".into() }
-            else if l.contains("BEARISH") { "BearishDeceleration".into() }
-            else { "Flat".into() }
+            if l.contains("BULLISH") && v.normalized >= 0.5 {
+                "BullishAcceleration".into()
+            } else if l.contains("BULLISH") {
+                "BullishDeceleration".into()
+            } else if l.contains("BEARISH") && v.normalized <= -0.5 {
+                "BearishAcceleration".into()
+            } else if l.contains("BEARISH") {
+                "BearishDeceleration".into()
+            } else {
+                "Flat".into()
+            }
         })
     }
     pub fn chart_pattern(&self) -> Option<String> {
         self.indicators.get("patterns").and_then(|v| {
-            if v.normalized > 0.0 { Some("BullishPattern".to_string()) }
-            else if v.normalized < 0.0 { Some("BearishPattern".to_string()) }
-            else { None }
+            if v.normalized > 0.0 {
+                Some("BullishPattern".to_string())
+            } else if v.normalized < 0.0 {
+                Some("BearishPattern".to_string())
+            } else {
+                None
+            }
         })
     }
     pub fn rsi_divergence_status(&self) -> Option<String> {
@@ -210,22 +402,39 @@ impl IndicatorSnapshot {
     pub fn macd_divergence_status(&self) -> Option<String> {
         divergence_from_signals(self.indicators.get("macd"))
     }
-    pub fn norm_of(&self, key: &str) -> f64 { self.norm(key).unwrap_or(0.0) }
+    pub fn norm_of(&self, key: &str) -> f64 {
+        self.norm(key).unwrap_or(0.0)
+    }
 
     // ── Fields not preserved in the normalized map (return None) ──
-    pub fn squeeze_duration(&self) -> Option<u32> { None }
-    pub fn atr_trend(&self) -> Option<String> { None }
-    pub fn atr_volatility_regime(&self) -> Option<String> { None }
-    pub fn macd_histogram_trend(&self) -> Option<String> { None }
-    pub fn adx_di_crossover_detected(&self) -> Option<bool> { None }
-    pub fn adx_di_crossover_direction(&self) -> Option<String> { None }
+    pub fn squeeze_duration(&self) -> Option<u32> {
+        None
+    }
+    pub fn atr_trend(&self) -> Option<String> {
+        None
+    }
+    pub fn atr_volatility_regime(&self) -> Option<String> {
+        None
+    }
+    pub fn macd_histogram_trend(&self) -> Option<String> {
+        None
+    }
+    pub fn adx_di_crossover_detected(&self) -> Option<bool> {
+        None
+    }
+    pub fn adx_di_crossover_direction(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Extract divergence status from a parent oscillator's signals array.
 /// Divergence lives as a secondary output on the parent (e.g., "rsi"), not
 /// as a separate mirror entry in the indicator map.
 fn divergence_from_signals(parent: Option<&NormalizedIndicatorValue>) -> Option<String> {
-    let signal = parent?.signals.iter().find(|s| s.kind == SignalKind::Divergence)?;
+    let signal = parent?
+        .signals
+        .iter()
+        .find(|s| s.kind == SignalKind::Divergence)?;
     let direction = match signal.direction {
         shared::indicators::normalized::SignalDirection::Bullish => "bullish",
         shared::indicators::normalized::SignalDirection::Bearish => "bearish",
@@ -370,132 +579,332 @@ pub struct ObservabilityBuffersResponse {
 // ─── Decision Profiles ────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct DecisionProfileCreate { pub profile_name: String, #[serde(default = "default_long_threshold")] pub long_threshold: i32, #[serde(default = "default_short_threshold")] pub short_threshold: i32 }
-fn default_long_threshold() -> i32 { 15 }
-fn default_short_threshold() -> i32 { -15 }
+pub struct DecisionProfileCreate {
+    pub profile_name: String,
+    #[serde(default = "default_long_threshold")]
+    pub long_threshold: i32,
+    #[serde(default = "default_short_threshold")]
+    pub short_threshold: i32,
+}
+fn default_long_threshold() -> i32 {
+    15
+}
+fn default_short_threshold() -> i32 {
+    -15
+}
 
 #[derive(Debug, Deserialize)]
-pub struct DecisionProfileUpdate { pub profile_name: String, pub long_threshold: i32, pub short_threshold: i32 }
+pub struct DecisionProfileUpdate {
+    pub profile_name: String,
+    pub long_threshold: i32,
+    pub short_threshold: i32,
+}
 
 #[derive(Debug, Deserialize)]
-pub struct ProfileIndicatorAdd { pub indicator_name: String, #[serde(default = "default_weight")] pub weight: i32, pub override_status: String }
-fn default_weight() -> i32 { 10 }
+pub struct ProfileIndicatorAdd {
+    pub indicator_name: String,
+    #[serde(default = "default_weight")]
+    pub weight: i32,
+    pub override_status: String,
+}
+fn default_weight() -> i32 {
+    10
+}
 
 #[derive(Debug, Deserialize)]
-pub struct ProfileIndicatorUpdate { pub weight: i32, pub override_status: String }
+pub struct ProfileIndicatorUpdate {
+    pub weight: i32,
+    pub override_status: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct EvaluateRequest {
-    pub symbol: String, pub latest_snapshot: Option<serde_json::Value>,
-    #[serde(default)] pub historical_prices: Option<Vec<f64>>,
-    #[serde(default)] pub rsi: Option<f64>, #[serde(default)] pub squeeze_on: Option<bool>,
-    #[serde(default)] pub squeeze_momentum: Option<f64>, #[serde(default)] pub macd_line: Option<f64>,
-    #[serde(default)] pub macd_signal: Option<f64>, #[serde(default)] pub macd_hist: Option<f64>,
-    #[serde(default)] pub adx: Option<f64>, #[serde(default)] pub adx_plus: Option<f64>,
-    #[serde(default)] pub adx_minus: Option<f64>, #[serde(default)] pub bb_upper: Option<f64>,
-    #[serde(default)] pub bb_middle: Option<f64>, #[serde(default)] pub bb_lower: Option<f64>,
-    #[serde(default)] pub atr: Option<f64>, #[serde(default)] pub ema_fast: Option<f64>,
-    #[serde(default)] pub ema_medium: Option<f64>, #[serde(default)] pub ema_slow: Option<f64>,
-    #[serde(default)] pub ema_long: Option<f64>, #[serde(default)] pub ema_stack_state: Option<String>,
-    #[serde(default)] pub vwap: Option<f64>, #[serde(default)] pub close: Option<f64>,
-    #[serde(default)] pub volume: Option<f64>, #[serde(default)] pub average_volume: Option<f64>,
-    #[serde(default)] pub rvol: Option<f64>, #[serde(default)] pub vwap_bias: Option<String>,
-    #[serde(default)] pub rsi_divergence_status: Option<String>, #[serde(default)] pub macd_divergence_status: Option<String>,
-    #[serde(default)] pub macd_trend_state: Option<String>, #[serde(default)] pub macd_crossover_detected: Option<bool>,
-    #[serde(default)] pub macd_crossover_direction: Option<String>, #[serde(default)] pub macd_histogram_peak: Option<f64>,
-    #[serde(default)] pub squeeze_duration: Option<u32>, #[serde(default)] pub squeeze_release_trigger: Option<bool>,
-    #[serde(default)] pub squeeze_momentum_direction: Option<String>, #[serde(default)] pub chart_pattern: Option<String>,
-    #[serde(default)] pub chart_pattern_confidence: Option<f64>, #[serde(default)] pub bbwp: Option<f64>,
-    #[serde(default)] pub atr_volatility_regime: Option<String>, #[serde(default)] pub current_price: Option<f64>,
-    #[serde(default)] pub adx_slope: Option<f64>, #[serde(default)] pub adx_regime: Option<String>,
-    #[serde(default)] pub adx_di_crossover_detected: Option<bool>, #[serde(default)] pub adx_di_crossover_direction: Option<String>,
+    pub symbol: String,
+    pub latest_snapshot: Option<serde_json::Value>,
+    #[serde(default)]
+    pub historical_prices: Option<Vec<f64>>,
+    #[serde(default)]
+    pub rsi: Option<f64>,
+    #[serde(default)]
+    pub squeeze_on: Option<bool>,
+    #[serde(default)]
+    pub squeeze_momentum: Option<f64>,
+    #[serde(default)]
+    pub macd_line: Option<f64>,
+    #[serde(default)]
+    pub macd_signal: Option<f64>,
+    #[serde(default)]
+    pub macd_hist: Option<f64>,
+    #[serde(default)]
+    pub adx: Option<f64>,
+    #[serde(default)]
+    pub adx_plus: Option<f64>,
+    #[serde(default)]
+    pub adx_minus: Option<f64>,
+    #[serde(default)]
+    pub bb_upper: Option<f64>,
+    #[serde(default)]
+    pub bb_middle: Option<f64>,
+    #[serde(default)]
+    pub bb_lower: Option<f64>,
+    #[serde(default)]
+    pub atr: Option<f64>,
+    #[serde(default)]
+    pub ema_fast: Option<f64>,
+    #[serde(default)]
+    pub ema_medium: Option<f64>,
+    #[serde(default)]
+    pub ema_slow: Option<f64>,
+    #[serde(default)]
+    pub ema_long: Option<f64>,
+    #[serde(default)]
+    pub ema_stack_state: Option<String>,
+    #[serde(default)]
+    pub vwap: Option<f64>,
+    #[serde(default)]
+    pub close: Option<f64>,
+    #[serde(default)]
+    pub volume: Option<f64>,
+    #[serde(default)]
+    pub average_volume: Option<f64>,
+    #[serde(default)]
+    pub rvol: Option<f64>,
+    #[serde(default)]
+    pub vwap_bias: Option<String>,
+    #[serde(default)]
+    pub rsi_divergence_status: Option<String>,
+    #[serde(default)]
+    pub macd_divergence_status: Option<String>,
+    #[serde(default)]
+    pub macd_trend_state: Option<String>,
+    #[serde(default)]
+    pub macd_crossover_detected: Option<bool>,
+    #[serde(default)]
+    pub macd_crossover_direction: Option<String>,
+    #[serde(default)]
+    pub macd_histogram_peak: Option<f64>,
+    #[serde(default)]
+    pub squeeze_duration: Option<u32>,
+    #[serde(default)]
+    pub squeeze_release_trigger: Option<bool>,
+    #[serde(default)]
+    pub squeeze_momentum_direction: Option<String>,
+    #[serde(default)]
+    pub chart_pattern: Option<String>,
+    #[serde(default)]
+    pub chart_pattern_confidence: Option<f64>,
+    #[serde(default)]
+    pub bbwp: Option<f64>,
+    #[serde(default)]
+    pub atr_volatility_regime: Option<String>,
+    #[serde(default)]
+    pub current_price: Option<f64>,
+    #[serde(default)]
+    pub adx_slope: Option<f64>,
+    #[serde(default)]
+    pub adx_regime: Option<String>,
+    #[serde(default)]
+    pub adx_di_crossover_detected: Option<bool>,
+    #[serde(default)]
+    pub adx_di_crossover_direction: Option<String>,
 }
 
 // ─── Risk ──────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub struct RiskProfileCreate {
-    pub profile_name: String, #[serde(default = "default_capital")] pub capital: f64,
-    #[serde(default = "default_max_risk")] pub max_risk_pct: f64, pub leverage: i32,
-    #[serde(default)] pub commission_pct: f64, #[serde(default)] pub funding_rate_8h: f64,
-    #[serde(default)] pub spread: f64,
+    pub profile_name: String,
+    #[serde(
+        default = "default_capital_decimal",
+        deserialize_with = "deserialize_decimal_flexible"
+    )]
+    pub capital: Decimal,
+    #[serde(
+        default = "default_max_risk_decimal",
+        deserialize_with = "deserialize_decimal_flexible"
+    )]
+    pub max_risk_pct: Decimal,
+    pub leverage: i32,
+    #[serde(default, deserialize_with = "deserialize_decimal_flexible")]
+    pub commission_pct: Decimal,
+    #[serde(default, deserialize_with = "deserialize_decimal_flexible")]
+    pub funding_rate_8h: Decimal,
+    #[serde(default, deserialize_with = "deserialize_decimal_flexible")]
+    pub spread: Decimal,
 }
-fn default_capital() -> f64 { 10000.0 }
-fn default_max_risk() -> f64 { 2.0 }
+fn default_capital_decimal() -> Decimal {
+    dec!(10000)
+}
+fn default_max_risk_decimal() -> Decimal {
+    dec!(2)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct RiskCalculateRequest {
-    pub profile_id: i64, pub direction: String, pub entry_price: f64,
-    pub stop_loss: f64, pub take_profit: f64,
-    #[serde(default)] pub max_risk_pct: Option<f64>, #[serde(default)] pub leverage: Option<i32>,
-    #[serde(default)] pub commission_pct: Option<f64>, #[serde(default)] pub funding_rate_8h: Option<f64>,
-    #[serde(default)] pub spread: Option<f64>, #[serde(default)] pub use_dynamic_atr: Option<bool>,
-    #[serde(default)] pub atr_value: Option<f64>, #[serde(default)] pub capital: Option<f64>,
-    #[serde(default)] pub stop_loss_price: Option<f64>, #[serde(default)] pub take_profit_price: Option<f64>,
-    #[serde(default)] pub atr_multiplier: Option<f64>, #[serde(default)] pub atr_target_rr: Option<f64>,
+    pub profile_id: i64,
+    pub direction: String,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub entry_price: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub stop_loss: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub take_profit: Decimal,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub max_risk_pct: Option<Decimal>,
+    #[serde(default)]
+    pub leverage: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub commission_pct: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub funding_rate_8h: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub spread: Option<Decimal>,
+    #[serde(default)]
+    pub use_dynamic_atr: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub atr_value: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub capital: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub stop_loss_price: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub take_profit_price: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub atr_multiplier: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub atr_target_rr: Option<Decimal>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CommissionProjectionPayload {
-    pub profile_id: i64, pub direction: String, pub entry_1: f64, pub entry_2: f64,
-    pub stop_loss_1: f64, pub stop_loss_2: f64, pub take_profit_1: f64, pub take_profit_2: f64,
-    pub capital_entry_1_pct: f64, pub order_type: String,
-    #[serde(default)] pub max_risk_pct: Option<f64>, #[serde(default)] pub leverage: Option<i32>,
-    #[serde(default)] pub commission_pct: Option<f64>, #[serde(default)] pub funding_rate_8h: Option<f64>,
-    #[serde(default)] pub capital: Option<f64>,
+    pub profile_id: i64,
+    pub direction: String,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub entry_1: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub entry_2: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub stop_loss_1: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub stop_loss_2: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub take_profit_1: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub take_profit_2: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_flexible")]
+    pub capital_entry_1_pct: Decimal,
+    pub order_type: String,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub max_risk_pct: Option<Decimal>,
+    #[serde(default)]
+    pub leverage: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub commission_pct: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub funding_rate_8h: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_flexible")]
+    pub capital: Option<Decimal>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct FeeTableQuery {
     pub order_type: String,
-    #[serde(default)] pub capitals: Option<Vec<f64>>,
-    #[serde(default)] pub leverages: Option<Vec<i32>>,
+    #[serde(default)]
+    pub capitals: Option<Vec<f64>>,
+    #[serde(default)]
+    pub leverages: Option<Vec<i32>>,
 }
 
 // ─── Dashboard / Journal ───────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct StatsQuery { #[serde(default)] pub initial_capital: Option<f64> }
+pub struct StatsQuery {
+    #[serde(default)]
+    pub initial_capital: Option<f64>,
+}
 
 #[derive(Debug, Deserialize)]
-pub struct TradeJournalQuery { #[serde(default = "default_journal_limit")] pub limit: u32 }
-fn default_journal_limit() -> u32 { 50 }
+pub struct TradeJournalQuery {
+    #[serde(default = "default_journal_limit")]
+    pub limit: u32,
+}
+fn default_journal_limit() -> u32 {
+    50
+}
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateJournalNotesRequest { pub human_notes: String, pub execution_score: f64 }
+pub struct UpdateJournalNotesRequest {
+    pub human_notes: String,
+    pub execution_score: f64,
+}
 
 #[derive(Debug, Deserialize)]
-pub struct TradeLedgerQuery { #[serde(default = "default_limit")] pub limit: u32 }
-fn default_limit() -> u32 { 200 }
+pub struct TradeLedgerQuery {
+    #[serde(default = "default_limit")]
+    pub limit: u32,
+}
+fn default_limit() -> u32 {
+    200
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TradeTelemetryRequest {
-    pub exchange: String, pub symbol: String, pub direction: String,
-    pub entry_timestamp: i64, pub exit_timestamp: i64, pub entry_price: f64,
-    pub exit_price: f64, pub size: f64, pub commission_fees: f64,
-    pub funding_fees: f64, pub realized_pnl: f64, pub roi_percentage: f64,
-    #[serde(default = "default_trigger")] pub trigger_source: String,
+    pub exchange: String,
+    pub symbol: String,
+    pub direction: String,
+    pub entry_timestamp: i64,
+    pub exit_timestamp: i64,
+    pub entry_price: f64,
+    pub exit_price: f64,
+    pub size: f64,
+    pub commission_fees: f64,
+    pub funding_fees: f64,
+    pub realized_pnl: f64,
+    pub roi_percentage: f64,
+    #[serde(default = "default_trigger")]
+    pub trigger_source: String,
 }
-fn default_trigger() -> String { "MANUAL".to_string() }
+fn default_trigger() -> String {
+    "MANUAL".to_string()
+}
 
 // ─── Session ───────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct SessionInitRequest { pub exchange: String, pub currency: String }
+pub struct SessionInitRequest {
+    pub exchange: String,
+    pub currency: String,
+}
 
 #[derive(Debug, Serialize)]
-pub struct SessionStatusResponse { pub active: bool, pub currency: Option<String>, pub exchange: Option<String>, pub instance_count: usize }
+pub struct SessionStatusResponse {
+    pub active: bool,
+    pub currency: Option<String>,
+    pub exchange: Option<String>,
+    pub instance_count: usize,
+}
 
 // ─── Instance ──────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct AddInstanceRequest { pub base: String, pub quote: String }
+pub struct AddInstanceRequest {
+    pub base: String,
+    pub quote: String,
+}
 
 #[derive(Debug, Serialize)]
-pub struct InstanceListResponse { pub instances: Vec<crate::registry::InstanceSummary>, pub total_count: usize }
+pub struct InstanceListResponse {
+    pub instances: Vec<crate::registry::InstanceSummary>,
+    pub total_count: usize,
+}
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceDetailQuery { #[serde(default)] pub id: String, #[serde(default)] pub pair_key: Option<String> }
+pub struct InstanceDetailQuery {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub pair_key: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -519,7 +928,16 @@ pub struct InstanceConfigPayload {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceManualRequest { pub action: String, pub direction: Option<String>, #[serde(default)] pub price: Option<f64> }
+pub struct InstanceManualRequest {
+    pub action: String,
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub price: Option<f64>,
+}
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceIntervalsRequest { pub slow_seconds: i64, pub normal_seconds: i64, pub fast_seconds: i64 }
+pub struct InstanceIntervalsRequest {
+    pub slow_seconds: i64,
+    pub normal_seconds: i64,
+    pub fast_seconds: i64,
+}

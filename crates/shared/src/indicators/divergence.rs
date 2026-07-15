@@ -163,10 +163,20 @@ impl DivergenceDetector {
         let (rsi_div, rsi_coords) = self.detect_rsi_divergence();
         let (macd_div, macd_coords) = self.detect_macd_divergence();
 
-        let has_bullish = matches!(rsi_div, DivergenceType::RsiBullish | DivergenceType::RsiBullishHidden)
-            || matches!(macd_div, DivergenceType::MacdBullish | DivergenceType::MacdBullishHidden);
-        let has_bearish = matches!(rsi_div, DivergenceType::RsiBearish | DivergenceType::RsiBearishHidden)
-            || matches!(macd_div, DivergenceType::MacdBearish | DivergenceType::MacdBearishHidden);
+        let has_bullish = matches!(
+            rsi_div,
+            DivergenceType::RsiBullish | DivergenceType::RsiBullishHidden
+        ) || matches!(
+            macd_div,
+            DivergenceType::MacdBullish | DivergenceType::MacdBullishHidden
+        );
+        let has_bearish = matches!(
+            rsi_div,
+            DivergenceType::RsiBearish | DivergenceType::RsiBearishHidden
+        ) || matches!(
+            macd_div,
+            DivergenceType::MacdBearish | DivergenceType::MacdBearishHidden
+        );
 
         let rsi_status = if rsi_div != DivergenceType::None {
             DivergenceStatus::Potential
@@ -179,8 +189,14 @@ impl DivergenceDetector {
             DivergenceStatus::None
         };
 
-        let rsi_hidden = matches!(rsi_div, DivergenceType::RsiBullishHidden | DivergenceType::RsiBearishHidden);
-        let macd_hidden = matches!(macd_div, DivergenceType::MacdBullishHidden | DivergenceType::MacdBearishHidden);
+        let rsi_hidden = matches!(
+            rsi_div,
+            DivergenceType::RsiBullishHidden | DivergenceType::RsiBearishHidden
+        );
+        let macd_hidden = matches!(
+            macd_div,
+            DivergenceType::MacdBullishHidden | DivergenceType::MacdBearishHidden
+        );
 
         DivergenceResult {
             rsi_divergence: rsi_div,
@@ -368,7 +384,12 @@ impl DivergenceDetector {
         // Bullish (regular): price lower low, MACD histogram higher low
         if let (Some(first), Some(last)) = (
             find_extrema(&self.price_history, &self.macd_hist_history, 0..half, false),
-            find_extrema(&self.price_history, &self.macd_hist_history, half..len, false),
+            find_extrema(
+                &self.price_history,
+                &self.macd_hist_history,
+                half..len,
+                false,
+            ),
         ) {
             if last.price < first.price && last.indicator_value > first.indicator_value {
                 return (
@@ -384,7 +405,12 @@ impl DivergenceDetector {
         // Bearish (regular): price higher high, MACD histogram lower high
         if let (Some(first), Some(last)) = (
             find_extrema(&self.price_history, &self.macd_hist_history, 0..half, true),
-            find_extrema(&self.price_history, &self.macd_hist_history, half..len, true),
+            find_extrema(
+                &self.price_history,
+                &self.macd_hist_history,
+                half..len,
+                true,
+            ),
         ) {
             if last.price > first.price && last.indicator_value < first.indicator_value {
                 return (
@@ -400,7 +426,12 @@ impl DivergenceDetector {
         // Hidden Bullish: price higher low, MACD histogram lower low
         if let (Some(first), Some(last)) = (
             find_extrema(&self.price_history, &self.macd_hist_history, 0..half, false),
-            find_extrema(&self.price_history, &self.macd_hist_history, half..len, false),
+            find_extrema(
+                &self.price_history,
+                &self.macd_hist_history,
+                half..len,
+                false,
+            ),
         ) {
             if last.price > first.price && last.indicator_value < first.indicator_value {
                 return (
@@ -416,7 +447,12 @@ impl DivergenceDetector {
         // Hidden Bearish: price lower high, MACD histogram higher high
         if let (Some(first), Some(last)) = (
             find_extrema(&self.price_history, &self.macd_hist_history, 0..half, true),
-            find_extrema(&self.price_history, &self.macd_hist_history, half..len, true),
+            find_extrema(
+                &self.price_history,
+                &self.macd_hist_history,
+                half..len,
+                true,
+            ),
         ) {
             if last.price < first.price && last.indicator_value > first.indicator_value {
                 return (
@@ -431,10 +467,6 @@ impl DivergenceDetector {
 
         (DivergenceType::None, None)
     }
-
-    
-
-
 }
 
 /// Generic single-oscillator divergence detector (reused across Stochastic,
@@ -486,7 +518,10 @@ impl SeriesDivergence {
             if last.price < first.price && last.indicator_value > first.indicator_value {
                 return SeriesDivergenceResult {
                     direction: 1,
-                    coords: Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    coords: Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                     hidden: false,
                 };
             }
@@ -499,7 +534,10 @@ impl SeriesDivergence {
             if last.price > first.price && last.indicator_value < first.indicator_value {
                 return SeriesDivergenceResult {
                     direction: -1,
-                    coords: Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    coords: Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                     hidden: false,
                 };
             }
@@ -513,7 +551,10 @@ impl SeriesDivergence {
             if last.price > first.price && last.indicator_value <= first.indicator_value {
                 return SeriesDivergenceResult {
                     direction: 1,
-                    coords: Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    coords: Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                     hidden: true,
                 };
             }
@@ -526,7 +567,10 @@ impl SeriesDivergence {
             if last.price < first.price && last.indicator_value >= first.indicator_value {
                 return SeriesDivergenceResult {
                     direction: -1,
-                    coords: Some(DivergenceCoords { first_extreme: first, second_extreme: last }),
+                    coords: Some(DivergenceCoords {
+                        first_extreme: first,
+                        second_extreme: last,
+                    }),
                     hidden: true,
                 };
             }

@@ -76,7 +76,7 @@ Signal detectors project discrete events onto the 12 `SignalKind`s. Detection is
 | Crossover detectors | `Crossover`, `ZeroLineCross`, `StackChange` |
 | Threshold detectors | `Threshold` |
 | Structural detectors | `Breakout`, `BandTouch`, `LevelTest`, `TrendFlip` |
-| Volatility / volume | `CompressionRelease`, `VolumeClimax` |
+| Volatility / volume | `VolatilityCycle`, `VolumeClimax` |
 | Pattern detectors | `PatternForming` |
 
 Each `IndicatorSignal` carries `kind`, `direction`, `status`, `label`, `strength`, and `age_bars` (stamped by the stateful ager). See [Signals Guide](03-02-10-mme-signals-guide.md).
@@ -101,13 +101,15 @@ The mapping from struct fields to axes is defined in [Metrics Matrix §3.2 / §4
 
 `MarketContext::synthesize()` aggregates the indicator map into per-timeframe dimensions (trend, momentum, volatility, volume, liquidity), classifies the regime, and computes an `overall_score ∈ [-100, 100]`. This is **local confluence** — single-timeframe consensus — distinct from cross-timeframe alignment (Layer 2).
 
-Regime rule:
+Regime rule (local 4-state `MarketContext.regime` vocabulary; see [Metrics Matrix §5.0](../matrices/02-07-metrics-matrix.md) for the cross-layer mapping to the canonical 8-state L3 `MarketRegime`):
 ```
 bbwp ≤ 15 OR chop ≥ 61.8 → COMPRESSION
 bbwp ≥ 85                → EXPANSION
 adx ≥ 25 OR chop ≤ 38.2  → TRENDING
 else                     → RANGE
 ```
+
+> **Cross-layer vocabulary.** Note that `MarketContext.regime` is the **local 4-state** vocabulary (`COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE`). The cross-TF canonical `MarketRegime` at L3 uses the **8-state** vocabulary (`TRENDING_BULL` / `TRENDING_BEAR` / `RANGE` / `ACCUMULATION` / `DISTRIBUTION` / `EXPANSION` / `CONTRACTION` / `TRANSITION`). The two are linked by the mapping table in [02-07-metrics-matrix.md §5.0](../matrices/02-07-metrics-matrix.md); comparisons across layers must go through the L3 Analysis Matrix.
 
 ---
 
@@ -143,7 +145,7 @@ indicators:
 | Real funding rate | WS push | `funding_rate` |
 | Real liquidation events (Phase 1) | `userFills` / `fill` channel | `liquidity: LiquidityFlow` |
 | Estimated heatmap (Phase 2) | Cluster estimator | `cluster: LiquidationClusterMatrix` |
-| Liquidity signals (Phase 3) | Signal derivation | `liquiditySignals: Vec<LiquiditySignal>` |
+| Liquidity signals (Phase 3) | Signal derivation | `liquidity_signals: Vec<LiquiditySignal>` |
 
 These are not "indicators" in the strict sense (they are not
 normalised f64 signals in the indicator map) — they are

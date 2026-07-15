@@ -35,13 +35,18 @@ pub struct AppConfig {
     pub intervals: IntervalsConfig,
     #[serde(default)]
     pub liquidity: LiquidityConfig,
+    /// Optional clock-drift monitor. When `Some` and `is_active()`, main.rs
+    /// spawns the NTP-based monitor alongside the other background tasks.
+    #[serde(default)]
+    pub clock_monitor: Option<ClockMonitorTomlConfig>,
     #[serde(default, skip_serializing)]
     pub instances: HashMap<String, InstanceSpecificConfig>,
 }
 
 pub fn load_config() -> AppConfig {
-    let config_raw = std::fs::read_to_string("config.toml")
-        .expect("\u{274c} Configuration Error: Failed to find \"config.toml\" in workspace root directory");
+    let config_raw = std::fs::read_to_string("config.toml").expect(
+        "\u{274c} Configuration Error: Failed to find \"config.toml\" in workspace root directory",
+    );
 
     toml::from_str(&config_raw)
         .expect("\u{274c} Configuration Error: Failed to parse fields inside config.toml")
@@ -53,7 +58,8 @@ pub fn load_instances() -> HashMap<String, InstanceSpecificConfig> {
     }
 
     if let Ok(raw) = std::fs::read_to_string("pairs.json") {
-        let old: HashMap<String, InstanceSpecificConfig> = serde_json::from_str(&raw).unwrap_or_default();
+        let old: HashMap<String, InstanceSpecificConfig> =
+            serde_json::from_str(&raw).unwrap_or_default();
         let mut migrated = HashMap::new();
         for (key, value) in old {
             let new_key = if let Some((_exchange, base)) = key.split_once('-') {
@@ -77,7 +83,10 @@ pub async fn save_instances(instances: &HashMap<String, InstanceSpecificConfig>)
     match serde_json::to_string_pretty(instances) {
         Ok(json_str) => {
             if let Err(e) = tokio::fs::write("instances.json", json_str).await {
-                eprintln!("\u{274c} Config Error: Failed to write instances.json: {}", e);
+                eprintln!(
+                    "\u{274c} Config Error: Failed to write instances.json: {}",
+                    e
+                );
             }
         }
         Err(e) => {

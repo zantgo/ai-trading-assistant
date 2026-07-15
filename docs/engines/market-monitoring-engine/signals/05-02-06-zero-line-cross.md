@@ -23,7 +23,9 @@ A **ZeroLineCross** fires when an oscillator transitions across its neutral refe
 
 ## 2. Producing Indicators
 
-Declared by 13 registry entries: `rsi`, `stochastic`, `chandemo`, `williams_r`, `awesome_oscillator`, `force_index`, `cci`, `macd`, `cmf`, `mfi`, `linreg_slope`, `zscore`, `oi_delta`.
+Declared by **11** registry entries: `rsi`, `chandemo`, `williams_r`, `awesome_oscillator`, `cci`, `macd`, `cmf`, `force_index`, `linreg_slope`, `zscore`, `oi_delta`.
+
+> **Editorial note.** A previous revision of this section listed 13 producers including `stochastic` and `mfi`. The canonical 11 above are authoritative — the per-signal sections of [04-02-12-stochastic.md](../indicators/04-02-12-stochastic.md) and [04-02-23-mfi.md](../indicators/04-02-23-mfi.md) do not declare ZeroLineCross signals. See [04-02-00-indicator-index.md](../indicators/04-02-00-indicator-index.md) and [01-01-ontology.md Appendix B.3](../../../conceptual-foundations/01-01-ontology.md) for the registry-verified producer list.
 
 ---
 

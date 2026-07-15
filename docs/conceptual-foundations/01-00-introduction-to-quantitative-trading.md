@@ -19,7 +19,11 @@ Quantitative trading is the discipline of **creating a statistical edge and exec
 
 A model without execution is not a trading strategy. An execution strategy without a model is gambling. Both halves are required and both must be continuously validated.
 
-The modern form of this discipline substitutes the hand-coded formula of classical econometrics with a machine-learning model trained on historical data. The architecture of this platform follows the **classical, indicator-based** form: the model layer is replaced by a deterministic bank of 50 technical indicators synthesized across 4 timeframes, and the strategy layer is replaced by a Boolean predicate evaluator over the resulting decision matrix. See §10 for the explicit justification of this design choice.
+The fundamental baseline of quantitative trading is the complete elimination of human discretion through quantifiable, rule-based automation. While discretionary trading relies on subjective human interpretation and is vulnerable to psychological bias, systematic trading maps market state observations to deterministic execution actions. The defining element of a quantitative strategy is therefore not the absolute complexity of the mathematical models employed, but the objective, automatable consistency of the decision-making rules.
+
+Under the broader umbrellas of systematic macro, algorithmic trading, and quantitative technical trading, this platform is classified as a **Systematic Rule-Based Quantitative Trading** system. Rather than attempting to extract edge from stochastic or time-series prediction models, this paradigm derives its statistical advantage from the systematic, rule-based aggregation, filtering, confluence, and multi-timeframe alignment of deterministic market telemetry.
+
+The modern form of this discipline often substitutes the hand-coded formula of classical econometrics with a machine-learning model trained on historical data. The architecture of this platform, however, follows the classical, indicator-based form of Systematic Rule-Based Quantitative Trading: the predictive model layer is replaced by a deterministic bank of 50 technical indicators synthesized across 4 timeframes, and the strategy layer is replaced by a Boolean predicate evaluator over the resulting decision matrix. See §10 for the explicit justification of this design choice.
 
 ---
 
@@ -47,7 +51,7 @@ Game A wins more often than it loses but has **negative** EV; Game B wins less o
 
 ### 2.2 Platform Instantiation
 
-The Performance Analytics Engine (`03-05-03-pae-layer2-strategy-analytics.md`) computes Expectancy per the above formula and pairs it with a Student t-test and Monte Carlo sign-randomization for significance. A strategy is considered to have a validated edge only when its EV is statistically distinguishable from zero at the configured confidence level. See §12 for cross-reference.
+The Performance Analytics Engine (`03-05-03-pae-layer2-strategy-analytics.md`) computes Expectancy per the above formula and pairs it with a Student t-test and Monte Carlo sign-randomization for significance. A strategy is considered to have a validated edge only when its EV is statistically distinguishable from zero at the configured confidence level. See §13 for cross-reference.
 
 ---
 
@@ -177,7 +181,7 @@ This platform is a **market taker**. The decision matrix produces a directional 
 | Adverse selection | Quote update latency | n/a |
 | Fill uncertainty | Asymmetric (fills when quoted) | Symmetric (filled at submission, possibly partial) |
 
-The platform does not implement a market-making layer. See §11 (Explicit Non-Goals).
+The platform does not implement a market-making layer. See §12 (Explicit Non-Goals).
 
 ---
 
@@ -209,7 +213,7 @@ The wire format retains the canonical names (`Interval`, `CandleClose`, `EventDr
 
 ## §8. Position Sizing Curves
 
-The position-sizing curve is the function that maps a signal's confidence or magnitude to a dollar allocation. The platform supports five canonical curves; the first three are slot-based scaled-entry (already present), the last two are model-strength-based (added in this revision).
+The position-sizing curve is the function that maps a signal's confidence or magnitude to a dollar allocation. The platform supports **six** canonical curves: the first four are slot-based scaled-entry, the last two are model-strength-based. The first three (Constant, Stepped, Linear) were already present; Exponential was added in v2.0; the model-strength-based curves (Hard-Tanh, Tanh) were added in v2.1.
 
 ### 8.1 Constant
 
@@ -219,7 +223,7 @@ size = ±S_max   (independent of score)
 
 The textbook baseline. Used for strategies whose edge is binary (in/out) rather than graded.
 
-### 8.2 Stepped (existing)
+### 8.2 Stepped
 
 ```
 if score < θ_base:       size = base_pct
@@ -229,7 +233,7 @@ else:                    size = max_pct
 
 Three discrete buckets. Default mode; backward-compatible.
 
-### 8.3 Linear (existing)
+### 8.3 Linear
 
 ```
 size = base_pct  +  (max_pct − base_pct) · (score / θ_micro)
@@ -237,7 +241,7 @@ size = base_pct  +  (max_pct − base_pct) · (score / θ_micro)
 
 Linearly interpolates between `base_pct` at zero score and `max_pct` at `θ_micro`.
 
-### 8.4 Exponential (existing)
+### 8.4 Exponential 
 
 ```
 size = base_pct  +  (max_pct − base_pct) · (score / θ_micro)^e
@@ -245,17 +249,17 @@ size = base_pct  +  (max_pct − base_pct) · (score / θ_micro)^e
 
 Front-loaded; reaches `max_pct` faster than linear. Exponent `e` is configurable (default 2.0).
 
-### 8.5 Hard-Tanh (new)
+### 8.5 Hard-Tanh
 
 ```
 s        = score / θ_micro                    ∈ [0, 1]
-clipped  = clip(gain · s, −1, +1)             bounded linear
+clipped  = clip(gain · s, −1, +1)             # bounded linear
 size     = base_pct  +  (max_pct − base_pct) · |clipped|
 ```
 
 The Hard-Tanh is **linear in the middle, sharply clipped at ±1**. It is the textbook bridge between model confidence and bounded risk: small scores get small positions, large scores get full positions, and no position can ever exceed `max_pct`. The `gain` parameter controls how aggressively the curve saturates; `gain = 1.0` saturates at `score = θ_micro`; `gain > 1` saturates earlier; `gain < 1` saturates later. Hard-Tanh is **piecewise-linear and differentiable everywhere except at the clip boundaries**, which makes it suitable for both discrete grid-search tuning and continuous optimization. Its sign behavior (always non-negative output) makes it natural for one-sided position magnitudes that are then multiplied by the directional sign of the trade.
 
-### 8.6 Tanh (new)
+### 8.6 Tanh
 
 ```
 s     = score / θ_micro                        ∈ [0, 1]
@@ -272,7 +276,7 @@ The Kelly criterion `f* = (p · b − q) / b` (where `b` is the win/loss ratio) 
 2. **Non-stationarity**: Kelly is derived for a stationary distribution; the platform's regime detector explicitly identifies regime shifts, which is the antithesis of the Kelly assumption.
 3. **Fat tails**: Kelly is derived for a Gaussian or bounded distribution; crypto-asset returns exhibit fat tails, and Kelly sizing amplifies tail exposure.
 
-The platform's `S = E · R / D_sl` formula (`08-02-pre-trade-risk-controls.md`) is fixed-fractional risk sizing with explicit stop-distance scaling, and is the institutional alternative to Kelly for low-edge, non-stationary, fat-tailed regimes.
+The platform's `S = E · R / D_sl` formula (`08-02-pre-trade-risk-controls.md`, equivalent formulation `S = (E · R) / (D_sl / 100)` in [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)) is fixed-fractional risk sizing with explicit stop-distance scaling. In §8.7's compact textbook form, $D_{sl}$ is the **fraction** stop distance (`0.015` for 1.5%); in the engine-side formulation, $D_{sl}$ is the **raw percent float** (`1.5` for 1.5%) that is divided by `100` inside the formula. The two are equivalent. This is the institutional alternative to Kelly for low-edge, non-stationary, fat-tailed regimes.
 
 ---
 
@@ -304,7 +308,76 @@ The trade-off: indicator-based systems have lower representational capacity than
 
 ---
 
-## §11. Explicit Non-Goals (Documented Exclusions)
+## §11. Feature Taxonomy: Single-Feature vs. Multi-Feature Systems
+
+Quantitative trading models differ fundamentally in how they collect and organize raw market variables to make execution decisions. Modern quantitative architecture classifies strategies based on whether they operate under a **Single-Feature** or a **Multi-Feature** structural paradigm.
+
+### 11.1 Explaining the Feature Paradigms
+
+A **feature** is any individual, measurable quantitative property or characteristic of a market process being observed. It serves as an independent variable input to the strategy's predictive or decision-making engine.
+
+#### Single-Feature Systems
+A Single-Feature system relies on **exactly one primary mathematical observation** to drive its execution pipeline.
+* **Mechanism:** Decisions are mapped directly from a single mathematical line. For example, a pure Relative Strength Index (RSI) threshold strategy, or a simple price-to-moving-average crossover.
+* **Limitations:** Single-feature systems suffer from low representational capacity. Because they ignore the multidimensional nature of market dynamics, they are highly susceptible to market noise, produce a high rate of false signals (whipsaws), and fail abruptly during regime shifts (e.g., trend-following features failing during range-bound regimes).
+
+#### Multi-Feature Systems
+A Multi-Feature system ingests and processes **multiple diverse, independent dimensions of market behavior** to formulate an execution decision.
+* **Mechanism:** These systems simultaneously monitor and evaluate features across different structural categories—such as trend, momentum, volume, volatility, market microstructure, and derivatives telemetry.
+* **The Quantitative Challenge:** Simply multiplying features can introduce collinearity (redundancy) or conflicting signals that cancel each other out. A robust multi-feature system must therefore implement a formal **Synthesis Method** (such as statistical modeling, machine learning, or deterministic hierarchical rule-sets) to resolve conflict and preserve explainability.
+
+### 11.2 Platform Implementation: A Hierarchical Multi-Feature Architecture
+
+This platform is unequivocally a hierarchical, multi-timeframe, multi-feature **Systematic Rule-Based Quantitative Trading** system. Rather than relying on a singular indicator, the platform maps raw, multi-channel market data into a highly structured grid of synthesized feature matrices.
+
+The system's multi-feature taxonomy is structured as follows:
+
+```
+[Raw Microstructure & Derivatives] 
+              │
+              ▼
+[Layer 1: 50 Primary Indicator & 12 Signal Features]
+              │
+              ▼
+[Layer 2: 10 Cross-Timeframe Alignment Features]
+              │
+              ▼
+[Layer 3: Categorical Bias & 6 Qualitative Assessment Features]
+              │
+              ├─────────────────────────────────────────┐
+              ▼                                         ▼
+[Layer 4: Scored Opportunity Features]   [Layer 5: 8 Unipolar Danger Features]
+              │                                         │
+              └────────────────────┬────────────────────┘
+                                   ▼
+                [Layer 6: Tactical Synthesis Feature]
+```
+
+1. **The Ingestion Layer (Raw Microstructure & Derivatives Features):**
+   The Data Infrastructure Engine (DIE) ingests raw, high-frequency properties directly from the exchange. These include microstructure-clean mid-prices, bid-ask spreads, and full-depth order book imbalances [02-10-raw-data-matrix.md, 02-07-metrics-matrix.md], paired with real-time derivatives features such as Open Interest, funding rates, and aggregated liquidation flows [01-05-liquidity-domain.md, 02-07-metrics-matrix.md].
+
+2. **Primary Technical Features (Layer 1 - Metrics Matrix):**
+   The system computes **50 distinct technical indicators** across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, and Derivatives) [04-02-00-indicator-index.md]. Crucially, the platform converts these from flat scalars into multi-dimensional features by projecting each indicator across **8 Indicator Evaluation Axes** (Value, State, Direction, Strength, Market Regime, Confidence, Freshness, Quality) and extracting **12 SignalKind types** across **10 Signal Evaluation Axes** [01-01-ontology.md, 02-07-metrics-matrix.md].
+
+3. **Cross-Temporal Consensus Features (Layer 2 - Alignment Matrix):**
+   To resolve timeframe conflict, the system projects its primary features onto **10 distinct alignment dimensions** (Trend, Momentum, Volume, Volatility, Structure, Signal, Regime, Confidence, Liquidity, and Tradability), measuring cross-timeframe agreement among micro, fast, slow, and macro horizons [02-01-alignment-matrix.md, 03-02-03-mme-layer2-alignment.md].
+
+4. **Interpretive State Features (Layer 3 - Analysis Matrix):**
+   The platform synthesizes these alignments into a categorical direction-neutral state, generating **6 qualitative assessment features** (Trend, Momentum, Structure, Volatility, Volume, and Quality) [02-02-analysis-matrix.md, 03-02-04-mme-layer3-analysis.md].
+
+5. **Orthogonal Evaluative Features (Layers 4 & 5 - Opportunity & Risk Matrices):**
+   The pipeline splits the interpretive state into two strictly orthogonal branches:
+   * **Opportunity Features (Layer 4):** Evaluates candidate setups (e.g., Breakouts, Pullbacks) into a scored, direction-neutral forecast feature [02-08-opportunity-matrix.md, 03-02-05-mme-layer4-opportunity.md].
+   * **Risk Features (Layer 5):** Quantifies environmental threat vectors into **8 unipolar danger dimensions** (market, volatility, execution-liquidity, structure, momentum, signal, execution, and cascade risk) [02-11-risk-matrix.md, 03-02-06-mme-layer5-risk.md].
+
+6. **Tactical Synthesis Feature (Layer 6 - Decision Matrix):**
+   The system's final observation output merges bias (L3), opportunity (L4), and risk (L5) into a singular, risk-attenuated decision-support meta-feature (Trade Readiness, Directional Guidance, and dynamic Stop/Target strategies) [02-04-decision-matrix.md, 03-02-07-mme-layer6-decision-support.md].
+
+By using a deterministic, rule-based expert system rather than a black-box machine-learning model to synthesize these multiple layers of features, the platform successfully harvests the representational power of a highly diverse, multi-feature, systematic architecture while maintaining absolute interpretability, reproducibility, and auditability [01-00-introduction-to-quantitative-trading.md §10].
+
+---
+
+## §12. Explicit Non-Goals (Documented Exclusions)
 
 The following standard quantitative-trading concepts are **explicitly excluded** from this platform. Each exclusion has a documented reason rooted in the platform's architecture. A senior reviewer should expect to see this list, not its absence.
 
@@ -323,7 +396,7 @@ The following standard quantitative-trading concepts are **explicitly excluded**
 
 ---
 
-## §12. Cross-References
+## §13. Cross-References
 
 Every concept in this document maps to a concrete implementation file:
 
@@ -345,15 +418,17 @@ Every concept in this document maps to a concrete implementation file:
 | 7 | Time-based / Predicate-based | `03-03-01-tae-overview-spec.md` §2 |
 | 8 | Stepped / Linear / Exponential | `crates/engine/src/profile_evaluation/scoring.rs` (lines 11-44) |
 | 8 | Hard-Tanh / Tanh (new) | `crates/engine/src/profile_evaluation/scoring.rs` (lines 45-71, added) |
-| 8 | Fixed-fractional `S = E·R/D_sl` | `08-02-pre-trade-risk-controls.md` Gate 4 |
+| 8 | Fixed-fractional `S = E·R/D_sl` (textbook form, §8.7) — equivalent engine form `S = (E·R)/(D_sl/100)` | `08-02-pre-trade-risk-controls.md` Gate 4 + `03-03-03-tae-layer2-execution.md` §2 |
 | 9 | Exposure slot caps | `03-04-03-pme-layer2-exposure.md` |
 | 10 | 50 indicators | `04-02-00-indicator-index.md` + 50 individual files |
 | 10 | MTF consensus | `02-01-alignment-matrix.md` |
+| 11 | Systematic Rule-Based Trading | `crates/shared/src/normalized/mod.rs` + `03-02-01-mme-overview-spec.md` |
 
 ---
 
-## §13. Revision History
+## §14. Revision History
 
 | Version | Date | Author | Change |
 |---|---|---|---|
-| 1.0 | Initial | Platform architect | Initial formal introduction to quantitative trading — establishes EV, returns, Sharpe, microstructure, strategy taxonomy, timing taxonomy, sizing curves, and explicit non-goals as the theoretical foundation of the platform. |
+| 1.0 | 2026-07-15 | Platform architect | Initial formal introduction to quantitative trading — establishes EV, returns, Sharpe, microstructure, strategy taxonomy, timing taxonomy, sizing curves, and explicit non-goals as the theoretical foundation of the platform. |
+| 2.0 | 2026-07-15 | Platform architect | Integrated comprehensive Feature Taxonomy, defining Single-Feature vs. Multi-Feature paradigms, and mapping the platform's hierarchical multi-feature pipeline architecture. |

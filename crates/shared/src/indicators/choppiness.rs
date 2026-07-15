@@ -57,7 +57,10 @@ impl Choppiness {
         if range <= Decimal::ZERO {
             return Some(Decimal::from(100));
         }
-        let ratio = (sum_tr / range).to_f64().unwrap_or(1.0).max(f64::MIN_POSITIVE);
+        let ratio = (sum_tr / range)
+            .to_f64()
+            .unwrap_or(1.0)
+            .max(f64::MIN_POSITIVE);
         let chop = 100.0 * ratio.log10() / (self.period as f64).log10();
         Decimal::from_f64_retain(chop.clamp(0.0, 100.0))
     }

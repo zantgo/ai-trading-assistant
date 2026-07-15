@@ -73,8 +73,8 @@ pub fn calculate_registry_confluence(
     use shared::indicators::registry::INDICATORS;
 
     // ── Non-directional regime gates (multiplicative confidence) ──
-    let adx_congested = snap.raw("adx").is_some_and(|a| a < 20.0)
-        || snap.label("adx") == "TRENDLESS_CONGESTION";
+    let adx_congested =
+        snap.raw("adx").is_some_and(|a| a < 20.0) || snap.label("adx") == "TRENDLESS_CONGESTION";
     let chop_gate = match snap.raw("choppiness") {
         Some(c) if c >= 61.8 => 0.5,
         Some(c) if c <= 38.2 => 1.0,
@@ -130,24 +130,43 @@ mod tests {
     #[test]
     fn allocation_stepped_is_backward_compatible() {
         use crate::config::AllocationCurveModel;
-        assert_eq!(evaluate_allocation_curve(20, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 1.0);
-        assert_eq!(evaluate_allocation_curve(40, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 2.0);
-        assert_eq!(evaluate_allocation_curve(55, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 2.0);
-        assert_eq!(evaluate_allocation_curve(60, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0), 3.0);
+        assert_eq!(
+            evaluate_allocation_curve(20, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
+            1.0
+        );
+        assert_eq!(
+            evaluate_allocation_curve(40, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
+            2.0
+        );
+        assert_eq!(
+            evaluate_allocation_curve(55, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
+            2.0
+        );
+        assert_eq!(
+            evaluate_allocation_curve(60, 1.0, 3.0, 40, 60, &AllocationCurveModel::Stepped, 2.0),
+            3.0
+        );
     }
 
     #[test]
     fn allocation_linear_interpolates() {
         use crate::config::AllocationCurveModel;
-        let pct = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
-        assert!((pct - 2.0).abs() < 0.01, "linear at 50% of max should give midpoint; got {}", pct);
+        let pct =
+            evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
+        assert!(
+            (pct - 2.0).abs() < 0.01,
+            "linear at 50% of max should give midpoint; got {}",
+            pct
+        );
     }
 
     #[test]
     fn allocation_exponential_front_loads() {
         use crate::config::AllocationCurveModel;
-        let pct_linear = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
-        let pct_exp = evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Exponential, 3.0);
+        let pct_linear =
+            evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Linear, 2.0);
+        let pct_exp =
+            evaluate_allocation_curve(30, 1.0, 3.0, 0, 60, &AllocationCurveModel::Exponential, 3.0);
         assert!(pct_exp <= pct_linear, "exponential should be <= linear");
     }
 
@@ -159,7 +178,11 @@ mod tests {
             ("mfi", 0.6, "MFI_BULLISH_FLOW"),
         ]);
         let c = calculate_registry_confluence("BULLISH", &snap);
-        assert!(c.normalized > 0.0, "aligned bulls → positive, got {}", c.normalized);
+        assert!(
+            c.normalized > 0.0,
+            "aligned bulls → positive, got {}",
+            c.normalized
+        );
         assert!(c.normalized <= 1.0 && c.normalized >= -1.0);
         assert_eq!(c.active_count, 3);
     }
@@ -171,9 +194,16 @@ mod tests {
             ("supertrend", 1.0, "SUPERTREND_BULLISH"),
         ]);
         // Inject low choppiness to remove the dampening gate.
-        snap.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(30.0, 0.0, "CHOP_STRONG_TREND"));
+        snap.indicators.insert(
+            "choppiness".into(),
+            NormalizedIndicatorValue::scalar(30.0, 0.0, "CHOP_STRONG_TREND"),
+        );
         let c = calculate_registry_confluence("BULLISH", &snap);
-        assert!((c.normalized - 1.0).abs() < 1e-9, "two +1 should average to +1, got {}", c.normalized);
+        assert!(
+            (c.normalized - 1.0).abs() < 1e-9,
+            "two +1 should average to +1, got {}",
+            c.normalized
+        );
     }
 
     #[test]
@@ -182,16 +212,25 @@ mod tests {
             ("supertrend", 1.0, "SUPERTREND_BULLISH"),
             ("rsi", 0.8, "OVERSOLD_ACCUMULATION"),
         ]);
-        trend.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(20.0, 0.0, "CHOP_STRONG_TREND"));
+        trend.indicators.insert(
+            "choppiness".into(),
+            NormalizedIndicatorValue::scalar(20.0, 0.0, "CHOP_STRONG_TREND"),
+        );
 
         let mut choppy = snap_with(&[
             ("supertrend", 1.0, "SUPERTREND_BULLISH"),
             ("rsi", 0.8, "OVERSOLD_ACCUMULATION"),
         ]);
-        choppy.indicators.insert("choppiness".into(), NormalizedIndicatorValue::scalar(80.0, 0.0, "CHOP_CONSOLIDATION_RANGE"));
+        choppy.indicators.insert(
+            "choppiness".into(),
+            NormalizedIndicatorValue::scalar(80.0, 0.0, "CHOP_CONSOLIDATION_RANGE"),
+        );
 
         let ct = calculate_registry_confluence("BULLISH", &trend);
         let cc = calculate_registry_confluence("BULLISH", &choppy);
-        assert!(cc.normalized < ct.normalized, "choppy regime should dampen conviction");
+        assert!(
+            cc.normalized < ct.normalized,
+            "choppy regime should dampen conviction"
+        );
     }
 }

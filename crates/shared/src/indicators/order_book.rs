@@ -94,7 +94,13 @@ impl OrderBookAnalysis {
             self.spread_pct = Some((ask_slice[0].0 - bid_slice[0].0) / mid * 100.0);
         }
 
-        self.wall = detect_wall(&bid_slice, &ask_slice, bid_total_vol, ask_total_vol, self.wall_threshold);
+        self.wall = detect_wall(
+            &bid_slice,
+            &ask_slice,
+            bid_total_vol,
+            ask_total_vol,
+            self.wall_threshold,
+        );
 
         let mut cum_bid: f64 = 0.0;
         for &(_, sz) in &bid_slice {
@@ -179,14 +185,8 @@ fn detect_wall(
     total_ask_vol: f64,
     threshold: f64,
 ) -> Option<String> {
-    let bid_max = bids
-        .iter()
-        .map(|(_, sz)| *sz)
-        .fold(0.0f64, f64::max);
-    let ask_max = asks
-        .iter()
-        .map(|(_, sz)| *sz)
-        .fold(0.0f64, f64::max);
+    let bid_max = bids.iter().map(|(_, sz)| *sz).fold(0.0f64, f64::max);
+    let ask_max = asks.iter().map(|(_, sz)| *sz).fold(0.0f64, f64::max);
 
     let bid_ratio = if total_bid_vol > 0.0 {
         bid_max / total_bid_vol

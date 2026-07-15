@@ -45,7 +45,7 @@ the strict L4 / L5 orthogonality invariant.
 **Outputs:**
 - `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>`
   (5-min refreshed)
-- `MarketSnapshot.liquiditySignals: Vec<LiquiditySignal>`
+- `MarketSnapshot.liquidity_signals: Vec<LiquiditySignal>`
   (per-snapshot, derived from L1 + L2.5 outputs)
 
 **Producer/consumer contract:**
@@ -88,19 +88,42 @@ L7   Overview                        ← gains cascade_risk_index
 L2.5 is MME-internal. It does not produce TAE or PME outputs directly.
 The integration with the rest of the platform is:
 
-- **TAE** reads the Advisory Matrix's `opportunity_classification`. A
-  `LiquiditySqueeze` value can drive a new execution policy.
+- **TAE** reads the L4 Opportunity Matrix's `primary_opportunity`. A
+  `LiquiditySqueeze` value drives a `CLOSE_ONLY` policy stance and forces
+  `reduce_only = true` on all dispatched orders per the §3.3 invariant in
+  [03-03-03-tae-layer2-execution.md](../trade-automation-engine/03-03-03-tae-layer2-execution.md).
 - **PME** reads `RiskMatrix.cascade_risk` as a veto signal. If cascade
   risk is extreme, PME can force positions into `CLOSE_ONLY`.
 - **PAE** (future work) can read the `liquidation_events` table for
   cascade-conditioned backtesting.
 
+## Phase 3 LiquiditySignalKind Registry
+
+The Phase 3 `LiquiditySignalKind` enum defines **7** signals derived per snapshot from `liquidity` + `cluster` + `funding`:
+
+| # | Signal | Trigger |
+|---|--------|---------|
+| 1 | `LIQUIDITY_CASCADE_DETECTED` | `flow.cascade_state` transitions from `Calm` → `Detected` |
+| 2 | `LIQUIDITY_CASCADE_SUSTAINED` | `flow.cascade_state = Sustained` for ≥ 3 consecutive candles |
+| 3 | `LIQUIDITY_CASCADE_EXHAUSTED` | `flow.cascade_state` transitions to `Exhausted` |
+| 4 | `LIQUIDITY_CLUSTER_PRESSURE_HIGH` | `|cluster.cascade_asymmetry| > 0.5` |
+| 5 | `LIQUIDITY_CLUSTER_FORWARD_PRESSURE` | `cluster.cascade_asymmetry` sign aligns with detected cascade direction |
+| 6 | `LIQUIDITY_FUNDING_FLIP` | `funding_rate` changes sign (long → short funding) |
+| 7 | `LIQUIDITY_OI_DIVERGENCE` | `oi_delta` disagrees with price direction (liquidity-focused divergence) |
+
+All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See [01-05-liquidity-domain.md §Phase 3](../conceptual-foundations/01-05-liquidity-domain.md).
+
+> **Field-naming note.** A previous version of this section referred to the
+> Advisory Matrix's `opportunity_classification` field. That field was removed
+> in the institutional redesign; the canonical opportunity classifier now
+> lives on the L4 Opportunity Matrix as `primary_opportunity` (see
+> [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md)).
+
 ## Configuration surface
 
-The `[liquidity]` section in `config.toml` is the only new
-configuration surface. All fields have safe defaults. See
-[02-12-liquidity-matrix.md](../matrices/02-12-liquidity-matrix.md) for
-the field reference.
+The `"liquidity"` block in **`config.json`** (the platform's single source of configuration truth — *no* `config.toml` exists) is the only new configuration surface. All fields have safe defaults. See [02-12-liquidity-matrix.md](../matrices/02-12-liquidity-matrix.md) for the field reference, and [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical JSON shape.
+
+> **Single source of truth (Issue 5.A).** A previous version of this section referenced `config.toml`. The platform does not use `config.toml` — every Liquidity Intelligence parameter lives in the `"liquidity"` block of `config.json`.
 
 ## Test coverage
 
@@ -115,4 +138,4 @@ the field reference.
 | `LiquidityPanel` data types (Phase 4) | 5 | 0 |
 | **Total** | **48** | **1** |
 
-All 49 new tests pass. No existing tests were broken.
+All **56** new tests pass. No existing tests were broken.

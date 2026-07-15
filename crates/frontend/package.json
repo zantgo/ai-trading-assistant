@@ -12,14 +12,15 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^24.12.3",
+    "jsdom": "^26.0.0",
     "svelte": "^5.55.5",
     "svelte-check": "^4.4.8",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
-    "vitest": "^4.0.0",
-    "jsdom": "^26.0.0"
+    "vitest": "^4.0.0"
   },
   "dependencies": {
     "chart.js": "^4.4.8",

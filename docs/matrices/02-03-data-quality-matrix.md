@@ -29,7 +29,7 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
 | `sequence_integrity` | `SequenceIntegrity` | `Valid` / `OutOfOrder` / `Duplicate`. |
 | `quality_score` | `f64` | Overall reliability metric in `[0, 100]`. |
 | `gap_since_last` | `u64` | Seconds since the last valid candle (0 = continuous). |
-| `validated_at` | `u64` | Unix epoch of quality validation. |
+| `validated_at` | `u64` | Unix epoch of quality validation, in **milliseconds** (consistent with the canonical timestamp unit defined in [02-06-market-data-matrix.md §2](02-06-market-data-matrix.md)). |
 
 ---
 
@@ -55,7 +55,7 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
   "sequence_integrity": "VALID",
   "quality_score": 98.0,
   "gap_since_last": 60,
-  "validated_at": 1752192001
+  "validated_at": 1752192001000
 }
 ```
 

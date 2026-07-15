@@ -45,8 +45,8 @@ The Decision Matrix is realized by two complementary structures:
 | `target_strategy` | `TargetStrategy` | How to place the target (§3.7). |
 | `confidence_assessment` | `f64` | Guidance confidence in `[0, 100]`. |
 | `trade_readiness` | `TradeReadiness` | Headline readiness state (§4). `READY` / `FORMING` / `WATCH` / `STAND_ASIDE`. *(Added to the schema in the institutional redesign; previously documented in §4 but missing from §2.1.)* |
-| `environment_favorability` | `RiskDimension` | Synoptic measure of how favorable current conditions are for entering a position. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Added in the institutional redesign — semantic successor of `Risk.reward_risk`.)* |
-| `expected_reward_risk_ratio` | `f64` | Synthesized from `L4.expected_rr` × `1 − L5.overall_risk / 100`. *(Added in the institutional redesign.)* |
+| `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `environment_favorability` in v2.1; semantic successor of `Risk.reward_risk`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `environment_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
+| `expected_reward_risk_ratio` | `f64` | Synthesized from `L4.expected_rr_internal` × `(1 − L5.overall_risk)`. `L4.expected_rr_internal` is the L4 Opportunity Matrix's internal score (renamed from `expected_rr` for clarity; see TN-06). *(Added in the institutional redesign.)* |
 | `final_recommendation` | `string` | Natural-language recommendation summary. |
 
 ### 2.2 DecisionContext Fields
@@ -88,15 +88,15 @@ All six `DirectionalGuidance` values are reachable. The `AVOID_DIRECTIONAL_EXPOS
 Derived from `market_quality × overall_risk`:
 ```
 # Priority order (first match wins):
-1. market_quality ∈ {POOR}                  OR overall_risk ≥ 80           → AVOID
-2. market_quality ∈ {POOR, WEAK}            OR overall_risk ≥ 60           → CAUTIOUS
-3. market_quality ∈ {AVERAGE}               AND overall_risk <  40         → NEUTRAL
-4. market_quality ∈ {GOOD}                  AND overall_risk <  60         → CONSTRUCTIVE
-5. market_quality ∈ {EXCELLENT}             AND overall_risk <  40         → AGGRESSIVE
+1. market_quality ∈ {POOR}                  OR overall_risk ≥ 0.80         → AVOID
+2. market_quality ∈ {POOR, WEAK}            OR overall_risk ≥ 0.60         → CAUTIOUS
+3. market_quality ∈ {AVERAGE}               AND overall_risk <  0.40       → NEUTRAL
+4. market_quality ∈ {GOOD}                  AND overall_risk <  0.30       → CONSTRUCTIVE
+5. market_quality ∈ {EXCELLENT}             AND overall_risk <  0.20       → AGGRESSIVE
 6. otherwise                                                              → CONSTRUCTIVE  (default)
 ```
 
-All five `MarketStance` values are reachable. The `AVOID` and `CAUTIOUS` guards are "sticky" — they fire on either bad quality or high risk, so the stance correctly reflects "do not engage" when either condition is met.
+All five `MarketStance` values are reachable. The `AVOID` and `CAUTIOUS` guards are "sticky" — they fire on either bad quality or high risk, so the stance correctly reflects "do not engage" when either condition is met. Note the tightened risk thresholds for the higher-quality stances: AGGRESSIVE requires risk < 0.20, CONSTRUCTIVE requires risk < 0.30. The previous version had CONSTRUCTIVE at risk < 0.60 and AGGRESSIVE at risk < 0.40, which created a counterintuitive situation where a mediocre setup (`AVERAGE` quality) with elevated risk could still yield `CONSTRUCTIVE` (via the default rule). The tightened thresholds eliminate this anti-pattern.
 
 ### 3.3 StrategyEnvironment
 `TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` — from `market_regime`.
@@ -119,13 +119,15 @@ otherwise                    → ATR_BASED
 `RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION`.
 ```
 structure strong/healthy     → RESISTANCE_BASED
-environment_favorability.score < 40  → RR_BASED
+entry_danger.score > 50      → RR_BASED
 otherwise                    → VOLATILITY_BASED
 ```
 
-### 3.8 `environment_favorability` (Synoptic Favorability)
+### 3.8 `entry_danger` (Synoptic Danger)
 
-`environment_favorability` is a `RiskDimension` (score, level, state, confidence, evidence) — semantic successor of the old `Risk.reward_risk` (which was removed in the institutional redesign). It synthesizes the **favorability of entering a position in the current interpretive state** by combining L3 `market_quality` and L4 `opportunity_score` — the two forward-looking signals most relevant to "is the environment supportive of a new trade?".
+`entry_danger` is a `RiskDimension` (score, level, state, confidence, evidence) — renamed from `environment_favorability` in v2.1 to disambiguate the semantic convention. The RiskDimension convention is that **high score = danger, low score = safe** (consistent with all other Risk Matrix dimensions). The previous name `environment_favorability` was semantically misleading: a high `environment_favorability` would intuitively mean "favorable conditions", but the actual formula produces a danger measure (high = dangerous).
+
+`entry_danger` synthesizes the **danger of entering a new position in the current interpretive state** by combining L3 `market_quality` and L4 `opportunity_score` — the two forward-looking signals most relevant to "is the environment dangerous for a new trade?".
 
 ```
 # Base from market_quality (institutional bands):
@@ -135,6 +137,7 @@ quality_penalty = EXCELLENT → 10 · GOOD → 25 · AVERAGE → 50 · WEAK → 
 score = mean(quality_penalty, 100 − opportunity_score)  // ∈ [0, 100]
 
 # RiskLevel banding: same as Risk Matrix §2.3
+# HIGH = score ≥ 70; ELEVATED = 50–70; MODERATE = 30–50; LOW = 10–30; MINIMAL = < 10
 ```
 
 **Why this derivation:** `quality_penalty` reflects "how *poor* is the environment" (low = excellent conditions, high = dangerous conditions). `100 − opportunity_score` reflects "how *poor* is the absence of a setup" (low = great setup, high = no viable setup). Averaging the two gives a synoptic "how dangerous is it to enter here?" measure. This is the natural successor of the old `Risk.reward_risk` formula, with the addition of `opportunity_score` as an L4 input (legitimate L6 synthesis of state + forecast + danger).
@@ -151,10 +154,12 @@ Trade readiness is a function of this confidence and the directional guidance:
 
 | Readiness | Condition |
 |-----------|-----------|
-| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + stance ∈ {AGGRESSIVE, CONSTRUCTIVE}. |
+| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + `market_stance` ∈ {AGGRESSIVE, CONSTRUCTIVE}. |
 | `FORMING` | Directional guidance present but confidence `40–60` or entry = WAIT_FOR_CONFIRMATION. |
 | `WATCH` | Neutral guidance or `confidence_assessment 20–40`. |
-| `STAND_ASIDE` | Stance = AVOID or `confidence_assessment < 20`. |
+| `STAND_ASIDE` | `market_stance = AVOID` or `confidence_assessment < 20`. |
+
+> **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID`, derived from L3 `market_quality` × L5 `overall_risk`). They do **not** reference the symbol **stance** (L1 `Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID`, managed by PME Veto). Although both enums share a `CLOSE_ONLY` / `AVOID` semantic neighborhood, they are independent and serve different purposes — `market_stance` is the *environmental aggressiveness assessment* of the L6 Decision Layer, while symbol `stance` is the *execution-authorization state* enforced by the PME safety veto. The pre-trade gate in [08-02-pre-trade-risk-controls.md Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by symbol stance before the readiness check.
 
 ---
 
@@ -184,10 +189,11 @@ The Decision Matrix carries the structural invalidation and target context used 
     "exit_guidance": "NO_WARNING",
     "protection_strategy": "ATR_BASED",
     "target_strategy": "RESISTANCE_BASED",
+    "stop_loss_distance_pct": 1.5,
     "confidence_assessment": 71.25,
     "trade_readiness": "READY",
-    "environment_favorability": { "score": 50.0, "level": "MODERATE", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
-    "expected_reward_risk_ratio": 2.4,
+    "entry_danger": { "score": 32.5, "level": "MODERATE", "state": "STABLE", "trend": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
+    "expected_reward_risk_ratio": 1.78,
     "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 71% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
   },
   "decision_context": {
@@ -200,10 +206,13 @@ The Decision Matrix carries the structural invalidation and target context used 
 ```
 
 **Self-consistency check** (the example values satisfy the §4 formula):
-- Analysis Matrix `state_confidence` = 1.0; Risk Matrix `overall_risk.score` = 28.75 (matches the Risk Matrix JSON example).
-- `confidence_assessment = clamp(1.0 × (1 − 28.75/100) × 100, 0, 100) = clamp(71.25, 0, 100) = 71.25` ✓
-- `bias = STRONG_BULLISH` with `overall_risk = 28.75 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
+- Analysis Matrix `state_confidence` = 1.0; Risk Matrix `overall_risk.score` = 0.2875 (matches the Risk Matrix JSON example, 28.75% expressed as fraction).
+- `confidence_assessment = clamp(1.0 × (1 − 0.2875) × 100, 0, 100) = clamp(71.25, 0, 100) = 71.25` ✓
+- `bias = STRONG_BULLISH` with `overall_risk = 0.2875 < 0.50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
 - `score = 100` and `score_confidence = 1.0` ⇒ `decision_context.score_confidence = |score|/100 = 1.0` per the §2.2 mapping ✓
+- `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk) = 2.5 × (1 − 0.2875) = 2.5 × 0.7125 = 1.78` (using `L4.expected_rr_internal = 2.5` from the Opportunity Matrix §7 example and `L5.overall_risk = 0.2875`) ✓
+- `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). The example value 32.5 is illustrative; the canonical formula is documented in §3.8. ✓
+- `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §2 type-boundary note); TAE casts to Decimal at the execution boundary.
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

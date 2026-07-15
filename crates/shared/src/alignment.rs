@@ -7,8 +7,8 @@
 //!
 //! Layer: L2.5 in the architecture (Signal Correlation).
 
-use crate::market_context::MarketContext;
 use crate::indicators::normalized::NormalizedIndicatorValue;
+use crate::market_context::MarketContext;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -57,15 +57,27 @@ impl AlignmentDimension {
             AlignState::Mixed
         };
         let confidence = (score / 100.0).max(0.0).min(1.0) * 100.0;
-        Self { score: score.max(0.0).min(100.0), state, confidence }
+        Self {
+            score: score.max(0.0).min(100.0),
+            state,
+            confidence,
+        }
     }
 
     fn from_signed(mean: f64) -> Self {
         let score = ((mean + 1.0) / 2.0 * 100.0).max(0.0).min(100.0);
-        let state = if mean > 0.3 { AlignState::Bullish }
-            else if mean < -0.3 { AlignState::Bearish }
-            else { AlignState::Neutral };
-        Self { score, state, confidence: mean.abs() * 100.0 }
+        let state = if mean > 0.3 {
+            AlignState::Bullish
+        } else if mean < -0.3 {
+            AlignState::Bearish
+        } else {
+            AlignState::Neutral
+        };
+        Self {
+            score,
+            state,
+            confidence: mean.abs() * 100.0,
+        }
     }
 }
 
@@ -120,26 +132,40 @@ impl AlignmentMatrix {
     }
 
     fn overall_label(score: f64) -> String {
-        if score >= 60.0 { "STRONG_BULL_MTF".into() }
-        else if score >= 20.0 { "WEAK_BULL_MTF".into() }
-        else if score <= -60.0 { "STRONG_BEAR_MTF".into() }
-        else if score <= -20.0 { "WEAK_BEAR_MTF".into() }
-        else { "NEUTRAL_MTF".into() }
+        if score >= 60.0 {
+            "STRONG_BULL_MTF".into()
+        } else if score >= 20.0 {
+            "WEAK_BULL_MTF".into()
+        } else if score <= -60.0 {
+            "STRONG_BEAR_MTF".into()
+        } else if score <= -20.0 {
+            "WEAK_BEAR_MTF".into()
+        } else {
+            "NEUTRAL_MTF".into()
+        }
     }
 
     /// Compute structure alignment: % of TFs where S/R label agrees.
-    fn compute_structure_alignment(tf_data: &[&HashMap<String, NormalizedIndicatorValue>]) -> AlignmentDimension {
+    fn compute_structure_alignment(
+        tf_data: &[&HashMap<String, NormalizedIndicatorValue>],
+    ) -> AlignmentDimension {
         let mut bullish = 0u32;
         let mut bearish = 0u32;
         let mut total = 0u32;
         for map in tf_data {
             if let Some(sr) = map.get("support_resistance") {
                 total += 1;
-                if sr.state_label.contains("DEMAND") || sr.state_label.contains("SUPPORT") { bullish += 1; }
-                else if sr.state_label.contains("SUPPLY") || sr.state_label.contains("RESISTANCE") { bearish += 1; }
+                if sr.state_label.contains("DEMAND") || sr.state_label.contains("SUPPORT") {
+                    bullish += 1;
+                } else if sr.state_label.contains("SUPPLY") || sr.state_label.contains("RESISTANCE")
+                {
+                    bearish += 1;
+                }
             }
         }
-        if total == 0 { return AlignmentDimension::new(0.0); }
+        if total == 0 {
+            return AlignmentDimension::new(0.0);
+        }
         let dominant = bullish.max(bearish) as f64;
         let score = (dominant / total as f64) * 100.0;
         AlignmentDimension::new(score)
@@ -147,16 +173,22 @@ impl AlignmentMatrix {
 
     /// Compute signal alignment: % of signals appearing in ≥2 TFs.
     fn compute_signal_alignment(signal_cross_tf: u32, tf_count: u32) -> AlignmentDimension {
-        if tf_count < 2 { return AlignmentDimension::new(0.0); }
+        if tf_count < 2 {
+            return AlignmentDimension::new(0.0);
+        }
         let score = (signal_cross_tf as f64 / tf_count as f64 * 33.3).min(100.0);
         AlignmentDimension::new(score)
     }
 
     /// Compute regime alignment: % of TFs in the same regime.
     fn compute_regime_alignment(regimes: &[String]) -> AlignmentDimension {
-        if regimes.is_empty() { return AlignmentDimension::new(0.0); }
+        if regimes.is_empty() {
+            return AlignmentDimension::new(0.0);
+        }
         let mut counts: HashMap<&str, u32> = HashMap::new();
-        for r in regimes { *counts.entry(r.as_str()).or_insert(0) += 1; }
+        for r in regimes {
+            *counts.entry(r.as_str()).or_insert(0) += 1;
+        }
         let dominant = counts.values().max().copied().unwrap_or(0) as f64;
         let score = (dominant / regimes.len() as f64) * 100.0;
         AlignmentDimension::new(score)
@@ -164,32 +196,48 @@ impl AlignmentMatrix {
 
     /// Compute confidence alignment: how consistent are per-TF confidence scores.
     fn compute_confidence_alignment(confidences: &[f64]) -> AlignmentDimension {
-        if confidences.len() < 2 { return AlignmentDimension::new(50.0); }
+        if confidences.len() < 2 {
+            return AlignmentDimension::new(50.0);
+        }
         let mean = confidences.iter().sum::<f64>() / confidences.len() as f64;
-        let variance = confidences.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / confidences.len() as f64;
+        let variance =
+            confidences.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / confidences.len() as f64;
         let score = (100.0 - variance.sqrt().min(100.0)).max(0.0);
         AlignmentDimension::new(score)
     }
 
     /// Compute liquidity alignment: consistency of RVOL across TFs.
-    fn compute_liquidity_alignment(tf_data: &[&HashMap<String, NormalizedIndicatorValue>]) -> AlignmentDimension {
+    fn compute_liquidity_alignment(
+        tf_data: &[&HashMap<String, NormalizedIndicatorValue>],
+    ) -> AlignmentDimension {
         let mut rvols: Vec<f64> = Vec::new();
         for map in tf_data {
             if let Some(v) = map.get("rvol").map(|v| v.raw_value) {
                 rvols.push(v);
             }
         }
-        if rvols.len() < 2 { return AlignmentDimension::new(50.0); }
+        if rvols.len() < 2 {
+            return AlignmentDimension::new(50.0);
+        }
         let mean = rvols.iter().sum::<f64>() / rvols.len() as f64;
-        let cv = if mean > 0.0 { ((rvols.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / rvols.len() as f64).sqrt() / mean).min(1.0) } else { 1.0 };
+        let cv = if mean > 0.0 {
+            ((rvols.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / rvols.len() as f64).sqrt()
+                / mean)
+                .min(1.0)
+        } else {
+            1.0
+        };
         AlignmentDimension::new((1.0 - cv) * 100.0)
     }
 
     /// Compute opportunity alignment: % of TFs that see a tradable opportunity
     /// (non-neutral local bias with aligned regime).
     fn compute_opportunity_alignment(ctxs: &[MarketContext]) -> AlignmentDimension {
-        if ctxs.is_empty() { return AlignmentDimension::new(0.0); }
-        let opportunities = ctxs.iter()
+        if ctxs.is_empty() {
+            return AlignmentDimension::new(0.0);
+        }
+        let opportunities = ctxs
+            .iter()
             .filter(|ctx| ctx.overall_score.abs() > 10 && ctx.regime != "COMPRESSION")
             .count() as f64;
         let score = (opportunities / ctxs.len() as f64) * 100.0;
@@ -233,8 +281,11 @@ pub fn compute_alignment(
         volume_sum += ctx.volume.score * weight;
         volatility_sum += ctx.volatility.score * weight;
 
-        if ctx.overall_score > 0 { positive_tf_count += 1; }
-        else if ctx.overall_score < 0 { negative_tf_count += 1; }
+        if ctx.overall_score > 0 {
+            positive_tf_count += 1;
+        } else if ctx.overall_score < 0 {
+            negative_tf_count += 1;
+        }
 
         regimes.push(ctx.regime.clone());
         confidences.push(ctx.trend.confidence);
@@ -252,30 +303,58 @@ pub fn compute_alignment(
         });
     }
 
-    let mtf_trend_alignment = if total_weight > 0.0 { (trend_sum / total_weight).max(-1.0).min(1.0) } else { 0.0 };
-    let mtf_momentum_alignment = if total_weight > 0.0 { (momentum_sum / total_weight).max(-1.0).min(1.0) } else { 0.0 };
-    let mtf_volume_alignment = if total_weight > 0.0 { (volume_sum / total_weight).max(-1.0).min(1.0) } else { 0.0 };
-    let mtf_volatility_alignment = if total_weight > 0.0 { (volatility_sum / total_weight).max(-1.0).min(1.0) } else { 0.0 };
+    let mtf_trend_alignment = if total_weight > 0.0 {
+        (trend_sum / total_weight).max(-1.0).min(1.0)
+    } else {
+        0.0
+    };
+    let mtf_momentum_alignment = if total_weight > 0.0 {
+        (momentum_sum / total_weight).max(-1.0).min(1.0)
+    } else {
+        0.0
+    };
+    let mtf_volume_alignment = if total_weight > 0.0 {
+        (volume_sum / total_weight).max(-1.0).min(1.0)
+    } else {
+        0.0
+    };
+    let mtf_volatility_alignment = if total_weight > 0.0 {
+        (volatility_sum / total_weight).max(-1.0).min(1.0)
+    } else {
+        0.0
+    };
 
-    let mtf_blend = mtf_trend_alignment * 0.5 + mtf_momentum_alignment * 0.3
-        + mtf_volume_alignment * 0.1 + mtf_volatility_alignment * 0.1;
+    let mtf_blend = mtf_trend_alignment * 0.5
+        + mtf_momentum_alignment * 0.3
+        + mtf_volume_alignment * 0.1
+        + mtf_volatility_alignment * 0.1;
     let mtf_overall_score = (mtf_blend * 100.0).max(-100.0).min(100.0);
 
     let total_tf = tf_data.len() as f64;
     let agreement = if total_tf > 0.0 {
-        (positive_tf_count.max(negative_tf_count) as f64 / total_tf * 100.0).max(0.0).min(100.0)
-    } else { 0.0 };
+        (positive_tf_count.max(negative_tf_count) as f64 / total_tf * 100.0)
+            .max(0.0)
+            .min(100.0)
+    } else {
+        0.0
+    };
 
-    let cross_tf_count = if tf_data.len() >= 2 { (total_signals as f64 * 0.3).round() as u32 } else { 0 };
+    let cross_tf_count = if tf_data.len() >= 2 {
+        (total_signals as f64 * 0.3).round() as u32
+    } else {
+        0
+    };
 
     // ── Compute the 10 alignment dimensions ──
-    let tf_maps: Vec<&HashMap<String, NormalizedIndicatorValue>> = tf_data.iter().map(|d| d.3).collect();
+    let tf_maps: Vec<&HashMap<String, NormalizedIndicatorValue>> =
+        tf_data.iter().map(|d| d.3).collect();
     let dim_1_trend = AlignmentDimension::from_signed(mtf_trend_alignment);
     let dim_2_momentum = AlignmentDimension::from_signed(mtf_momentum_alignment);
     let dim_3_volume = AlignmentDimension::from_signed(mtf_volume_alignment);
     let dim_4_volatility = AlignmentDimension::from_signed(mtf_volatility_alignment);
     let dim_5_structure = AlignmentMatrix::compute_structure_alignment(&tf_maps);
-    let dim_6_signal = AlignmentMatrix::compute_signal_alignment(cross_tf_count, tf_data.len() as u32);
+    let dim_6_signal =
+        AlignmentMatrix::compute_signal_alignment(cross_tf_count, tf_data.len() as u32);
     let dim_7_regime = AlignmentMatrix::compute_regime_alignment(&regimes);
     let dim_8_confidence = AlignmentMatrix::compute_confidence_alignment(&confidences);
     let dim_9_liquidity = AlignmentMatrix::compute_liquidity_alignment(&tf_maps);
@@ -285,9 +364,16 @@ pub fn compute_alignment(
         symbol: symbol.to_string(),
         timeframes_present: tf_data.len() as u8,
         dimensions: vec![
-            dim_1_trend, dim_2_momentum, dim_3_volume, dim_4_volatility,
-            dim_5_structure, dim_6_signal, dim_7_regime, dim_8_confidence,
-            dim_9_liquidity, dim_10_opportunity,
+            dim_1_trend,
+            dim_2_momentum,
+            dim_3_volume,
+            dim_4_volatility,
+            dim_5_structure,
+            dim_6_signal,
+            dim_7_regime,
+            dim_8_confidence,
+            dim_9_liquidity,
+            dim_10_opportunity,
         ],
         mtf_trend_alignment,
         mtf_momentum_alignment,
@@ -305,13 +391,34 @@ pub fn compute_alignment(
 mod tests {
     use super::*;
 
-    fn build_map(rsi: f64, ema: f64, adx: f64, bbwp: f64, rvol: f64) -> HashMap<String, NormalizedIndicatorValue> {
+    fn build_map(
+        rsi: f64,
+        ema: f64,
+        adx: f64,
+        bbwp: f64,
+        rvol: f64,
+    ) -> HashMap<String, NormalizedIndicatorValue> {
         let mut m = HashMap::new();
-        m.insert("rsi".into(), NormalizedIndicatorValue::scalar(50.0 + rsi, rsi / 100.0, "X"));
-        m.insert("ema_stack".into(), NormalizedIndicatorValue::scalar(0.0, ema, "X"));
-        m.insert("adx".into(), NormalizedIndicatorValue::scalar(adx, 0.0, "X"));
-        m.insert("bbwp".into(), NormalizedIndicatorValue::scalar(bbwp, 0.0, "X"));
-        m.insert("rvol".into(), NormalizedIndicatorValue::scalar(rvol, 0.0, "X"));
+        m.insert(
+            "rsi".into(),
+            NormalizedIndicatorValue::scalar(50.0 + rsi, rsi / 100.0, "X"),
+        );
+        m.insert(
+            "ema_stack".into(),
+            NormalizedIndicatorValue::scalar(0.0, ema, "X"),
+        );
+        m.insert(
+            "adx".into(),
+            NormalizedIndicatorValue::scalar(adx, 0.0, "X"),
+        );
+        m.insert(
+            "bbwp".into(),
+            NormalizedIndicatorValue::scalar(bbwp, 0.0, "X"),
+        );
+        m.insert(
+            "rvol".into(),
+            NormalizedIndicatorValue::scalar(rvol, 0.0, "X"),
+        );
         m
     }
 
@@ -334,26 +441,41 @@ mod tests {
     #[test]
     fn aligned_bullish_mtf_positive() {
         let bull = build_map(70.0, 0.8, 30.0, 60.0, 1.5);
-        let c = compute_alignment("BTC-USD", &[
-            ("micro60", 60, 64000.0, &bull), ("fast180", 180, 64000.0, &bull),
-            ("slow300", 300, 64000.0, &bull), ("macro900", 900, 64000.0, &bull),
-        ]);
+        let c = compute_alignment(
+            "BTC-USD",
+            &[
+                ("micro60", 60, 64000.0, &bull),
+                ("fast180", 180, 64000.0, &bull),
+                ("slow300", 300, 64000.0, &bull),
+                ("macro900", 900, 64000.0, &bull),
+            ],
+        );
         assert_eq!(c.timeframes_present, 4);
         assert!(c.mtf_overall_score > 0.0);
         assert!(c.trend_agreement_pct >= 75.0);
-        assert!(c.dimensions[0].score > 50.0, "trend alignment should be high");
+        assert!(
+            c.dimensions[0].score > 50.0,
+            "trend alignment should be high"
+        );
     }
 
     #[test]
     fn mixed_tf_lowers_agreement() {
         let bull = build_map(70.0, 0.8, 30.0, 60.0, 1.5);
         let bear = build_map(-70.0, -0.8, 30.0, 60.0, 1.5);
-        let c = compute_alignment("BTC-USD", &[
-            ("micro60", 60, 64000.0, &bull), ("fast180", 180, 64000.0, &bull),
-            ("slow300", 300, 64000.0, &bear), ("macro900", 900, 64000.0, &bear),
-        ]);
+        let c = compute_alignment(
+            "BTC-USD",
+            &[
+                ("micro60", 60, 64000.0, &bull),
+                ("fast180", 180, 64000.0, &bull),
+                ("slow300", 300, 64000.0, &bear),
+                ("macro900", 900, 64000.0, &bear),
+            ],
+        );
         assert!(c.mtf_overall_score.abs() < 30.0);
         assert!(c.trend_agreement_pct <= 75.0);
     }
 }
-fn clamp01f(x: f64) -> f64 { x.max(0.0).min(1.0) }
+fn clamp01f(x: f64) -> f64 {
+    x.max(0.0).min(1.0)
+}

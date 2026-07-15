@@ -38,8 +38,16 @@ impl ChandeMO {
         self.prev_close = Some(close);
 
         let change = close - prev;
-        let gain = if change > Decimal::ZERO { change } else { Decimal::ZERO };
-        let loss = if change < Decimal::ZERO { change.abs() } else { Decimal::ZERO };
+        let gain = if change > Decimal::ZERO {
+            change
+        } else {
+            Decimal::ZERO
+        };
+        let loss = if change < Decimal::ZERO {
+            change.abs()
+        } else {
+            Decimal::ZERO
+        };
 
         self.gains.push_back(gain);
         self.losses.push_back(loss);

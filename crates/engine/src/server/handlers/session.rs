@@ -48,10 +48,7 @@ pub async fn serve_session_init(
         }
     };
 
-    match state
-        .init_session(currency, exchange)
-        .await
-    {
+    match state.init_session(currency, exchange).await {
         Ok(()) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({

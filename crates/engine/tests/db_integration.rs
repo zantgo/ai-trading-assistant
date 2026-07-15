@@ -59,15 +59,15 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         advisory: None,
         open_interest: None,
         oi_delta_1h: None,
-                    mark_price: None,
-                    index_price: None,
-                    mark_index_spread_pct: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
         prev_day_px: None,
         statistical_context: None,
         decision_context: None,
         risk_profile: None,
-                    liquidity: None,
-                    cluster: None,
+        liquidity: None,
+        cluster: None,
     };
 
     engine::db::insert_snapshot_internal(&pool, &snap).await;
@@ -97,6 +97,9 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
     assert!(loaded_rsi.normalized >= 0.70);
     let loaded_macd = loaded.indicators.get("macd").expect("macd present");
     assert_eq!(loaded_macd.state_label, "BULLISH_CROSSOVER_ACCELERATING");
-    assert!(loaded_macd.values.is_some(), "macd multi-line values preserved");
+    assert!(
+        loaded_macd.values.is_some(),
+        "macd multi-line values preserved"
+    );
     assert_eq!(loaded.indicators.get("rvol").unwrap().normalized, 0.8);
 }

@@ -45,8 +45,9 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             defaults: Default::default(),
             safety: Default::default(),
             intervals: Default::default(),
-        liquidity: Default::default(),
+            liquidity: Default::default(),
             instances: HashMap::new(),
+            clock_monitor: None,
         };
         let indicators = test_config.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);
@@ -95,8 +96,14 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
         let ws_symbol = symbol.clone();
         let ws_internal = format!("{}-USDT", symbol);
         let ws_handle = tokio::spawn(async move {
-            adapters::hyperliquid::run_for_symbol(ws_symbol, ws_internal, ws_tx, ws_cancel, "ws://127.0.0.1:1")
-                .await;
+            adapters::hyperliquid::run_for_symbol(
+                ws_symbol,
+                ws_internal,
+                ws_tx,
+                ws_cancel,
+                "ws://127.0.0.1:1",
+            )
+            .await;
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;

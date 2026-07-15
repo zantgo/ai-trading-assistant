@@ -381,7 +381,10 @@ impl NormalizationEngine {
                     if contracting {
                         (0.3, "BULLISH_MOMENTUM_EXHAUSTION_WARNING")
                     } else {
-                        (0.4 + 0.3 * saturate(histogram), "BULLISH_MOMENTUM_EXPANDING")
+                        (
+                            0.4 + 0.3 * saturate(histogram),
+                            "BULLISH_MOMENTUM_EXPANDING",
+                        )
                     }
                 } else if contracting {
                     (-0.3, "BEARISH_MOMENTUM_EXHAUSTION_WARNING")
@@ -490,8 +493,14 @@ mod meta_tests {
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
         let rsi = map.get("rsi").expect("rsi present");
-        assert!(!rsi.signals.is_empty(), "oversold RSI should emit a threshold signal");
-        assert!(rsi.confidence >= rsi.normalized.abs(), "signals should not lower confidence");
+        assert!(
+            !rsi.signals.is_empty(),
+            "oversold RSI should emit a threshold signal"
+        );
+        assert!(
+            rsi.confidence >= rsi.normalized.abs(),
+            "signals should not lower confidence"
+        );
     }
 
     #[test]
@@ -503,12 +512,19 @@ mod meta_tests {
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
         let event_driven = ["fibonacci", "support_resistance", "patterns"];
         let divergence_keys = [
-            "rsi_divergence", "macd_divergence", "stochastic_divergence",
-            "chandemo_divergence", "mfi_divergence", "cmf_divergence",
-            "obv_divergence", "squeeze_divergence",
+            "rsi_divergence",
+            "macd_divergence",
+            "stochastic_divergence",
+            "chandemo_divergence",
+            "mfi_divergence",
+            "cmf_divergence",
+            "obv_divergence",
+            "squeeze_divergence",
         ];
         for &key in &event_driven {
-            let v = map.get(key).unwrap_or_else(|| panic!("{key} must be present"));
+            let v = map
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} must be present"));
             assert_eq!(v.state_label, "INACTIVE", "{key} should be INACTIVE");
         }
         for &key in &divergence_keys {
@@ -524,7 +540,10 @@ mod meta_tests {
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
         for key in ["adx", "atr", "bbwp", "hv", "rvol", "choppiness"] {
-            assert!(!map.contains_key(key), "{key} gate must remain absent, not INACTIVE-filled");
+            assert!(
+                !map.contains_key(key),
+                "{key} gate must remain absent, not INACTIVE-filled"
+            );
         }
     }
 }

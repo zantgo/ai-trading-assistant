@@ -45,7 +45,12 @@ pub struct Ichimoku {
 }
 
 impl Ichimoku {
-    pub fn new(tenkan_period: usize, kijun_period: usize, senkou_b_period: usize, displacement: usize) -> Self {
+    pub fn new(
+        tenkan_period: usize,
+        kijun_period: usize,
+        senkou_b_period: usize,
+        displacement: usize,
+    ) -> Self {
         let cap = senkou_b_period.max(kijun_period).max(tenkan_period) + 2;
         Self {
             tenkan_period,
@@ -83,7 +88,12 @@ impl Ichimoku {
     /// Feed a completed candle. Returns the full Ichimoku reading once enough
     /// history exists (needs `senkou_b_period` candles for the base lines and
     /// `displacement` more projections for the current cloud).
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<IchimokuOutput> {
+    pub fn update(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<IchimokuOutput> {
         self.highs.push_back(high);
         self.lows.push_back(low);
         let cap = self.senkou_b_period + 2;
@@ -101,12 +111,15 @@ impl Ichimoku {
         // the projection made `displacement` bars ago (front of the queue once
         // it has filled).
         self.projection_queue.push_back((senkou_a, senkou_b));
-        let (senkou_a_current, senkou_b_current) = if self.projection_queue.len() > self.displacement {
-            self.projection_queue.pop_front().unwrap_or((senkou_a, senkou_b))
-        } else {
-            // Not enough forward history yet — use the live cloud as a fallback.
-            (senkou_a, senkou_b)
-        };
+        let (senkou_a_current, senkou_b_current) =
+            if self.projection_queue.len() > self.displacement {
+                self.projection_queue
+                    .pop_front()
+                    .unwrap_or((senkou_a, senkou_b))
+            } else {
+                // Not enough forward history yet — use the live cloud as a fallback.
+                (senkou_a, senkou_b)
+            };
 
         Some(IchimokuOutput {
             tenkan,
@@ -157,7 +170,10 @@ mod tests {
         let mut ich = Ichimoku::new(9, 26, 52, 26);
         // Steady uptrend: faster Tenkan should sit above slower Kijun.
         let out = feed_ramp(&mut ich, 60, 100.0, 1.0).unwrap();
-        assert!(out.tenkan > out.kijun, "uptrend: Tenkan should exceed Kijun");
+        assert!(
+            out.tenkan > out.kijun,
+            "uptrend: Tenkan should exceed Kijun"
+        );
     }
 
     #[test]

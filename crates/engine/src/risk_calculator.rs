@@ -1,56 +1,84 @@
 use crate::db;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskCalculation {
-    pub risk_capital: f64,
-    pub price_distance: f64,
-    pub position_size_units: f64,
-    pub position_notional: f64,
-    pub leverage_required: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub risk_capital: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub price_distance: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub position_size_units: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub position_notional: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub leverage_required: Decimal,
     pub leverage_selected: i32,
-    pub margin_required: f64,
-    pub liquidation_price: f64,
-    pub risk_reward_ratio: Option<f64>,
-    pub estimated_profit: f64,
-    pub total_fees: f64,
-    pub net_pnl: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub margin_required: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub liquidation_price: Decimal,
+    #[serde(with = "rust_decimal::serde::str_option", default)]
+    pub risk_reward_ratio: Option<Decimal>,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub estimated_profit: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub total_fees: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub net_pnl: Decimal,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskCalculationInput {
-    pub capital: f64,
-    pub max_risk_pct: f64,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub capital: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub max_risk_pct: Decimal,
     pub leverage: i32,
     pub direction: String,
-    pub entry_price: f64,
-    #[serde(default)]
-    pub stop_loss_price: f64,
-    #[serde(default)]
-    pub take_profit_price: f64,
-    pub commission_pct: f64,
-    pub funding_rate_8h: f64,
-    pub spread: f64,
-    #[serde(default)]
-    pub atr_value: Option<f64>,
-    #[serde(default)]
-    pub atr_multiplier: Option<f64>,
-    #[serde(default)]
-    pub atr_target_rr: Option<f64>,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub entry_price: Decimal,
+    #[serde(default, with = "rust_decimal::serde::str")]
+    pub stop_loss_price: Decimal,
+    #[serde(default, with = "rust_decimal::serde::str")]
+    pub take_profit_price: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub commission_pct: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub funding_rate_8h: Decimal,
+    #[serde(with = "rust_decimal::serde::str")]
+    pub spread: Decimal,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub atr_value: Option<Decimal>,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub atr_multiplier: Option<Decimal>,
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub atr_target_rr: Option<Decimal>,
     #[serde(default)]
     pub use_dynamic_atr: bool,
+    /// Minimum order size increment (in base asset units). When provided,
+    /// `position_size_units` is quantized to the nearest multiple of this tick.
+    /// Required to satisfy exchange-native minimum order sizes.
+    #[serde(default, with = "rust_decimal::serde::str_option")]
+    pub min_tick_size: Option<Decimal>,
 }
 
 pub fn compute_risk(input: &RiskCalculationInput) -> Result<RiskCalculation, String> {
-    if input.entry_price <= 0.0 {
+    let zero = dec!(0);
+    let hundred = dec!(100);
+
+    if input.entry_price <= zero {
         return Err("Entry price must be greater than zero".into());
     }
-    if input.capital <= 0.0 {
+    if input.capital <= zero {
         return Err("Capital must be greater than zero".into());
     }
-    if input.stop_loss_price <= 0.0 {
+    if input.stop_loss_price <= zero {
         return Err("Stop loss price must be greater than zero".into());
     }
-    if input.take_profit_price <= 0.0 {
+    if input.take_profit_price <= zero {
         return Err("Take profit price must be greater than zero".into());
     }
 
@@ -71,32 +99,39 @@ pub fn compute_risk(input: &RiskCalculationInput) -> Result<RiskCalculation, Str
         }
     }
 
-    let risk_capital = input.capital * (input.max_risk_pct / 100.0);
+    let risk_capital = input.capital * input.max_risk_pct / hundred;
     let price_distance = (input.entry_price - input.stop_loss_price).abs();
-    let position_size_units = risk_capital / price_distance;
+
+    let mut position_size_units = risk_capital / price_distance;
+
+    if let Some(tick) = input.min_tick_size {
+        if tick > zero {
+            position_size_units = (position_size_units / tick).floor() * tick;
+        }
+    }
 
     let position_notional = position_size_units * input.entry_price;
-    let leverage_required = if input.capital > 0.0 {
+    let leverage_required = if input.capital > zero {
         position_notional / input.capital
     } else {
-        0.0
+        zero
     };
 
     let leverage_selected = input.leverage;
     let margin_required = if leverage_selected > 0 {
-        position_notional / leverage_selected as f64
+        position_notional / Decimal::from(leverage_selected)
     } else {
         position_notional
     };
 
-    let liquidation_distance = input.entry_price / (leverage_selected as f64);
+    let liquidation_distance = input.entry_price / Decimal::from(leverage_selected);
     let liquidation_price = if is_long {
         input.entry_price - liquidation_distance
     } else {
         input.entry_price + liquidation_distance
     };
 
-    let risk_reward_ratio = if risk_capital > 0.0 {
+    let risk_reward_ratio = if risk_capital > zero {
         let profit_distance = (input.take_profit_price - input.entry_price).abs();
         let potential_profit = profit_distance * position_size_units;
         Some(potential_profit / risk_capital)
@@ -110,8 +145,8 @@ pub fn compute_risk(input: &RiskCalculationInput) -> Result<RiskCalculation, Str
         (input.entry_price - input.take_profit_price) * position_size_units
     };
 
-    let total_fees = (input.commission_pct / 100.0) * position_notional * 2.0
-        + (input.funding_rate_8h / 100.0) * position_notional
+    let total_fees = (input.commission_pct / hundred) * position_notional * dec!(2)
+        + (input.funding_rate_8h / hundred) * position_notional
         + input.spread;
 
     let net_pnl = estimated_profit - total_fees;
@@ -135,9 +170,10 @@ pub fn compute_risk(input: &RiskCalculationInput) -> Result<RiskCalculation, Str
 pub fn compute_risk_from_profile(
     profile: &db::RiskProfile,
     direction: &str,
-    entry_price: f64,
-    stop_loss_price: f64,
-    take_profit_price: f64,
+    entry_price: Decimal,
+    stop_loss_price: Decimal,
+    take_profit_price: Decimal,
+    min_tick_size: Option<Decimal>,
 ) -> Result<RiskCalculation, String> {
     let input = RiskCalculationInput {
         capital: profile.capital,
@@ -154,32 +190,24 @@ pub fn compute_risk_from_profile(
         atr_multiplier: None,
         atr_target_rr: None,
         use_dynamic_atr: false,
+        min_tick_size,
     };
     compute_risk(&input)
 }
 
-/// Compute risk with ATR-scaled dynamic stop-loss and take-profit.
-/// When `use_dynamic_atr` is true and `atr_value` is provided, the SL and TP
-/// are calculated from the ATR instead of using fixed price inputs.
 pub fn compute_risk_with_atr(input: &RiskCalculationInput) -> Result<RiskCalculation, String> {
-    let atr = input.atr_value.unwrap_or(0.0);
-    let multiplier = input.atr_multiplier.unwrap_or(2.0);
-    let target_rr = input.atr_target_rr.unwrap_or(2.5);
+    let atr = input.atr_value.unwrap_or(dec!(0));
+    let multiplier = input.atr_multiplier.unwrap_or(dec!(2));
+    let target_rr = input.atr_target_rr.unwrap_or(dec!(2.5));
     let is_long = input.direction.to_uppercase() == "LONG";
 
-    let (stop_loss, take_profit) = if input.use_dynamic_atr && atr > 0.0 {
+    let (stop_loss, take_profit) = if input.use_dynamic_atr && atr > dec!(0) {
         let sl_distance = atr * multiplier;
         let tp_distance = atr * multiplier * target_rr;
         if is_long {
-            (
-                input.entry_price - sl_distance,
-                input.entry_price + tp_distance,
-            )
+            (input.entry_price - sl_distance, input.entry_price + tp_distance)
         } else {
-            (
-                input.entry_price + sl_distance,
-                input.entry_price - tp_distance,
-            )
+            (input.entry_price + sl_distance, input.entry_price - tp_distance)
         }
     } else {
         (input.stop_loss_price, input.take_profit_price)
@@ -200,6 +228,7 @@ pub fn compute_risk_with_atr(input: &RiskCalculationInput) -> Result<RiskCalcula
         atr_multiplier: input.atr_multiplier,
         atr_target_rr: input.atr_target_rr,
         use_dynamic_atr: false,
+        min_tick_size: input.min_tick_size,
     };
 
     compute_risk(&resolved_input)

@@ -12,11 +12,13 @@ delta = current_oi - oi_1hour_ago
 
 The delta is normalized to `[-1, 1]` via:
 
-$$\text{normalized} = \text{clamp}\left(\frac{\text{delta}}{1000},\ -1,\ 1\right)$$
+$$\text{normalized} = \text{clamp}\left(\frac{\text{delta}}{\text{divisor}},\ -1,\ 1\right)$$
+
+> **Scaling note (v2.1).** The fixed divisor `1000` is a default that assumes an asset with OI in the thousands (typical for Hyperliquid/Bitget perpetuals). For assets with OI in the hundreds or tens of thousands, the normalized value will saturate at ±1 or flatline near 0. The divisor is configurable via `config.json` `indicators.oi_delta.divisor` (default `1000`). For percentage-based scaling, use `divisor = total_open_interest × pct_threshold` (e.g. 1 % of total OI = `divisor = total_oi / 100`).
 
 ## Interpretation
 
-| Delta | Label | Interpretation |
+| Delta (relative to divisor) | Label | Interpretation |
 |-------|-------|----------------|
 | > 0 | `OI_RISING` | Capital flowing in — new positions being established. Confirms trending moves. |
 | < 0 | `OI_FALLING` | Capital flowing out — positions closing/liquidating. Signals exhaustion or liquidation cascades. |

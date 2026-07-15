@@ -69,7 +69,7 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 |-------|------|-------------|
 | `stop_loss_price` | `Decimal` | Current stop-loss trigger level. |
 | `take_profit_price` | `Decimal` | Current take-profit target level. |
-| `final_invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis. |
+| `final_invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). |
 | `target_profit_ratio` | `Decimal` | Desired reward-to-risk ratio for this position. |
 
 ### 3.4 Scaled Entry Fields
@@ -88,8 +88,20 @@ The Position Layer reads updated invalidation levels from the MME [Decision Matr
 
 1. MME Decision Layer publishes updated `stop_loss_distance_pct` and `invalidation_levels`.
 2. Position Layer recomputes `stop_loss_price` from the new distance.
-3. **Tighten-only rule.** The new stop is adopted **only if its distance from the entry price is strictly less than the current stop's distance from the entry price** — i.e. the stop is ratcheted toward the favourable side of the position (down for longs, up for shorts). For a profitable trade the stop moves closer to the entry, locking in unrealized gains. For a losing trade the stop either stays put or tightens; it never widens. This guarantees stops only ever reduce risk distance.
+3. **Tighten-only rule (price-based, not distance-based).** The new stop is adopted **only if it is more favourable than the current stop on the price axis** — i.e. the stop is ratcheted **up for longs**, **down for shorts**, never the reverse. For a long position, a more favourable stop is one with a higher `stop_loss_price` (closer to or above entry); for a short position, a more favourable stop is one with a lower `stop_loss_price`. For a profitable long trade the stop ratchets upward (trailing the price), locking in unrealized gains. For a losing trade the stop either stays put or tightens in the favourable direction; it never widens. This guarantees stops only ever reduce risk distance.
 4. Updated stop is routed to the exchange via the TAE Execution Layer.
+
+> **Direction inversion note.** A previous version of step 3 stated the ratchet moved "down for longs, up for shorts" — this is **inverted** and would cause a developer implementing the rule to widen the stop on profitable longs. The corrected rule is: **up for longs, down for shorts** (toward the favourable side).
+
+### 4.3 Thesis Invalidation (final_invalidation_level breach)
+
+A close at or beyond `final_invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-portfolio.md)). The liquidation:
+
+- Bypasses the Position Sizing Protocol (size is copied verbatim from the Position Matrix).
+- Forces `reduce_only = true` and `emergency_liquidation = true` (bypasses Gate 1 stance check).
+- Dispatches as a `Market` order to the exchange.
+
+The breach is detected on candle close at the active timeframe (i.e. intrabar wicks through the level do not trigger the liquidation).
 
 ---
 
@@ -118,7 +130,7 @@ Each slot's entry updates `average_entry_price` (volume-weighted) and `allocated
 
 | Property | Guarantee |
 |----------|-----------|
-| **Deterministic valuation** | Unrealized PnL is computed identically from `(current_price − entry_price) × size`. |
+| **Deterministic valuation** | Unrealized PnL is computed from `(current_price − average_entry_price) × size` where `average_entry_price` is the volume-weighted average across all filled slots (see §5). For single-slot positions, `average_entry_price == entry_price` and the formula reduces to `(current_price − entry_price) × size`. *A previous version used `entry_price` for all positions — that misreported PnL after slots 2–4 of the Scaled Entry Model fired, since the cost basis shifted to the volume-weighted average while the formula continued to use the initial fill price. (Issue 8.A — correction.)* |
 | **Stop improvement only** | Dynamic stops only tighten; they never widen automatically. |
 | **Partial-close tracking** | Realized PnL from partially closed portions is accumulated separately. |
 

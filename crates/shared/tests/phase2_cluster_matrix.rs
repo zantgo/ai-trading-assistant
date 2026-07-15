@@ -9,9 +9,10 @@ fn make_history(base: f64, n: usize, amplitude: f64) -> Vec<f64> {
     let mut v = Vec::with_capacity(n);
     for i in 0..n {
         let t = i as f64 / n.max(1) as f64;
-        v.push(base
-            + amplitude * (t * std::f64::consts::PI * 2.0).sin()
-            + amplitude * 0.3 * (t * std::f64::consts::PI * 6.0).cos());
+        v.push(
+            base + amplitude * (t * std::f64::consts::PI * 2.0).sin()
+                + amplitude * 0.3 * (t * std::f64::consts::PI * 6.0).cos(),
+        );
     }
     v
 }
@@ -53,7 +54,11 @@ fn cluster_kind_serializes_as_screaming_snake_case() {
         magnet_strength: 80.0,
     };
     let c_json = serde_json::to_string(&c).unwrap();
-    assert!(c_json.contains("\"cluster_kind\":\"AT_CURRENT_PRICE\""), "got: {}", c_json);
+    assert!(
+        c_json.contains("\"cluster_kind\":\"AT_CURRENT_PRICE\""),
+        "got: {}",
+        c_json
+    );
 }
 
 #[test]
@@ -118,8 +123,11 @@ fn clusters_have_reasonable_distance_from_mid() {
     let m = estimate_clusters(&input);
     for c in &m.short_clusters {
         // Short liqs are above mid; distance should be > 0.
-        assert!(c.distance_from_mid_pct > 0.0,
-            "short cluster distance must be positive, got {}", c.distance_from_mid_pct);
+        assert!(
+            c.distance_from_mid_pct > 0.0,
+            "short cluster distance must be positive, got {}",
+            c.distance_from_mid_pct
+        );
         // Distance should not be crazy (no liquidation beyond 50% from price).
         assert!(c.distance_from_mid_pct < 50.0);
     }
@@ -157,34 +165,39 @@ fn confidence_increases_with_oi() {
     let m_high = estimate_clusters(&input);
     let conf_high = m_high.estimation_confidence;
 
-    assert!(conf_high >= conf_low,
-        "higher OI should give higher confidence: {} < {}", conf_high, conf_low);
+    assert!(
+        conf_high >= conf_low,
+        "higher OI should give higher confidence: {} < {}",
+        conf_high,
+        conf_low
+    );
 }
 
 #[test]
 fn confidence_decays_with_extreme_funding() {
     let history = make_history(50_000.0, 200, 200.0);
-    let make = |funding: f64| {
-        ClusterEstimateInput {
-            symbol: "BTC-USDT",
-            mid_price: 50_000.0,
-            price_history: &history,
-            total_oi_usd: 5_000_000.0,
-            funding_rate: funding,
-            long_oi_pct: None,
-            maintenance_margin_rate: 0.005,
-            funding_extreme_pct: 0.0005,
-            funding_modulation_active: true,
-            leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
-            leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
-            min_cluster_notional_usd: 0.0,
-        }
+    let make = |funding: f64| ClusterEstimateInput {
+        symbol: "BTC-USDT",
+        mid_price: 50_000.0,
+        price_history: &history,
+        total_oi_usd: 5_000_000.0,
+        funding_rate: funding,
+        long_oi_pct: None,
+        maintenance_margin_rate: 0.005,
+        funding_extreme_pct: 0.0005,
+        funding_modulation_active: true,
+        leverage_buckets: &[1, 3, 5, 10, 20, 50, 100],
+        leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
+        min_cluster_notional_usd: 0.0,
     };
     let m_calm = estimate_clusters(&make(0.0));
     let m_hot = estimate_clusters(&make(0.001)); // 0.1% / 8h, very hot
-    assert!(m_calm.estimation_confidence >= m_hot.estimation_confidence,
+    assert!(
+        m_calm.estimation_confidence >= m_hot.estimation_confidence,
         "extreme funding should reduce confidence: calm={} < hot={}",
-        m_calm.estimation_confidence, m_hot.estimation_confidence);
+        m_calm.estimation_confidence,
+        m_hot.estimation_confidence
+    );
 }
 
 #[test]
@@ -249,11 +262,19 @@ fn short_clusters_above_mid_long_clusters_below_mid() {
     };
     let m = estimate_clusters(&input);
     for c in &m.short_clusters {
-        assert!(c.peak_price > m.mid_price, "short cluster must be above mid, got {}", c.peak_price);
+        assert!(
+            c.peak_price > m.mid_price,
+            "short cluster must be above mid, got {}",
+            c.peak_price
+        );
         assert_eq!(c.cluster_kind, ClusterKind::AboveCurrentPrice);
     }
     for c in &m.long_clusters {
-        assert!(c.peak_price < m.mid_price, "long cluster must be below mid, got {}", c.peak_price);
+        assert!(
+            c.peak_price < m.mid_price,
+            "long cluster must be below mid, got {}",
+            c.peak_price
+        );
         assert_eq!(c.cluster_kind, ClusterKind::BelowCurrentPrice);
     }
 }
@@ -267,7 +288,7 @@ fn long_oi_override_dominates_funding_signal() {
         mid_price: 50_000.0,
         price_history: &history,
         total_oi_usd: 10_000_000.0,
-        funding_rate: -0.001,  // strongly short-biased funding
+        funding_rate: -0.001,   // strongly short-biased funding
         long_oi_pct: Some(0.3), // override: 30% long, 70% short
         maintenance_margin_rate: 0.005,
         funding_extreme_pct: 0.0005,
@@ -280,8 +301,12 @@ fn long_oi_override_dominates_funding_signal() {
     let long_total: f64 = m.long_clusters.iter().map(|c| c.notional_usd).sum();
     let short_total: f64 = m.short_clusters.iter().map(|c| c.notional_usd).sum();
     // With 30% long, 70% short, short clusters should have more notional.
-    assert!(short_total > long_total,
-        "override should dominate: long={} short={}", long_total, short_total);
+    assert!(
+        short_total > long_total,
+        "override should dominate: long={} short={}",
+        long_total,
+        short_total
+    );
 }
 
 #[test]
@@ -321,9 +346,16 @@ fn cluster_serialization_omits_default_fields() {
     };
     let json = serde_json::to_string(&c).unwrap();
     // Required fields present.
-    for f in &["price_low", "price_high", "peak_price", "notional_usd",
-               "dominant_leverage", "distance_from_mid_pct", "cluster_kind",
-               "magnet_strength"] {
+    for f in &[
+        "price_low",
+        "price_high",
+        "peak_price",
+        "notional_usd",
+        "dominant_leverage",
+        "distance_from_mid_pct",
+        "cluster_kind",
+        "magnet_strength",
+    ] {
         assert!(json.contains(f), "missing {} in {}", f, json);
     }
     assert!(json.contains("\"DISTANT\""));

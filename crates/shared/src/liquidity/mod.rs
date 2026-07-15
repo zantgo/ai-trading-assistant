@@ -181,7 +181,8 @@ impl LiquidityEventAccumulator {
         if self.rolling_intensity.len() >= self.cascade_window_candles {
             self.rolling_intensity.pop_front();
         }
-        self.rolling_intensity.push_back(self.bar_flow.cascade_intensity);
+        self.rolling_intensity
+            .push_back(self.bar_flow.cascade_intensity);
 
         let out = self.bar_flow.clone();
         self.bar_flow = LiquidityFlow::default();
@@ -200,8 +201,7 @@ impl LiquidityEventAccumulator {
             1000.0 // $1,000 baseline when no history — single event is significant
         } else {
             // Map mean rolling intensity back to USD for comparison.
-            self.rolling_intensity.iter().sum::<f64>()
-                / self.rolling_intensity.len() as f64
+            self.rolling_intensity.iter().sum::<f64>() / self.rolling_intensity.len() as f64
                 * 1000.0
                 + 1.0
         };
@@ -218,8 +218,7 @@ impl LiquidityEventAccumulator {
         let baseline_event_usd: f64 = if self.rolling_intensity.is_empty() {
             500.0
         } else {
-            (self.rolling_intensity.iter().sum::<f64>()
-                / self.rolling_intensity.len() as f64)
+            (self.rolling_intensity.iter().sum::<f64>() / self.rolling_intensity.len() as f64)
                 * 100.0
                 + 1.0
         };
@@ -236,9 +235,7 @@ impl LiquidityEventAccumulator {
             CascadeState::Sustained
         } else if significant_events >= 1 {
             CascadeState::Detected
-        } else if self.bar_flow.cascade_intensity > 30.0
-            && !self.rolling_intensity.is_empty()
-        {
+        } else if self.bar_flow.cascade_intensity > 30.0 && !self.rolling_intensity.is_empty() {
             // Decayed: bar was hot, window shows decline.
             CascadeState::Exhausted
         } else {
@@ -299,7 +296,10 @@ mod tests {
         assert_eq!(flow.event_count, 1);
         assert!((flow.long_liquidations_usd - 50_000.0).abs() < 0.01);
         assert_eq!(flow.short_liquidations_usd, 0.0);
-        assert!(flow.net_liquidation_usd > 0.0, "net should be positive for longs");
+        assert!(
+            flow.net_liquidation_usd > 0.0,
+            "net should be positive for longs"
+        );
     }
 
     #[test]
@@ -310,7 +310,10 @@ mod tests {
         assert_eq!(flow.event_count, 1);
         assert_eq!(flow.long_liquidations_usd, 0.0);
         assert!((flow.short_liquidations_usd - 100_000.0).abs() < 0.01);
-        assert!(flow.net_liquidation_usd < 0.0, "net should be negative for shorts");
+        assert!(
+            flow.net_liquidation_usd < 0.0,
+            "net should be negative for shorts"
+        );
     }
 
     #[test]
@@ -360,7 +363,10 @@ mod tests {
         acc.record_event(make_event(LiquidationSide::Long, 50_000.0, 5.0, 9999));
         let flow = acc.flush_to_flow();
         assert!(
-            matches!(flow.cascade_state, CascadeState::Detected | CascadeState::Sustained),
+            matches!(
+                flow.cascade_state,
+                CascadeState::Detected | CascadeState::Sustained
+            ),
             "expected Detected or Sustained, got {:?}",
             flow.cascade_state
         );
@@ -515,11 +521,7 @@ impl<'a> Default for ClusterEstimateInput<'a> {
 
 /// Apply funding-rate modulation to the leverage weights. Extreme funding
 /// → heavier high-leverage tail (because crowded trades = high leverage).
-fn apply_funding_modulation(
-    weights: &mut [f64],
-    funding_rate: f64,
-    extreme_pct: f64,
-) {
+fn apply_funding_modulation(weights: &mut [f64], funding_rate: f64, extreme_pct: f64) {
     if extreme_pct <= 0.0 {
         return;
     }
@@ -548,7 +550,11 @@ fn apply_funding_modulation(
 /// Estimate the long/short OI split. Uses funding rate as the primary
 /// signal; price action as the secondary; default 50/50 if neither is
 /// informative.
-fn estimate_long_oi_pct(funding_rate: f64, price_history: &[f64], override_pct: Option<f64>) -> f64 {
+fn estimate_long_oi_pct(
+    funding_rate: f64,
+    price_history: &[f64],
+    override_pct: Option<f64>,
+) -> f64 {
     if let Some(p) = override_pct {
         return p.clamp(0.05, 0.95);
     }
@@ -596,9 +602,7 @@ fn find_swing_levels(price_history: &[f64], lookback: usize) -> (Vec<f64>, Vec<f
 }
 
 /// The main estimator. Deterministic, snapshot-in / clusters-out.
-pub fn estimate_clusters(
-    input: &ClusterEstimateInput,
-) -> LiquidationClusterMatrix {
+pub fn estimate_clusters(input: &ClusterEstimateInput) -> LiquidationClusterMatrix {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -628,7 +632,8 @@ pub fn estimate_clusters(
     };
 
     // 2. Estimate long/short OI split.
-    let long_oi_pct = estimate_long_oi_pct(input.funding_rate, input.price_history, input.long_oi_pct);
+    let long_oi_pct =
+        estimate_long_oi_pct(input.funding_rate, input.price_history, input.long_oi_pct);
     let long_oi_usd = input.total_oi_usd * long_oi_pct;
     let short_oi_usd = input.total_oi_usd * (1.0 - long_oi_pct);
 
@@ -643,17 +648,23 @@ pub fn estimate_clusters(
 
     let bucket_long = |entry: f64, lev: u32| -> Option<f64> {
         let dist = (1.0 / lev as f64) - input.maintenance_margin_rate;
-        if dist <= 0.0 { return None; }
+        if dist <= 0.0 {
+            return None;
+        }
         Some(entry * (1.0 - dist))
     };
     let bucket_short = |entry: f64, lev: u32| -> Option<f64> {
         let dist = (1.0 / lev as f64) - input.maintenance_margin_rate;
-        if dist <= 0.0 { return None; }
+        if dist <= 0.0 {
+            return None;
+        }
         Some(entry * (1.0 + dist))
     };
 
     for (lev, weight) in input.leverage_buckets.iter().zip(weights.iter()) {
-        if *weight <= 0.0 || *lev == 0 { continue; }
+        if *weight <= 0.0 || *lev == 0 {
+            continue;
+        }
         let lev_notional_long = long_oi_usd * weight;
         let lev_notional_short = short_oi_usd * weight;
         // Distribute across swing lows (long) and swing highs (short).
@@ -690,11 +701,17 @@ pub fn estimate_clusters(
 
     // 5. Peak detection → cluster list (both sides).
     let long_clusters = detect_clusters(
-        &long_bins, input.mid_price, price_bin_pct, true,
+        &long_bins,
+        input.mid_price,
+        price_bin_pct,
+        true,
         input.min_cluster_notional_usd,
     );
     let short_clusters = detect_clusters(
-        &short_bins, input.mid_price, price_bin_pct, false,
+        &short_bins,
+        input.mid_price,
+        price_bin_pct,
+        false,
         input.min_cluster_notional_usd,
     );
 
@@ -756,16 +773,24 @@ fn detect_clusters(
     let half = (series.len() / 20).max(2);
     for i in half..(series.len().saturating_sub(half)) {
         let (_, v) = series[i];
-        if v < min_notional { continue; }
+        if v < min_notional {
+            continue;
+        }
         let is_peak = series[i - half..i].iter().all(|(_, x)| *x <= v)
             && series[i + 1..=i + half].iter().all(|(_, x)| *x <= v);
-        if !is_peak { continue; }
+        if !is_peak {
+            continue;
+        }
         // Find cluster bounds: walk outward while density stays >= 50% of peak.
         let mut lo = i;
         let mut hi = i;
         let half_max = v * 0.5;
-        while lo > 0 && series[lo - 1].1 >= half_max { lo -= 1; }
-        while hi + 1 < series.len() && series[hi + 1].1 >= half_max { hi += 1; }
+        while lo > 0 && series[lo - 1].1 >= half_max {
+            lo -= 1;
+        }
+        while hi + 1 < series.len() && series[hi + 1].1 >= half_max {
+            hi += 1;
+        }
         let price_low = series[lo].0;
         let price_high = series[hi].0;
         let peak_price = series[i].0;
@@ -794,12 +819,17 @@ fn detect_clusters(
         });
     }
     // Deduplicate clusters that overlap heavily.
-    clusters.sort_by(|a, b| b.notional_usd.partial_cmp(&a.notional_usd).unwrap_or(std::cmp::Ordering::Equal));
+    clusters.sort_by(|a, b| {
+        b.notional_usd
+            .partial_cmp(&a.notional_usd)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut dedup: Vec<LiquidationCluster> = Vec::with_capacity(clusters.len());
     for c in clusters {
-        if !dedup.iter().any(|existing| {
-            (existing.peak_price - c.peak_price).abs() / mid_price < 0.005
-        }) {
+        if !dedup
+            .iter()
+            .any(|existing| (existing.peak_price - c.peak_price).abs() / mid_price < 0.005)
+        {
             dedup.push(c);
         }
     }
@@ -816,8 +846,10 @@ mod cluster_tests {
         let mut v = Vec::with_capacity(n);
         for i in 0..n {
             let t = i as f64 / n as f64;
-            v.push(base + swing * (t * std::f64::consts::PI * 2.0).sin()
-                + swing * 0.3 * (t * std::f64::consts::PI * 6.0).cos());
+            v.push(
+                base + swing * (t * std::f64::consts::PI * 2.0).sin()
+                    + swing * 0.3 * (t * std::f64::consts::PI * 6.0).cos(),
+            );
         }
         v
     }
@@ -853,15 +885,29 @@ mod cluster_tests {
         };
         let m = estimate_clusters(&input);
         // Should have clusters on both sides of mid.
-        assert!(!m.short_clusters.is_empty(), "expected at least one short cluster above mid");
-        assert!(!m.long_clusters.is_empty(), "expected at least one long cluster below mid");
+        assert!(
+            !m.short_clusters.is_empty(),
+            "expected at least one short cluster above mid"
+        );
+        assert!(
+            !m.long_clusters.is_empty(),
+            "expected at least one long cluster below mid"
+        );
         // All short clusters are above mid, all long clusters are below.
         for c in &m.short_clusters {
-            assert!(c.peak_price > m.mid_price, "short cluster should be above mid, got {}", c.peak_price);
+            assert!(
+                c.peak_price > m.mid_price,
+                "short cluster should be above mid, got {}",
+                c.peak_price
+            );
             assert_eq!(c.cluster_kind, ClusterKind::AboveCurrentPrice);
         }
         for c in &m.long_clusters {
-            assert!(c.peak_price < m.mid_price, "long cluster should be below mid, got {}", c.peak_price);
+            assert!(
+                c.peak_price < m.mid_price,
+                "long cluster should be below mid, got {}",
+                c.peak_price
+            );
             assert_eq!(c.cluster_kind, ClusterKind::BelowCurrentPrice);
         }
     }
@@ -887,8 +933,12 @@ mod cluster_tests {
         // With 80% long, the long cluster total should exceed the short.
         let long_total: f64 = m.long_clusters.iter().map(|c| c.notional_usd).sum();
         let short_total: f64 = m.short_clusters.iter().map(|c| c.notional_usd).sum();
-        assert!(long_total > short_total,
-            "long_total={} should exceed short_total={}", long_total, short_total);
+        assert!(
+            long_total > short_total,
+            "long_total={} should exceed short_total={}",
+            long_total,
+            short_total
+        );
     }
 
     #[test]
@@ -909,7 +959,10 @@ mod cluster_tests {
             min_cluster_notional_usd: 0.0,
         };
         let m = estimate_clusters(&input);
-        assert_eq!(m.leverage_assumptions.source, LeverageDistributionSource::FundingAdaptive);
+        assert_eq!(
+            m.leverage_assumptions.source,
+            LeverageDistributionSource::FundingAdaptive
+        );
     }
 
     #[test]
@@ -938,7 +991,10 @@ mod cluster_tests {
         // to fall = long-squeeze risk. We verify the sign is well-defined
         // and the magnitude is reasonable.
         assert!(m.cascade_asymmetry.is_finite());
-        assert!(m.cascade_asymmetry.abs() <= 1.0, "asymmetry must be in [-1, 1]");
+        assert!(
+            m.cascade_asymmetry.abs() <= 1.0,
+            "asymmetry must be in [-1, 1]"
+        );
     }
 
     #[test]
@@ -961,8 +1017,11 @@ mod cluster_tests {
         let m = estimate_clusters(&input);
         // Closer cluster has higher magnet_strength.
         for c in &m.long_clusters {
-            assert!(c.magnet_strength >= 0.0 && c.magnet_strength <= 100.0,
-                "magnet_strength out of range: {}", c.magnet_strength);
+            assert!(
+                c.magnet_strength >= 0.0 && c.magnet_strength <= 100.0,
+                "magnet_strength out of range: {}",
+                c.magnet_strength
+            );
         }
     }
 
@@ -987,8 +1046,10 @@ mod cluster_tests {
         let m = estimate_clusters(&input);
         // With no swing history, both sides still produce a cluster at
         // their respective liquidation price.
-        assert!(!m.long_clusters.is_empty() || !m.short_clusters.is_empty(),
-            "fallback to mid_price seed should still produce clusters");
+        assert!(
+            !m.long_clusters.is_empty() || !m.short_clusters.is_empty(),
+            "fallback to mid_price seed should still produce clusters"
+        );
     }
 
     #[test]
@@ -1028,11 +1089,17 @@ mod cluster_tests {
     fn weights_sums_to_one_after_modulation() {
         let mut w = vec![0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05];
         let before_sum: f64 = w.iter().sum();
-        assert!((before_sum - 1.0).abs() < 1e-9, "default weights must sum to 1.0");
+        assert!(
+            (before_sum - 1.0).abs() < 1e-9,
+            "default weights must sum to 1.0"
+        );
         apply_funding_modulation(&mut w, 0.001, 0.0005);
         let after_sum: f64 = w.iter().sum();
-        assert!((after_sum - 1.0).abs() < 1e-9,
-            "modulated weights must still sum to 1.0, got {}", after_sum);
+        assert!(
+            (after_sum - 1.0).abs() < 1e-9,
+            "modulated weights must still sum to 1.0, got {}",
+            after_sum
+        );
         // Each weight must be non-negative.
         for v in &w {
             assert!(*v >= 0.0, "weight must be non-negative, got {}", v);
@@ -1205,7 +1272,11 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
             evidence: vec![format!(
                 "Funding rate {:.4}% ({} extreme threshold)",
                 input.funding_rate * 100.0,
-                if input.funding_rate > 0.0 { "above" } else { "below" }
+                if input.funding_rate > 0.0 {
+                    "above"
+                } else {
+                    "below"
+                }
             )],
         });
     }
@@ -1231,7 +1302,8 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 confidence: 0.7,
                 evidence: vec![format!(
                     "OI Δ1h = {:.2}%, funding = {:.4}%",
-                    input.oi_delta_1h_pct, input.funding_rate * 100.0
+                    input.oi_delta_1h_pct,
+                    input.funding_rate * 100.0
                 )],
             });
         }
@@ -1261,7 +1333,11 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
 
     // 5. Magnet activation: price approaching a cluster zone.
     if let Some(cluster) = input.cluster {
-        for c in cluster.short_clusters.iter().chain(cluster.long_clusters.iter()) {
+        for c in cluster
+            .short_clusters
+            .iter()
+            .chain(cluster.long_clusters.iter())
+        {
             if c.distance_from_mid_pct <= input.magnet_activation_distance_pct
                 && c.notional_usd > 100_000.0
             {
@@ -1322,8 +1398,13 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::CascadeDetected));
-        let det = sigs.iter().find(|s| s.kind == LiquiditySignalKind::CascadeDetected).unwrap();
+        assert!(sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::CascadeDetected));
+        let det = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::CascadeDetected)
+            .unwrap();
         assert_eq!(det.direction, LiquidityDirection::Bearish);
     }
 
@@ -1340,7 +1421,10 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        let det = sigs.iter().find(|s| s.kind == LiquiditySignalKind::CascadeDetected).unwrap();
+        let det = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::CascadeDetected)
+            .unwrap();
         assert_eq!(det.direction, LiquidityDirection::Bullish);
     }
 
@@ -1352,8 +1436,13 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::FundingExtreme));
-        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::FundingExtreme).unwrap();
+        assert!(sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::FundingExtreme));
+        let sig = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::FundingExtreme)
+            .unwrap();
         assert_eq!(sig.direction, LiquidityDirection::Bearish);
     }
 
@@ -1365,7 +1454,10 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::FundingExtreme).unwrap();
+        let sig = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::FundingExtreme)
+            .unwrap();
         assert_eq!(sig.direction, LiquidityDirection::Bullish);
     }
 
@@ -1378,7 +1470,9 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::OIFundingDivergence);
+        let sig = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::OIFundingDivergence);
         assert!(sig.is_some());
         assert_eq!(sig.unwrap().direction, LiquidityDirection::Bearish);
     }
@@ -1392,7 +1486,9 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        let sig = sigs.iter().find(|s| s.kind == LiquiditySignalKind::OIFundingDivergence);
+        let sig = sigs
+            .iter()
+            .find(|s| s.kind == LiquiditySignalKind::OIFundingDivergence);
         assert!(sig.is_some());
         assert_eq!(sig.unwrap().direction, LiquidityDirection::Bullish);
     }
@@ -1411,7 +1507,9 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::LiquidityVacuum));
+        assert!(sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::LiquidityVacuum));
     }
 
     #[test]
@@ -1450,7 +1548,9 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(sigs.iter().any(|s| s.kind == LiquiditySignalKind::MagnetActivated));
+        assert!(sigs
+            .iter()
+            .any(|s| s.kind == LiquiditySignalKind::MagnetActivated));
     }
 
     #[test]
@@ -1468,11 +1568,16 @@ mod signal_tests {
         };
         let sigs = derive_liquidity_signals(&input);
         for s in &sigs {
-            assert!(s.strength >= 0.0 && s.strength <= 100.0,
-                "strength must be in [0, 100]: got {}", s.strength);
+            assert!(
+                s.strength >= 0.0 && s.strength <= 100.0,
+                "strength must be in [0, 100]: got {}",
+                s.strength
+            );
         }
         // Even though cascade_intensity was 250, signals use clamp.
-        let sustained = sigs.iter().find(|s| matches!(s.kind, LiquiditySignalKind::CascadeSustained));
+        let sustained = sigs
+            .iter()
+            .find(|s| matches!(s.kind, LiquiditySignalKind::CascadeSustained));
         assert!(sustained.is_some());
         assert!(sustained.unwrap().strength <= 100.0);
     }
@@ -1493,10 +1598,11 @@ mod signal_tests {
             ..Default::default()
         };
         let sigs = derive_liquidity_signals(&input);
-        assert!(!sigs.iter().any(|s| matches!(s.kind,
+        assert!(!sigs.iter().any(|s| matches!(
+            s.kind,
             LiquiditySignalKind::CascadeDetected
-            | LiquiditySignalKind::CascadeSustained
-            | LiquiditySignalKind::CascadeExhausted
+                | LiquiditySignalKind::CascadeSustained
+                | LiquiditySignalKind::CascadeExhausted
         )));
         let _ = dec!(0.0);
     }

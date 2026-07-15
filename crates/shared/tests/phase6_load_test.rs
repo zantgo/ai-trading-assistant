@@ -3,9 +3,9 @@
 //! Validates that the LiquidityEventAccumulator handles sustained
 //! bursts of events without memory blowup or computation slowdown.
 
-use std::time::Instant;
 use shared::liquidity::LiquidityEventAccumulator;
 use shared::normalized::{Exchange, LiquidationEvent, LiquidationSide};
+use std::time::Instant;
 
 fn make_event(price: f64, size: f64, ts_ms: u64) -> LiquidationEvent {
     use rust_decimal::Decimal;

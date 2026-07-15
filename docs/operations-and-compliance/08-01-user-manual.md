@@ -81,7 +81,7 @@ The single source of configuration truth is `config.json` at the workspace root.
 
 For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 
-The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.json`).
+The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.json` **explicitly**; the API is the only path that mutates `config.json` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.json` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3.0](../../integration-and-api/06-02-database-schema-spec.md).
 
 ---
 
@@ -100,11 +100,12 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 ## 7. Telemetry & Logs
 
 | Channel | Location | Contents |
-|---------|----------|----------|
+|---------|----------|---------|
 | Live log | `engine.log` | Engine stdout/stderr when running via `./manage.sh run-silent`. |
 | Snapshot history | `./telemetry.db` (SQLite) | One row per completed candle; retention 7 days. |
 | Equity history | `./telemetry.db` `portfolio_equity_history` | 60-s cadence snapshots; retention 30 days. |
 | Trade archive | `./telemetry.db` `paper_trades`, `trade_telemetry_history` | Closed-trade ledger. |
+| Connection quality | `./telemetry.db` `connection_quality_samples` | Rolling 1h / 6h / 24h windows; retention 7 days; served by `GET /api/connection-quality`. |
 | Decision observability | `GET /api/system/observability` | Recent triggered policies and completed trades. |
 | Engine heartbeat | `GET /api/system/status` | Connection state, latency_ms, active_pairs_count. |
 

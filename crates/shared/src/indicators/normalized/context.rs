@@ -4,7 +4,9 @@
 //! vs VWAP, DI crossover sign, active position, RVOL) supplied via
 //! [`NormalizationContext`]. They remain pure/static and side-effect free.
 
-use super::{clamp_unit, pick, NormalizationContext, NormalizationEngine, NormalizedIndicatorValue};
+use super::{
+    clamp_unit, pick, NormalizationContext, NormalizationEngine, NormalizedIndicatorValue,
+};
 use super::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
 use std::collections::HashMap;
 
@@ -252,10 +254,18 @@ impl NormalizationEngine {
             (0.0, "NO_PATTERN")
         };
         let mut values = HashMap::new();
-        if let Some(s) = upper_slope { values.insert("upper_slope".to_string(), s); }
-        if let Some(i) = upper_intercept { values.insert("upper_intercept".to_string(), i); }
-        if let Some(s) = lower_slope { values.insert("lower_slope".to_string(), s); }
-        if let Some(i) = lower_intercept { values.insert("lower_intercept".to_string(), i); }
+        if let Some(s) = upper_slope {
+            values.insert("upper_slope".to_string(), s);
+        }
+        if let Some(i) = upper_intercept {
+            values.insert("upper_intercept".to_string(), i);
+        }
+        if let Some(s) = lower_slope {
+            values.insert("lower_slope".to_string(), s);
+        }
+        if let Some(i) = lower_intercept {
+            values.insert("lower_intercept".to_string(), i);
+        }
         NormalizedIndicatorValue::with_values(confidence, norm, label, values)
     }
 
@@ -278,17 +288,25 @@ impl NormalizationEngine {
                 .iter()
                 .copied()
                 .filter(|r| *r > 0.0)
-                .fold(None, |acc: Option<f64>, r| Some(acc.map_or(r, |a| a.max(r))));
+                .fold(None, |acc: Option<f64>, r| {
+                    Some(acc.map_or(r, |a| a.max(r)))
+                });
             if let Some(r) = highest_res {
                 if price > r {
-                    return NormalizedIndicatorValue::scalar(price, 0.8, "RESISTANCE_FLIP_CONFIRMED");
+                    return NormalizedIndicatorValue::scalar(
+                        price,
+                        0.8,
+                        "RESISTANCE_FLIP_CONFIRMED",
+                    );
                 }
             }
             let lowest_sup = support_levels
                 .iter()
                 .copied()
                 .filter(|s| *s > 0.0)
-                .fold(None, |acc: Option<f64>, s| Some(acc.map_or(s, |a| a.min(s))));
+                .fold(None, |acc: Option<f64>, s| {
+                    Some(acc.map_or(s, |a| a.min(s)))
+                });
             if let Some(s) = lowest_sup {
                 if price < s {
                     return NormalizedIndicatorValue::scalar(price, -0.8, "SUPPORT_FLIP_CONFIRMED");
@@ -426,7 +444,8 @@ impl NormalizationEngine {
             SignalDirection::Bearish
         };
 
-        let mut entry = NormalizedIndicatorValue::with_values(confidence, norm, label.clone(), values);
+        let mut entry =
+            NormalizedIndicatorValue::with_values(confidence, norm, label.clone(), values);
         let _ = category;
         entry.confidence = confidence;
         entry.signals.push(
@@ -465,11 +484,24 @@ impl NormalizationEngine {
         };
 
         // Conviction factors (each -1/0/+1).
-        let tk = (tenkan - kijun).signum() * if (tenkan - kijun).abs() > f64::EPSILON { 1.0 } else { 0.0 };
+        let tk = (tenkan - kijun).signum()
+            * if (tenkan - kijun).abs() > f64::EPSILON {
+                1.0
+            } else {
+                0.0
+            };
         let cur_cloud = (senkou_a_current - senkou_b_current).signum()
-            * if (senkou_a_current - senkou_b_current).abs() > f64::EPSILON { 1.0 } else { 0.0 };
+            * if (senkou_a_current - senkou_b_current).abs() > f64::EPSILON {
+                1.0
+            } else {
+                0.0
+            };
         let fut_cloud = (senkou_a_future - senkou_b_future).signum()
-            * if (senkou_a_future - senkou_b_future).abs() > f64::EPSILON { 1.0 } else { 0.0 };
+            * if (senkou_a_future - senkou_b_future).abs() > f64::EPSILON {
+                1.0
+            } else {
+                0.0
+            };
         let future_bias = fut_cloud;
 
         let mut values = HashMap::new();
@@ -489,11 +521,20 @@ impl NormalizationEngine {
             // Bullish: agreement of TK + current + future cloud strengthens.
             let agree = ((tk.max(0.0)) + (cur_cloud.max(0.0)) + (fut_cloud.max(0.0))) / 3.0;
             norm = clamp_unit(0.6 + 0.4 * agree);
-            label = if agree >= 0.99 { "STRONG_BULLISH_ABOVE_CLOUD" } else { "BULLISH_ABOVE_CLOUD" };
+            label = if agree >= 0.99 {
+                "STRONG_BULLISH_ABOVE_CLOUD"
+            } else {
+                "BULLISH_ABOVE_CLOUD"
+            };
         } else if pos < 0.0 {
-            let agree = (((-tk).max(0.0)) + ((-cur_cloud).max(0.0)) + ((-fut_cloud).max(0.0))) / 3.0;
+            let agree =
+                (((-tk).max(0.0)) + ((-cur_cloud).max(0.0)) + ((-fut_cloud).max(0.0))) / 3.0;
             norm = clamp_unit(-(0.6 + 0.4 * agree));
-            label = if agree >= 0.99 { "STRONG_BEARISH_BELOW_CLOUD" } else { "BEARISH_BELOW_CLOUD" };
+            label = if agree >= 0.99 {
+                "STRONG_BEARISH_BELOW_CLOUD"
+            } else {
+                "BEARISH_BELOW_CLOUD"
+            };
         } else {
             // Inside the cloud: no trend conviction; slight lean from TK cross.
             norm = clamp_unit(tk * 0.2);
@@ -518,14 +559,25 @@ impl NormalizationEngine {
         values.insert("val".to_string(), val);
         values.insert("total_volume".to_string(), total_volume);
         let (norm, label) = if price > vah {
-            (clamp_unit(0.7 + 0.3 * ((price - vah) / (vah - val).max(f64::EPSILON)).min(1.0)),
-             "VP_BREAKOUT_ABOVE_VAH")
+            (
+                clamp_unit(0.7 + 0.3 * ((price - vah) / (vah - val).max(f64::EPSILON)).min(1.0)),
+                "VP_BREAKOUT_ABOVE_VAH",
+            )
         } else if price < val {
-            (clamp_unit(-0.7 - 0.3 * ((val - price) / (vah - val).max(f64::EPSILON)).min(1.0)),
-             "VP_BREAKOUT_BELOW_VAL")
+            (
+                clamp_unit(-0.7 - 0.3 * ((val - price) / (vah - val).max(f64::EPSILON)).min(1.0)),
+                "VP_BREAKOUT_BELOW_VAL",
+            )
         } else if (price - poc).abs() / poc.max(f64::EPSILON) <= 0.003 {
             let d = if price > poc { -0.3 } else { 0.3 };
-            (d, if price > poc { "VP_POC_RESISTANCE_TEST" } else { "VP_POC_SUPPORT_TEST" })
+            (
+                d,
+                if price > poc {
+                    "VP_POC_RESISTANCE_TEST"
+                } else {
+                    "VP_POC_SUPPORT_TEST"
+                },
+            )
         } else {
             let pos = (price - val) / (vah - val).max(f64::EPSILON);
             let n = (pos - 0.5) * 0.4;
@@ -558,86 +610,181 @@ impl NormalizationEngine {
 
     // ── SMC Structure: BOS (Break of Structure) + CHoCH (Change of Character) ──
     pub fn normalize_smc_structure(
-        structure_bullish: bool, structure_bearish: bool,
-        bos_bullish: bool, bos_bearish: bool,
-        choch_bullish: bool, choch_bearish: bool,
+        structure_bullish: bool,
+        structure_bearish: bool,
+        bos_bullish: bool,
+        bos_bearish: bool,
+        choch_bullish: bool,
+        choch_bearish: bool,
     ) -> NormalizedIndicatorValue {
         let mut norm = 0.0f64;
-        if structure_bullish { norm += 0.7; }
-        else if structure_bearish { norm -= 0.7; }
-        if bos_bullish { norm += 0.3; }
-        if bos_bearish { norm -= 0.3; }
-        if choch_bullish { norm += 0.4; }
-        if choch_bearish { norm -= 0.4; }
+        if structure_bullish {
+            norm += 0.7;
+        } else if structure_bearish {
+            norm -= 0.7;
+        }
+        if bos_bullish {
+            norm += 0.3;
+        }
+        if bos_bearish {
+            norm -= 0.3;
+        }
+        if choch_bullish {
+            norm += 0.4;
+        }
+        if choch_bearish {
+            norm -= 0.4;
+        }
         let norm = clamp_unit(norm);
-        let label = if choch_bullish { "SMC_STRUCTURE_BULLISH_CHOCH" }
-            else if choch_bearish { "SMC_STRUCTURE_BEARISH_CHOCH" }
-            else if bos_bullish { "SMC_STRUCTURE_BULLISH_BOS" }
-            else if bos_bearish { "SMC_STRUCTURE_BEARISH_BOS" }
-            else if structure_bullish { "SMC_STRUCTURE_BULLISH" }
-            else if structure_bearish { "SMC_STRUCTURE_BEARISH" }
-            else { "SMC_STRUCTURE_NEUTRAL" };
+        let label = if choch_bullish {
+            "SMC_STRUCTURE_BULLISH_CHOCH"
+        } else if choch_bearish {
+            "SMC_STRUCTURE_BEARISH_CHOCH"
+        } else if bos_bullish {
+            "SMC_STRUCTURE_BULLISH_BOS"
+        } else if bos_bearish {
+            "SMC_STRUCTURE_BEARISH_BOS"
+        } else if structure_bullish {
+            "SMC_STRUCTURE_BULLISH"
+        } else if structure_bearish {
+            "SMC_STRUCTURE_BEARISH"
+        } else {
+            "SMC_STRUCTURE_NEUTRAL"
+        };
         let mut values = HashMap::new();
-        values.insert("structure".to_string(), if structure_bullish {1.0} else if structure_bearish {-1.0} else {0.0});
-        values.insert("bos_bullish".to_string(), if bos_bullish {1.0} else {0.0});
-        values.insert("bos_bearish".to_string(), if bos_bearish {1.0} else {0.0});
-        values.insert("choch_bullish".to_string(), if choch_bullish {1.0} else {0.0});
-        values.insert("choch_bearish".to_string(), if choch_bearish {1.0} else {0.0});
+        values.insert(
+            "structure".to_string(),
+            if structure_bullish {
+                1.0
+            } else if structure_bearish {
+                -1.0
+            } else {
+                0.0
+            },
+        );
+        values.insert(
+            "bos_bullish".to_string(),
+            if bos_bullish { 1.0 } else { 0.0 },
+        );
+        values.insert(
+            "bos_bearish".to_string(),
+            if bos_bearish { 1.0 } else { 0.0 },
+        );
+        values.insert(
+            "choch_bullish".to_string(),
+            if choch_bullish { 1.0 } else { 0.0 },
+        );
+        values.insert(
+            "choch_bearish".to_string(),
+            if choch_bearish { 1.0 } else { 0.0 },
+        );
         NormalizedIndicatorValue::with_values(0.0, norm, label, values)
     }
 
     // ── SMC Liquidity: buy-side and sell-side sweeps ──
-    pub fn normalize_smc_liquidity(liq_sweep_buy: bool, liq_sweep_sell: bool) -> NormalizedIndicatorValue {
+    pub fn normalize_smc_liquidity(
+        liq_sweep_buy: bool,
+        liq_sweep_sell: bool,
+    ) -> NormalizedIndicatorValue {
         let mut norm = 0.0f64;
         let label: &str;
-        if liq_sweep_buy && liq_sweep_sell { label = "SMC_LIQUIDITY_BOTH_SWEEPS"; }
-        else if liq_sweep_buy { norm = 0.5; label = "SMC_LIQUIDITY_BUY_SWEEP"; }
-        else if liq_sweep_sell { norm = -0.5; label = "SMC_LIQUIDITY_SELL_SWEEP"; }
-        else { label = "SMC_LIQUIDITY_NONE"; }
+        if liq_sweep_buy && liq_sweep_sell {
+            label = "SMC_LIQUIDITY_BOTH_SWEEPS";
+        } else if liq_sweep_buy {
+            norm = 0.5;
+            label = "SMC_LIQUIDITY_BUY_SWEEP";
+        } else if liq_sweep_sell {
+            norm = -0.5;
+            label = "SMC_LIQUIDITY_SELL_SWEEP";
+        } else {
+            label = "SMC_LIQUIDITY_NONE";
+        }
         let mut values = HashMap::new();
-        values.insert("sweep_buy".to_string(), if liq_sweep_buy {1.0} else {0.0});
-        values.insert("sweep_sell".to_string(), if liq_sweep_sell {1.0} else {0.0});
+        values.insert(
+            "sweep_buy".to_string(),
+            if liq_sweep_buy { 1.0 } else { 0.0 },
+        );
+        values.insert(
+            "sweep_sell".to_string(),
+            if liq_sweep_sell { 1.0 } else { 0.0 },
+        );
         NormalizedIndicatorValue::with_values(0.0, norm, label, values)
     }
 
     // ── SMC Fair Value Gap ──
-    pub fn normalize_smc_fvg(fvg_top: Option<f64>, fvg_bottom: Option<f64>, fvg_bullish: bool) -> NormalizedIndicatorValue {
+    pub fn normalize_smc_fvg(
+        fvg_top: Option<f64>,
+        fvg_bottom: Option<f64>,
+        fvg_bullish: bool,
+    ) -> NormalizedIndicatorValue {
         let (norm, label): (f64, &str) = if fvg_top.is_some() && fvg_bottom.is_some() {
-            if fvg_bullish { (0.45, "SMC_FVG_BULLISH_OPEN") } else { (-0.45, "SMC_FVG_BEARISH_OPEN") }
-        } else { (0.0, "SMC_FVG_NONE") };
+            if fvg_bullish {
+                (0.45, "SMC_FVG_BULLISH_OPEN")
+            } else {
+                (-0.45, "SMC_FVG_BEARISH_OPEN")
+            }
+        } else {
+            (0.0, "SMC_FVG_NONE")
+        };
         let mut values = HashMap::new();
-        if let Some(v) = fvg_top { values.insert("fvg_top".to_string(), v); }
-        if let Some(v) = fvg_bottom { values.insert("fvg_bottom".to_string(), v); }
-        values.insert("fvg_bullish".to_string(), if fvg_bullish {1.0} else {0.0});
+        if let Some(v) = fvg_top {
+            values.insert("fvg_top".to_string(), v);
+        }
+        if let Some(v) = fvg_bottom {
+            values.insert("fvg_bottom".to_string(), v);
+        }
+        values.insert(
+            "fvg_bullish".to_string(),
+            if fvg_bullish { 1.0 } else { 0.0 },
+        );
         NormalizedIndicatorValue::with_values(0.0, norm, label, values)
     }
 
     // ── SMC Order Blocks ──
     pub fn normalize_smc_order_blocks(
-        price: f64, ob_bullish_high: Option<f64>, ob_bullish_low: Option<f64>,
-        ob_bearish_high: Option<f64>, ob_bearish_low: Option<f64>,
+        price: f64,
+        ob_bullish_high: Option<f64>,
+        ob_bullish_low: Option<f64>,
+        ob_bearish_high: Option<f64>,
+        ob_bearish_low: Option<f64>,
     ) -> NormalizedIndicatorValue {
         let mut norm = 0.0f64;
         let mut label = "SMC_OB_NONE";
         if let (Some(h), Some(l)) = (ob_bullish_high, ob_bullish_low) {
             if h > 0.0 && l > 0.0 {
                 let mid = (h + l) / 2.0;
-                if ((price - mid) / mid.max(f64::EPSILON)).abs() < 0.005 { norm = 0.5; label = "SMC_OB_BULLISH_TEST"; }
-                else { label = "SMC_OB_BULLISH_ACTIVE"; }
+                if ((price - mid) / mid.max(f64::EPSILON)).abs() < 0.005 {
+                    norm = 0.5;
+                    label = "SMC_OB_BULLISH_TEST";
+                } else {
+                    label = "SMC_OB_BULLISH_ACTIVE";
+                }
             }
         }
         if let (Some(h), Some(l)) = (ob_bearish_high, ob_bearish_low) {
             if h > 0.0 && l > 0.0 {
                 let mid = (h + l) / 2.0;
-                if ((price - mid) / mid.max(f64::EPSILON)).abs() < 0.005 { norm = -0.5; label = "SMC_OB_BEARISH_TEST"; }
-                else { label = "SMC_OB_BEARISH_ACTIVE"; }
+                if ((price - mid) / mid.max(f64::EPSILON)).abs() < 0.005 {
+                    norm = -0.5;
+                    label = "SMC_OB_BEARISH_TEST";
+                } else {
+                    label = "SMC_OB_BEARISH_ACTIVE";
+                }
             }
         }
         let mut values = HashMap::new();
-        if let Some(v) = ob_bullish_high { values.insert("ob_bullish_high".to_string(), v); }
-        if let Some(v) = ob_bullish_low { values.insert("ob_bullish_low".to_string(), v); }
-        if let Some(v) = ob_bearish_high { values.insert("ob_bearish_high".to_string(), v); }
-        if let Some(v) = ob_bearish_low { values.insert("ob_bearish_low".to_string(), v); }
+        if let Some(v) = ob_bullish_high {
+            values.insert("ob_bullish_high".to_string(), v);
+        }
+        if let Some(v) = ob_bullish_low {
+            values.insert("ob_bullish_low".to_string(), v);
+        }
+        if let Some(v) = ob_bearish_high {
+            values.insert("ob_bearish_high".to_string(), v);
+        }
+        if let Some(v) = ob_bearish_low {
+            values.insert("ob_bearish_low".to_string(), v);
+        }
         NormalizedIndicatorValue::with_values(0.0, norm, label, values)
     }
 }

@@ -1,3 +1,5 @@
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
 
 pub async fn seed_default_profiles(pool: &SqlitePool) {
@@ -51,13 +53,23 @@ pub async fn seed_default_profiles(pool: &SqlitePool) {
         .await
         .unwrap_or((0,));
     if risk_count.0 == 0 {
+        let capital: Decimal = dec!(1000);
+        let max_risk_pct: Decimal = dec!(2);
+        let commission_pct: Decimal = dec!(0.06);
+        let zero: Decimal = dec!(0);
         sqlx::query(
             "INSERT INTO risk_profiles (profile_name, capital, max_risk_pct, leverage, commission_pct, funding_rate_8h, spread)
-             VALUES ('Risk Profile', 1000.0, 2.0, 20, 0.06, 0.0, 0.0)"
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
         )
+        .bind("Risk Profile")
+        .bind(capital.to_string())
+        .bind(max_risk_pct.to_string())
+        .bind(20)
+        .bind(commission_pct.to_string())
+        .bind(zero.to_string())
+        .bind(zero.to_string())
         .execute(pool)
         .await
         .ok();
     }
 }
-

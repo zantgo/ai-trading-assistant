@@ -189,7 +189,11 @@ mod tests {
     #[tokio::test]
     async fn compute_cluster_matrix_returns_err_with_no_data() {
         let session = SessionState::new();
-        let _ = session.exchange.write().await.insert(ExchangeChoice::Hyperliquid);
+        let _ = session
+            .exchange
+            .write()
+            .await
+            .insert(ExchangeChoice::Hyperliquid);
         let _ = session.base_currency.write().await.insert(Currency::USDC);
         let micro = TimeframeBuffers::new();
         let instance = Instance::new_test(
@@ -210,7 +214,11 @@ mod tests {
     #[tokio::test]
     async fn compute_cluster_matrix_returns_ok_with_data() {
         let session = SessionState::new();
-        let _ = session.exchange.write().await.insert(ExchangeChoice::Hyperliquid);
+        let _ = session
+            .exchange
+            .write()
+            .await
+            .insert(ExchangeChoice::Hyperliquid);
         let _ = session.base_currency.write().await.insert(Currency::USDC);
         let micro = TimeframeBuffers::new();
         let instance = Instance::new_test(
@@ -237,6 +245,7 @@ mod tests {
                     close: price,
                     volume: Decimal::from(1),
                     trades_count: 1,
+                    reconstructed: None,
                 });
             }
         }

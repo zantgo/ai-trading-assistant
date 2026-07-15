@@ -90,9 +90,7 @@ impl PivotPoints {
             }
             Some(_) => {
                 // New session: finalize the prior session into published levels.
-                if let (Some(h), Some(l), Some(c)) =
-                    (self.cur_high, self.cur_low, self.cur_close)
-                {
+                if let (Some(h), Some(l), Some(c)) = (self.cur_high, self.cur_low, self.cur_close) {
                     self.levels = Some(Self::compute(self.method, h, l, c));
                 }
                 // Begin the new session with this candle.
@@ -200,8 +198,17 @@ mod tests {
 
     #[test]
     fn test_method_from_str() {
-        assert_eq!(PivotMethod::from_str_lenient("classic"), PivotMethod::Classic);
-        assert_eq!(PivotMethod::from_str_lenient("Fibonacci"), PivotMethod::Fibonacci);
-        assert_eq!(PivotMethod::from_str_lenient("garbage"), PivotMethod::Classic);
+        assert_eq!(
+            PivotMethod::from_str_lenient("classic"),
+            PivotMethod::Classic
+        );
+        assert_eq!(
+            PivotMethod::from_str_lenient("Fibonacci"),
+            PivotMethod::Fibonacci
+        );
+        assert_eq!(
+            PivotMethod::from_str_lenient("garbage"),
+            PivotMethod::Classic
+        );
     }
 }

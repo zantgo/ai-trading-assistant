@@ -95,6 +95,8 @@ S/R breakouts require institutional volume confirmation (RVOL ≥ 1.5) to be con
 - Flip tolerance of 0.3% prevents false flips from wicks and noise. Only candle closes count.
 - The `STRUCTURE_NEUTRAL` label is returned when price is not within proximity of any tracked level.
 
+> **Tolerance conventions (v2.1).** The S/R engine uses two distinct tolerances: **0.3% flip tolerance** (the wider value) for S/R role-flip detection in the per-timeframe `SrRoleTracker`; and **0.2% divergence confirmation tolerance** (the tighter value) for momentum-oscillator divergence confirmation (RSI, MACD, OBV, CMF, MFI, Stochastic — the divergence-trigger candle must break the nearest S/R level by > 0.2%). The two tolerances are intentionally different: the S/R engine is the structural filter (wider threshold), and the oscillators confirm against the already-flipped level using a tighter threshold. Both are half-open intervals: `price > level × (1 + tol)` confirms a break up; `price < level × (1 - tol)` confirms a break down.
+
 ## 7. Live Pipeline Integration
 
 As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fully wired into the live and pre-warm normalization pipelines:
@@ -103,8 +105,10 @@ As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fu
 * **Warm handover:** The tracker is warmed through the full historical candle series and carried into live ingestion via `WarmedPipelineState`, preserving flip memory across the handover boundary.
 * **Normalization:** `normalize_sr` consumes the role-adjusted `support_levels` / `resistance_levels` and emits:
   * `SUPPORT_DEMAND_ZONE` (`LevelTest`, bullish) / `RESISTANCE_SUPPLY_ZONE` (`LevelTest`, bearish) on proximity (≤ 0.5%).
-  * `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` (`TrendFlip`) on RVOL-confirmed breaks.
+  * `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` (**`Breakout`**) on RVOL-confirmed breaks.
   * `STRUCTURE_NEUTRAL` otherwise.
 * **Scoring:** As a `directional` registry indicator, `support_resistance` contributes to the registry-driven confluence score (previously it reported `INACTIVE` because no levels were wired).
 * **Telemetry:** The `support_resistance` row in the Telemetry Monitor renders its live state, normalized value, confidence, and signal badges automatically.
+
+> **SignalKind classification (Issue 2.O — correction).** A previous version of this section incorrectly classified `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` as `TrendFlip` signals. Both `support_resistance` signals are **structurally `Breakout` events** — they fire when a candle closes decisively through an existing horizontal level, which is the canonical Breakout pattern in [05-02-04-breakout.md](../signals/05-02-04-breakout.md) and [04-02-00-indicator-index.md](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) §STRUCTURE. The indicator registry correctly lists `Breakout×2` for `support_resistance`; the §6 Signals table above also classifies them as `Breakout`. This §7 correction aligns the pipeline narrative with the canonical classification. Note also that [05-02-09-trend-flip.md §2](../signals/05-02-09-trend-flip.md) does **not** list `support_resistance` as a TrendFlip producer.
 

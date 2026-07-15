@@ -24,7 +24,11 @@ pub struct ContextDimension {
 
 impl ContextDimension {
     fn neutral() -> Self {
-        Self { score: 0.0, confidence: 0.0, label: "NEUTRAL".into() }
+        Self {
+            score: 0.0,
+            confidence: 0.0,
+            label: "NEUTRAL".into(),
+        }
     }
 }
 
@@ -44,10 +48,26 @@ pub struct MarketContext {
     pub overall_label: String,
 }
 
-fn dir_label(score: f64, strong: &str, weak: &str, bear_strong: &str, bear_weak: &str, neutral: &str) -> String {
-    if score >= 0.6 { strong } else if score >= 0.15 { weak }
-    else if score <= -0.6 { bear_strong } else if score <= -0.15 { bear_weak }
-    else { neutral }.to_string()
+fn dir_label(
+    score: f64,
+    strong: &str,
+    weak: &str,
+    bear_strong: &str,
+    bear_weak: &str,
+    neutral: &str,
+) -> String {
+    if score >= 0.6 {
+        strong
+    } else if score >= 0.15 {
+        weak
+    } else if score <= -0.6 {
+        bear_strong
+    } else if score <= -0.15 {
+        bear_weak
+    } else {
+        neutral
+    }
+    .to_string()
 }
 
 /// Aggregate the enabled directional indicators of a functional group into a
@@ -81,7 +101,14 @@ fn group_dimension(
     ContextDimension {
         score,
         confidence,
-        label: dir_label(score, "STRONG_BULL", "BULL", "STRONG_BEAR", "BEAR", "NEUTRAL"),
+        label: dir_label(
+            score,
+            "STRONG_BULL",
+            "BULL",
+            "STRONG_BEAR",
+            "BEAR",
+            "NEUTRAL",
+        ),
     }
 }
 
@@ -97,22 +124,33 @@ impl MarketContext {
         let volatility = ContextDimension {
             score: vol_score,
             confidence: (bbwp / 100.0).clamp(0.0, 1.0),
-            label: if bbwp >= 90.0 { "EXPANSION_CLIMAX".into() }
-                else if bbwp >= 60.0 { "EXPANDING".into() }
-                else if bbwp <= 10.0 { "MAX_COMPRESSION".into() }
-                else if bbwp <= 30.0 { "CONTRACTING".into() }
-                else { "NORMAL".into() },
+            label: if bbwp >= 90.0 {
+                "EXPANSION_CLIMAX".into()
+            } else if bbwp >= 60.0 {
+                "EXPANDING".into()
+            } else if bbwp <= 10.0 {
+                "MAX_COMPRESSION".into()
+            } else if bbwp <= 30.0 {
+                "CONTRACTING".into()
+            } else {
+                "NORMAL".into()
+            },
         };
 
         // Volume/participation: RVOL magnitude gate.
         let rvol = map.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
         let volume = ContextDimension {
-            score: ((rvol - 1.0)).clamp(-1.0, 1.0),
+            score: (rvol - 1.0).clamp(-1.0, 1.0),
             confidence: (rvol / 3.0).clamp(0.0, 1.0),
-            label: if rvol >= 3.0 { "CLIMACTIC".into() }
-                else if rvol >= 1.5 { "HIGH".into() }
-                else if rvol < 0.7 { "THIN".into() }
-                else { "NORMAL".into() },
+            label: if rvol >= 3.0 {
+                "CLIMACTIC".into()
+            } else if rvol >= 1.5 {
+                "HIGH".into()
+            } else if rvol < 0.7 {
+                "THIN".into()
+            } else {
+                "NORMAL".into()
+            },
         };
 
         // Liquidity proxy: VWAP proximity + volume participation.
@@ -120,7 +158,13 @@ impl MarketContext {
         let liquidity = ContextDimension {
             score: 0.0,
             confidence: ((vwap_conf + volume.confidence) / 2.0).clamp(0.0, 1.0),
-            label: if rvol >= 1.2 { "GOOD".into() } else if rvol < 0.6 { "LOW".into() } else { "ADEQUATE".into() },
+            label: if rvol >= 1.2 {
+                "GOOD".into()
+            } else if rvol < 0.6 {
+                "LOW".into()
+            } else {
+                "ADEQUATE".into()
+            },
         };
 
         // Regime from ADX strength + BBWP compression + trend agreement.
@@ -146,7 +190,14 @@ impl MarketContext {
         };
         let blended = (trend.score * 0.6 + momentum.score * 0.4) * regime_gate;
         let overall_score = (blended * 100.0).round() as i32;
-        let overall_label = dir_label(blended, "STRONG_BULL", "WEAK_BULL", "STRONG_BEAR", "WEAK_BEAR", "NEUTRAL");
+        let overall_label = dir_label(
+            blended,
+            "STRONG_BULL",
+            "WEAK_BULL",
+            "STRONG_BEAR",
+            "WEAK_BEAR",
+            "NEUTRAL",
+        );
 
         Self {
             trend,

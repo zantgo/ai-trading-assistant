@@ -28,8 +28,8 @@ pub use queries::snapshots::{
     query_indicator_snapshots, query_latest_snapshot, query_recent_candles, IndicatorSnapshotRow,
 };
 pub use queries::stats::{
-    dash_trade_detail, dash_trade_timestamps, get_daily_pnl,
-    query_all_closed_trades, ClosedTradeRow, TradeDetailRow,
+    dash_trade_detail, dash_trade_timestamps, get_daily_pnl, query_all_closed_trades,
+    ClosedTradeRow, TradeDetailRow,
 };
 pub use queries::trades::{
     insert_user_trade, query_user_trades, trade_telemetry_count, trade_telemetry_insert,

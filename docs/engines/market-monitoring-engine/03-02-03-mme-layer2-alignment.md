@@ -39,9 +39,11 @@ The layer collects one `MarketContext` per active timeframe (re-synthesized from
 
 Higher timeframes carry more weight in the consensus:
 
-$$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{macro\_duration\_seconds}},\ 0.2,\ 1.0\right)$$
+$$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the session's active Macro timeframe duration (`macro_timeframe.duration_seconds`), so the Macro tier always weights `1.0` regardless of the configured candle sizes.
+The divisor is the session's **slowest enabled tier's duration** (see [Timeframe Model §4](../../conceptual-foundations/01-04-timeframe-model.md) and [Alignment Matrix §4.1](../../matrices/02-01-alignment-matrix.md)). The slowest active tier always weights `1.0`; shorter tiers scale down proportionally, regardless of which tier is active. This is dynamic rather than the fixed `900 s` constant so custom sessions (e.g. macro = 1 d, or `macro_timeframe.enabled = false`) retain a proper hierarchy.
+
+**Divisor rule (Issue 4.N — correction):** `divisor = max({duration_seconds for tier in enabled_tiers})`.
 
 Signed consensus for trend/momentum/volume/volatility:
 

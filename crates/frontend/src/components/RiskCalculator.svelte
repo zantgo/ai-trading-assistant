@@ -33,15 +33,23 @@
         }
     });
 
-    function formatUsd(v: number | undefined | null): string {
-        if (v == null || isNaN(v)) return '$0.00';
-        return '$' + v.toFixed(2);
+    function formatUsd(v: string | number | undefined | null): string {
+        const n = typeof v === 'string' ? parseFloat(v) : v;
+        if (n == null || isNaN(n)) return '$0.00';
+        return '$' + n.toFixed(2);
     }
 
     // Price-scaled USD formatter for price-level fields (entry/SL/TP/liq).
-    function formatPx(v: number | undefined | null): string {
-        if (v == null || isNaN(v)) return '$0.00';
-        return '$' + fmtPrice(v, refPrice);
+    function formatPx(v: string | number | undefined | null): string {
+        const n = typeof v === 'string' ? parseFloat(v) : v;
+        if (n == null || isNaN(n)) return '$0.00';
+        return '$' + fmtPrice(n, refPrice);
+    }
+
+    function formatDecimal(v: string | number | undefined | null, digits: number): string {
+        const n = typeof v === 'string' ? parseFloat(v) : v;
+        if (n == null || isNaN(n)) return '0';
+        return n.toFixed(digits);
     }
 </script>
 
@@ -81,13 +89,13 @@
                     <label class={styles.rcLabel} for="rc-capital">ACCOUNT CAPITAL</label>
                     <div class={styles.rcInputWrap}>
                         <span class={styles.rcInputPrefix}>$</span>
-                        <input id="rc-capital" type="number" class={styles.rcFieldInput} value={profile.capital} readonly />
+                        <input id="rc-capital" type="number" class={styles.rcFieldInput} value={parseFloat(profile.capital) || 0} readonly />
                     </div>
                 </div>
                 <div class={styles.rcFieldRow}>
                     <label class={styles.rcLabel} for="rc-maxrisk">MAX RISK %</label>
                     <div class={styles.rcInputWrap}>
-                        <input id="rc-maxrisk" type="number" class={styles.rcFieldInput} value={profile.max_risk_pct} readonly />
+                        <input id="rc-maxrisk" type="number" class={styles.rcFieldInput} value={parseFloat(profile.max_risk_pct) || 0} readonly />
                         <span class={styles.rcInputSuffix}>%</span>
                     </div>
                 </div>
@@ -142,7 +150,7 @@
                 <div class={styles.rcFieldRow}>
                     <!-- svelte-ignore a11y_label_has_associated_control -->
                     <label class={styles.rcLabel}>RISK/REWARD RATIO</label>
-                    <span class={styles.rcStaticVal}>1 : {app.riskCalculation?.risk_reward_ratio != null ? app.riskCalculation!.risk_reward_ratio!.toFixed(2) : '--'}</span>
+                    <span class={styles.rcStaticVal}>1 : {app.riskCalculation?.risk_reward_ratio != null ? formatDecimal(app.riskCalculation!.risk_reward_ratio!, 2) : '--'}</span>
                 </div>
                 <div class={styles.rcFieldRow}>
                     <!-- svelte-ignore a11y_label_has_associated_control -->
@@ -157,14 +165,14 @@
                 <div class={styles.rcFieldRow}>
                     <label class={styles.rcLabel} for="rc-commission">COMMISSION %</label>
                     <div class={styles.rcInputWrap}>
-                        <input id="rc-commission" type="number" step="any" class={styles.rcFieldInput} value={profile.commission_pct} readonly />
+                        <input id="rc-commission" type="number" step="any" class={styles.rcFieldInput} value={parseFloat(profile.commission_pct) || 0} readonly />
                         <span class={styles.rcInputSuffix}>%</span>
                     </div>
                 </div>
                 <div class={styles.rcFieldRow}>
                     <label class={styles.rcLabel} for="rc-funding">FUNDING RATE (8H)</label>
                     <div class={styles.rcInputWrap}>
-                        <input id="rc-funding" type="number" step="any" class={styles.rcFieldInput} value={profile.funding_rate_8h} readonly />
+                        <input id="rc-funding" type="number" step="any" class={styles.rcFieldInput} value={parseFloat(profile.funding_rate_8h) || 0} readonly />
                         <span class={styles.rcInputSuffix}>%</span>
                     </div>
                 </div>
@@ -172,7 +180,7 @@
                     <label class={styles.rcLabel} for="rc-spread">SPREAD</label>
                     <div class={styles.rcInputWrap}>
                         <span class={styles.rcInputPrefix}>$</span>
-                        <input id="rc-spread" type="number" step="any" class={styles.rcFieldInput} value={profile.spread} readonly />
+                        <input id="rc-spread" type="number" step="any" class={styles.rcFieldInput} value={parseFloat(profile.spread) || 0} readonly />
                     </div>
                 </div>
             </div>
@@ -191,7 +199,7 @@
                         </div>
                         <div class={styles.rcResultItem}>
                             <span class={styles.rcResultLabel}>Position Size</span>
-                            <span class={styles.rcResultValue}>{app.riskCalculation.position_size_units.toFixed(6)}</span>
+                            <span class={styles.rcResultValue}>{formatDecimal(app.riskCalculation.position_size_units, 6)}</span>
                         </div>
                         <div class={styles.rcResultItem}>
                             <span class={styles.rcResultLabel}>Notional Value</span>
@@ -199,7 +207,7 @@
                         </div>
                         <div class={styles.rcResultItem}>
                             <span class={styles.rcResultLabel}>Leverage Required</span>
-                            <span class={styles.rcResultValue}>{app.riskCalculation.leverage_required.toFixed(2)}x</span>
+                            <span class={styles.rcResultValue}>{formatDecimal(app.riskCalculation.leverage_required, 2)}x</span>
                         </div>
                         <div class={styles.rcResultItem}>
                             <span class={styles.rcResultLabel}>Required Margin</span>
@@ -215,7 +223,7 @@
                         </div>
                         <div class={styles.rcResultItem}>
                             <span class={styles.rcResultLabel}>Net PnL</span>
-                            <span class="{styles.rcResultValue} {app.riskCalculation.net_pnl > 0 ? styles.rcPnlPos : ''} {app.riskCalculation.net_pnl < 0 ? styles.rcPnlNeg : ''}">
+                            <span class="{styles.rcResultValue} {parseFloat(app.riskCalculation.net_pnl) > 0 ? styles.rcPnlPos : ''} {parseFloat(app.riskCalculation.net_pnl) < 0 ? styles.rcPnlNeg : ''}">
                                 {formatUsd(app.riskCalculation.net_pnl)}
                             </span>
                         </div>

@@ -16,7 +16,7 @@
 | 04 | **Breakout** | Price breaks a structural boundary (channel, Donchian, Keltner, Bollinger). Stateful — persists as expansion state. | [05-02-04-breakout.md](05-02-04-breakout.md) |
 | 05 | **BandTouch** | Price contacts a channel/band edge (Bollinger, Donchian, Keltner). Stateful — remains while contact holds. | [05-02-05-band-touch.md](05-02-05-band-touch.md) |
 | 06 | **ZeroLineCross** | An oscillator crosses its zero/mid line (RSI 50, MACD 0, CCI 0, etc.). Momentary — fires on the transition bar only. | [05-02-06-zero-line-cross.md](05-02-06-zero-line-cross.md) |
-| 07 | **CompressionRelease** | A volatility squeeze fires (TTM Squeeze, BBWP, Choppiness, ATR). Stateful — subsequent expansion is tracked as `Active` with `age_bars`. | [05-02-07-compression-release.md](05-02-07-compression-release.md) |
+| 07 | **VolatilityCycle** | A volatility cycle phase transition (TTM Squeeze, BBWP, Choppiness, ATR). Stateful — covers the full cycle (compression/coiling + release/expansion). | [05-02-07-volatility-cycle.md](05-02-07-volatility-cycle.md) |
 | 08 | **LevelTest** | Price tests a horizontal level (S/R, Fibonacci, pivot, VWAP, order blocks). Stateful — persists while in proximity. | [05-02-08-level-test.md](05-02-08-level-test.md) |
 | 09 | **TrendFlip** | A directional regime reverses (Supertrend, PSAR, OBV trend, Aroon cross). Stateful — persists as `Active` with `age_bars` for the regime. | [05-02-09-trend-flip.md](05-02-09-trend-flip.md) |
 | 10 | **VolumeClimax** | Abnormal volume surge (triggered by Volume and RVOL indicators). Momentary — fires on the climax bar only. | [05-02-10-volume-climax.md](05-02-10-volume-climax.md) |
@@ -46,7 +46,7 @@ first detection ──► POTENTIAL ──(confirming condition)──► CONFIR
 | Class | SignalKinds | Lifecycle |
 |-------|-------------|-----------|
 | **Momentary** | `Crossover`, `ZeroLineCross`, `StackChange`, `VolumeClimax` | Fire on the **transition bar only** (`age_bars = 0`), then expire — they never persist as `ACTIVE`. Continuity is carried by the parent indicator's `state_label` (e.g. the resulting stack/momentum regime), not by an ageing signal. This prevents double-counting a one-off transition as a standing zone. |
-| **Stateful** | `Threshold`, `Breakout`, `BandTouch`, `LevelTest`, `CompressionRelease`, `PatternForming`, `Divergence`, `TrendFlip` | May persist in `ACTIVE` across bars with incrementing `age_bars`. A young instance is a fresh event; an aged one is standing context. |
+| **Stateful** | `Threshold`, `Breakout`, `BandTouch`, `LevelTest`, `VolatilityCycle`, `PatternForming`, `Divergence`, `TrendFlip` | May persist in `ACTIVE` across bars with incrementing `age_bars`. A young instance is a fresh event; an aged one is standing context. |
 
 > **Note on `TrendFlip`:** although the *flip event* is instantaneous, the resulting trend regime is inherently stateful, so `TrendFlip` persists as `Active` with `age_bars` counting bars since the flip (a young flip = high-priority reversal alert; an aged flip = trend context). It is therefore classified **stateful**, not momentary.
 >
@@ -63,8 +63,8 @@ Every signal is an `IndicatorSignal` nested inside its parent indicator's `signa
   "raw_value": 28.5,
   "normalized": 1.0,
   "signals": [
-    { "kind": "Divergence", "direction": "Bullish", "status": "Confirmed", "label": "CONFIRMED_BULLISH_DIVERGENCE", "strength": 1.0, "age_bars": 0 },
-    { "kind": "Threshold", "direction": "Bullish", "status": "Active", "label": "OVERSOLD", "strength": 0.0, "age_bars": 3 }
+    { "kind": "Divergence", "direction": "BULLISH", "status": "CONFIRMED", "label": "BULLISH_DIVERGENCE", "strength": 1.0, "age_bars": 0 },
+    { "kind": "THRESHOLD", "direction": "BULLISH", "status": "ACTIVE", "label": "OVERSOLD", "strength": 0.0, "age_bars": 3 }
   ]
 }
 ```

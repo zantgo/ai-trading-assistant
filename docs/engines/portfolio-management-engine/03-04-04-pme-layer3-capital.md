@@ -31,20 +31,20 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 | Field | Type | Description |
 |-------|------|-------------|
 | `initial_balance` | `Decimal` | Starting capital at session initiation. |
-| `current_equity` | `Decimal` | `initial_balance + realized_pnl + unrealized_pnl`. |
-| `available_margin` | `Decimal` | Liquid capital available for new position initiation. |
+| `current_equity` | `Decimal` | `initial_balance + realized_pnl + unrealized_pnl` (**canonical**, single definition). |
+| `available_margin` | `Decimal` | Liquid capital available for new position initiation (formula in §4.2). |
 | `committed_margin` | `Decimal` | Total margin locked by active positions. |
-| `realized_pnl` | `Decimal` | Cumulative PnL from closed trades. |
+| `realized_pnl` | `Decimal` | Cumulative PnL from closed trades. **Net of fees and funding** — fees and funding costs are deducted at the fill level, never separately. |
 | `unrealized_pnl` | `Decimal` | Aggregate unrealized PnL from all active positions. |
 
 ### 2.2 Risk Metrics
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `margin_usage_ratio` | `Decimal` | Percentage of total equity committed to maintenance/initial margin. |
-| `leverage_ratio` | `Decimal` | `gross_exposure / current_equity`. |
-| `max_daily_drawdown_pct` | `Decimal` | Maximum peak-to-trough equity decline in the current session. |
-| `current_daily_pnl` | `Decimal` | Equity change since session start. |
+| `margin_usage_ratio` | `Decimal` | Fraction of total equity committed to maintenance/initial margin, in `[0, 1]`. Multiply by 100 for human-readable display. |
+| `leverage_ratio` | `Decimal` | `gross_exposure / current_equity` (fraction, `[0, ∞)`). |
+| `max_daily_drawdown_pct` | `Decimal` | **Configuration limit** — the operator-set early-warning threshold (default 0.05 i.e. 5%). Distinguished from the live metric `daily_drawdown_pct` computed at runtime. Triggers `safety_state = WARN` (no stance change) when the live metric crosses the configured limit; see [03-04-05-pme-layer4-portfolio.md §3](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
+| `daily_pnl` | `Decimal` | Equity change since session start (the **live metric**; corresponds to the older name `current_daily_pnl`). Used for WARN evaluation as `daily_pnl / starting_session_equity`. |
 
 ---
 
@@ -52,7 +52,9 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 
 The Capital Layer maintains a continuous equity time-series:
 
-$$\text{current\_equity} = \text{initial\_balance} + \sum \text{realized\_pnl} + \sum \text{unrealized\_pnl} - \sum \text{fees}$$
+$$\text{current\_equity} = \text{initial\_balance} + \text{realized\_pnl} + \text{unrealized\_pnl}$$
+
+> **Canonical convention.** `realized_pnl` is **net of fees and funding** (fees are deducted at the fill level, never separately). This is the **single canonical** equity formula used everywhere in the corpus; do **not** introduce alternate forms with explicit `-fees` terms, which would double-count.
 
 Equity snapshots are persisted every 60 seconds to `portfolio_equity_history` for drawdown analysis and performance metrics (see [PAE Layer 3 — Risk Analytics](../performance-analytics-engine/03-05-04-pae-layer3-risk-analytics.md)).
 
@@ -70,9 +72,28 @@ $$\text{margin\_usage\_ratio} = \frac{\text{committed\_margin}}{\text{current\_e
 
 ### 4.2 Available Margin
 
-$$\text{available\_margin} = \text{current\_equity} - \text{committed\_margin}$$
+$$\text{available\_margin} = (\text{initial\_balance} + \text{realized\_pnl} + \min(0,\ \text{unrealized\_pnl})) - \text{committed\_margin}$$
 
-This `available_margin` value is the `E` (available margin) supplied to the TAE Position Sizing Protocol — not `current_equity`, which includes unrealized PnL and is not spendable buying power.
+This is the canonical definition: **spendable buying power** includes realized gains/losses (via `realized_pnl`, already net of fees) and unrealized **losses** (via `min(0, unrealized_pnl)`) but **excludes** unrealized gains (which are not yet realised cash). Three protections are baked into this formula:
+
+1. **No phantom buying power from unrealized gains.** Adding only `min(0, unrealized_pnl)` (not the full `unrealized_pnl`) prevents the TAE from sizing new positions against floating gains that have not yet become cash.
+2. **No over-commitment during floating drawdowns.** `min(0, unrealized_pnl)` is negative during losses and shrinks `available_margin`, so a drawdown reduces spendable buying power — preventing the system from opening new positions that compound the loss.
+3. **Fees already netted.** Fees are deducted at the fill level (via `realized_pnl`); this formula does not subtract them again.
+
+This `available_margin` value is the `E` (available margin) supplied to the TAE Position Sizing Protocol. Note that it is **not** `current_equity`, which includes the full `unrealized_pnl` (gains and losses) and is not spendable buying power in the gain case.
+
+#### 4.2.1 Notation Summary (Equivalence Check)
+
+For downstream readers, the sizing-protocol `E` field **must never** be substituted with `current_equity`:
+
+| Symbol | Includes unrealized PnL? | Suitable as sizing `E`? |
+|---|---|---|
+| `current_equity` | **yes (full)** | **no** — floating gains are not spendable buying power |
+| `initial_balance` | n/a | yes, but ignores realized PnL |
+| `initial_balance + realized_pnl` | **no** | partial — ignores drawdowns |
+| `initial_balance + realized_pnl + min(0, unrealized_pnl) − committed_margin` | **losses only** | **yes — this is `available_margin`** |
+
+All definitions of `available_margin` across the corpus (this file §4.2, `03-03-03-tae-layer2-execution.md` §2, `01-02-global-architecture.md` §2.3, `01-03-systemic-data-flow.md` Sequence B, `08-02-pre-trade-risk-controls.md` Gate 3, `01-01-ontology.md` §3.21) refer to the same field computed via this formula.
 
 ---
 
@@ -90,13 +111,13 @@ All fees are configurable via `config.json` `fees`.
 
 ## 6. Liquidation Risk Monitoring
 
-The Capital Layer continuously monitors `margin_usage_ratio`:
+The Capital Layer continuously monitors `margin_usage_ratio` (fraction in `[0, 1]`):
 
 | Threshold | Action |
 |-----------|--------|
-| `margin_usage_ratio > 80%` | Warning published to Portfolio Layer (L4). |
-| `margin_usage_ratio > 95%` | Alert: automatic `CLOSE_ONLY` stance for all symbols. |
-| `margin_usage_ratio ≥ 100%` | Potential liquidation — emergency position reduction. |
+| `margin_usage_ratio > 0.80` | Warning published to Portfolio Layer (L4). |
+| `margin_usage_ratio > 0.95` | Alert: automatic `CLOSE_ONLY` stance for all symbols (see PME Layer 4 §4.1 for trigger-to-stance mapping). |
+| `margin_usage_ratio ≥ 1.00` | Potential liquidation — emergency position reduction (PME Veto triggers `AVOID` stance + Hard Exit path). |
 
 ---
 

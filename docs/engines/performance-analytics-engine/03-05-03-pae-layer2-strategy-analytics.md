@@ -31,7 +31,7 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 | `win_rate` | `f64` | `win_count / total_trades`. |
 | `gross_profit` | `Decimal` | Sum of all profitable trade net PnLs. |
 | `gross_loss` | `Decimal` | Sum of all losing trade net PnLs (absolute). |
-| `profit_factor` | `f64` | `gross_profit / gross_loss`. |
+| `profit_factor` | `f64` | `gross_profit / gross_loss` if `gross_loss > 0`, else `None` (serialized as `null` or omitted; all-winning session). When `gross_loss = 0` (no losing trades), the profit factor is mathematically undefined and is reported as "∞" or "N/A" in the GUI. |
 | `average_win` | `Decimal` | Mean net PnL of winning trades. |
 | `average_loss` | `Decimal` | Mean net PnL of losing trades. |
 | `avg_win_loss_ratio` | `f64` | `|average_win| / |average_loss|`. |
@@ -49,15 +49,26 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 
 ### 3.1 Null Hypothesis ($H_0$)
 
-$$H_0: \mu_{\text{returns}} = 0 \quad \text{(Strategy returns are indistinguishable from random noise)}$$
+The platform evaluates **positive edges** only — a strategy is considered "validated" if it produces a mean return that is statistically significantly **greater than zero**. The null and alternative hypotheses are therefore **one-tailed positive**:
 
-$$H_1: \mu_{\text{returns}} \neq 0 \quad \text{(Strategy generates a statistically significant edge)}$$
+$$H_0: \mu_{\text{returns}} \leq 0 \quad \text{(strategy returns are at most random — no positive edge)}$$
+
+$$H_1: \mu_{\text{returns}} > 0 \quad \text{(strategy generates a statistically significant positive edge)}$$
+
+> **One-tailed test (Issue 4.Q — correction).** A previous version of this section used the two-tailed form $H_0: \mu = 0, H_1: \mu \neq 0$. Under that formulation, a strategy with a *highly significant* **negative** return (a verified anti-edge) would reject $H_0$ (low $p$-value) but produce a Monte Carlo $p_{mc}$ near `1.0` (since the MC test is one-tailed on `≥ actual mean`). The combined `is_significant = p_value < 0.05 AND p_mc < 0.05` rule then collapses to `false` for a verified anti-edge — the platform simply does not trade negative edges. To keep the parametric and non-parametric tests aligned, both are now one-tailed in the **positive** direction:
+
+- The T-test reports its $p$-value from a **one-tailed** Student t-distribution: $p = 1 - \Phi_{t,n-1}(\bar{x} / (s/\sqrt{n}))$.
+- The Monte Carlo test counts samples where randomized mean $\geq$ actual mean (unchanged — already correct).
+
+The `is_significant` flag therefore evaluates `p_value < 0.05 AND p_mc < 0.05` on aligned one-tailed tests; a strategy with significant positive edge sets `is_significant = true`; a strategy with zero or negative edge keeps `is_significant = false` regardless of $p$-value symmetry.
 
 ### 3.2 T-Statistic
 
 $$t = \frac{\bar{x} - 0}{s / \sqrt{n}}$$
 
 where $\bar{x}$ = mean trade return, $s$ = standard deviation of returns, $n$ = number of trades.
+
+The associated **one-tailed** $p$-value is $p = 1 - \Phi_{t,\,n-1}(t)$, where $\Phi_{t,\,n-1}$ is the CDF of the Student t-distribution with $n-1$ degrees of freedom. (A previous two-tailed version would have used $p = 2 \cdot (1 - \Phi_{t,\,n-1}(|t|))$; the one-tailed form is consistent with the positive-edge null hypothesis in §3.1.)
 
 ### 3.3 Monte Carlo Sign-Randomization Testing
 

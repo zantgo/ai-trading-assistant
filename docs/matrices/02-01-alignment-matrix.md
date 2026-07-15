@@ -80,7 +80,7 @@ The `dimensions` array is ordered. Each index maps to a specific agreement axis:
 | 4 | **Structure** | S/R role agreement | % of TFs whose support/resistance label agrees. |
 | 5 | **Signal** | Cross-TF signal confluence | % of signals appearing in ≥2 TFs. |
 | 6 | **Regime** | Regime-classification agreement | % of TFs sharing the dominant regime. |
-| 7 | **Confidence** | Confidence consistency | `100 − stddev` of per-TF confidence scores. |
+| 7 | **Confidence** | Confidence consistency | `100 − sample_stddev(per_tf_confidence_scores)` (Bessel-corrected sample standard deviation). For N ≤ 2 timeframes, sample stddev is undefined and confidence defaults to the mean per-TF confidence score. |
 | 8 | **Liquidity** | RVOL consistency | `(1 − coefficient_of_variation)` of RVOL across TFs. |
 | 9 | **Tradability** | Cross-timeframe tradability agreement | % of TFs with non-neutral bias and non-compressed regime. *(Renamed from "Opportunity" in the institutional redesign — the L4 Opportunity Matrix is the canonical owner of opportunity concepts; this dimension measures TFs agreeing on whether conditions are tradable.)* |
 
@@ -105,9 +105,11 @@ For signed dimensions (Trend/Momentum/Volume/Volatility), the score is derived f
 
 Each contributing timeframe is weighted by its duration, favouring higher timeframes:
 
-$$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{macro\_duration\_seconds}},\ 0.2,\ 1.0\right)$$
+$$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0.2,\ 1.0\right)$$
 
-The divisor is the session's active Macro timeframe duration (`macro_timeframe.duration_seconds`) — dynamic, not the fixed 900 s constant — so custom sessions (e.g. macro = 1 d) retain a proper hierarchy instead of clamping every tier to `1.0`.
+The divisor is the session's **slowest enabled** tier's duration (see [Timeframe Model §4](../conceptual-foundations/01-04-timeframe-model.md)). The slowest tier always weights `1.0`; shorter tiers scale down proportionally. This is dynamic rather than the fixed `900 s` constant so custom sessions (e.g. macro = 1 d, or `macro_timeframe.enabled = false`) retain a proper hierarchy instead of clamping the slowest active tier to `1.0` (or, with the bug-fixed rule, leaving an inactive macro as the divisor with no active tier above the clamp ceiling).
+
+**Divisor rule:** `divisor = max({duration_seconds for tier in enabled_tiers})`. With default durations (micro=60, fast=180, slow=300, macro=900, all enabled): `divisor = 900 s`.
 
 The weighted consensus for a dimension is:
 

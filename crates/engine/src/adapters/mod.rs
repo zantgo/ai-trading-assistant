@@ -1,7 +1,9 @@
-pub mod hyperliquid;
-pub mod hyperliquid_rest;
 pub mod bitget;
+pub mod bitget_derivatives;
 pub mod bitget_rest;
 pub mod hl_derivatives_poller;
-pub mod bitget_derivatives;
+pub mod hyperliquid;
+pub mod hyperliquid_rest;
+pub mod reconstruction;
+pub mod resilience;
 pub use hyperliquid::HyperliquidAdapter;

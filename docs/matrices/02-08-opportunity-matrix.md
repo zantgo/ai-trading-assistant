@@ -41,7 +41,7 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `entry_zone` | `PriceRange` | Recommended entry band. *(Added in the institutional redesign — institutional quant field.)* |
 | `target_zone` | `PriceRange` | Expected target band. *(Added in the institutional redesign.)* |
 | `invalid_level` | `Decimal` | Structural invalidation price. *(Added in the institutional redesign.)* |
-| `expected_rr` | `f64` | Expected reward/risk ratio for this setup. *(Added in the institutional redesign.)* |
+| `expected_rr_internal` | `f64` | Expected reward/risk ratio for this setup. Internal L4 value used by the L6 Decision Matrix's `expected_reward_risk_ratio` synthesis. *(Renamed from `expected_rr` in v2.1 for clarity — see TN-06.)* |
 | `time_horizon` | `TimeHorizon` | Expected holding period: `INTRADAY` / `SWING` / `POSITION`. *(Added in the institutional redesign.)* |
 
 #### 2.1.1 PriceRange
@@ -51,9 +51,18 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `low` | `Decimal` | Lower price bound. |
 | `high` | `Decimal` | Upper price bound. |
 
-#### 2.1.2 TimeHorizon
+#### 2.1.2 TimeHorizon & Update Cadence (L6)
 
-`INTRADAY` (held for minutes to hours) / `SWING` (held for days) / `POSITION` (held for weeks). Drives the cadence at which the Decision Layer's `exit_guidance` is updated.
+`INTRADAY` (held for minutes to hours) / `SWING` (held for days) / `POSITION` (held for weeks). Drives the cadence at which the Decision Layer's `exit_guidance` is updated. The full TimeHorizon enum is `SCALP` / `INTRADAY` / `SWING` / `POSITION`. Cadence by TimeHorizon:
+
+| `TimeHorizon` | Update cadence | Rationale |
+|---------------|----------------|-----------|
+| `SCALP` | Every tick | Sub-minute setups need tick-level response. |
+| `INTRADAY` | Every completed candle | Hourly setups re-evaluated at each candle close. |
+| `SWING` | Every 5 completed candles | Multi-day setups re-evaluated less frequently. |
+| `POSITION` | Every 15 completed candles | Multi-week setups re-evaluated only on structural change. |
+
+The cadence is implemented as a debounced scheduler on the L6 Decision Layer (see [03-02-07-mme-layer6-decision-support.md §4.4](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md)), not as a wall-clock timer — every evaluation also re-runs when the upstream matrices change.
 
 ### 2.2 OpportunityProfile
 
@@ -69,7 +78,7 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 
 ## 3. Opportunity Types & Preconditions
 
-The `OpportunityType` enum is the **canonical home** of the setup selector (in the institutional redesign, this enum was removed from the Analysis Matrix and moved here, where it belongs as a forecast field). Six values:
+The `OpportunityType` enum is the **canonical home** of the setup selector (in the institutional redesign, this enum was removed from the Analysis Matrix and moved here, where it belongs as a forecast field). **Seven** values — the original six plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension ([01-05-liquidity-domain.md §Decision integration](../conceptual-foundations/01-05-liquidity-domain.md), [03-02-11-mme-liquidity-extension.md §Decision integration](../../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md)):
 
 | OpportunityType | Precondition Signature |
 |-----------------|------------------------|
@@ -78,7 +87,8 @@ The `OpportunityType` enum is the **canonical home** of the setup selector (in t
 | `Pullback` | Established trend (dim ≥ 60) + weakening momentum + price retracing toward a dynamic level. |
 | `MeanReversion` | Volatility compression (dim ≤ 30) + range regime + oscillator extreme. |
 | `Reversal` | Confirmed divergence + structure break + momentum reversing. |
-| `NoClearOpportunity` | Opportunity dimension < 30 or conflicting evidence. |
+| `LiquiditySqueeze` | Force-liquidation cascade is imminent or in progress. Reads L1.5 `LiquidityFlow.cascade_state ∈ {Detected, Sustained}` AND `LiquidationClusterMatrix.cascade_asymmetry` has `|asymmetry| > 0.3` (cluster forward-pressure present). Regime context must be `EXPANSION` or `TRANSITION` (not a flat range). Maps to a defensive opportunity — the platform tracks the cascade flow and triggers reduce-only / protective-tightening policies. |
+| `NoClearOpportunity` | Opportunity dimension < 30 or conflicting evidence (and no `LiquiditySqueeze` precondition active). |
 
 ---
 
@@ -88,16 +98,30 @@ The Opportunity Layer applies the following decision tree (priority 1 → 6, fir
 
 ```
 # Priority order (first match wins):
-1. trend ≥ 75 AND bias bullish                                     → TREND_CONTINUATION
+0. cascade_state ∈ {Detected, Sustained} AND |cascade_asymmetry| > 0.3 AND regime ∈ {EXPANSION, TRANSITION}  → LIQUIDITY_SQUEEZE
+1. trend ≥ 75 AND (bias == BULLISH OR bias == STRONG_BULLISH) AND momentum_assessment NOT IN {EXHAUSTED, REVERSING}  → TREND_CONTINUATION
+1b. trend ≥ 75 AND (bias == BEARISH OR bias == STRONG_BEARISH) AND momentum_assessment NOT IN {EXHAUSTED, REVERSING}  → TREND_CONTINUATION (bearish continuation)
 2. volatility ≥ 70 AND structure ≥ 60                              → BREAKOUT
 3. confirmed_divergence AND structure_broken AND momentum_exhausted → REVERSAL
 4. trend ≥ 60 AND momentum weakening                              → PULLBACK
 5. volatility ≤ 30                                                → MEAN_REVERSION
-6. opportunity_dim < 30                                           → NO_CLEAR_OPPORTUNITY
+6. tradability_dim < 30                                           → NO_CLEAR_OPPORTUNITY
 7. otherwise (default)                                             → TREND_CONTINUATION
 ```
 
-Where `confirmed_divergence` is true when at least one `Divergence` indicator signal has reached `status = CONFIRMED` ([Metrics Matrix §4.2](02-07-metrics-matrix.md)), `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40, and `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25. All six values of `OpportunityType` are reachable via the explicit branches; the `ELSE` (priority 7) is a defensive default that may also resolve to `TREND_CONTINUATION`.
+Where `confirmed_divergence` is true when at least one `Divergence` indicator signal has reached `status = CONFIRMED` ([Metrics Matrix §4.2](02-07-metrics-matrix.md)), `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40, and `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25. All **seven** values of `OpportunityType` (including `LiquiditySqueeze`) are reachable via the explicit branches; the `ELSE` (priority 7) is a defensive default that may also resolve to `TREND_CONTINUATION`.
+
+> **Direction-neutrality (v2.1).** Rule 1 previously read `trend ≥ 75 AND bias bullish` which violated the direction-neutral contract of the Opportunity Matrix (a strong bearish trend would not match and would fall through to the default). The corrected rule is symmetric: it accepts both `BULLISH`/`STRONG_BULLISH` and `BEARISH`/`STRONG_BEARISH` bias and produces a directional `TREND_CONTINUATION` either way. The Direction Matrix owns the actual long/short decision.
+>
+> **`tradability_dim` (v2.1).** Rule 6 was previously `opportunity_dim < 30`. The Alignment Matrix dimension 9 was renamed from `opportunity_dim` to `tradability_dim` in the institutional redesign to disambiguate from the L4 Opportunity Matrix (L4 owns opportunity concepts; dimension 9 measures TFs agreeing on tradability).
+
+| SetupQuality | `opportunity_score` | Interpretation |
+|--------------|---------------------|----------------|
+| `Prime` | **> 85** | High-conviction configuration, all key preconditions met. |
+| `Strong` | **> 70 AND ≤ 85** | Robust setup with minor gaps. |
+| `Moderate` | **> 50 AND ≤ 70** | Tradable but requires confirmation. |
+| `Marginal` | **> 30 AND ≤ 50** | Weak edge; confluence-only. |
+| `None` | **≤ 30** | No actionable opportunity. |
 
 Each profile records a `preconditions_met / preconditions_total` fraction, providing an explainable basis for its score.
 
@@ -109,11 +133,11 @@ The categorical `setup_quality` buckets the `opportunity_score`:
 
 | SetupQuality | `opportunity_score` | Interpretation |
 |--------------|---------------------|----------------|
-| `Prime` | `≥ 85` | High-conviction configuration, all key preconditions met. |
-| `Strong` | `70 … 85` | Robust setup with minor gaps. |
-| `Moderate` | `50 … 70` | Tradable but requires confirmation. |
-| `Marginal` | `30 … 50` | Weak edge; confluence-only. |
-| `None` | `< 30` | No actionable opportunity. |
+| `Prime` | `> 85` | High-conviction configuration, all key preconditions met. |
+| `Strong` | `> 70 AND ≤ 85` | Robust setup with minor gaps. |
+| `Moderate` | `> 50 AND ≤ 70` | Tradable but requires confirmation. |
+| `Marginal` | `> 30 AND ≤ 50` | Weak edge; confluence-only. |
+| `None` | `≤ 30` | No actionable opportunity. |
 
 ---
 
@@ -130,7 +154,7 @@ $$\text{score} = 0.35\,Q_{ctx} + 0.30\,S_{sig} + 0.20\,A_{mtf} + 0.15\,F_{fresh}
 | MTF agreement | `A_mtf` | Alignment `trend_agreement_pct` for directional setups. |
 | Freshness | `F_fresh` | Inverse of the youngest contributing signal's `age_bars`. |
 
-The primary opportunity is the profile with the highest score; ties resolve toward the highest-precondition-satisfaction profile.
+The primary opportunity is determined by the **priority-ordered decision tree in §4** (first match wins). The `opportunity_score` and `profiles[]` array expose the full scoring breakdown for downstream consumers but do **not** override the tree selection. In a tie, the profile with the higher `preconditions_met / preconditions_total` ratio wins.
 
 ---
 
@@ -158,7 +182,7 @@ A representative Opportunity Matrix frame. The example illustrates the JSON shap
   "entry_zone":  { "low": "64000.0", "high": "64200.0" },
   "target_zone": { "low": "65500.0", "high": "66000.0" },
   "invalid_level": "63850.0",
-  "expected_rr": 2.5,
+  "expected_rr_internal": 2.5,
   "time_horizon": "SWING"
 }
 ```

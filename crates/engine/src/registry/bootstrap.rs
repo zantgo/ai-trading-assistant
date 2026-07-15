@@ -1,6 +1,6 @@
+use sqlx::SqlitePool;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
-use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
 use crate::analyzer;

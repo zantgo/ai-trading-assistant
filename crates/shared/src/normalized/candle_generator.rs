@@ -1,6 +1,6 @@
-use super::{NormalizedCandle, NormalizedTrade};
 #[cfg(test)]
 use super::{Exchange, TradeSide};
+use super::{NormalizedCandle, NormalizedTrade};
 use rust_decimal::Decimal;
 
 pub struct CandleGenerator {
@@ -88,6 +88,7 @@ impl CandleGenerator {
             close: self.current_close,
             volume: self.current_volume,
             trades_count: self.current_trades,
+            reconstructed: None,
         }
     }
 }

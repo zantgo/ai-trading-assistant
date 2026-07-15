@@ -53,11 +53,7 @@ async fn handle_ws_socket(
                         }),
                     );
                     if let Ok(json_str) = serde_json::to_string(&notif) {
-                        if socket
-                            .send(AxumMessage::Text(json_str))
-                            .await
-                            .is_err()
-                        {
+                        if socket.send(AxumMessage::Text(json_str)).await.is_err() {
                             break;
                         }
                     }

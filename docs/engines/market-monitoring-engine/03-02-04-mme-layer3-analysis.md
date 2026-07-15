@@ -30,25 +30,28 @@ Implementation: `crates/shared/src/analysis.rs::derive_analysis()`.
 
 ## 2. Continuous Bias Calculation
 
-The headline `market_bias_score` is the alignment `mtf_overall_score` (range `[-100, 100]`), interpreted as `[-1.0, +1.0]` after scaling. The categorical `MarketBias` buckets it:
+The headline `market_bias_score` is the alignment `mtf_overall_score` (range `[-100, 100]`), interpreted as `[-1.0, +1.0]` after scaling. The categorical `MarketBias` buckets it using **half-open intervals** (deterministic at every integer endpoint — no double-mapping):
 
-| `mtf_overall_score` | MarketBias |
-|---------------------|-----------|
+| `mtf_overall_score ∈ [-100, 100]` | MarketBias |
+|-----------------------------------|------------|
 | `> 40` | `STRONG_BULLISH` |
-| `20 … 40` | `BULLISH` |
-| `-20 … 20` | `NEUTRAL` |
-| `-40 … -20` | `BEARISH` |
+| `> 20 AND ≤ 40` | `BULLISH` |
+| `≥ -20 AND ≤ 20` | `NEUTRAL` |
+| `≥ -40 AND < -20` | `BEARISH` |
 | `< -40` | `STRONG_BEARISH` |
+
+> **Boundary precision (Issue 7.A — correction).** A previous version of this table used informal bands (`"20 … 40"`, `"-20 … 20"`) where exact integer endpoints (`score = 20.0`, `40.0`, etc.) were either double-mapped or undefined. The corrected table pins each band to a **half-open interval** so the same score never maps to two bands; the canonical derivation rule is in [02-02-analysis-matrix.md §3.1](../matrices/02-02-analysis-matrix.md).
 
 ### 2.1 Confidence Model
 
 ```
 base = |mtf_overall_score| / 100
+state_confidence = base
 +0.15 if trend_agreement_pct ≥ 75
 cap 0.5 if trend_agreement_pct < 50
 +0.10 if signal_cross_tf_count ≥ 3
 cap 0.5 if timeframes_present ≤ 1
-state_confidence = clamp(base, 0, 1)
+state_confidence = clamp(state_confidence, 0, 1)
 ```
 
 ---

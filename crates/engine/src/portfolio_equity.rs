@@ -67,13 +67,12 @@ async fn write_snapshot(pool: &SqlitePool, _state: &Arc<AppState>) {
         .as_millis() as i64;
 
     // No paper trading — equity snapshot tracks zero values for historical continuity
-    let total_cash: f64 = sqlx::query(
-        "SELECT COALESCE(SUM(current_cash), 0.0) FROM paper_balances",
-    )
-    .fetch_one(pool)
-    .await
-    .map(|r| r.get(0))
-    .unwrap_or(0.0);
+    let total_cash: f64 =
+        sqlx::query("SELECT COALESCE(SUM(current_cash), 0.0) FROM paper_balances")
+            .fetch_one(pool)
+            .await
+            .map(|r| r.get(0))
+            .unwrap_or(0.0);
 
     let total_value = total_cash;
     insert_equity_snapshot(pool, now_ms, total_value, total_cash, 0.0).await;
@@ -90,7 +89,7 @@ pub async fn run_portfolio_equity_logger(
         LOG_INTERVAL_SECS
     );
 
-        write_snapshot(&pool, &state).await;
+    write_snapshot(&pool, &state).await;
 
     let mut ticker = tokio::time::interval(tokio::time::Duration::from_secs(LOG_INTERVAL_SECS));
 
@@ -104,6 +103,6 @@ pub async fn run_portfolio_equity_logger(
             _ = ticker.tick() => {}
         }
 
-    write_snapshot(&pool, &state).await;
+        write_snapshot(&pool, &state).await;
     }
 }

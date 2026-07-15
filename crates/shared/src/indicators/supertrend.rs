@@ -37,7 +37,12 @@ impl Supertrend {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<SupertrendOutput> {
+    pub fn update(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<SupertrendOutput> {
         if self.period == 0 {
             return None;
         }
@@ -75,7 +80,11 @@ impl Supertrend {
             direction = if close >= hl2 { 1 } else { -1 };
         }
 
-        let line = if direction == 1 { final_lower } else { final_upper };
+        let line = if direction == 1 {
+            final_lower
+        } else {
+            final_upper
+        };
         let flipped = self.prev_close.is_some() && direction != self.prev_direction;
 
         self.prev_close = Some(close);
@@ -83,7 +92,11 @@ impl Supertrend {
         self.prev_final_lower = Some(final_lower);
         self.prev_direction = direction;
 
-        Some(SupertrendOutput { line, direction, flipped })
+        Some(SupertrendOutput {
+            line,
+            direction,
+            flipped,
+        })
     }
 }
 

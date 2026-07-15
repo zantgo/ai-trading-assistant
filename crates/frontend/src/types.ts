@@ -46,27 +46,32 @@ export interface DecisionScore {
 export interface RiskProfile {
     id: number;
     profile_name: string;
-    capital: number;
-    max_risk_pct: number;
+    /**
+     * Decimal fields are serialized as strings from the backend
+     * (`#[serde(with = "rust_decimal::serde::str")]`) to preserve full
+     * precision. Parse via `parseFloat()` or `new Decimal(value)` before use.
+     */
+    capital: string;
+    max_risk_pct: string;
     leverage: number;
-    commission_pct: number;
-    funding_rate_8h: number;
-    spread: number;
+    commission_pct: string;
+    funding_rate_8h: string;
+    spread: string;
 }
 
 export interface RiskCalculation {
-    risk_capital: number;
-    price_distance: number;
-    position_size_units: number;
-    position_notional: number;
-    leverage_required: number;
+    risk_capital: string;
+    price_distance: string;
+    position_size_units: string;
+    position_notional: string;
+    leverage_required: string;
     leverage_selected: number;
-    margin_required: number;
-    liquidation_price: number;
-    risk_reward_ratio: number | null;
-    estimated_profit: number;
-    total_fees: number;
-    net_pnl: number;
+    margin_required: string;
+    liquidation_price: string;
+    risk_reward_ratio: string | null;
+    estimated_profit: string;
+    total_fees: string;
+    net_pnl: string;
 }
 
 export interface FeeTableRow {
@@ -286,13 +291,10 @@ export interface RiskMatrix {
      * liquidation liquidity.
      */
     execution_liquidity_risk?: RiskDimension;
-    /** @deprecated kept for backward compatibility */
-    liquidity_risk?: RiskDimension;
     structure_risk: RiskDimension;
     momentum_risk: RiskDimension;
     signal_risk: RiskDimension;
     execution_risk: RiskDimension;
-    reward_risk: RiskDimension;
     /** Phase 3: cascade risk — danger from forced liquidation cascades. */
     cascade_risk?: RiskDimension;
     overall_risk: RiskDimension;
@@ -481,7 +483,7 @@ export interface TimeframeTelemetry {
 }
 
 /** All feature-panel view keys mountable inside an instance workspace. */
-export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'analysis' | 'advisory' | 'liquidity' | 'settings';
+export type CurrentView = 'terminal' | 'monitor' | 'alignment' | 'opportunity' | 'risk' | 'connection' | 'analysis' | 'advisory' | 'liquidity' | 'settings';
 
 export interface InstanceState {
     symbol: string;
@@ -621,4 +623,18 @@ export interface LiquiditySignal {
     strength: number;     // 0..100
     confidence: number;   // 0..1
     evidence: string[];
+}
+
+export type QualityWindow = 'one_hour' | 'six_hour' | 'twenty_four_hour';
+
+export interface ConnectionQualityReport {
+    window: QualityWindow;
+    window_start_ms: number;
+    window_end_ms: number;
+    uptime_pct: number;
+    disconnect_count: number;
+    avg_reconnect_ms: number;
+    total_data_loss_secs: number;
+    reconstructed_candles: number;
+    score: number;
 }

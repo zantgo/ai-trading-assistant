@@ -2,8 +2,8 @@ use engine::analyzer::{ActivePair, TimeframePipeline};
 use engine::config::AppConfig;
 use engine::config::FibonacciConfig;
 use engine::db;
-use engine::server::{self, AppState};
 use engine::instance::TimeframeBuffers;
+use engine::server::{self, AppState};
 use engine::sr_engine::SrRoleTracker;
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
@@ -40,6 +40,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         safety: Default::default(),
         intervals: Default::default(),
         liquidity: Default::default(),
+        clock_monitor: None,
         instances: HashMap::new(),
     }));
 
@@ -63,6 +64,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
+        connection_quality: Arc::new(engine::connection_quality::ConnectionQualityTracker::new()),
         ws_url: ws_url.clone(),
         bitget_ws_url: ws_url,
     });
@@ -174,6 +176,7 @@ async fn test_websocket_stream_with_active_pair() {
         safety: Default::default(),
         intervals: Default::default(),
         liquidity: Default::default(),
+        clock_monitor: None,
         instances: HashMap::new(),
     }));
 
@@ -210,7 +213,7 @@ async fn test_websocket_stream_with_active_pair() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-            cluster_matrix: Arc::new(RwLock::new(None)),
+        cluster_matrix: Arc::new(RwLock::new(None)),
         micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
@@ -283,10 +286,26 @@ async fn test_websocket_stream_with_active_pair() {
         config.clone(),
         Default::default(),
         Default::default(),
-        TimeframeBuffers { history: pair.micro.history.clone(), latest: pair.micro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
-        TimeframeBuffers { history: pair.fast.history.clone(), latest: pair.fast.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
-        TimeframeBuffers { history: pair.slow.history.clone(), latest: pair.slow.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
-        TimeframeBuffers { history: pair.r#macro.history.clone(), latest: pair.r#macro.latest_snapshot.clone(), snapshot_history: snap_hist.clone() },
+        TimeframeBuffers {
+            history: pair.micro.history.clone(),
+            latest: pair.micro.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        },
+        TimeframeBuffers {
+            history: pair.fast.history.clone(),
+            latest: pair.fast.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        },
+        TimeframeBuffers {
+            history: pair.slow.history.clone(),
+            latest: pair.slow.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        },
+        TimeframeBuffers {
+            history: pair.r#macro.history.clone(),
+            latest: pair.r#macro.latest_snapshot.clone(),
+            snapshot_history: snap_hist.clone(),
+        },
         Default::default(),
     ));
     instances
@@ -301,6 +320,7 @@ async fn test_websocket_stream_with_active_pair() {
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
+        connection_quality: Arc::new(engine::connection_quality::ConnectionQualityTracker::new()),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: "".to_string(),
     });

@@ -45,7 +45,10 @@ impl Obv {
                 }
                 self.prev_close = Some(close);
                 let sma = self.sma.update(self.obv)?;
-                Some(ObvOutput { obv: self.obv, obv_sma: sma })
+                Some(ObvOutput {
+                    obv: self.obv,
+                    obv_sma: sma,
+                })
             }
         }
     }

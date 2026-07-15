@@ -184,7 +184,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Strength:** The qualitative weight or intensity of the signal trigger (e.g., Weak, Medium, Strong).
 *   **Confidence:** The historical or statistical probability score associated with the trigger's reliability (0-100%).
 *   **Freshness:** The chronological distance (measured in elapsed intervals or candles) since the signal triggered (e.g., Just Triggered, 3 candles ago, Expired).
-*   **Confirmation:** The validation state of the event, indicating whether supporting conditions have validated the trigger (e.g., Confirmed, Waiting, Rejected).
+*   **Confirmation:** The validation state of the event, indicating whether supporting conditions have validated the trigger (e.g., `Potential`, `Confirmed`, `Active`). `Potential` indicates the geometry is present but unconfirmed (secondary confluence only); `Confirmed` means the confirming condition has fired (full scoring weight); `Active` indicates a confirmed **stateful** signal persisting over subsequent bars and tracked via `age_bars`. Momentary kinds never enter `Active`.
 *   **Market Regime:** The macro regime context in which the signal occurred, determining its localized baseline reliability (e.g., `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`).
 *   **Multi-Timeframe Agreement:** A boolean matrix mapping horizontal consensus across neighboring time horizons (micro, fast, slow, macro).
 *   **Risk:** The localized threat classification associated with entering a trade on this specific trigger (e.g., Low, Medium, High).
@@ -203,10 +203,10 @@ Analysis represents the structural and behavioral diagnosis of observed market b
 Opportunity represents the **forecast** identified within the current market conditions. It evaluates whether favorable trading setups exist (e.g., Trend Continuation, Breakout, Pullback) and scores them from 0 to 100, independent of actual execution parameters. *In the institutional redesign, the canonical `OpportunityType` enum is owned by the Opportunity Matrix (L4); the Analysis Matrix's former `opportunity_analysis` field has been removed.* The Opportunity Matrix also publishes `entry_zone`, `target_zone`, `invalid_level`, `expected_rr`, and `time_horizon` — the institutional fields a portfolio manager actually consumes.
 
 ### 3.15 Risk
-Risk represents the structural, technical, and environmental dangers present in the current market, independent of directional bias. It scores threats (volatility risk, liquidity risk, structural distance to invalidation) from 0 to 100, providing an objective metric for exposure limits. *In the institutional redesign, the Risk Matrix contains 8 unipolar danger dimensions + `overall_risk` (no reward synthesis). Reward evaluation is a Decision-Layer concept and lives in the Decision Matrix as `environment_favorability`.*
+Risk represents the structural, technical, and environmental dangers present in the current market, independent of directional bias. It scores threats (volatility risk, **execution_liquidity_risk** [renamed from `liquidity_risk` in the Phase 3 liquidity extension to free the term `liquidity` for positional concepts], structural distance to invalidation) from 0 to 100, providing an objective metric for exposure limits. *In the institutional redesign, the Risk Matrix contains 8 unipolar danger dimensions + `overall_risk` (no reward synthesis). Reward evaluation is a Decision-Layer concept and lives in the Decision Matrix as `entry_danger`.*
 
 ### 3.16 Decision Support
-Decision Support transforms market intelligence into actionable tactical guidance. It is the **only synthesis point** in the platform, combining the Analysis Matrix (state), Opportunity Matrix (forecast), and Risk Matrix (danger) to provide structured recommendations (`trade_readiness`, dynamic stop-loss methods, target take-profit environments, `environment_favorability`, `expected_reward_risk_ratio`) without making autonomous execution choices.
+Decision Support transforms market intelligence into actionable tactical guidance. It is the **only synthesis point** in the platform, combining the Analysis Matrix (state), Opportunity Matrix (forecast), and Risk Matrix (danger) to provide structured recommendations (`trade_readiness`, dynamic stop-loss methods, target take-profit environments, `entry_danger`, `expected_reward_risk_ratio`) without making autonomous execution choices.
 
 ### 3.17 Market Overview
 Market Overview represents the aggregated state of the entire monitored market universe. Rather than describing one asset, it summarizes cross-market dynamics, such as market breadth, risk distributions, and systemic risk indices.
@@ -632,7 +632,7 @@ The Performance Analytics Engine operates on historical transaction logs, portfo
     - Average Win/Loss Ratio: Mean net profit of winning trades divided by the mean net loss of losing trades.
     - Expectancy: The expected net return per trade executed under the strategy.
     - Slippage Overhead: Combined drag of slippage and exchange fees on the strategy's net return.
-    - T-Statistic: Measures how many standard errors the strategy's average return deviates from zero to validate edge against the null hypothesis (`H0H0​`).
+    - T-Statistic: Measures how many standard errors the strategy's average return deviates from zero to validate edge against the null hypothesis $H_0$.
     - P-Value: The probability of obtaining the strategy's observed performance metrics if the returns were generated by random chance.
     - Monte Carlo Empirical Probability: The fraction of sign-randomized baseline samples (each trade's PnL multiplied by a fair-coin ±1) whose performance metric equals or exceeds the strategy's actual performance.
 
@@ -736,6 +736,8 @@ Engines do not own the trading lifecycle individually; instead, they collaborate
 ---
 
 ## Chapter 12 — Information Hierarchy
+
+> **Note.** This chapter presents a 5-level summary. The canonical 8-level model lives in [Chapter 13](#chapter-13--levels-of-abstraction) and supersedes this summary. The mapping is: 5-level L1 (Granular/Transactional) → Ch.13 L1+L2 (Granular Physical State + Microstructure); 5-level L2 → Ch.13 L3 (Inter-Temporal Correlation); 5-level L3 → Ch.13 L4 (Market Interpretation); 5-level L4 → Ch.13 L5 (Opportunity & Risk Evaluation); 5-level L5 → Ch.13 L6+L7+L8 (Targeting & Strategy + Systemic Context + Performance Meta-Intelligence).
 
 Information in the Trading Platform is organized hierarchically. Data begins at a high-frequency, granular level and is progressively aggregated, filtered, and contextualized into increasingly stable and abstract representations.
 
@@ -1214,7 +1216,7 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 {
   "symbol": "BTC-USDT",
   "bias": "BULLISH",
-  "confidence": 0.82,
+  "state_confidence": 0.82,
   "market_regime": "TRENDING_BULL",
   "trend_assessment": "HEALTHY",
   "momentum_assessment": "STABLE",
@@ -1231,9 +1233,11 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 ```
 
 **Classification vocabularies:**
-- **MarketBias:** `STRONG_BULLISH` (>40), `BULLISH` (20–40), `NEUTRAL` (−20 to 20), `BEARISH` (−40 to −20), `STRONG_BEARISH` (<−40)
+- **MarketBias:** `STRONG_BULLISH` (`score > 40`), `BULLISH` (`20 < score ≤ 40`), `NEUTRAL` (`-20 ≤ score ≤ 20`), `BEARISH` (`-40 ≤ score < -20`), `STRONG_BEARISH` (`score < -40`) — half-open intervals so the same score never maps to two bands (Issue 7.A — correction).
 - **MarketRegime:** `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION` *(canonical source: [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md); this appendix mirrors it)*
 - **QualityLevel:** `POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT`
+
+> **Rename reminder (Issue 2.A).** Per [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md), the JSON key is **`state_confidence`** (not `confidence`) — no backwards-compat alias.
 
 The continuous **market_bias_score ∈ [−1, +1]** is the Alignment Matrix's `mtf_overall_score` divided by 100.
 
@@ -1251,7 +1255,7 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
   "primary_opportunity": "BREAKOUT",
   "opportunity_score": 85.0,
   "setup_quality": "PRIME",
-  "confidence": 0.81,
+  "forecast_confidence": 0.81,
   "profiles": [
     {
       "opportunity_type": "BREAKOUT",
@@ -1269,7 +1273,12 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
     }
   ],
   "contributing_signals": ["squeeze:COMPRESSION_RELEASE", "donchian:BREAKOUT_UP"],
-  "invalidation_note": "Close back inside the prior Donchian channel invalidates the breakout."
+  "invalidation_note": "Close back inside the prior Donchian channel invalidates the breakout.",
+  "entry_zone":  { "low": "64000.0", "high": "64200.0" },
+  "target_zone": { "low": "65500.0", "high": "66000.0" },
+  "invalid_level": "63850.0",
+  "expected_rr": 2.5,
+  "time_horizon": "SWING"
 }
 ```
 
@@ -1277,11 +1286,21 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
 
 **Scoring model:** `score = 0.35·Q_ctx + 0.30·S_sig + 0.20·A_mtf + 0.15·F_fresh`
 
+> **Rename reminder (Issue 2.A).** The JSON key for confidence is **`forecast_confidence`** (not `confidence`).
+>
+> **Institutional redesign fields (Issue 2.C).** `entry_zone`, `target_zone`, `invalid_level`, `expected_rr`, and `time_horizon` were added in the institutional redesign — they are all required fields for PM-consumable setup profiles.
+
+The canonical `OpportunityType` enum has **seven** variants (six original + `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension):
+
+`TrendContinuation`, `Breakout`, `Pullback`, `MeanReversion`, `Reversal`, `LiquiditySqueeze`, `NoClearOpportunity`.
+
+See [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md) for the precondition signatures.
+
 ---
 
 ### A.5 Risk Matrix Schema (MME — Layer 5)
 
-Produced by the Risk Layer. Consumes the Analysis Matrix and underlying indicator signals, quantifying environmental danger across **eight** unipolar dimensions on a `[0, 100]` scale, **independent of directional bias**. *(Reduced from nine in the institutional redesign; `reward_risk` was removed and moved to the Decision Layer as `environment_favorability`.)*
+Produced by the Risk Layer. Consumes the Analysis Matrix and underlying indicator signals, quantifying environmental danger on a `[0, 100]` scale, **independent of directional bias**. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total**. `cascade_risk` is the 8th of the eight sub-dimensions (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `reward_risk`/`correlation_risk`). `reward_risk` was removed and moved to the Decision Layer as `entry_danger`.
 
 Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 
@@ -1290,11 +1309,12 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
   "symbol": "BTC-USDT",
   "market_risk": { "score": 35.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["High confidence"] },
   "volatility_risk": { "score": 45.0, "level": "MODERATE", "state": "STABLE", "confidence": 50.0, "evidence": ["BBWP elevated"] },
-  "liquidity_risk": { "score": 15.0, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong participation"] },
+  "execution_liquidity_risk": { "score": 15.0, "level": "VERY_LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong participation"] },
   "structure_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "momentum_risk": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "signal_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "execution_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
+  "cascade_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "overall_risk": { "score": 28.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 }
 }
 ```
@@ -1304,12 +1324,13 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 |-----------|--------------|
 | `market_risk` | General uncertainty from conflicting signals / weak structure |
 | `volatility_risk` | Danger from abnormal price movement |
-| `liquidity_risk` | Poor market participation / thin volume |
+| `execution_liquidity_risk` | Poor market participation / thin volume |
 | `structure_risk` | Weak or damaged price structure |
 | `momentum_risk` | Exhausted / diverging momentum |
 | `signal_risk` | Conflicting or unreliable signals |
 | `execution_risk` | Practical difficulty (spread, slippage, thin book) |
-| `overall_risk` | Weighted aggregate: `0.15M + 0.20V + 0.15L + 0.10S + 0.15Mo + 0.15Sig + 0.10E` *(weights re-normalized after `reward_risk` removal)* |
+| `cascade_risk` | Forced liquidation cascade danger (Phase 3) |
+| `overall_risk` | Weighted aggregate: `0.14M + 0.14V + 0.14L_ex + 0.10S + 0.14Mo + 0.10Sig + 0.10E + 0.14C` |
 
 **RiskLevel bands:** `score ≥ 80 → Extreme`, `≥ 60 → High`, `≥ 40 → Moderate`, `≥ 20 → Low`, else `VeryLow`.
 
@@ -1327,27 +1348,35 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
     "symbol": "BTC-USDT",
     "directional_guidance": "STRONG_LONG",
     "market_stance": "CONSTRUCTIVE",
-    "opportunity_classification": "BREAKOUT",
     "strategy_environment": "TREND_FOLLOWING",
     "entry_guidance": "IMMEDIATE",
     "exit_guidance": "NO_WARNING",
     "protection_strategy": "ATR_BASED",
     "target_strategy": "RESISTANCE_BASED",
-    "confidence_assessment": 72.0,
-    "final_recommendation": "Strong long bias: BULLISH bias with 72% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
+    "trade_readiness": "READY",
+    "entry_danger": { "score": 50.0, "level": "MODERATE", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
+    "expected_reward_risk_ratio": 2.4,
+    "confidence_assessment": 71.25,
+    "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 71% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
   },
   "decision_context": {
-    "score": 54.0,
-    "bias": "BULLISH",
-    "confidence": 0.54,
+    "score": 100.0,
+    "bias": "STRONG_BULLISH",
+    "score_confidence": 1.0,
     "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"]
   }
 }
 ```
 
+> **Removed field (Issue 2.B).** The previous `opportunity_classification` field is **deprecated** and not serialized — the canonical setup classifier now lives in the L4 Opportunity Matrix as `primary_opportunity` (see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md)).
+>
+> **Rename reminder (Issue 2.A).** The JSON key for confidence in `decision_context` is **`score_confidence`** (not `confidence`). The `confidence_assessment` field on `advisory` keeps its name (it's the risk-attenuated terminal output, not part of the four-level pipeline confidence flow).
+>
+> **Institutional redesign fields (Issue 2.C).** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` were added to `advisory` in the institutional redesign. `opportunity_classification` is gone (read from L4 instead).
+
 **Trade Readiness** (`READY` | `FORMING` | `WATCH` | `STAND_ASIDE`) is derived from directional guidance × risk-discounted confidence × market stance. Confidence is always risk-attenuated:
 
-$$\text{confidence\_assessment} = \text{clamp}\Big(\text{analysis.confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
+$$\text{confidence\_assessment} = \text{clamp}\Big(\text{analysis.state\_confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
 
 ---
 
@@ -1364,19 +1393,21 @@ Full specification: [Overview Matrix](../matrices/02-09-overview-matrix.md).
   "regime_distribution": { "TRENDING_BULL": 0.6, "RANGE": 0.4 },
   "opportunity_distribution": { "BREAKOUT": 2, "TREND_CONTINUATION": 1 },
   "risk_distribution": {
-    "low_pct": 60.0,
-    "moderate_pct": 40.0,
-    "high_pct": 0.0,
-    "risk_environment": "LOW_RISK"
+    "low_pct": 20.0,
+    "moderate_pct": 20.0,
+    "high_pct": 60.0,
+    "risk_environment": "HIGH_RISK"
   },
+  "cascade_risk_index": { "score": 28.0, "level": "LOW", "state": "STABLE", "trend": "STABLE", "evidence": ["Phase 3 placeholder — not yet wired into systemic_risk_score"] },
   "asset_ranking": [
-    { "symbol": "BTC-USDT", "score": 87.0, "bias": "Long", "confidence": 75.0, "regime": "TrendFollowing", "risk_level": "MODERATE" }
+    { "symbol": "BTC-USDT", "score": 87.0, "bias": "LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
   ],
   "market_synchronization": "SYNCHRONIZED",
   "market_health": "HEALTHY",
   "global_summary": "3 active instances across 3 symbols. Global bias: BULLISH with positive market breadth.",
   "instance_count": 3,
-  "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT"]
+  "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT"],
+  "systemic_risk_score": 36.0
 }
 ```
 
@@ -1384,11 +1415,13 @@ Full specification: [Overview Matrix](../matrices/02-09-overview-matrix.md).
 
 $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penalty}$$
 
+> **Cascade Risk Index (Issue 2.E + 4.E).** The `cascade_risk_index` field is now in the canonical schema. It is currently a placeholder produced by the Phase 3 Liquidity Intelligence extension but is **not yet aggregated into `systemic_risk_score`**; see [01-05-liquidity-domain.md §Open questions](../conceptual-foundations/01-05-liquidity-domain.md). The field appears in the JSON so downstream consumers (UI, REST, PAE) have a stable contract to read.
+
 ---
 
 ## Appendix B — Complete Indicator, Signal, and SignalKind Manifest
 
-This appendix provides the definitive registry-verified manifest of all 50 indicators, **102 signal-kind declarations**, and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/shared/src/indicators/registry.rs`.
+This appendix provides the definitive registry-verified manifest of all 50 indicators, **101 signal-kind declarations**, and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/shared/src/indicators/registry.rs`.
 
 ---
 
@@ -1414,7 +1447,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | Key | Display Name | Class | Dir | Div | SignalKinds |
 |-----|-------------|-------|-----|-----|-------------|
 | `rsi` | RSI | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×5 |
-| `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, ZeroLineCross×2, Divergence, Threshold×4 |
+| `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, Divergence, Threshold×4 |
 | `chandemo` | Chande MO | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×4 |
 | `williams_r` | Williams %R | Leading | Y | — | Threshold, ZeroLineCross |
 | `awesome_oscillator` | Awesome Oscillator | Leading | Y | — | ZeroLineCross×2, Threshold×2 |
@@ -1438,10 +1471,10 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | Key | Display Name | Class | Dir | Div | SignalKinds |
 |-----|-------------|-------|-----|-----|-------------|
 | `stddev_channel` | StdDev Channel | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest |
-| `atr` | ATR | Lagging | N (Gate) | — | Threshold, CompressionRelease |
+| `atr` | ATR | Lagging | N (Gate) | — | Threshold, VolatilityCycle |
 | `bollinger` | Bollinger | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest×3 |
-| `bbwp` | BBWP | Leading | N (Gate) | — | CompressionRelease, Threshold |
-| `squeeze` | TTM Squeeze | Hybrid | Y | Y | CompressionRelease×3, Divergence, Threshold |
+| `bbwp` | BBWP | Leading | N (Gate) | — | VolatilityCycle, Threshold |
+| `squeeze` | TTM Squeeze | Hybrid | Y | Y | VolatilityCycle×3, Divergence, Threshold×3 |
 | `hv` | Historical Volatility | Lagging | N (Gate) | — | Threshold |
 
 #### STRUCTURE (5)
@@ -1459,7 +1492,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | Key | Display Name | Class | Dir | SignalKinds |
 |-----|-------------|-------|-----|-------------|
 | `aroon` | Aroon | Hybrid | Y | Crossover×2, TrendFlip×2, Threshold×2 |
-| `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease |
+| `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, VolatilityCycle |
 | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 |
 | `zscore` | Z-Score | Leading | Y | Threshold, ZeroLineCross |
 
@@ -1494,7 +1527,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | Directional (scoring contributors) | **40** |
 | Non-Directional Gates | **10** (`adx`, `volume`, `rvol`, `atr`, `bbwp`, `hv`, `choppiness`, `funding_rate`, `spread`, `open_interest`) |
 | Indicators Supporting Divergence | **8** (`rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) |
-| Total Signal-Kind × Indicator Declarations | **102** (one declaration per `(indicator, SignalKind)` pair; `×N` in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones) |
+| Total Signal-Kind × Indicator Declarations | **101** (one declaration per `(indicator, SignalKind)` pair; `×N` in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones) |
 | SignalKind Types | **12** |
 
 **Important:** Divergence companions (e.g., `rsi_divergence`, `macd_divergence`) are **NOT** separate registry entries and produce **NO** separate JSON keys. A divergence is an `IndicatorSignal { kind: Divergence, ... }` emitted on the parent indicator's `signals` array. Eight parent indicators are annotated with `supports_divergence: true` in the registry.
@@ -1503,23 +1536,25 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 
 ### B.3 SignalKind Frequency Table
 
-Canonical counts: one row per `(indicator, SignalKind)` pair. Cross-checked against the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md).
+Canonical counts (cross-checked against [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) and each SignalKind spec file in [signals/](../engines/market-monitoring-engine/signals/)):
 
 | # | SignalKind | Declarations | Description |
 |---|-----------|-------------|-------------|
 | 1 | `Divergence` | **9** | 8 nested on parent (`supports_divergence: true`: `rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) + 1 standalone (`oi_price_divergence`, own registry entry). Price/indicator directional disagreement. |
 | 2 | `Crossover` | **10** | Two series cross (e.g., MACD line × signal). |
 | 3 | `Threshold` | **26** | Value enters a named zone (e.g., RSI ≥ 70). |
-| 4 | `Breakout` | **9** | Price breaks a structural boundary. |
+| 4 | `Breakout` | **9** | Price breaks a structural boundary. *Includes `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` from `support_resistance` (see [04-02-32-support-resistance.md §6](../engines/market-monitoring-engine/indicators/04-02-32-support-resistance.md) and §7 correction note).* |
 | 5 | `BandTouch` | **5** | Price contacts a channel/band edge. |
-| 6 | `ZeroLineCross` | **12** | Oscillator crosses its zero/mid line. |
-| 7 | `CompressionRelease` | **4** | Volatility squeeze fires. |
+| 6 | `ZeroLineCross` | **11** | Oscillator crosses its zero/mid line. Producers: `rsi`, `chandemo`, `williams_r`, `awesome_oscillator`, `cci`, `macd`, `cmf`, `force_index`, `linreg_slope`, `zscore`, `oi_delta`. *(A previous count of 12 included `stochastic` and `mfi`; their per-signal docs do not declare ZeroLineCross signals — the canonical 11 is authoritative.)* |
+| 7 | `VolatilityCycle` | **4** | Volatility cycle phase transition (compression/coiling + release/expansion). |
 | 8 | `LevelTest` | **13** | Price tests a horizontal level (S/R, fib, pivot). |
-| 9 | `TrendFlip` | **8** | Directional regime reverses (Supertrend, PSAR). |
+| 9 | `TrendFlip` | **8** | Directional regime reverses (Supertrend, PSAR, ADX, Ichimoku, OBV, Aroon, SMC Structure, SMC Order Blocks — see [05-02-09-trend-flip.md §2](../engines/market-monitoring-engine/signals/05-02-09-trend-flip.md)). |
 | 10 | `VolumeClimax` | **2** | Abnormal volume surge. |
 | 11 | `StackChange` | **1** | EMA ribbon reorders. |
 | 12 | `PatternForming` | **3** | Chart/candlestick pattern detected. |
-| | **TOTAL** | **102** | |
+| | **TOTAL** | **101** | One fewer than the previously-published **102** — the correction is a single ZeroLineCross miscount (`stochastic` and `mfi` are not actual ZeroLineCross producers per their indicator docs). |
+
+> **Editor's note.** The registry is the authoritative source of truth (`crates/shared/src/indicators/registry.rs`). Any disagreement between this table and the registry is resolved in favor of the registry; this table is updated only when the registry is updated. The previous **102** count was inflated by attributing ZeroLineCross to `stochastic` (whose indicator doc lists `Crossover×2, ZeroLineCross×2, Divergence, Threshold×4` in the index but the per-signal-types listing in [04-02-12-stochastic.md](../engines/market-monitoring-engine/indicators/04-02-12-stochastic.md) does not include ZeroLineCross in its Signals table) and `mfi` (whose doc only declares `Threshold×4, Divergence×2`). The corrected count is **101**.
 
 ---
 

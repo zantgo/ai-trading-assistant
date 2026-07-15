@@ -2,8 +2,8 @@ pub mod scoring;
 
 pub use scoring::{calculate_registry_confluence, RegistryConfluence};
 
-use sqlx::SqlitePool;
 use crate::db;
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DecisionScore {
@@ -39,8 +39,14 @@ pub struct SnapshotValues {
 
 impl SnapshotValues {
     /// Construct from an already-computed normalized indicator map.
-    pub fn from_map(indicators: HashMap<String, NormalizedIndicatorValue>, current_price: f64) -> Self {
-        Self { indicators, current_price }
+    pub fn from_map(
+        indicators: HashMap<String, NormalizedIndicatorValue>,
+        current_price: f64,
+    ) -> Self {
+        Self {
+            indicators,
+            current_price,
+        }
     }
 
     /// Fetch an indicator entry, or a neutral `UNKNOWN` default when missing.
@@ -53,7 +59,10 @@ impl SnapshotValues {
 
     /// Normalized `[-1.0, 1.0]` score for an indicator (0.0 when missing).
     pub fn norm(&self, key: &str) -> f64 {
-        self.indicators.get(key).map(|v| v.normalized).unwrap_or(0.0)
+        self.indicators
+            .get(key)
+            .map(|v| v.normalized)
+            .unwrap_or(0.0)
     }
 
     /// Context-aware state label for an indicator ("UNKNOWN" when missing).
@@ -102,13 +111,8 @@ fn parse_divergence(status: Option<&str>) -> DivergenceState {
 
 /// Bridge: build a [`SnapshotValues`] from a nested server
 /// [`IndicatorSnapshot`] (which already carries the normalized map).
-pub fn snapshot_values_from_flat(
-    snap: &crate::server::types::IndicatorSnapshot,
-) -> SnapshotValues {
-    SnapshotValues::from_map(
-        snap.indicators.clone(),
-        snap.current_price.unwrap_or(0.0),
-    )
+pub fn snapshot_values_from_flat(snap: &crate::server::types::IndicatorSnapshot) -> SnapshotValues {
+    SnapshotValues::from_map(snap.indicators.clone(), snap.current_price.unwrap_or(0.0))
 }
 
 /// Bridge: reconstruct a normalized indicator map from the flat
@@ -141,11 +145,17 @@ pub fn snapshot_values_from_evaluate(
     };
     let pattern_bullish = matches!(
         req.chart_pattern.as_deref(),
-        Some("FallingWedge") | Some("BullishTriangle") | Some("AscendingChannel") | Some("BullishPattern")
+        Some("FallingWedge")
+            | Some("BullishTriangle")
+            | Some("AscendingChannel")
+            | Some("BullishPattern")
     );
     let pattern_bearish = matches!(
         req.chart_pattern.as_deref(),
-        Some("RisingWedge") | Some("BearishTriangle") | Some("DescendingChannel") | Some("BearishPattern")
+        Some("RisingWedge")
+            | Some("BearishTriangle")
+            | Some("DescendingChannel")
+            | Some("BearishPattern")
     );
 
     let inputs = IndicatorInputs {
@@ -350,7 +360,8 @@ pub fn classify_market_regime(snap: &SnapshotValues) -> MarketRegime {
     let squeeze_label = snap.label("squeeze");
     let squeeze_on = squeeze_label == "COMPRESSION_COILING";
     let squeeze_release = squeeze_label.ends_with("VOLATILITY_RELEASE");
-    let tangled = snap.label("ema_stack").contains("TANGLED") || snap.norm("ema_stack").abs() < 0.10;
+    let tangled =
+        snap.label("ema_stack").contains("TANGLED") || snap.norm("ema_stack").abs() < 0.10;
 
     if bbwp < 10.0 || squeeze_on {
         return MarketRegime::Compression;
@@ -392,7 +403,10 @@ pub fn evaluate_mtf_alignment(
     slow_snap: &SnapshotValues,
     macro_snap: &SnapshotValues,
 ) -> MtfTrendAlignment {
-    let structural_trend = match (macro_snap.sub("ema_stack", "long"), macro_snap.current_price) {
+    let structural_trend = match (
+        macro_snap.sub("ema_stack", "long"),
+        macro_snap.current_price,
+    ) {
         (Some(ema), close) if close > ema => "BULLISH".to_string(),
         (Some(ema), close) if close < ema => "BEARISH".to_string(),
         _ => "NEUTRAL".to_string(),

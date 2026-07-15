@@ -1,0 +1,466 @@
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio_util::sync::CancellationToken;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BreachAction {
+    Warn,
+    Panic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DriftVerdict {
+    WithinThreshold {
+        offset_us: i64,
+        rtt_us: u64,
+        server: String,
+    },
+    BreachThreshold {
+        offset_us: i64,
+        rtt_us: u64,
+        server: String,
+        threshold_us: i64,
+    },
+    NetworkError {
+        message: String,
+        retry_after: Duration,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct ClockSample {
+    pub offset_us: i64,
+    pub rtt_us: u64,
+    pub server: String,
+    pub measured_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClockMonitorConfig {
+    pub ntp_servers: Vec<String>,
+    pub poll_interval: Duration,
+    pub threshold: Duration,
+    pub breach_action: BreachAction,
+    pub warn_on_breach: bool,
+    pub jitter_window_size: usize,
+    pub query_timeout: Duration,
+}
+
+impl Default for ClockMonitorConfig {
+    fn default() -> Self {
+        Self {
+            ntp_servers: vec!["pool.ntp.org".to_string(), "time.aws.com".to_string()],
+            poll_interval: Duration::from_secs(30),
+            threshold: Duration::from_micros(50),
+            breach_action: BreachAction::Warn,
+            warn_on_breach: true,
+            jitter_window_size: 20,
+            query_timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+pub struct ClockMonitor {
+    config: ClockMonitorConfig,
+    samples: Mutex<Vec<ClockSample>>,
+}
+
+impl ClockMonitor {
+    pub fn new(config: ClockMonitorConfig) -> Self {
+        Self {
+            config,
+            samples: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn config(&self) -> &ClockMonitorConfig {
+        &self.config
+    }
+
+    /// Single NTP measurement. Returns a verdict; updates internal sample history on
+    /// any successful query. On network failure for every configured server, returns
+    /// `NetworkError`. Never panics on transport errors.
+    pub async fn measure_once(&self) -> DriftVerdict {
+        let threshold_us = clamp_threshold_to_i64(self.config.threshold);
+
+        for server in &self.config.ntp_servers {
+            let addr = format!("{}:123", server);
+            match query_server(&addr, self.config.query_timeout).await {
+                Ok(ntp_result) => {
+                    let sample = ClockSample {
+                        offset_us: ntp_result.offset,
+                        rtt_us: ntp_result.roundtrip,
+                        server: server.clone(),
+                        measured_at_ms: now_ms(),
+                    };
+                    let verdict = verdict_from_sample(&sample, threshold_us);
+                    self.record_sample(sample);
+                    return verdict;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "ClockMonitor: NTP query to {} failed: {:?} — trying next server",
+                        server, err
+                    );
+                }
+            }
+        }
+
+        DriftVerdict::NetworkError {
+            message: "all configured NTP servers unreachable".to_string(),
+            retry_after: self.config.poll_interval,
+        }
+    }
+
+    /// Long-running loop: measure every `poll_interval`. Honours the supplied
+    /// `CancellationToken` for graceful shutdown. Network errors are logged and the
+    /// loop continues — the monitor never panics on transport errors.
+    pub async fn run_until_cancelled(self, cancel: CancellationToken) {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    println!("ClockMonitor: cancelled, shutting down");
+                    return;
+                }
+                _ = tokio::time::sleep(self.config.poll_interval) => {
+                    let verdict = self.measure_once().await;
+                    self.handle_verdict(&verdict);
+                }
+            }
+        }
+    }
+
+    fn handle_verdict(&self, verdict: &DriftVerdict) {
+        match verdict {
+            DriftVerdict::WithinThreshold {
+                offset_us,
+                rtt_us,
+                server,
+            } => {
+                println!(
+                    "ClockMonitor: drift within threshold (offset={}µs, rtt={}µs, server={})",
+                    offset_us, rtt_us, server
+                );
+            }
+            DriftVerdict::BreachThreshold {
+                offset_us,
+                rtt_us,
+                server,
+                threshold_us,
+            } => {
+                let msg = format!(
+                    "CLOCK DRIFT BREACH: |{}µs| > threshold {}µs (rtt={}µs, server={})",
+                    offset_us, threshold_us, rtt_us, server
+                );
+                if self.config.warn_on_breach {
+                    eprintln!("{}", msg);
+                }
+                if matches!(self.config.breach_action, BreachAction::Panic) {
+                    panic!("{}", msg);
+                }
+            }
+            DriftVerdict::NetworkError {
+                message,
+                retry_after,
+            } => {
+                eprintln!(
+                    "ClockMonitor: NTP network error: {} (retry in {}s)",
+                    message,
+                    retry_after.as_secs()
+                );
+            }
+        }
+    }
+
+    /// Compute the rolling RMS jitter (standard deviation) from the last
+    /// `jitter_window_size` samples, in microseconds.
+    pub fn rms_jitter_us(&self) -> Option<f64> {
+        let samples = self
+            .samples
+            .lock()
+            .expect("ClockMonitor samples lock poisoned");
+        if samples.len() < 2 {
+            return None;
+        }
+        let n = samples.len() as f64;
+        let mean: f64 = samples.iter().map(|s| s.offset_us as f64).sum::<f64>() / n;
+        let variance: f64 = samples
+            .iter()
+            .map(|s| (s.offset_us as f64 - mean).powi(2))
+            .sum::<f64>()
+            / n;
+        Some(variance.sqrt())
+    }
+
+    pub fn current_offset_us(&self) -> Option<i64> {
+        let samples = self
+            .samples
+            .lock()
+            .expect("ClockMonitor samples lock poisoned");
+        samples.last().map(|s| s.offset_us)
+    }
+
+    pub fn sample_count(&self) -> usize {
+        self.samples
+            .lock()
+            .expect("ClockMonitor samples lock poisoned")
+            .len()
+    }
+
+    /// Record a sample into the rolling window. Public so tests can inject data
+    /// and downstream consumers (e.g. a health endpoint) can record externally
+    /// produced samples if they ever need to.
+    pub fn record_sample(&self, sample: ClockSample) {
+        let mut samples = self
+            .samples
+            .lock()
+            .expect("ClockMonitor samples lock poisoned");
+        samples.push(sample);
+        let max_size = self.config.jitter_window_size.max(1);
+        if samples.len() > max_size {
+            let drop = samples.len() - max_size;
+            samples.drain(0..drop);
+        }
+    }
+}
+
+fn clamp_threshold_to_i64(d: Duration) -> i64 {
+    let micros = d.as_micros();
+    if micros > i64::MAX as u128 {
+        i64::MAX
+    } else {
+        micros as i64
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn verdict_from_sample(sample: &ClockSample, threshold_us: i64) -> DriftVerdict {
+    let abs_offset = sample.offset_us.unsigned_abs() as i64;
+    if abs_offset > threshold_us {
+        DriftVerdict::BreachThreshold {
+            offset_us: sample.offset_us,
+            rtt_us: sample.rtt_us,
+            server: sample.server.clone(),
+            threshold_us,
+        }
+    } else {
+        DriftVerdict::WithinThreshold {
+            offset_us: sample.offset_us,
+            rtt_us: sample.rtt_us,
+            server: sample.server.clone(),
+        }
+    }
+}
+
+/// Synchronous `simple_get_time` runs on a blocking thread so it cannot stall the
+/// tokio runtime. The UDP socket's read timeout guarantees we return within
+/// `query_timeout` even when the peer never replies (returns `Error::Network`).
+async fn query_server(addr: &str, query_timeout: Duration) -> sntpc::Result<sntpc::NtpResult> {
+    let addr_owned = addr.to_string();
+    let join = tokio::task::spawn_blocking(move || -> sntpc::Result<sntpc::NtpResult> {
+        use std::net::UdpSocket;
+        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|_| sntpc::Error::Network)?;
+        socket
+            .set_read_timeout(Some(query_timeout))
+            .map_err(|_| sntpc::Error::Network)?;
+        sntpc::simple_get_time(addr_owned.as_str(), &socket)
+    })
+    .await;
+
+    match join {
+        Ok(inner) => inner,
+        Err(_) => Err(sntpc::Error::Network),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(offset: i64) -> ClockSample {
+        ClockSample {
+            offset_us: offset,
+            rtt_us: 1_000,
+            server: "test.ntp".to_string(),
+            measured_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn default_config_has_sane_values() {
+        let cfg = ClockMonitorConfig::default();
+        assert!(
+            !cfg.ntp_servers.is_empty(),
+            "at least one NTP server must be configured"
+        );
+        for s in &cfg.ntp_servers {
+            assert!(!s.is_empty(), "NTP server host must be non-empty");
+        }
+        assert!(
+            cfg.poll_interval >= Duration::from_secs(1),
+            "poll_interval must be at least 1s to avoid hammering NTP peers"
+        );
+        assert!(
+            cfg.threshold > Duration::ZERO,
+            "threshold must be strictly positive"
+        );
+        assert!(
+            cfg.query_timeout >= Duration::from_millis(100),
+            "query_timeout must allow at least one round-trip"
+        );
+        assert!(
+            cfg.jitter_window_size >= 2,
+            "jitter_window_size must allow at least 2 samples for RMS"
+        );
+        assert_eq!(cfg.breach_action, BreachAction::Warn);
+        assert!(cfg.warn_on_breach);
+    }
+
+    #[test]
+    fn rms_jitter_with_insufficient_samples_returns_none() {
+        let monitor = ClockMonitor::new(ClockMonitorConfig {
+            jitter_window_size: 20,
+            ..ClockMonitorConfig::default()
+        });
+
+        assert_eq!(monitor.rms_jitter_us(), None, "no samples -> None");
+
+        monitor.record_sample(sample(42));
+        assert_eq!(
+            monitor.rms_jitter_us(),
+            None,
+            "one sample is not enough to compute RMS jitter"
+        );
+    }
+
+    #[test]
+    fn rms_jitter_with_constant_samples_is_zero() {
+        let monitor = ClockMonitor::new(ClockMonitorConfig {
+            jitter_window_size: 20,
+            ..ClockMonitorConfig::default()
+        });
+        for _ in 0..5 {
+            monitor.record_sample(sample(123));
+        }
+
+        let rms = monitor
+            .rms_jitter_us()
+            .expect("five samples should yield RMS");
+        assert!(
+            rms.abs() < 1e-9,
+            "constant offsets should produce zero RMS jitter, got {}",
+            rms
+        );
+    }
+
+    #[test]
+    fn rms_jitter_with_known_samples() {
+        let monitor = ClockMonitor::new(ClockMonitorConfig {
+            jitter_window_size: 20,
+            ..ClockMonitorConfig::default()
+        });
+        for off in [10, 20, 30, 40, 50] {
+            monitor.record_sample(sample(off));
+        }
+
+        let rms = monitor
+            .rms_jitter_us()
+            .expect("five samples should yield RMS");
+        // mean = 30, variance = (400+100+0+100+400)/5 = 200, RMS = sqrt(200) ≈ 14.1421
+        let expected = (200.0_f64).sqrt();
+        assert!(
+            (rms - expected).abs() < 1e-9,
+            "expected RMS = {}, got {}",
+            expected,
+            rms
+        );
+        assert!(
+            (rms - 14.1421).abs() < 0.01,
+            "RMS should match the textbook value 14.14, got {}",
+            rms
+        );
+    }
+
+    #[test]
+    fn verdict_from_sample_within_threshold() {
+        let threshold_us = 50;
+        let s = sample(40);
+        match verdict_from_sample(&s, threshold_us) {
+            DriftVerdict::WithinThreshold {
+                offset_us,
+                rtt_us,
+                server,
+            } => {
+                assert_eq!(offset_us, 40);
+                assert_eq!(rtt_us, 1_000);
+                assert_eq!(server, "test.ntp");
+            }
+            other => panic!("expected WithinThreshold, got {:?}", other),
+        }
+
+        // exactly at threshold counts as within (strictly greater would breach)
+        let s = sample(-50);
+        assert!(matches!(
+            verdict_from_sample(&s, threshold_us),
+            DriftVerdict::WithinThreshold { .. }
+        ));
+    }
+
+    #[test]
+    fn verdict_from_sample_breach_threshold() {
+        let threshold_us = 50;
+        let s = sample(75);
+        match verdict_from_sample(&s, threshold_us) {
+            DriftVerdict::BreachThreshold {
+                offset_us,
+                rtt_us,
+                server,
+                threshold_us: t,
+            } => {
+                assert_eq!(offset_us, 75);
+                assert_eq!(rtt_us, 1_000);
+                assert_eq!(server, "test.ntp");
+                assert_eq!(t, 50);
+            }
+            other => panic!("expected BreachThreshold, got {:?}", other),
+        }
+
+        let s = sample(-75);
+        assert!(matches!(
+            verdict_from_sample(&s, threshold_us),
+            DriftVerdict::BreachThreshold { .. }
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn measure_once_with_unreachable_server_returns_network_error() {
+        let cfg = ClockMonitorConfig {
+            ntp_servers: vec!["127.0.0.1".to_string()],
+            poll_interval: Duration::from_secs(60),
+            query_timeout: Duration::from_secs(1),
+            ..ClockMonitorConfig::default()
+        };
+        let monitor = ClockMonitor::new(cfg);
+
+        let verdict = tokio::time::timeout(Duration::from_secs(3), monitor.measure_once())
+            .await
+            .expect("measure_once did not return within 3s — possible hang");
+
+        assert!(
+            matches!(verdict, DriftVerdict::NetworkError { .. }),
+            "expected NetworkError for unreachable server, got {:?}",
+            verdict
+        );
+        assert_eq!(
+            monitor.sample_count(),
+            0,
+            "no sample should be recorded on transport failure"
+        );
+    }
+}
