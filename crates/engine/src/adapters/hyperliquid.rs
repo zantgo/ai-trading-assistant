@@ -77,6 +77,38 @@ struct ActiveAssetCtxEnvelope {
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
+struct UserFillsEnvelope {
+    channel: String,
+    data: Option<Vec<UserFill>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct UserFill {
+    coin: String,
+    px: String,
+    sz: String,
+    side: String,        // "A" (sell) or "B" (buy)
+    time: u64,
+    #[serde(rename = "hash", default)]
+    hash: String,
+    /// Hyperliquid marks liquidation fills with this field equal to the
+    /// string "liquidated" or containing the literal liquidation mark.
+    #[serde(default)]
+    liquidation: Option<String>,
+    /// Position size at the time of fill.
+    #[serde(default)]
+    start_position: Option<String>,
+    /// Closed PnL (negative for liquidations).
+    #[serde(rename = "closedPnl", default)]
+    closed_pnl: Option<String>,
+    /// Fee paid on this fill.
+    #[serde(default)]
+    fee: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct ActiveAssetCtxData {
     coin: String,
     ctx: Option<AssetCtxInner>,
@@ -296,6 +328,10 @@ pub async fn run_for_symbol(
         serde_json::json!({"type": "trades", "coin": &symbol}),
         serde_json::json!({"type": "l2Book", "coin": &symbol}),
         serde_json::json!({"type": "activeAssetCtx", "coin": &symbol}),
+        // Phase 1: userFills channel exposes real liquidation events.
+        // A fill where the position was force-closed (closedPnl strongly
+        // negative, dir indicates the closing side) is a liquidation.
+        serde_json::json!({"type": "userFills", "coin": &symbol, "user": "0x0000000000000000000000000000000000000000"}),
     ];
     for sub in &subscriptions {
         let sub_request = serde_json::json!({
@@ -423,6 +459,8 @@ pub async fn run_for_symbol(
                             }
                         }
                     }
+                } else if raw_text.contains("\"channel\":\"userFills\"") {
+                    emit_user_fills_liquidations(&internal_symbol, &raw_text, &event_tx);
                 }
             }
             Message::Ping(ping) => {
@@ -443,4 +481,72 @@ pub async fn run_for_symbol(
             message: format!("Dedicated WS disconnected for {}", symbol),
         })
         .await;
+}
+
+// =============================================================================
+// userFills liquidation extraction
+// =============================================================================
+//
+// Hyperliquid's `userFills` channel includes a `liquidation` field on each
+// fill entry. When set, the fill is a forced close by the liquidation
+// engine. We translate it to a `NormalizedEvent::Liquidation` with the
+// correct side: a "B" (buy) side on a liquidation closes a SHORT, a "A"
+// (sell) side on a liquidation closes a LONG.
+//
+// We process the message once in `start()` and once in `run_for_symbol()`.
+
+fn emit_user_fills_liquidations(
+    internal_symbol: &str,
+    raw_text: &str,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
+    let envelope: UserFillsEnvelope = match serde_json::from_str(raw_text) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let Some(fills) = envelope.data else { return };
+    for fill in fills {
+        // A fill is a liquidation when the `liquidation` field is present
+        // AND non-empty. Hyperliquid uses string values like "B" or "A"
+        // here (the side that triggered the liquidation).
+        let is_liquidation = fill
+            .liquidation
+            .as_deref()
+            .map(|s| !s.is_empty() && s != "false")
+            .unwrap_or(false);
+        if !is_liquidation {
+            continue;
+        }
+        let price = match Decimal::from_str(&fill.px) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let size = match Decimal::from_str(&fill.sz) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        // Side semantics for liquidations:
+        //   side == "A" (aggressor was seller)  -> a long was closed
+        //   side == "B" (aggressor was buyer)   -> a short was closed
+        let liq_side = if fill.side == "A" {
+            shared::normalized::LiquidationSide::Long
+        } else {
+            shared::normalized::LiquidationSide::Short
+        };
+        let _ = event_tx.try_send(NormalizedEvent::Liquidation(
+            shared::normalized::LiquidationEvent {
+                exchange: Exchange::Hyperliquid,
+                symbol: internal_symbol.to_string(),
+                side: liq_side,
+                price,
+                size,
+                timestamp_ms: fill.time,
+                venue_order_id: if fill.hash.is_empty() {
+                    None
+                } else {
+                    Some(fill.hash.clone())
+                },
+            },
+        ));
+    }
 }

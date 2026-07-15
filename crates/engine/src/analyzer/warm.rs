@@ -612,5 +612,6 @@ fn build_historical_snapshot(
         analysis: None,
                         advisory: None,
         risk_profile: None,
+        liquidity: None,
     }
 }

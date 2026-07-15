@@ -368,6 +368,10 @@ pub async fn run_single(
     // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
     let mut oi_history: VecDeque<f64> = VecDeque::with_capacity(60);
 
+    // Phase 1: real liquidation event accumulator. Per-candle aggregation
+    // produces a `LiquidityFlow` on every completed bar.
+    let mut liquidity_acc = shared::liquidity::LiquidityEventAccumulator::new(&symbol);
+
     let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
 
     let mut order_book_analysis = OrderBookAnalysis::new(
@@ -875,6 +879,7 @@ pub async fn run_single(
                         analysis: None,
                         advisory: None,
                         risk_profile: None,
+                        liquidity: Some(liquidity_acc.flush_to_flow()),
                     };
 
                     let _ = telemetry_tx.send(db::TelemetryMsg::InsertSnapshot(completed_snapshot.clone())).await;
@@ -1075,6 +1080,9 @@ pub async fn run_single(
                         venue_order_id: liq.venue_order_id.clone(),
                     })
                     .await;
+                // Phase 1: feed the per-candle aggregator. This drives the
+                // `LiquidityFlow` attached to the next completed snapshot.
+                liquidity_acc.record_event(liq.clone());
             }
 
             NormalizedEvent::Status { exchange, status, message } => {
@@ -1598,6 +1606,7 @@ fn broadcast_live_snapshot(
         analysis: None,
                         advisory: None,
         risk_profile: None,
+        liquidity: None,
     };
 
     let _ = broadcast_tx.send(snapshot);

@@ -377,6 +377,7 @@ pub async fn query_latest_snapshot(
             statistical_context: None,
             indicators,
             risk_profile: None,
+            liquidity: None,
         }
     })
 }

@@ -5,6 +5,7 @@
 //! dual-representation normalized indicator map (v2.0).
 
 use crate::indicators::normalized::NormalizedIndicatorValue;
+use crate::liquidity::LiquidityFlow;
 use crate::normalized::Exchange;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -86,6 +87,12 @@ pub struct MarketSnapshot {
     /// Risk profile ID (if applicable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub risk_profile: Option<i32>,
+
+    /// Liquidity flow matrix (Phase 1). Per-candle aggregate of real
+    /// liquidation events observed on the exchange WS. `None` for live
+    /// (flickering) snapshots; populated only for completed bars.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquidity: Option<LiquidityFlow>,
 }
 
 /// Placeholder for statistical intelligence context.

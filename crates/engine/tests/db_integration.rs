@@ -63,6 +63,7 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         statistical_context: None,
         decision_context: None,
         risk_profile: None,
+                    liquidity: None,
     };
 
     engine::db::insert_snapshot_internal(&pool, &snap).await;

@@ -89,11 +89,15 @@ pub async fn run_for_symbol(
         "args": [
             {"instType": &product_type, "channel": "trade", "instId": &symbol},
             {"instType": &product_type, "channel": "books5", "instId": &symbol},
-            {"instType": &product_type, "channel": "ticker", "instId": &symbol}
+            {"instType": &product_type, "channel": "ticker", "instId": &symbol},
+            {"instType": &product_type, "channel": "funding-rate", "instId": &symbol},
+            // Phase 1: `fill` channel exposes real liquidation events.
+            // execType == "L" marks a forced-close liquidation fill.
+            {"instType": &product_type, "channel": "fill", "instId": &symbol}
         ]
     });
     println!(
-        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker streams ({})",
+        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker + funding-rate + fill streams ({})",
         symbol, product_type
     );
     if let Err(e) = write
@@ -249,6 +253,28 @@ pub async fn run_for_symbol(
                             }
                         }
                     }
+                    "funding-rate" => {
+                        // Bitget funding-rate payload: array of {fundingRate, nextUpdate}.
+                        let rows: Vec<crate::adapters::bitget_derivatives::BitgetFundingData> =
+                            match serde_json::from_value(data_val) {
+                                Ok(r) => r,
+                                Err(_) => continue,
+                            };
+                        for row in rows {
+                            if let Some(ev) = crate::adapters::bitget_derivatives::funding_to_event(
+                                &internal_symbol,
+                                &row,
+                            ) {
+                                let _ = event_tx.send(ev).await;
+                            }
+                        }
+                    }
+                    "fill" => {
+                        // Bitget `fill` channel payload: array of fills. Each fill
+                        // includes an `execType` field — "L" is a forced-close
+                        // liquidation fill.
+                        emit_bitget_fill_liquidations(&internal_symbol, &data_val, &event_tx).await;
+                    }
                     _ => {}
                 }
             }
@@ -270,4 +296,98 @@ pub async fn run_for_symbol(
             message: format!("Dedicated WS disconnected for {}", symbol),
         })
         .await;
+}
+
+// =============================================================================
+// Bitget fill-channel liquidation extraction (Phase 1)
+// =============================================================================
+//
+// Bitget's `fill` channel payload includes `execType` with values:
+//
+//   T — taker fill (normal)
+//   M — maker fill
+//   L — liquidation (forced close by the engine)
+//
+// Only the "L" type is converted to a `NormalizedEvent::Liquidation`.
+// Side semantics: `side == "buy"` means the aggressor bought, which on a
+// liquidation closes a SHORT (short squeeze). `side == "sell"` closes a
+// LONG.
+
+#[derive(Debug, serde::Deserialize)]
+struct BitgetFillItem {
+    #[serde(rename = "tradeId", default)]
+    trade_id: Option<String>,
+    price: Option<String>,
+    size: Option<String>,
+    side: Option<String>,
+    ts: Option<String>,
+    #[serde(rename = "execType", default)]
+    exec_type: Option<String>,
+}
+
+async fn emit_bitget_fill_liquidations(
+    internal_symbol: &str,
+    data_val: &serde_json::Value,
+    event_tx: &tokio::sync::mpsc::Sender<NormalizedEvent>,
+) {
+    let fills: Vec<BitgetFillItem> = match serde_json::from_value(data_val.clone()) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    for fill in fills {
+        let is_liquidation = fill
+            .exec_type
+            .as_deref()
+            .map(|s| s.eq_ignore_ascii_case("L"))
+            .unwrap_or(false);
+        if !is_liquidation {
+            continue;
+        }
+        let price = match fill
+            .price
+            .as_deref()
+            .and_then(|s| Decimal::from_str(s).ok())
+        {
+            Some(p) => p,
+            None => continue,
+        };
+        let size = match fill
+            .size
+            .as_deref()
+            .and_then(|s| Decimal::from_str(s).ok())
+        {
+            Some(s) => s,
+            None => continue,
+        };
+        let ts_ms: u64 = fill
+            .ts
+            .as_deref()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0)
+            });
+        // Side semantics for liquidations:
+        //   side == "sell"  -> aggressor sold  -> a long was closed
+        //   side == "buy"   -> aggressor bought -> a short was closed
+        let liq_side = match fill.side.as_deref() {
+            Some("buy") => shared::normalized::LiquidationSide::Short,
+            _ => shared::normalized::LiquidationSide::Long,
+        };
+        let _ = event_tx
+            .send(NormalizedEvent::Liquidation(
+                shared::normalized::LiquidationEvent {
+                    exchange: Exchange::Bitget,
+                    symbol: internal_symbol.to_string(),
+                    side: liq_side,
+                    price,
+                    size,
+                    timestamp_ms: ts_ms,
+                    venue_order_id: fill.trade_id.clone(),
+                },
+            ))
+            .await;
+    }
 }

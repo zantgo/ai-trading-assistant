@@ -50,6 +50,7 @@ fn test_market_snapshot_json_roundtrip() {
         open_interest: None,
         oi_delta_1h: None,
         prev_day_px: None,
+        liquidity: None,
         risk_profile: None,
     };
 
@@ -105,6 +106,7 @@ fn test_market_snapshot_empty_indicators() {
         open_interest: None,
         oi_delta_1h: None,
         prev_day_px: None,
+        liquidity: None,
         risk_profile: None,
     };
 

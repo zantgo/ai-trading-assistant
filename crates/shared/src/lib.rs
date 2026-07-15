@@ -17,5 +17,6 @@ pub mod advisory;
 pub mod overview;
 pub mod statistics;
 pub mod decision_context;
+pub mod liquidity;
 
 pub use normalized::TriggerType;

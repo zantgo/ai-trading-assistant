@@ -49,6 +49,7 @@ fn sample_snapshot() -> MarketSnapshot {
         statistical_context: None,
         decision_context: None,
         risk_profile: None,
+                    liquidity: None,
     }
 }
 
