@@ -1,6 +1,8 @@
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use shared::normalized::NormalizedCandle;
+use shared::normalized::{
+    FundingRateEvent, MarkPriceEvent, NormalizedCandle, NormalizedEvent, OpenInterestEvent,
+};
 
 #[derive(Debug, Deserialize)]
 struct CandleSnapshot {
@@ -149,6 +151,131 @@ pub async fn symbol_exists(coin: &str, info_url: &str) -> Result<bool, String> {
     let target = coin.to_uppercase();
     let ok = meta.universe.iter().any(|a| a.name.to_uppercase() == target);
     Ok(ok)
+}
+
+// =============================================================================
+// Derivatives Telemetry — metaAndAssetCtxs polling
+// =============================================================================
+//
+// Hyperliquid does not expose OI, mark price, or funding rate on the public
+// WebSocket. Instead, the REST endpoint `/info` with
+// `{"type":"metaAndAssetCtxs"}` returns the per-asset context for the entire
+// universe in a single request. We poll this endpoint on a timer
+// (default 60s) per active pair and emit one `OpenInterestEvent`, one
+// `FundingRateEvent`, and one `MarkPriceEvent` per successful round-trip.
+
+#[derive(Debug, Deserialize)]
+struct MetaAndAssetCtxsResponse(
+    #[allow(dead_code)] serde_json::Value, // meta (asset universe)
+    Vec<AssetCtxEntry>,
+);
+
+#[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
+struct AssetCtxEntry {
+    #[allow(dead_code)]
+    coin: String,
+    #[serde(default, rename = "markPx")]
+    markPx: Option<String>,
+    #[serde(default, rename = "oraclePx")]
+    oraclePx: Option<String>,
+    #[serde(default, rename = "openInterest")]
+    openInterest: Option<String>,
+    #[serde(default)]
+    funding: Option<String>,
+    #[serde(default, rename = "prevDayPx")]
+    prevDayPx: Option<String>,
+}
+
+/// Per-coin parsed derivatives context. All-`None` if a field was absent.
+#[derive(Debug, Clone, Default)]
+pub struct HlDerivativesCtx {
+    pub mark_px: Option<Decimal>,
+    pub oracle_px: Option<Decimal>,
+    pub open_interest: Option<Decimal>,
+    pub funding: Option<Decimal>,
+    pub prev_day_px: Option<Decimal>,
+}
+
+/// Fetch and parse the full asset-ctx universe. Returns a map keyed by raw
+/// coin name (e.g. "BTC"). Errors propagate.
+pub async fn fetch_meta_and_asset_ctxs(
+    info_url: &str,
+) -> Result<std::collections::HashMap<String, HlDerivativesCtx>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let response = client
+        .post(info_url)
+        .json(&serde_json::json!({ "type": "metaAndAssetCtxs" }))
+        .send()
+        .await
+        .map_err(|e| format!("Hyperliquid metaAndAssetCtxs request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Hyperliquid metaAndAssetCtxs HTTP {}",
+            response.status()
+        ));
+    }
+
+    let parsed: MetaAndAssetCtxsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Hyperliquid metaAndAssetCtxs: {}", e))?;
+
+    let mut map = std::collections::HashMap::new();
+    for entry in parsed.1 {
+        let ctx = HlDerivativesCtx {
+            mark_px: entry.markPx.as_deref().and_then(|s| s.parse().ok()),
+            oracle_px: entry.oraclePx.as_deref().and_then(|s| s.parse().ok()),
+            open_interest: entry.openInterest.as_deref().and_then(|s| s.parse().ok()),
+            funding: entry.funding.as_deref().and_then(|s| s.parse().ok()),
+            prev_day_px: entry.prevDayPx.as_deref().and_then(|s| s.parse().ok()),
+        };
+        map.insert(entry.coin, ctx);
+    }
+    Ok(map)
+}
+
+/// Convert a single `HlDerivativesCtx` snapshot into the normalized events
+/// the analyzer expects. Each non-`None` field yields exactly one event.
+/// `internal_symbol` is the unified workspace symbol (e.g. "BTC-USDT")
+/// used on every emitted event.
+pub fn derivatives_ctx_to_events(
+    internal_symbol: &str,
+    ctx: &HlDerivativesCtx,
+    prev_oi: Option<Decimal>,
+) -> Vec<NormalizedEvent> {
+    let mut out = Vec::with_capacity(3);
+    if let Some(oi) = ctx.open_interest {
+        out.push(NormalizedEvent::OpenInterest(OpenInterestEvent {
+            symbol: internal_symbol.to_string(),
+            oi,
+            prev_oi,
+        }));
+    }
+    if let Some(rate) = ctx.funding {
+        out.push(NormalizedEvent::FundingRate(FundingRateEvent {
+            symbol: internal_symbol.to_string(),
+            rate,
+        }));
+    }
+    if let Some(mark) = ctx.mark_px {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        out.push(NormalizedEvent::MarkPrice(MarkPriceEvent {
+            symbol: internal_symbol.to_string(),
+            mark_px: mark,
+            index_px: ctx.oracle_px,
+            timestamp_ms: ts,
+        }));
+    }
+    out
 }
 
 /// Map an internal timeframe duration in seconds to the Hyperliquid REST interval string.

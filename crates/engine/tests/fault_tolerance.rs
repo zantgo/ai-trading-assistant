@@ -45,6 +45,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             defaults: Default::default(),
             safety: Default::default(),
             intervals: Default::default(),
+        liquidity: Default::default(),
             instances: HashMap::new(),
         };
         let indicators = test_config.indicators.clone();
@@ -66,6 +67,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_broadcast,
                 tf_cfg,
                 fib_config,
+                shared::statistics::StatisticsConfig::default(),
                 analyzer_div_det,
                 analyzer_history,
                 analyzer_latest_snap,
@@ -78,6 +80,11 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 None,
                 None,
                 None,
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
+                engine::config::OrderBookConfig::default(),
             )
             .await;
         });

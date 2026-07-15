@@ -37,6 +37,10 @@ pub struct TimeframePipeline {
     pub latest_oi: Arc<RwLock<Option<Decimal>>>,
     /// Latest Funding Rate (shared across timeframes, updated by WS funding events).
     pub latest_funding: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Mark Price (shared across timeframes, updated by mark events).
+    pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Index Price (shared across timeframes).
+    pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
 }
 
 pub struct ActivePair {
@@ -51,6 +55,10 @@ pub struct ActivePair {
     pub latest_oi: Arc<RwLock<Option<Decimal>>>,
     /// Latest Funding Rate (shared across all timeframes, updated by WS events).
     pub latest_funding: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Mark Price (shared across all timeframes, updated by mark events).
+    pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
+    /// Latest Index Price (shared across all timeframes, updated by mark events).
+    pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
 }
 
 impl ActivePair {
@@ -156,6 +164,8 @@ pub async fn run_single(
     paper_pool: Option<sqlx::SqlitePool>,
     latest_oi: Arc<RwLock<Option<Decimal>>>,
     latest_funding: Arc<RwLock<Option<Decimal>>>,
+    latest_mark_px: Arc<RwLock<Option<Decimal>>>,
+    latest_index_px: Arc<RwLock<Option<Decimal>>>,
     ob_config: OrderBookConfig,
 ) {
     println!(
@@ -1032,6 +1042,39 @@ pub async fn run_single(
             NormalizedEvent::FundingRate(ref fr) => {
                 let mut guard = latest_funding.write().await;
                 *guard = Some(fr.rate);
+            }
+
+            NormalizedEvent::MarkPrice(ref mp) => {
+                let mut mark_guard = latest_mark_px.write().await;
+                *mark_guard = Some(mp.mark_px);
+                if let Some(idx) = mp.index_px {
+                    let mut idx_guard = latest_index_px.write().await;
+                    *idx_guard = Some(idx);
+                }
+            }
+
+            // Phase 1 hook: Liquidation events are also persisted to DB via
+            // the telemetry channel. The flow aggregation happens here in a
+            // later phase (Phase 1 + accumulator) but persisting the raw events
+            // now means we have data ready when the flow logic lands.
+            NormalizedEvent::Liquidation(ref liq) => {
+                let side_str = match liq.side {
+                    shared::normalized::LiquidationSide::Long => "LONG",
+                    shared::normalized::LiquidationSide::Short => "SHORT",
+                };
+                let size_usd = liq.price.to_f64().unwrap_or(0.0)
+                    * liq.size.to_f64().unwrap_or(0.0);
+                let _ = telemetry_tx
+                    .send(db::TelemetryMsg::InsertLiquidationEvent {
+                        exchange: liq.exchange,
+                        symbol: liq.symbol.clone(),
+                        side: side_str.to_string(),
+                        price: liq.price.to_f64().unwrap_or(0.0),
+                        size_usd,
+                        timestamp_ms: liq.timestamp_ms,
+                        venue_order_id: liq.venue_order_id.clone(),
+                    })
+                    .await;
             }
 
             NormalizedEvent::Status { exchange, status, message } => {

@@ -48,11 +48,14 @@ impl StdDevChannel {
             .sum();
         let n_d = Decimal::from(n);
         let denom = Decimal::from(n) * Decimal::from(sum_x2) - Decimal::from(sum_x * sum_x);
-        let slope = if denom != Decimal::ZERO {
+        let slope = if denom != Decimal::ZERO && denom.abs() > Decimal::from(1) {
             (n_d * sum_xy - Decimal::from(sum_x) * sum_y) / denom
         } else {
             Decimal::ZERO
         };
+        if n_d == Decimal::ZERO {
+            return None;
+        }
         let intercept = (sum_y - slope * Decimal::from(sum_x)) / n_d;
         let center = intercept + slope * Decimal::from(n - 1);
         let mut sq_sum = Decimal::ZERO;

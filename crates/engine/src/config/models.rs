@@ -665,6 +665,76 @@ fn default_slow_seconds() -> u64 { 3600 }
 fn default_normal_seconds() -> u64 { 900 }
 fn default_fast_seconds() -> u64 { 300 }
 
+/// Liquidity Intelligence configuration.
+///
+/// Controls derivatives telemetry activation, mark-price polling cadence,
+/// liquidation event ingestion, and the assumptions used by the cluster
+/// estimator. All fields have defaults; the platform remains fully
+/// functional when this section is absent from legacy configs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiquidityConfig {
+    #[serde(default = "default_liquidity_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_mark_poll_ms")]
+    pub mark_price_poll_ms: u64,
+    #[serde(default = "default_funding_refresh_ms")]
+    pub funding_refresh_ms: u64,
+    #[serde(default = "default_liquidation_retention_days")]
+    pub event_retention_days: u32,
+    #[serde(default = "default_liquidation_bucket_retention_days")]
+    pub bucket_retention_days: u32,
+    #[serde(default = "default_cluster_refresh_secs")]
+    pub cluster_refresh_secs: u64,
+    #[serde(default = "default_maintenance_margin_rate")]
+    pub maintenance_margin_rate: f64,
+    #[serde(default = "default_cascade_detected_zscore")]
+    pub cascade_detected_zscore: f64,
+    #[serde(default = "default_cascade_sustained_events")]
+    pub cascade_sustained_events: u32,
+    #[serde(default = "default_funding_extreme_pct")]
+    pub funding_extreme_pct: f64,
+    #[serde(default = "default_magnet_activation_distance_pct")]
+    pub magnet_activation_distance_pct: f64,
+    #[serde(default = "default_liquidity_vacuum_threshold")]
+    pub liquidity_vacuum_threshold: f64,
+    #[serde(default = "default_oi_funding_divergence_pct")]
+    pub oi_funding_divergence_pct: f64,
+}
+
+impl Default for LiquidityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_liquidity_enabled(),
+            mark_price_poll_ms: default_mark_poll_ms(),
+            funding_refresh_ms: default_funding_refresh_ms(),
+            event_retention_days: default_liquidation_retention_days(),
+            bucket_retention_days: default_liquidation_bucket_retention_days(),
+            cluster_refresh_secs: default_cluster_refresh_secs(),
+            maintenance_margin_rate: default_maintenance_margin_rate(),
+            cascade_detected_zscore: default_cascade_detected_zscore(),
+            cascade_sustained_events: default_cascade_sustained_events(),
+            funding_extreme_pct: default_funding_extreme_pct(),
+            magnet_activation_distance_pct: default_magnet_activation_distance_pct(),
+            liquidity_vacuum_threshold: default_liquidity_vacuum_threshold(),
+            oi_funding_divergence_pct: default_oi_funding_divergence_pct(),
+        }
+    }
+}
+
+fn default_liquidity_enabled() -> bool { true }
+fn default_mark_poll_ms() -> u64 { 60_000 }
+fn default_funding_refresh_ms() -> u64 { 60_000 }
+fn default_liquidation_retention_days() -> u32 { 90 }
+fn default_liquidation_bucket_retention_days() -> u32 { 7 }
+fn default_cluster_refresh_secs() -> u64 { 300 }
+fn default_maintenance_margin_rate() -> f64 { 0.005 }
+fn default_cascade_detected_zscore() -> f64 { 2.5 }
+fn default_cascade_sustained_events() -> u32 { 3 }
+fn default_funding_extreme_pct() -> f64 { 0.0005 }
+fn default_magnet_activation_distance_pct() -> f64 { 0.5 }
+fn default_liquidity_vacuum_threshold() -> f64 { 0.3 }
+fn default_oi_funding_divergence_pct() -> f64 { 2.0 }
+
 impl Default for IntervalsConfig {
     fn default() -> Self {
         Self {

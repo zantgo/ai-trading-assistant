@@ -39,6 +39,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         defaults: Default::default(),
         safety: Default::default(),
         intervals: Default::default(),
+        liquidity: Default::default(),
         instances: HashMap::new(),
     }));
 
@@ -172,6 +173,7 @@ async fn test_websocket_stream_with_active_pair() {
         defaults: Default::default(),
         safety: Default::default(),
         intervals: Default::default(),
+        liquidity: Default::default(),
         instances: HashMap::new(),
     }));
 
@@ -206,6 +208,8 @@ async fn test_websocket_stream_with_active_pair() {
         symbol: "BTC".to_string(),
         latest_oi: Arc::new(RwLock::new(None)),
         latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
         micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
@@ -218,6 +222,8 @@ async fn test_websocket_stream_with_active_pair() {
             fibonacci: FibonacciConfig::default(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         fast: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -231,6 +237,8 @@ async fn test_websocket_stream_with_active_pair() {
             fibonacci: FibonacciConfig::default(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         slow: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -244,6 +252,8 @@ async fn test_websocket_stream_with_active_pair() {
             fibonacci: FibonacciConfig::default(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         r#macro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -257,6 +267,8 @@ async fn test_websocket_stream_with_active_pair() {
             fibonacci: FibonacciConfig::default(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         snapshot_tx,
         cancel,

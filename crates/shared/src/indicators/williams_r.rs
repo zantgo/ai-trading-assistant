@@ -30,11 +30,17 @@ impl WilliamsR {
         if self.highs.len() < self.period {
             return None;
         }
+        if self.highs.is_empty() || self.lows.is_empty() {
+            return None;
+        }
         let hh = self.highs.iter().copied().fold(Decimal::MIN, |a, b| a.max(b));
         let ll = self.lows.iter().copied().fold(Decimal::MAX, |a, b| a.min(b));
+        if hh == Decimal::MIN || ll == Decimal::MAX {
+            return Some(Decimal::from(-50));
+        }
         let range = hh - ll;
         if range <= Decimal::ZERO {
-            return Some(Decimal::ZERO);
+            return Some(Decimal::from(-50));
         }
         let wr = (hh - close) / range * Decimal::NEGATIVE_ONE * Decimal::from(100);
         Some(wr)

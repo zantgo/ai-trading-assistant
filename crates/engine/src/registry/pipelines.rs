@@ -109,6 +109,8 @@ pub async fn build_pipelines(
             fibonacci: ctx.fib_config.clone(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         fast: analyzer::TimeframePipeline {
             history: fast_history.clone(),
@@ -122,6 +124,8 @@ pub async fn build_pipelines(
             fibonacci: ctx.fib_config.clone(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         slow: analyzer::TimeframePipeline {
             history: slow_history.clone(),
@@ -135,6 +139,8 @@ pub async fn build_pipelines(
             fibonacci: ctx.fib_config.clone(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         r#macro: analyzer::TimeframePipeline {
             history: macro_history.clone(),
@@ -148,11 +154,15 @@ pub async fn build_pipelines(
             fibonacci: ctx.fib_config.clone(),
             latest_oi: Arc::new(RwLock::new(None)),
             latest_funding: Arc::new(RwLock::new(None)),
+            latest_mark_px: Arc::new(RwLock::new(None)),
+            latest_index_px: Arc::new(RwLock::new(None)),
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
         latest_oi: Arc::new(RwLock::new(None)),
         latest_funding: Arc::new(RwLock::new(None)),
+        latest_mark_px: Arc::new(RwLock::new(None)),
+        latest_index_px: Arc::new(RwLock::new(None)),
     });
 
     spawn_tasks(
@@ -431,6 +441,10 @@ async fn spawn_tasks(
         let a_cancel = cancel.clone();
         let a_fib = fib_config.clone();
         let a_pool = state.pool.clone();
+        let a_latest_oi = active_pair.latest_oi.clone();
+        let a_latest_funding = active_pair.latest_funding.clone();
+        let a_latest_mark = active_pair.latest_mark_px.clone();
+        let a_latest_index = active_pair.latest_index_px.clone();
         tokio::spawn(async move {
             analyzer::run_single(
                 rx,
@@ -451,8 +465,10 @@ async fn spawn_tasks(
                 candle_fwd,
                 warmed,
                 Some(a_pool),
-                Arc::new(RwLock::new(None)),
-                Arc::new(RwLock::new(None)),
+                a_latest_oi,
+                a_latest_funding,
+                a_latest_mark,
+                a_latest_index,
                 crate::config::OrderBookConfig::default(),
             )
             .await;

@@ -1,4 +1,5 @@
 use shared::models::MarketSnapshot;
+use shared::normalized::Exchange;
 use sqlx::SqlitePool;
 
 #[derive(Debug)]
@@ -36,6 +37,16 @@ pub enum TelemetryMsg {
         roi_pct: f64,
         allocated_usd: f64,
         trigger: String,
+    },
+    /// Real liquidation event captured from exchange WS (Phase 1+).
+    InsertLiquidationEvent {
+        exchange: Exchange,
+        symbol: String,
+        side: String,
+        price: f64,
+        size_usd: f64,
+        timestamp_ms: u64,
+        venue_order_id: Option<String>,
     },
 }
 
@@ -126,6 +137,37 @@ pub async fn run_telemetry_logger(
                     )
                     .await;
                 });
+            }
+            TelemetryMsg::InsertLiquidationEvent {
+                exchange,
+                symbol,
+                side,
+                price,
+                size_usd,
+                timestamp_ms,
+                venue_order_id,
+            } => {
+                let exchange_str = match exchange {
+                    Exchange::Hyperliquid => "Hyperliquid",
+                    Exchange::Bitget => "Bitget",
+                };
+                if let Err(e) = sqlx::query(
+                    "INSERT INTO liquidation_events
+                        (exchange, symbol, side, price, size_usd, timestamp, venue_order_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                )
+                .bind(exchange_str)
+                .bind(&symbol)
+                .bind(&side)
+                .bind(price)
+                .bind(size_usd)
+                .bind(timestamp_ms as i64)
+                .bind(&venue_order_id)
+                .execute(&pool)
+                .await
+                {
+                    eprintln!("DB error inserting liquidation event: {}", e);
+                }
             }
         }
     }

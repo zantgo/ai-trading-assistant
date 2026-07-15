@@ -5,7 +5,7 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use engine::analyzer;
-use engine::config::{FibonacciConfig, TimeframeConfig};
+use engine::config::{FibonacciConfig, OrderBookConfig, TimeframeConfig};
 use shared::indicators::DivergenceDetector;
 use shared::models::MarketSnapshot;
 use shared::normalized::{Exchange, NormalizedCandle, NormalizedEvent, NormalizedTrade, TradeSide};
@@ -133,6 +133,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     broadcast,
                     tf_cfg,
                     fib,
+                    shared::statistics::StatisticsConfig::default(),
                     div_det,
                     history,
                     latest,
@@ -145,6 +146,11 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     None,
                     None,
                     None,
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(None)),
+                    OrderBookConfig::default(),
                 )
                 .await;
             })

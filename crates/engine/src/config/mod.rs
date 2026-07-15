@@ -33,6 +33,8 @@ pub struct AppConfig {
     pub safety: SafetyConfig,
     #[serde(default)]
     pub intervals: IntervalsConfig,
+    #[serde(default)]
+    pub liquidity: LiquidityConfig,
     #[serde(default, skip_serializing)]
     pub instances: HashMap<String, InstanceSpecificConfig>,
 }

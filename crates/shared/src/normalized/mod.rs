@@ -74,6 +74,8 @@ pub enum NormalizedEvent {
     AssetContext(AssetContext),
     OpenInterest(OpenInterestEvent),
     FundingRate(FundingRateEvent),
+    MarkPrice(MarkPriceEvent),
+    Liquidation(LiquidationEvent),
     Status {
         exchange: Exchange,
         status: ConnectionStatus,
@@ -89,10 +91,16 @@ pub struct AssetContext {
 }
 
 /// Open Interest event from derivatives exchange.
+///
+/// `prev_oi` is the immediately prior OI value (when available) so the
+/// receiver can compute a delta without retaining its own history. `None`
+/// means "first observation".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenInterestEvent {
     pub symbol: String,
     pub oi: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_oi: Option<Decimal>,
 }
 
 /// Funding Rate event from derivatives exchange.
@@ -100,6 +108,45 @@ pub struct OpenInterestEvent {
 pub struct FundingRateEvent {
     pub symbol: String,
     pub rate: Decimal,
+}
+
+/// Mark Price event from derivatives exchange.
+///
+/// `mark_px` is the exchange-computed mark price used for margin and
+/// unrealized PnL. `index_px` is the underlying index (spot composite). The
+/// difference is `mark_px - index_px`; the spread_pct is
+/// `(mark_px - index_px) / index_px * 100`. Both are optional because not
+/// every venue exposes both fields on every payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkPriceEvent {
+    pub symbol: String,
+    pub mark_px: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_px: Option<Decimal>,
+    pub timestamp_ms: u64,
+}
+
+/// Liquidation event side: which side was force-closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum LiquidationSide {
+    /// A long position was force-closed by the exchange (forced sell).
+    Long,
+    /// A short position was force-closed by the exchange (forced buy).
+    Short,
+}
+
+/// Liquidation event (real, exchange-published forced close).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquidationEvent {
+    pub exchange: Exchange,
+    pub symbol: String,
+    pub side: LiquidationSide,
+    pub price: Decimal,
+    pub size: Decimal,
+    pub timestamp_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub venue_order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
