@@ -10,7 +10,7 @@
 
 ## 1. Definition
 
-A **Threshold** fires when a value crosses into a named band. It is the most widely declared SignalKind (21 declarations) because most oscillators and gates define significance zones.
+A **Threshold** fires when a value crosses into a named band. It is the most widely declared SignalKind (26 declarations) because most oscillators and gates define significance zones.
 
 | Example | Threshold | Meaning |
 |---------|-----------|---------|
@@ -24,7 +24,7 @@ A **Threshold** fires when a value crosses into a named band. It is the most wid
 
 ## 2. Producing Indicators
 
-Declared by 21 registry entries: `adx`, `rsi`, `stochastic`, `chandemo`, `williams_r`, `awesome_oscillator`, `force_index`, `cci`, `mfi`, `atr`, `hv`, `aroon`, `choppiness`, `zscore`, `smc_liquidity`, `open_interest`, `oi_delta`, `funding_rate`, `order_flow_imbalance`, `spread`, `depth_bias`.
+Declared by 26 registry entries: `adx`, `rsi`, `stochastic`, `chandemo`, `williams_r`, `awesome_oscillator`, `cci`, `macd`, `obv`, `cmf`, `mfi`, `force_index`, `atr`, `bbwp`, `squeeze`, `hv`, `aroon`, `choppiness`, `linreg_slope`, `zscore`, `open_interest`, `oi_delta`, `funding_rate`, `order_flow_imbalance`, `spread`, `depth_bias`.
 
 Non-directional gates (ADX, ATR, HV, Choppiness, Spread, etc.) emit thresholds that modulate confidence rather than direction.
 

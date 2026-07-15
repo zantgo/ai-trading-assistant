@@ -10,7 +10,7 @@
 
 ## 1. Definition
 
-A **LevelTest** fires when price trades into the proximity of a tracked structural level. It is the most widely declared structural signal (14 declarations) because so many indicators publish price levels.
+A **LevelTest** fires when price trades into the proximity of a tracked structural level. It is the most widely declared structural signal (13 declarations) because so many indicators publish price levels.
 
 | Example | Level source |
 |---------|-------------|
@@ -24,7 +24,7 @@ A **LevelTest** fires when price trades into the proximity of a tracked structur
 
 ## 2. Producing Indicators
 
-Declared by 14 registry entries: `supertrend`, `donchian`, `keltner`, `vwap`, `anchored_vwap`, `ichimoku`, `stddev_channel`, `volume_profile`, `bollinger`, `fibonacci`, `support_resistance`, `pivot_points`, `smc_fvg`, `smc_order_blocks`.
+Declared by 13 registry entries: `donchian`, `keltner`, `vwap`, `anchored_vwap`, `ichimoku`, `stddev_channel`, `volume_profile`, `bollinger`, `fibonacci`, `support_resistance`, `pivot_points`, `smc_fvg`, `smc_order_blocks`.
 
 ---
 

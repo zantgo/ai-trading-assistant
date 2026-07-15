@@ -90,12 +90,17 @@ Every order transitions through a logged lifecycle:
          ┌──────────┐   size+route   ┌──────────┐   ack    ┌──────────┐
          │  PENDING │───────────────►│ SUBMITTED│─────────►│  OPEN    │
          └──────────┘                └──────────┘          └──────────┘
-              │                            │                    │
-              │ reject                     │ cancel             │ fill / stop / target
-              ▼                            ▼                    ▼
-         ┌──────────┐                ┌──────────┐          ┌──────────┐
-         │ REJECTED │                │ CANCELLED│          │  CLOSED  │
-         └──────────┘                └──────────┘          └──────────┘
+              │                            │                    │  partial fill
+              │ reject                     │ cancel             ▼
+              ▼                            ▼              ┌─────────────────┐
+         ┌──────────┐                ┌──────────┐          │ PARTIALLY_FILLED │
+         │ REJECTED │                │ CANCELLED│          └─────────────────┘
+         └──────────┘                └──────────┘             │            │
+                                                              │ more fill  │ cancel
+                                                              ▼            ▼
+                                                         ┌──────────┐  ┌──────────┐
+                                                         │  CLOSED  │  │ CANCELLED│
+                                                         └──────────┘  └──────────┘
 ```
 
 Every transition is written to the Execution Matrix with a high-resolution timestamp, guaranteeing full auditability. Partial fills are tracked against the associated position.

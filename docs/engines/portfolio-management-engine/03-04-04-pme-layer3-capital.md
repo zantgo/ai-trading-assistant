@@ -81,7 +81,7 @@ This `available_margin` value is the `E` (available margin) supplied to the TAE 
 | Fee Type | Tracking |
 |----------|----------|
 | **Trading fees** | Deducted from realized PnL on each fill (maker/taker). |
-| **Funding payments** | Accrued every 8 hours based on `funding_rate_8h` and position notional. |
+| **Funding payments** | Accrued on receipt of each `FundingRate` event from the DIE; for venues publishing every 8 hours (`funding_rate_8h`), each event is recorded as a discrete accrual. The 8-hour cadence is a **venue property**, not an internal cron. |
 | **Spread cost** | Implicit cost captured by comparing fill price to mid-price; logged to `execution_slippage`. |
 
 All fees are configurable via `config.json` `fees`.
@@ -106,7 +106,7 @@ The Capital Layer is the **single source of truth** for the TAE Position Sizing 
 
 1. TAE Execution Layer sends a synchronous request: `query_available_margin(symbol)`.
 2. Capital Layer responds with `available_margin` (after reserving margin for the pending order).
-3. TAE computes $S = \frac{E \times R}{D_{sl} / 100}$ and dispatches the order.
+3. TAE computes $S = \frac{E \times R}{D_{sl} / 100}$ and dispatches the order. *(Units: `E` = available margin (Decimal, quote currency); `R = risk_per_trade_pct / 100` (unitless fraction in `[0, 1]`); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
 4. On fill confirmation, Capital Layer updates `committed_margin` and `available_margin`.
 
 ---

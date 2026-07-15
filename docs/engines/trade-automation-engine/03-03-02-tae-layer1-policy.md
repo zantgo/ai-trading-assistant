@@ -52,7 +52,7 @@ IF (Decision.bias ∈ {"BULLISH", "STRONG_BULLISH"})
 THEN Trigger LONG
 ```
 
-Conditions support operators: `==`, `>`, `<`, `>=`, `<=`, `∈` (in set), `BETWEEN`.
+Conditions support operators: `==`, `>`, `<`, `>=`, `<=`, `∈` (in set), `BETWEEN`, `NOT_EQ` (the formal grammar lists all eight in [03-03-04 §2.2](03-03-04-tae-execution-policy-spec.md#22-condition-structure)).
 
 ---
 

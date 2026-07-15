@@ -32,7 +32,7 @@ PRAGMA synchronous = NORMAL;
 
 ---
 
-## 3. Table Catalog (15 Active Tables)
+## 3. Table Catalog (18 Active Tables)
 
 ### 3.1 Core Telemetry
 

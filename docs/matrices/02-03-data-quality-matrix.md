@@ -41,13 +41,13 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
     "exchange": "Hyperliquid",
     "symbol": "BTC-USDT",
     "timeframe_secs": 60,
-    "timestamp": 1752192000,
+    "timestamp": 1752192000000,
     "open": "63890.0",
     "high": "64120.0",
     "low": "63850.0",
     "close": "64012.5",
     "volume": "182.4",
-    "trade_count": 345
+    "trades_count": 345
   },
   "is_gap_filled": false,
   "is_stale": false,

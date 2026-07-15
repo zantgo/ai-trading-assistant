@@ -14,9 +14,15 @@
 The Analysis Layer is the transition from *observation* to *understanding*. It consumes the [Alignment Matrix](../../matrices/02-01-alignment-matrix.md) and produces the [Analysis Matrix](../../matrices/02-02-analysis-matrix.md).
 
 ```
-[Alignment Matrix] ──► ANALYSIS LAYER (L3) ──► [Analysis Matrix]
-                        derive_analysis()        bias + regime + 7 assessments
+              [Alignment Matrix] ──► ANALYSIS LAYER (L3) ──► [Analysis Matrix]
+                                          derive_analysis()        bias + regime + assessments
+                                                              │
+                                                ┌─────────────┼─────────────┐
+                                                ▼             ▼             ▼
+                                          L4 (Opportunity)  L5 (Risk)   L6 (Decision)
 ```
+
+The L3 output fans out to three downstream consumers. **L4 and L5 are strictly orthogonal** — they do not read each other's matrices. L6 is the only synthesis point. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
 
 Implementation: `crates/shared/src/analysis.rs::derive_analysis()`.
 
@@ -42,7 +48,7 @@ base = |mtf_overall_score| / 100
 cap 0.5 if trend_agreement_pct < 50
 +0.10 if signal_cross_tf_count ≥ 3
 cap 0.5 if timeframes_present ≤ 1
-confidence = clamp(base, 0, 1)
+state_confidence = clamp(base, 0, 1)
 ```
 
 ---
@@ -64,9 +70,11 @@ The layer classifies the structural regime from the alignment score and per-time
 
 The full decision tree with detailed conditions lives in the canonical Analysis Matrix spec; this layer is a thin executor of that tree. Regime detection is continuous — it re-evaluates on every completed candle, enabling downstream layers to adapt (e.g. the Decision Layer's strategy environment).
 
+> **Direct L3 → L6 edge.** The Analysis Matrix is consumed by [Layer 6 (Decision Support)](03-02-07-mme-layer6-decision-support.md) directly — in addition to being an input to Layers 4 and 5. Specifically, the Decision Layer reads `bias`, `state_confidence`, `market_quality`, `market_regime`, and the **six** qualitative assessments directly from L3. See [Sequence A](../../conceptual-foundations/01-03-systemic-data-flow.md#sequence-a-market-telemetry--analysis-cascade-the-observation-loop).
+
 ---
 
-## 4. Seven Qualitative Assessments
+## 4. Six Qualitative Assessments
 
 Each is derived from a specific alignment dimension score (see [Analysis Matrix §4.2](../../matrices/02-02-analysis-matrix.md)):
 
@@ -77,8 +85,9 @@ Each is derived from a specific alignment dimension score (see [Analysis Matrix 
 | Volume | 2 | `WEAK` / `NORMAL` / `STRONG` / `EXCEPTIONAL` |
 | Volatility | 3 | `COMPRESSED` / `NORMAL` / `EXPANDING` / `EXTREME` / `UNSTABLE` |
 | Structure | 4 | `STRONG` / `HEALTHY` / `WEAK` / `BROKEN` / `UNCLEAR` |
-| Opportunity | 9 | (selects `OpportunityType`) |
 | Quality | mean(0,1,2,4) | `POOR` / `WEAK` / `AVERAGE` / `GOOD` / `EXCELLENT` |
+
+*Note: the `Opportunity` assessment was removed in the institutional redesign — `OpportunityType` is now produced by L4 (the [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md)) as a forecast field, not a state interpretation.*
 
 ---
 

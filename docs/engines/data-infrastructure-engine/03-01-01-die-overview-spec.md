@@ -136,7 +136,7 @@ Connecting ──► Connected ──► (stream) ──► Disconnected ──�
 
 ## 5. Symbol Normalization
 
-The `SymbolMapper` (`crates/shared/src/normalized/symbol_mapper.rs`) maps exchange-native symbols (e.g. Hyperliquid `BTC`, Bitget `BTCUSDT`) to unified internal symbols (e.g. `BTC-USDT`). The configured `symbols` list uses `Exchange:Symbol` syntax (e.g. `Hyperliquid:BTC`), letting a single internal symbol be sourced from a preferred venue with cross-venue failover.
+The `SymbolMapper` (`crates/shared/src/normalized/symbol_mapper.rs`) maps exchange-native symbols (e.g. Hyperliquid `BTC`, Bitget `BTCUSDT`) to unified internal symbols (e.g. `BTC-USDT`). The configured `symbols` list uses `Exchange:Symbol` syntax (e.g. `Hyperliquid:BTC`) to bind each internal symbol to exactly one preferred venue. **Aggregation of parallel streams from multiple venues for the same symbol is not supported; cross-venue failover is not implemented.**
 
 ---
 

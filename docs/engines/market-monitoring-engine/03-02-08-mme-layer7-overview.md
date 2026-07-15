@@ -1,7 +1,7 @@
 # MME Layer 7 — Overview Layer
 
 **Version:** 2.0
-**Status:** Approved — Backend computed; UI panel pending (see [Dashboard Layout](../../ui-ux/07-02-ui-dashboard-layout.md)).
+**Status:** Approved — Backend computed; UI panel pending (search issue tracker for label `overview-panel`).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7
 **Output Contract:** [Overview Matrix](../../matrices/02-09-overview-matrix.md)
@@ -47,7 +47,7 @@ Range `[50, 100]`; monotonic in `confidence_assessment`. Rankings sort descendin
 
 The Overview Layer publishes the single market-wide danger index consumed by the PME safety veto:
 
-$$\text{SystemicRisk} = 0.6 \cdot \text{high\_risk\_pct} + 0.4 \cdot \text{sync\_penalty}$$
+$$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penalty}$$
 
 Correlated downside elevates `sync_penalty` (0–100), because synchronized declines are systemically dangerous. It is `0` unless the global bias is bearish, then it scales with the synchronization level: `HIGHLY_SYNCHRONIZED` → 100, `SYNCHRONIZED` → 60, `MIXED` → 30, `FRAGMENTED` → 10, `HIGHLY_FRAGMENTED` → 0 (see [Overview Matrix §4](../../matrices/02-09-overview-matrix.md) for the full table). The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK`) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
 

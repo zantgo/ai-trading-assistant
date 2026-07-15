@@ -4,7 +4,7 @@
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
-**Purpose:** This document defines the physical schema and unipolar scoring model of the **Risk Matrix** — the direction-independent threat-assessment object. It quantifies the danger surrounding the current market interpretation across nine dimensions on a `0–100` unipolar scale.
+**Purpose:** This document defines the physical schema and unipolar scoring model of the **Risk Matrix** — the direction-independent threat-assessment object. It quantifies the danger surrounding the current market interpretation across **eight dimensions** on a `0–100` unipolar scale. *(Reduced from nine in the institutional redesign; `reward_risk` removed and moved to the Decision Layer as `environment_favorability`.)*
 
 ---
 
@@ -12,12 +12,14 @@
 
 Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.15, **Risk** is the structural, technical, and environmental danger present in the market — **independent of directional bias**. A bullish market can be high risk; a bearish market can be low risk.
 
-Crucially, Risk is a property of an *interpretation*, not of raw observations: you cannot evaluate how risky a bullish trend is until you have first determined that a bullish trend exists. The Risk Matrix therefore consumes the [Analysis Matrix](02-02-analysis-matrix.md) plus the underlying [Metrics Matrix](02-07-metrics-matrix.md) indicators. **The Risk Matrix does NOT consume the Opportunity Matrix (L4).** The only opportunity-derived evidence that enters `reward_risk` is the `opportunity_analysis` selector string (e.g. `NO_CLEAR_OPPORTUNITY`) and the `market_quality` enum — both of which are fields of the Analysis Matrix itself (L3), not of the L4 Opportunity Matrix. The Layer 4 (Opportunity) and Layer 5 (Risk) branches are orthogonal: each reads L3 directly and runs in parallel.
+Crucially, Risk is a property of an *interpretation*, not of raw observations: you cannot evaluate how risky a bullish trend is until you have first determined that a bullish trend exists. The Risk Matrix therefore consumes the [Analysis Matrix](02-02-analysis-matrix.md) plus the underlying [Metrics Matrix](02-07-metrics-matrix.md) indicators.
+
+**L4/L5 strict orthogonality (institutional redesign).** L5 does **not** consume the L4 Opportunity Matrix. The Layer 4 (Opportunity) and Layer 5 (Risk) branches are strictly orthogonal at the matrix boundary: each reads L3 directly and runs in parallel. **Reward evaluation is a synthesis** and has been moved to the [Decision Matrix (L6)](02-04-decision-matrix.md) as the new `environment_favorability` field. The Risk Matrix contains only **8 unipolar danger dimensions** + `overall_risk` — no reward synthesis.
 
 ```
 [Analysis Matrix] ─┐
                    ├──► RISK LAYER (L5) ──► [Risk Matrix]
-[Metrics Matrix ]  ┘      compute_risk()      (9 unipolar dimensions)
+[Metrics Matrix ]  ┘      compute_risk()      (8 unipolar dimensions)
 ```
 
 Implemented as `RiskMatrix` (`crates/shared/src/risk.rs`), produced by `compute_risk()`.
@@ -26,7 +28,7 @@ Implemented as `RiskMatrix` (`crates/shared/src/risk.rs`), produced by `compute_
 
 ## 2. Physical Schema
 
-### 2.1 RiskMatrix Fields (9 Dimensions)
+### 2.1 RiskMatrix Fields (8 Dimensions)
 
 | Field | Type | Threat Vector |
 |-------|------|---------------|
@@ -38,8 +40,9 @@ Implemented as `RiskMatrix` (`crates/shared/src/risk.rs`), produced by `compute_
 | `momentum_risk` | `RiskDimension` | Exhausted / diverging momentum. |
 | `signal_risk` | `RiskDimension` | Conflicting or unreliable signals. |
 | `execution_risk` | `RiskDimension` | Practical difficulty (spread, slippage, thin book). |
-| `reward_risk` | `RiskDimension` | Opportunity quality vs environmental uncertainty. |
-| `overall_risk` | `RiskDimension` | Weighted aggregate of the eight dimensions above. |
+| `overall_risk` | `RiskDimension` | Weighted aggregate of the seven dimensions above. |
+
+> **Removed in the institutional redesign.** The previous `reward_risk` dimension has been **removed** from the Risk Matrix. Reward synthesis is a Decision-Layer concept and now lives at [Decision Matrix `environment_favorability`](02-04-decision-matrix.md).
 
 ### 2.2 RiskDimension
 
@@ -116,17 +119,15 @@ if ATR present: score = mean(score, relative_atr)
 +15 RVOL < 0.7 (low participation)
 ```
 
-### 4.8 Reward Risk (baseline 40)
-```
-score = mean(40, quality_penalty)   // quality_penalty: Excellent 10 … Poor 80
-+20 no clear opportunity
-```
+### 4.8 *(Removed in the institutional redesign)*
+
+The previous `Reward Risk` derivation has been **removed** from the Risk Matrix. Reward synthesis has moved to the Decision Layer as `environment_favorability` (see [Decision Matrix §3](02-04-decision-matrix.md)).
 
 ### 4.9 Overall Risk (weighted aggregate)
 
-$$\text{overall} = 0.15\,M + 0.15\,V + 0.15\,L + 0.10\,S_{tr} + 0.15\,M_{om} + 0.10\,S_{ig} + 0.10\,E + 0.10\,R$$
+$$\text{overall} = 0.15\,M + 0.20\,V + 0.15\,L + 0.10\,S_{tr} + 0.15\,M_{om} + 0.15\,S_{ig} + 0.10\,E$$
 
-where M=market, V=volatility, L=liquidity, S_tr=structure, M_om=momentum, S_ig=signal, E=execution, R=reward.
+where M=market, V=volatility, L=liquidity, S_tr=structure, M_om=momentum, S_ig=signal, E=execution. (Weights re-normalized after `reward_risk` removal: total = 1.0.)
 
 ---
 
@@ -144,8 +145,7 @@ A representative Risk Matrix frame. The example illustrates the JSON shape and t
   "momentum_risk":   { "score": 20.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "signal_risk":     { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "execution_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "reward_risk":     { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "overall_risk":    { "score": 28.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
+  "overall_risk":    { "score": 28.75, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
 }
 ```
 
@@ -155,7 +155,7 @@ Empty `evidence` arrays are omitted. Enum values serialize as `SCREAMING_SNAKE_C
 
 ## 6. Empty State
 
-When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all nine dimensions defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
+When `analysis.timeframes_considered == 0`, `compute_risk` returns `RiskMatrix::empty()` — all eight dimensions defaulting to score `50.0` (`MODERATE`), reflecting maximal uncertainty in the absence of data.
 
 ---
 

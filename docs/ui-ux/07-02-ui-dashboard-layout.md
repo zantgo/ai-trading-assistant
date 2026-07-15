@@ -94,7 +94,7 @@ Per-setup-type opportunity profiling display. Shows scored candidate setups (Bre
 
 ### 4.6 Analysis Panel (`AnalysisPanel.svelte`)
 
-Renders the Analysis Matrix: categorical bias + continuous `market_bias_score`, regime, all 7 assessments as qualitative labels, market interpretation text, supporting vs contradicting evidence lists.
+Renders the Analysis Matrix: categorical bias + continuous `market_bias_score`, regime, all 6 assessments as qualitative labels, market interpretation text, supporting vs contradicting evidence lists.
 
 ### 4.7 Decision Panel (`AdvisoryPanel.svelte`)
 

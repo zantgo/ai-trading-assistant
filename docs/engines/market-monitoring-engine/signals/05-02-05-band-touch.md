@@ -23,7 +23,7 @@ A **BandTouch** fires when price reaches a band edge (upper/lower) but does not 
 
 ## 2. Producing Indicators
 
-Declared by 4 registry entries: `donchian`, `keltner`, `stddev_channel`, `bollinger`.
+Declared by 5 registry entries: `donchian`, `keltner`, `stddev_channel`, `bollinger`, `supertrend`.
 
 ---
 

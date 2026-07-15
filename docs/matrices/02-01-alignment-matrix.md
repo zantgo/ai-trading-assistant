@@ -82,16 +82,17 @@ The `dimensions` array is ordered. Each index maps to a specific agreement axis:
 | 6 | **Regime** | Regime-classification agreement | % of TFs sharing the dominant regime. |
 | 7 | **Confidence** | Confidence consistency | `100 − stddev` of per-TF confidence scores. |
 | 8 | **Liquidity** | RVOL consistency | `(1 − coefficient_of_variation)` of RVOL across TFs. |
-| 9 | **Opportunity** | Tradability agreement | % of TFs with non-neutral bias and non-compressed regime. |
+| 9 | **Tradability** | Cross-timeframe tradability agreement | % of TFs with non-neutral bias and non-compressed regime. *(Renamed from "Opportunity" in the institutional redesign — the L4 Opportunity Matrix is the canonical owner of opportunity concepts; this dimension measures TFs agreeing on whether conditions are tradable.)* |
 
 ### 3.1 AlignState Derivation
 
 ```
-score ≥ 60          → Bullish
-20 < score ≤ 40     → Bearish
-0 < score ≤ 20      → Bearish
-score == 0 OR 40<score<60 → Neutral
-otherwise           → Mixed
+# Priority order (first match wins):
+1. score ≥ 60                  → Bullish
+2. 20 < score ≤ 40              → Bearish
+3. 0  < score ≤ 20              → Bearish
+4. score == 0 OR 40<score<60    → Neutral
+5. otherwise                    → Mixed
 ```
 
 For signed dimensions (Trend/Momentum/Volume/Volatility), the score is derived from a mean in `[-1,1]` via `score = (mean + 1) / 2 × 100`, with state `BULLISH` if `mean > 0.3`, `BEARISH` if `mean < -0.3`, else `NEUTRAL`.
@@ -116,9 +117,9 @@ $$\text{mtf\_alignment} = \text{clamp}\left(\frac{\sum_{tf} \text{score}_{tf} \c
 
 The four signed consensus scores are blended with fixed weights:
 
-$$\text{mtf\_overall\_score} = \text{clamp}\big((0.5\,T + 0.3\,M + 0.1\,V_{vol} + 0.1\,V_{lat}) \times 100,\ -100,\ 100\big)$$
+$$\text{mtf\_overall\_score} = \text{clamp}\big((0.5\,T + 0.3\,M + 0.1\,V_{t} + 0.1\,V_{m}) \times 100,\ -100,\ 100\big)$$
 
-where `T` = trend, `M` = momentum, `V_vol` = volume, `V_lat` = volatility consensus.
+where `T` = trend alignment, `M` = momentum alignment, `V_t` = volatility alignment, `V_m` = volume alignment.
 
 ### 4.3 Trend Agreement Percentage
 
@@ -174,7 +175,7 @@ otherwise   → NEUTRAL_MTF
   "mtf_momentum_alignment": 0.30,
   "mtf_volume_alignment": 0.10,
   "mtf_volatility_alignment": 0.20,
-  "mtf_overall_score": 41.0,
+  "mtf_overall_score": 40.0,
   "mtf_overall_label": "WEAK_BULL_MTF",
   "timeframe_alignments": [
     { "timeframe": "micro60", "timeframe_secs": 60, "trend_score": 0.5,

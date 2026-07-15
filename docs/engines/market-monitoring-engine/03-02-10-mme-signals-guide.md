@@ -43,7 +43,7 @@ struct IndicatorSignal {
 | **StackChange** | The EMA ribbon reorders. | [stack-change.md](signals/05-02-11-stack-change.md) |
 | **PatternForming** | A chart or candlestick pattern is detected. | [pattern-forming.md](signals/05-02-12-pattern-forming.md) |
 
-There are **100 signal-kind declarations** across 50 registry entries — i.e. most indicators declare several SignalKinds.
+There are **102 signal-kind declarations** across 50 registry entries — i.e. most indicators declare several SignalKinds.
 
 ---
 

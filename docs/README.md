@@ -18,18 +18,20 @@ docs/
 │   ├── 01-02-global-architecture.md                  ← 5-engine blueprint, 2D framework, hybrid memory/math model
 │   ├── 01-03-systemic-data-flow.md                   ← chronological event sequences across engines
 │   └── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
-├── matrices/                                         (02 — 11 files)
+├── matrices/                                         (02 — 13 files)
+│   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
+│   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
 │   ├── 02-01-alignment-matrix.md                     ← 10-dimension cross-TF agreement
-│   ├── 02-02-analysis-matrix.md                      ← bias, regime, 9 assessments
+│   ├── 02-02-analysis-matrix.md                      ← bias, regime, qualitative assessments (pure state)
 │   ├── 02-03-data-quality-matrix.md
-│   ├── 02-04-decision-matrix.md                      ← TAE input contract (f64 boundary handoff)
+│   ├── 02-04-decision-matrix.md                      ← TAE input contract (f64 boundary handoff; only synthesis point)
 │   ├── 02-05-distribution-matrix.md
 │   ├── 02-06-market-data-matrix.md
 │   ├── 02-07-metrics-matrix.md                       ← MarketSnapshot schema (dual hot/cold rep)
-│   ├── 02-08-opportunity-matrix.md
+│   ├── 02-08-opportunity-matrix.md                   ← canonical OpportunityType producer
 │   ├── 02-09-overview-matrix.md                      ← global breadth, systemic risk (graded sync_penalty)
 │   ├── 02-10-raw-data-matrix.md
-│   └── 02-11-risk-matrix.md                          ← 9 unipolar risk dimensions
+│   └── 02-11-risk-matrix.md                          ← 8 unipolar risk dimensions (pure danger)
 ├── engines/
 │   ├── data-infrastructure-engine/                   (03-01 — 5 files)
 │   │   ├── 03-01-01-die-overview-spec.md             ← DIE boundaries, adapters, fault tolerance
@@ -78,17 +80,17 @@ docs/
 │       └── 03-05-05-pae-layer4-performance.md
 ├── integration-and-api/                              (06 — 2 files)
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
-│   └── 06-02-database-schema-spec.md                 ← 19-table SQLite schema
-├── ui-ux/                                            (07 — 2 files)
+│   └── 06-02-database-schema-spec.md                 ← 18-table SQLite schema
+├── ui-ux/                                            (07 — 3 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
-│   └── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
-└── operations-and-compliance/                        (08 — 3 files)
-    ├── 08-01-user-manual.md                          ← DRAFT: operator guide (TBD)
-    ├── 08-02-pre-trade-risk-controls.md              ← DRAFT: pre-trade risk gate spec (TBD)
-    └── 08-03-regulatory-compliance-and-audit.md      ← DRAFT: compliance & audit trail (TBD)
+│   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
+│   └── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
+└── operations-and-compliance/                        (08 — 2 files)
+    ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
+    └── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
 ```
 
-Total: **117 numbered documentation files** (4 conceptual + 11 matrix + 29 engine + 51 indicator + 13 signal + 2 integration + 2 UI + 3 ops = 115; the 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; the actual `find docs -name "*.md"` count is 117 because the README itself, this file, is also counted).
+Total: **119 numbered documentation files** (4 conceptual + 13 matrix + 29 engine + 51 indicator + 13 signal + 2 integration + 3 UI + 2 ops = 117; the 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; the actual `find docs -name "*.md"` count is 119 because the README itself, this file, is also counted).
 
 ## The Five Engines
 

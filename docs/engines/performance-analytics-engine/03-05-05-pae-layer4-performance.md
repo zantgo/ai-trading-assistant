@@ -44,7 +44,7 @@ The Performance Layer is the PAE's **final synthesis stage**. It combines trade-
 
 ## 3. Regime Compatibility Matrix
 
-The `RegimeCompatibility` grid maps each MME market regime to the strategy's performance within that regime:
+The `RegimeCompatibility` grid maps each MME market regime to the strategy's performance within that regime. *Illustrative example below — `ACCUMULATION`, `DISTRIBUTION`, and `TRANSITION` rows follow the same schema.*
 
 | Regime | Trades | Win Rate | Profit Factor | Avg Return | Sharpe | Mapping |
 |--------|--------|----------|---------------|------------|--------|---------|

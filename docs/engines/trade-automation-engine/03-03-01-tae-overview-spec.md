@@ -45,6 +45,8 @@ Trigger cadence is governed by `TriggerMode`:
 | `CandleClose { timeframe, count }` | Every N completed candles of a timeframe. |
 | `EventDriven { events }` | Named MME events (squeeze release, S/R flip, etc.). |
 
+> **`OperationalMode` vs `TriggerMode`.** `OperationalMode` answers *"is trading automated at all?"* — `ManualOnly` suspends all automated dispatch; `DeterministicHeuristics` enables policy-driven evaluation. `TriggerMode` answers *"when does an enabled policy evaluate?"* — a `ManualOnly` operational mode has no `TriggerMode` because no automated evaluation runs, while a `DeterministicHeuristics` mode pairs with one or more `TriggerMode`s. The two are orthogonal.
+
 ---
 
 ## 3. Transaction State Machine
@@ -55,12 +57,17 @@ Every order transitions through a logged lifecycle:
         ┌──────────┐   size+route   ┌──────────┐   ack    ┌──────────┐
         │  PENDING │───────────────►│ SUBMITTED│─────────►│  OPEN    │
         └──────────┘                └──────────┘          └──────────┘
-             │                            │                    │
-             │ reject                     │ cancel             │ fill / stop / target
-             ▼                            ▼                    ▼
-        ┌──────────┐                ┌──────────┐          ┌──────────┐
-        │ REJECTED │                │ CANCELLED│          │  CLOSED  │
-        └──────────┘                └──────────┘          └──────────┘
+             │                            │                    │  partial fill
+             │ reject                     │ cancel             ▼
+             ▼                            ▼              ┌─────────────────┐
+        ┌──────────┐                ┌──────────┐          │ PARTIALLY_FILLED │
+        │ REJECTED │                │ CANCELLED│          └─────────────────┘
+        └──────────┘                └──────────┘             │            │
+                                                             │ more fill  │ cancel
+                                                             ▼            ▼
+                                                        ┌──────────┐  ┌──────────┐
+                                                        │  CLOSED  │  │ CANCELLED│
+                                                        └──────────┘  └──────────┘
 ```
 
 Every transition is written to the Execution Matrix with a high-resolution timestamp, guaranteeing full auditability.

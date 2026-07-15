@@ -11,7 +11,9 @@
 
 ## 1. Purpose
 
-The Decision Support Layer transforms market intelligence into **actionable guidance without executing trades**. It consumes the Analysis, Opportunity, and Risk matrices and produces the [Decision Matrix](../../matrices/02-04-decision-matrix.md) (`AdvisoryMatrix` + `DecisionContext` structs).
+The Decision Support Layer transforms market intelligence into **actionable guidance without executing trades**. It consumes the Analysis (L3), Opportunity (L4), and Risk (L5) matrices and produces the [Decision Matrix](../../matrices/02-04-decision-matrix.md) (`AdvisoryMatrix` + `DecisionContext` structs).
+
+> **Three inputs, not two.** L6 reads directly from **L3** as well as from L4 and L5. L3 supplies `bias`, `state_confidence`, `market_quality`, `market_regime`, and the **six** qualitative assessments, which feed `directional_guidance`, `strategy_environment`, and `confidence_assessment`. L4 and L5 supply opportunity and risk vectors. L6 is the **only** synthesis point in the pipeline.
 
 ```
 [Analysis Matrix] ─┐
@@ -36,13 +38,13 @@ Trade readiness is derived from directional guidance, confidence, and stance. Th
 
 Confidence itself is risk-discounted:
 
-$$\text{confidence} = \text{clamp}\Big(\text{analysis.confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
+$$\text{confidence} = \text{clamp}\Big(\text{analysis.state\_confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
 
 ---
 
 ## 3. Directional & Stance Guidance
 
-`DirectionalGuidance` is derived from `bias × overall_risk`; `MarketStance` from `market_quality × overall_risk`. Full derivation tables: [Decision Matrix §3](../../matrices/02-04-decision-matrix.md).
+`DirectionalGuidance` is derived from `bias × overall_risk × market_stance` (priority order, first match wins): `market_stance = AVOID → AVOID_DIRECTIONAL_EXPOSURE`; otherwise the bias × risk grid. `MarketStance` is derived from `market_quality × overall_risk` with sticky AVOID/CAUTIOUS guards. Full derivation tables: [Decision Matrix §3](../../matrices/02-04-decision-matrix.md).
 
 ---
 
@@ -60,7 +62,7 @@ otherwise             → ATRBased
 ### 4.2 Target Strategy
 ```
 structure strong/healthy → ResistanceBased
-reward_risk < 40         → RRBased
+environment_favorability.score < 40  → RRBased
 otherwise                → VolatilityBased
 ```
 
@@ -72,7 +74,7 @@ The recommended protection method resolves to a concrete **stop-loss distance pe
 
 $$S = \frac{E \times R}{D_{sl} / 100}$$
 
-`D_sl` is a raw percentage float (e.g. `1.5` = 1.5%), divided by 100 in the formula; `E` is available margin.
+`D_sl` is a raw percentage float (e.g. `1.5` = 1.5%), divided by 100 in the formula; `E` is available margin. *(Units: `E` = available margin (Decimal, quote currency); `R = risk_per_trade_pct / 100` (unitless fraction in `[0, 1]`); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
 
 ---
 

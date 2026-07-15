@@ -14,10 +14,15 @@
 The Opportunity Layer identifies **positive** market configurations and scores their viability, independent of direction of exposure or execution parameters. It consumes the [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) and the underlying Metrics Matrix signals, producing the [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md).
 
 ```
-[Analysis Matrix] ─┐
-                   ├──► OPPORTUNITY LAYER (L4) ──► [Opportunity Matrix]
-[Metrics signals ] ┘        profile + score
+[Analysis Matrix (L3)] ─┐
+                         ├──► OPPORTUNITY LAYER (L4) ──► [Opportunity Matrix]
+[Metrics signals (L1)]  ┘        profile + score
+                                                │
+                                                ▼
+                                          L6 (Decision)
 ```
+
+**Dependency edges:** L4 reads L3 only. L4 does **not** read L5. L4 outputs to L6 only. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
 
 ---
 
@@ -49,7 +54,7 @@ $$\text{score} = 0.35\,Q_{ctx} + 0.30\,S_{sig} + 0.20\,A_{mtf} + 0.15\,F_{fresh}
 | `A_mtf` — MTF agreement | Alignment `trend_agreement_pct` for directional setups. |
 | `F_fresh` — freshness | Inverse of youngest contributing signal `age_bars`. |
 
-The **primary opportunity** is the highest-scoring profile; ties resolve toward the Analysis Matrix's `opportunity_analysis`.
+The **primary opportunity** is the highest-scoring profile; ties resolve toward the highest-precondition-satisfaction profile.
 
 ---
 

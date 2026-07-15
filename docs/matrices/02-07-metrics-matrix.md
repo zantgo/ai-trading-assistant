@@ -56,7 +56,7 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/sh
 | `exchange` | `Exchange` enum | Yes | Originating venue (`Hyperliquid`, `Bitget`). |
 | `symbol` | `string` | No | Unified instrument key, e.g. `BTC-USDT`. |
 | `timeframe_secs` | `u64` | No | Candle duration in seconds (60 / 180 / 300 / 900). |
-| `timestamp` | `u64` | No | Candle close time (Unix epoch, seconds). |
+| `timestamp` | `u64` | No | Candle close time (Unix epoch, milliseconds). |
 | `is_completed` | `bool` | Yes | `true` for a finalized candle; `false`/absent for a real-time "shadow" flicker snapshot. |
 | `mid_price` | `Decimal` | No | Mid of best bid/ask at snapshot time. |
 | `bid_price` / `ask_price` | `Decimal` | No | Top-of-book quotes. |
@@ -128,7 +128,7 @@ Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry 
 | `signal_types` | The `SignalKind`s this indicator may emit. |
 | `default_weight` | Baseline scoring weight. |
 
-See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, 100 signal-kind declarations).
+See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, **102 signal-kind declarations**).
 
 ---
 
@@ -201,7 +201,7 @@ The `context` field carries the **`MarketContext`** synthesis (`crates/shared/sr
 | `volatility` | `ContextDimension` | Magnitude from BBWP/HV (expansion vs compression). |
 | `volume` | `ContextDimension` | RVOL-derived participation magnitude. |
 | `liquidity` | `ContextDimension` | VWAP proximity + participation proxy. |
-| `regime` | `string` | `TRENDING` / `RANGE` / `EXPANSION` / `COMPRESSION`. |
+| `regime` | `string` | `TRENDING` / `RANGE` / `EXPANSION` / `COMPRESSION`. *(Note: the cross-TF Analysis `MarketRegime` uses the related but distinct `CONTRACTION` instead of `COMPRESSION` for the same concept; see [Analysis Matrix §3.2](../matrices/02-02-analysis-matrix.md).)* |
 | `overall_score` | `i32` | Directional conviction in `[-100, 100]`. |
 | `overall_label` | `string` | `STRONG_BULL` / `WEAK_BULL` / `NEUTRAL` / `WEAK_BEAR` / `STRONG_BEAR`. |
 
@@ -235,7 +235,7 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 180,
-  "timestamp": 1752192000,
+  "timestamp": 1752192000000,
   "is_completed": true,
   "mid_price": "64012.5",
   "bid_price": "64012.0",

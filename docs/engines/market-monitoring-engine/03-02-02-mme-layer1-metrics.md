@@ -39,7 +39,7 @@ Every registry-enabled indicator calculator runs against the current candle buff
 | Structure | Fibonacci, Support/Resistance, Pivot Points, Chart Patterns, Candlestick |
 | Regime | Aroon, Choppiness, LinReg Slope, Z-Score |
 | Institutional | SMC Structure, Liquidity, FVG, Order Blocks |
-| DerivativesData | Open Interest, Funding Rate, Order Book |
+| DerivativesData | Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance, Spread, Depth Bias |
 
 See [indicators/index.md](indicators/04-02-00-indicator-index.md) for the authoritative manifest.
 
@@ -72,7 +72,7 @@ Signal detectors project discrete events onto the 12 `SignalKind`s. Detection is
 
 | Detector family | SignalKinds produced |
 |-----------------|----------------------|
-| Divergence engine (7 oscillators) | `Divergence` |
+| Divergence engine (8 indicators) | `Divergence` |
 | Crossover detectors | `Crossover`, `ZeroLineCross`, `StackChange` |
 | Threshold detectors | `Threshold` |
 | Structural detectors | `Breakout`, `BandTouch`, `LevelTest`, `TrendFlip` |

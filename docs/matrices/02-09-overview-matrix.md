@@ -48,7 +48,7 @@ Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `
 | `symbol` | `string` | Asset. |
 | `score` | `f64` | Composite ranking score. |
 | `bias` | `string` | Directional guidance label. |
-| `confidence` | `f64` | Decision Matrix confidence. |
+| `confidence` | `f64` | Decision Matrix `confidence_assessment` value (mirror, in `[0, 100]`). |
 | `regime` | `string` | Strategy environment label. |
 | `risk_level` | `string` | Risk band. |
 
@@ -87,15 +87,25 @@ All six variants are reachable from this rule.
 Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{short\_count}}{\text{total}} \times 100$.
 
 ```
-> 60 → STRONG_POSITIVE · > 20 → POSITIVE
-< -60 → STRONG_NEGATIVE · < -20 → NEGATIVE
-|pct| < 10 → BALANCED · pct > 0 → WEAK · else → VERY_WEAK
+# Priority order (first match wins):
+1. breadth_pct >  60        → STRONG_POSITIVE
+2. breadth_pct >  20        → POSITIVE
+3. breadth_pct < -60        → STRONG_NEGATIVE
+4. breadth_pct < -20        → NEGATIVE
+5. |breadth_pct| < 10       → BALANCED
+6. breadth_pct > 0         → WEAK
+7. otherwise                → VERY_WEAK
 ```
 
 ### 3.3 SyncLevel (Market Synchronization)
 `HIGHLY_SYNCHRONIZED`, `SYNCHRONIZED`, `MIXED`, `FRAGMENTED`, `HIGHLY_FRAGMENTED` — from `|breadth_pct|`:
 ```
-> 75 → HIGHLY_SYNCHRONIZED · > 50 → SYNCHRONIZED · > 25 → MIXED · > 10 → FRAGMENTED · else → HIGHLY_FRAGMENTED
+# Priority order (first match wins):
+1. |breadth_pct| > 75  → HIGHLY_SYNCHRONIZED
+2. |breadth_pct| > 50  → SYNCHRONIZED
+3. |breadth_pct| > 25  → MIXED
+4. |breadth_pct| > 10  → FRAGMENTED
+5. otherwise           → HIGHLY_FRAGMENTED
 ```
 
 ### 3.4 HealthLevel
@@ -105,11 +115,11 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 
 ## 4. Risk Distribution & Systemic Risk Score
 
-The `risk_distribution` bins assets by their Decision Matrix confidence proxy (high confidence ⇒ low risk):
+The `risk_distribution` bins assets by their Decision Matrix `confidence_assessment` (in `[0, 100]`; high confidence ⇒ low risk):
 
 ```
-low_pct  = % of Decision Matrices with confidence > 70
-high_pct = % of Decision Matrices with confidence < 30
+low_pct  = % of Decision Matrices with confidence_assessment > 70
+high_pct = % of Decision Matrices with confidence_assessment < 30
 moderate_pct = 100 − low_pct − high_pct
 ```
 

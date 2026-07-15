@@ -54,7 +54,7 @@ Each distributed frame is an envelope containing the validated candle and its qu
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 60,
-  "timestamp": 1752192000,
+  "timestamp": 1752192000000,
   "candle": {
     "open": "63890.0",
     "high": "64120.0",
@@ -75,8 +75,8 @@ Each distributed frame is an envelope containing the validated candle and its qu
 ## 5. Backpressure & Fault Tolerance
 
 - **Bounded channels** prevent unbounded memory growth on consumer slowdown.
-- **Broadcast lag signalling**: if a subscriber's channel approaches capacity, a `BackpressureWarning` is emitted to the orchestrator.
-- **Dropped frame policy**: frames are never silently dropped; `BroadcastLag` events are logged and surfaced in observability.
+- **Broadcast lag signalling**: if a subscriber's channel approaches capacity, an internal backpressure warning is raised to the orchestrator (a structured event visible in `/api/system/status`).
+- **Dropped frame policy**: frames are never silently dropped; broadcast lag is logged and surfaced in observability.
 
 ---
 

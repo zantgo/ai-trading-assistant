@@ -64,7 +64,7 @@ $$\text{mtf\_alignment} = \text{clamp}\!\left(\frac{\sum_{tf} \text{score}_{tf}\
 | 6 | Regime | % of TFs sharing the dominant regime. |
 | 7 | Confidence | Consistency (`100 − stddev`) of per-TF confidence. |
 | 8 | Liquidity | RVOL consistency (`1 − coefficient of variation`). |
-| 9 | Opportunity | % of TFs with non-neutral, non-compressed conditions. |
+| 9 | Tradability | % of TFs with non-neutral, non-compressed conditions. *(Renamed from "Opportunity" — L4 owns opportunity concepts.)* |
 
 Full computation and `AlignState` derivation: [Alignment Matrix §3](../../matrices/02-01-alignment-matrix.md).
 
@@ -72,7 +72,9 @@ Full computation and `AlignState` derivation: [Alignment Matrix §3](../../matri
 
 ## 5. Overall Score & Trend Agreement
 
-$$\text{mtf\_overall\_score} = \text{clamp}\big((0.5T + 0.3M + 0.1V_{vol} + 0.1V_{lat}) \times 100,\ -100,\ 100\big)$$
+$$\text{mtf\_overall\_score} = \text{clamp}\big((0.5T + 0.3M + 0.1V_{t} + 0.1V_{m}) \times 100,\ -100,\ 100\big)$$
+
+where `T` = trend alignment, `M` = momentum alignment, `V_t` = volatility alignment, `V_m` = volume alignment.
 
 $$\text{trend\_agreement\_pct} = \frac{\max(\text{pos\_tf}, \text{neg\_tf})}{\text{total\_tf}} \times 100$$
 

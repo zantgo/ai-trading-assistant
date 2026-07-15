@@ -130,7 +130,7 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 
 #### Layer 2: Execution Layer
 *   **Purpose:** Route transactional orders and manage trade lifecycles on live exchanges or simulated execution environments (such as paper trading engines).
-*   **Processing:** Execute the Position Sizing Protocol upon trade entry validation. Query PME Capital Matrix for Available Margin ($E$) and MME Decision Matrix for Stop-Loss Distance as a raw percentage float ($D_{sl}$, e.g. `1.5`). Calculate the exact trade size ($S$) based on the user-configured risk-per-trade fraction ($R$, e.g. $0.01$ = 1% of margin):
+*   **Processing:** Execute the Position Sizing Protocol upon trade entry validation. Query PME Capital Matrix for Available Margin ($E$) and MME Decision Matrix for Stop-Loss Distance as a raw percentage float ($D_{sl}$, e.g. `1.5`). Calculate the exact trade size ($S$) based on the user-configured risk-per-trade fraction ($R$, e.g. $0.01$ = 1% of margin; with the default `risk_per_trade_pct = 1.0`, $R = 0.01$):
     $$S = \frac{E \times R}{D_{sl} / 100}$$
     Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue, and track order execution states.
 *   **Output (Execution Matrix):** Structured database of outstanding, filled, modified, and cancelled orders.
@@ -289,6 +289,8 @@ Both modes write metrics, signals, orders, and execution events to a shared SQL/
 *   During active CLI headless operation, all transactional and analytical matrices are persisted in real time.
 *   At any later point, the operator can boot the GUI application. The GUI reads these persisted records from the database, allowing the **Performance Analytics Engine (PAE)** to run retroactive trade reconstructions, significance tests ($P$-Values, $t$-statistics), and performance evaluations of the cloud-running strategy.
 
+> **Matrix invariance.** The CLI mode emits the **same** matrices as the GUI mode — the WebSocket `MarketSnapshot` envelope carries the full cascade (Metrics → Alignment → Analysis → Opportunity → Risk → Decision), and the Overview Matrix is broadcast on a separate channel. The CLI/GUI split is purely about the rendering / operator surface; the matrix contract is invariant across modes.
+
 ---
 
 ## 5. End-to-End Operational Flow
@@ -300,7 +302,7 @@ To illustrate the complete pipeline in practice, below is the sequence of events
 3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, and slow time horizons, updating the **Alignment Matrix**.
 4.  **Diagnosis:** The *Analysis Layer* confirms a transition to a `TRENDING_BULL` regime under a `STRONG_BULLISH` bias (with a `Market Bias Score: +0.82`), updating the **Analysis Matrix**.
 5.  **Opportunity:** The *Opportunity Layer* detects a high-probability breakout setup and logs an `Opportunity Score: 85` in the **Opportunity Matrix**.
-6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` and `opportunity_analysis` (both L3 outputs) but does *not* consume the L4 Opportunity Matrix itself.
+6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` (L3) but does *not* consume the L4 Opportunity Matrix itself.
 7.  **Decision:** The *Decision Layer* synthesizes these matrices, sets *Trade Readiness* to `READY`, and logs a structural invalidation target and calculated `stop_loss_distance_pct: 1.5` in the **Decision Matrix**.
 8.  **Trigger:** The Trade Automation Engine (TAE) receives this decision snapshot. The *Policy Layer* identifies that this state satisfies an active long breakout policy and logs an entry command in the **Policy Matrix**.
 9.  **Routing:** The *Execution Layer* queries the PME *Capital Matrix* to check available margin, reads the Stop-Loss Distance from the MME *Decision Matrix*, runs the Position Sizing Protocol to calculate a safe, risk-adjusted position size ($S = \frac{E \times R}{D_{sl} / 100}$), routes the buy order to the exchange or paper trading engine, and records the event in the **Execution Matrix**.

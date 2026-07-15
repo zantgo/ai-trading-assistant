@@ -94,15 +94,15 @@ The platform monitors four timeframes per instance. The base (micro) timeframe i
 | Slow | 300 s | Config `[slow_timeframe]`. |
 | Macro | 900 s (configurable, e.g. 3600 s / 86400 s) | Config `[macro_timeframe]` + `CandleAggregator`. |
 
-### 4.2 Macro Aggregation
+### 4.2 Higher-Timeframe Aggregation
 
-The `CandleAggregator` (`crates/engine/src/candle_aggregator.rs`) builds 4h (`240 × 1m`) and 1d (`1440 × 1m`) candles from 1-minute closes:
+The `CandleAggregator` (`crates/engine/src/candle_aggregator.rs`) rolls the base micro candle stream into the configured `fast`, `slow`, and `macro` timeframe buckets. The duration of each tier is configured in `config.json` (`fast_timeframe.duration_seconds`, `slow_timeframe.duration_seconds`, `macro_timeframe.duration_seconds`); the default ladder is micro 60 s / fast 180 s / slow 300 s / macro 900 s, but other ladders (e.g. 4h, 1d) are produced the same way when configured.
 
 ```
-1m close ──► process_1m_candle() ──► (Option<4h>, Option<1d>)
+1m close ──► process_1m_candle() ──► (Option<fast>, Option<slow>, Option<macro>)
              │
-             ├─ update pending_4h: high=max, low=min, close=latest, volume+=, count+=
-             └─ on interval rollover: emit completed macro candle, reset pending
+             ├─ update pending_<tf>: high=max, low=min, close=latest, volume+=, count+=
+             └─ on interval rollover: emit completed <tf> candle, reset pending
 ```
 
 Aggregation preserves OHLCV integrity: `high = max(highs)`, `low = min(lows)`, `close = last close`, `volume = Σ volumes`, `trades_count = Σ counts`.

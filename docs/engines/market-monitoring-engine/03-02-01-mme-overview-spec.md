@@ -104,7 +104,7 @@ The MME follows a Welcome-Gate pattern: no pipelines spawn until a **session** (
 
 ## 5. Indicator & Signal System
 
-The MME computes **50 technical indicators** across 8 functional groups, with 100 signal-kind declarations across 12 SignalKind types. Every indicator is declared once in the authoritative registry (`crates/shared/src/indicators/registry.rs`).
+The MME computes **50 technical indicators** across 8 functional groups, with **102 signal-kind declarations** across 12 SignalKind types. Every indicator is declared once in the authoritative registry (`crates/shared/src/indicators/registry.rs`).
 
 - Per-indicator specifications: [indicators/](indicators/04-02-00-indicator-index.md)
 - Indicator rulebook: [mme-indicators-guide.md](03-02-09-mme-indicators-guide.md)

@@ -2,6 +2,8 @@
 
 > 50 indicators across 8 functional groups. Registry-verified count: 50 authoritative `IndicatorMeta` entries in `crates/shared/src/indicators/registry.rs`. Divergence is a `SignalKind` emitted on its parent indicator — divergences are **not** separate registry entries and produce **no** separate JSON keys. Eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). All signal types match the authoritative registry.
 >
+> **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/shared/src/indicators/registry.rs` and updated on every registry change.
+>
 > **Numbering.** File names follow `04-02-NN-kebab-case.md` where `NN` is the zero-padded registry row index (01 → 50). The **registry key** (column below) remains snake_case and matches the Rust enum variant used in code; the **filename** uses kebab-case per the doc convention.
 
 ---

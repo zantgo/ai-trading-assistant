@@ -1,41 +1,134 @@
 # User Manual
 
-**Version:** 0.1
-**Status:** DRAFT — content TBD
+**Version:** 1.0
+**Status:** Approved
 **Category:** Operations & Compliance
-
-> **DRAFT — content TBD.** This document is a labeled skeleton created alongside the workspace restructure. Section content has not yet been authored; headings below define the intended scope only. Do not treat any statement here as an implemented specification.
 
 ---
 
-## 1. Purpose & Audience
+## 1. Audience & Prerequisites
 
-_TBD — who operates the platform, prerequisites, and what this manual covers._
+This manual is for the operator of the Trading Platform — typically a quantitative trader or quant developer running the platform on a local workstation or a cloud VM. Readers are expected to be comfortable with the Rust toolchain (for the engine), Node.js or Bun (for the frontend), and basic Linux shell commands.
+
+Hardware target: any 64-bit Linux/macOS machine capable of running a Rust binary and an Axum HTTP server. No GPU is required. Memory footprint at idle is ~150 MB; under live load it scales with the number of active Market Instances (4 timeframe pipelines each).
+
+Software prerequisites:
+- Rust toolchain (stable; `rustup` recommended)
+- Node.js ≥ 18 or Bun ≥ 1.0
+- SQLite (the engine creates `./telemetry.db` automatically)
+- A POSIX shell for `./manage.sh` shortcuts
+
+---
 
 ## 2. Installation & First Run
 
-_TBD — build order (frontend → engine), `config.json` setup, launch modes (`./manage.sh run` / `run-silent` / `stop` / `status`)._
+The project is a Cargo workspace with a Svelte 5 frontend in `crates/frontend/`. The **order of build matters**: the frontend must be built before the engine binary starts, because the engine serves `crates/frontend/dist/` as static assets.
 
-## 3. Dashboard Walkthrough
+```bash
+# From workspace root:
+cd crates/frontend
+npm install          # or: bun install
+npm run build        # or: bun run build
+cd ../..
+cargo run -- --web
+```
 
-_TBD — navigating the Svelte dashboard; cross-reference [UI Overview](../ui-ux/07-01-ui-overview-spec.md) and [Dashboard Layout](../ui-ux/07-02-ui-dashboard-layout.md)._
-
-## 4. Configuring Engines & Timeframes
-
-_TBD — indicator lookbacks, candle durations, engine toggles; cross-reference [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md)._
-
-## 5. Running & Monitoring Trades
-
-_TBD — paper vs live modes, policy stances, reading the Decision and Portfolio matrices._
-
-## 6. Troubleshooting
-
-_TBD — logs (`engine.log`), telemetry DB, common failure modes._
+The engine reads `config.json` from the workspace root on startup. If the file is missing or malformed the binary panics with a descriptive error; fix the file and restart.
 
 ---
 
-## Cross-References
+## 3. Launch Modes
 
-- [Global Architecture](../conceptual-foundations/01-02-global-architecture.md)
-- [Pre-Trade Risk Controls](08-02-pre-trade-risk-controls.md)
-- [Regulatory Compliance & Audit](08-03-regulatory-compliance-and-audit.md)
+The project ships a convenience wrapper (`./manage.sh`):
+
+| Command | Mode | Description |
+|---------|------|-------------|
+| `./manage.sh run` | Web (GUI) | Foreground with live logs; dashboard at `http://127.0.0.1:3000`. |
+| `./manage.sh run-silent` | Web (GUI, background) | Daemonized; logs to `engine.log`. |
+| `./manage.sh stop` | — | Stop the background engine instance. |
+| `./manage.sh status` | — | Print process uptime. |
+| `./manage.sh test` | All tests | Run TEST-CORE → TEST-ENGINE → TEST-UI sequentially (~18 s). |
+| `./manage.sh test-core` | Pure math / indicators | Run only TEST-CORE (<3 s). |
+| `./manage.sh test-engine` | DB, server, failover | Run only TEST-ENGINE (<5 s). |
+| `./manage.sh test-ui` | Svelte 5 runes / components | Run only TEST-UI (<10 s). |
+
+Headless cloud operation is supported by running the same binary without `--web` and applying a pre-validated `config.json` (see [Global Architecture §4](../conceptual-foundations/01-02-global-architecture.md)).
+
+---
+
+## 4. Dashboard Walkthrough
+
+The Svelte 5 dashboard is organized around three levels of navigation:
+
+1. **Sidebar** — Engine selector (Home / Portfolio / Market / Trading / Analysis) + per-pair workspace list with live price, 24 h change, and pause/delete controls.
+2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Decision for an open Market Instance.
+3. **Main Viewport** — Renders the active tab. Each panel is a thin Svelte component with a companion CSS module per the project's CSS conventions.
+
+For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) and [Dashboard Layout](../ui-ux/07-02-ui-dashboard-layout.md).
+
+---
+
+## 5. Configuring Engines & Timeframes
+
+The single source of configuration truth is `config.json` at the workspace root. It controls:
+
+- `candles.duration_seconds` — base (micro) timeframe
+- `fast_timeframe`, `slow_timeframe`, `macro_timeframe` — additional timeframe tiers, each with `enabled` and `duration_seconds`
+- `indicators.<name>.<param>` — per-indicator lookback, threshold, smoothing window, etc.
+- `risk_per_trade_pct`, `leverage.cross_leverage`, `safety.*` — risk and safety gates
+- `symbols` — list of `Exchange:Symbol` instruments to ingest
+- `execution_policies` — user-defined rules (see [TAE Execution Policy](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md))
+
+For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
+
+The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.json`).
+
+---
+
+## 6. Running & Monitoring Trades
+
+**Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). To switch a venue to live, edit `config.json` to include real API credentials in the `exchange_keys` table (see [Database Schema](../integration-and-api/06-02-database-schema-spec.md) for the encrypted-key format).
+
+**Reading the Decision Matrix.** The Decision Matrix is delivered per Market Instance on the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint. Open a Market Instance, switch to the "Decision" tab, and you will see `directional_guidance`, `market_stance`, `trade_readiness`, `confidence_assessment`, and the recommended `entry/exit/protection/target` strategies.
+
+**Reading the Portfolio.** Active positions, margin usage, and the safety veto status are visible in the "Portfolio" sidebar entry. The PME's Ontological Priority Veto overrides the TAE's active stances when systemic thresholds are breached — see [PME Layer 4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) for the trigger conditions.
+
+**Trade journal.** All closed trades are written to `paper_trades` and `trade_telemetry_history`. Human annotations go into `trade_learning_journal`. Exposes via `GET /api/trade-journal/export/csv` and `/api/trade-journal/export/json`.
+
+---
+
+## 7. Telemetry & Logs
+
+| Channel | Location | Contents |
+|---------|----------|----------|
+| Live log | `engine.log` | Engine stdout/stderr when running via `./manage.sh run-silent`. |
+| Snapshot history | `./telemetry.db` (SQLite) | One row per completed candle; retention 7 days. |
+| Equity history | `./telemetry.db` `portfolio_equity_history` | 60-s cadence snapshots; retention 30 days. |
+| Trade archive | `./telemetry.db` `paper_trades`, `trade_telemetry_history` | Closed-trade ledger. |
+| Decision observability | `GET /api/system/observability` | Recent triggered policies and completed trades. |
+| Engine heartbeat | `GET /api/system/status` | Connection state, latency_ms, active_pairs_count. |
+
+---
+
+## 8. Common Failure Modes
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Engine panics on startup with "config not found" | No `config.json` at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.json`. |
+| WebSocket frames never arrive | `crates/frontend/dist/` is missing or empty | Rebuild frontend (`cd crates/frontend && npm run build`). |
+| All values `null` in dashboard | Initial warm-up not finished | Wait `analysis_limit × duration_seconds` (default 500 × 60 s ≈ 8 h on micro); reduce `analysis_limit` for faster warm-up at the cost of less history. |
+| `margin_usage_ratio > 95%` warning | Position size too large for current equity | Reduce `max_position_size_usd` in policy or close a position. |
+| Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.json` `indicators.*`; check the indicator rulebook via `GET /api/rules`. |
+| Connectivity warning on a specific exchange | Adapter is in backoff after repeated disconnects | Check `/api/system/status`; permanent disable after 5 consecutive failures (supervisor must be restarted). |
+| SQLite "database is locked" errors | Long-running query holding a write transaction | Reduce log retention or query frequency; the WAL mode is already enabled. |
+| Veto stuck at `AVOID` for a symbol | PME safety trigger fired; threshold must clear | Inspect portfolio equity vs. peak; check `systemic_risk_score`; follow the [PME veto release procedure](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#43-veto-release). |
+
+---
+
+## 9. Cross-References
+
+- [Global Architecture](../conceptual-foundations/01-02-global-architecture.md) — Engine blueprint.
+- [Pre-Trade Risk Controls](08-02-pre-trade-risk-controls.md) — Mandatory gates between policy trigger and order dispatch.
+- [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — REST + WebSocket surface.
+- [Database Schema](../integration-and-api/06-02-database-schema-spec.md) — Persistent state.
+- [AGENTS.md](../../AGENTS.md) — Build & test commands.

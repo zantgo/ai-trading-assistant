@@ -200,13 +200,13 @@ Alignment measures the degree of agreement regarding market direction or structu
 Analysis represents the structural and behavioral diagnosis of observed market behavior. It synthesizes alignment and timeframe metrics to determine the dominant directional bias—represented qualitatively as a categorical classification and quantitatively as a continuous **Market Bias Score** normalized between `-1.0` (absolute bearish) and `+1.0` (absolute bullish)—as well as the market regime, active cycle phase, and trend quality.
 
 ### 3.14 Opportunity
-Opportunity represents the positive market potential identified within the current market conditions. It evaluates whether favorable trading setups exist (e.g., Trend Continuation, Breakout, Pullback) and scores them from 0 to 100, independent of actual execution parameters.
+Opportunity represents the **forecast** identified within the current market conditions. It evaluates whether favorable trading setups exist (e.g., Trend Continuation, Breakout, Pullback) and scores them from 0 to 100, independent of actual execution parameters. *In the institutional redesign, the canonical `OpportunityType` enum is owned by the Opportunity Matrix (L4); the Analysis Matrix's former `opportunity_analysis` field has been removed.* The Opportunity Matrix also publishes `entry_zone`, `target_zone`, `invalid_level`, `expected_rr`, and `time_horizon` — the institutional fields a portfolio manager actually consumes.
 
 ### 3.15 Risk
-Risk represents the structural, technical, and environmental dangers present in the current market, independent of directional bias. It scores threats (volatility risk, liquidity risk, structural distance to invalidation) from 0 to 100, providing an objective metric for exposure limits.
+Risk represents the structural, technical, and environmental dangers present in the current market, independent of directional bias. It scores threats (volatility risk, liquidity risk, structural distance to invalidation) from 0 to 100, providing an objective metric for exposure limits. *In the institutional redesign, the Risk Matrix contains 8 unipolar danger dimensions + `overall_risk` (no reward synthesis). Reward evaluation is a Decision-Layer concept and lives in the Decision Matrix as `environment_favorability`.*
 
 ### 3.16 Decision Support
-Decision Support transforms market intelligence into actionable tactical guidance. It combines the Analysis Matrix (context), Opportunity Matrix (value), and Risk Matrix (vulnerability) to provide structured recommendations (Trade Readiness, dynamic stop-loss methods, and target take-profit environments) without making autonomous execution choices.
+Decision Support transforms market intelligence into actionable tactical guidance. It is the **only synthesis point** in the platform, combining the Analysis Matrix (state), Opportunity Matrix (forecast), and Risk Matrix (danger) to provide structured recommendations (`trade_readiness`, dynamic stop-loss methods, target take-profit environments, `environment_favorability`, `expected_reward_risk_ratio`) without making autonomous execution choices.
 
 ### 3.17 Market Overview
 Market Overview represents the aggregated state of the entire monitored market universe. Rather than describing one asset, it summarizes cross-market dynamics, such as market breadth, risk distributions, and systemic risk indices.
@@ -463,9 +463,11 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Output (Analysis Matrix):** Establishes the dominant directional bias, the structural regime, the phase of the market cycle, and the reliability of the trend.
 *   **Key Classifications:**
     *   *Market Bias:* `STRONG_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `STRONG_BEARISH`.
-    *   *Market Regime:* `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE_BOUND`, `ACCUMULATION`, `DISTRIBUTION`, `VOLATILITY_EXPANSION`, `VOLATILITY_CONTRACTION`, `TRANSITION`.
+    *   *Market Regime:* `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`.[^regime-canonical]
     *   *Market Phase:* `ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`.
     *   *Market Quality (0-100):* Measure of trend clarity and structural predictability.
+
+[^regime-canonical]: **Canonical vocabulary.** The authoritative `MarketRegime` enum is defined in [Appendix A.3](#a3-analysis-matrix-schema-mme--layer-3) and [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md); this prose is mirrored from there.
 
 ### 6.4 Opportunity Layer (Layer 4)
 *   **Concept:** Favorable environment tracking.
@@ -1048,7 +1050,7 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 180,
-  "timestamp": 1752192000,
+  "timestamp": 1752192000000,
   "is_completed": true,
   "mid_price": "64012.5",
   "bid_price": "64012.0",
@@ -1119,7 +1121,7 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
     ],
     "mtf_trend_alignment": 0.56,
     "mtf_momentum_alignment": 0.30,
-    "mtf_overall_score": 41.0,
+    "mtf_overall_score": 40.0,
     "mtf_overall_label": "WEAK_BULL_MTF",
     "trend_agreement_pct": 75.0,
     "signal_cross_tf_count": 3
@@ -1167,7 +1169,7 @@ Full specification: [Alignment Matrix](../matrices/02-01-alignment-matrix.md).
   "mtf_momentum_alignment": 0.30,
   "mtf_volume_alignment": 0.10,
   "mtf_volatility_alignment": 0.20,
-  "mtf_overall_score": 41.0,
+  "mtf_overall_score": 40.0,
   "mtf_overall_label": "WEAK_BULL_MTF",
   "timeframe_alignments": [
     {
@@ -1198,7 +1200,7 @@ Full specification: [Alignment Matrix](../matrices/02-01-alignment-matrix.md).
 | 6 | Regime | Regime-classification agreement |
 | 7 | Confidence | Confidence consistency |
 | 8 | Liquidity | RVOL consistency |
-| 9 | Opportunity | Tradability agreement |
+| 9 | **Tradability** | Cross-timeframe tradability agreement *(renamed from "Opportunity" in the institutional redesign — L4 owns opportunity concepts; this dimension measures TFs agreeing on tradability)* |
 
 ---
 
@@ -1219,10 +1221,9 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
   "structure_assessment": "HEALTHY",
   "volatility_assessment": "NORMAL",
   "volume_assessment": "STRONG",
-  "opportunity_analysis": "TREND_CONTINUATION",
   "market_quality": "GOOD",
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, normal volatility, and strong volume participation. Favors trend continuation.",
-  "rationale": "MTF overall score 41/100 → BULLISH. Majority of 4 timeframes agree (75%). 3 signals across multiple timeframes.",
+  "rationale": "MTF overall score 40/100 → BULLISH. Majority of 4 timeframes agree (75%). 3 signals across multiple timeframes.",
   "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
   "contradicting_signals": [],
   "timeframes_considered": 4
@@ -1231,7 +1232,7 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 
 **Classification vocabularies:**
 - **MarketBias:** `STRONG_BULLISH` (>40), `BULLISH` (20–40), `NEUTRAL` (−20 to 20), `BEARISH` (−40 to −20), `STRONG_BEARISH` (<−40)
-- **MarketRegime:** `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`
+- **MarketRegime:** `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION` *(canonical source: [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md); this appendix mirrors it)*
 - **QualityLevel:** `POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT`
 
 The continuous **market_bias_score ∈ [−1, +1]** is the Alignment Matrix's `mtf_overall_score` divided by 100.
@@ -1280,7 +1281,7 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
 
 ### A.5 Risk Matrix Schema (MME — Layer 5)
 
-Produced by the Risk Layer. Consumes the Analysis Matrix and Opportunity Matrix, quantifying environmental danger across 9 unipolar dimensions on a `[0, 100]` scale, **independent of directional bias**.
+Produced by the Risk Layer. Consumes the Analysis Matrix and underlying indicator signals, quantifying environmental danger across **eight** unipolar dimensions on a `[0, 100]` scale, **independent of directional bias**. *(Reduced from nine in the institutional redesign; `reward_risk` was removed and moved to the Decision Layer as `environment_favorability`.)*
 
 Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 
@@ -1294,7 +1295,6 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
   "momentum_risk": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "signal_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "execution_risk": { "score": 25.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
-  "reward_risk": { "score": 30.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 },
   "overall_risk": { "score": 28.0, "level": "LOW", "state": "STABLE", "confidence": 50.0 }
 }
 ```
@@ -1309,8 +1309,7 @@ Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 | `momentum_risk` | Exhausted / diverging momentum |
 | `signal_risk` | Conflicting or unreliable signals |
 | `execution_risk` | Practical difficulty (spread, slippage, thin book) |
-| `reward_risk` | Opportunity quality vs environmental uncertainty |
-| `overall_risk` | Weighted aggregate: `0.15M + 0.15V + 0.15L + 0.10S + 0.15Mo + 0.10Sig + 0.10E + 0.10R` |
+| `overall_risk` | Weighted aggregate: `0.15M + 0.20V + 0.15L + 0.10S + 0.15Mo + 0.15Sig + 0.10E` *(weights re-normalized after `reward_risk` removal)* |
 
 **RiskLevel bands:** `score ≥ 80 → Extreme`, `≥ 60 → High`, `≥ 40 → Moderate`, `≥ 20 → Low`, else `VeryLow`.
 
@@ -1389,7 +1388,7 @@ $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penal
 
 ## Appendix B — Complete Indicator, Signal, and SignalKind Manifest
 
-This appendix provides the definitive registry-verified manifest of all 50 indicators, 100 signal-kind declarations, and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/shared/src/indicators/registry.rs`.
+This appendix provides the definitive registry-verified manifest of all 50 indicators, **102 signal-kind declarations**, and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/shared/src/indicators/registry.rs`.
 
 ---
 

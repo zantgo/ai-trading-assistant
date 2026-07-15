@@ -27,13 +27,13 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
 | `exchange` | `string` | Originating venue. |
 | `symbol` | `string` | Unified internal symbol (e.g., `BTC-USDT`). |
 | `timeframe_secs` | `u64` | Candle duration in seconds (60 / 180 / 300 / 900). |
-| `timestamp` | `u64` | Candle close time (Unix epoch, seconds). |
+| `timestamp` | `u64` | Candle close time (Unix epoch, milliseconds). |
 | `open` | `Decimal` | First trade price in the interval. |
 | `high` | `Decimal` | Highest trade price in the interval. |
 | `low` | `Decimal` | Lowest trade price in the interval. |
 | `close` | `Decimal` | Last trade price in the interval. |
 | `volume` | `Decimal` | Total base-asset volume traded. |
-| `trade_count` | `u32` | Number of trades aggregated. |
+| `trades_count` | `u64` | Number of trades aggregated. |
 
 ---
 
@@ -44,7 +44,7 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
   "exchange": "Hyperliquid",
   "symbol": "BTC-USDT",
   "timeframe_secs": 60,
-  "timestamp": 1752192000,
+  "timestamp": 1752192000000,
   "open": "63890.0",
   "high": "64120.0",
   "low": "63850.0",

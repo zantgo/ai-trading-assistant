@@ -40,6 +40,7 @@ Per the [Ontology](../../conceptual-foundations/01-01-ontology.md) §3.18:
 | `risk` | `RiskParams` | Yes | Position sizing parameters (§6). |
 | `enabled` | `bool` | Yes | Master on/off switch. |
 | `cooldown_seconds` | `u64` | No | Minimum interval between consecutive triggers (prevents overtrading). |
+| `reduce_only_on_close_only` | `bool` | No (default `true`) | When `true`, the Execution Layer auto-populates `reduce_only = true` on every order generated while the policy's stance is `CLOSE_ONLY` (see [TAE Layer 2 §3.3](03-03-03-tae-layer2-execution.md#33-closeonly-stance--reduce_only-flag-handoff)). |
 
 ### 2.2 Condition Structure
 
@@ -62,7 +63,7 @@ Value          ::= number | string | [number] | [string]
 | `decision.entry_guidance` | `string` | Decision Matrix | `"IMMEDIATE"`, `"PULLBACK"` |
 | `analysis.market_regime` | `string` | Analysis Matrix | `"TRENDING_BULL"`, `"RANGE"` |
 | `analysis.market_quality` | `string` | Analysis Matrix | `"GOOD"`, `"EXCELLENT"` |
-| `opportunity.primary_opportunity` | `string` | Opportunity Matrix | `"BREAKOUT"`, `"TREND_CONTINUATION"` |
+| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"` *(canonical producer — replaces the removed `decision.opportunity_classification`)* |
 | `opportunity.opportunity_score` | `number` | Opportunity Matrix | `85.0` (0–100) |
 | `risk.overall_risk.score` | `number` | Risk Matrix | `28.0` (0–100) |
 
