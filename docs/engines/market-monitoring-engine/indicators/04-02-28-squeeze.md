@@ -47,8 +47,8 @@ The momentum value is computed via **linear regression** over the midline displa
 | **Compression** | ON | 🔴 Red | Near zero | Flat gray | **Wait.** Energy coiling. |
 | **Bullish Acceleration** | OFF | 🟢 Green | Above zero, growing | `#26a69a` Light Green | **Enter Long** on release candle |
 | **Bullish Deceleration** | OFF | 🟢 Green | Above zero, shrinking | `#00695c` Dark Green | **Exit Long** immediately |
-| **Bearish Acceleration** | OFF | 🟢 Green | Below zero, growing (more negative) | `#b71c1c` Dark Red | **Enter Short** on release candle |
-| **Bearish Deceleration** | OFF | 🟢 Green | Below zero, shrinking (less negative) | `#ff1744` Bright Red | **Exit Short** immediately |
+| **Bearish Acceleration** | OFF | 🟢 Green | Below zero, growing (more negative) | `#ff1744` Bright Red | **Enter Short** on release candle |
+| **Bearish Deceleration** | OFF | 🟢 Green | Below zero, shrinking (less negative) | `#b71c1c` Dark Red | **Exit Short** immediately |
 
 ---
 
@@ -114,8 +114,10 @@ Squeeze Momentum Chart:
 |-------|-------|--------|
 | `#26a69a` Light Green | Bullish Acceleration | Hold Long / Enter Long |
 | `#00695c` Dark Green | Bullish Deceleration | EXIT Long |
-| `#b71c1c` Dark Red | Bearish Acceleration | Hold Short / Enter Short |
-| `#ff1744` Bright Red | Bearish Deceleration | EXIT Short |
+| `#ff1744` Bright Red | Bearish Acceleration | Hold Short / Enter Short |
+| `#b71c1c` Dark Red | Bearish Deceleration | EXIT Short |
+
+> **Color convention canonical (SIG-04 — correction).** The Squeeze mapping above is now consistent with the MACD convention in [04-02-17-macd.md §Visual Chart Annotation](../indicators/04-02-17-macd.md). The unified semantic is **bright = active threat, dark = exhausted**: directional expansion (acceleration) is the threat — bright color; directional contraction (deceleration) is the release — dark color. A previous version of this table inverted the Bearish color pair (`BearishAcceleration → Dark Red`, `BearishDeceleration → Bright Red`), which produced a conflict with the MACD indicator's identically-themed color scheme and would have caused the frontend to render momentum contraction as the threat color.
 
 ## Signals
 

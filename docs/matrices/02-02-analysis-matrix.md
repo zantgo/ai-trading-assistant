@@ -41,7 +41,8 @@ Implemented as `AnalysisMatrix` (`crates/shared/src/analysis.rs`), produced by `
 | `structure_assessment` | `StructureAssessment` | Structural-integrity classification (§3.5). |
 | `volatility_assessment` | `VolatilityAssessment` | Volatility-state classification (§3.6). |
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
-| `market_quality` | `QualityLevel` | Aggregate environment quality (§3.9). |
+| `market_quality` | `QualityLevel` | Aggregate environment quality (§3.8 / §3.9). Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
+| `market_quality_score` | `f64` | Raw numeric mean of the per-dimension scores (trend, momentum, structure, volume) in `[0, 100]`. The numeric companion to `market_quality`, consumed by the Layer 6 `confluence_score` formula and other downstream numeric aggregations. When unavailable at the L3 boundary, callers must map `QualityLevel → f64` via the §3.8 numeric bands. |
 | `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: `ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN` (§3.10). |
 | `market_interpretation` | `string` | Human-readable natural-language summary. |
 | `rationale` | `string` | Explainability trace of the derivation. |
@@ -87,6 +88,8 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 | 6 | default (none of the above) | `RANGE` |
 
 The decision tree deterministically produces all 8 variants. Empty/initial state defaults to `TRANSITION` (§6).
+
+> **Layer-specific BBWP thresholds (intentional divergence).** This L3 decision tree uses `bbwp ≤ 10` for `CONTRACTION` and `bbwp ≥ 85` for `EXPANSION`. The Layer 1 local 4-state regime in [03-02-02-mme-layer1-metrics.md §6](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) uses looser thresholds (`bbwp ≤ 15` for `COMPRESSION`, `bbwp ≥ 85` for `EXPANSION`). A value in `[10, 15]` therefore classifies as `COMPRESSION` at Layer 1 but as `RANGE` (or `TRANSITION`) at Layer 3 — both states are valid for their respective layers. This document is authoritative for the L3 classifier; Layer 1's looser threshold is documented in the layer 1 spec.
 
 ### 3.3 TrendAssessment
 `WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED` — derived from alignment dimension 0 (trend).

@@ -20,8 +20,24 @@ impl NormalizationEngine {
         consecutive_deceleration: bool,
     ) -> NormalizedIndicatorValue {
         let sign = if plus_di >= minus_di { 1.0 } else { -1.0 };
-        let (norm, label): (f64, String) = if adx < 20.0 {
+        // SIG-14 (v2.1): the original bands were `< 20` → `<= 20` → `<= 25` → `<= 40` → else.
+        // That classification collapsed the `[18, 20)` zone into "TRENDLESS_CONGESTION",
+        // producing a discontinuous label flip at ADX = 20. The corrected form below
+        // carries five bands (matching the doc's regime table):
+        //   - `TRENDLESS_CONGESTION`        : adx < 18
+        //   - `TRANSITION_BULL/BEAR_TREND`  : 18 ≤ adx < 20
+        //   - `EMERGING_BULL/BEAR_TREND`    : 20 ≤ adx ≤ 25
+        //   - `STRONG_BULL/BEAR_TREND`      : 25 < adx ≤ 40
+        //   - `CLIMACTIC_BULL/BEAR_TREND`   : adx > 40
+        let (norm, label): (f64, String) = if adx < 18.0 {
             (0.0, "TRENDLESS_CONGESTION".into())
+        } else if adx < 20.0 {
+            // Smooth transition ramp: 0.0 → 0.30 across [18, 20)
+            let ramp = (adx - 18.0) / 2.0;
+            (
+                sign * (0.30 * ramp),
+                pick(sign, "TRANSITION_BULL_TREND", "TRANSITION_BEAR_TREND"),
+            )
         } else if adx > 40.0 && consecutive_deceleration {
             // Hard hook exit on 2-bar consecutive deceleration of extreme trend.
             (
@@ -93,18 +109,43 @@ impl NormalizationEngine {
     }
 
     /// RVOL: volume validation gate for structural breakouts.
-    pub fn normalize_rvol(rvol: f64) -> NormalizedIndicatorValue {
-        let (norm, label) = if rvol < 1.0 {
-            (-0.5, "CONSOLIDATION_VOLUME")
-        } else if rvol < 1.5 {
-            (0.2, "NORMAL_PARTICIPATION_VOLUME")
-        } else if rvol < 3.0 {
-            (0.8, "INSTITUTIONAL_BREAKOUT_VOLUME")
-        } else {
-            (-1.0, "EXHAUSTION_CLIMAX_VOLUME")
-        };
-        NormalizedIndicatorValue::scalar(rvol, norm, label)
-    }
+///
+/// Per the v2.1 contract in `docs/engines/market-monitoring-engine/indicators/04-02-19-rvol.md` §3,
+/// RVOL is a **non-directional gate** — its `normalized` field is always `0.0` (consistent with the
+/// BBWP convention). The signed 4-band values (−0.5, 0.2, 0.8, −1.0) are exposed as a scalar
+/// gate coefficient via `IndicatorEvaluation.values.rvol_band` and consumed by the gate logic,
+/// never added to the directional confluence sum. A previous version of this function emitted
+/// the signed band values directly into `normalized`, which double-counted RVOL as both a gate
+/// and a directional voter.
+pub fn normalize_rvol(rvol: f64) -> NormalizedIndicatorValue {
+    let band = if rvol < 1.0 {
+        -0.5
+    } else if rvol < 1.5 {
+        0.2
+    } else if rvol < 3.0 {
+        0.8
+    } else {
+        -1.0
+    };
+    let label = if rvol < 1.0 {
+        // SIG-13 (v2.1 canonical): "LOW_PARTICIPATION_VOLUME" is the
+        // string the downstream consumers (regex / policy string matching,
+        // property tests, GUI panels) read. The previous
+        // "CONSOLIDATION_VOLUME" label name was rolled forward to align
+        // with the RVOL spec ([04-02-19-rvol.md §3]) and the volume
+        // normalization ([04-02-18-volume.md §Normalization]).
+        "LOW_PARTICIPATION_VOLUME"
+    } else if rvol < 1.5 {
+        "NORMAL_PARTICIPATION_VOLUME"
+    } else if rvol < 3.0 {
+        "INSTITUTIONAL_BREAKOUT_VOLUME"
+    } else {
+        "EXHAUSTION_CLIMAX_VOLUME"
+    };
+    let mut values = HashMap::new();
+    values.insert("rvol_band".to_string(), band);
+    NormalizedIndicatorValue::with_values(rvol, 0.0, label, values)
+}
 
     /// EMA stacking & price location across the ribbon.
     pub fn normalize_ema_stack(ctx: &NormalizationContext) -> NormalizedIndicatorValue {
@@ -136,6 +177,17 @@ impl NormalizationEngine {
     }
 
     /// VWAP fair-value baseline (premium/discount reversion zones).
+    ///
+    /// Mean-reversion interpretation: a price stretched **above** VWAP
+    /// (`EXTREME_PREMIUM_REVERSION_ZONE` / `BEARISH_PREMIUM_PULLBACK`) is
+    /// overvalued and is expected to revert downward — sign **negative**.
+    /// A price stretched **below** VWAP (`EXTREME_DISCOUNT_REVERSION_ZONE`
+    /// / `BULLISH_DISCOUNT_PULLBACK`) is undervalued and is expected to
+    /// revert upward — sign **positive**. This matches the canonical
+    /// labels in `docs/engines/market-monitoring-engine/indicators/04-02-06-vwap.md`
+    /// §Normalization. A previous version of this function assigned the
+    /// labels to the *opposite* price zones, contradicting both the per-signal
+    /// table and the §3.1 narrative in that file.
     pub fn normalize_vwap(price: f64, vwap: f64) -> NormalizedIndicatorValue {
         if vwap <= 0.0 {
             return NormalizedIndicatorValue::scalar(price, 0.0, "INTRA_DAY_VALUE_EQUILIBRIUM");
@@ -144,11 +196,11 @@ impl NormalizationEngine {
         let (norm, label) = if ratio > 1.01 {
             (-0.8, "EXTREME_PREMIUM_REVERSION_ZONE")
         } else if ratio > 1.001 {
-            (0.5, "INSTITUTIONAL_BULL_VALUE_PULLBACK")
+            (-0.5, "BEARISH_PREMIUM_PULLBACK")
         } else if ratio < 0.99 {
             (0.8, "EXTREME_DISCOUNT_REVERSION_ZONE")
         } else if ratio < 0.999 {
-            (-0.5, "INSTITUTIONAL_BEAR_VALUE_PULLBACK")
+            (0.5, "BULLISH_DISCOUNT_PULLBACK")
         } else {
             (0.0, "INTRA_DAY_VALUE_EQUILIBRIUM")
         };

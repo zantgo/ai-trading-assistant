@@ -67,6 +67,8 @@ Hard-stops (block) vs hold-for-review (suspend):
 
 Orders held by Gate 5 (slippage ceiling) or pending manual review sit in the **`PRE_DISPATCH`** state with status `HELD_FOR_REVIEW` (not in `OPEN` — the `OPEN` state is only valid after exchange acknowledgement). The order can be cancelled via `DELETE /api/instances/by-pair/:pair_key` or manually executed via `POST /api/instances/:id/manual/open`. `PRE_DISPATCH` orders do not consume committed margin and do not appear in `open_orders`.
 
+> **Operational hazard (v2.1).** `PRE_DISPATCH` orders are held only in memory and are **not** persisted. An engine restart, crash, or process termination during the slippage-review window will lose the order with no audit trail. Operators relying on Gate 5 for slippage review in a 24/7 deployment should treat `PRE_DISPATCH` as transient and design operator workflows around the manual-review API rather than expecting engine-replayable recovery. A future migration introducing a `pre_dispatch_orders` table (or expanding the `open_orders.state` CHECK constraint to allow `PRE_DISPATCH`) is tracked as a Phase C schema task; see the consolidated architecture audit register (issue EXE‑08) for the persistence gap.
+
 ---
 
 ## 4. Parameters & Configuration
@@ -82,7 +84,7 @@ Orders held by Gate 5 (slippage ceiling) or pending manual review sit in the **`
 | `safety.max_daily_drawdown_pct` | global | 0.05 (= 5 %) | Set in `config.json` `safety.*` (drives the `WARN` state — see [03-04-05 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)) |
 | `safety.caution_threshold` | global | 3 losses | Set in `config.json` `safety.*` |
 | `safety.dropout_threshold` | global | 5 losses | Set in `config.json` `safety.*` |
-| `safety.systemic_risk_threshold` | global | **0.80** (`systemic_risk_score ≥ 0.80` triggers the systemic-risk veto branch of Gate 7) | Set in `config.json` `safety.systemic_risk_threshold` |
+| `safety.systemic_risk_threshold` | global | **80** (`systemic_risk_score ≥ 80` triggers the systemic-risk veto branch of Gate 7, on the canonical `[0, 100]` scale from [02-09-overview-matrix.md §4](../matrices/02-09-overview-matrix.md)) | Set in `config.json` `safety.systemic_risk_threshold` |
 | `risk_profiles.*.max_risk_pct` | per risk-profile | 2 (= 2 %) | Edit via `POST /api/risk-profiles` |
 | `risk_profiles.*.leverage` | per risk-profile | 20 | Edit via `POST /api/risk-profiles` |
 | `fees.maker_fee_pct` | global | 0.02 (= 0.02 %) | Set in `config.json` `fees.*` |

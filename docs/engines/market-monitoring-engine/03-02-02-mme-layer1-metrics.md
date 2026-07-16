@@ -110,6 +110,8 @@ else                     → RANGE
 ```
 
 > **Cross-layer vocabulary.** Note that `MarketContext.regime` is the **local 4-state** vocabulary (`COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE`). The cross-TF canonical `MarketRegime` at L3 uses the **8-state** vocabulary (`TRENDING_BULL` / `TRENDING_BEAR` / `RANGE` / `ACCUMULATION` / `DISTRIBUTION` / `EXPANSION` / `CONTRACTION` / `TRANSITION`). The two are linked by the mapping table in [02-07-metrics-matrix.md §5.0](../matrices/02-07-metrics-matrix.md); comparisons across layers must go through the L3 Analysis Matrix.
+>
+> **Layer-specific BBWP thresholds (intentional divergence).** The Layer 1 local 4-state regime uses a slightly looser compression threshold (`bbwp ≤ 15`) and expansion threshold (`bbwp ≥ 85`) than the L3 Analysis Matrix (`bbwp ≤ 10` for `CONTRACTION`, `bbwp ≥ 85` for `EXPANSION` — see [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md)). The two thresholds serve different purposes: Layer 1's local `MarketContext.regime` is a coarse 4-state approximation for the chart-side composite that should flag borderline conditions early, while the L3 regime is the cross-symbol classifier that feeds the Decision Layer. A value in `[10, 15]` is therefore classified as `COMPRESSION` at Layer 1 but as `RANGE` (not `CONTRACTION`) at Layer 3 — both states are valid for their respective layers. Operators who rely on the local 4-state should treat `[10, 15]` as 'borderline compression' rather than canonical `CONTRACTION`.
 
 ---
 

@@ -36,6 +36,13 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
 | `trades_count` | `u64` | Number of trades aggregated. |
 | `reconstructed` | `Option<ReconstructionMethod>` | Provenance flag — `Some(ExchangeHistorical)` / `Some(ExponentialMovingAverage)` / `Some(LinearInterpolation)` for candles filled by the reconstruction engine (see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)); `None` (omitted on the wire) for live candles. The flag is forwarded through aggregation chains so a macro candle is marked `reconstructed` if any constituent sub-candle is reconstructed. |
 
+> **Field-name registry.** The candle provenance field has three names, one per surface:
+> - **Rust struct** (`crates/shared/src/normalized.rs::NormalizedCandle`): `reconstructed: Option<ReconstructionMethod>`.
+> - **Wire JSON** (this matrix): `reconstructed` — same name, value omitted on live candles via `#[serde(default, skip_serializing_if = "Option::is_none")]`.
+> - **SQLite column** ([06-02-database-schema-spec.md §3.1](../integration-and-api/06-02-database-schema-spec.md)): `reconstruction_method TEXT` — the persistence layer maps the Rust `reconstructed` field to the column on insert/select. The naming difference is intentional (the column belongs to a wider SQLite provenance family of `*_method` columns) and the mapping is enforced at the persistence boundary.
+>
+> The three names refer to the same conceptual field. This registry is the canonical reference; downstream docs cite one of the three names with a `(wire | struct | db)` annotation when the surface matters for the reader.
+
 ---
 
 ## 3. JSON Serialization Contract

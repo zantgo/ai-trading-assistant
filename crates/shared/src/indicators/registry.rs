@@ -157,7 +157,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         group: Trend,
         class: Lagging,
         render: Pane,
-        directional: false,
+        directional: true,
         supports_divergence: false,
         signal_types: &[TrendFlip, Threshold],
         default_weight: 1.0,
@@ -984,8 +984,8 @@ mod tests {
     #[test]
     fn test_directional_and_gate_counts() {
         let gates = INDICATORS.iter().filter(|m| !m.directional).count();
-        // adx, atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread, open_interest
-        assert_eq!(gates, 10, "expected 10 non-directional gate indicators");
+        // atr, bbwp, hv, volume, rvol, choppiness, funding_rate, spread, open_interest
+        assert_eq!(gates, 9, "expected 9 non-directional gate indicators");
     }
 
     #[test]

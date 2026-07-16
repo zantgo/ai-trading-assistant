@@ -101,5 +101,13 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         loaded_macd.values.is_some(),
         "macd multi-line values preserved"
     );
-    assert_eq!(loaded.indicators.get("rvol").unwrap().normalized, 0.8);
+    // RVOL is a non-directional gate per the v2.1 contract — `normalized` is
+    // always `0.0` and the band value lives in `values.rvol_band`.
+    let loaded_rvol = loaded.indicators.get("rvol").expect("rvol present");
+    assert_eq!(loaded_rvol.normalized, 0.0, "rvol normalized is always 0.0 (gate)");
+    assert_eq!(
+        loaded_rvol.values.as_ref().and_then(|v| v.get("rvol_band")),
+        Some(&0.8),
+        "rvol band value is preserved in values map"
+    );
 }

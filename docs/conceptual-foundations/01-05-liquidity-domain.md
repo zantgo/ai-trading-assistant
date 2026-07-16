@@ -45,10 +45,19 @@ Exchange WS
                 └─ On candle close: attach to MarketSnapshot
 
 MarketSnapshot (per candle)
-    ├─ liquidity: Option<LiquidityFlow>     (Phase 1)
-    ├─ cluster:   Option<LiquidationClusterMatrix>  (Phase 2)
-    └─ on send → derive_liquidity_signals()  (Phase 3)
-        └─ attached to MarketSnapshot.indicators as JSON-encoded list
+    ├─ liquidity:            Option<LiquidityFlow>                  (Phase 1, top-level field)
+    ├─ cluster:              Option<LiquidationClusterMatrix>      (Phase 2, top-level field)
+    ├─ liquidity_signals:    Vec<LiquiditySignal>                  (Phase 3, top-level field — derived from liquidity + cluster)
+    └─ statistical_context:  StatisticalContext                     (Monte Carlo + z-scores)
+
+WS broadcast payload
+    ├─ market_snapshots
+    │   ├─ indicators (50 indicators + signals)
+    │   ├─ context, alignment, analysis, decision_context, ...
+    │   └─ liquidity, cluster, liquidity_signals              ← liquidity extension surface
+    └─ sent as a single MarketSnapshot frame on /ws
+
+> **Top-level liquidity fields (MAT-17 — correction).** A previous version of this data-flow diagram showed the Phase 3 signals as "attached to `MarketSnapshot.indicators` as a JSON-encoded list". That placement contradicted the canonical Metrics Matrix contract ([02-07-metrics-matrix.md §2.1](../matrices/02-07-metrics-matrix.md)) and the Rust type at `crates/shared/src/models.rs`, which both declare `liquidity_signals: Vec<LiquiditySignal>` as a **top-level** field on `MarketSnapshot`, *separate* from the nested `indicators` map. The corrected diagram above shows the three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) as siblings of `indicators` on the `MarketSnapshot` wire frame.
 ```
 
 ## Architectural placement
@@ -114,6 +123,8 @@ The platform uses **`config.json`** as the single source of configuration truth 
     "maintenance_margin_rate": 0.005,         // 0.5% (industry standard for perps)
     "cascade_detected_zscore": 2.5,           // single-event cascade trigger
     "cascade_sustained_events": 3,            // events in window for Sustained
+    "cascade_baseline_window_bars": 200,      // baseline stats window for cascade_intensity z-score computation
+    "cascade_min_warmup_bars": 30,            // min completed bars before z-score is statistically meaningful
     "funding_extreme_pct": 0.0005,            // 0.05% / 8h
     "magnet_activation_distance_pct": 0.5,    // 0.5% from mid
     "liquidity_vacuum_threshold": 0.3,
@@ -139,24 +150,29 @@ Total per-candle overhead: <5ms. Total memory: <300KB per pair per TF.
 
 ## Test coverage
 
-| Phase | Unit tests | Integration tests | Total |
-|---|---|---|---|
-| 0 | 11 | 0 | 11 |
-| 1 | 15 | 1 | 16 |
-| 2 | 14 | 0 | 14 |
-| 3 | 10 | 0 | 10 |
-| 4 | 5 | 0 | 5 |
-| **Total** | **55** | **1** | **56** |
+| Phase | Unit tests | Integration tests | Total | Source files |
+|---|---|---|---|---|
+| 0 | 11 | 0 | 11 | `crates/engine/tests/phase0_derivatives.rs` |
+| 1 | 15 | 1 | 16 | `crates/shared/tests/phase1_liquidity_flow.rs` + `crates/engine/tests/phase1_liquidation_e2e.rs` |
+| 2 | 14 | 0 | 14 | `crates/shared/tests/phase2_cluster_matrix.rs` |
+| 3 | 10 | 0 | 10 | `crates/shared/tests/phase3_signals.rs` |
+| 4 | 5 | 0 | 5 | `crates/frontend/src/components/LiquidityPanel.test.ts` |
+| **Total** | **55** | **1** | **56** | |
 
 All 56 new tests pass. No existing tests were broken by the
 implementation.
 
-## Open questions / future work
+> **Sub-test nesting clarification (MAT-18 — corrected count).** An earlier audit reported a total of 60 tests, arrived at by separately counting nested test functions (`assess_cascade_risk` under Phase 3, `compute_cluster_matrix` under Phase 2) as if they were independent items. The authoritative count is `55 unit + 1 integration = 56`. The nested functions are already contained within their parent phase's total (Phase 3 = 10, Phase 2 = 14) and must not be summed twice. The table above sum-checks: `11 + 15 + 14 + 10 + 5 = 55` unit; `1` integration (the `phase1_liquidation_e2e.rs` end-to-end pipeline test).
 
-- Add a marker overlay on PriceChart.svelte for cluster positions
-  (deferred from Phase 4 to keep the initial render simple).
-- Cross-symbol cascade_risk aggregation is exposed via
-  `OverviewMatrix.cascade_risk_index` but not yet wired into the
-  `systemic_risk_score` formula.
-- The PAE (Performance Analytics Engine) could later consume
-  `liquidation_events` for cascade-conditioned strategy backtesting.
+## Open questions / future work — Canonical deferred-work tracker
+
+This section is the **canonical tracking point** for every deferred feature, placeholder field, or scheduled-for-future-version capability in the Liquidity Intelligence subsystem (and adjacent extensions that cross-reference this doc). Any downstream document that needs to refer to a field's *current* implementation status must link here rather than restating the status — the goal is **exactly one canonical statement per deferred item** so the corpus cannot drift on "is this wired or not?" questions.
+
+**Tracker items:**
+
+- **`cascade_risk_index` aggregation** (open). The Overview Matrix carries `cascade_risk_index` as a placeholder field on the L7 envelope (declared in [02-09-overview-matrix.md §2.1](../matrices/02-09-overview-matrix.md) and serialized in [01-01 §A.7](../conceptual-foundations/01-01-ontology.md)) but it is **not yet aggregated into `systemic_risk_score`**. The field is serialized with placeholder values (the canonical example uses a constant illustrative `score` — not a real value) so downstream consumers (UI, REST, PAE) have a stable contract to read; the aggregation formula is scheduled for a future Phase 3 follow-up.
+- **PriceChart marker overlay** for cluster positions (deferred from Phase 4 to keep the initial render simple).
+- **`liquidation_events` → PAE backtest ingestion** (deferred). The PAE could later consume the `liquidation_events` table for cascade-conditioned strategy backtesting; today the table is read-only from the cluster estimator's per-candle aggregation path.
+- **Additional tracker items** (add here, not in any other doc, when opening new deferred work).
+
+**How downstream docs must reference this section.** Any matrix, engine layer spec, schema doc, or operator doc that mentions a deferred item from this tracker should link here (e.g. "see [01-05 §Open questions](../conceptual-foundations/01-05-liquidity-domain.md) — canonical deferred-work tracker") and otherwise *not* restate the implementation status. This prevents the multi-doc drift the `cascade_risk_index` placeholder previously exhibited.

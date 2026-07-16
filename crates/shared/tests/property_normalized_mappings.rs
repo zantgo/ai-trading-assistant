@@ -54,27 +54,38 @@ fn rsi_potential_divergence_capped() {
 }
 
 // ─────────────────────────── RVOL ───────────────────────────
+//
+// Per the v2.1 contract (see `04-02-19-rvol.md` §3 and `normalized/context.rs`),
+// RVOL is a non-directional gate — `normalized` is always `0.0` and the band
+// value lives in `values.rvol_band`. The previous version of these tests
+// asserted the old (incorrect) signed-into-normalized behaviour.
 
 proptest! {
     #[test]
-    fn rvol_below_one_is_negative(rvol in 0.0f64..1.0) {
+    fn rvol_below_one_band_is_negative(rvol in 0.0f64..1.0) {
         let v = NormalizationEngine::normalize_rvol(rvol);
-        prop_assert!(v.normalized < 0.0);
-        prop_assert_eq!(v.state_label, "CONSOLIDATION_VOLUME");
+        prop_assert_eq!(v.normalized, 0.0, "rvol gate normalized is always 0.0");
+        let band = v.values.as_ref().and_then(|m| m.get("rvol_band")).copied();
+        prop_assert_eq!(band, Some(-0.5));
+        prop_assert_eq!(v.state_label, "LOW_PARTICIPATION_VOLUME");
     }
 
     #[test]
-    fn rvol_climax_is_blocked(rvol in 3.0f64..100.0) {
+    fn rvol_climax_band_is_negative_one(rvol in 3.0f64..100.0) {
         let v = NormalizationEngine::normalize_rvol(rvol);
-        prop_assert_eq!(v.normalized, -1.0);
+        prop_assert_eq!(v.normalized, 0.0, "rvol gate normalized is always 0.0");
+        let band = v.values.as_ref().and_then(|m| m.get("rvol_band")).copied();
+        prop_assert_eq!(band, Some(-1.0));
         prop_assert_eq!(v.state_label, "EXHAUSTION_CLIMAX_VOLUME");
     }
 }
 
 #[test]
-fn rvol_institutional_band() {
+fn rvol_institutional_band_is_positive() {
     let v = NormalizationEngine::normalize_rvol(2.0);
-    assert_eq!(v.normalized, 0.8);
+    assert_eq!(v.normalized, 0.0);
+    let band = v.values.as_ref().and_then(|m| m.get("rvol_band")).copied();
+    assert_eq!(band, Some(0.8));
     assert_eq!(v.state_label, "INSTITUTIONAL_BREAKOUT_VOLUME");
 }
 
@@ -93,10 +104,23 @@ proptest! {
     }
 
     #[test]
-    fn adx_congestion_is_neutral(adx in 0.0f64..20.0) {
+    fn adx_congestion_is_neutral(adx in 0.0f64..18.0) {
+        // SIG-14: the v2.1 congestion band is `adx < 18` (`TRENDLESS_CONGESTION`).
+        // The `[18, 20)` zone is the smooth `TRANSITION_BULL/BEAR_TREND`
+        // ramp — non-zero on purpose to avoid the discontinuity at the
+        // 20 boundary.
         let v = NormalizationEngine::normalize_adx(adx, 30.0, 10.0, 1.0, false);
         prop_assert_eq!(v.normalized, 0.0);
-        prop_assert_eq!(v.state_label, "TRENDLESS_CONGESTION");
+    }
+
+    #[test]
+    fn adx_transition_ramp_is_continuous(adx in 18.0f64..20.0) {
+        // The transition ramp maps [18, 20) → [0.0, 0.30) × sign, smoothly.
+        // Verify continuity at both endpoints.
+        let v = NormalizationEngine::normalize_adx(adx, 30.0, 10.0, 1.0, false);
+        prop_assert!(v.normalized >= 0.0 && v.normalized <= 0.30);
+        let label = v.state_label.as_str();
+        prop_assert!(label == "TRANSITION_BULL_TREND" || label == "EMERGING_BULL_TREND");
     }
 }
 

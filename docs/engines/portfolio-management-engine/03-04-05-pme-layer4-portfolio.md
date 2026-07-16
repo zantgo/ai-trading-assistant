@@ -62,7 +62,7 @@ NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
 | State | Trigger | Effect | Scope |
 |-------|---------|--------|-------|
 | `NORMAL` | Default | Full trading permitted. | — |
-| `WARN` | `daily_drawdown_pct ≥ max_daily_drawdown_pct` (default 0.05 = 5 %), where `daily_drawdown_pct = -daily_pnl / starting_session_equity` | **Early-warning only — no stance changes.** A `WARN` event sets `safety_state = WARN`, surfaces a banner in the GUI (Portfolio panel), and is logged to the audit trail with the trigger reason. Trading continues as in `NORMAL`. `WARN` is cleared automatically when `daily_drawdown_pct` returns below the threshold *or* on the daily session reset. | Platform-wide |
+| `WARN` | `daily_drawdown_pct ≥ max_daily_drawdown_pct` (default 0.05 = 5 %), where `daily_drawdown_pct = -daily_pnl / starting_session_equity` | **Early-warning only — no stance changes.** A `WARN` event sets `safety_state = WARN`, surfaces a banner in the GUI (Portfolio panel), and is logged to the audit trail with the trigger reason. Trading continues as in `NORMAL`. `WARN` is cleared automatically when `daily_drawdown_pct` returns below the threshold *or* on the daily session reset. The 60-second equity snapshot cadence that drives the live `daily_drawdown_pct` metric is implemented in [PME Layer 3 §3](../portfolio-management-engine/03-04-04-pme-layer3-capital.md); the daily session reset (`peak_equity = current_equity` at the operator-defined `session_reset_cron`, default `00:00 UTC`) is documented in §4.4 below. | Platform-wide |
 | `CAUTIOUS` | `consecutive_losses[sym] ≥ caution_threshold` (default 3) | Warning only; no stance changes yet. | **Per-symbol** |
 | `SUSPENDED` | `consecutive_losses[sym] ≥ dropout_threshold` (default 5) | Affected symbol's stance → `CLOSE_ONLY`; 8-hour cooldown. A win resets that symbol's counter. Other symbols are unaffected. | **Per-symbol** |
 | `DRAWDOWN_STOP` | Equity drawdown ≥ `drawdown_limit_pct` (default 0.30 = 30 %) | All stances → `AVOID`; immediate veto. | Platform-wide |
@@ -87,9 +87,12 @@ Each veto trigger maps to exactly one target `Stance` per the table below. `WARN
 |---------|-----------|---------------|------------------|-------------------|
 | **Drawdown breach** | `current_equity / peak_equity < 1 − drawdown_limit_pct` (default 0.30) | `AVOID` | **Yes** (forced liquidation) | `current_equity / peak_equity ≥ 1 − drawdown_limit_pct` (see §4.3) |
 | **Margin ceiling** | `margin_usage_ratio ≥ 0.95` | `CLOSE_ONLY` | **No** (graceful wind-down) | `margin_usage_ratio < 0.90` sustained for 60 s |
+| **Margin exhaustion** | `margin_usage_ratio ≥ 1.00` | `AVOID` | **Yes** (forced liquidation) | `margin_usage_ratio < 0.95` sustained for 60 s |
 | **Loss streak (≥ 5)** | `consecutive_losses[sym] ≥ dropout_threshold` (default 5) | `CLOSE_ONLY` (per-symbol) | **No** (graceful wind-down) | First winning trade (counter reset) or 8-hour cooldown expiry |
 | **Systemic risk** | `systemic_risk_score ≥ systemic_risk_threshold` (default 80) | `AVOID` | **Yes** (forced liquidation) | `systemic_risk_score < systemic_risk_threshold` (see §4.3) |
 | **Manual override** | Operator-initiated | as specified (operator chooses `AVOID` or `CLOSE_ONLY`) | depends on operator input | manual reset |
+
+> **Margin exhaustion row added (v2.1 — correction).** The PME L3 §6 documents `margin_usage_ratio ≥ 1.00` as triggering `AVOID` + Hard Exit path, but a previous version of this table omitted the row — leaving a 100%-margin scenario on the less-severe `0.95` graceful wind-down path. The added `Margin exhaustion` row above closes that gap. The two margin triggers are now layered: the `0.95` ceiling is the early-warning `CLOSE_ONLY` graceful wind-down; the `1.00` exhaustion is the emergency `AVOID` Hard Exit path.
 
 > **AVOID vs CLOSE_ONLY distinction.** `AVOID` triggers the **Hard Exit Path** (forced liquidation via market orders — see §4.2). `CLOSE_ONLY` is a **graceful wind-down**: no forced liquidation; existing positions are managed by their protective stops and policy exits; new entries are blocked; the operator may manually liquidate via `DELETE /api/instances/by-pair/:pair_key`. Treating `CLOSE_ONLY` as `AVOID` (forcing market liquidation) is a documented anti-pattern that defeats the granularity of the safety state machine.
 
@@ -101,8 +104,8 @@ The veto execution sequence is **time-critical** and must follow the steps below
 
 1. **Portfolio Layer publishes a high-priority `VetoMessage` to TAE**, including the trigger type and target stance.
 2. **For `AVOID` triggers: dispatch Hard Exit (Step 2a) BEFORE stance transition (Step 3).** The TAE Policy Layer dispatches a **liquidation directive** (not a cancellation) to the Execution Layer. The Execution Layer:
-   - Reads the current `size` for the position from the Position Matrix (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md) and the Bypass rules in §3.3),
-   - Constructs a `Market` order with `reduce_only = true` (forced by the §3.3 invariant),
+   - Reads the current `size` for the position from the Position Matrix (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md) for the canonical "Exit and Reduce-Only Order Bypass" rules),
+   - Constructs a `Market` order with `reduce_only = true` (forced by the [§3.3 invariant](../trade-automation-engine/03-03-03-tae-layer2-execution.md), not by a §3.5 rule — §3.3 defines the `CLOSE_ONLY` stance → `reduce_only = true` mapping),
    - Tags the order `emergency_liquidation = true` so it bypasses Gate 1 (stance) and other pre-trade gates per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md),
    - Dispatches it to the exchange,
    - Waits for exchange acknowledgement (filled or terminal reject) with a bounded timeout `hard_exit_ack_timeout_ms` (default 2000 ms).
@@ -113,7 +116,7 @@ The veto execution sequence is **time-critical** and must follow the steps below
 
 > **Loophole fix.** A previous version of this section issued only cancellations in steps 2–4, which would leave active positions open at the venue after the protective stops were cancelled (and `AVOID` blocks all trigger evaluations — so a follow-up exit signal could not be generated to cover them). The Hard Exit path in step 2a ensures every open position is closed on venue at the time the veto asserts; cancellations in step 4 just clean up the residual limit/stop orders.
 
-> **Hard Exit / AVOID ordering invariant.** A veto with `AVOID` target MUST fire Hard Exit (Step 2a) **before** transitioning the stance to `AVOID` (Step 3). If the stance is set to `AVOID` first, Gate 1 would block the Hard Exit order, leaving the position unprotected. The order in Step 2a → Step 3 is therefore non-negotiable. Note the cross-reference was previously cited as `§4.4` in [03-03-03-tae-layer2-execution.md](../trade-automation-engine/03-03-03-tae-layer2-execution.md); the section is actually numbered `§3.5` in that file (and was previously misnumbered `§4.4` throughout the corpus — see E-01 fix).
+> **Hard Exit / AVOID ordering invariant.** A veto with `AVOID` target MUST fire Hard Exit (Step 2a) **before** transitioning the stance to `AVOID` (Step 3). If the stance is set to `AVOID` first, Gate 1 would block the Hard Exit order, leaving the position unprotected. The order in Step 2a → Step 3 is therefore non-negotiable. Note the cross-reference was previously cited as `§4.4` in [03-03-03-tae-layer2-execution.md](../trade-automation-engine/03-03-03-tae-layer2-execution.md); the section is actually numbered `§3.5` in that file (and was previously misnumbered `§4.4` throughout the corpus — corrected in v2.1 to point to §3.5).
 
 ### 4.3 Veto Release
 

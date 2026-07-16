@@ -31,10 +31,10 @@ Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `
 |-------|------|-------------|
 | `global_market_bias` | `GlobalBias` | Universe-wide directional bias (§3.1). |
 | `market_breadth` | `MarketBreadth` | Breadth classification (§3.2). |
-| `regime_distribution` | `map<string, f64>` | Fraction of assets per regime. |
-| `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` since the Phase 0-4 extension — see [02-08-opportunity-matrix.md](../matrices/02-08-opportunity-matrix.md)). |
+| `regime_distribution` | `map<string, f64>` | Fraction of assets per regime. (`f64` because the regime-classification partition is exhaustive — entries sum to `1.0`.) |
+| `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` and `Scalp` since the v2.1 completeness sweep — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). (`u32` because opportunity types are not mutually exclusive — a single asset can simultaneously satisfy the preconditions of multiple setups, so the map is a per-type count rather than a partition.) |
 | `risk_distribution` | `RiskDistribution` | Low/moderate/high risk share + environment label (§4). |
-| `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). *Currently a placeholder carried at the L7 envelope for downstream consumers; not yet wired into `systemic_risk_score` aggregation — see [01-05-liquidity-domain.md §Open questions](../conceptual-foundations/01-05-liquidity-domain.md).* |
+| `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). **Status placeholder.** See [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md) for the current implementation status; downstream docs link to that tracker rather than restating it. |
 | `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty`. The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-portfolio.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
 | `asset_ranking` | `AssetRank[]` | Assets ranked by composite score (§5). |
 | `market_synchronization` | `SyncLevel` | Cross-asset correlation of direction (§3.3). |
@@ -119,6 +119,8 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 
 The `risk_distribution` bins assets by their Decision Matrix `confidence_assessment` (in `[0, 100]`; high confidence ⇒ low risk):
 
+> **Confidence source clarification.** The `confidence_assessment` used by `risk_distribution` is the L6 Decision Matrix's **risk-attenuated terminal value** (see [02-00b-confidence-hierarchy.md](../../matrices/02-00b-confidence-hierarchy.md)), not the L3 Analysis Matrix's `state_confidence`. The two are distinct: `state_confidence ∈ [0, 1]` is the L3 *state-interpretation* confidence driven by MTF agreement; `confidence_assessment ∈ [0, 100]` is the L6 *user-facing* confidence, attenuated by `overall_risk` per the formula in [02-04-decision-matrix.md §4](../matrices/02-04-decision-matrix.md). High `confidence_assessment` ⇒ low per-symbol risk ⇒ the asset is binned in `low_pct`.
+
 ```
 low_pct  = % of Decision Matrices with confidence_assessment > 70
 high_pct = % of Decision Matrices with confidence_assessment < 30
@@ -146,7 +148,7 @@ The resulting `risk_environment` label gates the PME [Ontological Priority Veto]
 
 #### 4.0.1 Cross-Reference
 
-The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-portfolio.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). The `cascade_risk_index` field (§2.1) is **not yet aggregated into `systemic_risk_score`**; see [01-05-liquidity-domain.md §Open questions](../conceptual-foundations/01-05-liquidity-domain.md) for the deferred work item.
+The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-portfolio.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). For the implementation status of `cascade_risk_index` (§2.1), see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md).
 
 ---
 
@@ -174,16 +176,19 @@ Rankings sort descending, producing a leaderboard of relative strength/weakness 
   "regime_distribution": { "TRENDING_BULL": 0.6, "RANGE": 0.4 },
   "opportunity_distribution": { "BREAKOUT": 2, "TREND_CONTINUATION": 1 },
   "risk_distribution": { "low_pct": 60.0, "moderate_pct": 40.0, "high_pct": 0.0, "risk_environment": "LOW_RISK" },
+  "systemic_risk_score": 0.0,
   "asset_ranking": [
     { "symbol": "BTC-USDT", "score": 87.5, "bias": "STRONG_LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
   ],
   "market_synchronization": "SYNCHRONIZED",
   "market_health": "HEALTHY",
-  "global_summary": "3 active instances across 3 symbols. Global bias: BULLISH with positive market breadth.",
-  "instance_count": 3,
-  "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT"]
+  "global_summary": "5 active instances across 5 symbols. Global bias: BULLISH with positive market breadth.",
+  "instance_count": 5,
+  "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT", "AVAX-USDT", "MATIC-USDT"]
 }
 ```
+
+> **Worked example for `systemic_risk_score`.** With `global_market_bias = BULLISH`, `sync_penalty = 0` regardless of synchronization level. The score reduces to `0.6 × high_pct + 0.4 × 0 = 0.6 × high_pct`. The example above (3 low-risk + 2 moderate-risk = 0 high-risk out of 5) yields `high_pct = 0` and `systemic_risk_score = 0.0`. A biased-bearish example with `high_pct = 60.0` and `sync_penalty = 0` (e.g. `HIGHLY_FRAGMENTED`) would yield `systemic_risk_score = 36.0`.
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

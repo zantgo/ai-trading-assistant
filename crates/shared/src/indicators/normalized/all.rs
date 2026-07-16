@@ -989,7 +989,12 @@ impl NormalizationEngine {
             if (pu <= pd && up > down) || (pu >= pd && down > up) {
                 if let Some(entry) = out.get_mut("aroon") {
                     entry.signals.push(IndicatorSignal::new(
-                        SignalKind::Crossover,
+                        // SIG-02 (v2.1 reclassification): Aroon's Up/Down crossing
+                        // is emitted as TrendFlip, not Crossover, since it
+                        // represents a directional regime change rather than
+                        // a generic two-series cross. Prevents double-counting
+                        // in the confluence engine.
+                        SignalKind::TrendFlip,
                         if up > down {
                             SignalDirection::Bullish
                         } else {
@@ -997,9 +1002,9 @@ impl NormalizationEngine {
                         },
                         SignalStatus::Active,
                         if up > down {
-                            "AROON_BULLISH_CROSS"
+                            "AROON_BULLISH_FLIP"
                         } else {
-                            "AROON_BEARISH_CROSS"
+                            "AROON_BEARISH_FLIP"
                         },
                     ));
                 }

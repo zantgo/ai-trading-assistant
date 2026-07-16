@@ -690,7 +690,21 @@ fn build_historical_snapshot(
                 0.0
             };
             let px = completed.close.to_f64().unwrap_or(0.0);
-            shared::decision_context::DecisionContext::compute(&indicators, px, atr_val, conf)
+            // See note in analyzer/mod.rs — the warm-up path uses empty/default
+            // Analysis and Risk matrices because the full L3/L4/L5 pipeline
+            // is not yet wired into the warm-up cycle. The DecisionContext
+            // contract still computes deterministically.
+            let analysis_for_l6 = shared::analysis::AnalysisMatrix::empty(&completed.symbol);
+            let risk_for_l6 = shared::risk::RiskMatrix::empty(&completed.symbol);
+            shared::decision_context::DecisionContext::compute(
+                &indicators,
+                px,
+                atr_val,
+                conf,
+                &analysis_for_l6,
+                None,
+                &risk_for_l6,
+            )
         }),
         statistical_context: None,
         indicators,

@@ -37,6 +37,14 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 | `realized_pnl` | `Decimal` | Cumulative PnL from closed trades. **Net of fees and funding** — fees and funding costs are deducted at the fill level, never separately. |
 | `unrealized_pnl` | `Decimal` | Aggregate unrealized PnL from all active positions. |
 
+> **Persistence mapping (v2.1).** The in-memory Capital Matrix fields above map to the persistent `paper_balances` table ([06-02-database-schema-spec.md §3.2](../integration-and-api/06-02-database-schema-spec.md)) as follows:
+>
+> | Capital Matrix field | `paper_balances` column |
+> |----------------------|-------------------------|
+> | `initial_balance` | `initial_usd` |
+> | `realized_pnl` | `current_cash` |
+> | `committed_margin`, `unrealized_pnl`, `available_margin` | **derived metrics — not persisted**. Computed on demand from `active_positions` and `open_orders` (see §4.2 and the database spec §3.2 preamble). The startup recovery process recomputes them from the persisted `active_positions` and `open_orders` rows. |
+
 ### 2.2 Risk Metrics
 
 | Field | Type | Description |
@@ -44,7 +52,8 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 | `margin_usage_ratio` | `Decimal` | Fraction of total equity committed to maintenance/initial margin, in `[0, 1]`. Multiply by 100 for human-readable display. |
 | `leverage_ratio` | `Decimal` | `gross_exposure / current_equity` (fraction, `[0, ∞)`). |
 | `max_daily_drawdown_pct` | `Decimal` | **Configuration limit** — the operator-set early-warning threshold (default 0.05 i.e. 5%). Distinguished from the live metric `daily_drawdown_pct` computed at runtime. Triggers `safety_state = WARN` (no stance change) when the live metric crosses the configured limit; see [03-04-05-pme-layer4-portfolio.md §3](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
-| `daily_pnl` | `Decimal` | Equity change since session start (the **live metric**; corresponds to the older name `current_daily_pnl`). Used for WARN evaluation as `daily_pnl / starting_session_equity`. |
+| `daily_pnl` | `Decimal` | Equity change since session start (the **live metric**; corresponds to the older name `current_daily_pnl`). Used for WARN evaluation as `daily_drawdown_pct = -daily_pnl / starting_session_equity`. |
+| `starting_session_equity` | `Decimal` | Equity recorded at the most recent session-reset boundary (operator-defined `session_reset_cron`, default `00:00 UTC`). On session reset, set to the current `current_equity` value. Persisted across restarts. |
 
 ---
 

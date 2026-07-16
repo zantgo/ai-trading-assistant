@@ -373,26 +373,36 @@ impl NormalizationEngine {
             }
             _ => {
                 // No crossover — momentum regime from line/signal ordering.
+                // SIG-09 (continuous piecewise): the previous flat-`±0.3`
+                // "exhaustion" branches produced discontinuous step jumps in
+                // the per-tick confluence sum when the histogram drifted
+                // across the contraction threshold. The continuous form
+                // below ramps smoothly from a near-zero baseline at full
+                // contraction to the full `0.4 + 0.3 × tanh(|hist|)`
+                // expansion magnitude, preserving the ADX-style continuity
+                // invariant. The labels remain exhaustively populated.
                 let contracting = histogram_peak.abs() > f64::EPSILON
                     && (histogram_peak.abs() - histogram.abs()) / histogram_peak.abs() >= 0.30;
+                let peak_ratio = if histogram_peak.abs() > f64::EPSILON {
+                    (histogram.abs() / histogram_peak.abs()).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                let expand_mag = 0.4 + 0.3 * saturate(histogram);
+                let base = 0.1 * (1.0 - peak_ratio); // smoothly decay to 0.1 as r → 0
+                let magnitude = expand_mag * peak_ratio + base;
                 if histogram.abs() < 1e-9 {
                     (0.0, "MOMENTUM_FLATLINE")
                 } else if macd_line > signal_line {
                     if contracting {
-                        (0.3, "BULLISH_MOMENTUM_EXHAUSTION_WARNING")
+                        (magnitude, "BULLISH_MOMENTUM_EXHAUSTION_WARNING")
                     } else {
-                        (
-                            0.4 + 0.3 * saturate(histogram),
-                            "BULLISH_MOMENTUM_EXPANDING",
-                        )
+                        (magnitude, "BULLISH_MOMENTUM_EXPANDING")
                     }
                 } else if contracting {
-                    (-0.3, "BEARISH_MOMENTUM_EXHAUSTION_WARNING")
+                    (-magnitude, "BEARISH_MOMENTUM_EXHAUSTION_WARNING")
                 } else {
-                    (
-                        -(0.4 + 0.3 * saturate(histogram)),
-                        "BEARISH_MOMENTUM_EXPANDING",
-                    )
+                    (-magnitude, "BEARISH_MOMENTUM_EXPANDING")
                 }
             }
         };
@@ -534,12 +544,15 @@ mod meta_tests {
 
     #[test]
     fn inactive_fill_skips_non_directional_gates() {
-        // Non-directional gates (adx/atr/bbwp/hv/volume/rvol/choppiness) must NOT
+        // Non-directional gates (atr/bbwp/hv/volume/rvol/choppiness) must NOT
         // be INACTIVE-filled (they are read by value by gate logic / context).
+        // ADX is now classified as directional — see IND-01 in the
+        // consolidated architecture audit — so it is treated by the same
+        // directional fill path as other directional indicators.
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
-        for key in ["adx", "atr", "bbwp", "hv", "rvol", "choppiness"] {
+        for key in ["atr", "bbwp", "hv", "rvol", "choppiness"] {
             assert!(
                 !map.contains_key(key),
                 "{key} gate must remain absent, not INACTIVE-filled"

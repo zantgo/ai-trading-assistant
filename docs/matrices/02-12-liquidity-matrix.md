@@ -70,6 +70,60 @@ A single event crossing the threshold → `Detected`. Three or more
 events crossing the threshold within the window → `Sustained`.
 Declining intensity after `Sustained` → `Exhausted`.
 
+## Cascade Intensity Computation (`LiquidityFlow.cascade_intensity`)
+
+The `cascade_intensity` field is the **canonical risk-feed value** consumed by `RiskMatrix.cascade_risk` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)) and surfaced on the Frontend's `LiquidityPanel` (§[07-04-ui-liquidity-panel-spec.md Flow tab](../../ui-ux/07-04-ui-liquidity-panel-spec.md)). This section is the **single canonical specification** of how the value is computed. The implementation lives in `crates/shared/src/liquidity.rs::LiquidityEventAccumulator::update`; the equations below mirror that implementation 1:1.
+
+### Windowing
+
+- **Rolling baseline window** — `W = 200` completed micro candles (configurable via `config.json` `liquidity.cascade_baseline_window_bars`, default 200). The baseline statistics are computed over the last `W` completed bars' per-bar notional volume: mean `μ` (micro-window) and standard deviation `σ` (micro-window). On engine start (zero history) and when fewer than `min(window_bars, 30)` completed bars are available, the baseline is treated as `μ = 0, σ = 0` and the z-score is defined as `0` (no abnormal intensity claim is made until the warm-up threshold is reached — see "Warm-up reset behavior" below).
+- **Recent-event window** — `K = 20` most recent liquidation events (the recent-events rolling buffer used for the state-machine classification in the next section). The intensity signal is computed from this window, not from the baseline window, so the value is responsive to recent events rather than slow-moving.
+
+### Per-bar notional definition
+
+For each completed micro candle `b` in the baseline window, the per-bar notional is:
+
+```
+n_b = sum of long_liquidations_usd(b) + sum of short_liquidations_usd(b)
+```
+
+(where the per-side sums are themselves the per-bar aggregate published in `LiquidityFlow`.)
+
+### Recent-event intensity formula
+
+For the most recent completed bar:
+
+```
+recent_notional = sum of liquidation-event notionals in the K=20 rolling-event window
+mean_recent     = recent_notional / K
+sigma_recent    = sample standard deviation of per-event notionals in K
+
+if sigma_recent > 0:
+    z_score = (mean_recent - baseline_mean) / baseline_std
+else:
+    z_score = 0
+
+# Map z-score to 0..100 intensity
+raw_intensity = clamp(50 + z_score * 12.5, 0, 100)   # z=0 → 50; z=+4 → 100; z=-4 → 0
+```
+
+The constants in the linear map (`+50` midpoint, `12.5` scaling) are fixed at the canonical values above; `clamp` guarantees the field stays in `[0, 100]` per the schema.
+
+### Warm-up reset behavior
+
+- **Initial cold start** (no completed micro candles): `cascade_intensity = 0.0` and `cascade_state = None`.
+- **Warm-up** (`window_bars < 30` baseline bars): the baseline is treated as `μ = 0, σ = 0`, and `cascade_intensity = raw_intensity` evaluated without z-score normalization — i.e. it is the un-normalized 0..100 scaled value, but consumers should treat it as "not yet statistically meaningful" via the `cascade_state = None` invariant (no `Detected`/`Sustained`/`Exhausted` transition can fire until the warm-up threshold is met).
+- **Stable state** (`window_bars ≥ 30`): the canonical z-score formula above applies.
+
+### Relationship to `cascade_state`
+
+`cascade_state` is a discrete classification over the same recent-event window (`K = 20`) using the **z-score** computed above; see the "Cascade state machine" section above. `cascade_intensity` (continuous 0..100) is published on every candle; `cascade_state` advances only when the discrete thresholds (`cascade_detected_zscore` for `Detected`, `cascade_sustained_events` for `Sustained`) are crossed.
+
+### Consumer contract
+
+- **`RiskMatrix.cascade_risk` (L5)** consumes `cascade_intensity` directly as `score = max(score, flow.cascade_intensity)` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)). The discrete `cascade_state` adds a risk premium on top of the intensity (`+15` for `Detected`, `+30` for `Sustained`, `+0` for `Exhausted`).
+- **`LiquidityPanel`** displays `cascade_intensity` numerically (0..100) and color-codes it relative to the per-bar thresholds (green ≤ 30, amber ≤ 60, red > 60) for the operator's situational awareness (see [07-04-ui-liquidity-panel-spec.md Flow tab](../../ui-ux/07-04-ui-liquidity-panel-spec.md)).
+
 ## Frontend exposure
 
 `MarketSnapshot.liquidity` rides the WebSocket frame to the frontend
@@ -78,18 +132,26 @@ from this field.
 
 ## 6. Configuration Surface
 
-The Liquidity Intelligence configuration is set in `config.json` under the `liquidity` block:
+The Liquidity Intelligence configuration is set in `config.json` under the `liquidity` block. The canonical configuration surface is defined by `crates/engine/src/config/models.rs::LiquidityConfig`; the JSON below mirrors that struct exactly.
 
 ```json
 {
   "liquidity": {
     "enabled": true,
-    "cascade_z_score_threshold": 2.0,
-    "cascade_rolling_window_bars": 10,
-    "cascade_sustained_min_events": 3,
-    "cluster_refresh_interval_secs": 300,
-    "funding_flip_threshold_pct": 0.01,
-    "oi_divergence_window_bars": 5
+    "mark_price_poll_ms": 60000,
+    "funding_refresh_ms": 60000,
+    "event_retention_days": 90,
+    "bucket_retention_days": 7,
+    "cluster_refresh_secs": 300,
+    "maintenance_margin_rate": 0.005,
+    "cascade_detected_zscore": 2.5,
+    "cascade_sustained_events": 3,
+    "cascade_baseline_window_bars": 200,
+    "cascade_min_warmup_bars": 30,
+    "funding_extreme_pct": 0.0005,
+    "magnet_activation_distance_pct": 0.5,
+    "liquidity_vacuum_threshold": 0.3,
+    "oi_funding_divergence_pct": 2.0
   }
 }
 ```
@@ -97,11 +159,19 @@ The Liquidity Intelligence configuration is set in `config.json` under the `liqu
 | Field | Default | Description |
 |------|---------|-------------|
 | `enabled` | `true` | Master switch for the Liquidity Intelligence extension. |
-| `cascade_z_score_threshold` | `2.0` | Z-score above which a single event triggers `Detected` state. |
-| `cascade_rolling_window_bars` | `10` | Rolling window (in candles) for the z-score computation. |
-| `cascade_sustained_min_events` | `3` | Min events in the window to escalate to `Sustained`. |
-| `cluster_refresh_interval_secs` | `300` | Cluster matrix refresh interval (5 min default). |
-| `funding_flip_threshold_pct` | `0.01` | Funding rate change threshold for `LIQUIDITY_FUNDING_FLIP` signal. |
-| `oi_divergence_window_bars` | `5` | OI divergence detection window. |
+| `mark_price_poll_ms` | `60000` | Hyperliquid mark-price / OI / funding polling cadence. |
+| `funding_refresh_ms` | `60000` | Bitget funding refresh floor. |
+| `event_retention_days` | `90` | Raw `liquidation_events` retention. |
+| `bucket_retention_days` | `7` | Aggregated bucket retention. |
+| `cluster_refresh_secs` | `300` | Cluster matrix refresh interval (5 min default). |
+| `maintenance_margin_rate` | `0.005` | Industry-standard 0.5 % maintenance margin for perpetuals. |
+| `cascade_detected_zscore` | `2.5` | Z-score above which a single event triggers `Detected` state. |
+| `cascade_sustained_events` | `3` | Min events in the window to escalate to `Sustained`. |
+| `cascade_baseline_window_bars` | `200` | Baseline rolling-window size in completed micro candles used for the `cascade_intensity` z-score computation (see §Cascade Intensity Computation above). |
+| `cascade_min_warmup_bars` | `30` | Minimum completed-bar count before the z-score baseline is treated as statistically meaningful (below this threshold, `cascade_state = None` and the un-normalized intensity is published; above this threshold, the canonical z-score formula applies). |
+| `funding_extreme_pct` | `0.0005` | Funding rate extreme threshold (0.05 % / 8 h). |
+| `magnet_activation_distance_pct` | `0.5` | Distance from mid that activates a cluster magnet (0.5 %). |
+| `liquidity_vacuum_threshold` | `0.3` | Liquidity-vacuum detection threshold. |
+| `oi_funding_divergence_pct` | `2.0` | OI/funding divergence percentage. |
 
-All fields have safe defaults. See [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical source.
+> **Configuration key alignment (v2.1 — canonical).** A previous version of this table used different keys (`cascade_z_score_threshold`, `cascade_sustained_min_events`, `cluster_refresh_interval_secs`, `funding_flip_threshold_pct`, `cascade_rolling_window_bars`, `oi_divergence_window_bars`) that did not match the runtime `LiquidityConfig` struct or the [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) source-of-truth block. The corrected surface above is the single canonical configuration; the runtime enforces it via `serde` deserialization in `crates/engine/src/config/models.rs`.

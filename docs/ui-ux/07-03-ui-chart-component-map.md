@@ -4,7 +4,7 @@
 **Status:** Approved
 **Purpose:** Per-indicator mapping from registry key to frontend rendering location. Companion to [UI Overview](07-01-ui-overview-spec.md) and [Dashboard Layout](07-02-ui-dashboard-layout.md).
 
-The platform has **50 registered indicators** but **20 dedicated chart components** (or markers rendering on the main `PriceChart`) in `crates/frontend/src/lib/components/`. The remaining indicators are rendered either as price-chart overlays on the main `PriceChart` component or via the indicator-pane reuse pattern (shared "Oscillator" / "Derivatives" pane). This file enumerates every indicator's rendering destination so the mapping is not implicit. The §2 "Dedicated Pane Components" table lists 20 entries — the 18 single-purpose chart components plus the `patterns` and `candlestick` entries, which are marker overlays rendered directly on `PriceChart`.
+The platform has **50 registered indicators** but **18 dedicated chart components** in `crates/frontend/src/lib/components/`, plus **2 marker-only entries** (`patterns` and `candlestick`) that render directly on the main `PriceChart` rather than in a dedicated pane. The remaining indicators are rendered either as price-chart overlays on the main `PriceChart` component or via the indicator-pane reuse pattern (shared "Oscillator" / "Derivatives" pane). This file enumerates every indicator's rendering destination so the mapping is not implicit. The §2 "Dedicated Pane Components" table lists 18 dedicated panes; the §1 "Price-Chart Overlays" table includes `patterns` and `candlestick` as marker overlays alongside the structural-line overlays.
 
 ---
 
@@ -32,6 +32,8 @@ The following indicators are drawn directly on the main price chart (OHLCV + ove
 | `smc_liquidity` | SMC Liquidity | Liquidity-pool markers |
 | `smc_fvg` | SMC Fair Value Gap | FVG zone shading |
 | `smc_order_blocks` | SMC Order Blocks | Order-block zone shading |
+| `patterns` | Chart Patterns | Pattern detection markers (bullish / bearish breakout) |
+| `candlestick` | Candlestick Patterns | Pattern detection markers (single-candle / multi-candle patterns) |
 
 ---
 
@@ -59,8 +61,6 @@ The following indicators have their own dedicated chart component:
 | `choppiness` | Choppiness Index | `ChoppinessChart` | Line with chop/trend bands. |
 | `linreg_slope` | LinReg Slope | `LinRegSlopeChart` | Line with zero line. |
 | `zscore` | Z-Score | `ZScoreChart` | Line with zero line. |
-| `patterns` | Chart Patterns | markers on `PriceChart` | Pattern detection markers. |
-| `candlestick` | Candlestick Patterns | markers on `PriceChart` | Pattern detection markers. |
 
 ---
 
@@ -89,8 +89,8 @@ The following indicators share existing chart components rather than having dedi
 
 | Render Bucket | Indicator Count |
 |---|---|
-| Price-chart overlays | 18 |
-| Dedicated panes | 20 (incl. `patterns` and `candlestick` markers on PriceChart) |
+| Price-chart overlays | 20 (18 structural-line overlays + `patterns` + `candlestick` marker overlays) |
+| Dedicated panes | 18 |
 | Reused / generic panes | 12 |
 | **Total** | **50** |
 

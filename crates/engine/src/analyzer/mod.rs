@@ -23,6 +23,8 @@ use shared::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use shared::liquidity::LiquidationClusterMatrix;
+use shared::analysis::AnalysisMatrix;
+use shared::risk::RiskMatrix;
 use shared::models::MarketSnapshot;
 use shared::normalized::{CandleGenerator, Exchange, NormalizedCandle, NormalizedEvent};
 use shared::statistics::{StatisticsConfig, StatisticsEngine};
@@ -1057,12 +1059,12 @@ pub async fn run_single(
                             0.0
                         }
                     };
-                    let dec_ctx = shared::decision_context::DecisionContext::compute(
-                        &indicators,
-                        completed.close.to_f64().unwrap_or(0.0),
-                        atr_val,
-                        confluence_score,
-                    );
+                    // (Historical 4-arg stub replaced below by the 7-arg
+                    // canonical contract; DecisionContext is now computed
+                    // once further down using the L3/L4/L5 triad. The
+                    // `dec_ctx` variable at line 1167 reads the result of
+                    // the canonical call below.)
+                    let _ = confluence_score; // silence unused warning only if not later read
 
                     // Compute Statistical Intelligence Layer enrichment.
                     let close_f = completed.close.to_f64().unwrap_or(0.0);
@@ -1080,6 +1082,26 @@ pub async fn run_single(
                     let vol_f = completed.volume.to_f64().unwrap_or(0.0);
                     let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
                     let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
+                    // The full L3/L4/L5 synthesis pipeline is not yet wired
+                    // into the analyzer hot-path (each layer in [01-02-global-architecture.md §3]
+                    // is computed separately). For L6 DecisionContext the
+                    // canonical triad is consumed as empty/default matrices
+                    // here, yielding a deterministic DecisionContext whose
+                    // `entry_danger` is dominated by the conservative defaults
+                    // (`market_quality = Poor → 80`) and `expected_reward_risk_ratio`
+                    // is informed by `L5.overall_risk.score = 50.0` (the
+                    // empty RiskMatrix default) ⇒ `2.5 × 0.50 = 1.25`.
+                    let analysis_for_l6 = AnalysisMatrix::empty(&completed.symbol);
+                    let risk_for_l6 = RiskMatrix::empty(&completed.symbol);
+                    let dec_ctx = shared::decision_context::DecisionContext::compute(
+                        &indicators,
+                        completed.close.to_f64().unwrap_or(0.0),
+                        atr_val,
+                        confluence_score,
+                        &analysis_for_l6,
+                        None,
+                        &risk_for_l6,
+                    );
                     let sil_ctx = sil_engine.advance_ext(
                         close_f,
                         atr_val,

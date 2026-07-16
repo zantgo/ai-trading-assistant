@@ -107,7 +107,7 @@ Reconnection is owned by the `MarketDataOrchestrator` supervisor loop (see [Over
 2. Supervisor emits a `Status` event describing the outcome.
 3. On error: increment consecutive-failure counter (reset if > 300 s since last failure).
 4. If failures ≥ 5 → permanent disable.
-5. Otherwise sleep `retry_cooldown`, then loop; `retry_cooldown = min(retry_cooldown × 2, 60)`.
+5. Otherwise sleep `retry_cooldown`, then loop; `retry_cooldown = min(retry_cooldown × 2, 30)` — **canonical cap is `30 s`** (matches [08-03-connection-resilience.md §3](../operations-and-compliance/08-03-connection-resilience.md), the canonical resilience contract, and the runtime `ReconnectPolicy::default` in `crates/engine/src/adapters/resilience.rs`). A previous version of this section used a `60` cap; that value was an editorial mistake during the v1.0 contract stabilisation and is superseded by the canonical `30` cap.
 
 ---
 

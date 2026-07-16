@@ -45,7 +45,7 @@ Two coin-toss games illustrate that win-rate alone is misleading:
 | Game | Win prob | Win payoff | Loss prob | Loss payoff | EV |
 |---|---|---|---|---|---|
 | **A** (biased favorable frequency) | 0.55 | +$1.00 | 0.45 | −$1.25 | `0.55·1.00 − 0.45·1.25 = −$0.0125` |
-| **B** (biased unfavorable frequency) | 0.25 | +$3.50 | 0.75 | −$1.00 | `0.25·3.50 − 0.75·1.00 = +$0.0125` |
+| **B** (biased unfavorable frequency) | 0.25 | +$3.50 | 0.75 | −$1.00 | `0.25·3.50 − 0.75·1.00 = +$0.125` |
 
 Game A wins more often than it loses but has **negative** EV; Game B wins less often than it loses but has **positive** EV. The lesson: **a 30 % win-rate strategy can be profitable if winners are large, and a 70 % win-rate strategy can lose money if losses are large**. This is the central institutional insight of edge quantification.
 
@@ -402,27 +402,28 @@ Every concept in this document maps to a concrete implementation file:
 
 | § | Concept | Primary implementation file |
 |---|---|---|
-| 2 | Expected Value | `03-05-03-pae-layer2-strategy-analytics.md` (Expectancy, lines 27-44) |
-| 2 | Statistical significance | `03-05-03-pae-layer2-strategy-analytics.md` (NHST, lines 48-72) |
-| 3 | Log returns | `04-02-29-hv.md` (Historical Volatility, lines 3-11) |
-| 3 | Simple returns | `03-05-02-pae-layer1-trade-analytics.md` (Net PnL, ROI) |
-| 4 | Sharpe ratio | `03-05-04-pae-layer3-risk-analytics.md` (lines 24-39, 59-85) |
-| 4 | Sortino / Ulcer / Calmar | `03-05-04-pae-layer3-risk-analytics.md` (lines 89-95) |
-| 4 | Drawdown veto | `03-04-05-pme-layer4-portfolio.md` §3-§4 + `08-02-pre-trade-risk-controls.md` |
-| 5 | Order book | `02-10-raw-data-matrix.md` (OrderBook event) |
-| 5 | Mid-price | `02-07-metrics-matrix.md` (line 61) |
+| 2 | Expected Value | `03-05-03-pae-layer2-strategy-analytics.md` §2 Expectancy derivation |
+| 2 | Statistical significance | `03-05-03-pae-layer2-strategy-analytics.md` §3 NHST |
+| 3 | Log returns | `04-02-29-hv.md` §Mathematical Formula |
+| 3 | Simple returns | `03-05-02-pae-layer1-trade-analytics.md` §2 Trade Analytics Matrix Schema (Net PnL, ROI) |
+| 4 | Sharpe ratio | `03-05-04-pae-layer3-risk-analytics.md` §4.1 |
+| 4 | Sortino / Ulcer / Calmar | `03-05-04-pae-layer3-risk-analytics.md` §4.2–§4.3 |
+| 4 | Drawdown veto | `03-04-05-pme-layer4-portfolio.md` §3–§4 + `08-02-pre-trade-risk-controls.md` |
+| 5 | Order book | `02-10-raw-data-matrix.md` §2 NormalizedEvent Variants |
+| 5 | Mid-price | `02-07-metrics-matrix.md` §2.1 Top-Level Fields |
 | 5 | Spread | `04-02-49-spread.md` |
 | 5 | Slippage ceiling | `08-02-pre-trade-risk-controls.md` Gate 5 |
-| 5 | Slippage measurement | `03-05-02-pae-layer1-trade-analytics.md` |
-| 6 | Taker execution | `03-03-03-tae-layer2-execution.md` |
-| 7 | Time-based / Predicate-based | `03-03-01-tae-overview-spec.md` §2 |
-| 8 | Stepped / Linear / Exponential | `crates/engine/src/profile_evaluation/scoring.rs` (lines 11-44) |
-| 8 | Hard-Tanh / Tanh (new) | `crates/engine/src/profile_evaluation/scoring.rs` (lines 45-71, added) |
-| 8 | Fixed-fractional `S = E·R/D_sl` (textbook form, §8.7) — equivalent engine form `S = (E·R)/(D_sl/100)` | `08-02-pre-trade-risk-controls.md` Gate 4 + `03-03-03-tae-layer2-execution.md` §2 |
-| 9 | Exposure slot caps | `03-04-03-pme-layer2-exposure.md` |
-| 10 | 50 indicators | `04-02-00-indicator-index.md` + 50 individual files |
-| 10 | MTF consensus | `02-01-alignment-matrix.md` |
-| 11 | Systematic Rule-Based Trading | `crates/shared/src/normalized/mod.rs` + `03-02-01-mme-overview-spec.md` |
+| 5 | Slippage measurement | `03-05-02-pae-layer1-trade-analytics.md` §2 |
+| 5 | Walk-the-book | `03-03-03-tae-layer2-execution.md` §5 Slippage Control |
+| 6 | Taker execution | `03-03-03-tae-layer2-execution.md` §1 |
+| 7 | Time-based / Predicate-based | `03-03-01-tae-overview-spec.md` §2 Operational Modes |
+| 8 | Stepped / Linear / Exponential | [`01-00-introduction-to-quantitative-trading.md` §8.1–§8.4](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) — sizing curves defined canonically in this § 8 (implementation in `crates/engine/src/profile_evaluation/scoring.rs`) |
+| 8 | Hard-Tanh / Tanh (new) | [`01-00-introduction-to-quantitative-trading.md` §8.5–§8.6](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) — same canonical definitions as above |
+| 8 | Fixed-fractional `S = E·R/D_sl` (textbook form, §8.7) — equivalent engine form `S = (E·R)/(D_sl/100)` | [`01-00-introduction-to-quantitative-trading.md` §8.7](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) + `08-02-pre-trade-risk-controls.md` Gate 4 + `03-03-03-tae-layer2-execution.md` §2 |
+| 9 | Exposure slot caps | `03-04-03-pme-layer2-exposure.md` §3 Concentration Limits |
+| 10 | 50 indicators | `04-02-00-indicator-index.md` Summary (50 entries; per-indicator specs under `04-02-NN-*.md`) |
+| 10 | MTF consensus | `02-01-alignment-matrix.md` §3 The 10 Alignment Dimensions |
+| 11 | Systematic Rule-Based Trading | `01-01-ontology.md` Ch 2 Design Philosophy + `03-02-01-mme-overview-spec.md` §1 |
 
 ---
 

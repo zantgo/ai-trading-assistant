@@ -44,9 +44,9 @@ Brutalist-grid lightweight layout optimized for the 127.0.0.1:3000 local-only co
 | Engine context | Tabs |
 |----------------|------|
 | Market — root | Workspace · Overview · Settings |
-| Market — workspace + instance | Charts · Metrics · Alignment · Opportunities · Risks · Analysis · Decision · Liquidity |
+| Market — workspace + instance | Charts · Metrics · Alignment · Opportunities · Risks · Connection Quality · Analysis · Decision · Liquidity |
 
-Active tab drives which panel component renders in the main viewport. The **`Liquidity`** tab is mounted for any Market Instance when the Phase 0-4 Liquidity Intelligence extension is enabled; it renders `LiquidityPanel.svelte` (see [07-04-ui-liquidity-panel-spec.md](07-04-ui-liquidity-panel-spec.md)).
+Active tab drives which panel component renders in the main viewport. The **`Liquidity`** tab is mounted for any Market Instance when the Phase 0-4 Liquidity Intelligence extension is enabled; it renders `LiquidityPanel.svelte` (see [07-04-ui-liquidity-panel-spec.md](07-04-ui-liquidity-panel-spec.md)). The **`Connection Quality`** tab surfaces the per-WS uptime, disconnect count, reconnect latency, and rolling-window scores from the [`/api/connection-quality` endpoint](../integration-and-api/06-01-api-gateway-contract.md) — see [08-05-connection-quality.md](../operations-and-compliance/08-05-connection-quality.md) for the data source.
 
 ---
 

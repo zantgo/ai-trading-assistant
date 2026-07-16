@@ -22,7 +22,7 @@ A **Crossover** fires on the bar where one series moves from one side of another
 
 ## 2. Producing Indicators
 
-Declared by **10** registry entries: `ema_stack`, `supertrend`, `anchored_vwap`, `ichimoku`, `stochastic`, `hull_ma`, `macd`, `pivot_points`, `psar`.
+Declared by **9** registry entries: `ema_stack`, `supertrend`, `anchored_vwap`, `ichimoku`, `stochastic`, `hull_ma`, `macd`, `pivot_points`, `psar`.
 
 > **Note.** `aroon` was previously listed here but has been reclassified — Aroon's Up/Down crossing is emitted as a `TrendFlip` (see [05-02-09-trend-flip.md](05-02-09-trend-flip.md)), not a `Crossover`, because it represents a directional regime change rather than a generic two-series cross. Likewise the DI+ × DI− crossover is emitted by `adx` as a `TrendFlip` (see [04-02-05-adx.md](../indicators/04-02-05-adx.md)).
 

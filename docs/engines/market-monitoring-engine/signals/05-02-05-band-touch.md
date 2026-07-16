@@ -23,7 +23,9 @@ A **BandTouch** fires when price reaches a band edge (upper/lower) but does not 
 
 ## 2. Producing Indicators
 
-Declared by 5 registry entries: `donchian`, `keltner`, `stddev_channel`, `bollinger`, `supertrend`.
+Declared by 4 registry entries: `donchian`, `keltner`, `stddev_channel`, `bollinger`.
+
+> **v2.1 — `supertrend` removed (Issue SIG-03).** Per [04-02-02-supertrend.md §4](../indicators/04-02-02-supertrend.md), Supertrend's proximity signals were reclassified to `LevelTest` because `supertrend` does not emit `BandTouch` events in the runtime. Removing `supertrend` from this list decrements the master `BandTouch` count to 4 (ontology appendix B.3). The reciprocal addition of `supertrend` to the `LevelTest` producer set (see [05-02-08-level-test.md §2](05-02-08-level-test.md)) brings the `LevelTest` master count to 14.
 
 ---
 

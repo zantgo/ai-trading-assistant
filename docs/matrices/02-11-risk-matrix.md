@@ -139,7 +139,13 @@ Evidence strings record both the cascade state (when active) and any significant
 
 ### 4.9 Overall Risk (weighted aggregate)
 
-The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `reward_risk` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`, renamed from `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/shared/src/risk.rs::compute_risk`.
+The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `reward_risk` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/shared/src/risk.rs::compute_risk`.
+
+> **Self-consistency check (v2.1 — correction).** The JSON example below uses the eight sub-dimension scores `(M=35, V=45, L_ex=15, S=25, Mo=20, Sig=30, E=25, C=30)`. Plugging these into the canonical weighted formula `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C`:
+>
+> `0.14·35 + 0.14·45 + 0.14·15 + 0.10·25 + 0.14·20 + 0.10·30 + 0.10·25 + 0.14·30 = 4.9 + 6.3 + 2.1 + 2.5 + 2.8 + 3.0 + 2.5 + 4.2 = 28.3`
+>
+> The previous example value `28.75` was internally inconsistent with the formula. The corrected `overall_risk.score = 28.3` is the authoritative worked example; this value cascades into the Decision Matrix §6 example (`confidence_assessment = 71.7`, `expected_reward_risk_ratio = 1.79`).
 
 ---
 
@@ -158,7 +164,7 @@ A representative Risk Matrix frame. The example illustrates the JSON shape and t
   "signal_risk":     { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "execution_risk":  { "score": 25.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
   "cascade_risk":    { "score": 30.0, "level": "LOW",      "state": "STABLE", "confidence": 50.0 },
-  "overall_risk":    { "score": 28.75, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
+  "overall_risk":    { "score": 28.3, "level": "LOW",      "state": "STABLE", "confidence": 50.0 }
 }
 ```
 

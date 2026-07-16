@@ -26,18 +26,7 @@ The Data Quality Layer guarantees that downstream analysis operates on **complet
 Warm-up and gap recovery use the local-DB-first strategy implemented in `bootstrap.rs::collect_candles()`:
 
 ```
-IF timeframe_secs < 60:
-    # Sub-minute: try REST fetch for a small warm seed (best-effort).
-    # NOTE: sub-minute REST history is generally unavailable from
-    # venue APIs (Hyperliquid/Bitget both return ≥1m candles). The
-    # fetch is best-effort; if it returns an empty array, the buffer
-    # fills from live ticks. The reconstruction engine then operates
-    # on whatever buffer is available (≥2 closes for linear, ≥50 for
-    # EMA — see 08-04-candle-reconstruction.md).
-    rest_candles = fetch_historical_candles(symbol, secs, limit=200)  # best-effort
-    return dedup(rest_candles) if non-empty else []
-
-db_candles = query_recent_candles(symbol, secs, limit)   # local warm base
+db_candles = query_recent_candles(symbol, secs, limit)   # local warm base (PRIMARY)
 
 rest_start = db_candles.last().start_time_ms + secs·1000   # gap boundary
            = now - secs·limit·1000   (if no local data)
@@ -49,6 +38,8 @@ IF rest_start < now:
 merged = db_candles ++ dedup(rest_candles)       # chronological, oldest-first
 ```
 
+The cascade is uniform across all timeframes — including sub-minute. Sub-minute REST history is generally unavailable from venue APIs (Hyperliquid and Bitget both return ≥1m candles), but the local DB may already contain sub-minute candles persisted from a previous session, and that local cache is the most reliable warm seed.
+
 ### 2.1 Strategy Properties
 
 | Property | Rationale |
@@ -56,7 +47,7 @@ merged = db_candles ++ dedup(rest_candles)       # chronological, oldest-first
 | **DB-first** | Minimizes REST calls; the local store is authoritative for already-seen candles. |
 | **Gap-only REST** | Only the window between the last local candle and `now` is fetched. |
 | **Full-window fallback** | With no local data, the entire `secs × limit` lookback is fetched. |
-| **Sub-minute best-effort seed (Issue 4.I — correction)** | A previous version returned an empty array for sub-minute timeframes (`return []`). That left the EMA reconstruction ([08-04-candle-reconstruction.md §EMA Synthesis](../operations-and-compliance/08-04-candle-reconstruction.md)) starved of history on startup, so a network disconnect within minutes of launch would force a fallback to linear interpolation (or no reconstruction at all if history < 2). The corrected flow attempts a `limit=200` REST fetch (best-effort, may return empty for venues without sub-minute history), then falls back to live ticks. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed will use linear projection for the first few reconstructions until the buffer fills. |
+| **Sub-minute cascade (v2.1 — correction)** | A previous version returned an empty array for sub-minute timeframes (`return []`), bypassing the local DB. That left the EMA reconstruction ([08-04-candle-reconstruction.md §EMA Synthesis](../operations-and-compliance/08-04-candle-reconstruction.md)) starved of history on startup, so a network disconnect within minutes of launch would force a fallback to linear interpolation (or no reconstruction at all if history < 2). The corrected cascade queries the local DB for sub-minute timeframes first (which may already contain history from a prior session), then falls back to a best-effort `limit=200` REST fetch (may return empty for venues without sub-minute history), then falls back to live ticks. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed will use linear projection for the first few reconstructions until the buffer fills. |
 
 ---
 
@@ -89,6 +80,8 @@ IF |p − median| / median  >  outlier_tolerance:
 
 This suppresses single-print spikes while preserving genuine fast moves (which persist across multiple ticks and shift the median).
 
+> **Bootstrap behaviour (v2.1 — clarification).** The rolling window is initialised lazily. For the first `N = median_window_size` ticks (default `20`, configurable via `config.json` `quality.median_window_size`), every tick is accepted unfiltered — the warm-up mode allows the window to fill before the filter evaluates normally. From tick `N + 1` onward the median filter evaluates against the prior `N` ticks. The current tick is appended to the window **after** the filter check (not before), so the filter cannot reject its own input. When the median is exactly zero (rare but possible on a venue reset), the filter is bypassed for that tick and a debug-level log entry is emitted. The window is monotonically expanded during warm-up; ticks observed during warm-up are still written to the candle and propagated downstream — only their filter rejection is deferred.
+>
 > **Target Architecture (Not Yet Implemented).** In the DOD hot-path model the rolling median price filter and standard-deviation outlier calculations execute over the contiguous `f64` price arrays resident in the CPU cache, achieving sub-millisecond execution without heap traversal. *Current implementation:* these checks run over `Decimal`/`VecDeque`-style windows.
 
 ### 4.2 Structural Validity

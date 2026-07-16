@@ -58,10 +58,10 @@
 | `POST` | `/api/instances/:id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
 | `POST` | `/api/instances/:id/pause` | Pause event loop. |
 | `POST` | `/api/instances/:id/stop` | Stop instance. |
-| `POST` | `/api/instances/:id/safety/reset` | Reset consecutive loss counter (clears `loss_streak`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
+| `POST` | `/api/instances/:id/safety/reset` | Reset the per-symbol `consecutive_losses` counter (clears `consecutive_losses[sym]`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
 | `POST` | `/api/instances/:id/safety/release-veto` | **Release a hard drawdown / systemic veto** (Issue 4.O). The endpoint checks that the underlying veto condition (drawdown below threshold *and* `systemic_risk_score < systemic_risk_threshold`) has cleared, then restores the operator-configured default stances and clears the operator one-time-acknowledge flag. Returns `400` if the veto condition is still active, `200` on success. Distinct from `/safety/reset` (which only clears the consecutive-loss counter). |
-| `POST` | `/api/instances/:id/manual/open` | Log manual position open. |
-| `POST` | `/api/instances/:id/manual/close` | Log manual position close. |
+| `POST` | `/api/instances/:id/manual/open` | Log manual position open. Request: `InstanceManualRequest { action: string (required), direction: Option<string> ("LONG"\|"SHORT"), price: Option<f64> }`. |
+| `POST` | `/api/instances/:id/manual/close` | Log manual position close. Request: `InstanceManualRequest { action: string (required), direction: Option<string>, price: Option<f64> }`. |
 | `POST` | `/api/instances/:id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |
 
 ### 2.5 Decision & Risk Profiles
@@ -85,9 +85,64 @@
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| `POST` | `/api/risk/calculate` | `RiskCalculationInput` (11 fields + optional ATR) | `RiskCalculation` (12 fields: S, notional, margin, liquidation, R:R, fees, net). |
+| `POST` | `/api/risk/calculate` | `RiskCalculationInput` (see schema below) | `RiskCalculation` (see schema below) |
 | `GET` | `/api/risk/fee-table` | `order_type`, `capitals[]`, `leverages[]` | Fee table. |
 | `POST` | `/api/risk/commission-projection` | `CommissionProjectionPayload` | Full dual-entry fee/sizing projection. |
+
+#### 2.6.1 `RiskCalculationInput` schema
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `capital` | `Decimal` (string) | yes | Total account capital available for sizing. |
+| `max_risk_pct` | `Decimal` (string) | yes | Per-trade risk as a raw percentage float (e.g. `1` = 1%). |
+| `leverage` | `i32` | yes | Maximum cross leverage. |
+| `direction` | `string` | yes | `"LONG"` or `"SHORT"`. Determines stop/target relation to entry. |
+| `entry_price` | `Decimal` (string) | yes | Order entry reference price. |
+| `stop_loss_price` | `Decimal` (string) | yes | Planned stop-loss price. Must be `< entry_price` for LONG, `> entry_price` for SHORT. |
+| `take_profit_price` | `Decimal` (string) | yes | Planned take-profit price. Must be `> entry_price` for LONG, `< entry_price` for SHORT. |
+| `commission_pct` | `Decimal` (string) | yes | Commission as a raw percentage float (e.g. `0.06` = 0.06%). |
+| `funding_rate_8h` | `Decimal` (string) | yes | 8-hour funding rate as a raw percentage float. |
+| `spread` | `Decimal` (string) | yes | Round-trip spread cost (quote currency, per unit). |
+| `atr_value` | `Decimal` (string) | no | Optional ATR for dynamic stop / target sizing. |
+| `atr_multiplier` | `Decimal` (string) | no | ATR multiplier when `atr_value` is provided. |
+| `atr_target_rr` | `Decimal` (string) | no | Target reward/risk ratio when `atr_value` is provided. |
+| `use_dynamic_atr` | `bool` | no | `true` to compute the stop and target from ATR instead of the explicit prices. |
+| `min_tick_size` | `Decimal` (string) | no | Minimum order size increment (base asset units). Position size is quantized to this tick. |
+
+> Source of truth: `crates/engine/src/server/types.rs::RiskCalculationPayload` and `crates/engine/src/risk_calculator.rs::RiskCalculationInput`. The runtime casts the `Decimal` fields from strings at the wire boundary.
+
+#### 2.6.2 `RiskCalculation` schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `risk_capital` | `Decimal` (string) | `capital × max_risk_pct / 100`. |
+| `price_distance` | `Decimal` (string) | `|entry_price − stop_loss_price|`. |
+| `position_size_units` | `Decimal` (string) | `risk_capital / price_distance`, optionally quantized to `min_tick_size`. |
+| `position_notional` | `Decimal` (string) | `position_size_units × entry_price`. |
+| `leverage_required` | `Decimal` (string) | `position_notional / capital`. |
+| `leverage_selected` | `i32` | Echoed from input. |
+| `margin_required` | `Decimal` (string) | `position_notional / leverage_selected` (when leverage > 0). |
+| `liquidation_price` | `Decimal` (string) | Direction-adjusted (LONG: `entry − entry / leverage`; SHORT: `entry + entry / leverage`). |
+| `risk_reward_ratio` | `Decimal?` (string) | `profit_distance × size / risk_capital`. Null when `risk_capital = 0`. |
+| `estimated_profit` | `Decimal` (string) | Direction-adjusted (`LONG: (TP − entry) × size`; `SHORT: (entry − TP) × size`). |
+| `total_fees` | `Decimal` (string) | `(commission_pct/100) × notional × 2 + (funding_rate_8h/100) × notional + spread`. |
+| `net_pnl` | `Decimal` (string) | `estimated_profit − total_fees`. |
+
+#### 2.6.3 `CommissionProjectionPayload` schema
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `capital` | `Decimal` (string) | yes | Total account capital. |
+| `max_risk_pct` | `Decimal` (string) | yes | Per-trade risk percentage. |
+| `leverage` | `i32` | yes | Maximum leverage. |
+| `direction` | `string` | yes | `"LONG"` or `"SHORT"`. |
+| `entry_price` | `Decimal` (string) | yes | Entry price. |
+| `stop_loss_price` | `Decimal` (string) | yes | Stop-loss price. |
+| `take_profit_price` | `Decimal` (string) | yes | Take-profit price. |
+| `commission_pct` | `Decimal` (string) | yes | Commission rate. |
+| `funding_rate_8h` | `Decimal` (string) | yes | Funding rate per 8 hours. |
+| `spread` | `Decimal` (string) | yes | Spread cost. |
+| `hold_hours` | `Decimal` (string) | no | Anticipated position hold time (default `8`). Used for funding accrual projection. |
 
 ### 2.7 Trades & Journal
 

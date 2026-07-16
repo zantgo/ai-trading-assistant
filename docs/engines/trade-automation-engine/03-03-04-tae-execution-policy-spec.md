@@ -63,7 +63,7 @@ Value          ::= number | string | [number] | [string]
 | `decision.entry_guidance` | `string` | Decision Matrix | `"IMMEDIATE"`, `"PULLBACK"` |
 | `analysis.market_regime` | `string` | Analysis Matrix | `"TRENDING_BULL"`, `"RANGE"` |
 | `analysis.market_quality` | `string` | Analysis Matrix | `"GOOD"`, `"EXCELLENT"` |
-| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"` *(canonical producer — replaces the removed `decision.opportunity_classification`)* |
+| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, `"SCALP"`, … — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md) for the canonical eight-variant precondition table (canonical producer — replaces the removed `decision.opportunity_classification` field per the v2.1 institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) for the migration map) |
 | `opportunity.opportunity_score` | `number` | Opportunity Matrix | `85.0` (0–100) |
 | `risk.overall_risk.score` | `number` | Risk Matrix | `28.0` (0–100) |
 

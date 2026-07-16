@@ -381,9 +381,15 @@ mod tests {
             "bbwp".into(),
             NormalizedIndicatorValue::scalar(5.0, 0.0, "MAX_VOLATILITY_COMPRESSION"),
         );
+        // RVOL fallback: non-directional gate (normalized=0.0, band in values.rvol_band).
         map.insert(
             "rvol".into(),
-            NormalizedIndicatorValue::scalar(0.8, -0.5, "CONSOLIDATION_VOLUME"),
+            NormalizedIndicatorValue::with_values(
+                0.8,
+                0.0,
+                "LOW_PARTICIPATION_VOLUME",
+                [("rvol_band".to_string(), -0.5)].into_iter().collect(),
+            ),
         );
         map.insert(
             "squeeze".into(),

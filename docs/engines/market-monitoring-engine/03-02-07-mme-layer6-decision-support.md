@@ -45,12 +45,14 @@ $$\text{confidence} = \text{clamp}\Big(\text{analysis.state\_confidence} \times 
 ```
 confluence_score = clamp(
     0.50 × alignment.tradability_dim
-  + 0.30 × analysis.market_quality
+  + 0.30 × analysis.market_quality_score
   + 0.20 × opportunity.opportunity_score,
   0, 100)
 ```
 
-The three components are read from L2 (Alignment `tradability_dim`), L3 (Analysis `market_quality`), and L4 (Opportunity `opportunity_score`) respectively and weighted by their predictive power for entry timing. `confluence_score` is the **composite L6 output** distinct from the risk-discounted `confidence_assessment` (the latter is the safety-aware confidence, the former is the raw setup strength).
+The three components are read from L2 (Alignment `tradability_dim`), L3 (Analysis `market_quality_score` — the raw numeric mean in `[0, 100]`, distinct from the categorical `market_quality` `QualityLevel` enum), and L4 (Opportunity `opportunity_score`) respectively and weighted by their predictive power for entry timing. `confluence_score` is the **composite L6 output** distinct from the risk-discounted `confidence_assessment` (the latter is the safety-aware confidence, the former is the raw setup strength).
+
+> **`market_quality_score` vs `market_quality` (v2.1 — type clarification).** The Analysis Matrix schema ([02-02-analysis-matrix.md §2.1](../matrices/02-02-analysis-matrix.md)) defines two distinct fields: the categorical `market_quality: QualityLevel` enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) and the numeric `market_quality_score: f64` carrying the raw mean in `[0, 100]`. The L6 formula uses the **numeric** `market_quality_score`, not the enum. If only the enum is available at runtime, an explicit `QualityLevel → f64` mapping (e.g. `POOR → 20.0, WEAK → 40.0, AVERAGE → 55.0, GOOD → 70.0, EXCELLENT → 90.0`) should be applied at the L3 → L6 boundary; the L3 Analyzer SHOULD populate `market_quality_score` directly when the per-dimension scores are available.
 
 ---
 
@@ -66,17 +68,25 @@ The layer recommends **how** to place protective stops and targets — not the p
 
 ### 4.1 Protection Strategy (Stops)
 ```
-volatility compressed → StructureBased
-volatility_risk > 60  → VolatilityBased
-otherwise             → ATRBased
+volatility compressed                                          → StructureBased
+volatility_risk > 60                                           → VolatilityBased
+regime = RANGE AND nearest S/R level distance < 0.5 × ATR     → SRBased
+otherwise                                                      → ATRBased
 ```
+
+> **`SR_BASED` rule path (v2.1 — addition).** A previous version of this table listed only three `ProtectionStrategy` variants (`STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`), leaving the five-valued enum's `SR_BASED` variant unreachable from the documented logic. The corrected rule above ties `SR_BASED` to a range-regime setup where price is testing an S/R level closer than half the ATR — the canonical "near a horizontal level" condition. All five `ProtectionStrategy` variants (`STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION`) are now reachable from the documented rules.
 
 ### 4.2 Target Strategy
 ```
-structure strong/healthy → ResistanceBased
-entry_danger.score < 40  → RRBased
-otherwise                → VolatilityBased
+structure strong/healthy                                                         → ResistanceBased
+entry_danger.score < 40                                                          → RRBased
+entry_danger.score ∈ [40, 70] AND confirmed trailing-signal sequence active      → TrailingMethod
+otherwise                                                                        → VolatilityBased
 ```
+
+> **`TRAILING_METHOD` rule path (v2.1 — addition).** A previous version of this table listed only three `TargetStrategy` variants, leaving `TRAILING_METHOD` unreachable. The corrected rule above ties `TRAILING_METHOD` to mid-range entry danger with an active trailing-signal sequence — the canonical "let profits run" condition. All five `TargetStrategy` variants (`RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION`) are now reachable from the documented rules.
+>
+> **`RR_BASED` threshold — canonicalized with Decision Matrix §3.7 (MAT-10).** The condition `entry_danger.score < 40 → RR_BASED` is the same in both the L6 spec and the Decision Matrix §3.7 (canonical contract). The previous L6 version used the inverted form `entry_danger.score > 40 → RR_BASED`, which mapped low-danger setups to R:R-based targets (paradoxical — a clean setup should commit to a fixed R:R target precisely because danger is low). The corrected form selects `RR_BASED` when entry danger is below 40, matching the canonical Decision Matrix contract.
 
 ### 4.3 Stop-Loss Distance Handoff (Type Boundary)
 

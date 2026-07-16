@@ -15,6 +15,7 @@ pub mod liquidity;
 pub mod market_context;
 pub mod models;
 pub mod normalized;
+pub mod opportunity;
 pub mod overview;
 pub mod risk;
 pub mod statistics;

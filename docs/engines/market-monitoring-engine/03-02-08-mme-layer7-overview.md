@@ -1,7 +1,7 @@
 # MME Layer 7 — Overview Layer
 
 **Version:** 2.0
-**Status:** Approved — Backend computed; UI panel pending (search issue tracker for label `overview-panel`).
+**Status:** Approved — Backend computed; UI panel pending (deferred; tracked as UI‑01 in the consolidated architecture audit register).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7
 **Output Contract:** [Overview Matrix](../../matrices/02-09-overview-matrix.md)

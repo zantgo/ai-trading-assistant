@@ -124,11 +124,16 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `invalidation_note` | L4 | Condition that nullifies the opportunity |
 | `entry_zone` (`PriceRange`) | L4 | Recommended entry band *(institutional redesign)* |
 | `target_zone` (`PriceRange`) | L4 | Expected target band *(institutional redesign)* |
-| `invalid_level` (`Decimal`) | L4 | Structural invalidation price *(institutional redesign)* |
-| `expected_rr` (`f64`) | L4 | Expected reward/risk ratio for this setup *(institutional redesign)* |
-| `time_horizon` (`TimeHorizon`) | L4 | `INTRADAY / SWING / POSITION` *(institutional redesign)* |
+| `invalid_level` (`Decimal`) | L4 | **Renamed in v2.1 — actual field name in the wire schema is `invalidation_level`** to align with the Decision Matrix and Position Matrix. The `invalid_level` row above is a legacy name kept here as a migration reference; see [Opportunity Matrix §2.1](../matrices/02-08-opportunity-matrix.md) and the ontology note at §3.14. |
+| `invalid_level` legacy | L4 | Migrated to `invalidation_level`. The legacy alias is not serialized. |
+| `expected_rr_internal` (`f64`) | L4 | Expected reward/risk ratio for this setup *(renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`)* |
+| `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 
 **Ownership rules for L4:**
+- The setup-selection decision tree (formerly in `02-02-analysis-matrix.md §4.3`) is **moved** to the Opportunity Matrix and is the canonical source for `OpportunityType`.
+- L4 reads from L3 (Analysis) for `bias`, `state_confidence`, `market_quality`, and the qualitative assessments.
+
+> **Serialization convention.** `primary_opportunity` and `time_horizon` serialize as **SCREAMING_SNAKE_CASE strings on the wire / in policy conditions** (`"BREAKOUT"`, `"LIQUIDITY_SQUEEZE"`, `"INTRADAY"`, …); PascalCase is reserved for Rust internals. See the canonical note in [02-08-opportunity-matrix.md §7 Serialization note](../matrices/02-08-opportunity-matrix.md).
 - The setup-selection decision tree (formerly in `02-02-analysis-matrix.md §4.3`) is **moved** to the Opportunity Matrix and is the canonical source for `OpportunityType`.
 - L4 reads from L3 (Analysis) for `bias`, `state_confidence`, `market_quality`, and the qualitative assessments.
 
@@ -169,7 +174,7 @@ Owns: the **only synthesis point** in the pipeline. Combines L3 (state) + L4 (op
 | `confidence_assessment` (`f64`, [0,100]) | L6 | Risk-attenuated: `clamp(L3.state_confidence × (1 − L5.overall_risk/100) × 100, 0, 100)` |
 | `trade_readiness` (`TradeReadiness` 4-state) | L6 | **Added in institutional redesign** — was documented in §4 but missing from §2.1 schema |
 | `entry_danger` (`RiskDimension`) | L6 | **Renamed from `environment_favorability` in v2.1** (semantic successor of `Risk.reward_risk`). The RiskDimension convention is **high score = danger, low score = safe** — consistent with all other Risk Matrix dimensions. |
-| `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — risk-discounted synthesis: `L4.expected_rr_internal × (1 − L5.overall_risk)` (canonical: [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md)) |
+| `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — risk-discounted synthesis: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)` (canonical: [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md)). Note the `/100.0` divisor — `overall_risk` is on the canonical `[0, 100]` scale. |
 | `final_recommendation` (string) | L6 | Natural-language summary |
 
 **`DecisionContext` (quantitative metadata):**
@@ -234,12 +239,18 @@ The four `confidence`-bearing fields follow a strict hierarchy: indicator → st
 - L4 → L6
 - L5 → L6
 - L6 → L7
+- **L1.5 → L5** *(Phase 3 — Liquidity Intelligence extension)*: per-candle `LiquidityFlow` (cascade state + intensity) feeds into `cascade_risk`. This is an explicit multi-source exception for the Liquidity Intelligence layer; it preserves the unidirectional forward cascade by reading L1.5 telemetry into L5 synthesis only.
+- **L2.5 → L4 / L5** *(Phase 3 — Liquidity Intelligence extension)*: the 5-minute `LiquidationClusterMatrix` (forward-pressure `cascade_asymmetry`) feeds into both L4 (LiquiditySqueeze opportunity) and L5 (cascade_risk weighting). Same forward-cascade preservation rationale as L1.5 → L5.
 
 **Forbidden:**
-- L4 ↔ L5 (no edge in either direction — they are strictly orthogonal)
+- L4 ↔ L5 (no edge in either direction — they are strictly orthogonal; the only cross-coupling is via the shared L3 fan-out plus the L1.5/L2.5 multi-source exceptions above)
 - Anything ← L6 (L6 is terminal; nothing consumes the Decision Matrix except L7, TAE, PME)
 - Anything ← L7
 - Anything ← TAE / PME / PAE (those engines read from earlier matrices but their outputs are not feedback inputs)
+
+> **L4↔L1.5 / L4↔L2.5 architecture clarification (MAT-02).** The Opportunity Matrix `LiquiditySqueeze` precondition requires reading `LiquidityFlow.cascade_state` (L1.5 derivatives telemetry) and `LiquidationClusterMatrix.cascade_asymmetry` (L2.5 cluster matrix). A previous version of this section forbidden-listed all intermediate-layer reads (`L4 ↔ L1.5 / L2.5 forbidden`); the corrected rules above formalise L4's *forward-only* access to L1.5/L2.5 — the reverse edge (L1.5/L2.5 reading L4) remains forbidden.
+>
+> **L5↔L1.5 / L5↔L2.5 architecture clarification (MAT-08).** Per [Risk Matrix §4](../matrices/02-11-risk-matrix.md) and [MME Layer 5 §1](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md), `cascade_risk` combines `LiquidityFlow.cascade_intensity` (L1.5) with `cascade_asymmetry` (L2.5). The dependency edge above is `L1.5 → L5` and `L2.5 → L5`. The 7-layer architecture is preserved by treating these as multi-source exceptions for the Liquidity Intelligence extension; the foundational 7-layer model remains the spine for non-liquidity layers.
 
 ---
 

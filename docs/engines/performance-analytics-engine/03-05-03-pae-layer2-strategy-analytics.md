@@ -29,13 +29,13 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 | `win_count` | `u32` | Profitable trades (net PnL > 0). |
 | `loss_count` | `u32` | Losing trades (net PnL < 0). |
 | `win_rate` | `f64` | `win_count / total_trades`. |
-| `gross_profit` | `Decimal` | Sum of all profitable trade net PnLs. |
-| `gross_loss` | `Decimal` | Sum of all losing trade net PnLs (absolute). |
+| `gross_profit` | `Decimal` | Sum of all profitable trade net PnLs (positive). |
+| `gross_loss` | `Decimal` | Sum of all losing trade net PnLs **as a positive magnitude** (e.g. an aggregate loss of $250 is stored as `250.0`, not `-250.0`). |
 | `profit_factor` | `f64` | `gross_profit / gross_loss` if `gross_loss > 0`, else `None` (serialized as `null` or omitted; all-winning session). When `gross_loss = 0` (no losing trades), the profit factor is mathematically undefined and is reported as "∞" or "N/A" in the GUI. |
-| `average_win` | `Decimal` | Mean net PnL of winning trades. |
-| `average_loss` | `Decimal` | Mean net PnL of losing trades. |
-| `avg_win_loss_ratio` | `f64` | `|average_win| / |average_loss|`. |
-| `expectancy` | `Decimal` | Expected net return per trade: `(win_rate × avg_win) − ((1−win_rate) × avg_loss)`. |
+| `average_win` | `Decimal` | Mean net PnL of winning trades (positive by construction). |
+| `average_loss` | `Decimal` | Mean **magnitude** of losing-trade net PnLs (always stored as a positive value, e.g. an average loss of $10 is `10.0`, not `-10.0`). |
+| `avg_win_loss_ratio` | `f64` | `|average_win| / |average_loss|`; since both are positive magnitudes, reduces to `average_win / average_loss`. |
+| `expectancy` | `Decimal` | Expected net return per trade: `(win_rate × average_win) − ((1 − win_rate) × average_loss)`. With `average_loss` stored as a positive magnitude, this formula is sign-consistent: the loss term is **subtracted**, matching the standard trading-strategy expectancy formula. |
 | `slippage_overhead` | `f64` | Combined drag of slippage and fees as percentage of gross PnL. |
 | `t_statistic` | `f64` | Student's T-Test statistic against $H_0$: $\mu = 0$. |
 | `p_value` | `f64` | Probability of observing the strategy's returns if $H_0$ is true. |
@@ -44,6 +44,17 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 | `is_significant` | `bool` | `true` if `p_value < 0.05` AND `p_mc < 0.05`. |
 
 ---
+
+## 2.1 Sign Convention for `average_loss` and `gross_loss`
+
+> **Sign convention (v2.1 — correction).** A previous version of this schema defined `average_loss` as "Mean net PnL of losing trades" — i.e. the **signed** arithmetic mean of negative PnL values, which is itself a negative number. The `expectancy` formula then computed `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)`, which **subtracts a negative number** and therefore *adds* the loss magnitude, producing incorrect positive expectancy values for any losing strategy. Example: `win_rate = 0.5, avg_win = 20, avg_loss = -10` → `10 − (-5) = 15` instead of the correct `5`.
+
+> The corrected convention stores both `gross_loss` and `average_loss` as **positive magnitudes**:
+>
+> - `gross_loss = Σ |pnl|` over losing trades (positive)
+> - `average_loss = Σ |pnl| / loss_count` (positive)
+>
+> Under this convention, the `expectancy` formula `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` is sign-consistent: the loss term is properly subtracted, giving `0.5 × 20 − 0.5 × 10 = 5` (correct). The runtime in `crates/shared/src/strategy_analytics.rs` (when implemented) MUST compute `average_loss = average_loss_raw.abs()` before storing, and the persistence layer MUST store the absolute value. This convention is mirrored in the [Database Schema `strategy_analytics_history.expectancy` column](../integration-and-api/06-02-database-schema-spec.md), which receives the post-correction value.
 
 ## 3. Statistical Significance Testing
 

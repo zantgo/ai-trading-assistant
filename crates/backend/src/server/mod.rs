@@ -330,7 +330,15 @@ mod tests {
         let mut map: HashMap<String, NormalizedIndicatorValue> = HashMap::new();
         map.insert("rsi".into(), NormalizedIndicatorValue::scalar(25.0, 0.8, "OVERSOLD_ACCUMULATION"));
         map.insert("bbwp".into(), NormalizedIndicatorValue::scalar(5.0, 0.0, "MAX_VOLATILITY_COMPRESSION"));
-        map.insert("rvol".into(), NormalizedIndicatorValue::scalar(0.8, -0.5, "CONSOLIDATION_VOLUME"));
+        map.insert(
+            "rvol".into(),
+            NormalizedIndicatorValue::with_values(
+                0.8,
+                0.0,
+                "LOW_PARTICIPATION_VOLUME",
+                [("rvol_band".to_string(), -0.5)].into_iter().collect(),
+            ),
+        );
         map.insert("squeeze".into(), NormalizedIndicatorValue::scalar(-0.05, -0.2, "BEARISH_MOMENTUM_EXHAUSTING"));
         map.insert("macd".into(), {
             let mut v = HashMap::new();

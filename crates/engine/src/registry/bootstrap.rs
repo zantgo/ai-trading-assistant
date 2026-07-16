@@ -54,9 +54,16 @@ async fn collect_candles(
     limit: u64,
     now_ms: u64,
 ) -> Result<Vec<NormalizedCandle>, String> {
-    if secs < 60 {
-        return Ok(Vec::new());
-    }
+    // Sub-minute timeframes still consult the local DB first — sub-minute REST
+    // history is rarely available from venue APIs, so the local warm base is
+    // often the only usable seed. The cascade is:
+    //   1. Local DB (PRIMARY for both sub-minute and ≥1m timeframes)
+    //   2. REST gap window (best-effort; sub-minute REST is generally unavailable)
+    //   3. Empty (caller falls through to live ticks)
+    // A previous version short-circuited `secs < 60` to `Vec::new()`, bypassing
+    // the DB and forcing the engine to bootstrap from live ticks only — see
+    // `03-01-04-die-layer3-data-quality.md` §2 and the consolidated architecture
+    // audit register (issue ARCH‑02).
 
     // 1. Local DB warm base (most recent completed candles for this symbol/tf).
     let db_candles = db::query_recent_candles(&pool, &internal_symbol, secs, limit as u32).await;

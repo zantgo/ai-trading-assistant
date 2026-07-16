@@ -78,8 +78,8 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/sh
 | `risk` | `RiskMatrix` | Yes | Attached Risk Matrix. |
 | `advisory` | `AdvisoryMatrix` | Yes | Attached Decision Matrix. |
 | `decision_context` | `DecisionContext` | Yes | Quantitative decision metadata. |
-| `statistical_context` | `StatisticalContext` | Yes | Statistical intelligence (z-scores, Monte Carlo). |
-| `risk_profile` | `i32` | Yes | Associated risk-profile identifier. |
+| `statistical_context` | `StatisticalContext` | Yes | Statistical intelligence — see schema in §3.4 below. |
+| `risk_profile` | `i64` | Yes | Associated risk-profile identifier (the integer primary key of the `risk_profiles` table per [06-02-database-schema-spec.md §3.3](../integration-and-api/06-02-database-schema-spec.md)). Use `Option<null>` when no profile is bound. |
 
 > **Composite envelope.** Although the higher-order matrices (Alignment → Overview) are conceptually produced by later layers, they are attached to the completed Metrics Matrix envelope so that a single WebSocket frame carries the full analytical cascade for a Market Instance.
 
@@ -131,7 +131,24 @@ Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry 
 | `signal_types` | The `SignalKind`s this indicator may emit. |
 | `default_weight` | Baseline scoring weight. |
 
-See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, **101 signal-kind declarations**).
+See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) for the complete registry manifest (50 entries, **100 signal-kind declarations** — post-v2.1; the 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md)).
+
+### 3.4 `StatisticalContext` Schema
+
+The `StatisticalContext` sub-object carries the statistical-intelligence envelope that supports the Opportunity Matrix's Monte Carlo components and the Risk Matrix's z-score gates. Authoritative source: `crates/shared/src/statistics.rs::StatisticalContext`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `close_zscore` | `f64` | Rolling z-score of the close price against the trailing mean/σ (period = `zscore_period`). |
+| `rsi_zscore` | `f64` | Rolling z-score of the RSI value (period = `rsi_period`). |
+| `macd_zscore` | `f64` | Rolling z-score of the MACD histogram value (period = `macd_signal`). |
+| `monte_carlo_expected_return` | `f64` | Mean of the sign-randomized baseline return distribution (units: fractional return per bar). |
+| `monte_carlo_std_dev` | `f64` | Standard deviation of the sign-randomized baseline return distribution. |
+| `monte_carlo_sample_count` | `u32` | Number of Monte Carlo samples used to compute the above two fields (default `10_000`). |
+| `monte_carlo_p_value` | `f64` | Fraction of MC samples whose mean return meets or exceeds the actual realized mean return over the same window (one-tailed positive test). |
+| `window_bars` | `u32` | Number of completed bars included in the rolling statistical window. |
+
+All fields are nullable in the wire payload when the rolling window has not yet accumulated enough bars (typically the first `max(period)` bars after warm-up). `Option::None` fields are omitted via `skip_serializing_if` per §6.1.
 
 ---
 

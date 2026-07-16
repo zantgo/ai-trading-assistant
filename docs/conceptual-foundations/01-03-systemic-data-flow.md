@@ -193,7 +193,8 @@ The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`
 2. **Veto Trigger and Stance Mapping** (per [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)):
    - **(a) Equity drawdown breach** — `current_equity / peak_equity < 1 − drawdown_limit_pct` (default `drawdown_limit_pct = 0.30`) → target stance **`AVOID`**, Hard Exit Path active.
    - **(b) Margin ceiling** — `margin_usage_ratio ≥ 0.95` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) → target stance **`CLOSE_ONLY`**, graceful wind-down (no Hard Exit).
-   - **(c) Systemic risk** — the MME Overview Matrix `systemic_risk_score ≥ systemic_risk_threshold` (default `0.80`) → target stance **`AVOID`**, Hard Exit Path active.
+   - **(b') Margin exhaustion** — `margin_usage_ratio ≥ 1.00` per [PME Layer 3 §6](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md) → target stance **`AVOID`**, Hard Exit Path active. (v2.1 — added to align with [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).)
+   - **(c) Systemic risk** — the MME Overview Matrix `systemic_risk_score ≥ systemic_risk_threshold` (default `80`, on the canonical `[0, 100]` scale — see [02-09-overview-matrix.md §4](../../matrices/02-09-overview-matrix.md)) → target stance **`AVOID`**, Hard Exit Path active.
    - **(d) Loss streak** — `consecutive_losses ≥ dropout_threshold` (default 5) per [PME Layer 4 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) → target stance **`CLOSE_ONLY`** (per-symbol), graceful wind-down.
 
    The 5 % `max_daily_drawdown_pct` is the *early-warning* threshold (drives `safety_state = WARN` — see Early Warnings table below — but does **not** trigger a veto). The 30 % `drawdown_limit_pct` is the *hard veto* threshold. The two are distinct metrics; see README "Key Conventions".

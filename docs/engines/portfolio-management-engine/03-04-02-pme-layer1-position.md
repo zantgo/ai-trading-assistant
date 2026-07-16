@@ -69,7 +69,7 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 |-------|------|-------------|
 | `stop_loss_price` | `Decimal` | Current stop-loss trigger level. |
 | `take_profit_price` | `Decimal` | Current take-profit target level. |
-| `final_invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). |
+| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). *(Renamed from `final_invalidation_level` in v2.1 to align with the canonical `invalidation_level` name used by the Opportunity Matrix and Decision Matrix.)* |
 | `target_profit_ratio` | `Decimal` | Desired reward-to-risk ratio for this position. |
 
 ### 3.4 Scaled Entry Fields
@@ -86,16 +86,16 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 
 The Position Layer reads updated invalidation levels from the MME [Decision Matrix](../../matrices/02-04-decision-matrix.md) as market structure evolves:
 
-1. MME Decision Layer publishes updated `stop_loss_distance_pct` and `invalidation_levels`.
+1. MME Decision Layer publishes updated `stop_loss_distance_pct` and `invalidation_level`.
 2. Position Layer recomputes `stop_loss_price` from the new distance.
 3. **Tighten-only rule (price-based, not distance-based).** The new stop is adopted **only if it is more favourable than the current stop on the price axis** — i.e. the stop is ratcheted **up for longs**, **down for shorts**, never the reverse. For a long position, a more favourable stop is one with a higher `stop_loss_price` (closer to or above entry); for a short position, a more favourable stop is one with a lower `stop_loss_price`. For a profitable long trade the stop ratchets upward (trailing the price), locking in unrealized gains. For a losing trade the stop either stays put or tightens in the favourable direction; it never widens. This guarantees stops only ever reduce risk distance.
 4. Updated stop is routed to the exchange via the TAE Execution Layer.
 
 > **Direction inversion note.** A previous version of step 3 stated the ratchet moved "down for longs, up for shorts" — this is **inverted** and would cause a developer implementing the rule to widen the stop on profitable longs. The corrected rule is: **up for longs, down for shorts** (toward the favourable side).
 
-### 4.3 Thesis Invalidation (final_invalidation_level breach)
+### 4.3 Thesis Invalidation (invalidation_level breach)
 
-A close at or beyond `final_invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-portfolio.md)). The liquidation:
+A close at or beyond `invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-portfolio.md)). The liquidation:
 
 - Bypasses the Position Sizing Protocol (size is copied verbatim from the Position Matrix).
 - Forces `reduce_only = true` and `emergency_liquidation = true` (bypasses Gate 1 stance check).
@@ -130,7 +130,7 @@ Each slot's entry updates `average_entry_price` (volume-weighted) and `allocated
 
 | Property | Guarantee |
 |----------|-----------|
-| **Deterministic valuation** | Unrealized PnL is computed from `(current_price − average_entry_price) × size` where `average_entry_price` is the volume-weighted average across all filled slots (see §5). For single-slot positions, `average_entry_price == entry_price` and the formula reduces to `(current_price − entry_price) × size`. *A previous version used `entry_price` for all positions — that misreported PnL after slots 2–4 of the Scaled Entry Model fired, since the cost basis shifted to the volume-weighted average while the formula continued to use the initial fill price. (Issue 8.A — correction.)* |
+| **Deterministic valuation** | Unrealized PnL is computed from `direction_sign × (current_price − average_entry_price) × size` where `average_entry_price` is the volume-weighted average across all filled slots (see §5) and `direction_sign = +1 (Long) | −1 (Short)`. For single-slot positions, `average_entry_price == entry_price` and the formula reduces to `direction_sign × (current_price − entry_price) × size`. The `direction_sign` multiplier is mandatory — a previous version of this section gave the formula as `(current_price − entry_price) × size` without conditional on `direction`, which would compute a profit for a short position when price rises (and a loss when price falls), corrupting margin calculations for all short trades. The same `direction_sign` convention applies to mark-to-market valuation, equity contribution, and `roi_pct` calculation; implementations MUST branch on `position.direction` rather than relying on sign-of-size. *The Scaled Entry correction (Issue 8.A) is preserved separately: a previous version used `entry_price` for all positions — that misreported PnL after slots 2–4 of the Scaled Entry Model fired, since the cost basis shifted to the volume-weighted average while the formula continued to use the initial fill price.* |
 | **Stop improvement only** | Dynamic stops only tighten; they never widen automatically. |
 | **Partial-close tracking** | Realized PnL from partially closed portions is accumulated separately. |
 

@@ -79,6 +79,14 @@ impl GapDetector {
 pub struct CandleReconstructor {
     pub ema_window: usize,
     pub min_history_for_ema: usize,
+    /// Volume-per-second baseline used to estimate reconstructed sub-minute
+    /// candles' volume (DAT-02). When `0.0` (default), the synthesized
+    /// candle carries `volume: Decimal::ZERO` — the legacy behaviour that
+    /// causes flatline volume on macro candles built entirely from
+    /// sub-minute reconstructions. Operators can opt into the volume
+    /// heuristic by setting a positive baseline via `config.toml`
+    /// `[reconstruction] volume_per_sec_baseline = <USD-per-second>`.
+    pub volume_per_sec_baseline: f64,
 }
 
 impl Default for CandleReconstructor {
@@ -92,6 +100,18 @@ impl CandleReconstructor {
         Self {
             ema_window: 200,
             min_history_for_ema: 50,
+            volume_per_sec_baseline: 0.0,
+        }
+    }
+
+    /// Construct with a non-default volume baseline. Used by `main.rs`
+    /// to hydrate the reconstructor from `[reconstruction]
+    /// volume_per_sec_baseline` in `config.toml`.
+    pub fn with_volume_baseline(ema_window: usize, min_history_for_ema: usize, volume_per_sec_baseline: f64) -> Self {
+        Self {
+            ema_window,
+            min_history_for_ema,
+            volume_per_sec_baseline,
         }
     }
 
@@ -162,6 +182,7 @@ impl CandleReconstructor {
             .unwrap_or_else(|| Decimal::from_f64(window[0]).unwrap_or(Decimal::ZERO));
 
         let duration_ms = interval_end_ms.saturating_sub(interval_start_ms);
+        let volume = self.estimated_volume(duration_ms);
         let candle = NormalizedCandle {
             symbol: String::new(),
             start_time_ms: interval_start_ms,
@@ -170,7 +191,7 @@ impl CandleReconstructor {
             high: ema_dec,
             low: ema_dec,
             close: ema_dec,
-            volume: Decimal::ZERO,
+            volume,
             trades_count: 0,
             reconstructed: Some(ReconstructionMethod::ExponentialMovingAverage),
         };
@@ -216,6 +237,7 @@ impl CandleReconstructor {
             .unwrap_or_else(|| Decimal::from_f64(last).unwrap_or(Decimal::ZERO));
 
         let duration_ms = interval_end_ms.saturating_sub(interval_start_ms);
+        let volume = self.estimated_volume(duration_ms);
         let candle = NormalizedCandle {
             symbol: String::new(),
             start_time_ms: interval_start_ms,
@@ -224,7 +246,7 @@ impl CandleReconstructor {
             high: proj_dec,
             low: proj_dec,
             close: proj_dec,
-            volume: Decimal::ZERO,
+            volume,
             trades_count: 0,
             reconstructed: Some(ReconstructionMethod::LinearInterpolation),
         };
@@ -235,6 +257,22 @@ impl CandleReconstructor {
             source_gap_start_ms: interval_start_ms,
             source_gap_end_ms: interval_end_ms,
         }
+    }
+
+    /// Estimated volume for a synthesized candle of `duration_ms` width
+    /// (DAT-02). When the configured `volume_per_sec_baseline` is `0.0`
+    /// (the default), returns `Decimal::ZERO` — the legacy conservative
+    /// behaviour. When non-zero, scales the baseline by the candle duration
+    /// in seconds. This bridges sub-minute reconstructed candles into
+    /// macro candles with a meaningful volume footprint, preventing false
+    /// "low-participation" rejections at Pre-Trade Gates 3 and 5.
+    fn estimated_volume(&self, duration_ms: u64) -> Decimal {
+        if self.volume_per_sec_baseline <= 0.0 {
+            return Decimal::ZERO;
+        }
+        let duration_secs = duration_ms / 1000;
+        let volume = self.volume_per_sec_baseline * (duration_secs as f64);
+        Decimal::from_f64(volume).unwrap_or(Decimal::ZERO)
     }
 }
 

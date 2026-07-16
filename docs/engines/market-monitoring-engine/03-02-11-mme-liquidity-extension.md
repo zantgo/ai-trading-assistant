@@ -80,7 +80,7 @@ L3   Analysis
 L4   Opportunity (parallel to L5)
 L5   Risk     (parallel to L4)       ← gains cascade_risk
 L6   Decision                        ← gains LiquiditySqueeze opportunity
-L7   Overview                        ← gains cascade_risk_index
+L7   Overview                        ← gains cascade_risk_index field on envelope (see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md) for status)
 ```
 
 ## Cross-engine flow
@@ -103,7 +103,7 @@ The Phase 3 `LiquiditySignalKind` enum defines **7** signals derived per snapsho
 
 | # | Signal | Trigger |
 |---|--------|---------|
-| 1 | `LIQUIDITY_CASCADE_DETECTED` | `flow.cascade_state` transitions from `Calm` → `Detected` |
+| 1 | `LIQUIDITY_CASCADE_DETECTED` | `flow.cascade_state` transitions from `None` → `Detected` |
 | 2 | `LIQUIDITY_CASCADE_SUSTAINED` | `flow.cascade_state = Sustained` for ≥ 3 consecutive candles |
 | 3 | `LIQUIDITY_CASCADE_EXHAUSTED` | `flow.cascade_state` transitions to `Exhausted` |
 | 4 | `LIQUIDITY_CLUSTER_PRESSURE_HIGH` | `|cluster.cascade_asymmetry| > 0.5` |
@@ -127,8 +127,11 @@ The `"liquidity"` block in **`config.json`** (the platform's single source of co
 
 ## Test coverage
 
+The full Liquidity Intelligence test inventory (55 unit + 1 integration = 56 tests) is the **canonical source of truth** in [01-05-liquidity-domain.md §Test Coverage](../conceptual-foundations/01-05-liquidity-domain.md). The phase breakdown below is the same authoritative count; this table mirrors it to keep the MME-extension doc and the domain doc aligned. A previous version of this table totalled 49 (48 unit + 1 integration) while the prose claimed 56; that mismatch is corrected here.
+
 | Component | Unit | Integration |
 |---|---|---|
+| Phase 0 — derivatives telemetry (`mark_price_poll`, `funding_refresh`) | 11 | 0 |
 | `LiquidityEventAccumulator` (Phase 1) | 15 | 0 |
 | `estimate_clusters` (Phase 2) | 14 | 0 |
 | `derive_liquidity_signals` (Phase 3) | 10 | 0 |
@@ -136,6 +139,4 @@ The `"liquidity"` block in **`config.json`** (the platform's single source of co
 | `compute_cluster_matrix` (Phase 2) | 2 | 0 |
 | Liquidation event → snapshot e2e (Phase 1) | 0 | 1 |
 | `LiquidityPanel` data types (Phase 4) | 5 | 0 |
-| **Total** | **48** | **1** |
-
-All **56** new tests pass. No existing tests were broken.
+| **Total** | **55** | **1** |

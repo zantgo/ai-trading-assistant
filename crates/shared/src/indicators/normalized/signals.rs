@@ -359,7 +359,13 @@ pub(super) fn derive_signals(map: &mut Map) {
             ));
         }
 
-        // ── Aroon Crossover ──
+        // ── Aroon Crossover (SIG-02 — reclassified to TrendFlip) ──
+        // The structured push from `normalize_all` already emits Aroon's
+        // Up/Down crossing as a TrendFlip signal (see all.rs). This block
+        // was the legacy Crossover emission path; it is now a defensive
+        // no-op alias that mirrors the structured push semantics in case
+        // the label convention ever drifts. Crossover emissions for the
+        // Aroon key are forbidden — see [04-02-36-aroon.md §4].
         if key == "aroon" && l.contains("CROSSOVER") {
             let d = if l.contains("BULLISH") {
                 SignalDirection::Bullish
@@ -367,7 +373,7 @@ pub(super) fn derive_signals(map: &mut Map) {
                 SignalDirection::Bearish
             };
             sigs.push(IndicatorSignal::new(
-                SignalKind::Crossover,
+                SignalKind::TrendFlip,
                 d,
                 SignalStatus::Active,
                 l,

@@ -80,7 +80,7 @@ The `dimensions` array is ordered. Each index maps to a specific agreement axis:
 | 4 | **Structure** | S/R role agreement | % of TFs whose support/resistance label agrees. |
 | 5 | **Signal** | Cross-TF signal confluence | % of signals appearing in ≥2 TFs. |
 | 6 | **Regime** | Regime-classification agreement | % of TFs sharing the dominant regime. |
-| 7 | **Confidence** | Confidence consistency | `100 − sample_stddev(per_tf_confidence_scores)` (Bessel-corrected sample standard deviation). For N ≤ 2 timeframes, sample stddev is undefined and confidence defaults to the mean per-TF confidence score. |
+| 7 | **Confidence** | Confidence consistency | `100 − sample_stddev(per_tf_confidence_scores)` (Bessel-corrected sample standard deviation, `N − 1` denominator). For N ≤ 1 timeframe, sample stddev is undefined and confidence defaults to the mean per-TF confidence score. |
 | 8 | **Liquidity** | RVOL consistency | `(1 − coefficient_of_variation)` of RVOL across TFs. |
 | 9 | **Tradability** | Cross-timeframe tradability agreement | % of TFs with non-neutral bias and non-compressed regime. *(Renamed from "Opportunity" in the institutional redesign — the L4 Opportunity Matrix is the canonical owner of opportunity concepts; this dimension measures TFs agreeing on whether conditions are tradable.)* |
 
