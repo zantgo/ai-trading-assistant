@@ -26,19 +26,21 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
 
         let (telemetry_tx, _telemetry_rx) = mpsc::channel(10);
 
-        let test_config = AppConfig {
-            symbols: vec!["Hyperliquid:BTC".to_string()],
+        let test_workspace = config_models::WorkspaceConfig {
+            id: "test".into(),
+            name: "Test".into(),
+            default_currency: "USDC".into(),
+            default_exchange: "Hyperliquid".into(),
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
                 analysis_limit: 100,
             },
             indicators: Default::default(),
-            hyperliquid: Default::default(),
-            bitget: Default::default(),
-            fibonacci: Default::default(),
-            pivots: Default::default(),
+            fast_timeframe: Default::default(),
             slow_timeframe: Default::default(),
             macro_timeframe: Default::default(),
+            fibonacci: Default::default(),
+            pivots: Default::default(),
             leverage: Default::default(),
             scoring: Default::default(),
             fees: Default::default(),
@@ -46,10 +48,9 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             safety: Default::default(),
             intervals: Default::default(),
             liquidity: Default::default(),
-            instances: HashMap::new(),
-            clock_monitor: None,
+            instances: Vec::new(),
         };
-        let indicators = test_config.indicators.clone();
+        let indicators = test_workspace.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);
         let fib_config = FibonacciConfig::default();
 

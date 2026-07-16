@@ -5,22 +5,26 @@
 //! (telemetry logger, portfolio equity logger, performance evaluator,
 //! strategy optimizer, clock monitor, connection-quality persistence),
 //! then runs the Axum HTTP server on `127.0.0.1:3000`.
+//!
+//! Configuration is loaded from a single file, `config.toml`, in the
+//! workspace root. The file contains TWO top-level tables: `[platform]`
+//! (exchange endpoints + NTP clock monitor) and `[workspace]` (portfolio
+//! + analytics + strategies + market-monitor defaults + instances[]).
+//! See `docs/conceptual-foundations/01-07-data-model-hierarchy.md`.
 
 use std::sync::Arc;
-use tokio::sync::{mpsc::channel, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use api_gateway::{build_router, AppState};
-use config_models::{load_config, load_instances, ClockMonitorBreachAction};
-use database_storage::{
-    init_db, run_telemetry_logger, verify_encryption_or_panic,
-};
+use config_models::{load_platform, load_workspace, save_workspace, ClockMonitorBreachAction};
+use database_storage::{init_db, run_telemetry_logger, verify_encryption_or_panic};
 use network_adapters::{
     clock_monitor::{BreachAction, ClockMonitor, ClockMonitorConfig},
     connection_quality_tracker::ConnectionQualityTracker,
 };
 use performance_analytics::{performance_evaluator, strategy_optimizer};
-use portfolio_supervisor::{portfolio_equity, registry_context::RegistryContext};
+use portfolio_supervisor::{portfolio_equity, workspace_state::WorkspaceState};
 
 #[tokio::main]
 async fn main() {
@@ -30,12 +34,18 @@ async fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     println!("⚙️  Market Monitor: Loading Master Configuration...");
-    let mut app_config = load_config();
-    app_config.instances = load_instances();
+
+    // ── PLATFORM + WORKSPACE: the only two config structs the binary reads. ──
+    let platform = load_platform().expect(
+        "❌ Configuration Error: failed to parse platform config from config.toml",
+    );
+    let workspace = load_workspace().expect(
+        "❌ Configuration Error: failed to parse workspace config from config.toml",
+    );
     println!(
-        "✅ Configuration Loaded: Initial pairs: {:?} ({} instance-specific configs)",
-        app_config.symbols,
-        app_config.instances.len()
+        "✅ Configuration Loaded: platform + workspace ({} instance{})",
+        workspace.instances.len(),
+        if workspace.instances.len() == 1 { "" } else { "s" }
     );
 
     println!(
@@ -54,7 +64,7 @@ async fn main() {
     }
     verify_encryption_or_panic(&db_pool).await;
 
-    let (telemetry_tx, telemetry_rx) = channel::<database_storage::TelemetryMsg>(10000);
+    let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {
@@ -65,17 +75,20 @@ async fn main() {
     let symbol_mapper = Arc::new(core_domain::normalized::SymbolMapper::new());
     let connection_quality = Arc::new(ConnectionQualityTracker::new());
 
-    let app_config = Arc::new(RwLock::new(app_config));
-    let hl_ws_url = app_config.read().await.hyperliquid.ws_url.clone();
-    let bg_ws_url = app_config.read().await.bitget.ws_url.clone();
+    // ── Wrap config + workspace in the runtime state objects. ──
+    let platform_arc = Arc::new(RwLock::new(platform));
+    let workspace_state = WorkspaceState::new(workspace);
+    let session = Arc::new(portfolio_supervisor::session::SessionState::new());
+
+    let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
+    let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
-    let session = Arc::new(portfolio_supervisor::session::SessionState::new());
     let app_state = Arc::new(AppState {
-        instances: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        workspace: workspace_state.clone(),
         session: session.clone(),
-        config: app_config.clone(),
+        platform: platform_arc.clone(),
         pool: db_pool.clone(),
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
@@ -112,8 +125,9 @@ async fn main() {
         .await;
     }));
 
-    // Clock-drift monitor (NTP-based)
-    if let Some(clock_cfg) = app_config.read().await.clock_monitor.clone() {
+    // Clock-drift monitor (NTP-based) — driven from the platform config.
+    let platform_for_clock = platform_arc.clone();
+    if let Some(clock_cfg) = platform_for_clock.read().await.clock_monitor.clone() {
         if clock_cfg.is_active() {
             let monitor_cfg = ClockMonitorConfig {
                 ntp_servers: clock_cfg.ntp_servers.clone(),
@@ -173,40 +187,12 @@ async fn main() {
     let _ = futures_util::future::join_all(handles).await;
 }
 
-// Suppress unused warnings for items used implicitly by ApiState but not in this file.
+// Suppress unused warnings for items used implicitly by AppState but not in
+// this file.
 #[allow(dead_code)]
 async fn _ensure_types_used() {
-    let pool = database_storage::init_db().await;
-    let _ctx = RegistryContext {
-        instances: Arc::new(RwLock::new(Default::default())),
-        session: Arc::new(portfolio_supervisor::session::SessionState::new()),
-        config: Arc::new(RwLock::new(config_models::AppConfig {
-            symbols: vec![],
-            candles: config_models::CandlesConfig {
-                duration_seconds: 60,
-                analysis_limit: 500,
-            },
-            indicators: config_models::IndicatorsConfig::default(),
-            hyperliquid: Default::default(),
-            bitget: Default::default(),
-            fibonacci: Default::default(),
-            pivots: Default::default(),
-            slow_timeframe: Default::default(),
-            macro_timeframe: Default::default(),
-            leverage: Default::default(),
-            scoring: Default::default(),
-            fees: Default::default(),
-            defaults: Default::default(),
-            safety: Default::default(),
-            intervals: Default::default(),
-            liquidity: Default::default(),
-            clock_monitor: None,
-            instances: Default::default(),
-        })),
-        pool,
-        symbol_mapper: Arc::new(core_domain::normalized::SymbolMapper::new()),
-        telemetry_tx: channel::<database_storage::TelemetryMsg>(1).0,
-        ws_url: String::new(),
-        bitget_ws_url: String::new(),
-    };
+    let _ = WorkspaceState::new(config_models::WorkspaceConfig::default());
+    // Touch save_workspace so the symbol isn't dead.
+    let mut ws = config_models::WorkspaceConfig::default();
+    let _ = save_workspace(&ws);
 }

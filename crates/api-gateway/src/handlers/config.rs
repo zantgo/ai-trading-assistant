@@ -1,14 +1,14 @@
-use config_models::AppConfig;
+use config_models::WorkspaceConfig;
 use crate::types::{ConfigResponse, RulesResponse, SetRulesRequest};
 use crate::AppState;
 use axum::{extract::State, http::header, response::IntoResponse, Json};
 use std::sync::Arc;
 
 pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let current_config = state.config.read().await.clone();
+    let current_config = state.workspace.config().await;
     let response_body = ConfigResponse {
         api_key_configured: true,
-        symbols: current_config.symbols.clone(),
+        symbols: current_config.declared_symbols(),
         candles: current_config.candles.clone(),
         indicators: current_config.indicators.clone(),
         instances: current_config.instances.clone(),
@@ -25,7 +25,7 @@ pub async fn serve_config(State(state): State<Arc<AppState>>) -> impl IntoRespon
 
 pub async fn update_config(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<AppConfig>,
+    Json(payload): Json<WorkspaceConfig>,
 ) -> impl IntoResponse {
     match toml::to_string_pretty(&payload) {
         Ok(toml_str) => {
@@ -37,7 +37,7 @@ pub async fn update_config(
                 )
                     .into_response();
             }
-            *state.config.write().await = payload;
+            state.workspace.set_config(payload).await;
             println!("Configuration Updated: successfully synchronized config.toml dynamically.");
             (
                 axum::http::StatusCode::OK,

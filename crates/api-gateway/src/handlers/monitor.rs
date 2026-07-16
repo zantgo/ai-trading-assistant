@@ -71,8 +71,8 @@ pub async fn serve_monitor(
     Query(query): Query<HistoryQuery>,
 ) -> impl IntoResponse {
     let pair_key = if query.symbol.is_empty() {
-        let cfg = state.config.read().await;
-        default_pair_key(&cfg.symbols.first().cloned().unwrap_or_default())
+        let cfg = state.platform.read().await;
+        default_pair_key(&state.workspace.config().await.declared_symbols().first().cloned().unwrap_or_default())
     } else {
         query.symbol.clone()
     };

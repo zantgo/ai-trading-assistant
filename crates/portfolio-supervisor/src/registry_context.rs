@@ -4,23 +4,25 @@
 //! functions can take it without creating a circular `api-gateway` dep.
 //! `api-gateway`'s HTTP handlers build this from their `AppState`.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use config_models::AppConfig;
+use config_models::PlatformConfig;
 use core_domain::normalized::SymbolMapper;
 use database_storage::TelemetryMsg;
 use tokio::sync::mpsc;
 
-use crate::instance::Instance;
 use crate::session::SessionState;
+use crate::workspace_state::WorkspaceState;
 
 #[derive(Clone)]
 pub struct RegistryContext {
-    pub instances: Arc<RwLock<HashMap<String, Arc<Instance>>>>,
+    /// Live workspace state (workspace config + active `Arc<Instance>` map).
+    pub workspace: WorkspaceState,
     pub session: Arc<SessionState>,
-    pub config: Arc<RwLock<AppConfig>>,
+    /// Platform-level config (server, DB, exchanges, clock). Held by the
+    /// daemon and passed through unchanged. The registry does not mutate it.
+    pub platform: Arc<RwLock<PlatformConfig>>,
     pub pool: sqlx::SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<TelemetryMsg>,

@@ -89,10 +89,9 @@ pub async fn serve_delete_instance_by_pair(
     Path(pair_key): Path<String>,
 ) -> impl IntoResponse {
     let instance_id = state
-        .instances
-        .read()
-        .await
+        .workspace
         .get(&pair_key)
+        .await
         .map(|i| i.id.clone());
 
     match instance_id {
@@ -147,11 +146,24 @@ pub async fn serve_update_instance_config(
 
     match pair_key {
         Some(pk) => {
-            let mut config = state.config.write().await;
+            let mut config = state.workspace.config().await;
+            let symbol = pk.clone();
 
-            let existing = config.instances.get(&pk).cloned().unwrap_or_else(|| {
+            // Locate the existing entry by symbol (workspace.instances is a
+            // Vec<InstanceEntry>, not a HashMap).
+            let mut existing = config
+                .instances
+                .iter()
+                .find(|i| i.symbol == symbol)
+                .cloned();
+            if existing.is_none() {
                 let default_indicators = config_models::IndicatorsConfig::default();
-                config_models::InstanceSpecificConfig {
+                existing = Some(config_models::InstanceEntry {
+                    id: symbol.clone(),
+                    symbol: symbol.clone(),
+                    quote: String::new(),
+                    initial_capital_usd: 1000.0,
+                    status: config_models::InstanceStatus::Running,
                     micro_term: config_models::TimeframeConfig::new(60, default_indicators.clone()),
                     fast_term: config_models::TimeframeConfig::new(180, default_indicators.clone()),
                     slow_term: None,
@@ -160,32 +172,37 @@ pub async fn serve_update_instance_config(
                     operational_mode: Default::default(),
                     weight_overrides: None,
                     position_scaling: None,
-                }
-            });
+                });
+            }
+            let mut entry = existing.expect("entry created above");
+            entry.micro_term = payload.micro_term.unwrap_or(entry.micro_term);
+            entry.fast_term = payload.fast_term.unwrap_or(entry.fast_term);
+            entry.slow_term = payload.slow_term.or(entry.slow_term);
+            entry.macro_term = payload.macro_term.or(entry.macro_term);
+            entry.automation = payload.automation.unwrap_or(entry.automation);
+            entry.operational_mode = payload
+                .operational_mode
+                .as_deref()
+                .and_then(|s| match s {
+                    "ManualOnly" => Some(config_models::OperationalMode::ManualOnly),
+                    "DeterministicHeuristics" => {
+                        Some(config_models::OperationalMode::DeterministicHeuristics)
+                    }
+                    _ => None,
+                })
+                .unwrap_or(entry.operational_mode);
+            entry.weight_overrides = payload.weight_overrides.or(entry.weight_overrides);
+            entry.position_scaling = payload.position_scaling.or(entry.position_scaling);
 
-            let specific_config = config_models::InstanceSpecificConfig {
-                micro_term: payload.micro_term.unwrap_or(existing.micro_term),
-                fast_term: payload.fast_term.unwrap_or(existing.fast_term),
-                slow_term: payload.slow_term.or(existing.slow_term),
-                macro_term: payload.macro_term.or(existing.macro_term),
-                automation: payload.automation.unwrap_or(existing.automation),
-                operational_mode: payload
-                    .operational_mode
-                    .as_deref()
-                    .and_then(|s| match s {
-                        "ManualOnly" => Some(config_models::OperationalMode::ManualOnly),
-                        "DeterministicHeuristics" => {
-                            Some(config_models::OperationalMode::DeterministicHeuristics)
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or(existing.operational_mode),
-                weight_overrides: payload.weight_overrides.or(existing.weight_overrides),
-                position_scaling: payload.position_scaling.or(existing.position_scaling),
-            };
-            config.instances.insert(pk.clone(), specific_config);
-            config_models::save_instances(&config.instances).await;
-            drop(config);
+            // Replace or insert the entry in workspace.instances.
+            if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == symbol) {
+                *slot = entry;
+            } else {
+                config.instances.push(entry);
+            }
+            if let Err(e) = config_models::save_workspace(&config) {
+                eprintln!("⚠️  Failed to persist workspace config: {}", e);
+            }
             println!(
                 "Instance config saved: {} — triggering pipeline recharge",
                 pk

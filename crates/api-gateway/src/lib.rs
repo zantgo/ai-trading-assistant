@@ -5,16 +5,16 @@ use axum::{
 };
 use core_domain::normalized::SymbolMapper;
 use sqlx::SqlitePool;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
-use config_models::AppConfig;
+use config_models::PlatformConfig;
 use network_adapters::connection_quality_tracker::ConnectionQualityTracker;
-use portfolio_supervisor::instance::Instance;
 use portfolio_supervisor::session::{Currency, ExchangeChoice, SessionState};
+use portfolio_supervisor::instance::Instance;
+use portfolio_supervisor::workspace_state::WorkspaceState;
 
 pub mod handlers;
 pub mod helpers;
@@ -30,9 +30,16 @@ pub use types::IndicatorSnapshot;
 use portfolio_supervisor::registry_context::RegistryContext;
 
 pub struct AppState {
-    pub instances: Arc<RwLock<HashMap<String, Arc<Instance>>>>,
+    /// The single workspace state (workspace config + live `Arc<Instance>`
+    /// map). The binary supports one workspace per deployment; the field is
+    /// named `workspace` not `instances` to make the hierarchy explicit
+    /// (PLATFORM > WORKSPACE > INSTANCE — see
+    /// `docs/conceptual-foundations/01-07-data-model-hierarchy.md`).
+    pub workspace: WorkspaceState,
     pub session: Arc<SessionState>,
-    pub config: Arc<RwLock<AppConfig>>,
+    /// Platform-level config (exchange endpoints, clock monitor). Separate
+    /// from the workspace.
+    pub platform: Arc<RwLock<PlatformConfig>>,
     pub pool: SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<database_storage::TelemetryMsg>,
@@ -47,9 +54,9 @@ impl AppState {
     /// `api-gateway`'s `AppState` type.
     pub fn registry_context(&self) -> RegistryContext {
         RegistryContext {
-            instances: self.instances.clone(),
+            workspace: self.workspace.clone(),
             session: self.session.clone(),
-            config: self.config.clone(),
+            platform: self.platform.clone(),
             pool: self.pool.clone(),
             symbol_mapper: self.symbol_mapper.clone(),
             telemetry_tx: self.telemetry_tx.clone(),
@@ -59,31 +66,30 @@ impl AppState {
     }
 
     pub async fn instance_count(&self) -> usize {
-        self.instances.read().await.len()
+        self.workspace.len().await
     }
 
     pub async fn get_all_instances(&self) -> Vec<Arc<Instance>> {
-        self.instances.read().await.values().cloned().collect()
+        self.workspace.list().await
     }
 
     pub async fn get_active_pair(
         &self,
         pair_key: &str,
     ) -> Option<Arc<market_analyzer::analyzer::ActivePair>> {
-        self.instances
-            .read()
-            .await
+        self.workspace
             .get(pair_key)
+            .await
             .map(|inst| inst.active_pair.clone())
     }
 
     pub async fn get_instance_by_id(&self, id: &str) -> Option<Arc<Instance>> {
-        self.instances
-            .read()
-            .await
-            .values()
-            .find(|i| i.id == id)
-            .cloned()
+        for inst in self.workspace.list().await {
+            if inst.id == id {
+                return Some(inst);
+            }
+        }
+        None
     }
 
     pub async fn init_session(
@@ -124,20 +130,25 @@ impl AppState {
         println!("🛑 Initiating graceful shutdown of all instances...");
 
         let instance_ids: Vec<String> = {
-            let instances = self.instances.read().await;
-            instances.values().map(|i| i.id.clone()).collect()
+            self.workspace
+                .list()
+                .await
+                .iter()
+                .map(|i| i.id.clone())
+                .collect()
         };
 
         for instance_id in &instance_ids {
-            let instances = self.instances.read().await;
-            if let Some(instance) = instances.values().find(|i| &i.id == instance_id) {
+            if let Some(instance) = self.workspace.get(instance_id).await {
                 instance.cancel.cancel();
             }
         }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        self.instances.write().await.clear();
+        let mut ws = self.workspace.config().await;
+        ws.instances.clear();
+        self.workspace.set_config(ws).await;
 
         self.session
             .active
@@ -171,11 +182,11 @@ impl axum::extract::FromRef<Arc<AppState>> for WsState {
 }
 
 #[derive(Clone)]
-pub struct ConfigState(pub Arc<RwLock<AppConfig>>);
+pub struct ConfigState(pub Arc<RwLock<PlatformConfig>>);
 
 impl axum::extract::FromRef<Arc<AppState>> for ConfigState {
     fn from_ref(state: &Arc<AppState>) -> Self {
-        Self(state.config.clone())
+        Self(state.platform.clone())
     }
 }
 

@@ -5,8 +5,9 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use market_analyzer::analyzer;
-use config_models::{AppConfig, IntervalsConfig, SafetyConfig};
+use config_models::{IntervalsConfig, SafetyConfig};
 use crate::safety::SafetyManager;
+use crate::WorkspaceState;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
 
@@ -94,7 +95,7 @@ pub struct Instance {
     pub active_pair: Arc<analyzer::ActivePair>,
 
     pub pool: SqlitePool,
-    pub config: Arc<RwLock<AppConfig>>,
+    pub workspace: WorkspaceState,
 
     pub micro: TimeframeBuffers,
     pub fast: TimeframeBuffers,
@@ -108,7 +109,7 @@ impl Instance {
         pair: (String, String),
         active_pair: Arc<analyzer::ActivePair>,
         pool: SqlitePool,
-        config: Arc<RwLock<AppConfig>>,
+        workspace: WorkspaceState,
         inter_config: IntervalsConfig,
         safe_config: SafetyConfig,
         micro: TimeframeBuffers,
@@ -134,7 +135,7 @@ impl Instance {
             safety,
             active_pair,
             pool,
-            config,
+            workspace,
             micro,
             fast,
             slow,
@@ -243,92 +244,7 @@ impl Instance {
             cluster_matrix: Arc::new(RwLock::new(None)),
         });
         let empty_buffers = TimeframeBuffers::new();
-        let config = Arc::new(RwLock::new(config_models::AppConfig {
-            symbols: vec![],
-            candles: config_models::CandlesConfig {
-                duration_seconds: 60,
-                analysis_limit: 500,
-            },
-            indicators: config_models::IndicatorsConfig {
-                ema_fast: 10,
-                ema_medium: 50,
-                ema_slow: 100,
-                ema_long: 200,
-                rsi_period: 14,
-                macd_fast: 12,
-                macd_slow: 26,
-                macd_signal: 9,
-                adx_period: 14,
-                atr_period: 14,
-                squeeze_period: 20,
-                stoch_k_period: 18,
-                stoch_d_period: 5,
-                stoch_s_period: 9,
-                chandemo_period: 12,
-                supertrend_period: 10,
-                supertrend_multiplier: 3.0,
-                keltner_ema_period: 20,
-                keltner_atr_period: 10,
-                keltner_multiplier: 2.0,
-                donchian_period: 20,
-                obv_smoothing: 20,
-                cmf_period: 20,
-                mfi_period: 14,
-                hv_period: 20,
-                aroon_period: 25,
-                chop_period: 14,
-                linreg_period: 20,
-                zscore_period: 20,
-                bbwp_lookback: 252,
-                bbwp_period: 20,
-                macd_extreme_high_threshold: 1000.0,
-                macd_extreme_low_threshold: -1000.0,
-                macd_histogram_contraction_threshold: 0.3,
-                adx_trend_threshold: 20,
-                adx_exhaustion_threshold: 40,
-                adx_slope_lookback: 3,
-                squeeze_min_duration: 5,
-                squeeze_bb_period: 20,
-                squeeze_bb_std_dev: 2.0,
-                squeeze_kc_period: 20,
-                squeeze_kc_atr_multiplier: 1.5,
-                atr_multiplier_coefficient: 2.0,
-                atr_target_rr_ratio: 2.5,
-                volume_average_period: 20,
-                rvol_threshold_institutional: 1.5,
-                rvol_threshold_climax: 3.0,
-                ichimoku_tenkan: 9,
-                ichimoku_kijun: 26,
-                ichimoku_senkou_b: 52,
-                ichimoku_displacement: 26,
-                cci_period: 20,
-                psar_af_step: 0.02,
-                psar_af_max: 0.2,
-                williams_r_period: 14,
-                hull_ma_period: 21,
-                force_index_smoothing: 13,
-                stddev_channel_period: 20,
-                smc_lookback: 20,
-                volume_profile_bins: 50,
-                volume_profile_window: 500,
-                volume_profile_value_area: 0.7,
-            },
-            hyperliquid: config_models::HyperliquidConfig::default(),
-            bitget: config_models::BitgetConfig::default(),
-            fibonacci: config_models::FibonacciConfig::default(),
-            pivots: config_models::PivotsConfig::default(),
-            slow_timeframe: config_models::SlowTimeframeConfig::default(),
-            macro_timeframe: config_models::SlowTimeframeConfig::default(),
-            leverage: config_models::LeverageConfig::default(),
-            scoring: config_models::ScoringConfig::default(),
-            fees: config_models::FeesConfig::default(),
-            defaults: config_models::DefaultsConfig::default(),
-            safety: config_models::SafetyConfig::default(),
-            intervals: config_models::IntervalsConfig::default(),
-            liquidity: config_models::LiquidityConfig::default(),
-            clock_monitor: None,
-            instances: std::collections::HashMap::new(),
-        }));
+        let workspace = WorkspaceState::empty();
         // Use a no-op sqlite pool for tests. We never hit the DB.
         let pool =
             sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
@@ -345,7 +261,7 @@ impl Instance {
             safety: Arc::new(SafetyManager::new(3, 5, 8, 30.0)),
             active_pair,
             pool,
-            config,
+            workspace,
             micro,
             fast: empty_buffers.clone(),
             slow: empty_buffers.clone(),

@@ -16,8 +16,8 @@ pub async fn serve_history(
     Query(query): Query<HistoryQuery>,
 ) -> impl IntoResponse {
     let pair_key = if query.symbol.is_empty() {
-        let cfg = state.config.read().await;
-        let first = cfg.symbols.first().cloned().unwrap_or_default();
+        let cfg = state.platform.read().await;
+        let first = state.workspace.config().await.declared_symbols().first().cloned().unwrap_or_default();
         default_pair_key(&first)
     } else {
         query.symbol

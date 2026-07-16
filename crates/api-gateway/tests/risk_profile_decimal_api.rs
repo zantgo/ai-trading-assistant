@@ -4,7 +4,6 @@
 //! Pre-migration bug: `commission_pct` serialized as `0.060000000000000005`
 //! because the `REAL` SQLite column + default Decimal serde derive → float JSON.
 
-use config_models::AppConfig;
 use database_storage;
 use api_gateway::{self, AppState};
 use rust_decimal::Decimal;
@@ -13,6 +12,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, RwLock};
 
@@ -24,30 +24,6 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
     database_storage::run_migrations(&pool)
         .await
         .expect("migrations should succeed on fresh in-memory db");
-
-    let config = Arc::new(RwLock::new(AppConfig {
-        symbols: vec!["Hyperliquid:BTC".to_string()],
-        candles: config_models::CandlesConfig {
-            duration_seconds: 60,
-            analysis_limit: 100,
-        },
-        indicators: Default::default(),
-        hyperliquid: Default::default(),
-        bitget: Default::default(),
-        fibonacci: Default::default(),
-        pivots: Default::default(),
-        slow_timeframe: Default::default(),
-        macro_timeframe: Default::default(),
-        leverage: Default::default(),
-        scoring: Default::default(),
-        fees: Default::default(),
-        defaults: Default::default(),
-        safety: Default::default(),
-        intervals: Default::default(),
-        liquidity: Default::default(),
-        clock_monitor: None,
-        instances: HashMap::new(),
-    }));
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
     symbol_mapper
@@ -74,9 +50,9 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
     .await;
 
     let state = Arc::new(AppState {
-        instances: Arc::new(RwLock::new(HashMap::new())),
+        workspace: portfolio_supervisor::workspace_state::WorkspaceState::empty(),
+        platform: Arc::new(RwLock::new(config_models::PlatformConfig::default())),
         session: Arc::new(portfolio_supervisor::session::SessionState::new()),
-        config,
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,

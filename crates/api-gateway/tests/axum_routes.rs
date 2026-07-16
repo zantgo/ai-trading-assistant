@@ -1,6 +1,5 @@
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
-use config_models::AppConfig;
-use config_models::FibonacciConfig;
+use config_models::{FibonacciConfig, PlatformConfig, WorkspaceConfig};
 use database_storage;
 use portfolio_supervisor::instance::TimeframeBuffers;
 use api_gateway::{self, AppState};
@@ -11,6 +10,7 @@ use core_domain::normalized::SymbolMapper;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tower::ServiceExt;
@@ -20,47 +20,16 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         .await
         .expect("Failed to connect to in-memory SQLite database");
 
-    let config = Arc::new(RwLock::new(AppConfig {
-        symbols: vec!["Hyperliquid:BTC".to_string()],
-        candles: config_models::CandlesConfig {
-            duration_seconds: 60,
-            analysis_limit: 100,
-        },
-        indicators: Default::default(),
-        hyperliquid: Default::default(),
-        bitget: Default::default(),
-        fibonacci: Default::default(),
-        pivots: Default::default(),
-        slow_timeframe: Default::default(),
-        macro_timeframe: Default::default(),
-        leverage: Default::default(),
-        scoring: Default::default(),
-        fees: Default::default(),
-        defaults: Default::default(),
-        safety: Default::default(),
-        intervals: Default::default(),
-        liquidity: Default::default(),
-        clock_monitor: None,
-        instances: HashMap::new(),
-    }));
+    let _dummy_config = config_models::WorkspaceConfig::default();
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
-    symbol_mapper
-        .register(core_domain::normalized::Exchange::Hyperliquid, "BTC", "BTC")
-        .await;
-
-    let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
+    let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
     let ws_url = "ws://127.0.0.1:1".to_string();
 
-    let logger_pool = pool.clone();
-    tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx).await;
-    });
-
     let state = Arc::new(AppState {
-        instances: Arc::new(RwLock::new(HashMap::new())),
+        workspace: portfolio_supervisor::workspace_state::WorkspaceState::empty(),
+        platform: Arc::new(RwLock::new(config_models::PlatformConfig::default())),
         session: Arc::new(portfolio_supervisor::session::SessionState::new()),
-        config,
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
@@ -156,44 +125,16 @@ async fn test_websocket_stream_with_active_pair() {
         .await
         .expect("Failed to connect to in-memory SQLite database");
 
-    let config = Arc::new(RwLock::new(AppConfig {
-        symbols: vec!["Hyperliquid:BTC".to_string()],
-        candles: config_models::CandlesConfig {
-            duration_seconds: 60,
-            analysis_limit: 100,
-        },
-        indicators: Default::default(),
-        hyperliquid: Default::default(),
-        bitget: Default::default(),
-        fibonacci: Default::default(),
-        pivots: Default::default(),
-        slow_timeframe: Default::default(),
-        macro_timeframe: Default::default(),
-        leverage: Default::default(),
-        scoring: Default::default(),
-        fees: Default::default(),
-        defaults: Default::default(),
-        safety: Default::default(),
-        intervals: Default::default(),
-        liquidity: Default::default(),
-        clock_monitor: None,
-        instances: HashMap::new(),
-    }));
+    let _dummy_config = config_models::WorkspaceConfig::default();
 
     let symbol_mapper = Arc::new(SymbolMapper::new());
     symbol_mapper
         .register(core_domain::normalized::Exchange::Hyperliquid, "BTC", "BTC")
         .await;
-
-    let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
+    let (telemetry_tx, _telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(100);
     let ws_url = "ws://127.0.0.1:1".to_string();
 
-    let logger_pool = pool.clone();
-    tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx).await;
-    });
-
-    let instances = Arc::new(RwLock::new(HashMap::new()));
+    let workspace = WorkspaceState::empty();
 
     // Create broadcast channels for the pair
     let (mid_bcast, _) = broadcast::channel::<MarketSnapshot>(10);
@@ -283,7 +224,7 @@ async fn test_websocket_stream_with_active_pair() {
         ("BTC".to_string(), "USDT".to_string()),
         pair.clone(),
         pool.clone(),
-        config.clone(),
+        workspace.clone(),
         Default::default(),
         Default::default(),
         TimeframeBuffers {
@@ -308,15 +249,13 @@ async fn test_websocket_stream_with_active_pair() {
         },
         Default::default(),
     ));
-    instances
-        .write()
-        .await
-        .insert("BTC-USDT".to_string(), instance);
+    let workspace = WorkspaceState::empty();
+    workspace.insert("BTC-USDT".to_string(), instance).await;
 
     let state = Arc::new(AppState {
-        instances,
+        workspace,
         session: Arc::new(portfolio_supervisor::session::SessionState::new()),
-        config,
+        platform: Arc::new(RwLock::new(config_models::PlatformConfig::default())),
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,

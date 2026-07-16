@@ -230,7 +230,7 @@ pub async fn build_pipelines(
         (ctx.base.clone(), ctx.quote.as_str().to_string()),
         active_pair.clone(),
         state.pool.clone(),
-        state.config.clone(),
+        state.workspace.clone(),
         ctx.intervals_config.clone(),
         ctx.safety_config.clone(),
         micro_buf.clone(),

@@ -8,6 +8,8 @@
 
 #![allow(clippy::too_many_arguments)]
 
+pub use workspace_state::WorkspaceState;
+
 pub mod cluster_refresh;
 pub mod commission;
 pub mod instance;
@@ -21,3 +23,4 @@ pub mod risk_calculator;
 pub mod safety;
 pub mod session;
 pub mod trigger_engine;
+pub mod workspace_state;

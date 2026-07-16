@@ -72,8 +72,7 @@ pub async fn add_instance(
 
     // Check for duplicate
     {
-        let instances = state.instances.read().await;
-        if instances.contains_key(&pair_key) {
+        if state.workspace.get(&pair_key).await.is_some() {
             return Err(format!("Instance for pair {} already exists", pair_key));
         }
     }
@@ -84,7 +83,7 @@ pub async fn add_instance(
     // perpetual futures market before spawning any pipelines.
     {
         let (bitget_ticker_url, hl_info_url) = {
-            let cfg = state.config.read().await;
+            let cfg = state.platform.read().await;
             (cfg.bitget.ticker_url(), cfg.hyperliquid.rest_url())
         };
         let availability = match exchange_choice {
@@ -136,29 +135,29 @@ pub async fn add_instance(
         .await;
 
     // Build pipeline configs
-    let config_guard = state.config.read().await;
-    let pair_cfg = config_guard.instances.get(&pair_key);
+    let config_guard = state.workspace.config().await;
+    let pair_cfg = config_guard
+        .instances
+        .iter()
+        .find(|i| i.symbol == pair_key)
+        .cloned();
     let default_indicators = config_guard.indicators.clone();
     let fib_config = config_guard.fibonacci.clone();
     let safety_config = config_guard.safety.clone();
     let intervals_config = config_guard.intervals.clone();
 
-    let micro_cfg = pair_cfg
-        .map(|p| p.micro_term.clone())
+    let micro_cfg = pair_cfg.as_ref().map(|p| p.micro_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(60, default_indicators.clone()));
-    let fast_cfg = pair_cfg
-        .map(|p| p.fast_term.clone())
+    let fast_cfg = pair_cfg.as_ref().map(|p| p.fast_term.clone())
         .unwrap_or_else(|| TimeframeConfig::new(180, default_indicators.clone()));
-    let slow_cfg = pair_cfg
-        .and_then(|p| p.slow_term.clone())
+    let slow_cfg = pair_cfg.as_ref().and_then(|p| p.slow_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
                 config_guard.slow_timeframe.duration_seconds,
                 default_indicators.clone(),
             )
         });
-    let macro_cfg = pair_cfg
-        .and_then(|p| p.macro_term.clone())
+    let macro_cfg = pair_cfg.as_ref().and_then(|p| p.macro_term.clone())
         .unwrap_or_else(|| {
             TimeframeConfig::new(
                 config_guard.macro_timeframe.duration_seconds,
@@ -166,15 +165,16 @@ pub async fn add_instance(
             )
         });
     let rest_url = match exchange_choice {
-        ExchangeChoice::Bitget => config_guard.bitget.rest_url(),
-        _ => config_guard.hyperliquid.rest_url(),
+        ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
+        _ => state.platform.read().await.hyperliquid.rest_url(),
     };
     let drop_fib = fib_config.clone();
     let operational_mode = pair_cfg
+        .as_ref()
         .map(|p| p.operational_mode.clone())
         .unwrap_or_default();
-    let weight_overrides = pair_cfg.and_then(|p| p.weight_overrides.clone());
-    let position_scaling = pair_cfg.and_then(|p| p.position_scaling.clone());
+    let weight_overrides = pair_cfg.as_ref().and_then(|p| p.weight_overrides.clone());
+    let position_scaling = pair_cfg.as_ref().and_then(|p| p.position_scaling.clone());
     let liquidity_config_first = config_guard.liquidity.clone();
     drop(config_guard);
 
@@ -263,23 +263,10 @@ pub async fn add_instance(
         .await;
     }
 
-    // Persist symbol to config
-    {
-        let mut config = state.config.write().await;
-        if !config.symbols.contains(&base) {
-            config.symbols.push(base.clone());
-            if let Ok(toml_str) = toml::to_string_pretty(&*config) {
-                let _ = tokio::fs::write("config.toml", toml_str).await;
-            }
-        }
-    }
-
-    // Register instance
-    state
-        .instances
-        .write()
-        .await
-        .insert(pair_key, Arc::clone(&artifacts.instance));
+    // Register instance (the workspace.instances[] list is the single
+    // source of truth for "what pairs are configured"; `add_instance` below
+    // inserts into both the live map and the persisted workspace config).
+    state.workspace.insert(pair_key, Arc::clone(&artifacts.instance)).await;
 
     println!(
         "✅ Instance created: {} ({})",
@@ -291,14 +278,10 @@ pub async fn add_instance(
 
 /// Pause an instance (no new trades, keep open positions for TP/SL).
 pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instances = state.instances.read().await;
-    let instance = instances
-        .values()
+    let instance = state.workspace.list().await
+        .into_iter()
         .find(|i| i.id == instance_id)
-        .cloned()
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
-    drop(instances);
-
     let mut config_state = instance.config_state.write().await;
     if config_state.status == InstanceStatus::Stopped {
         return Err("Cannot pause a stopped instance".to_string());
@@ -314,14 +297,10 @@ pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Resul
 
 /// Stop an instance (close all positions immediately).
 pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let instances = state.instances.read().await;
-    let instance = instances
-        .values()
+    let instance = state.workspace.list().await
+        .into_iter()
         .find(|i| i.id == instance_id)
-        .cloned()
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
-    drop(instances);
-
     instance.config_state.write().await.status = InstanceStatus::Stopped;
     instance.cancel.cancel();
     println!(
@@ -334,15 +313,14 @@ pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result
 
 /// Delete an instance (stop first, then remove from registry).
 pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
-    let (pair_key, instance) = {
-        let instances = state.instances.read().await;
-        let (pk, inst) = instances
-            .iter()
-            .find(|(_, i)| i.id == instance_id)
-            .map(|(k, i)| (k.clone(), Arc::clone(i)))
-            .ok_or_else(|| format!("Instance {} not found", instance_id))?;
-        (pk, inst)
-    };
+    let (pair_key, instance) = state
+        .workspace
+        .list()
+        .await
+        .into_iter()
+        .find(|i| i.id == instance_id)
+        .map(|i| (i.pair_key(), Arc::clone(&i)))
+        .ok_or_else(|| format!("Instance {} not found", instance_id))?;
 
     {
         let is_stopped = instance.config_state.read().await.status == InstanceStatus::Stopped;
@@ -351,19 +329,16 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
         }
     }
 
-    state.instances.write().await.remove(&pair_key);
+    state.workspace.remove(&pair_key).await;
 
     {
-        let mut config = state.config.write().await;
-        let base_symbol = &instance.pair.0;
-        if let Some(pos) = config.symbols.iter().position(|s| s == base_symbol) {
-            config.symbols.remove(pos);
-            if let Ok(toml_str) = toml::to_string_pretty(&*config) {
-                let _ = tokio::fs::write("config.toml", toml_str).await;
-            }
+        let mut config = state.workspace.config().await;
+        config
+            .instances
+            .retain(|i| i.symbol != pair_key);
+        if let Err(e) = config_models::save_workspace(&config) {
+            eprintln!("⚠️  Failed to persist workspace after delete: {}", e);
         }
-        config.instances.remove(&pair_key);
-        config_models::save_instances(&config.instances).await;
     }
 
     println!(
@@ -378,13 +353,11 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
 /// Cancels old tasks, flushes buffers, re-bootstraps, and re-spawns pipelines
 /// while preserving active paper positions, safety state, and token tracking.
 pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Result<(), String> {
-    let old_instance = {
-        let instances = state.instances.read().await;
-        instances
-            .get(pair_key)
-            .cloned()
-            .ok_or_else(|| format!("Instance for pair {} not found", pair_key))?
-    };
+    let old_instance = state
+        .workspace
+        .get(pair_key)
+        .await
+        .ok_or_else(|| format!("Instance for pair {} not found", pair_key))?;
 
     println!(
         "🔄 Recharging instance: {} ({})",
@@ -411,10 +384,11 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 
     // Build fresh pipeline configs from saved TOML config
     let (base, _quote) = old_instance.pair.clone();
-    let config_guard = state.config.read().await;
+    let config_guard = state.workspace.config().await;
     let pair_cfg = config_guard
         .instances
-        .get(pair_key)
+        .iter()
+        .find(|i| i.symbol == pair_key)
         .cloned()
         .ok_or_else(|| format!("No saved config for pair {}", pair_key))?;
     let default_indicators = config_guard.indicators.clone();
@@ -436,8 +410,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .clone()
         .unwrap_or(Currency::USDC);
     let rest_url = match exchange_choice {
-        ExchangeChoice::Bitget => config_guard.bitget.rest_url(),
-        _ => config_guard.hyperliquid.rest_url(),
+        ExchangeChoice::Bitget => state.platform.read().await.bitget.rest_url(),
+        _ => state.platform.read().await.hyperliquid.rest_url(),
     };
     let operational_mode = pair_cfg.operational_mode.clone();
     let weight_overrides = pair_cfg.weight_overrides.clone();
@@ -557,7 +531,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         safety: old_instance.safety.clone(),
         active_pair: artifacts.instance.active_pair.clone(),
         pool: old_instance.pool.clone(),
-        config: old_instance.config.clone(),
+        workspace: old_instance.workspace.clone(),
         micro: artifacts.micro,
         fast: artifacts.fast,
         slow: artifacts.slow,
@@ -565,11 +539,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     });
 
     // Swap in state map
-    state
-        .instances
-        .write()
-        .await
-        .insert(pair_key.to_string(), Arc::clone(&new_instance));
+    state.workspace.insert(pair_key.to_string(), Arc::clone(&new_instance)).await;
 
     println!(
         "⚡ Instance recharged: {} ({}) — micro={}s fast={}s slow={}s macro={}s",
@@ -585,9 +555,9 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 }
 
 pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
-    let instances = state.instances.read().await;
     let mut summaries = Vec::new();
-    for (_, inst) in instances.iter() {
+    let instances = state.workspace.list().await;
+    for inst in instances {
         summaries.push(InstanceSummary {
             id: inst.id.clone(),
             pair: inst.pair_key(),

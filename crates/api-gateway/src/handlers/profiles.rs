@@ -321,7 +321,7 @@ pub async fn serve_fee_table(
     State(state): State<Arc<AppState>>,
     Query(params): Query<FeeTableQuery>,
 ) -> impl IntoResponse {
-    let config = state.config.read().await;
+    let config = state.workspace.config().await;
     let leverages = params.leverages.unwrap_or_else(|| vec![10, 20, 25, 40, 50]);
     let capitals = params
         .capitals
@@ -369,7 +369,7 @@ pub async fn serve_commission_projection(
         }
     };
 
-    let config = state.config.read().await;
+    let config = state.workspace.config().await;
     let input = portfolio_supervisor::commission::CommissionProjectionRequest {
         direction: payload.direction,
         entry_1: payload.entry_1.to_f64().unwrap_or(0.0),

@@ -63,9 +63,23 @@ fn default_bitget_ws_url() -> String {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CandlesConfig {
+    #[serde(default = "default_candle_duration")]
     pub duration_seconds: u64,
     #[serde(default = "default_analysis_limit")]
     pub analysis_limit: usize,
+}
+
+impl Default for CandlesConfig {
+    fn default() -> Self {
+        Self {
+            duration_seconds: default_candle_duration(),
+            analysis_limit: default_analysis_limit(),
+        }
+    }
+}
+
+fn default_candle_duration() -> u64 {
+    60
 }
 
 fn default_analysis_limit() -> usize {
@@ -654,7 +668,7 @@ pub enum AllocationCurveModel {
     Exponential,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AllocationCurve {
     #[serde(default)]
     pub model: AllocationCurveModel,
@@ -687,7 +701,7 @@ fn default_exponent() -> f64 {
     2.0
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PositionScalingConfig {
     #[serde(default)]
     pub allocation_curve: AllocationCurve,
@@ -721,6 +735,7 @@ fn default_target_margin() -> f64 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TimeframeConfig {
     pub candles: CandlesConfig,
+    #[serde(default)]
     pub indicators: IndicatorsConfig,
 }
 
@@ -1048,3 +1063,8 @@ mod tests {
         assert_eq!(cfg.cross_leverage, 20);
     }
 }
+
+/// Type alias for the FAST timeframe configuration block. Structurally
+/// identical to `SlowTimeframeConfig` (enabled flag + duration + analysis
+/// limit) — the two are differentiated only by convention.
+pub type FastTimeframeConfig = SlowTimeframeConfig;

@@ -26,8 +26,8 @@ pub async fn serve_observability_buffers(
     Query(query): Query<WsQuery>,
 ) -> impl IntoResponse {
     let symbol = if query.symbol.is_empty() {
-        let cfg = state.config.read().await;
-        cfg.symbols.first().cloned().unwrap_or_default()
+        let cfg = state.platform.read().await;
+        state.workspace.config().await.declared_symbols().first().cloned().unwrap_or_default()
     } else {
         query.symbol
     };

@@ -133,7 +133,7 @@ pub struct ConfigResponse {
     pub symbols: Vec<String>,
     pub candles: config_models::CandlesConfig,
     pub indicators: config_models::IndicatorsConfig,
-    pub instances: std::collections::HashMap<String, config_models::InstanceSpecificConfig>,
+    pub instances: Vec<config_models::InstanceEntry>,
     pub indicator_registry: Vec<market_analyzer::indicators::IndicatorMeta>,
 }
 

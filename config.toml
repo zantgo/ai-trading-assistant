@@ -1,17 +1,77 @@
-symbols = [
-    "Hyperliquid:BTC",
-    "BTC",
-]
+# ==============================================================================
+# Trading Platform — config.toml (canonical, v6.0+)
+# ==============================================================================
+#
+# This is the ONLY config file the platform reads. `instances.json`,
+# `workspaces.json`, and `pairs.json` are no longer recognized — if any of
+# them is present at startup, the daemon panics with a migration pointer.
+#
+# Hierarchy: PLATFORM > WORKSPACE > INSTANCE
+#   [platform]                 ← server, DB, exchanges, clock (one binary)
+#   [workspace]                ← portfolio + analytics + strategies (one per binary)
+#   [[workspace.instances]]    ← trading pairs (zero or more)
+#
+# See docs/conceptual-foundations/01-07-data-model-hierarchy.md for the full
+# schema, worked examples, and the "which setting belongs where" rules.
 
-[candles]
+# ──────────────────────────────────────────────────────────────────────────────
+# PLATFORM
+# ──────────────────────────────────────────────────────────────────────────────
+
+[hyperliquid]
+ws_url = "wss://api.hyperliquid.xyz/ws"
+
+[bitget]
+ws_url = "wss://ws.bitget.com/v2/ws/public"
+
+# Clock-drift monitor: enforces the platform's <=50µs UTC drift budget via
+# continuous NTP polling. Set `enabled = false` to disable drift enforcement.
+[clock_monitor]
+enabled = true
+ntp_servers = ["pool.ntp.org", "time.aws.com", "time.google.com"]
+poll_interval_secs = 30
+threshold_micros = 50
+query_timeout_secs = 5
+jitter_window_size = 20
+breach_action = "warn"
+warn_on_breach = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WORKSPACE — "all engines running my program"
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# This is the user's portfolio + analytics + strategy + market-monitor
+# settings. Exactly ONE workspace per binary. Per-instance fields (symbol,
+# timeframes, indicator overrides) live inside `[[workspace.instances]]` below.
+
+[workspace]
+id = "main"
+name = "My Portfolio"
+
+# Settlement currency + preferred exchange applied to new instances that
+# don't override them.
+default_currency = "USDC"
+default_exchange = "Hyperliquid"
+
+# ── Market-monitor defaults (per-instance inheritance) ──
+
+[workspace.candles]
 duration_seconds = 60
 analysis_limit = 500
 
-[fast_timeframe]
+[workspace.fast_timeframe]
 enabled = true
 duration_seconds = 180
 
-[indicators]
+[workspace.slow_timeframe]
+enabled = true
+duration_seconds = 300
+
+[workspace.macro_timeframe]
+enabled = true
+duration_seconds = 900
+
+[workspace.indicators]
 ema_fast = 10
 ema_medium = 50
 ema_slow = 100
@@ -75,29 +135,11 @@ volume_profile_bins = 50
 volume_profile_window = 500
 volume_profile_value_area = 0.7
 
-[hyperliquid]
-ws_url = "wss://api.hyperliquid.xyz/ws"
-
-[bitget]
-ws_url = "wss://ws.bitget.com/v2/ws/public"
-
 [fibonacci]
 swing_lookback = 10
 swing_scan_range = 120
-retracement_coefficients = [
-    0.236,
-    0.382,
-    0.5,
-    0.618,
-    0.66,
-    0.786,
-]
-extension_coefficients = [
-    1.272,
-    1.618,
-    2.0,
-    2.618,
-]
+retracement_coefficients = [0.236, 0.382, 0.5, 0.618, 0.66, 0.786]
+extension_coefficients = [1.272, 1.618, 2.0, 2.618]
 
 [pivots]
 strength_n = 10
@@ -105,16 +147,6 @@ scan_range_candles = 120
 sr_proximity_threshold_pct = 0.5
 sr_flip_tolerance_pct = 0.3
 pattern_slope_tolerance = 0.2
-
-[slow_timeframe]
-enabled = true
-duration_seconds = 300
-analysis_limit = 500
-
-[macro_timeframe]
-enabled = true
-duration_seconds = 900
-analysis_limit = 500
 
 [leverage]
 cross_leverage = 20
@@ -126,34 +158,82 @@ max_allocation_pct = 3.0
 base_score_threshold = 40
 micro_score_threshold = 60
 
-[fees]
-maker_fee_pct = 0.02
-taker_fee_pct = 0.06
-funding_rate_8h = 0.01
-
 [defaults]
 default_pair = "BTC/USDT"
 
-[safety]
+# ── PME safety: dropout thresholds, capital drawdown veto ──
+
+[workspace.safety]
 consecutive_loss_caution = 3
 consecutive_loss_dropout = 5
 dropout_duration_hours = 8
 capital_drawdown_pct = 30.0
 
-[intervals]
+# ── TAE fees: applied to Position Sizing Protocol unless an instance overrides ──
+
+[workspace.fees]
+maker_fee_pct = 0.02
+taker_fee_pct = 0.06
+funding_rate_8h = 0.01
+
+# ── PAE scheduler cadences: portfolio equity logger + performance evaluator ──
+
+[workspace.intervals]
 slow_seconds = 3600
 normal_seconds = 900
 fast_seconds = 300
 
-# Clock-drift monitor: enforces the platform's <=50µs UTC drift budget via
-# continuous NTP polling. Set `enabled = false` to disable drift enforcement
-# (the engine will still run, but no NTP liveness check is performed).
-[clock_monitor]
+# ── Liquidity Intelligence (Phase 0-4) ──
+
+[workspace.liquidity]
 enabled = true
-ntp_servers = ["pool.ntp.org", "time.aws.com", "time.google.com"]
-poll_interval_secs = 30
-threshold_micros = 50
-query_timeout_secs = 5
-jitter_window_size = 20
-breach_action = "warn"
-warn_on_breach = true
+mark_price_poll_ms = 60000
+funding_refresh_ms = 60000
+event_retention_days = 90
+bucket_retention_days = 7
+cluster_refresh_secs = 300
+maintenance_margin_rate = 0.005
+cascade_detected_zscore = 2.5
+cascade_sustained_events = 3
+funding_extreme_pct = 0.0005
+magnet_activation_distance_pct = 0.5
+liquidity_vacuum_threshold = 0.3
+oi_funding_divergence_pct = 2.0
+
+# ──────────────────────────────────────────────────────────────────────────────
+# INSTANCES — trading pairs
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Each `[[workspace.instances]]` block is one trading pair. The four
+# timeframes (micro / fast / slow / macro) are mandatory; slow and macro
+# are optional. Override indicator periods inside each timeframe.
+
+[[workspace.instances]]
+id = "btc"
+symbol = "BTC-USDT"
+quote = "USDT"
+initial_capital_usd = 1000.0
+status = "running"
+operational_mode = "ManualOnly"
+
+[workspace.instances.micro_term]
+candles = { duration_seconds = 60, analysis_limit = 500 }
+indicators = { rsi_period = 14 }
+
+[workspace.instances.fast_term]
+candles = { duration_seconds = 180, analysis_limit = 500 }
+indicators = { rsi_period = 14 }
+
+[workspace.instances.slow_term]
+candles = { duration_seconds = 300, analysis_limit = 500 }
+indicators = { rsi_period = 14 }
+
+[workspace.instances.macro_term]
+candles = { duration_seconds = 900, analysis_limit = 500 }
+indicators = { rsi_period = 14 }
+
+[workspace.instances.automation]
+enabled = false
+interval_seconds = 900
+use_scoring_allocation = false
+max_opposite_exit_signals = 5
