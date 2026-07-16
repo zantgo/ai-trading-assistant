@@ -1,6 +1,6 @@
 # Pre-Trade Risk Controls
 
-**Version:** 1.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -24,7 +24,7 @@ The following gates run between a Policy trigger (L1) and the Exchange dispatch 
 | 2 | **Decision guard (trade readiness)** | The Decision Matrix's `trade_readiness` field must be `READY` or `FORMING`. `WATCH` is a soft warning; `STAND_ASIDE` blocks the dispatch. | Computed by the MME Decision Layer from `directional_guidance × confidence_assessment × market_stance`. See [Decision Matrix §4](../matrices/02-04-decision-matrix.md). |
 | 3 | **Capital query — available margin** | The TAE issues a synchronous request to the PME Capital Matrix for `available_margin`. The query returns 0 if the order would push `margin_usage_ratio` ≥ 0.95. | Live, computed from [PME Layer 3](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md). |
 | 4 | **Position sizing** | The Position Sizing Protocol computes $S = E \times R / (D_{sl} / 100)$. If the result exceeds `risk_parameters.max_position_size_usd`, sizing is clipped. If `risk_parameters.max_leverage` is exceeded, the order is rejected. **Bypass:** orders with `reduce_only = true` skip Gate 4 (sizing) — size is copied verbatim from the Position Matrix. | Per-policy in `config.json` `execution_policies.*`. |
-| 5 | **Slippage ceiling** | The Execution Layer queries the live order book and computes estimated slippage. If estimated slippage ≥ the configured ceiling (default 0.5 % of position size), the order is held for manual review. | `config.json` `execution.slippage_ceiling_pct`. |
+| 5 | **Slippage ceiling** | The Execution Layer queries the live order book and computes estimated slippage. If estimated slippage **exceeds** the configured ceiling (default 0.5 % of position size), the order is held for manual review (strict `>` — an order exactly at the ceiling is allowed through). | `config.json` `execution.slippage_ceiling_pct`. |
 | 6 | **Exposure concentration** | The Exposure Layer rejects new positions that would breach the single-pair concentration limit (default 0.20), the portfolio exposure limit (default 0.50), or the correlation limit (default 0.8). **Bypass:** orders with `reduce_only = true` skip Gate 6 (concentration) — exit orders must be permitted even if the portfolio is overconcentrated. | [PME Layer 2 §3](../engines/portfolio-management-engine/03-04-03-pme-layer2-exposure.md). |
 | 7 | **PME safety veto** | Even if all previous gates pass, the PME Portfolio Layer can force a stance change to `AVOID` or `CLOSE_ONLY` when systemic thresholds are breached (drawdown ≥ `drawdown_limit_pct`, margin ceiling, loss streak ≥ dropout_threshold, or MME `systemic_risk_score ≥ systemic_risk_threshold`). **Bypass:** orders tagged `emergency_liquidation = true` (Hard Exit path from `AVOID` triggers) bypass Gate 7 so the liquidation is dispatched even when the stance is `AVOID`. | [PME Layer 4 §4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
 
@@ -32,17 +32,22 @@ The following gates run between a Policy trigger (L1) and the Exchange dispatch 
 
 ## 3. Evaluation Order & Short-Circuiting
 
-The gates run in the order listed in §2, first-match-wins short-circuit. The first failure aborts the dispatch and emits a rejection log entry:
+The gates run in the order listed in §2, first-match-wins short-circuit. The first failure aborts the dispatch and emits a rejection log entry.
+
+**Gate 1 / Gate 7 sequencing.** Gate 1 (symbol stance) reads the `Stance` value set either by the operator or by the PME veto upstream. Gate 7 (PME safety veto) is the authoritative stance setter — when PME fires, it transitions the symbol `Stance` to `AVOID` or `CLOSE_ONLY`, and Gate 1 picks the value up on the next evaluation cycle. Both gates predicate on the same `Stance` field, but they are sequential, not duplicated:
+
+- **Gate 1** is the *current* disposition read at dispatch time. A passive `AVOID` (operator-set, no PME event) is caught here.
+- **Gate 7** is the *active-veto* check fired by PME just before dispatch — it re-validates the disposition against the most recent PME authority. A `PME VetoMessage` that races with the policy trigger and would otherwise have been missed between Gate 1 and Gate 7 is caught here.
 
 ```
 Gate 1 stance → if (stance == AVOID AND not emergency_liquidation) → block
               → if (stance == CLOSE_ONLY AND not reduce_only) → block
 Gate 2 readiness → if STAND_ASIDE → block (operator override required)
 Gate 3 capital → if 0 → block (insufficient margin)
-Gate 4 sizing → if max_position_size_usd exceeded → clip, continue
+Gate 4 sizing → if max_position_size_usd exceeded → clip, continue (Held for review)
               → if max_leverage exceeded → block
               → reduce_only orders skip Gate 4 entirely
-Gate 5 slippage → if over ceiling → hold for manual review
+Gate 5 slippage → if strictly greater than ceiling → hold for manual review (PRE_DISPATCH)
 Gate 6 concentration → if breach → block (reduce position size or close existing)
                      → reduce_only orders skip Gate 6 entirely
 Gate 7 PME veto → if (stance == AVOID AND not emergency_liquidation) → block
@@ -67,7 +72,7 @@ Hard-stops (block) vs hold-for-review (suspend):
 
 Orders held by Gate 5 (slippage ceiling) or pending manual review sit in the **`PRE_DISPATCH`** state with status `HELD_FOR_REVIEW` (not in `OPEN` — the `OPEN` state is only valid after exchange acknowledgement). The order can be cancelled via `DELETE /api/instances/by-pair/:pair_key` or manually executed via `POST /api/instances/:id/manual/open`. `PRE_DISPATCH` orders do not consume committed margin and do not appear in `open_orders`.
 
-> **Operational hazard (v2.1).** `PRE_DISPATCH` orders are held only in memory and are **not** persisted. An engine restart, crash, or process termination during the slippage-review window will lose the order with no audit trail. Operators relying on Gate 5 for slippage review in a 24/7 deployment should treat `PRE_DISPATCH` as transient and design operator workflows around the manual-review API rather than expecting engine-replayable recovery. A future migration introducing a `pre_dispatch_orders` table (or expanding the `open_orders.state` CHECK constraint to allow `PRE_DISPATCH`) is tracked as a Phase C schema task; see the consolidated architecture audit register (issue EXE‑08) for the persistence gap.
+> **Operational hazard.** `PRE_DISPATCH` orders are held only in memory and are **not** persisted. An engine restart, crash, or process termination during the slippage-review window will lose the order with no audit trail. Operators relying on Gate 5 for slippage review in a 24/7 deployment should treat `PRE_DISPATCH` as transient and design operator workflows around the manual-review API rather than expecting engine-replayable recovery. The v4.0 resolution path is the `risk_control_events` table (see [`06-02-database-schema-spec.md §3.10`](../integration-and-api/06-02-database-schema-spec.md) and the `GET /api/pre-dispatch` resource in [`06-01-api-gateway-contract.md §2.5`](../integration-and-api/06-01-api-gateway-contract.md)).
 
 ---
 
@@ -102,9 +107,13 @@ Every gate failure produces:
 
 **Operator override paths:**
 
-- **Slippage ceiling (Gate 5).** The order sits in `PRE_DISPATCH` with status `HELD_FOR_REVIEW` (not in `OPEN` — see §3.2). The operator can either: (a) wait for better liquidity, (b) cancel via `DELETE /api/instances/by-pair/:pair_key`, or (c) manually execute via `POST /api/instances/:id/manual/open`.
-- **Concentration breach (Gate 6).** To override, close an existing position in the affected sector first, then re-trigger.
-- **PME veto (Gate 7).** Veto is sticky. Per [PME Layer 4 §4.3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#43-veto-release), the operator must clear the underlying condition (e.g. equity must recover above `drawdown_limit_pct`) **and** call the dedicated veto-release endpoint **`POST /api/instances/:id/safety/release-veto`** (Issue 4.O). The endpoint returns `400` if the veto condition is still active. Resetting the consecutive-loss counter alone (the older `/safety/reset` endpoint) is **insufficient** to release a drawdown- or systemic-risk-based veto.
+| Gate | Override endpoint | Behaviour |
+|---|---|---|
+| **Gate 2** (`STAND_ASIDE`) | `POST /api/orders/:id/override-readiness` | Marks the held order as `OVERRIDDEN` and re-submits it past Gate 2. The override is logged with `operator_id = "local_operator"` (see [`06-01-api-gateway-contract.md §1 Authentication`](../integration-and-api/06-01-api-gateway-contract.md) — caller-supplied identity is on the v5.0 roadmap). |
+| **Gate 5** (slippage ceiling) | `GET /api/pre-dispatch`, `POST /api/pre-dispatch/:id/approve`, `DELETE /api/pre-dispatch/:id` | Order sits in `PRE_DISPATCH` with status `HELD_FOR_REVIEW`. Operator can wait, cancel, or approve. Approve continues the order past Gate 5; cancel aborts it. |
+| **Gate 6** (concentration breach) | (no automatic override) | Close an existing position in the affected sector first, then re-trigger. |
+| **Gate 7** (PME veto) | `POST /api/instances/:id/safety/release-veto` | The operator must clear the underlying condition (e.g. equity must recover above `drawdown_limit_pct`) **and** call this endpoint. Returns `400` if the veto condition is still active. |
+| **Gate 1** (symbol stance `AVOID` after Hard Exit) | `POST /api/instances/:id/safety/release-veto` | Same endpoint as Gate 7; restores the default stance after the Hard Exit completes. The `/safety/reset` endpoint only clears `consecutive_losses` and is **not** the right call for drawdown- or systemic-risk-based vetoes. |
 - **Stance `AVOID` (Gate 1, after Hard Exit has completed).** Once the Hard Exit fires and the stance transitions to `AVOID`, the operator must use `POST /api/instances/:id/safety/release-veto` (not `/safety/reset`) to restore the default stance. The `/safety/reset` endpoint only clears the per-symbol `consecutive_losses` counter; it does **not** release a drawdown- or systemic-risk-based veto.
 
 All overrides are logged with operator ID, timestamp, and prior state for audit.

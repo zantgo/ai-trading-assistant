@@ -1,5 +1,8 @@
 # 🕯️ Candlestick Pattern Recognition
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 The Candlestick engine identifies the 29 highest-probability single-, two-, three-candle, and continuation formations from raw OHLC data. It is a distinct indicator (`candlestick`) from the existing chart-pattern engine (`patterns`, which detects triangles/wedges/channels) — the two coexist and are never conflated.
 

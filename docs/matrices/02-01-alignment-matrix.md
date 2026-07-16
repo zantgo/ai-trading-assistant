@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer

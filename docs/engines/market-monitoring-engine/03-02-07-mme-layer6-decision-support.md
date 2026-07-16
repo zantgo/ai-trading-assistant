@@ -1,6 +1,6 @@
 # MME Layer 6 — Decision Support Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 6 of 7
@@ -36,11 +36,11 @@ Trade readiness is derived from directional guidance, confidence, and stance. Th
 | `WATCH` | Neutral guidance or `confidence_assessment` 20–40. |
 | `STAND_ASIDE` | `market_stance = AVOID` or `confidence_assessment < 20`. |
 
-Confidence itself is risk-discounted:
+Confidence itself is risk-discounted into the terminal `confidence_assessment` output (which lives on `advisory` and is distinct from the four-level pipeline-level confidence flow; see [`02-00b-confidence-hierarchy.md`](../../matrices/02-00b-confidence-hierarchy.md)):
 
-$$\text{confidence} = \text{clamp}\Big(\text{analysis.state\_confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
+$$\text{confidence\_assessment} = \text{clamp}\Big(\text{analysis.state\_confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
 
-**L6 Confluence Score** (composite, separate from `confidence_assessment`, in `[0, 100]`):
+**L6 Confluence Score** (composite, distinct from `confidence_assessment`, in `[0, 100]`):
 
 ```
 confluence_score = clamp(
@@ -74,7 +74,7 @@ regime = RANGE AND nearest S/R level distance < 0.5 × ATR     → SRBased
 otherwise                                                      → ATRBased
 ```
 
-> **`SR_BASED` rule path (v2.1 — addition).** A previous version of this table listed only three `ProtectionStrategy` variants (`STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`), leaving the five-valued enum's `SR_BASED` variant unreachable from the documented logic. The corrected rule above ties `SR_BASED` to a range-regime setup where price is testing an S/R level closer than half the ATR — the canonical "near a horizontal level" condition. All five `ProtectionStrategy` variants (`STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION`) are now reachable from the documented rules.
+> **`SR_BASED` rule path.** `SR_BASED` is reached on range-regime setups where price is testing an S/R level closer than half the ATR. With the empty-state fallback (`no_indicators_available → NO_RECOMMENDATION`), all five `ProtectionStrategy` variants are reachable.
 
 ### 4.2 Target Strategy
 ```
@@ -84,9 +84,9 @@ entry_danger.score ∈ [40, 70] AND confirmed trailing-signal sequence active   
 otherwise                                                                        → VolatilityBased
 ```
 
-> **`TRAILING_METHOD` rule path (v2.1 — addition).** A previous version of this table listed only three `TargetStrategy` variants, leaving `TRAILING_METHOD` unreachable. The corrected rule above ties `TRAILING_METHOD` to mid-range entry danger with an active trailing-signal sequence — the canonical "let profits run" condition. All five `TargetStrategy` variants (`RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION`) are now reachable from the documented rules.
+> **`TRAILING_METHOD` rule path.** `TRAILING_METHOD` is reached on mid-range entry danger with an active trailing-signal sequence. With the empty-state fallback, all five `TargetStrategy` variants are reachable.
 >
-> **`RR_BASED` threshold — canonicalized with Decision Matrix §3.7 (MAT-10).** The condition `entry_danger.score < 40 → RR_BASED` is the same in both the L6 spec and the Decision Matrix §3.7 (canonical contract). The previous L6 version used the inverted form `entry_danger.score > 40 → RR_BASED`, which mapped low-danger setups to R:R-based targets (paradoxical — a clean setup should commit to a fixed R:R target precisely because danger is low). The corrected form selects `RR_BASED` when entry danger is below 40, matching the canonical Decision Matrix contract.
+> **`RR_BASED` threshold.** The condition `entry_danger.score < 40 → RR_BASED` is the same in both the L6 spec and the Decision Matrix §3.7 (canonical contract). The previous L6 version used the inverted form `entry_danger.score > 40 → RR_BASED`, which mapped low-danger setups to R:R-based targets (paradoxical — a clean setup should commit to a fixed R:R target precisely because danger is low). The corrected form selects `RR_BASED` when entry danger is below 40.
 
 ### 4.3 Stop-Loss Distance Handoff (Type Boundary)
 

@@ -1,9 +1,9 @@
 # Market Monitoring Engine — Overview Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
-**Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven sequential layers.
+**Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven analytical layers: L1–L3 sequential, L4 ∥ L5 parallel from L3, L6–L7 sequential after convergence (see `01-01-ontology.md Ch. 6`).
 
 ---
 

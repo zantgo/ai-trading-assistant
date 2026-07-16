@@ -1,5 +1,8 @@
 # Stochastic Oscillator (18, 5, 9)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 The Stochastic Oscillator compares a closing price to its price range over a given period. It oscillates between 0 and 100, with readings above 80 indicating overbought conditions and below 20 indicating oversold conditions. The %K line (fast) and %D line (slow/signal) produce crossover signals that are the indicator's primary trading trigger. Traders use it for:
@@ -15,7 +18,7 @@ Slow %K = SMA(%K, s_period)                                                  // 
 %D = SMA(Slow %K, d_period)                                                  // Signal line (double smoothing)
 ```
 
-> **`%D` double-smoothing convention (SIG-12 — canonical).** `%D` is the simple moving average of `Slow %K` (the SMA-smoothed %K), *not* of `Fast %K`. This produces the canonical two-stage smoothing of a Stochastic Oscillator: `Fast %K → Slow %K (SMA) → %D (SMA of Slow %K)`. A previous version of this section wrote `%D = SMA(%K, d_period)` — this single-stage smoothing directly off the raw `%K` is a deviation from the standard Stochastic construction and produces materially different values compared to TA-Lib and other institutional Stochastic implementations. The current formula above matches the canonical contract.
+> **`%D` double-smoothing convention.** `%D` is the simple moving average of `Slow %K` (the SMA-smoothed `%K`), producing the canonical two-stage smoothing: `Fast %K → Slow %K (SMA) → %D (SMA of Slow %K)`. Single-stage smoothing directly off `Fast %K` deviates from the standard Stochastic construction and produces materially different values compared to TA-Lib and other institutional implementations.
 
 The `k_period` (`stoch_k_period`, default `18`), `d_period` (`stoch_d_period`, default `5`), and `s_period` (`stoch_s_period`, default `9`) controls are configurable via `[indicators]` in `config.json` (the platform's single source of configuration truth — see [08-01-user-manual.md §5](../../../operations-and-compliance/08-01-user-manual.md)).
 

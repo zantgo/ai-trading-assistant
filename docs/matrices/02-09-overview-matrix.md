@@ -1,6 +1,6 @@
 # Overview Matrix Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 7 — Overview Layer
@@ -31,6 +31,7 @@ Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `
 |-------|------|-------------|
 | `global_market_bias` | `GlobalBias` | Universe-wide directional bias (§3.1). |
 | `market_breadth` | `MarketBreadth` | Breadth classification (§3.2). |
+| `breadth_pct` | `f64 ∈ [-100, 100]` | Continuous numeric breadth: signed percentage of bullish-asset count. Source of the UI's −100 % to +100 % breadth gauge and the input to `market_breadth` and `market_synchronization`. |
 | `regime_distribution` | `map<string, f64>` | Fraction of assets per regime. (`f64` because the regime-classification partition is exhaustive — entries sum to `1.0`.) |
 | `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` and `Scalp` since the v2.1 completeness sweep — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). (`u32` because opportunity types are not mutually exclusive — a single asset can simultaneously satisfy the preconditions of multiple setups, so the map is a per-type count rather than a partition.) |
 | `risk_distribution` | `RiskDistribution` | Low/moderate/high risk share + environment label (§4). |
@@ -42,6 +43,8 @@ Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `
 | `global_summary` | `string` | Natural-language synthesis. |
 | `instance_count` | `u32` | Active monitoring instances. |
 | `active_symbols` | `string[]` | Sorted list of active symbols. |
+
+**Invariant.** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. UI consumers and pre-trade consumers rely on this equality; multi-instance mode (multiple `MarketSnapshot` per symbol) is not supported in v4.0.
 
 ### 2.2 AssetRank
 

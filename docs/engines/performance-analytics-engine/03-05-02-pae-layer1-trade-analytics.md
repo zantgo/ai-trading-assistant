@@ -1,6 +1,6 @@
 # PAE Layer 1 — Trade Analytics Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 1 of 4
@@ -69,7 +69,7 @@ The Trade Analytics Layer is the PAE's **trade reconstruction engine**. It consu
 | **MFE capture** | `gross_pnl / MFE` | How much of the available profit was captured. |
 | **Fee efficiency** | `(gross_pnl − net_pnl) / |gross_pnl|` if `|gross_pnl| > 0`, else `0.0` with `flat_trade: true` flag set | Fee drag as a non-negative percentage of `|gross_pnl|`. Using `|gross_pnl|` as the denominator (rather than `gross_pnl`) keeps the metric non-negative for both winning and losing trades — a fee-increased loss yields a positive fee_efficiency, not a negative one. |
 
-> **Division-by-zero guard (Issue 4.G — correction).** A previous version of this row was the bare formula `(gross_pnl − net_pnl) / gross_pnl`. When `gross_pnl = 0` (a flat-then-fee round-trip — entry fills cancel exit fills exactly before fees, so the trade closes at zero before fees are deducted), the formula evaluates `0 / 0 = NaN`. The corrected guard returns `0.0` and sets the `flat_trade: true` flag on the trade record so downstream consumers can detect and exclude the trade from aggregate ratio calculations (e.g. expectancy, profit factor). The flag is also useful for audit: a `flat_trade=true` record indicates that the trade fully round-tripped price-wise but lost the fee component — the strategy had zero directional edge on that bar.
+> **Division-by-zero guard.** When `gross_pnl = 0` (a flat-then-fee round-trip — entry fills cancel exit fills exactly before fees, so the trade closes at zero before fees are deducted), the bare formula `(gross_pnl − net_pnl) / gross_pnl` evaluates `0 / 0 = NaN`. The guard returns `0.0` and sets the `flat_trade: true` flag on the trade record so downstream consumers can detect and exclude the trade from aggregate ratio calculations (e.g. expectancy, profit factor). A `flat_trade=true` record indicates that the trade fully round-tripped price-wise but lost the fee component — the strategy had zero directional edge on that bar.
 
 ---
 

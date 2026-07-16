@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -68,7 +68,7 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 | `BEARISH` | `≥ -40 AND < -20` | Moderate bearish lean. |
 | `STRONG_BEARISH` | `< -40` | Dominant bearish conviction. |
 
-> **Half-open intervals (Issue 7.A — correction).** A previous version of this table expressed the boundaries informally (`"20 … 40"`, `"-20 … 20"`) without specifying whether each integer endpoint belongs to the upper band or the lower band. The decision can be deterministic if we pin each band to a **half-open interval**: `STRONG_BULLISH = (40, 100]`, `BULLISH = (20, 40]`, `NEUTRAL = [-20, 20]`, `BEARISH = [-40, -20)`, `STRONG_BEARISH = [-100, -40)`. Under this scheme, the same score never maps to two bands. (A previous double-mapping at `score = 20.0`, `40.0`, etc. is now resolved.)
+> **Half-open intervals.** The bands are pinned to half-open intervals to keep `score = 20.0`, `40.0`, etc. from double-mapping: `STRONG_BULLISH = (40, 100]`, `BULLISH = (20, 40]`, `NEUTRAL = [-20, 20]`, `BEARISH = [-40, -20)`, `STRONG_BEARISH = [-100, -40)`. The same score never maps to two bands.
 
 ### 3.2 MarketRegime
 
@@ -191,7 +191,25 @@ Enum values serialize as `SCREAMING_SNAKE_CASE`.
 
 ## 6. Empty State
 
-When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty()`: `bias = NEUTRAL`, `state_confidence = 0.0`, `market_regime = TRANSITION`, `market_quality = POOR`, and the interpretation `"No data available — no candles have been completed."`.
+When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty()`. All defaults:
+
+| Field | Empty-state value |
+|-------|-------------------|
+| `bias` | `NEUTRAL` |
+| `state_confidence` | `0.0` |
+| `market_regime` | `TRANSITION` |
+| `market_quality` | `POOR` |
+| `market_quality_score` | `0.0` |
+| `market_phase` | `ACCUMULATION` |
+| `trend_assessment` | `UNCLEAR` |
+| `momentum_assessment` | `UNCLEAR` |
+| `structure_assessment` | `UNCLEAR` |
+| `volatility_assessment` | `UNCLEAR` |
+| `volume_assessment` | `UNCLEAR` |
+| `market_interpretation` | `"No data available — no candles have been completed."` |
+| `supporting_signals` | `[]` |
+| `contradicting_signals` | `[]` |
+| `timeframes_considered` | `0` |
 
 ---
 

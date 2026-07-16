@@ -1,5 +1,8 @@
 # Choppiness Index (14)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 The Choppiness Index measures whether the market is trending or ranging by comparing the sum of true ranges over a period against the period's total price range. Values near 100 indicate a choppy, sideways, range-bound market; values near 0 indicate a strong directional trend. It is a **non-directional gate** — it never contributes a bullish or bearish score, but acts as a regime multiplier in the confluence engine: trending markets amplify directional conviction, choppy markets dampen it.
 
@@ -23,7 +26,7 @@ Choppiness is a non-directional gate (`directional: false`). Its normalized valu
 |-----------|--------------|------------------|-----------|
 | Threshold | CHOP_STRONG_TREND | Choppiness ≤ 38.2 — clean trending market. Trend-following favored. Amplify directional confidence. | Neutral (gate) |
 | Threshold | CHOP_CONSOLIDATION_RANGE | Choppiness ≥ 61.8 — range-bound / choppy. Avoid trend entries. Dampen directional confidence. Expect mean-reversion. | Neutral (gate) |
-| VolatilityCycle | CHOP_SQUEEZE_COILING | Prolonged period of high Choppiness (>61.8) transitioning toward low Choppiness (<38.2). Indicates compressed energy coiling before a trending expansion. Distinct from the threshold-only classification signal. | Neutral (gate) |
+| CompressionRelease | CHOP_SQUEEZE_COILING | Prolonged period of high Choppiness (>61.8) transitioning toward low Choppiness (<38.2). Indicates compressed energy coiling before a trending expansion. Distinct from the threshold-only classification signal. | Neutral (gate) |
 
 ## 5. Configuration
 ```json

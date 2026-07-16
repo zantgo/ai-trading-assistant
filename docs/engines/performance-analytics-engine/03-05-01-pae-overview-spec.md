@@ -1,6 +1,6 @@
 # Performance Analytics Engine — Overview Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Purpose:** This document specifies the boundaries, performance database, scheduled tasks, and report templates of the Performance Analytics Engine — the engine that evaluates historical trading records to isolate strategy efficacy and identify system drag.

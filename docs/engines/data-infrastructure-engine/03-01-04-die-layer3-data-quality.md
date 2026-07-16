@@ -1,6 +1,6 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4
@@ -47,7 +47,7 @@ The cascade is uniform across all timeframes — including sub-minute. Sub-minut
 | **DB-first** | Minimizes REST calls; the local store is authoritative for already-seen candles. |
 | **Gap-only REST** | Only the window between the last local candle and `now` is fetched. |
 | **Full-window fallback** | With no local data, the entire `secs × limit` lookback is fetched. |
-| **Sub-minute cascade (v2.1 — correction)** | A previous version returned an empty array for sub-minute timeframes (`return []`), bypassing the local DB. That left the EMA reconstruction ([08-04-candle-reconstruction.md §EMA Synthesis](../operations-and-compliance/08-04-candle-reconstruction.md)) starved of history on startup, so a network disconnect within minutes of launch would force a fallback to linear interpolation (or no reconstruction at all if history < 2). The corrected cascade queries the local DB for sub-minute timeframes first (which may already contain history from a prior session), then falls back to a best-effort `limit=200` REST fetch (may return empty for venues without sub-minute history), then falls back to live ticks. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed will use linear projection for the first few reconstructions until the buffer fills. |
+| **Sub-minute cascade** | The sub-minute history cascade queries the local DB first (which may already contain history from a prior session), then falls back to a best-effort `limit=200` REST fetch (may return empty for venues without sub-minute history), then falls back to live ticks. Returning an empty array for sub-minute timeframes would starve the EMA reconstruction on startup — see [08-04-candle-reconstruction.md §EMA Synthesis](../operations-and-compliance/08-04-candle-reconstruction.md) — and force the platform into linear interpolation (or no reconstruction at all if history < 2) exactly when a network disconnect is most likely to need EMA-quality fills. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed uses linear projection for the first few reconstructions until the buffer fills. |
 
 ---
 

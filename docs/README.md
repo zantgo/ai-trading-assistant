@@ -100,9 +100,7 @@ docs/
     └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
 ```
 
-Total: **129 markdown files** (1 README + 6 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops = **128** numbered docs + README; 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension).
-
-> **File-count corrections (Issue 6.A–D).** A previous version of this line claimed 117 / 119 with the breakdown `4 conceptual + 13 matrix + 29 engine + 51 indicator + 13 signal + 2 integration + 3 UI + 2 ops = 117`. That sum is internally inconsistent (the file counts in the directory map do not sum to 117). The canonical breakdown is the one in the directory map above and in the equation `6 + 15 + 31 + 51 + 13 + 2 + 4 + 6 = 128` numbered docs. The README itself brings the total to **129**.
+Total: **130 markdown files** (1 README + 6 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 new `CHANGELOG.md` = **129** numbered docs + README; 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The +1 over the prior count (`129 → 130`) is the new canonical `docs/CHANGELOG.md` introduced in v4.0.
 
 ## The Five Engines
 

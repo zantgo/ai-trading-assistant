@@ -1,5 +1,8 @@
 # SMC Order Blocks (Institutional Zones)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 An Order Block (OB) is the last opposing candle before a structural break, representing the zone where institutions accumulated or distributed positions. A **bullish order block** is the last bearish candle before a bullish BOS — its open-to-low range is the demand zone where institutions accumulated longs. A **bearish order block** is the last bullish candle before a bearish BOS — its open-to-high range is the supply zone where institutions distributed shorts. These zones act as high-probability support/resistance levels and are actively monitored for reactions. When price returns to an OB, a test occurs; if price holds and bounces from the zone, the order block is "confirmed." If price breaks through the zone, the OB is "mitigated" and a Breaker Block forms on the opposite side.

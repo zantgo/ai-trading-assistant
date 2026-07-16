@@ -1,8 +1,7 @@
 # Connection Quality
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented
-**Backend:** `crates/engine/src/connection_quality.rs`
-**Frontend:** `crates/frontend/src/components/ConnectionQualityPanel.svelte`
 **Spec version:** 1.0
 
 ## Purpose
@@ -50,7 +49,17 @@ Interpretation:
 - **disconnect_count** contributes 0..30 points (penalized linearly up to 10 disconnects)
 - **avg_reconnect_ms** contributes 0..20 points (saturates at 5s reconnect time)
 
-A perfect session (100% uptime, 0 disconnects, 0ms reconnect) scores 100. A session with 5% downtime, 8 disconnects, and 2s avg reconnect scores ~67.5.
+A perfect session (100% uptime, 0 disconnects, 0ms reconnect) scores 100. A session with 5% downtime (`uptime_pct = 95`), 8 disconnects, and 2s avg reconnect time scores ~65.5.
+
+**Worked example.** With `uptime_pct = 95`, `disconnect_count = 8`, `avg_reconnect_ms = 2000`:
+
+```
+0.5  × 95 = 47.5
+30   × (1 − min(8 / 10, 1)) = 30 × (1 − 0.8) = 6
+20   × (1 − min(2000 / 5000, 1)) = 20 × (1 − 0.4) = 12
+
+total = 47.5 + 6 + 12 = 65.5
+```
 
 ## Event Sources
 
@@ -78,13 +87,31 @@ CREATE TABLE IF NOT EXISTS connection_quality_samples (
     reconstructed_candles INTEGER NOT NULL,
     score REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_cq_window_time ON connection_quality_samples(window, timestamp_ms);
+-- Instance-scoped: each Market Instance has its own connection-quality series.
+-- Replaces the previous process-wide single-series design. The pair_key column
+-- was added in v4.0 to support the Connection Quality dashboard panel
+-- surfacing per-instance results (see `06-01-api-gateway-contract.md` §2.3).
+CREATE TABLE IF NOT EXISTS connection_quality_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair_key TEXT NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    window TEXT NOT NULL,
+    uptime_pct REAL NOT NULL,
+    disconnect_count INTEGER NOT NULL,
+    avg_reconnect_ms REAL NOT NULL,
+    total_data_loss_secs INTEGER NOT NULL,
+    reconstructed_candles INTEGER NOT NULL,
+    score REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cq_pair_window_time ON connection_quality_samples(pair_key, window, timestamp_ms);
 ```
 
 ## REST API
 
 ```
-GET /api/connection-quality?window=one_hour|six_hour|twenty_four_hour
+GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour
+
+The `instance_id` and `timeframe_secs` query parameters are **required** as of v4.0. Connection-quality is reported per Market Instance × timeframe (one WebSocket connection per `TimeframePipeline`); the API does not return a process-wide aggregate. See `06-01-api-gateway-contract.md §2.3`.
 ```
 
 Default window: `one_hour`. Response: `ConnectionQualityReport` JSON.

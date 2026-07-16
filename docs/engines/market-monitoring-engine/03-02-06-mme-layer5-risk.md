@@ -1,6 +1,6 @@
 # MME Layer 5 — Risk Layer
 
-**Version:** 2.1 (Phase 3: added `cascade_risk`; renamed `liquidity_risk` → `execution_liquidity_risk`)
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7
@@ -11,20 +11,23 @@
 
 ## 1. Purpose
 
-The Risk Layer measures **danger**, independent of direction. It consumes the [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) plus the underlying indicator map and produces the [Risk Matrix](../../matrices/02-11-risk-matrix.md). The matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total** — pure environmental danger, no reward synthesis (which lives at the [Decision Layer](03-02-07-mme-layer6-decision-support.md) as `entry_danger`).
+The Risk Layer measures **danger**, independent of direction. It consumes the [Analysis Matrix (L3)](../../matrices/02-02-analysis-matrix.md), the underlying indicator map (L1), and — for `cascade_risk` only — the L1.5 LiquidityFlow and L2.5 LiquidationClusterMatrix (Phase 3 multi-source exception, see [01-02 §3.4](../../conceptual-foundations/01-02-global-architecture.md)). It produces the [Risk Matrix](../../matrices/02-11-risk-matrix.md). The matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total** — pure environmental danger, no reward synthesis (which lives at the [Decision Layer](03-02-07-mme-layer6-decision-support.md) as `entry_danger`).
 
 ```
-[Analysis Matrix (L3)] ─┐
-                         ├──► RISK LAYER (L5) ──► [Risk Matrix]
-[Metrics indicators (L1)]┘      compute_risk()      (eight sub-dims + overall_risk)
-                                                │
+[Analysis Matrix (L3)]      ─┐
+[Metrics indicators (L1)]    ─┤
+                              ├──► RISK LAYER (L5) ──► [Risk Matrix]
+[LiquidityFlow (L1.5)]       ─┤      compute_risk()      (eight sub-dims + overall_risk)
+[LiquidationClusterMatrix    ─┘
+  (L2.5, for cascade_risk)]
+```
                                                 ▼
                                           L6 (Decision)
 ```
 
-**Dependency edges:** L5 reads L3 only. L5 does **not** read L4. L5 outputs to L6 only. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
+**Dependency edges:** L5 reads L3, L1, L1.5, L2.5 (cascade_risk only). L5 does **not** read L4. L5 outputs to L6 only. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md) §5 for the full edge table.
 
-Implementation: `crates/shared/src/risk.rs::compute_risk()`.
+The L5 risk scorer is described in [Risk Matrix §4](../../matrices/02-11-risk-matrix.md).
 
 Risk is a property of an *interpretation*: it consumes the Analysis Matrix because you cannot evaluate how risky a bullish trend is until you know a bullish trend exists.
 
@@ -90,7 +93,7 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 
 ## 7. Cascade Risk (Phase 3)
 
-`cascade_risk` is the 9th dimension of the Risk Matrix, added by the Liquidity Intelligence extension. It quantifies the danger from forced liquidation cascades and is computed by `crates/shared/src/risk.rs::assess_cascade_risk` from:
+`cascade_risk` is the **8th** of the eight unipolar danger sub-dimensions (plus `overall_risk` as the 9th and final aggregate field), added by the Liquidity Intelligence extension. It quantifies the danger from forced liquidation cascades and is computed by the L5 cascade-risk scorer (see [Risk Matrix §4.8](../../matrices/02-11-risk-matrix.md) for per-dimension rules) from:
 
 - `LiquidityFlow.cascade_intensity` (per-candle real event aggregate, already 0..100).
 - `LiquidityFlow.cascade_state` (`None` / `Detected` / `Sustained` / `Exhausted`) — adds a 0..30 risk premium on top of intensity when the state is elevated.

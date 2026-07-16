@@ -1,5 +1,8 @@
 # Keltner Channels (20, 10, 2.0)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 Keltner Channels use an EMA midline surrounded by ATR-based bands. They are more responsive than Bollinger Bands (ATR-based vs standard-deviation-based) and are used for:

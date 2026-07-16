@@ -1,4 +1,7 @@
 # Linear Regression Slope (20)
+
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
 **Group:** Regime
 
 ## 1. Introduction — Trading Function

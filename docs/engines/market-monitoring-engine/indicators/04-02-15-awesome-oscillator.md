@@ -1,5 +1,8 @@
 # Awesome Oscillator (AO) — Bill Williams
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 The Awesome Oscillator (AO), created by Bill Williams, measures market momentum by comparing a fast (5-period) simple moving average of the median price against a slow (34-period) SMA. Positive AO values indicate bullish momentum; negative AO values indicate bearish momentum. The bar color — green when the AO bar is rising, red when falling — provides a secondary signal for momentum acceleration/deceleration. It is used for zero-line crosses (momentum flip), twin peaks (divergence), and saucer setups (acceleration patterns).
 

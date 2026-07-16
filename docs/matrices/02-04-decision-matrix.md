@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -49,7 +49,7 @@ The Decision Matrix is realized by two complementary structures:
 | `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `environment_favorability` in v2.1; semantic successor of `Risk.reward_risk`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `environment_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
 | `expected_reward_risk_ratio` | `f64` | Synthesized from `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)`. `L4.expected_rr_internal` is the L4 Opportunity Matrix's internal score (renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`). *(Added in the institutional redesign.)* |
 
-> **`expected_reward_risk_ratio` formula — unit normalization (MAT-03 — correction).** A previous version of this field wrote the formula as `L4.expected_rr_internal × (1 − L5.overall_risk)` — missing the division by `100.0` for the 0-100 risk scale. With the actual `overall_risk.score` in `[0, 100]` (e.g. `28.3`), the un-normalized formula evaluates to a large negative number (`2.5 × (1 − 28.3) = −68.25`). The canonical form above divides the risk score by `100.0` first, yielding the documented worked example: `2.5 × (1 − 0.283) = 1.79`. The same formula appears in the Master Field Ownership map ([02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md)).
+> **`expected_reward_risk_ratio` formula — unit normalization.** `overall_risk` is on the canonical `[0, 100]` scale; the formula divides by `100.0` before the subtraction: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0) = 2.5 × (1 − 0.283) = 1.79`. Without the `/100.0` normalization the formula produces nonsensical values for any non-trivial risk score (e.g. with `overall_risk = 28.3`, the unnormalized form gives `2.5 × (1 − 28.3) = −68.25`). The same formula appears in the canonical ownership map at [02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md).
 | `final_recommendation` | `string` | Natural-language recommendation summary. |
 
 ### 2.2 DecisionContext Fields
@@ -60,6 +60,20 @@ The Decision Matrix is realized by two complementary structures:
 | `bias` | `MarketBias` (5-state) | `STRONG_BULLISH` / `BULLISH` / `NEUTRAL` / `BEARISH` / `STRONG_BEARISH`. **Same 5-state vocabulary as `Analysis.bias`** — no 3-state collapse is applied. |
 | `score_confidence` | `f64` | `[0, 1]` derived from `|score| / 100`. *(Renamed from `confidence` in the institutional redesign; see [02-00b-confidence-hierarchy.md](02-00b-confidence-hierarchy.md).)* |
 | `contributing_indicators` | `string[]` | Indicators driving the decision. |
+
+### 2.3 `confluence_score` formula (canonical)
+
+The Decision Matrix's `decision_context.score` is a weighted blend of three upstream dimensions, computed at synthesis time:
+
+```
+decision_context.score = 0.50 · alignment.tradability_dim
+                       + 0.30 · analysis.market_quality_score
+                       + 0.20 · opportunity.opportunity_score
+```
+
+where `alignment.tradability_dim` is dimension 9 of the [Alignment Matrix](../matrices/02-01-alignment-matrix.md) (renamed from "Opportunity" in the institutional redesign because L4 owns opportunity concepts; this dimension measures cross-TF agreement on tradability), `analysis.market_quality_score` is the L3 quality score in `[0, 100]`, and `opportunity.opportunity_score` is the L4 score in `[0, 100]`. Weights sum to 1.00.
+
+The canonical worked example below (§6) recomputes under this formula.
 
 ---
 
@@ -101,11 +115,11 @@ Derived from `market_quality × overall_risk`:
 6. otherwise                                                              → CAUTIOUS  (default)
 ```
 
-> **Unit convention (MAT-01 — correction).** The `overall_risk` thresholds above are on the canonical `[0, 100]` unipolar scale (matching the [Risk Matrix](../matrices/02-11-risk-matrix.md) `RiskDimension.score` unit). A previous version of this table used fractional thresholds (`0.80`, `0.60`, `0.40`, `0.30`, `0.20`), which worked only if `overall_risk` were stored as a fraction. With the actual `overall_risk.score` on `[0, 100]` (e.g. `28.3` in the canonical example), the fractional form evaluates everything as `AVOID` because `28.3 ≥ 0.80` is always true. The integer-scale form above is unit-consistent with §3.1 and with the worked example in §6.
+> **Unit convention.** The `overall_risk` thresholds above are on the canonical `[0, 100]` unipolar scale (matching the [Risk Matrix](../matrices/02-11-risk-matrix.md) `RiskDimension.score` unit). The thresholds `80 / 60 / 40 / 30 / 20` correspond to the documented bands in §3.8; the fractional form (`0.80`, `0.60`, `0.40`, `0.30`, `0.20`) would map `overall_risk = 28.3` to "above the AVOID threshold" and is not used.
 
 All five `MarketStance` values are reachable. The `AVOID` and `CAUTIOUS` guards are "sticky" — they fire on either bad quality or high risk, so the stance correctly reflects "do not engage" when either condition is met. Note the tightened risk thresholds for the higher-quality stances: AGGRESSIVE requires risk < 20, CONSTRUCTIVE requires risk < 30. The previous version had CONSTRUCTIVE at risk < 60 and AGGRESSIVE at risk < 40, which created a counterintuitive situation where a mediocre setup (`AVERAGE` quality) with elevated risk could still yield `CONSTRUCTIVE` (via the default rule). The tightened thresholds eliminate this anti-pattern.
 
-> **Default-stance rationale (MAT-12 — correction).** A previous version of this fallback defaulted to `CONSTRUCTIVE`, which paradoxically awarded *higher* risk environments a more aggressive stance than lower-risk ones (a `POOR`-quality, high-risk environment would receive `CONSTRUCTIVE` via the default, while a `POOR`-quality, low-risk environment would receive `AVOID` via Rule 1). The corrected default fall-through is `CAUTIOUS`, which preserves monotonic escalation: as risk rises, the stance retreats through `CONSTRUCTIVE → NEUTRAL → CAUTIOUS → AVOID` without ever jumping back up.
+> **Default-stance rationale.** The default fallback is `CAUTIOUS`, which preserves monotonic escalation: as risk rises, the stance retreats `CONSTRUCTIVE → NEUTRAL → CAUTIOUS → AVOID` without ever advancing again. Choosing `CONSTRUCTIVE` as the default would create the inverse anomaly (higher-risk environments with `POOR` quality receiving a more aggressive stance than lower-risk ones via the same rule, since `CONSTRUCTIVE` would be the unconditional fall-through while `AVOID` requires `POOR`-quality to fire).
 
 ### 3.3 StrategyEnvironment
 `TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` — from `market_regime`.
@@ -118,27 +132,29 @@ All five `MarketStance` values are reachable. The `AVOID` and `CAUTIOUS` guards 
 
 ### 3.6 ProtectionStrategy (Dynamic Stops)
 `STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION`.
+
 ```
-volatility compressed        → STRUCTURE_BASED
-volatility_risk > 60         → VOLATILITY_BASED
-regime = RANGE AND nearest S/R level distance < 0.5 × ATR → SR_BASED
-otherwise                    → ATR_BASED
+volatility_assessment = COMPRESSED                                              → STRUCTURE_BASED
+VolatilityAssessment-risk score > 60  AND  volatility_assessment ∈ {EXPANDING, EXTREME} → VOLATILITY_BASED
+market_regime = RANGE  AND  StructureAssessment ∈ {STRONG, HEALTHY}  AND  distance_to_nearest_SR < 0.5 · ATR → SR_BASED
+no indicators available (empty state per §7)                                     → NO_RECOMMENDATION
+otherwise                                                                       → ATR_BASED
 ```
 
-> **`SR_BASED` rule path (v2.1 — correction).** A previous version of this table did not include an assignment rule for `SR_BASED`, leaving the variant unreachable from the documented logic. The corrected rule above ties `SR_BASED` to range-regime setups where price is testing a structural S/R level closer than half the ATR — the canonical "near a horizontal level" condition. This makes all five `ProtectionStrategy` variants reachable from the documented rules.
+All five `ProtectionStrategy` values are reachable from the documented rules. `STRUCTURE_BASED` consumes `volatility_assessment = COMPRESSED` (from `02-02-analysis-matrix.md §3.6`). `VOLATILITY_BASED` requires a high `volatility_risk` score (from the L5 Risk Matrix). `SR_BASED` requires range regime with healthy structure and proximity to a structural S/R level. `ATR_BASED` is the production default. `NO_RECOMMENDATION` is reached only on the empty-state fallback path (no indicators completed; see §7).
 
 ### 3.7 TargetStrategy (Target Zones)
 `RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION`.
+
 ```
-structure strong/healthy     → RESISTANCE_BASED
-entry_danger.score < 40      → RR_BASED
-entry_danger.score ∈ [40, 70] AND a confirmed trailing-signal sequence is active → TRAILING_METHOD
-otherwise                    → VOLATILITY_BASED
+structure_assessment ∈ {STRONG, HEALTHY}                                         → RESISTANCE_BASED
+entry_danger.level ∈ {VERY_LOW, LOW}                                             → RR_BASED
+entry_danger.level = MODERATE  AND  a confirmed trailing-signal sequence is active → TRAILING_METHOD
+no indicators available (empty state per §7)                                     → NO_RECOMMENDATION
+otherwise                                                                       → VOLATILITY_BASED
 ```
 
-> **`RR_BASED` threshold (v2.1 — canonicalized).** A previous version of this table said `entry_danger.score > 50 → RR_BASED`. [03-02-07-mme-layer6-decision-support.md §4.2](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md) and the unified canonical contract use the opposite semantics: `RR_BASED` is selected when the entry danger is **low** (the setup is clean enough to commit to a fixed reward/risk target). The corrected threshold `entry_danger.score < 40` matches the Layer 6 spec.
->
-> **`TRAILING_METHOD` rule path (v2.1 — addition).** A previous version left the `TRAILING_METHOD` variant unreachable from the documented logic. The corrected rule above ties `TRAILING_METHOD` to mid-range entry danger with an active trailing-signal sequence — the canonical "let profits run" condition. This makes all five `TargetStrategy` variants reachable.
+All five `TargetStrategy` values are reachable from the documented rules. `RESISTANCE_BASED` consumes `structure_assessment ∈ {STRONG, HEALTHY}` (from `02-02-analysis-matrix.md §3.5`). `RR_BASED` requires low entry danger (the setup is clean enough to commit to a fixed R:R target). `TRAILING_METHOD` requires a confirmed trailing-signal sequence. `VOLATILITY_BASED` is the production default. `NO_RECOMMENDATION` is reached only on the empty-state fallback path (see §7).
 
 ### 3.8 `entry_danger` (Synoptic Danger)
 
@@ -161,7 +177,7 @@ score = mean(quality_penalty, 100 − opportunity_score)  // ∈ [0, 100]
 # VERY_LOW = score < 20
 ```
 
-> **`entry_danger` band boundaries (v2.1 — correction).** A previous version of this table used overlapping bands (`HIGH ≥ 70; ELEVATED 50–70; MODERATE 30–50; LOW 10–30; MINIMAL < 10`) where boundary values `30`, `50`, `70` belonged to two bands simultaneously. The corrected bands above are strict half-open intervals aligned with the canonical [Risk Matrix §2.3](../matrices/02-11-risk-matrix.md) `RiskLevel` enum (`EXTREME / HIGH / MODERATE / LOW / VERY_LOW`, thresholds `80 / 60 / 40 / 20`). This unifies the cross-engine vocabulary so `entry_danger.level` and `risk.<dim>.level` share the same enum and the same numeric bands.
+> **`entry_danger` band boundaries.** Bands are strict half-open intervals aligned with the canonical [Risk Matrix §2.3](../matrices/02-11-risk-matrix.md) `RiskLevel` enum (`EXTREME / HIGH / MODERATE / LOW / VERY_LOW`, thresholds `80 / 60 / 40 / 20`). Boundary values map to exactly one band. This unifies the cross-engine vocabulary so `entry_danger.level` and `risk.<dim>.level` share the same enum and the same numeric bands.
 
 **Why this derivation:** `quality_penalty` reflects "how *poor* is the environment" (low = excellent conditions, high = dangerous conditions). `100 − opportunity_score` reflects "how *poor* is the absence of a setup" (low = great setup, high = no viable setup). Averaging the two gives a synoptic "how dangerous is it to enter here?" measure. This is the natural successor of the old `Risk.reward_risk` formula, with the addition of `opportunity_score` as an L4 input (legitimate L6 synthesis of state + forecast + danger).
 
@@ -228,14 +244,14 @@ The Decision Matrix carries the structural invalidation and target context used 
 }
 ```
 
-**Self-consistency check** (the example values satisfy the §3.7 / §3.8 / §4 formulas):
-- Analysis Matrix `state_confidence` = 1.0; Risk Matrix `overall_risk.score = 28.3` (matches the Risk Matrix JSON example after the v2.1 arithmetic correction; expressed as a fraction, `0.283`).
+**Self-consistency check** (the example values satisfy the §2.3 / §3.1 / §3.6 / §3.7 / §3.8 / §4 formulas):
+- Analysis Matrix `state_confidence` = 1.0; Risk Matrix `overall_risk.score = 28.3` (matches the canonical Risk Matrix JSON example; expressed as a fraction, `0.283`).
 - `confidence_assessment = clamp(1.0 × (1 − 0.283) × 100, 0, 100) = clamp(71.7, 0, 100) = 71.7` ✓
 - `bias = STRONG_BULLISH` with `overall_risk = 28.3 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
-- `decision_context.score = 97.0` (the maximum feasible value when `opportunity_score = 85` and the §3.7 weights cap at `0.50·100 + 0.30·100 + 0.20·85 = 97.0`) ⇒ `score_confidence = |score| / 100 = 0.97` per the §2.2 mapping ✓
-- `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.expected_rr_internal = 2.5` from the Opportunity Matrix §7 example and `L5.overall_risk = 0.283`) ✓
-- `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 corrected half-open intervals) ✓
-- `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §2 type-boundary note); TAE casts to Decimal at the execution boundary.
+- `decision_context.score = 97.0` per the §2.3 confluence-score formula: with `alignment.tradability_dim = 100`, `analysis.market_quality_score = 100` (EXCELLENT → 100), and `opportunity.opportunity_score = 85`, the formula yields `0.50·100 + 0.30·100 + 0.20·85 = 97.0` ⇒ `score_confidence = |score| / 100 = 0.97` per the §2.2 mapping ✓
+- `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.expected_rr_internal = 2.5` from the Opportunity Matrix example and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
+- `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals) ✓
+- `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary.
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

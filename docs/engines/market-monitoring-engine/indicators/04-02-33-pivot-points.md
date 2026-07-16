@@ -1,5 +1,8 @@
 # 📐 Session Pivot Points (Classic)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 Session Pivot Points are static horizontal support/resistance levels derived from the **previous completed session's** High, Low, and Close. Unlike swing-derived support/resistance (which floats with market structure), pivot levels are fixed for the entire session and are widely used by intraday scalpers as reference levels for entries, exits, profit targets, and stop placement.
 

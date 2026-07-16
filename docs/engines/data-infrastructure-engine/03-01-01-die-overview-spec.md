@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — Overview Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document specifies the boundaries, responsibilities, layer structure, exchange adapters, performance targets, and connection-monitoring model of the Data Infrastructure Engine — the first engine in the platform's unidirectional cascade. The DIE ingests, normalizes, validates, and distributes exchange telemetry.
@@ -121,7 +121,7 @@ The `MarketDataOrchestrator` (`crates/engine/src/orchestrator.rs`) supervises ev
 
 ### 4.1 Fault-Tolerance Rules
 
-- **Exponential backoff:** `retry_cooldown = min(retry_cooldown × 2, 30s)`, starting at 1 s, with ±20 % jitter. *(Issue 5.C — correction.)* A previous revision of this section stated the backoff started at 2 s and capped at 60 s, but the canonical implementation in [08-03-connection-resilience.md](../operations-and-compliance/08-03-connection-resilience.md) starts at 1 s and caps at 30 s. The 1 s → 30 s range with ±20 % jitter is the authoritative behaviour.
+- **Exponential backoff:** `retry_cooldown = min(retry_cooldown × 2, max_backoff)`, with `max_backoff = 30s`, starting at 1 s, with ±20 % jitter applied **before** the cap (so the effective delay range is `[delay × 0.8, min(delay × 1.2, max_backoff)]`). See [08-03-connection-resilience.md](../operations-and-compliance/08-03-connection-resilience.md).
 - **Failure window reset:** If > 300 s elapse since the last failure, the consecutive-failure counter resets to 0.
 - **Permanent disable:** After 5 consecutive failures, the adapter emits a terminal `Disconnected` status and the supervisor loop breaks.
 - **Dormant state:** With no configured symbols, the adapter idles (polling every 2 s) rather than failing.

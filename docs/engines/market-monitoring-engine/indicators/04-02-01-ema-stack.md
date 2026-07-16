@@ -1,5 +1,8 @@
 # 📈 Exponential Moving Averages (EMA 10, 50, 100, 200) Protocol
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 Exponential Moving Averages (EMAs) are trend-following, lagging indicators that apply more weight to the most recent price data. Unlike Simple Moving Averages (SMAs), EMAs react more quickly to price changes, making them useful for identifying immediate momentum shifts while smoothing out short-term market noise.
 

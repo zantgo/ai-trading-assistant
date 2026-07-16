@@ -1,5 +1,8 @@
 # Williams %R (14)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 Williams %R is a momentum oscillator that measures where the current close sits relative to the highest high over a lookback period, normalized to a [-100, 0] scale. It is the inverse of the Fast Stochastic — where Stochastic shows close relative to the lowest low, Williams %R shows close relative to the highest high. Readings above -20 indicate overbought conditions (bearish); readings below -80 indicate oversold conditions (bullish). It is used alongside RSI and Stochastic for multi-oscillator confluence checks, particularly for identifying momentum divergences and cyclical turning points.
 

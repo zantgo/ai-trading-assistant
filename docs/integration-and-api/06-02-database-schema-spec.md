@@ -1,477 +1,444 @@
 # Database Schema Specification
 
-**Version:** 2.2 (now **22 active live tables** + **1 deferred table (DB-05 `order_fills`)** listed for forward compatibility). The active set: `market_snapshots`, `individual_indicator_logs`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`. This version adds full column tables for the previously stub-only entries (`position_slots`, `position_equity_snapshots`, `portfolio_equity_history`, `decision_profiles`, `profile_indicators`, `user_trades`, `exchange_keys`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `trade_learning_journal`) and extends `active_positions` with `stop_loss_price`/`take_profit_price`, `paper_balances` with persistent safety state (`active_stance`/`starting_session_equity`/`peak_equity`/`cooldown_start_ms`), and renames the legacy `final_invalidation_level` to `invalidation_level`. See the §3 section expansions and migration footnotes.
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
 **Status:** Approved
 **Purpose:** This document specifies the SQLite database schema — all persistent tables, indexes, WAL configuration, and migration strategy for the Trading Platform's shared telemetry store.
 
+**Active tables (24):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0).
+
+**Deferred (forward-compatibility only):** none.
+
 ---
 
-## 1. Database Technology
+## 1. Database Engine & Configuration
 
 | Property | Value |
-|----------|-------|
-| Engine | SQLite (auto-created at `./telemetry.db` on first launch) |
-| WAL mode | Enabled (Write-Ahead Logging) |
-| Synchronous level | `NORMAL` |
-| Connection pool | `sqlx` SQLite pool |
-| Migration strategy | Versioned `.sql` files applied sequentially by `sqlx::migrate!()` |
-| Configuration source | **`config.json`** at workspace root (single source of truth; see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md)). The DB tables hold session-scoped local fallbacks; precedence is detailed in §3.0. |
+|---|---|
+| Engine | **SQLite** with WAL (`journal_mode = WAL`), `synchronous = NORMAL`, `foreign_keys = ON` |
+| Driver | `rusqlite` (bundled) |
+| File | `./telemetry.db` at workspace root (`telemetry.db` local to CLI engine instance; cloud-headless setups use `rsync`, `scp`, or cloud-synced volumes) |
+| Migration | `crates/engine/src/db/migrations.rs` — applied on engine startup via `apply_pending_migrations()` |
+
+### 1.1 Type conventions
+
+| Logical Type | SQLite DDL |
+|---|---|
+| Auto-increment ID | `INTEGER PRIMARY KEY AUTOINCREMENT` |
+| Timestamp (epoch ms) | `INTEGER NOT NULL` |
+| Timestamp (epoch sec) | `INTEGER NOT NULL` |
+| `Decimal` (price, size, capital) | `TEXT NOT NULL CHECK (value GLOB '[+-]?[0-9]*([.][0-9]*)?')` — serializes via `rust_decimal::Decimal::to_string()` |
+| Nullable value (optional Decimal) | `TEXT CHECK (value IS NULL OR value GLOB '[+-]?[0-9]*([.][0-9]*)?')` — distinguishes `NULL` (inherit global) from the canonical pattern (e.g. `"0"` = disable) |
+| Boolean | `INTEGER NOT NULL CHECK (value IN (0, 1))` |
+| JSON value | `TEXT NOT NULL CHECK (json_valid(value))` |
+| JSON array | `TEXT NOT NULL CHECK (json_valid(value))` (always JSON, even for empty — the platform distinguishes JSON-empty from key-omitted via `json_valid` + presence) |
+| JSON value (nullable) | `TEXT` (no CHECK) |
+| String (enum union) | `TEXT NOT NULL CHECK (value IN (...))` |
+| Foreign key | `INTEGER REFERENCES other_table(id) ON DELETE …` (only on the few FKs that exist — most references are denormalized config identifiers) |
+
+All `Decimal` fields are serialized via `rust_decimal::Decimal::to_string()` and deserialized via `Decimal::from_str()`. The wire-format docs in [`02-07-metrics-matrix.md`](../matrices/02-07-metrics-matrix.md), [`02-09-overview-matrix.md`](../matrices/02-09-overview-matrix.md), and [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md) mirror the same convention.
+
+### 1.2 Schema-version invariant
+
+Every table includes a `_schema_version` row in its body documentation. Migrations bump this column when the schema for that table changes. The engine refuses to start if the database `user_version` does not match the schema-version compatibility window — see §11.
 
 ---
 
-## 2. WAL & Retention Policy
+## 2. Indexes & Query Performance
 
+Indexes are created on each table for the query patterns the engine actually uses:
+
+| Index | Columns | Use |
+|---|---|---|
+| `idx_market_snapshots_pair_time` | `(pair_key, timeframe_secs, timestamp DESC)` | Replay history fetch |
+| `idx_market_snapshots_completed` | `(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1` | MME pipeline (only completed snapshots) |
+| `idx_open_orders_state` | `(state, instance_id, timestamp)` | Live order lifecycle queries |
+| `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
+| `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
+| `idx_risk_control_events_pair_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
+| `idx_risk_control_events_operator` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local_operator"`) |
+| `idx_order_fills_trade` | `(trade_id)` | Per-fill PAE reconstruction |
+| `idx_order_fills_order` | `(order_id)` | Per-order fill chain |
+| `idx_connection_quality_samples_pair_window_time` | `(pair_key, window, timestamp_ms DESC)` | Connection-quality queries |
+
+---
+
+## 3. Active Table Catalog
+
+Tables are grouped by ownership. Each entry shows the canonical schema (DDL-style), invariants, and migration notes. The `id` column is `INTEGER PRIMARY KEY AUTOINCREMENT` unless explicitly noted.
+
+### 3.1 `market_snapshots` — MME telemetry persistence (DIE ownership)
+
+The primary time-series table — one row per completed candle, paired with the rolled-up MME matrix outputs that ride the WS `MarketSnapshot`.
+
+```sql
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair_key TEXT NOT NULL,
+    timeframe_secs INTEGER NOT NULL,
+    timestamp INTEGER NOT NULL,
+    is_completed INTEGER NOT NULL DEFAULT 1,
+    exchange TEXT NOT NULL,
+    mid_price TEXT NOT NULL CHECK (mid_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    bid_price TEXT NOT NULL CHECK (bid_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    ask_price TEXT NOT NULL CHECK (ask_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    bid_size TEXT NOT NULL CHECK (bid_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    ask_size TEXT NOT NULL CHECK (ask_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    funding_rate TEXT CHECK (funding_rate GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    open TEXT NOT NULL CHECK (open GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    high TEXT NOT NULL CHECK (high GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    low TEXT NOT NULL CHECK (low GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    close TEXT NOT NULL CHECK (close GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    volume TEXT NOT NULL CHECK (volume GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    average_volume TEXT CHECK (average_volume GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    open_interest TEXT CHECK (open_interest GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    oi_delta_1h TEXT CHECK (oi_delta_1h GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    prev_day_px TEXT CHECK (prev_day_px GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    reconstructed INTEGER NOT NULL DEFAULT 0,
+    reconstruction_method TEXT CHECK (reconstruction_method IS NULL OR reconstruction_method IN ('EXCHANGE_HISTORICAL','EXPONENTIAL_MOVING_AVERAGE','LINEAR_EXTRAPOLATION','UNAVAILABLE')),
+    indicators_json TEXT NOT NULL CHECK (json_valid(indicators_json)),
+    liquidity_json TEXT CHECK (liquidity_json IS NULL OR json_valid(liquidity_json)),
+    cluster_json TEXT CHECK (cluster_json IS NULL OR json_valid(cluster_json)),
+    liquidity_signals_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(liquidity_signals_json)),
+    alignment_json TEXT CHECK (alignment_json IS NULL OR json_valid(alignment_json)),
+    analysis_json TEXT CHECK (analysis_json IS NULL OR json_valid(analysis_json)),
+    risk_json TEXT CHECK (risk_json IS NULL OR json_valid(risk_json)),
+    advisory_json TEXT CHECK (advisory_json IS NULL OR json_valid(advisory_json)),
+    decision_context_json TEXT CHECK (decision_context_json IS NULL OR json_valid(decision_context_json)),
+    context_json TEXT CHECK (context_json IS NULL OR json_valid(context_json)),
+    statistical_context_json TEXT CHECK (statistical_context_json IS NULL OR json_valid(statistical_context_json)),
+    risk_profile_json TEXT CHECK (risk_profile_json IS NULL OR json_valid(risk_profile_json))
+);
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_pair_time ON market_snapshots(pair_key, timeframe_secs, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_completed ON market_snapshots(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1;
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_reconstructed ON market_snapshots(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1;
 ```
+
+**Persistence rule.** `market_snapshots` stores the **core candle + MME matrix fields** that are needed for replay and historical backtesting. Fields that are local to the live WS broadcast envelope (e.g. live shadow values that flicker until the next completed candle, the §A.7 `cascade_risk_index` placeholder) are **not persisted** to keep the table tight. The canonical wire contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); live-only fields are computed on the wire and recomputed by the MME during replay. The wire and persistent contracts are deliberately scoped — see `docs/CHANGELOG.md` for the `AUDIT-V4-042` resolution.
+
+**Liquidity signals serialization.** `liquidity_signals_json` is **always serialized** as a JSON array (never omitted via `skip_serializing_if`). An empty signal set produces `"[]"`. This policy is matched by the live `/ws` payload and by [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md).
+
+### 3.2 `open_orders` — TAE order lifecycle (canonical vocabulary)
+
+Persistent record of every order state from `PENDING` onwards. Matched to the canonical Execution Matrix lifecycle in [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md):
+
+```sql
+CREATE TABLE IF NOT EXISTS open_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL UNIQUE,
+    instance_id TEXT NOT NULL,
+    pair_key TEXT NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('LONG', 'SHORT')),
+    state TEXT NOT NULL CHECK (state IN ('PENDING','SUBMITTED','OPEN','PARTIALLY_FILLED','CLOSED','REJECTED','CANCELLED')),
+    requested_size TEXT NOT NULL CHECK (requested_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    filled_size TEXT NOT NULL DEFAULT '0' CHECK (filled_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    entry_price TEXT CHECK (entry_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    stop_loss_price TEXT CHECK (stop_loss_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    take_profit_price TEXT CHECK (take_profit_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    invalidation_level TEXT CHECK (invalidation_level GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    is_reduce_only INTEGER NOT NULL DEFAULT 0,
+    slippage_bps INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    acknowledged_at INTEGER,
+    filled_at INTEGER,
+    close_reason TEXT CHECK (close_reason IS NULL OR close_reason IN ('STOP_LOSS','TAKE_PROFIT','SIGNAL_EXIT','MANUAL','VETO','TIMEOUT','EMERGENCY_LIQUIDATION'))
+);
+CREATE INDEX IF NOT EXISTS idx_open_orders_state ON open_orders(state, instance_id, timestamp);
+```
+
+**Per `03-03-03-tae-layer2-execution.md §4`:** `PRE_DISPATCH` orders are held in process memory only and are **never** persisted to `open_orders`. The `risk_control_events` table (§3.10) is the persistent audit trail for every held order; the `/api/pre-dispatch/*` resource ([`06-01 §2.9`](06-01-api-gateway-contract.md)) is the operator surface.
+
+The `close_reason` vocabulary is canonical: `STOP_LOSS`, `TAKE_PROFIT`, `SIGNAL_EXIT`, `MANUAL`, `VETO`, `TIMEOUT`, `EMERGENCY_LIQUIDATION`. The PAE contract consumes this exact enum without aliasing.
+
+### 3.3 `user_trades` — operator-created manual trades
+
+```sql
+CREATE TABLE IF NOT EXISTS user_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+    outcome TEXT NOT NULL CHECK (outcome IN ('WIN', 'LOSS', 'BREAKEVEN', 'OPEN')),
+    risk_multiplier TEXT NOT NULL CHECK (risk_multiplier GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    reward_multiplier TEXT NOT NULL CHECK (reward_multiplier GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    opened_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    notes TEXT
+);
+```
+
+### 3.4 `paper_balances` — persistent per-instance paper balance
+
+```sql
+CREATE TABLE IF NOT EXISTS paper_balances (
+    instance_id TEXT PRIMARY KEY,
+    balance TEXT NOT NULL CHECK (balance GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    initial_balance TEXT NOT NULL CHECK (initial_balance GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    starting_session_equity TEXT NOT NULL CHECK (starting_session_equity GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    peak_equity TEXT NOT NULL CHECK (peak_equity GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    cooldown_start_ms INTEGER,
+    active_stance TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (active_stance IN ('ACTIVE','CLOSE_ONLY','AVOID','SUSPENDED')),
+    safety_state TEXT NOT NULL DEFAULT 'NORMAL' CHECK (safety_state IN ('NORMAL','WARN','CAUTIOUS','SUSPENDED','DRAWDOWN_STOP')),
+    consecutive_losses INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+```
+
+**Persistence semantics.** `active_stance` (per-symbol authorization: `ACTIVE`, `CLOSE_ONLY`, `AVOID`) and the account-level `safety_state` (`NORMAL`, `WARN`, `CAUTIOUS`, `SUSPENDED`, `DRAWDOWN_STOP`) are both persisted; `consecutive_losses` and `cooldown_start_ms` complete the safety-state reconstruction set. The PME reconstructs the safety-state machine on engine restart from these columns deterministically. See [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and the `AUDIT-V4-046` resolution in `docs/CHANGELOG.md`.
+
+### 3.5 `active_positions` — PME Position Matrix
+
+Persistent per-symbol position state, full Position Matrix schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS active_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    instance_id TEXT NOT NULL,
+    pair_key TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+    entry_price TEXT NOT NULL CHECK (entry_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    average_entry_price TEXT NOT NULL CHECK (average_entry_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    position_size TEXT NOT NULL CHECK (position_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    invalidation_level TEXT CHECK (invalidation_level GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    stop_loss_price TEXT CHECK (stop_loss_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    take_profit_price TEXT CHECK (take_profit_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    current_price TEXT CHECK (current_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    unrealized_pnl TEXT CHECK (unrealized_pnl GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    roi_pct TEXT NOT NULL CHECK (roi_pct GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    opened_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+```
+
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy `roi_percentage` is deprecated and removed at v5.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+
+### 3.6 `position_slots` — scaled-entry reconciliation
+
+```sql
+CREATE TABLE IF NOT EXISTS position_slots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id INTEGER NOT NULL REFERENCES active_positions(id) ON DELETE CASCADE,
+    slot_index INTEGER NOT NULL,
+    size TEXT NOT NULL CHECK (size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    price TEXT NOT NULL CHECK (price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    filled_at INTEGER NOT NULL,
+    UNIQUE (position_id, slot_index)
+);
+CREATE INDEX IF NOT EXISTS idx_position_slots_position_slot ON position_slots(position_id, slot_index);
+```
+
+### 3.7 `paper_trades` and `order_fills` — PAE trade reconstruction (full per-fill, activated)
+
+Two tables together support the PAE contract:
+
+```sql
+CREATE TABLE IF NOT EXISTS paper_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id TEXT NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    exit_reason TEXT NOT NULL CHECK (exit_reason IN ('STOP_LOSS','TAKE_PROFIT','SIGNAL_EXIT','MANUAL','VETO','TIMEOUT','EMERGENCY_LIQUIDATION')),
+    hold_seconds INTEGER NOT NULL,
+    gross_pnl TEXT NOT NULL CHECK (gross_pnl GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    net_pnl TEXT NOT NULL CHECK (net_pnl GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    roi_pct TEXT NOT NULL CHECK (roi_pct GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    open_time INTEGER NOT NULL,
+    close_time INTEGER NOT NULL,
+    MFE TEXT NOT NULL CHECK (MFE GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    MAE TEXT NOT NULL CHECK (MAE GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    entry_vwap TEXT NOT NULL CHECK (entry_vwap GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    exit_vwap TEXT NOT NULL CHECK (exit_vwap GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    flat_trade INTEGER NOT NULL DEFAULT 0
+);
+```
+
+```sql
+CREATE TABLE IF NOT EXISTS order_fills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL,
+    trade_id TEXT NOT NULL,
+    fill_index INTEGER NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('LONG', 'SHORT')),
+    fill_type TEXT NOT NULL CHECK (fill_type IN ('ENTRY', 'EXIT')),
+    filled_size TEXT NOT NULL CHECK (filled_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    fill_price TEXT NOT NULL CHECK (fill_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    target_price TEXT CHECK (target_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    fill_slippage_bps INTEGER NOT NULL DEFAULT 0,
+    fee_currency TEXT NOT NULL CHECK (fee_currency IN ('MAKER', 'TAKER')),
+    fee_paid TEXT NOT NULL CHECK (fee_paid GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    funding_accrued TEXT NOT NULL DEFAULT '0' CHECK (funding_accrued GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    filled_at INTEGER NOT NULL,
+    UNIQUE (trade_id, fill_index)
+);
+CREATE INDEX IF NOT EXISTS idx_order_fills_trade ON order_fills(trade_id);
+CREATE INDEX IF NOT EXISTS idx_order_fills_order ON order_fills(order_id);
+```
+
+`order_fills` is **active in v4.0** (B-6). The PAE contract (`03-05-02 §3`) is now **complete per-fill attribution**: MFE/MAE, slippage (per-fill `target_price - fill_price`), fee attribution, and volume-weighted average entry/exit are all computed from the per-fill rows. See [`03-05-02-pae-layer1-trade-analytics.md`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) §3.
+
+### 3.8 `exchange_keys` — encrypted API credentials (AES-256-GCM)
+
+```sql
+CREATE TABLE IF NOT EXISTS exchange_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id TEXT NOT NULL UNIQUE,
+    exchange TEXT NOT NULL,
+    encrypted_api_key BLOB NOT NULL,
+    encrypted_api_secret BLOB NOT NULL,
+    encrypted_passphrase BLOB,
+    encryption_nonce BLOB NOT NULL,
+    encryption_algorithm TEXT NOT NULL DEFAULT 'AES-256-GCM' CHECK (encryption_algorithm = 'AES-256-GCM'),
+    created_at INTEGER NOT NULL,
+    last_rotated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exchange_keys_exchange ON exchange_keys(exchange);
+```
+
+> **Encrypted credentials only.** `config.json` holds no secret material — all API keys, secrets, and passphrases live in this table, encrypted at rest with `EXCHANGE_SECRET_KEY` (master key from environment variable). The contract is in [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md).
+
+### 3.9 `connection_quality_samples` — per-instance uptime telemetry
+
+Instance-scoped in v4.0. See the §3.10 audit-v4 migration for the column-pair-key:
+
+```sql
+CREATE TABLE IF NOT EXISTS connection_quality_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pair_key TEXT NOT NULL,
+    timeframe_secs INTEGER NOT NULL,
+    timestamp_ms INTEGER NOT NULL,
+    window TEXT NOT NULL CHECK (window IN ('ONE_HOUR', 'SIX_HOUR', 'TWENTY_FOUR_HOUR')),
+    uptime_pct REAL NOT NULL,
+    disconnect_count INTEGER NOT NULL,
+    avg_reconnect_ms REAL NOT NULL,
+    total_data_loss_secs INTEGER NOT NULL,
+    reconstructed_candles INTEGER NOT NULL,
+    score REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cq_pair_timeframe_window_time ON connection_quality_samples(pair_key, timeframe_secs, window, timestamp_ms DESC);
+```
+
+### 3.10 `risk_control_events` — gate-rejection and override audit (new in v4.0)
+
+Every pre-trade gate failure (Gates 1–7) and every operator override is logged with the local-operator identity, gate id, decision, prior state, resulting state, and a retention timestamp:
+
+```sql
+CREATE TABLE IF NOT EXISTS risk_control_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    policy_id TEXT,
+    instance_id TEXT NOT NULL,
+    gate_id INTEGER NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('BLOCK', 'HELD_FOR_REVIEW', 'MODIFIED_AND_CONTINUED', 'CLIP_AND_CONTINUE', 'OVERRIDE')),
+    reason TEXT NOT NULL,
+    requested_disposition TEXT NOT NULL,
+    operator_id TEXT NOT NULL DEFAULT 'local_operator' CHECK (operator_id IN ('local_operator', 'anonymous')),
+    prior_state TEXT,
+    resulting_state TEXT,
+    pre_dispatch_order_id TEXT,
+    timestamp_ms INTEGER NOT NULL,
+    retention_until_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rce_instance_gate_time ON risk_control_events(instance_id, gate_id, timestamp_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator_id, timestamp_ms DESC);
+```
+
+`operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` is reserved for cases where the API layer forwards without an explicit identity (not currently surfaced). Caller-supplied identity via `X-Operator-Id` is on the v5.0 roadmap.
+
+### 3.11 — 3.24 Remaining tables
+
+The remaining 14 tables retain their pre-v4.0 schemas with two v4.0 updates that apply consistently across the corpus:
+
+- `decimal_value` columns use the same `CHECK (value GLOB ...)` constraint pattern as the canonical schema.
+- Foreign keys are added only where the relationship is genuinely relational (most references are denormalized config identifiers like `policy_id`/`instance_id` strings and are not FKs).
+
+The unchanged tables:
+
+- `position_equity_snapshots` — per-position mark-to-market history.
+- `paper_trades` — see §3.7.
+- `portfolio_equity_history` — account-level equity snapshot history.
+- `decision_profiles`, `profile_indicators`, `risk_profiles`, `saved_edges`, `edge_analytics_cache` — profile management; the `policy_id` field on `strategy_analytics_history` references a config string key, not a relational FK (see §3.5 above).
+- `trade_telemetry_history`, `trade_learning_journal` — manual-trade journaling.
+- `support_resistance_levels` — cached S/R levels from the `support_resistance` indicator.
+- `liquidation_events` — raw liquidation event log (Phase 1 input).
+- `performance_matrix_snapshots`, `strategy_analytics_history` — PAE snapshot history.
+
+---
+
+## 4. Live Order Lifecycle (`open_orders` ↔ `order_fills`)
+
+A trade's reconstruction:
+
+1. `open_orders` transitions `PENDING → SUBMITTED → OPEN → PARTIALLY_FILLED → CLOSED` (or `REJECTED` / `CANCELLED`). Each persistent transition is timestamped.
+2. For every fill at an exchange, a matching `order_fills` row is inserted with the same `order_id`. Multi-fill orders produce multiple `order_fills` rows, indexed by `fill_index`.
+3. When the `open_orders.state` reaches `CLOSED`, the matching `paper_trades` row is reconciled from the `order_fills` rows (entry VWAP, exit VWAP, slippage, fees, funding). The `exit_reason` is the canonical vocabulary (§3.2).
+
+`PRE_DISPATCH` orders (Gate 5 slippage ceiling) sit in **process memory only**. They are not persisted to `open_orders` (the in-memory order is lost on restart). The audit trail lives in `risk_control_events` with `decision = 'HELD_FOR_REVIEW'` and the operator action logged separately when the order is approved or discarded.
+
+---
+
+## 5. Reconstructed Candle Marker
+
+A `market_snapshots` row with `reconstructed = 1` carries a `reconstruction_method`:
+
+- `EXCHANGE_HISTORICAL` — restored from the venue's REST historical API.
+- `EXPONENTIAL_MOVING_AVERAGE` — synthesised via the EMA fallback for sub-minute timeframes (≥ 50 history points).
+- `LINEAR_EXTRAPOLATION` — synthesised via the linear extrapolation of the last two closes for sub-minute timeframes (2 ≤ N < 50). *(Renamed from `LinearInterpolation` in v4.0 — the formula projects beyond the last known close, not between two endpoints. See [`08-04-candle-reconstruction.md`](../operations-and-compliance/08-04-candle-reconstruction.md) §Linear Extrapolation.)*
+- `UNAVAILABLE` — the reconstructor cannot produce a value (insufficient history). The platform emits a `INSUFFICIENT_DATA` `state_label` for downstream consumers.
+
+---
+
+## 6. WAL & Concurrency
+
+```sql
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+PRAGMA temp_store = MEMORY;
 ```
 
-- **Busy timeout:** 5 seconds.
-- **Shadow-snapshot exclusion:** The telemetry logger rejects any `MarketSnapshot` with `is_completed == false` before writing; only finalized candle closes are persisted (see §3.1.1).
-- **Snapshot purge:** Completed snapshots older than 7 days are cleaned on startup and hourly by the telemetry logger.
-- **Equity purge:** Portfolio equity history records older than 30 days are cleaned.
-- **Connection-quality retention:** `connection_quality_samples` rows older than 7 days are cleaned on startup and hourly.
-- **Liquidation-event retention:** `liquidation_events` rows older than 90 days are cleaned on startup and hourly.
-- **PAE retention:** `performance_matrix_snapshots` and `strategy_analytics_history` rows older than 365 days are cleaned on startup and daily.
+The engine holds a single writer connection per process. Read concurrency is achieved via `SQLITE_OPEN_FULLMUTEX`. The telemetry DB is **single-node, single-process**; horizontal scaling is not a v4.0 feature (see `docs/CHANGELOG.md`).
 
 ---
 
-## 3. Table Catalog (22 Live + 1 Deferred)
+## 7. Encryption
 
-### 3.0 Configuration Precedence
-
-The single source of configuration truth is **`config.json`** at the workspace root, as documented in [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md). The DB tables `risk_profiles` (§3.6) and `paper_balances` (§3.2) hold **session-scoped local fallbacks** for values not present in `config.json`.
-
-**Precedence rules:**
-
-1. **For values present in multiple sources** (most-recent override wins):
-   - `paper_balances` row (`POST /api/instances/:id/config`) — instance-level override.
-   - `risk_profiles` row (`POST /api/risk-profiles`) — profile-level override.
-   - `config.json` — global default (loaded at startup; not auto-overwritten by GUI).
-
-2. **For values present in only one source**: the existing value is used; no override.
-
-3. **For values absent from all sources**: the engine falls back to hard-coded defaults.
-
-The precedence is enforced by the engine loader at startup and verified on every `POST /api/config` round-trip. Note: `config.json` is **mutable** via explicit `POST /api/config` calls but is **not auto-overwritten** by routine GUI runtime edits (those go to `risk_profiles` or `paper_balances`).
-
-### 3.1 Core Telemetry
-
-#### `market_snapshots`
-The primary time-series table — **one row per completed candle** (see §3.1.1 for the shadow-snapshot exclusion). Market/quote fields are stored as native columns; the full indicator evaluation map is stored as a single structured JSON document, avoiding per-indicator column migrations as the registry grows.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | SERIAL PK | Auto-increment. |
-| `exchange` | TEXT | Hyperliquid / Bitget. |
-| `symbol` | TEXT | Unified internal symbol. |
-| `timeframe_secs` | INTEGER | Candle duration. |
-| `timestamp` | INTEGER | Candle close (Unix epoch). |
-| `mid_price` / `bid_price` / `ask_price` | REAL | Quote snapshot. |
-| `open` / `high` / `low` / `close` | REAL | OHLC. |
-| `volume` / `average_volume` | REAL | Volume. |
-| `trades_count` | INTEGER | Number of trades aggregated into the candle. |
-| `reconstruction_method` | TEXT | Provenance flag for reconstructed candles. Values: `ExchangeHistorical` / `ExponentialMovingAverage` / `LinearInterpolation` / `Unavailable`. NULL for live candles. **Note (v2.1 — naming alignment):** the in-memory Rust struct uses the field name `reconstructed: Option<ReconstructionMethod>` (see [02-06-market-data-matrix.md](../matrices/02-06-market-data-matrix.md) §3 and `crates/shared/src/normalized.rs::NormalizedCandle`); the database column is `reconstruction_method`. The persistence layer maps the Rust `reconstructed` field to the SQLite `reconstruction_method` column on insert/select. When a candle has no reconstruction provenance (live data), the Rust field is `None` (omitted on the wire via `skip_serializing_if`), and the SQLite column stores `NULL`. |
-| `indicators_json` | TEXT | **Single JSON document** holding the entire indicator evaluation map — every indicator's `normalized`, `state_label`, `raw_value`, and nested `signals` array, plus structural series (Bollinger, ATR, VWAP, EMA ribbon, MACD, ADX, Squeeze, BBWP, S/R levels, Fibonacci levels). Mirrors the Metrics Matrix indicator block 1:1. |
-| `liquidity_json` | TEXT | JSON-serialized `LiquidityFlow` snapshot (Phase 1, nullable). NULL when liquidity extension disabled. |
-| `cluster_json` | TEXT | JSON-serialized `LiquidationClusterMatrix` snapshot (Phase 2, nullable, 5-min refresh). NULL when liquidity extension disabled. |
-| `liquidity_signals_json` | TEXT | JSON-serialized `Vec<LiquiditySignal>` (Phase 3, per-snapshot, derived from `liquidity_json` + `cluster_json`). NULL when liquidity extension disabled. |
-
-> **Precision boundary.** Columns storing financial values use SQLite REAL (IEEE 754 f64). The cold-path Decimal precision invariant is preserved at the Rust engine boundary (engine code converts REAL ↔ `rust_decimal::Decimal` on read/write); SQLite REAL is acceptable for **telemetry and historical analytics** per the architectural exception documented in [01-02-global-architecture.md §6.2](../conceptual-foundations/01-02-global-architecture.md). The Decimal precision guarantee applies to **active position math** (TAE/PME) which never reads from SQLite on the hot path.
-
-**Rationale:** A single JSON document decouples the persistence schema from the indicator registry. Adding, removing, or re-phasing an indicator requires **no SQLite migration** — only the serializer changes. This trades a small read-time parse cost for zero schema churn across the 50-entry (and growing) registry.
-
-**Indexes:**
-- `(symbol, timeframe_secs, timestamp DESC)` — primary time-series lookup.
-- ML feature-vector access uses **SQLite JSON1 expression indexes** over hot keys, e.g. `CREATE INDEX idx_ms_rsi ON market_snapshots (json_extract(indicators_json, '$.rsi.normalized'))`. New feature indexes are added without altering the table structure.
-
-#### 3.1.1 Shadow Snapshot Exclusion
-
-The telemetry logger **persists only finalized candle closes**. Any incoming `MarketSnapshot` with `is_completed == false` (a real-time "shadow" flicker snapshot streamed on every tick for live UI updates) is **rejected before the write path** and never reaches disk. This guarantees `market_snapshots` holds exactly one row per completed candle and prevents tick-cadence write-lock contention and unbounded database growth. The `is_completed` flag itself is not stored — every persisted row is, by construction, a completed candle.
+- `exchange_keys.encrypted_*` columns use **AES-256-GCM** with the master key loaded from the `EXCHANGE_SECRET_KEY` environment variable (32 bytes; if absent, the engine panics on startup with a descriptive error).
+- `nonce = random 96-bit per row`. AEAD tag is appended to the ciphertext column.
+- Key rotation: rotate the master key by deploying `crypto_kms_rotate` (or equivalent) — both the `last_rotated_at` column and a fresh `nonce` per row make re-encryption safe.
 
 ---
 
-### 3.2 Position & Trading State
+## 8. Backups & Replication
 
-#### `active_positions`
-One active position per symbol. Field names **align with `03-04-02-pme-layer1-position.md §3`** (positions are written/read by the PME Position Layer).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `symbol` (UNIQUE) | TEXT | Trading pair key (e.g. `BTC-USDT`). |
-| `direction` | TEXT | `LONG` / `SHORT`. |
-| `entry_price` / `average_entry_price` | REAL / REAL | Entry reference and VWAP. |
-| `size` | REAL | Current base-currency size. |
-| `allocated_usd` | REAL | Margin allocated at entry. |
-| `entry_timestamp` | INTEGER | Entry fill timestamp (ms since epoch). |
-| `invalidation_level` | REAL | Structural invalidation price (`Decimal` semantics; stored as `REAL` for telemetry per §3.1 architectural exception). **Renamed from `final_invalidation_level` in v2.1** to align with the canonical `invalidation_level` name used by the Opportunity Matrix and Decision Matrix. Migration `2026XXXX03_rename_invalidation.sql` handles the destructive rename. |
-| `stop_loss_price` | REAL | Active stop-loss price coordinate (`Decimal` semantics). **Persisted (DB-03)**: previously in-memory only; restored on cold-start so an engine restart does not open the user to unhedged exposure. |
-| `take_profit_price` | REAL | Active take-profit price coordinate (`Decimal` semantics). **Persisted (DB-03)**: symmetric to `stop_loss_price`. |
-| `target_profit_ratio` | REAL | Target R:R ratio (e.g. `2.5`). |
-| `current_portions` | INTEGER | Active portion count (legacy 4-slot state). |
-| `initial_allocated_margin` | REAL | Lifecycle capital tracker. |
-| `realized_pnl_accumulator` | REAL | Lifecycle realized PnL. |
-
-#### `position_slots`
-4-slot dynamic margin state machine for scaled entries (`03-04-03-pme-layer2-exposure.md`).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `position_id` (FK) | INTEGER | References `active_positions(id)`. `ON DELETE CASCADE`. |
-| `symbol` | TEXT | Trading pair key. |
-| `direction` | TEXT | `LONG` / `SHORT` (`CHECK (direction IN ('LONG','SHORT'))`). |
-| `slot_index` | INTEGER | `0`–`3` (`CHECK (slot_index BETWEEN 0 AND 3)`). |
-| `is_active` | INTEGER (0/1) | Active flag for the slot. |
-| `entry_price` / `size` / `allocated_usd` | REAL | Per-slot entry data. |
-| `realized_pnl` | REAL | Per-slot realized PnL. |
-| `timestamp` | INTEGER | Slot open timestamp. |
-
-**Indexes:**
-- `idx_position_slots_active (position_id, slot_index)` partial — `WHERE is_active = 1`.
-- `idx_position_slots_symbol (symbol, is_active)`.
-
-#### `position_equity_snapshots`
-Time-series equity valuations per symbol (per-position equity curve for GUI).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `symbol` | TEXT | Trading pair key. |
-| `timestamp` | INTEGER | Snapshot time (ms since epoch). |
-| `equity_value` | REAL | Mark-to-market equity including unrealized PnL. |
-| `cash_balance` | REAL | Realized cash at snapshot. |
-| `unrealized_pnl` | REAL | Open-position PnL at snapshot. |
-
-**Indexes:**
-- `idx_pos_equity_ts (symbol, timestamp ASC)`.
-
-#### `open_orders`
-Unified order management. Note: orders in `PRE_DISPATCH` state (held by Gate 5 slippage review, see [08-02-pre-trade-risk-controls.md §3.2](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) are **not** persisted here — only post-exchange-acknowledgement orders are recorded.
-
-| Column | Type |
-|--------|------|
-| `id` | SERIAL PK |
-| `order_id` | TEXT (UNIQUE) | Exchange-assigned order ID (post-acknowledgement). |
-| `client_order_id` | TEXT | Engine-assigned client order ID for reconciliation. |
-| `symbol` | TEXT |
-| `order_type` | TEXT (LIMIT / STOP / MARKET) |
-| `direction` | TEXT (BUY / SELL) |
-| `state` | TEXT (OPEN / FILLED / PARTIALLY_FILLED / CANCELED / REJECTED / EXPIRED) |
-| `price` / `trigger_price` | REAL |
-| `size` | REAL |
-| `is_reduce_only` | INTEGER (0/1) |
-| `is_emergency_liquidation` | INTEGER (0/1) | True for Hard Exit path orders (bypasses pre-trade gates). |
-| `associated_position_id` | INTEGER |
-| `created_at` | INTEGER |
-| `acknowledged_at` | INTEGER | Exchange acknowledgement timestamp (used to enforce cancellation timing per [PME Layer 4 §4.2](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
-
-#### `paper_balances`
-Per-symbol capital config + **persistent safety state**. `committed_margin`, `unrealized_pnl`, and `available_margin` are **derived metrics** computed on-demand from `active_positions` and `open_orders` — they are **not** persisted as columns. The startup recovery process recomputes them from the persisted `active_positions` and `open_orders` rows using the canonical formula in [PME Layer 3 §4.2](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `symbol` (UNIQUE) | TEXT | Trading pair key. |
-| `initial_usd` | TEXT (Decimal-precision) | Starting capital allocated to this symbol. **Migrated from REAL to TEXT** for full `rust_decimal::Decimal` precision per migration `2026XXXX05_paper_balances_decimal.sql`. The Decimal precision invariant applies at the cold-path edge; SQLite TEXT round-trips exactly. |
-| `current_cash` | TEXT (Decimal-precision) | **Absolute cash balance** = `initial_usd + SUM(paper_trades.realized_pnl)` (see DB-17 below). The column stores the absolute balance, not the realized-PnL relative metric — the conceptual seam is `realized_pnl = current_cash − initial_usd`. |
-| `allocation_pct` | REAL | Fraction of total capital allocated to this symbol. |
-| `auto_execute` | INTEGER (0/1) | Enable automated execution. |
-| `auto_execute_intervals` | INTEGER | Number of timeframe intervals to evaluate per cycle. |
-| `max_risk_pct` | TEXT (Decimal-precision) | Per-trade risk cap. |
-| `leverage` | INTEGER | Maximum cross leverage. |
-| `lookback_trades` | INTEGER | Rolling lookback for analytics. |
-| `break_even_trail_enabled` | INTEGER (0/1) | Enable break-even trailing stop. (Added in migration `20260703000000_break_even_trail.sql`.) |
-| `active_stance` | TEXT NOT NULL DEFAULT `'ACTIVE'` | Per-symbol authorization (`ACTIVE` / `CLOSE_ONLY` / `AVOID`). **Persisted (DB-07)** since migration `2026XXXX01_persistent_safety_state.sql` — previously in-memory only, which meant an engine restart reset the active safety veto to `default_stance` and bypassed cooldowns. |
-| `starting_session_equity` | TEXT NOT NULL DEFAULT `'0'` | Equity recorded at the most recent session-reset boundary (operator-defined `session_reset_cron`, default `00:00 UTC`). Used for the `max_daily_drawdown_pct` warning. **Persisted (DB-04)**. |
-| `peak_equity` | TEXT NOT NULL DEFAULT `'0'` | Trailing high-water mark. The 30 % drawdown veto evaluates `current_equity / peak_equity < 1 − drawdown_limit_pct`. **Persisted (DB-04)** — without this column the early-warning system cannot survive engine restart. |
-| `cooldown_start_ms` | INTEGER | Timestamp (ms since epoch) at which a symbol entered the `SUSPENDED` cooldown state. **Persisted (DB-18)**. NULL when not on cooldown. |
-
-#### `paper_trades`
-Closed paper-trade history.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `symbol` / `direction` | TEXT / TEXT | Trading pair / LONG or SHORT. |
-| `entry_price` / `exit_price` / `size` | REAL / REAL / REAL | Entry/exit fill and base-currency size. |
-| `realized_pnl` / `roi_pct` | REAL / REAL | Net PnL after fees / ROI percentage. `roi_pct` is the canonical key (not `roi_percentage`); see DB-20 below. |
-| `entry_timestamp` / `exit_timestamp` | INTEGER / INTEGER | Fill timestamps (ms since epoch). |
-| `flat_trade` | INTEGER (0/1) | `1` if `|gross_pnl| == 0` (used to suppress division-by-zero in `profit_factor` and `fee_efficiency`). |
-| `trigger` | TEXT | Originating policy/trigger identifier. |
-| `hold_time_seconds` | INTEGER | Duration of the trade (seconds from entry fill to final exit fill). Persisted per PAE Layer 1 requirement (DB-09). |
-| `execution_slippage` | REAL | Target-vs-actual execution slippage (bps). Persisted per PAE Layer 1 (DB-09). |
-| `mfe` / `mae` | REAL / REAL | Maximum Favorable / Adverse Excursion. Persisted per PAE Layer 1 (DB-09). |
-| `exit_reason` | TEXT | Exit cause (e.g. `STOP_HIT`, `TARGET_HIT`, `INVERSE_SIGNAL`, `DRAWDOWN_STOP`). Persisted per PAE Layer 1 (DB-09). |
+`telemetry.db` is a single SQLite file. Operators back it up with `sqlite3 telemetry.db ".backup telemetry-$(date +%Y%m%d-%H%M%S).db"` (the `.backup` command is online-safe). For multi-host setups, operators replicate via `rsync` or `rclone` snapshots of the file plus its `WAL` companion (`telemetry.db-wal`) — see [`01-02-global-architecture.md §4.4`](../conceptual-foundations/01-02-global-architecture.md).
 
 ---
 
-### 3.3 Decision & Intelligence
+## 9. Migration Strategy
 
-#### `decision_profiles`
-Scoring profiles.
+Migrations live in `crates/engine/src/db/migrations.rs`. The schema-version compatibility window is `user_version = N` where `N` is the most-recent migration applied. The engine refuses to start if `user_version` is **lower** than the minimum required version (no forward-only compatibility — re-run the migrations). Backward compatibility (newer code reading older `user_version`) is supported up to two minor versions.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `profile_name` (UNIQUE) | TEXT | Display key. |
-| `long_threshold` | INTEGER | Threshold above which a directional bias is LONG. Default `40`. |
-| `short_threshold` | INTEGER | Threshold below which a directional bias is SHORT. Default `-40`. |
+The canonical v4.0 migration set adds three changes:
 
-#### `profile_indicators`
-Per-profile indicator weight rules (FK → `decision_profiles` ON DELETE CASCADE).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `profile_id` (FK) | INTEGER | References `decision_profiles(id)`. |
-| `indicator_name` | TEXT | Display key (e.g. `RSI (Oversold/Overbought)`). |
-| `weight` | INTEGER | Multiplier. Default `10`. |
-| `override_status` | TEXT | `NONE` / `OVERRIDE` / `EXCLUDE`. Default `'NONE'`. |
-
-#### `risk_profiles`
-Risk management configuration. **All Decimal fields migrated to TEXT** in `20260715200000_risk_profiles_decimal.sql` for full `rust_decimal::Decimal` precision.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `profile_name` (UNIQUE) | TEXT | Profile display key. |
-| `capital` | TEXT (Decimal-precision) | Allocated capital. Default `'1000'`. |
-| `max_risk_pct` | TEXT (Decimal-precision) | Per-trade risk cap. Default `'2'`. |
-| `leverage` | INTEGER | Cross-leverage multiplier. Default `20`. |
-| `commission_pct` | TEXT (Decimal-precision) | Commission rate. Default `'0.06'` (0.06 %). |
-| `funding_rate_8h` | TEXT (Decimal-precision) | Funding rate per 8-hour window (the canonical Decimal-precision column, intentionally added to this spec — `06-02 §3.3` previously listed the column in prose but omitted it from the table). Default `'0'`. |
-| `spread` | TEXT (Decimal-precision) | Spread cost basis. Default `'0'`. |
-
-> **Note (v2.1 — clarification).** `funding_rate_8h` **is** stored in `risk_profiles` (column type `TEXT` for full `rust_decimal::Decimal` precision after migration `20260715200000_risk_profiles_decimal.sql`). The runtime uses the per-profile value when present, falling back to the global `config.json` `fees.funding_rate_8h` (default `0.01` = 0.01 % per 8 hours) when the profile value is `0` or unset. **Canonical unit.** Like `risk_per_trade_pct`, `funding_rate_8h` is a **percent float** at the wire/config boundary and is divided by 100 to obtain a fraction inside the engine for accrual computation. See [03-03-05-tae-paper-trading-spec.md §4](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md) and `crates/engine/src/risk_calculator.rs::compute_risk_from_profile` (line 187) for the authoritative consumer.
+1. **`open_orders` state vocabulary unification** — replaces any prior state literals with the canonical lifecycle from `03-03-03-tae-layer2-execution.md §4`.
+2. **`risk_control_events` new table** — populated retroactively from any prior in-memory audit log; if absent, history before v4.0 is uncovered (operator-visible notice on first launch).
+3. **`order_fills` activation** — added (live); the PAE contract is upgraded to per-fill attribution.
+4. **`market_snapshots` partial-persistence scope** — schema unchanged; column-level persistence scope documented in §3.1 (the wire contract remains authoritative).
+5. **`connection_quality_samples` instance + timeframe scope** — adds `timeframe_secs` and reindexes `idx_cq_pair_window_time` → `idx_cq_pair_timeframe_window_time`. Existing rows from earlier versions may lack the new `timeframe_secs` column and require the migration to default to `60` (micro).
+6. **`liquidity_signals_json` always-present policy** — `DEFAULT '[]' CHECK (json_valid(...))`; migration backfills `'[]'` for any prior `NULL` or absent row.
+7. **`funding_rate_8h` nullable semantics** — column type changes from `TEXT NOT NULL '0'` to `TEXT` (nullable) with `CHECK (value IS NULL OR value GLOB ...)`. Existing `0` literals remain `0` (= explicit-disable); missing values become `NULL` (= inherit global). See [`06-01 §2.5 / §2.6`](06-01-api-gateway-contract.md).
 
 ---
 
-### 3.4 Performance & Observability
+## 10. Cross-References
 
-#### `portfolio_equity_history`
-Equity snapshots (60 s cadence). Index on `timestamp DESC`. 30-day retention.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `timestamp` | INTEGER (NOT NULL) | Snapshot time (ms since epoch). |
-| `total_value` | REAL | Total portfolio mark-to-market equity. |
-| `cash_balance` | REAL | Realized cash across all symbols (`SUM(paper_balances.current_cash)`). |
-| `unrealized_pnl` | REAL | Sum of open-position unrealized PnL. |
-
-**Indexes:**
-- `idx_equity_history_timestamp_desc (timestamp DESC)`.
-
-#### `trade_telemetry_history`
-Automated trade telemetry (aggregated closed-trade facts).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `exchange` / `symbol` / `direction` | TEXT / TEXT / TEXT | Originating exchange / pair / side. |
-| `entry_timestamp` / `exit_timestamp` | INTEGER / INTEGER | Fill timestamps. |
-| `entry_price` / `exit_price` / `size` | REAL / REAL / REAL | Entry/exit fills and base-currency size. |
-| `commission_fees` / `funding_fees` / `realized_pnl` | REAL / REAL / REAL | Cost components and net PnL. |
-| `roi_pct` | REAL | ROI percentage — **canonical key is `roi_pct`** (not `roi_percentage`); see DB-20 below. |
-| `flat_trade` | INTEGER (0/1) | `1` if `|gross_pnl| == 0`. |
-| `trigger_source` | TEXT | Originating policy/trigger identifier. |
-| `hold_time_seconds` | INTEGER | Trade duration (DB-09). |
-| `execution_slippage` | REAL | Per-trade slippage (DB-09). |
-| `mfe` / `mae` | REAL / REAL | MFE / MAE (DB-09). |
-| `exit_reason` | TEXT | Exit cause (DB-09). |
-
-#### `trade_learning_journal`
-Human-annotated trade journal (FK → `trade_telemetry_history`).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `trade_id` (FK) | INTEGER | References `trade_telemetry_history(id)`. |
-| `entry_date` / `exit_date` | TEXT / TEXT | ISO-8601 dates. |
-| `asset` / `direction` | TEXT / TEXT | Symbol and side. |
-| `entry_reason` | TEXT | Operator's thesis rationale. |
-| `roi_percentage` | REAL | Companion ROI percentage. *(The journal uses `roi_percentage` for legacy reasons and is retained here; the canonical term across `paper_trades` and `trade_telemetry_history` is `roi_pct`. Roadmap: align this column in a future migration.)* |
-| `final_analysis` | TEXT | Operator's post-trade assessment. |
-| `execution_score` | REAL | 0–10 self-evaluation. |
-| `human_notes` | TEXT | Free-form notes. |
-| `created_at` | TEXT | Default `datetime('now')`. |
-
-**Indexes:**
-- `idx_journal_lookup (asset, execution_score DESC)`.
-
----
-
-
-### 3.5 Strategy Configuration
-
-#### `saved_edges`
-Edge strategy persistence.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `name` (UNIQUE) | TEXT | Human-readable edge name. |
-| `pair_key` | TEXT | Trading pair key. |
-| `description` | TEXT | Free-form summary. |
-| `config_payload` | TEXT (NOT NULL) | JSON-serialized policy configuration. |
-| `created_at` | TEXT (NOT NULL) | Default `datetime('now')`. |
-
-**Indexes:**
-- `idx_saved_edges_name (name)`.
-
-#### `edge_analytics_cache`
-Cached analytics per `saved_edges` row (PK = `edge_id`, FK CASCADE).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `edge_id` (PK, FK) | INTEGER | References `saved_edges(id)`. `ON DELETE CASCADE`. |
-| `historical_metrics` | TEXT (NOT NULL) | JSON-serialized metrics. |
-| `monte_carlo_paths` | TEXT (NOT NULL) | JSON-serialized Monte Carlo distribution. |
-| `bootstrap_results` | TEXT (NOT NULL) | JSON-serialized bootstrap statistics. |
-| `generated_at` | TEXT (NOT NULL) | Default `datetime('now')`. |
-
-#### `user_trades`
-User-logged trade outcomes (operator-entered journal-style records).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `timestamp` | INTEGER (NOT NULL) | Submission time. |
-| `symbol` | TEXT (NOT NULL) | Trading pair. |
-| `direction` | TEXT (NOT NULL) | `LONG` / `SHORT`. |
-| `outcome` | TEXT (NOT NULL) | Operator-supplied outcome tag. |
-| `risk_multiplier` | REAL (NOT NULL) | Operator multiplier on baseline risk. |
-| `reward_multiplier` | REAL (NOT NULL) | Operator multiplier on baseline reward. |
-
-#### `exchange_keys`
-Encrypted API credentials (AES-256-GCM, master key from `EXCHANGE_SECRET_KEY` env var).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `exchange` | TEXT (NOT NULL) | `Hyperliquid` / `Bitget`. |
-| `account_name` | TEXT (NOT NULL) | Operator label. |
-| `api_key` | TEXT (NOT NULL) | Encrypted. |
-| `api_secret` | TEXT (NOT NULL) | Encrypted. |
-| `passphrase` | TEXT (NOT NULL, default `''`) | Some exchanges require. |
-| `referred_uid` | TEXT (NOT NULL, default `''`) | Referral UID where required. |
-| `is_active` | INTEGER (NOT NULL, default `0`) | Active flag. |
-| `last_sync_timestamp` | INTEGER | Last successful sync (ms since epoch). |
-
-#### `support_resistance_levels`
-Caches S/R levels per symbol (UNIQUE on `symbol`).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` (PK) | INTEGER | Auto-increment. |
-| `symbol` (UNIQUE) | TEXT (NOT NULL) | Trading pair. |
-| `s1` / `s2` / `s3` | REAL | Support levels. |
-| `r1` / `r2` / `r3` | REAL | Resistance levels. |
-| `calculated_at` | INTEGER (NOT NULL) | Last calculation timestamp. |
-
-#### `order_fills`
-> **Status: deferred (DB-05).** Per-fill table is **not** currently implemented — PAE trade reconstruction currently operates on aggregate `paper_trades` / `trade_telemetry_history` only. Future migration `2026XXXXX_order_fills.sql` to add: `fill_id` (PK), `order_id`, `trade_id`, `parent_position_id`, `exchange`, `symbol`, `side`, `price` (TEXT, Decimal), `size` (TEXT, Decimal), `fee` (TEXT, Decimal), `fee_currency`, `is_maker` (INTEGER), `timestamp_ms` (INTEGER). Defined here for forward compatibility — see [03-05-02-pae-layer1-trade-analytics.md §3, §4](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) for the analytical requirement.
-
----
-
-### 3.6 Extensions (Phase 3+ — Liquidity, Connection Quality, PAE)
-
-#### `connection_quality_samples`
-Time-series connection-quality reports. Written every 60 seconds by `crates/engine/src/connection_quality.rs` background task.
-
-| Column | Type |
-|--------|------|
-| `id` | SERIAL PK |
-| `timestamp_ms` | INTEGER (NOT NULL) |
-| `window` | TEXT (NOT NULL) — `ONE_HOUR` \| `SIX_HOUR` \| `TWENTY_FOUR_HOUR` |
-| `uptime_pct` | REAL (NOT NULL) |
-| `disconnect_count` | INTEGER (NOT NULL) |
-| `avg_reconnect_ms` | REAL (NOT NULL) |
-| `total_data_loss_secs` | INTEGER (NOT NULL) |
-| `reconstructed_candles` | INTEGER (NOT NULL) |
-| `score` | REAL (NOT NULL) |
-
-**Indexes:**
-- `idx_cq_window_time (window, timestamp_ms)`
-
-Retention: 7 days. See [08-05-connection-quality.md](../operations-and-compliance/08-05-connection-quality.md) §Persistence for the source-of-truth behaviour and rolling-window semantics.
-
-#### `liquidation_events`
-Raw per-trade liquidation events ingested from the exchange WebSocket (Phase 1 of the Liquidity Intelligence extension). Source-of-truth for the per-candle `LiquidityFlow` aggregate (see [02-12-liquidity-matrix.md §Schema](../matrices/02-12-liquidity-matrix.md) for the in-memory fields: `long_liquidations_usd`, `short_liquidations_usd`, `net_liquidation_usd`, `event_count`, `largest_event_usd`, `largest_event_price`, `largest_event_side`, `cascade_state`, `cascade_intensity`). The `cascade_risk_index` computation is tracked under [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | SERIAL PK | Auto-increment. |
-| `exchange` | TEXT (NOT NULL) | Originating venue. |
-| `symbol` | TEXT (NOT NULL) | Instrument key. |
-| `side` | TEXT (NOT NULL) | `Long` \| `Short`. |
-| `notional` | REAL (NOT NULL) | Liquidation notional in quote currency. |
-| `price` | REAL (NOT NULL) | Trade price at the moment of liquidation. |
-| `timestamp_ms` | INTEGER (NOT NULL) | Exchange event timestamp. |
-| `received_ms` | INTEGER (NOT NULL) | Local ingest timestamp. |
-
-**Indexes:**
-- `idx_liq_sym_time (symbol, timestamp_ms)`
-- `idx_liq_exchange_time (exchange, timestamp_ms)`
-
-Retention: 90 days per [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md). See [02-12-liquidity-matrix.md §Schema](../matrices/02-12-liquidity-matrix.md) for the in-memory `LiquidityFlow` aggregation contract.
-
-### 3.7 PAE Persistence Tables
-
-#### `performance_matrix_snapshots`
-Snapshot of the [Performance Matrix](../engines/performance-analytics-engine/03-05-05-pae-layer4-performance.md) at scheduled cadence (default 300 s). Used by the GUI for retroactive visualization and by the headless CLI for after-action review.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | SERIAL PK | Auto-increment. |
-| `timestamp_ms` | INTEGER (NOT NULL) | Snapshot write time. |
-| `window_start_ms` | INTEGER (NOT NULL) | First trade timestamp included. |
-| `window_end_ms` | INTEGER (NOT NULL) | Last trade timestamp included. |
-| `regime_compatibility_json` | TEXT (NOT NULL) | Serialized Regime Compatibility Matrix. |
-| `system_metrics_json` | TEXT (NOT NULL) | Serialized Sharpe / Sortino / drawdown summary. |
-| `trade_count` | INTEGER (NOT NULL) | Trade count over the window. |
-
-**Indexes:** `idx_pms_time (timestamp_ms)`
-
-Retention: 365 days.
-
-#### `strategy_analytics_history`
-Statistical-significance history per execution policy (`policy_id`).
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | SERIAL PK | Auto-increment. |
-| `policy_id` | TEXT (NOT NULL) | FK — originating execution policy. |
-| `timestamp_ms` | INTEGER (NOT NULL) | Computation time. |
-| `window_trade_count` | INTEGER (NOT NULL) | Trade count in the analysis window. |
-| `win_rate` | REAL | Win-rate ∈ [0, 1]. |
-| `profit_factor` | REAL | gross_profit / gross_loss. |
-| `expectancy` | REAL | `(win_rate × avg_win) − ((1−win_rate) × avg_loss)`, where `average_loss` is stored as a **positive magnitude** (the mean absolute value of losing-trade PnLs). See [03-05-03-pae-layer2-strategy-analytics.md §2.1](../engines/performance-analytics-engine/03-05-03-pae-layer2-strategy-analytics.md) for the canonical sign convention. |
-| `sharpe` | REAL | Sharpe ratio over the window. |
-| `sortino` | REAL | Sortino ratio over the window. |
-| `t_statistic` | REAL | T-Statistic (one-tailed positive test). |
-| `p_value` | REAL | P-value from one-tailed t-distribution. |
-| `p_mc` | REAL | Monte Carlo sign-randomization empirical probability. |
-| `is_significant` | INTEGER (0/1) | `1` iff `p_value < 0.05` AND `p_mc < 0.05`. |
-| `monte_carlo_runs` | INTEGER (NOT NULL) | MC sample count (default 10 000). |
-
-**Indexes:** `idx_sah_policy_time (policy_id, timestamp_ms)`
-
-Retention: 365 days. See [03-05-03-pae-layer2-strategy-analytics.md §2](../engines/performance-analytics-engine/03-05-03-pae-layer2-strategy-analytics.md) for field provenance.
-
----
-
-## 4. Seeding
-
-A default `'Default'` decision profile (long_threshold=40, short_threshold=−40) with 7 indicator rules and a default `'Risk Profile'` ($1,000 capital, 2% max risk, 20× leverage) are seeded on startup.
-
----
-
-## 5. Cross-References
-
-- [API Gateway Contract](06-01-api-gateway-contract.md) — API surface.
-- [Systemic Data Flow](../conceptual-foundations/01-03-systemic-data-flow.md) — Data flows.
-- [PAE Overview](../engines/performance-analytics-engine/03-05-01-pae-overview-spec.md) — Performance database consumption.
-- [TAE Paper Trading](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md) — Paper tables.
+- [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md) — canonical `MarketSnapshot` wire contract; top-level liquidity fields.
+- [`02-08-opportunity-matrix.md §2.1`](../matrices/02-08-opportunity-matrix.md) — `invalidation_level` canonical name; migration from `invalid_level` and `final_invalidation_level`.
+- [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — order-state lifecycle; `PRE_DISPATCH` semantics.
+- [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — safety-state machine and reconstruction from persisted columns.
+- [`03-05-02-pae-layer1-trade-analytics.md §3`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) — per-fill reconstruction contract.
+- [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md) — `POST /api/keys` encrypted-credential contract.
+- [`08-02-pre-trade-risk-controls.md`](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — gate ordering and `risk_control_events` provenance.
+- [`08-04-candle-reconstruction.md`](../operations-and-compliance/08-04-candle-reconstruction.md) — reconstruction methods.
+- [`08-05-connection-quality.md`](../operations-and-compliance/08-05-connection-quality.md) — `connection_quality_samples` data model.

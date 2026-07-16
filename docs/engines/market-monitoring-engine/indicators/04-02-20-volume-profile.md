@@ -1,5 +1,8 @@
 # Volume Profile (OHLCV-Based)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 Volume Profile distributes traded volume across price levels over a rolling window, identifying where the market accepts value (high-volume nodes) and where it rejects value (low-volume nodes). Built entirely from OHLCV candle data, it does not require tick or Level 2 feeds. The Point of Control (POC) is the price level with the highest traded volume — it acts as a dynamic magnet level. The Value Area (VAH/VAL) contains 70% of all volume around the POC and defines the auction's "fair value" zone. Price trading outside the value area signals a breakout or rejection. Institutional traders use it for auction-state awareness, entry/exit level identification, and volume-based support/resistance.

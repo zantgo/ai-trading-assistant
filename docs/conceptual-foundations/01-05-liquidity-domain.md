@@ -1,8 +1,8 @@
 # Phase 0-4 Liquidity Intelligence — Architecture Spec
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented (Phases 0-4)
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
-**Version:** v1.0 (2026-07-15)
 
 ## Overview
 
@@ -57,7 +57,7 @@ WS broadcast payload
     │   └─ liquidity, cluster, liquidity_signals              ← liquidity extension surface
     └─ sent as a single MarketSnapshot frame on /ws
 
-> **Top-level liquidity fields (MAT-17 — correction).** A previous version of this data-flow diagram showed the Phase 3 signals as "attached to `MarketSnapshot.indicators` as a JSON-encoded list". That placement contradicted the canonical Metrics Matrix contract ([02-07-metrics-matrix.md §2.1](../matrices/02-07-metrics-matrix.md)) and the Rust type at `crates/shared/src/models.rs`, which both declare `liquidity_signals: Vec<LiquiditySignal>` as a **top-level** field on `MarketSnapshot`, *separate* from the nested `indicators` map. The corrected diagram above shows the three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) as siblings of `indicators` on the `MarketSnapshot` wire frame.
+> **Top-level liquidity fields.** The three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) are siblings of `indicators` on the `MarketSnapshot` wire frame — not nested within `indicators`. The canonical contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); the underlying Rust type is in `crates/shared/src/models.rs`. Placement within `indicators` would have contradicted both the Metrics Matrix contract and the canonical wire-frame definition.
 ```
 
 ## Architectural placement
@@ -133,7 +133,7 @@ The platform uses **`config.json`** as the single source of configuration truth 
 }
 ```
 
-> **Single source of truth (Issue 5.A — correction).** A previous version of this section showed the same fields as a `[liquidity]` block of a `config.toml` file. The platform does not use `config.toml` — every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.json` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The TOML form was retained from an early prototype that never shipped.
+> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.json` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform does not use `config.toml`; the TOML form in an earlier revision of this file was retained from a prototype that never shipped.
 
 ## Performance
 
@@ -162,7 +162,7 @@ Total per-candle overhead: <5ms. Total memory: <300KB per pair per TF.
 All 56 new tests pass. No existing tests were broken by the
 implementation.
 
-> **Sub-test nesting clarification (MAT-18 — corrected count).** An earlier audit reported a total of 60 tests, arrived at by separately counting nested test functions (`assess_cascade_risk` under Phase 3, `compute_cluster_matrix` under Phase 2) as if they were independent items. The authoritative count is `55 unit + 1 integration = 56`. The nested functions are already contained within their parent phase's total (Phase 3 = 10, Phase 2 = 14) and must not be summed twice. The table above sum-checks: `11 + 15 + 14 + 10 + 5 = 55` unit; `1` integration (the `phase1_liquidation_e2e.rs` end-to-end pipeline test).
+> **Sub-test nesting clarification.** The nested test functions `assess_cascade_risk` (under Phase 3) and `compute_cluster_matrix` (under Phase 2) are already contained within their parent phase's totals (`Phase 3 = 10`, `Phase 2 = 14`); they must not be summed twice when computing the platform-wide test count. The authoritative totals are `55 unit + 1 integration = 56`. The table above sum-checks: `11 + 15 + 14 + 10 + 5 = 55` unit; `1` integration (`phase1_liquidation_e2e.rs` end-to-end pipeline test).
 
 ## Open questions / future work — Canonical deferred-work tracker
 

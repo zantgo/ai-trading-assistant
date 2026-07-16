@@ -1,5 +1,8 @@
 # 📐 Fibonacci Retracements, Extensions & Swing Leg Protocol
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 Fibonacci retracement and extension levels are mathematical ratios derived from the Fibonacci sequence. In financial markets, these levels serve as self-fulfilling structural boundaries because institutional algorithms and market-makers use them to calculate liquidity pools, optimal pullback entries, and parabolic expansion targets.
 

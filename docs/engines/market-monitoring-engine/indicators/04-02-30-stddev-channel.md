@@ -1,5 +1,8 @@
 # Standard Deviation Channel (20)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 The Standard Deviation Channel is a volatility-based envelope that uses a linear regression centerline (least-squares fit) surrounded by ±2 standard deviation bands. Unlike Bollinger Bands (which use a simple moving average centerline), the StdDev Channel's linear regression centerline captures the directional trend component, making it more responsive in trending markets while still providing volatility-based band width. It is used for:
 - Breakout detection (price outside the 2σ bands)

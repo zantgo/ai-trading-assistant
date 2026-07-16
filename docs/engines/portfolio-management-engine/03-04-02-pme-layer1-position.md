@@ -1,6 +1,6 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4
@@ -69,7 +69,7 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 |-------|------|-------------|
 | `stop_loss_price` | `Decimal` | Current stop-loss trigger level. |
 | `take_profit_price` | `Decimal` | Current take-profit target level. |
-| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). *(Renamed from `final_invalidation_level` in v2.1 to align with the canonical `invalidation_level` name used by the Opportunity Matrix and Decision Matrix.)* |
+| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior names — `invalid_level` and `final_invalidation_level` — were both retired; the migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
 | `target_profit_ratio` | `Decimal` | Desired reward-to-risk ratio for this position. |
 
 ### 3.4 Scaled Entry Fields
@@ -130,7 +130,7 @@ Each slot's entry updates `average_entry_price` (volume-weighted) and `allocated
 
 | Property | Guarantee |
 |----------|-----------|
-| **Deterministic valuation** | Unrealized PnL is computed from `direction_sign × (current_price − average_entry_price) × size` where `average_entry_price` is the volume-weighted average across all filled slots (see §5) and `direction_sign = +1 (Long) | −1 (Short)`. For single-slot positions, `average_entry_price == entry_price` and the formula reduces to `direction_sign × (current_price − entry_price) × size`. The `direction_sign` multiplier is mandatory — a previous version of this section gave the formula as `(current_price − entry_price) × size` without conditional on `direction`, which would compute a profit for a short position when price rises (and a loss when price falls), corrupting margin calculations for all short trades. The same `direction_sign` convention applies to mark-to-market valuation, equity contribution, and `roi_pct` calculation; implementations MUST branch on `position.direction` rather than relying on sign-of-size. *The Scaled Entry correction (Issue 8.A) is preserved separately: a previous version used `entry_price` for all positions — that misreported PnL after slots 2–4 of the Scaled Entry Model fired, since the cost basis shifted to the volume-weighted average while the formula continued to use the initial fill price.* |
+| **Deterministic valuation** | Unrealized PnL is computed from `direction_sign × (current_price − average_entry_price) × size` where `average_entry_price` is the volume-weighted average across all filled slots (see §5) and `direction_sign = +1 (Long) | −1 (Short)`. For single-slot positions, `average_entry_price == entry_price` and the formula reduces to `direction_sign × (current_price − entry_price) × size`. The `direction_sign` multiplier is mandatory — omitting it would compute a profit for a short position when price rises (and a loss when price falls), corrupting margin calculations for all short trades. The same `direction_sign` convention applies to mark-to-market valuation, equity contribution, and `roi_pct` calculation; implementations MUST branch on `position.direction` rather than relying on sign-of-size. The same form applies to multi-slot positions: a formula reading the initial `entry_price` rather than the volume-weighted average misreports PnL after Scaled Entry slots 2–4 fire. |
 | **Stop improvement only** | Dynamic stops only tighten; they never widen automatically. |
 | **Partial-close tracking** | Realized PnL from partially closed portions is accumulated separately. |
 

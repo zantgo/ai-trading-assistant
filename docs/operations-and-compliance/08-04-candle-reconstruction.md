@@ -1,12 +1,13 @@
 # Candle Reconstruction
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented
-**Module:** `crates/engine/src/adapters/reconstruction.rs`
-**Spec version:** 1.0
 
 ## Purpose
 
 When the WebSocket connection drops, the engine's candle stream has a gap. On reconnect, the engine must reconstruct the missing candles so downstream indicators, signals, and the MME pipeline operate on a continuous history. Reconstruction fidelity is critical: a 5-minute gap during high-volatility price action produces 5 consecutive false closes if not filled.
+
+**Reconnect sequencing.** The reconstruction task runs synchronously inside the reconnect handler. New ticks delivered to `on_message` are buffered (not yet applied to indicator state) until the reconstruction task completes. Indicator computation resumes only on a fully reconstructed rolling history. This ordering is enforced by the `crates/engine/src/adapters/reconnection_handler.rs` ordering contract; if you reverse it, downstream candle aggregators emit a discontinuous series with a false open, which the warming-up confidence floor would mask but the MME pipeline would not.
 
 ## Two Reconstruction Strategies
 
@@ -21,10 +22,10 @@ The strategy is chosen based on candle duration:
 
 ```rust
 pub enum ReconstructionMethod {
-    ExchangeHistorical,       // >= 1m: fetched from exchange REST
-    ExponentialMovingAverage,  // < 1m, ≥50 history points: EMA projection
-    LinearInterpolation,      // < 1m, ≥2 history points: linear interp
-    Unavailable,              // < 1m, <2 history points: cannot reconstruct
+    ExchangeHistorical,        // >= 1m: fetched from exchange REST
+    ExponentialMovingAverage,   // < 1m, ≥50 history points: EMA projection
+    LinearExtrapolation,        // < 1m, ≥2 history points: linear extrapolation of last two closes
+    Unavailable,                // < 1m, <2 history points: cannot reconstruct
 }
 ```
 
@@ -50,17 +51,17 @@ OHLC  = EMA_final                         (flat candle — no intra-bar trade in
 Volume = 0
 ```
 
-The flat-candle assumption is explicit: with no trade tape to reconstruct from, the most defensible estimate is that the candle traded at the EMA value. Downstream consumers can detect this via the `reconstructed: Some(ExponentialMovingAverage)` flag on the `NormalizedCandle`.
+The flat-candle assumption is explicit: with no trade tape to reconstruct from, the EMA value is the only deterministic, re-playable estimate (alternative estimators — last-close, mid-point, linear projection — produce values that diverge as the gap widens, and would corrupt any backtest whose gap falls inside a measured window). Downstream consumers can detect this via the `reconstructed: Some(ExponentialMovingAverage)` flag on the `NormalizedCandle`.
 
 > **EMA warm-up with fewer than 200 bars.** EMA operates with `N = ema_window (default 200)` regardless of available buffer size. With only 50 closes, the smoothing factor `α = 2/(200+1) ≈ 0.00995` is applied over those 50 closes; the reconstructed candle reflects the slower EMA output (heavily weighted toward the most recent close but with substantial inertia from earlier values). Operators may lower `ema_window` via `config.json` (`adapters.ema_window`) for faster adaptation at the cost of noise sensitivity.
 >
-> **Volume rollup rule (v2.1 — correction).** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A previous version of this caveat applied a contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) — that destroyed the volume from non-reconstructed constituents in the same rolled-up interval. The corrected sum rule preserves volume from any non-reconstructed sub-candles. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
+> **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
 >
 > **Cold-start minimums.** The reconstruction engine requires: (a) ≥ 2 recent closes for linear interpolation fallback (sub-minute), (b) ≥ 50 recent closes for EMA synthesis (sub-minute preferred), (c) ≥ 50 closes per timeframe for indicator warm-up (any timeframe). On cold start with zero history, all indicators emit `state_label = INSUFFICIENT_DATA` and `confidence = 0.0` until the minimum buffer is reached. The minimum warm-up duration is `min_buffer × duration_seconds` — for a 1m micro timeframe with 50-bar minimum EMA warm-up, this is ~50 minutes.
 
-## Linear Interpolation (Sub-Minute Fallback)
+## Linear Extrapolation (Sub-Minute Fallback)
 
-For sub-1m candles with minimal history (2 ≤ N < 50), the synthesised value is the linear extrapolation of the last two closes:
+For sub-1m candles with minimal history (2 ≤ N < 50), the synthesised value is the **linear extrapolation** of the last two closes — i.e. `c_target` is the value the candle *would have* traded at if the most recent slope continued, which is a projection **beyond** the last known close rather than an interpolation between two endpoints:
 
 ```
 slope     = c_n − c_{n−1}
@@ -69,9 +70,9 @@ OHLC      = c_target
 Volume    = 0
 ```
 
-> **Multi-step linear interpolation.** For a gap of N consecutive missing candles, the linear slope `slope = c_n − c_{n−1}` is applied repeatedly: `c_target_k = c_n + k × slope` for `k = 1, 2, …, N`. Each missing candle receives its own linearly-projected close; OHLC = c_target_k; Volume = 0. This produces a straight-line extrapolation that maintains the slope at the time of the gap.
+> **Multi-step linear extrapolation.** For a gap of N consecutive missing candles, the linear slope `slope = c_n − c_{n−1}` is applied repeatedly: `c_target_k = c_n + k × slope` for `k = 1, 2, …, N`. Each missing candle receives its own linearly-projected close; OHLC = c_target_k; Volume = 0. The reconstructed series maintains the slope at the time of the gap; OHLC for a missing candle is **not bounded** by either of the two source endpoints (it extrapolates beyond them). Accuracy is materially lower than `ExponentialMovingAverage` because the order-1 linear projection assumes a stationary first-difference which the market rarely sustains across a real gap.
 
-This is less accurate than EMA but is the best forward-looking estimate when only two data points are available.
+Linear extrapolation is materially less accurate than EMA. It is the deterministic fallback when 2 ≤ N < 50 history points are available and reconstruction must complete deterministically (a recorded, auditable estimate) rather than fail. The fallback is only reached when EMA is unavailable — never by choice.
 
 ## Exchange Historical (≥ 1 Minute)
 

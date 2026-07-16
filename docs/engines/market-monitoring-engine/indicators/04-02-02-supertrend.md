@@ -1,5 +1,8 @@
 # Supertrend (10, 3.0)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 Supertrend is a trend-following overlay that plots a line above (bearish trend) or below (bullish trend) price based on the Average True Range. When price closes on the opposite side of the line, the trend is considered flipped and the line jumps to the other side. It is widely used for:

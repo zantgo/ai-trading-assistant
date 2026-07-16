@@ -1,4 +1,7 @@
 # Anchored VWAP (Multi-Session)
+
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
 **Group:** Trend
 
 ## 1. Introduction — Trading Function

@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 2.2 (v2.2: aligned wording to "eight unipolar danger sub-dimensions + `overall_risk` — nine fields total")
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -82,7 +82,7 @@ Each assessment starts from a baseline and adjusts by additive evidence. All fin
 -10 strong trend · -10 high state_confidence (>0.7)
 ```
 
-> **Rename reminder (Issue 3.E).** "analysis confidence" was renamed to `state_confidence` in the institutional redesign (see [02-00b-confidence-hierarchy.md §3](../matrices/02-00b-confidence-hierarchy.md)). Implementations must read the L3 field as `state_confidence`, not `confidence`.
+> **Rename note.** The previous name "analysis confidence" was renamed to `state_confidence` in the institutional redesign (see [02-00b-confidence-hierarchy.md §3](../matrices/02-00b-confidence-hierarchy.md)). Implementations read the L3 field as `state_confidence`, not `confidence`.
 
 ### 4.2 Volatility Risk (baseline 30)
 ```
@@ -114,7 +114,7 @@ if ATR present: score = mean(score, relative_atr)
 +10 no signals active · +15 state_confidence < 0.5
 ```
 
-> **Rename reminder (Issue 3.E).** "analysis confidence" was renamed to `state_confidence` in the institutional redesign (see [02-00b-confidence-hierarchy.md §3](../matrices/02-00b-confidence-hierarchy.md)). The trigger `state_confidence < 0.5` reads the L3 field directly.
+> **Rename note.** Same rename as above: the L3 field is `state_confidence`. The trigger `state_confidence < 0.5` reads the L3 field directly.
 
 ### 4.7 Execution Risk (baseline 25)
 ```

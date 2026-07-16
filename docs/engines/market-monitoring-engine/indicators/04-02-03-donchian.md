@@ -1,5 +1,8 @@
 # Donchian Channels (20)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 Donchian Channels display the highest high and lowest low over a rolling window, forming an upper and lower envelope around the midpoint. They are used for:

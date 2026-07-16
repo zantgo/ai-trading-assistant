@@ -1,5 +1,8 @@
 # Squeeze Momentum (John Carter / TTM Squeeze)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Core Concepts
 
 Markets oscillate between **volatility compression** and **volatility expansion** in a predictable cycle. The Squeeze Momentum indicator captures this cycle by comparing two volatility envelopes:
@@ -117,21 +120,21 @@ Squeeze Momentum Chart:
 | `#ff1744` Bright Red | Bearish Acceleration | Hold Short / Enter Short |
 | `#b71c1c` Dark Red | Bearish Deceleration | EXIT Short |
 
-> **Color convention canonical (SIG-04 — correction).** The Squeeze mapping above is now consistent with the MACD convention in [04-02-17-macd.md §Visual Chart Annotation](../indicators/04-02-17-macd.md). The unified semantic is **bright = active threat, dark = exhausted**: directional expansion (acceleration) is the threat — bright color; directional contraction (deceleration) is the release — dark color. A previous version of this table inverted the Bearish color pair (`BearishAcceleration → Dark Red`, `BearishDeceleration → Bright Red`), which produced a conflict with the MACD indicator's identically-themed color scheme and would have caused the frontend to render momentum contraction as the threat color.
+> **Color convention.** The Squeeze mapping is consistent with the MACD convention in [04-02-17-macd.md §Visual Chart Annotation](../indicators/04-02-17-macd.md). The unified semantic is **bright = active threat, dark = exhausted**: directional expansion (acceleration) is the threat — bright color; directional contraction (deceleration) is the release — dark color. The inverse pairing (`BearishAcceleration → Dark Red`) would conflict with MACD's identically-themed color scheme.
 
 ## Signals
 
 | SignalKind | Label Pattern | Trigger Condition | Direction |
 |-----------|--------------|------------------|-----------|
-| VolatilityCycle | COMPRESSION_COILING | Squeeze is ON (Bollinger bands inside Keltner channels) — coiled energy | Neutral |
-| VolatilityCycle | BULLISH_VOLATILITY_RELEASE | Squeeze releases with positive momentum direction | Bullish |
-| VolatilityCycle | BEARISH_VOLATILITY_RELEASE | Squeeze releases with negative momentum direction | Bearish |
+| CompressionRelease | COMPRESSION_COILING | Squeeze is ON (Bollinger bands inside Keltner channels) — coiled energy | Neutral |
+| CompressionRelease | BULLISH_VOLATILITY_RELEASE | Squeeze releases with positive momentum direction | Bullish |
+| CompressionRelease | BEARISH_VOLATILITY_RELEASE | Squeeze releases with negative momentum direction | Bearish |
 | Divergence | BULLISH/BEARISH_DIVERGENCE | Price-vs-squeeze-momentum divergence detected via SeriesDivergence | Bullish/Bearish |
 | Threshold | BULLISH_EXPANSION_ACCELERATING | Momentum expanding in bullish direction | Bullish |
 | Threshold | BEARISH_EXPANSION_ACCELERATING | Momentum expanding in bearish direction | Bearish |
 | Threshold | BULLISH_MOMENTUM_EXHAUSTING / DECELERATING | Momentum decelerating (warning of stall) | Neutral |
 
-The Threshold signals for acceleration/deceleration are distinct from VolatilityCycle — they capture momentum phase changes within an active trend, not the initial release from compression.
+The Threshold signals for acceleration/deceleration are distinct from CompressionRelease — they capture momentum phase changes within an active trend, not the initial release from compression.
 
 ## Normalization
 

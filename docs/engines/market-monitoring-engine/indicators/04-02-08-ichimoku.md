@@ -1,5 +1,8 @@
 # ☁️ Ichimoku Cloud (Ichimoku Kinko Hyo)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 Ichimoku is a complete trend-following and dynamic support/resistance system that uses five concurrent lines derived from OHLC data. It is treated as **one unified system** rather than five independent indicators — the scoring engine and frontend consume it as a single registry entry (`ichimoku`) with the 5 lines stored in its `values` sub-map.
 

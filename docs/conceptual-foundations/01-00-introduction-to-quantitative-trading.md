@@ -1,5 +1,7 @@
 # 01-00 — Introduction to Quantitative Trading
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
 > **Audience.** This document is the formal theoretical foundation of the platform. It states, in standard institutional-quant terminology, the concepts that underpin every engine, layer, and matrix in this codebase. It is the first document a senior quant reviewer should read.
 >
 > **Scope.** This document covers (a) what quantitative trading is, (b) the mathematical primitives a quantitative trader must command, (c) the standard execution taxonomy, and (d) the precise mapping from textbook concepts to this platform's instantiations.
@@ -276,7 +278,7 @@ The Kelly criterion `f* = (p · b − q) / b` (where `b` is the win/loss ratio) 
 2. **Non-stationarity**: Kelly is derived for a stationary distribution; the platform's regime detector explicitly identifies regime shifts, which is the antithesis of the Kelly assumption.
 3. **Fat tails**: Kelly is derived for a Gaussian or bounded distribution; crypto-asset returns exhibit fat tails, and Kelly sizing amplifies tail exposure.
 
-The platform's `S = E · R / D_sl` formula (`08-02-pre-trade-risk-controls.md`, equivalent formulation `S = (E · R) / (D_sl / 100)` in [03-03-03-tae-layer2-execution.md §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)) is fixed-fractional risk sizing with explicit stop-distance scaling. In §8.7's compact textbook form, $D_{sl}$ is the **fraction** stop distance (`0.015` for 1.5%); in the engine-side formulation, $D_{sl}$ is the **raw percent float** (`1.5` for 1.5%) that is divided by `100` inside the formula. The two are equivalent. This is the institutional alternative to Kelly for low-edge, non-stationary, fat-tailed regimes.
+The platform's `S = (E · R) / (D_sl / 100)` formula is fixed-fractional risk sizing with explicit stop-distance scaling. `E` is the **available margin** (Decimal, retrieved from the PME Capital Matrix — see `03-04-04-pme-layer3-capital.md §4.2`); `R` is the risk-per-trade fraction (`risk_per_trade_pct / 100`, e.g. `0.01` for 1 %); `D_sl` is the stop-loss distance as a raw percent float (`1.5` for 1.5 %), divided by `100` inside the formula. In §8.7's compact textbook form the same sizing is written `S = E · R / D_sl` with `D_sl` as the fraction stop distance (`0.015` for 1.5 %). The engine form and the textbook form are equivalent. Implementation: `03-03-03-tae-layer2-execution.md §2`; gate ordering: `08-02-pre-trade-risk-controls.md Gate 4`. This is the institutional alternative to Kelly for low-edge, non-stationary, fat-tailed regimes.
 
 ---
 

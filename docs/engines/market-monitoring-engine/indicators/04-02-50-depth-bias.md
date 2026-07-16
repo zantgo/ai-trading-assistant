@@ -1,5 +1,8 @@
 # Depth Bias
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Fundamental Mechanism
 
 Depth Bias measures the bid-side vs ask-side depth ratio across the **full sampled order book** (all depth levels, not just the top N). While Order Flow Imbalance (OFI) captures near-term pressure at the top of the book, Depth Bias captures the broader structural support/resistance in the limit order book.

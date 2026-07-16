@@ -1,5 +1,8 @@
 # Order Flow Imbalance (OFI)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Fundamental Mechanism
 
 Order Flow Imbalance measures the net pressure at the top of the limit order book: is there more resting volume on the bid side (buyers) or ask side (sellers)? It is a leading directional signal — short-term imbalances often precede price moves.

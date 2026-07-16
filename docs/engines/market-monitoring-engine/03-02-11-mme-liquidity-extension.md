@@ -1,5 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented (Phases 0-4)
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -55,19 +56,18 @@ the strict L4 / L5 orthogonality invariant.
 
 ## Strict architecture invariants
 
-1. **Unidirectional cascade.** L1.5 → L2.5 → L5 (Risk) → L6 (Decision).
-   L2.5 does NOT read from L1.5's `liquidity` field (avoids feedback
-   where the cluster estimator's output would influence the next
-   cluster estimation).
+1. **Unidirectional cascade.**
+   ```
+   L1.5 (LiquidityFlow) ──┐
+                            ├──► L4 (LiquiditySqueeze preconditions)
+   L2.5 (LiquidationCluster) ──┐
+                            ├──► L5 (cascade_risk) ──► L6 (Decision)
+   ```
+   L2.5 does NOT read from L1.5's `liquidity` field (avoids feedback where the cluster estimator's output would influence the next cluster estimation). L4 reads L1.5 and L2.5 telemetry to evaluate `LiquiditySqueeze` preconditions (`cascade_state` ∈ {Detected, Sustained} AND `|cascade_asymmetry| > 0.3` AND regime ∈ {EXPANSION, TRANSITION}); see [`02-08-opportunity-matrix.md §3`](../../matrices/02-08-opportunity-matrix.md) and the L4 producer-side description in [`03-02-05-mme-layer4-opportunity.md §2`](03-02-05-mme-layer4-opportunity.md).
 
-2. **L4/L5 orthogonality preserved.** L5 (Risk) continues to read from
-   L3 (Analysis) directly, not from L4 (Opportunity). The new
-   `cascade_risk` dimension is read from L2.5 (Liquidity
-   Synthesis), not L4 — preserving orthogonality.
+2. **L4/L5 orthogonality preserved.** L4 and L5 still never read each other's matrices. The Phase 3 multi-source rule is strictly the additional L1.5/L2.5 feeds already listed in (1); L4 and L5 continue to read L3 directly. See [02-00-matrix-field-ownership.md §5](../../matrices/02-00-matrix-field-ownership.md) for the full edge table.
 
-3. **No new engine.** The Liquidity Intelligence subsystem lives
-   entirely within MME as two new layer pairs. The 5-engine count
-   remains stable.
+3. **No new engine.** The Liquidity Intelligence subsystem lives entirely within MME as two new layer pairs. The 5-engine count remains stable.
 
 ## Layer diagram (post-Phase 0-4)
 
@@ -97,6 +97,14 @@ The integration with the rest of the platform is:
 - **PAE** (future work) can read the `liquidation_events` table for
   cascade-conditioned backtesting.
 
+**Threshold split for `cascade_asymmetry`.** Three rules reference this quantity with intentionally different thresholds. **All three are correct**; the split reflects event type:
+
+| Site | Type | Threshold | Reason |
+|---|---|---|---|
+| L4 LiquiditySqueeze precondition | Continuous forecast eligibility | `|asymmetry| > 0.3` | Forward-looking pressure into setup viability (continuous weighting). |
+| L5 `cascade_risk.score` incremental | Continuous risk score contribution | `|asymmetry| > 0.3 → up to +30 risk points` | Linear contribution into the weighted aggregate. |
+| L3 Phase 3 `LIQUIDITY_CLUSTER_PRESSURE_HIGH` signal | Discrete event | `|asymmetry| > 0.5` | Stricter event gate so that the signal only fires on meaningful cluster pressure, while the continuous scoring still weights asymmetry at 0.3+ into the Risk aggregate. |
+
 ## Phase 3 LiquiditySignalKind Registry
 
 The Phase 3 `LiquiditySignalKind` enum defines **7** signals derived per snapshot from `liquidity` + `cluster` + `funding`:
@@ -123,20 +131,18 @@ All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See 
 
 The `"liquidity"` block in **`config.json`** (the platform's single source of configuration truth — *no* `config.toml` exists) is the only new configuration surface. All fields have safe defaults. See [02-12-liquidity-matrix.md](../matrices/02-12-liquidity-matrix.md) for the field reference, and [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical JSON shape.
 
-> **Single source of truth (Issue 5.A).** A previous version of this section referenced `config.toml`. The platform does not use `config.toml` — every Liquidity Intelligence parameter lives in the `"liquidity"` block of `config.json`.
+> A previous version of this section referenced `config.toml`. The platform does not use `config.toml` — every Liquidity Intelligence parameter lives in the `"liquidity"` block of `config.json` (the same `config.json` consumed by `GET /api/config`).
 
 ## Test coverage
 
-The full Liquidity Intelligence test inventory (55 unit + 1 integration = 56 tests) is the **canonical source of truth** in [01-05-liquidity-domain.md §Test Coverage](../conceptual-foundations/01-05-liquidity-domain.md). The phase breakdown below is the same authoritative count; this table mirrors it to keep the MME-extension doc and the domain doc aligned. A previous version of this table totalled 49 (48 unit + 1 integration) while the prose claimed 56; that mismatch is corrected here.
+The full Liquidity Intelligence test inventory (55 unit + 1 integration = 56 tests) is the **canonical source of truth** in [`01-05-liquidity-domain.md §Test Coverage`](../conceptual-foundations/01-05-liquidity-domain.md). This table mirrors it. **Nested functions** (`assess_cascade_risk` under Phase 3, `compute_cluster_matrix` under Phase 2) are already contained within their parent phase's totals — they are not counted twice here.
 
 | Component | Unit | Integration |
 |---|---|---|
 | Phase 0 — derivatives telemetry (`mark_price_poll`, `funding_refresh`) | 11 | 0 |
 | `LiquidityEventAccumulator` (Phase 1) | 15 | 0 |
-| `estimate_clusters` (Phase 2) | 14 | 0 |
-| `derive_liquidity_signals` (Phase 3) | 10 | 0 |
-| `assess_cascade_risk` (Phase 3) | 2 | 0 |
-| `compute_cluster_matrix` (Phase 2) | 2 | 0 |
+| `estimate_clusters` (Phase 2; `compute_cluster_matrix` is nested) | 14 | 0 |
+| `derive_liquidity_signals` (Phase 3; `assess_cascade_risk` is nested) | 10 | 0 |
 | Liquidation event → snapshot e2e (Phase 1) | 0 | 1 |
 | `LiquidityPanel` data types (Phase 4) | 5 | 0 |
 | **Total** | **55** | **1** |

@@ -1,5 +1,8 @@
 # OI Delta (1-Hour Rolling)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Fundamental Mechanism
 
 OI Delta measures the **rate of change** of Open Interest over a rolling window (default 1 hour). Unlike raw OI (a static level), OI Delta captures the *direction and velocity* of capital flow — the first derivative of open interest.

@@ -1,5 +1,8 @@
 # Bollinger Bands (20, 2.0)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 Bollinger Bands are volatility-based envelopes plotted at a standard deviation level above and below a simple moving average. They are the most widely used volatility overlay in technical analysis. Traders use them for:
 - **Breakout detection:** price closing outside the bands signals a volatility expansion breakout.

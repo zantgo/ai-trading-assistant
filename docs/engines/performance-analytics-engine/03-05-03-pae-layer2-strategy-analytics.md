@@ -1,6 +1,6 @@
 # PAE Layer 2 — Strategy Analytics Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 2 of 4
@@ -47,7 +47,7 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 
 ## 2.1 Sign Convention for `average_loss` and `gross_loss`
 
-> **Sign convention (v2.1 — correction).** A previous version of this schema defined `average_loss` as "Mean net PnL of losing trades" — i.e. the **signed** arithmetic mean of negative PnL values, which is itself a negative number. The `expectancy` formula then computed `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)`, which **subtracts a negative number** and therefore *adds* the loss magnitude, producing incorrect positive expectancy values for any losing strategy. Example: `win_rate = 0.5, avg_win = 20, avg_loss = -10` → `10 − (-5) = 15` instead of the correct `5`.
+> **Sign convention.** `average_loss` is stored as a positive **magnitude**. Storing it as the signed arithmetic mean of negative PnL values would corrupt the `expectancy` formula: `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` would subtract a negative number and *add* the loss magnitude, producing incorrect positive expectancy values for any losing strategy. Worked example with `win_rate = 0.5, avg_win = 20, avg_loss = 10`: `expectancy = 0.5 · 20 − 0.5 · 10 = 5`. The canonical form is `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` with both inputs positive magnitudes.
 
 > The corrected convention stores both `gross_loss` and `average_loss` as **positive magnitudes**:
 >
@@ -66,7 +66,7 @@ $$H_0: \mu_{\text{returns}} \leq 0 \quad \text{(strategy returns are at most ran
 
 $$H_1: \mu_{\text{returns}} > 0 \quad \text{(strategy generates a statistically significant positive edge)}$$
 
-> **One-tailed test (Issue 4.Q — correction).** A previous version of this section used the two-tailed form $H_0: \mu = 0, H_1: \mu \neq 0$. Under that formulation, a strategy with a *highly significant* **negative** return (a verified anti-edge) would reject $H_0$ (low $p$-value) but produce a Monte Carlo $p_{mc}$ near `1.0` (since the MC test is one-tailed on `≥ actual mean`). The combined `is_significant = p_value < 0.05 AND p_mc < 0.05` rule then collapses to `false` for a verified anti-edge — the platform simply does not trade negative edges. To keep the parametric and non-parametric tests aligned, both are now one-tailed in the **positive** direction:
+> **One-tailed test.** Both the parametric $t$-test and the Monte Carlo sign-randomization test are one-tailed in the **positive** direction:
 
 - The T-test reports its $p$-value from a **one-tailed** Student t-distribution: $p = 1 - \Phi_{t,n-1}(\bar{x} / (s/\sqrt{n}))$.
 - The Monte Carlo test counts samples where randomized mean $\geq$ actual mean (unchanged — already correct).

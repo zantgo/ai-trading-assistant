@@ -1,6 +1,6 @@
 # MME Layer 2 — Alignment Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 2 of 7
@@ -43,7 +43,7 @@ $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0
 
 The divisor is the session's **slowest enabled tier's duration** (see [Timeframe Model §4](../../conceptual-foundations/01-04-timeframe-model.md) and [Alignment Matrix §4.1](../../matrices/02-01-alignment-matrix.md)). The slowest active tier always weights `1.0`; shorter tiers scale down proportionally, regardless of which tier is active. This is dynamic rather than the fixed `900 s` constant so custom sessions (e.g. macro = 1 d, or `macro_timeframe.enabled = false`) retain a proper hierarchy.
 
-**Divisor rule (Issue 4.N — correction):** `divisor = max({duration_seconds for tier in enabled_tiers})`.
+**Divisor rule.** `divisor = max({duration_seconds for tier in enabled_tiers})` — the slowest active tier wins. When the macro tier is disabled, the divisor stays bound to whichever tier is slowest.
 
 Signed consensus for trend/momentum/volume/volatility:
 

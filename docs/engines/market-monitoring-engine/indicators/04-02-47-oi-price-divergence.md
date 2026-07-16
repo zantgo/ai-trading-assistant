@@ -1,5 +1,8 @@
 # OI-Price Divergence
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Fundamental Mechanism
 
 OI-Price Divergence detects disagreement between **price trend direction** (via the EMA ribbon bias) and **open interest flow** (via OI Delta). When price moves one way but capital (OI) moves the other, the trend lacks confirmation and is vulnerable to reversal.

@@ -1,5 +1,8 @@
 # Funding Rate
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Fundamental Mechanism
 
 The **Funding Rate** is the periodic payment exchanged between long and short perpetual swap traders to tether the perpetual price to the underlying spot price. When the perpetual trades at a premium to spot, longs pay shorts (positive funding); when at a discount, shorts pay longs (negative funding).

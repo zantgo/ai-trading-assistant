@@ -1,5 +1,8 @@
 # Chande Momentum Oscillator (12)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 The Chande Momentum Oscillator (CMO) is a refined momentum indicator that measures the net momentum of price changes over a lookback period. Unlike RSI, which compresses gain/loss averages, CMO uses the raw sum of gains and losses to produce an unbounded oscillator scaled to [-100, 100]. It is used for:

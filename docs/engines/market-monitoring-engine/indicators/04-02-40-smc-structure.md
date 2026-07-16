@@ -1,5 +1,8 @@
 # SMC Market Structure (BOS / CHoCH)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 
 Smart Money Concepts Market Structure detects breaks and changes in the directional structure of price using swing pivot analysis on OHLCV data. A **Break of Structure (BOS)** occurs when price makes a higher high (bullish) or lower low (bearish), confirming trend continuation. A **Change of Character (CHoCH)** occurs when price makes a lower high after a higher high (bearish reversal) or a higher low after a lower low (bullish reversal), signaling a potential trend change. These are the fundamental structural events in institutional order-flow analysis. BOS confirms the current trend; CHoCH warns of a pending reversal or range shift.

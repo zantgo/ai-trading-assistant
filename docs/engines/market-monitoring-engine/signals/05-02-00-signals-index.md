@@ -1,22 +1,34 @@
 # Signal Specification Index
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
 > Index of 12 canonical `SignalKind` types. Each has a dedicated specification file documenting detection semantics, confirmation lifecycle, and contributing indicators.
 >
 > **Numbering.** File names follow `05-02-NN-kebab-case.md` where `NN` is the zero-padded SignalKind ordinal.
 
 ---
 
+## Summary
+
+| Metric | Count | Notes |
+|---|---|---|
+| Parent indicators | **50** | Across 8 functional groups |
+| `(indicator, SignalKind)` declarations | **100** | Sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100 (registry-verified `2026-07-16`) |
+| Distinct `SignalKind` types | **12** | (see table below) |
+| Divergence declarations | **9** | 8 nested on parent (with `supports_divergence: true`) + 1 standalone (`oi_price_divergence`, own registry entry) |
+| `×N` per-indicator multiplicities | internal event multiplicity | Counts internal event subtypes per declaration, **not** declaration count |
+
 ## The 12 SignalKinds
 
 | # | SignalKind | Description | Spec File |
 |---|-----------|-------------|-----------|
-| 01 | **Divergence** | Price and an oscillator disagree directionally (bullish/bearish divergence). Nested `IndicatorSignal` on the parent indicator's key — not a separate registry entry. | [05-02-01-divergence.md](05-02-01-divergence.md) |
+| 01 | **Divergence** | Price and an oscillator disagree directionally (bullish/bearish divergence). Nested `IndicatorSignal` on the parent indicator's key by default — eight `supports_divergence` parent indicators carry it. **Exception:** `oi_price_divergence` is a standalone registry entry with its own key (still an `IndicatorSignal { kind: "DIVERGENCE", ... }`). | [05-02-01-divergence.md](05-02-01-divergence.md) |
 | 02 | **Crossover** | Two series cross (e.g., MACD line × signal, %K × %D, DI+ × DI−). Momentary — fires on the transition bar only. | [05-02-02-crossover.md](05-02-02-crossover.md) |
 | 03 | **Threshold** | A value enters a named zone (RSI ≥ 70 = overbought, CCI ≥ 100, etc.). Stateful — persists while in zone. | [05-02-03-threshold.md](05-02-03-threshold.md) |
 | 04 | **Breakout** | Price breaks a structural boundary (channel, Donchian, Keltner, Bollinger). Stateful — persists as expansion state. | [05-02-04-breakout.md](05-02-04-breakout.md) |
 | 05 | **BandTouch** | Price contacts a channel/band edge (Bollinger, Donchian, Keltner). Stateful — remains while contact holds. | [05-02-05-band-touch.md](05-02-05-band-touch.md) |
 | 06 | **ZeroLineCross** | An oscillator crosses its zero/mid line (RSI 50, MACD 0, CCI 0, etc.). Momentary — fires on the transition bar only. | [05-02-06-zero-line-cross.md](05-02-06-zero-line-cross.md) |
-| 07 | **VolatilityCycle** | A volatility cycle phase transition (TTM Squeeze, BBWP, Choppiness, ATR). Stateful — covers the full cycle (compression/coiling + release/expansion). | [05-02-07-volatility-cycle.md](05-02-07-volatility-cycle.md) |
+| 07 | **CompressionRelease** | A volatility cycle phase transition (TTM Squeeze, BBWP, Choppiness, ATR). Stateful — covers the full cycle (compression/coiling + release/expansion). | [05-02-07-compression-release.md](05-02-07-compression-release.md) |
 | 08 | **LevelTest** | Price tests a horizontal level (S/R, Fibonacci, pivot, VWAP, order blocks). Stateful — persists while in proximity. | [05-02-08-level-test.md](05-02-08-level-test.md) |
 | 09 | **TrendFlip** | A directional regime reverses (Supertrend, PSAR, OBV trend, Aroon cross). Stateful — persists as `Active` with `age_bars` for the regime. | [05-02-09-trend-flip.md](05-02-09-trend-flip.md) |
 | 10 | **VolumeClimax** | Abnormal volume surge (triggered by Volume and RVOL indicators). Momentary — fires on the climax bar only. | [05-02-10-volume-climax.md](05-02-10-volume-climax.md) |
@@ -46,11 +58,11 @@ first detection ──► POTENTIAL ──(confirming condition)──► CONFIR
 | Class | SignalKinds | Lifecycle |
 |-------|-------------|-----------|
 | **Momentary** | `Crossover`, `ZeroLineCross`, `StackChange`, `VolumeClimax` | Fire on the **transition bar only** (`age_bars = 0`), then expire — they never persist as `ACTIVE`. Continuity is carried by the parent indicator's `state_label` (e.g. the resulting stack/momentum regime), not by an ageing signal. This prevents double-counting a one-off transition as a standing zone. |
-| **Stateful** | `Threshold`, `Breakout`, `BandTouch`, `LevelTest`, `VolatilityCycle`, `PatternForming`, `Divergence`, `TrendFlip` | May persist in `ACTIVE` across bars with incrementing `age_bars`. A young instance is a fresh event; an aged one is standing context. |
+| **Stateful** | `Threshold`, `Breakout`, `BandTouch`, `LevelTest`, `CompressionRelease`, `PatternForming`, `Divergence`, `TrendFlip` | May persist in `ACTIVE` across bars with incrementing `age_bars`. A young instance is a fresh event; an aged one is standing context. |
 
 > **Note on `TrendFlip`:** although the *flip event* is instantaneous, the resulting trend regime is inherently stateful, so `TrendFlip` persists as `Active` with `age_bars` counting bars since the flip (a young flip = high-priority reversal alert; an aged flip = trend context). It is therefore classified **stateful**, not momentary.
 >
-> **Note on `Divergence`:** a divergence is a discrete event detection on an oscillator — strictly stateful by nature of the multi-bar peak/trough comparison — but it is **not** a registry entry itself; it is emitted as a nested `IndicatorSignal { kind: Divergence, … }` on the parent indicator's `signals` array. See the [indicator index](../indicators/04-02-00-indicator-index.md) for the 8 indicators that support divergence.
+> **Note on `Divergence`:** A divergence is a discrete event detection on an oscillator — strictly stateful by nature of the multi-bar peak/trough comparison. It is not a registry entry itself for the eight `supports_divergence` parent indicators: it is emitted as a nested `IndicatorSignal { kind: "DIVERGENCE", … }` on the parent indicator's `signals` array. The exception is `oi_price_divergence`, which is itself a standalone registry entry carrying its own `IndicatorSignal { kind: "DIVERGENCE", … }`. See the [indicator index](../indicators/04-02-00-indicator-index.md).
 
 ---
 
@@ -63,7 +75,7 @@ Every signal is an `IndicatorSignal` nested inside its parent indicator's `signa
   "raw_value": 28.5,
   "normalized": 1.0,
   "signals": [
-    { "kind": "Divergence", "direction": "BULLISH", "status": "CONFIRMED", "label": "BULLISH_DIVERGENCE", "strength": 1.0, "age_bars": 0 },
+    { "kind": "DIVERGENCE", "direction": "BULLISH", "status": "CONFIRMED", "label": "BULLISH_DIVERGENCE", "strength": 1.0, "age_bars": 0 },
     { "kind": "THRESHOLD", "direction": "BULLISH", "status": "ACTIVE", "label": "OVERSOLD", "strength": 0.0, "age_bars": 3 }
   ]
 }

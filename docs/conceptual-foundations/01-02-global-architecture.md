@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 2.0  
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 ---

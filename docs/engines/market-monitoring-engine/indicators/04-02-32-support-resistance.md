@@ -1,5 +1,8 @@
 # 🧭 Support & Resistance (S/R) & Role-Reversal Protocol
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 Support and resistance (S/R) levels represent horizontal price zones where buying or selling pressure has historically been strong enough to pause, reject, or reverse price action. Unlike lagging mathematical averages, S/R levels represent physical liquidity zones—areas where institutional limit orders (order blocks) cluster.
 
@@ -110,5 +113,5 @@ As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fu
 * **Scoring:** As a `directional` registry indicator, `support_resistance` contributes to the registry-driven confluence score (previously it reported `INACTIVE` because no levels were wired).
 * **Telemetry:** The `support_resistance` row in the Telemetry Monitor renders its live state, normalized value, confidence, and signal badges automatically.
 
-> **SignalKind classification (Issue 2.O — correction).** A previous version of this section incorrectly classified `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` as `TrendFlip` signals. Both `support_resistance` signals are **structurally `Breakout` events** — they fire when a candle closes decisively through an existing horizontal level, which is the canonical Breakout pattern in [05-02-04-breakout.md](../signals/05-02-04-breakout.md) and [04-02-00-indicator-index.md](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) §STRUCTURE. The indicator registry correctly lists `Breakout×2` for `support_resistance`; the §6 Signals table above also classifies them as `Breakout`. This §7 correction aligns the pipeline narrative with the canonical classification. Note also that [05-02-09-trend-flip.md §2](../signals/05-02-09-trend-flip.md) does **not** list `support_resistance` as a TrendFlip producer.
+> **SignalKind classification.** `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` are **structurally `Breakout` events** — they fire when a candle closes decisively through an existing horizontal level, which is the canonical Breakout pattern in [05-02-04-breakout.md](../signals/05-02-04-breakout.md) and [04-02-00-indicator-index.md §STRUCTURE](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md). The indicator registry lists `Breakout×2` for `support_resistance`; the §6 Signals table classifies them as `Breakout`; and [05-02-09-trend-flip.md §2](../signals/05-02-09-trend-flip.md) does **not** list `support_resistance` as a TrendFlip producer.
 

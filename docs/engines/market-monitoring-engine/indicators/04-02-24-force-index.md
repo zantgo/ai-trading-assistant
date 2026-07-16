@@ -1,5 +1,8 @@
 # Elder's Force Index (13)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction — Trading Function
 Elder's Force Index (FI) combines price change direction with volume to measure the strength of buying or selling pressure behind a move. A positive FI indicates bulls are in control (price rising on volume); a negative FI indicates bears are in control (price falling on volume). The raw FI is smoothed by an exponential moving average (default 13-period) to produce tradeable signals. FI detects whether money is flowing into or out of a move — a key institutional confirmation for trend strength and divergence analysis. Zero-line crosses are the primary signal: FI crossing above 0 confirms bullish momentum; crossing below 0 confirms bearish momentum.
 

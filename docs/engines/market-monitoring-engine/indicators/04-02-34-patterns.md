@@ -1,5 +1,8 @@
 # 📉 Chart Patterns & Pivot Linear Regression Protocol
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## 1. Introduction
 Chart patterns represent geometric shapes formed by price action boundaries over time. In quantitative trading frameworks, these boundaries are not drawn subjectively by hand. Instead, they are defined mathematically by calculating lines of best fit through historical pivot points.
 

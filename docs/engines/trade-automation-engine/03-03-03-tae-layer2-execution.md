@@ -1,6 +1,6 @@
 # TAE Layer 2 — Execution Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 2 of 2
@@ -161,30 +161,32 @@ A naive alternative would be to derive the flag inside the Policy Layer when con
 
 ## 4. Transaction State Machine
 
-Every order transitions through a logged lifecycle:
+Every order transitions through a logged lifecycle. `PRE_DISPATCH` is a transient state introduced for orders held in manual review by Gate 5 (slippage ceiling) of the pre-trade risk controls:
 
 ```
-         ┌──────────┐   size+route   ┌──────────┐   ack    ┌──────────┐
-         │  PENDING │───────────────►│ SUBMITTED│─────────►│  OPEN    │
-         └──────────┘                └──────────┘          └──────────┘
-              │                            │                    │  partial fill
-              │ reject                     │ cancel             ▼
-              ▼                            ▼              ┌─────────────────┐
-         ┌──────────┐                ┌──────────┐          │ PARTIALLY_FILLED │
-         │ REJECTED │                │ CANCELLED│          └─────────────────┘
-         └──────────┘                └──────────┘             │            │
-                                                              │ more fill  │ cancel
-                                                              ▼            ▼
-                                                         ┌──────────┐  ┌──────────┐
-                                                         │  CLOSED  │  │ CANCELLED│
-                                                         └──────────┘  └──────────┘
+                  ┌──────────────┐  approve   ┌──────────┐  size+route  ┌──────────┐   ack    ┌──────────┐
+                  │ PRE_DISPATCH │───────────►│  PENDING │─────────────►│ SUBMITTED│─────────►│  OPEN    │
+                  │ (HELD_FOR_   │            └──────────┘              └──────────┘          └──────────┘
+                  │  REVIEW)     │                  │                          │                    │
+                  └──────────────┘                  │ reject                   │ cancel             ▼ partial
+                       ▲  ▲                         ▼                          ▼              ┌──────────────┐
+                       │  │                    ┌──────────┐                 ┌──────────┐      │PARTIALLY_FILLED│
+                       │  │ timeout/discard    │ REJECTED │                 │ CANCELLED│      └──────────────┘
+                       │  └───────────────── PRE_DISPATCH is                └──────────┘             │
+                       │                       in-memory only;                                             │
+                  in-memory only                 never persisted                                             ▼
+                  (Gate 5 review)                to `open_orders`                                     ┌──────────┐  ┌──────────┐
+                                                                                                       │  CLOSED  │  │ CANCELLED│
+                                                                                                       └──────────┘  └──────────┘
 ```
 
-Every transition is written to the Execution Matrix with a high-resolution timestamp, guaranteeing full auditability. Partial fills are tracked against the associated position.
+`PRE_DISPATCH` orders are held in process memory only; they are **never** persisted to the `open_orders` table. An engine restart, crash, or process termination during the slippage-review window loses the held order — no audit trail. The state is reachable only from `PENDING` (Gate 5 hold) and exits either to `SUBMITTED` on operator approval or to `REJECTED` on operator discard / timeout. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery (see [08-02-pre-trade-risk-controls.md §3.2](../operations-and-compliance/08-02-pre-trade-risk-controls.md)).
+
+Every persistent transition (`PENDING` onwards) is written to the Execution Matrix with a high-resolution timestamp, guaranteeing full auditability. Partial fills are tracked against the associated position.
 
 ### 3.5 Exit and Reduce-Only Order Bypass
 
-> **Issue 4.K — correction.** A previous version of this document ran every order through the Position Sizing Protocol (`S = E·R / (D_sl / 100)`). Under high-drawdown conditions, available margin `E` collapses toward zero, which would cause the sizing formula to yield `S ≈ 0` — preventing the platform from closing its own open exposure exactly when exits are most urgent.
+> **Reduce-only sizing bypass.** A previous version of this document ran every order through the Position Sizing Protocol (`S = E·R / (D_sl / 100)`). Under high-drawdown conditions, available margin `E` collapses toward zero, which would cause the sizing formula to yield `S ≈ 0` — preventing the platform from closing its own open exposure exactly when exits are most urgent.
 
 **Bypass rule.** *Exit / reduce-only orders bypass the Position Sizing Protocol.* They **copy the current position size directly from the Position Matrix** rather than computing it from available margin and stop distance. The only orders that run through the sizing formula are **new-entry orders** with `reduce_only = false`.
 

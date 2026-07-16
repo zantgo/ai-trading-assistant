@@ -1,5 +1,8 @@
 # Open Interest
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+
 ## Fundamental Mechanism
 
 Open Interest (OI) tracks the total number of outstanding derivative contracts (futures/perpetuals) that have not been settled. It represents the *flow of capital* into or out of the market — rising OI signals new money entering, falling OI signals exiting or liquidation.

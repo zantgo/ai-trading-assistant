@@ -1,6 +1,6 @@
 # PAE Layer 4 — Performance Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 4 of 4

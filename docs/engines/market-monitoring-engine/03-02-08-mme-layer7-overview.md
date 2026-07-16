@@ -1,6 +1,6 @@
 # MME Layer 7 — Overview Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved — Backend computed; UI panel pending (deferred; tracked as UI‑01 in the consolidated architecture audit register).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7

@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 1.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -33,7 +33,7 @@ cd ../..
 cargo run -- --web
 ```
 
-The engine reads `config.json` from the workspace root on startup. If the file is missing or malformed the binary panics with a descriptive error; fix the file and restart.
+The engine reads `config.json` from the workspace root on startup. **If `config.json` is missing entirely**, the `manage.sh` first-run flow scaffolds a default from the documented schema before the binary launches (one-shot bootstrap — repeat invocations leave an existing `config.json` untouched). **If `config.json` exists but is malformed**, the binary panics with a descriptive error and the operator must fix the file before the next start — there is no automatic re-scaffolding on parse failure (a corrupt-but-existing file might contain deliberate operator edits, so re-scaffolding would risk silently overwriting them).
 
 ---
 
@@ -61,7 +61,7 @@ Headless cloud operation is supported by running the same binary without `--web`
 The Svelte 5 dashboard is organized around three levels of navigation:
 
 1. **Sidebar** — Engine selector (Home / Portfolio / Market / Trading / Analysis) + per-pair workspace list with live price, 24 h change, and pause/delete controls.
-2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Decision for an open Market Instance.
+2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Connection Quality / Analysis / Decision / Liquidity` (the **Liquidity** tab carries the Phase 4 LiquidityPanel — see [`07-04-ui-liquidity-panel-spec.md`](../ui-ux/07-04-ui-liquidity-panel-spec.md)). The **Connection Quality** tab is instance-scoped (see [`08-05-connection-quality.md §REST API`](../operations-and-compliance/08-05-connection-quality.md)).
 3. **Main Viewport** — Renders the active tab. Each panel is a thin Svelte component with a companion CSS module per the project's CSS conventions.
 
 For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) and [Dashboard Layout](../ui-ux/07-02-ui-dashboard-layout.md).
@@ -87,7 +87,7 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 ## 6. Running & Monitoring Trades
 
-**Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). To switch a venue to live, edit `config.json` to include real API credentials in the `exchange_keys` table (see [Database Schema](../integration-and-api/06-02-database-schema-spec.md) for the encrypted-key format).
+**Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.json`.** `config.json` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
 
 **Reading the Decision Matrix.** The Decision Matrix is delivered per Market Instance on the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint. Open a Market Instance, switch to the "Decision" tab, and you will see `directional_guidance`, `market_stance`, `trade_readiness`, `confidence_assessment`, and the recommended `entry/exit/protection/target` strategies.
 

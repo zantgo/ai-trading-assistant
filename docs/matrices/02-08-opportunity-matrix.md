@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -57,14 +57,12 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 
 | `TimeHorizon` | Update cadence | Rationale |
 |---------------|----------------|-----------|
-| `SCALP` | Every tick | Sub-minute setups need tick-level response. |
+| `SCALP` | Every completed sub-minute candle | Sub-minute setups re-evaluated at each completed candle on the configured sub-minute timeframe (e.g. every 15-second candle for a 15-second timeframe). |
 | `INTRADAY` | Every completed candle | Hourly setups re-evaluated at each candle close. |
 | `SWING` | Every 5 completed candles | Multi-day setups re-evaluated less frequently. |
 | `POSITION` | Every 15 completed candles | Multi-week setups re-evaluated only on structural change. |
 
-The cadence is implemented as a debounced scheduler on the L6 Decision Layer (see [03-02-07-mme-layer6-decision-support.md §4](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md)), not as a wall-clock timer — every evaluation also re-runs when the upstream matrices change.
-
-> **"Every tick" cadence clarification (MAT-06 — correction).** A previous version of this table said `SCALP` updates on `Every tick`. This contradicted the Metrics Matrix contract, which only feeds completed (`is_completed = true`) snapshots into the downstream cascade — raw `is_completed = false` "shadow" snapshots are for live UI display only and do not enter L4 / L5 / L6. The canonical cadence for `SCALP` is therefore `every completed sub-minute candle` (e.g. every 15-second candle for a 15-second timeframe); "every tick" was a colloquial shorthand and is replaced by the precise spec text here. The completed-cascade invariant ([01-03-systemic-data-flow.md §4.1 Immutability Guarantees](../conceptual-foundations/01-03-systemic-data-flow.md)) remains.
+The cadence is implemented as a debounced scheduler on the L6 Decision Layer (see [03-02-07-mme-layer6-decision-support.md §4](../engines/market-monitoring-engine/03-02-07-mme-layer6-decision-support.md)), not as a wall-clock timer — every evaluation also re-runs when the upstream matrices change. The completed-cascade invariant ([01-03-systemic-data-flow.md §4.1 Immutability Guarantees](../conceptual-foundations/01-03-systemic-data-flow.md)) is preserved: only `is_completed = true` snapshots enter the L4/L5/L6 cascade. Raw `is_completed = false` shadow snapshots are for live UI display only.
 
 ### 2.2 OpportunityProfile
 
@@ -141,7 +139,7 @@ The categorical `setup_quality` buckets the `opportunity_score`. The bands above
 | `Marginal` | `> 30 AND ≤ 50` | Weak edge; confluence-only. |
 | `None` | `≤ 30` | No actionable opportunity. |
 
-> **Band endpoint consistency (MAT-16 — canonical half-open form).** The intervals above are the canonical form used by all three SetupQuality tables in the docs corpus ([01-01-ontology.md §A.4](../conceptual-foundations/01-01-ontology.md), [02-08-opportunity-matrix.md §5](../matrices/02-08-opportunity-matrix.md) — this file, [03-02-05-mme-layer4-opportunity.md §4](../engines/market-monitoring-engine/03-02-05-mme-layer4-opportunity.md)). Each band is half-open on its lower bound (exclusive) and inclusive on its upper bound. A previous version of the L4 spec used `Prime ≥ 85` and `Strong 70–85`, creating ambiguity at the `85` boundary between this matrix and L4.
+> **Band endpoint consistency.** The intervals above are the canonical form used by every SetupQuality table in the corpus. Each band is half-open on its lower bound (exclusive) and inclusive on its upper bound, so every `opportunity_score` maps to exactly one band and `85` belongs to `Strong` (`70 < score ≤ 85`) rather than `Prime`.
 
 ---
 

@@ -1,12 +1,12 @@
 # Clock Monitor (NTP Drift Enforcement)
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented
-**Module:** `crates/engine/src/clock_monitor.rs`
-**Spec version:** 1.0
+**Module path:** the clock-monitor task is spawned by `crates/engine/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `"clock_monitor"` block of `config.json`.
 
 ## Purpose
 
-The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC (a 1m candle closes at `:00.000` of the next minute; a 15m candle at `:14:59.999`, etc.). This alignment is only correct if the local system clock is within the **≤50 µs drift budget** of true UTC.
+The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤50 µs drift budget** of true UTC.
 
 The `ClockMonitor` enforces this budget by polling NTP servers at a configurable interval and reacting to threshold breaches.
 
@@ -15,6 +15,8 @@ The `ClockMonitor` enforces this budget by polling NTP servers at a configurable
 ```rust
 pub struct ClockMonitorConfig {
     pub ntp_servers: Vec<String>,         // default: ["pool.ntp.org", "time.aws.com"]
+    // ntp_servers tried in order. First successful response defines the
+    // current UTC reference; subsequent servers are polled as fallback.
     pub poll_interval: Duration,          // default: 30s
     pub threshold: Duration,              // default: 50µs
     pub breach_action: BreachAction,      // Warn (default) | Panic
@@ -40,7 +42,7 @@ In `config.json` (the platform's single source of configuration truth — *no* `
 {
   "clock_monitor": {
     "enabled": true,
-    "ntp_servers": ["time.aws.com", "pool.ntp.org"],
+    "ntp_servers": ["pool.ntp.org", "time.aws.com"],
     "poll_interval_secs": 30,
     "threshold_micros": 50,
     "breach_action": "warn",        // or "panic"
@@ -49,7 +51,7 @@ In `config.json` (the platform's single source of configuration truth — *no* `
 }
 ```
 
-> **Single source of truth (Issue 5.A — correction).** The TOML block shown in a previous revision of this file was an artifact of an early prototype. All clock-monitor fields live in `config.json` and can be edited via `POST /api/config` or directly in the file at the workspace root.
+> **Single source of truth.** All clock-monitor fields live in `config.json` and can be edited via `POST /api/config` or directly in the file at the workspace root. An earlier revision of this file showed a TOML block — that was an artifact of an early prototype; the platform has never used TOML.
 
 ## NTP Measurement
 

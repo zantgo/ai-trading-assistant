@@ -1,6 +1,6 @@
 # PME Layer 4 — Portfolio Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4
@@ -71,7 +71,7 @@ Defaults are configurable via `config.json` `safety`.
 
 > **`consecutive_losses` scope.** The counter is **per-symbol** (instance-scoped). A hot streak on `BTC-USDT` does not lock `ETH-USDT` positions. The `/safety/reset` endpoint operates per-symbol (`:id`). The `SUSPENDED` state on one symbol does not affect other symbols.
 >
-> **`WARN` state wiring (Issue 4.H — correction).** A previous version of this section never evaluated `max_daily_drawdown_pct` against any circuit-breaker trigger — the metric was tracked in the matrix schemas but had no functional integration, leaving it as a dead schema field. The `WARN` state now wires that metric into the safety state machine as the **first** pre-CAUTIOUS trigger (early-warning stage). It produces no stance change — only a visible banner and an audit record. This matches the spec's stated intent that `max_daily_drawdown_pct` (5 %) is an *early-warning* threshold distinct from the `drawdown_limit_pct` (30 %) hard veto.
+> **`WARN` state wiring.** The `max_daily_drawdown_pct` metric (5 % default) is wired into the safety state machine as the **first** pre-CAUTIOUS trigger (early-warning stage). It produces no stance change — only a visible banner and an audit record. This matches the spec's stated intent: `max_daily_drawdown_pct` (5 %) is an *early-warning* threshold; `drawdown_limit_pct` (30 %) is the hard veto. The two metrics are distinct.
 
 ---
 
@@ -92,7 +92,7 @@ Each veto trigger maps to exactly one target `Stance` per the table below. `WARN
 | **Systemic risk** | `systemic_risk_score ≥ systemic_risk_threshold` (default 80) | `AVOID` | **Yes** (forced liquidation) | `systemic_risk_score < systemic_risk_threshold` (see §4.3) |
 | **Manual override** | Operator-initiated | as specified (operator chooses `AVOID` or `CLOSE_ONLY`) | depends on operator input | manual reset |
 
-> **Margin exhaustion row added (v2.1 — correction).** The PME L3 §6 documents `margin_usage_ratio ≥ 1.00` as triggering `AVOID` + Hard Exit path, but a previous version of this table omitted the row — leaving a 100%-margin scenario on the less-severe `0.95` graceful wind-down path. The added `Margin exhaustion` row above closes that gap. The two margin triggers are now layered: the `0.95` ceiling is the early-warning `CLOSE_ONLY` graceful wind-down; the `1.00` exhaustion is the emergency `AVOID` Hard Exit path.
+> **Margin exhaustion.** The PME L3 §6 documents two margin-trigger thresholds layered as escalation. `margin_usage_ratio ≥ 0.95` is the early-warning `CLOSE_ONLY` graceful wind-down; `margin_usage_ratio ≥ 1.00` is the emergency `AVOID` Hard Exit path. A 100%-margin scenario must exit through the `AVOID` Hard Exit, not the less-severe `0.95` graceful wind-down path.
 
 > **AVOID vs CLOSE_ONLY distinction.** `AVOID` triggers the **Hard Exit Path** (forced liquidation via market orders — see §4.2). `CLOSE_ONLY` is a **graceful wind-down**: no forced liquidation; existing positions are managed by their protective stops and policy exits; new entries are blocked; the operator may manually liquidate via `DELETE /api/instances/by-pair/:pair_key`. Treating `CLOSE_ONLY` as `AVOID` (forcing market liquidation) is a documented anti-pattern that defeats the granularity of the safety state machine.
 
@@ -130,7 +130,7 @@ When the condition clears (e.g., equity recovers above drawdown limit):
      - First winning trade resets `consecutive_losses[sym]`; safety state transitions to `NORMAL` (or `CAUTIOUS` if recent losses).
      - Otherwise, 8-hour cooldown from the SUSPENDED entry time.
    - All relevant conditions must hold simultaneously for the release to be eligible.
-2. The operator calls **`POST /api/instances/:id/safety/release-veto`** (Issue 4.O). The endpoint returns `400` if the veto condition is still active, `200` on success. The `/safety/reset` endpoint (`POST /api/instances/:id/safety/reset`) is **not** the right call for releasing a drawdown- or systemic-risk-based veto — it only clears the `consecutive_losses` counter. For an `AVOID` stance caused by drawdown or systemic risk, **use `/safety/release-veto`** (see [08-01-user-manual.md §8](../operations-and-compliance/08-01-user-manual.md)).
+2. The operator calls **`POST /api/instances/:id/safety/release-veto`**. The endpoint returns `400` if the veto condition is still active, `200` on success. The `/safety/reset` endpoint (`POST /api/instances/:id/safety/reset`) is **not** the right call for releasing a drawdown- or systemic-risk-based veto — it only clears the `consecutive_losses` counter. For an `AVOID` stance caused by drawdown or systemic risk, **use `/safety/release-veto`** (see [08-01-user-manual.md §8](../operations-and-compliance/08-01-user-manual.md)).
 3. On success, safety state transitions back to `NORMAL` (or `CAUTIOUS` if recent losses).
 4. Stances are restored to per-symbol `default_stances` (the operator-configured defaults; see the [Database Schema](../../integration-and-api/06-02-database-schema-spec.md) `paper_balances.default_stance` column).
 5. Operator's one-time acknowledge flag is cleared.

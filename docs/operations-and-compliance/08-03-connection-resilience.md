@@ -1,8 +1,7 @@
 # Connection Resilience
 
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented
-**Module:** `crates/engine/src/adapters/resilience.rs`
-**Spec version:** 1.0
 
 ## Purpose
 
@@ -36,17 +35,32 @@ pub async fn run_with_reconnect<F, R, S>(
 
 ## Backoff Formula
 
+Jitter is applied **before** capping so the effective delay range at attempt `n` is `[delay_n × (1 − jitter_pct), min(delay_n × (1 + jitter_pct), max_backoff)]`. The hard maximum actual delay is `max_backoff × (1 + jitter_pct)` only briefly during the geometric ramp-up; once `delay_n ≥ max_backoff`, the cap dominates and the actual delay range is `[max_backoff × 0.8, max_backoff × 1.2]` regardless of `n`:
+
 ```
-delay_n = min(initial × 2^n, max_backoff) × (1 + uniform(-jitter_pct, +jitter_pct))
+base_delay_n = min(initial × 2^n, max_backoff)
+delay_n      = base_delay_n × (1 + uniform(-jitter_pct, +jitter_pct))
+             = min(base_delay_n × (1 + jitter_pct), max_backoff × (1 + jitter_pct))
 ```
 
 Sequence with default policy (1s initial, 30s max, ±20% jitter):
-- Attempt 1 → ~1s
-- Attempt 2 → ~2s
-- Attempt 3 → ~4s
-- Attempt 4 → ~8s
-- Attempt 5 → ~16s
-- Attempt 6+ → ~30s (capped)
+- Attempt 1 → ~1s (range `[0.8s, 1.2s]`)
+- Attempt 2 → ~2s (range `[1.6s, 2.4s]`)
+- Attempt 3 → ~4s (range `[3.2s, 4.8s]`)
+- Attempt 4 → ~8s (range `[6.4s, 9.6s]`)
+- Attempt 5 → ~16s (range `[12.8s, 19.2s]`)
+- Attempt 6 → cap range `[24s, 30s]` (jitter bounded by `max_backoff`)
+- Attempt 7+ → `[24s, 30s]`
+
+## Retry Budgets
+
+The platform has three distinct retry budgets that operate independently. They are not interchangeable; conflating them produces either silent stalls (when `max_attempts = None` is treated as a fixed cap) or premature abandonments (when the supervisor's 5-cycle disable is treated as `max_attempts`):
+
+| Layer | Scope | Default | Effect on exhaustion |
+|---|---|---|---|
+| Adapter reconnect loop | One WebSocket cycle (sequence of `max_attempts` retries against the same exchange) | `max_attempts: None` (infinite) | The adapter keeps retrying indefinitely within a single cycle. The supervisor (next layer) terminates the cycle. |
+| Engine supervisor | Number of cycles before permanent adapter disable | 5 cycles | After 5 failed cycles the adapter is permanently disabled for that pair; operator must restart or re-enable manually. See [08-01-user-manual.md §8](../operations-and-compliance/08-01-user-manual.md) for the operator-facing behaviour ("permanent disable after 5 consecutive failures"). |
+| REST client retry budget | REST endpoint from `crates/engine/src/api_client` and the Svelte frontend wrapper | 30 attempts | The REST client retries up to 30 times before surfacing the failure to the caller. Independent of the adapter or supervisor budgets. |
 
 ## State Transitions
 

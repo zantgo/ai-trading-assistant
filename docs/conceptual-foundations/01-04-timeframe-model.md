@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -100,7 +100,7 @@ $$w_{tf} = \text{clamp}\left(\frac{\text{duration\_seconds}}{\text{divisor}},\ 0
 
 The divisor is the session's **slowest enabled tier's duration** (the slowest tier with `enabled = true`). This keeps the hierarchy intact for any configured session — the slowest active tier always weights `1.0` and shorter tiers scale down proportionally, preserving the semantic ordering micro ≤ fast ≤ slow ≤ macro.
 
-**Divisor selection rule (Issue 4.N — correction).** The denominator is determined by the **slowest active** tier, not unconditionally `macro_duration_seconds`:
+**Divisor selection rule.** The denominator is determined by the **slowest active** tier, not unconditionally `macro_duration_seconds`:
 
 ```
 divisor = max({duration_seconds for tier in enabled_tiers})  // slowest active tier wins

@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -76,7 +76,7 @@ Signal detectors project discrete events onto the 12 `SignalKind`s. Detection is
 | Crossover detectors | `Crossover`, `ZeroLineCross`, `StackChange` |
 | Threshold detectors | `Threshold` |
 | Structural detectors | `Breakout`, `BandTouch`, `LevelTest`, `TrendFlip` |
-| Volatility / volume | `VolatilityCycle`, `VolumeClimax` |
+| Volatility / volume | `CompressionRelease`, `VolumeClimax` |
 | Pattern detectors | `PatternForming` |
 
 Each `IndicatorSignal` carries `kind`, `direction`, `status`, `label`, `strength`, and `age_bars` (stamped by the stateful ager). See [Signals Guide](03-02-10-mme-signals-guide.md).

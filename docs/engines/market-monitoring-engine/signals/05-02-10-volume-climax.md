@@ -1,6 +1,6 @@
 # SignalKind: VolumeClimax
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Category:** Volume
@@ -60,4 +60,4 @@ VolumeClimax is a **momentary** signal: it is emitted on the climax bar only (`a
 
 - [Signals Guide](../03-02-10-mme-signals-guide.md)
 - [volume.md](../indicators/04-02-18-volume.md) · [rvol.md](../indicators/04-02-19-rvol.md)
-- [SignalKind: Breakout](05-02-04-breakout.md) · [SignalKind: VolatilityCycle](05-02-07-volatility-cycle.md)
+- [SignalKind: Breakout](05-02-04-breakout.md) · [SignalKind: CompressionRelease](05-02-07-compression-release.md)

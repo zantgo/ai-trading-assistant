@@ -1,6 +1,6 @@
 # SignalKind: BandTouch
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Category:** Volatility / Channel

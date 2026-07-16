@@ -1,6 +1,8 @@
 # Indicator Documentation Index
 
-> 50 indicators across 8 functional groups. Registry-verified count: 50 authoritative `IndicatorMeta` entries in `crates/shared/src/indicators/registry.rs`. Divergence is a `SignalKind` emitted on its parent indicator — divergences are **not** separate registry entries and produce **no** separate JSON keys. Eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). All signal types match the authoritative registry.
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+
+> 50 indicators across 8 functional groups. Registry-verified count: 50 authoritative `IndicatorMeta` entries in `crates/shared/src/indicators/registry.rs` (verified `2026-07-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry.
 >
 > **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/shared/src/indicators/registry.rs` and updated on every registry change.
 >
@@ -57,10 +59,10 @@
 
 | # | Filename | Key | Display Name | Class | Dir | Div | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|-----|---------|----------|
-| 25 | `04-02-25-atr.md` | `atr` | ATR | Lagging | N (Gate) | — | Threshold, VolatilityCycle | [04-02-25-atr.md](04-02-25-atr.md) |
+| 25 | `04-02-25-atr.md` | `atr` | ATR | Lagging | N (Gate) | — | Threshold, CompressionRelease | [04-02-25-atr.md](04-02-25-atr.md) |
 | 26 | `04-02-26-bollinger.md` | `bollinger` | Bollinger | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest×3 | [04-02-26-bollinger.md](04-02-26-bollinger.md) |
-| 27 | `04-02-27-bbwp.md` | `bbwp` | BBWP | Leading | N (Gate) | — | VolatilityCycle, Threshold | [04-02-27-bbwp.md](04-02-27-bbwp.md) |
-| 28 | `04-02-28-squeeze.md` | `squeeze` | TTM Squeeze | Hybrid | Y | Y | VolatilityCycle×3, Divergence, Threshold×3 | [04-02-28-squeeze.md](04-02-28-squeeze.md) |
+| 27 | `04-02-27-bbwp.md` | `bbwp` | BBWP | Leading | N (Gate) | — | CompressionRelease, Threshold | [04-02-27-bbwp.md](04-02-27-bbwp.md) |
+| 28 | `04-02-28-squeeze.md` | `squeeze` | TTM Squeeze | Hybrid | Y | Y | CompressionRelease×3, Divergence, Threshold×3 | [04-02-28-squeeze.md](04-02-28-squeeze.md) |
 | 29 | `04-02-29-hv.md` | `hv` | Hist. Volatility | Lagging | N (Gate) | — | Threshold | [04-02-29-hv.md](04-02-29-hv.md) |
 | 30 | `04-02-30-stddev-channel.md` | `stddev_channel` | StdDev Chnl | Hybrid | Y | — | Breakout×2, BandTouch×2, LevelTest | [04-02-30-stddev-channel.md](04-02-30-stddev-channel.md) |
 
@@ -83,7 +85,7 @@
 | # | Filename | Key | Display Name | Class | Dir | Signals | Doc File |
 |---|---|-----|-------------|-------|-----|---------|----------|
 | 36 | `04-02-36-aroon.md` | `aroon` | Aroon | Hybrid | Y | TrendFlip×2, Threshold×2 | [04-02-36-aroon.md](04-02-36-aroon.md) |
-| 37 | `04-02-37-choppiness.md` | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, VolatilityCycle | [04-02-37-choppiness.md](04-02-37-choppiness.md) |
+| 37 | `04-02-37-choppiness.md` | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease | [04-02-37-choppiness.md](04-02-37-choppiness.md) |
 | 38 | `04-02-38-linreg-slope.md` | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 | [04-02-38-linreg-slope.md](04-02-38-linreg-slope.md) |
 | 39 | `04-02-39-zscore.md` | `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross | [04-02-39-zscore.md](04-02-39-zscore.md) |
 
@@ -126,8 +128,8 @@
 | Non-Directional Gates | 9 (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding Rate, Spread, Open Interest) |
 | Divergence-Bearing Indicators (`supports_divergence: true`) | 8 (RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze) |
 | Standalone Divergence Indicators | 1 (`oi_price_divergence` — own registry entry & JSON key) |
-| Total Signal-Kind × Indicator Declarations | **100** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown: Divergence 9, Crossover 9, Threshold 26, Breakout 9, BandTouch 4, ZeroLineCross 11, VolatilityCycle 4, LevelTest 14, TrendFlip 8, VolumeClimax 2, StackChange 1, PatternForming 3 (registry-verified; sums to 100). The earlier **101** → **100** transition is the v2.1 Aroon reclassification: `Crossover` 10 → 9 (Aroon removed; see SIG-02), `BandTouch` 5 → 4 (Supertrend removed; see SIG-03), `LevelTest` 13 → 14 (Supertrend added; see SIG-03). The earlier **102** → **101** transition corrected a ZeroLineCross miscount attributing ZeroLineCross to `stochastic` and `mfi`, whose indicator docs do not actually declare ZeroLineCross signals in their Signals tables — see [04-02-12-stochastic.md](../engines/market-monitoring-engine/indicators/04-02-12-stochastic.md) and [04-02-23-mfi.md](../engines/market-monitoring-engine/indicators/04-02-23-mfi.md). |
-| SignalKind Types | 12 (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, VolatilityCycle, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming) |
+| Total Signal-Kind × Indicator Declarations | **100** (one per `(indicator, SignalKind)` pair; `×N` counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). Per-SignalKind breakdown — registry-verified `2026-07-16`: `Divergence 9`, `Crossover 10`, `Threshold 21`, `Breakout 9`, `BandTouch 4`, `ZeroLineCross 13`, `CompressionRelease 4`, `LevelTest 14`, `TrendFlip 10`, `VolumeClimax 2`, `StackChange 1`, `PatternForming 3` (sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100). The v4.0 docs rename `VolatilityCycle` → `CompressionRelease` to match the registry (the v2.1 rename never propagated to `crates/shared/src/indicators/registry.rs`). The historical 101 → 100 transition was the v2.1 Aroon `Crossover → TrendFlip` reclassification (1 declaration removed); the historical 102 → 101 transition was a `ZeroLineCross` miscount corrected. The v4.0 figure of 100 is unchanged in total but the per-SignalKind breakdown above is the registry-verified authoritative count. |
+| SignalKind Types | 12 (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming) |
 
 Divergence companions do **not** appear as separate rows or JSON keys — a divergence is an `IndicatorSignal { kind: Divergence, ... }` in the parent indicator's `signals` array.
 

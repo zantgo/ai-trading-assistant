@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -68,9 +68,9 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/sh
 | `open_interest` | `Decimal` | Yes | Open interest at snapshot time. |
 | `oi_delta_1h` | `Decimal` | Yes | 1-hour rolling open-interest change. |
 | `prev_day_px` | `Decimal` | Yes | Prior-day reference price (from asset context). |
-| `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). NULL when liquidity extension disabled. |
-| `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). NULL when liquidity extension disabled. |
-| `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). Empty array when liquidity extension disabled. |
+| `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). `None` when liquidity extension disabled. |
+| `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). `None` when liquidity extension disabled. |
+| `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Always serialized** as an empty array (`[]`) when liquidity extension is disabled or no signals fired in this snapshot. Never omitted via `skip_serializing_if`. |
 | `indicators` | `map<string, IndicatorEvaluation>` | No | The unified dual-representation indicator map (see §3). |
 | `context` | `MarketContext` | Yes | Synthesized per-timeframe context (see §5). |
 | `alignment` | `AlignmentMatrix` | Yes | Attached Alignment Matrix (populated on completed snapshots). |
@@ -178,7 +178,7 @@ Each `IndicatorSignal` in an indicator's `signals` array is a discrete detected 
 | `Breakout` | Price breaks a structural boundary. | [breakout.md](../engines/market-monitoring-engine/signals/05-02-04-breakout.md) |
 | `BandTouch` | Price contacts a channel/band edge. | [band-touch.md](../engines/market-monitoring-engine/signals/05-02-05-band-touch.md) |
 | `ZeroLineCross` | Oscillator crosses its zero/mid line. | [zero-line-cross.md](../engines/market-monitoring-engine/signals/05-02-06-zero-line-cross.md) |
-| `VolatilityCycle` | Volatility cycle phase transition (coiling + release). | [volatility-cycle.md](../engines/market-monitoring-engine/signals/05-02-07-volatility-cycle.md) |
+| `CompressionRelease` | Volatility cycle phase transition (coiling + release). | [compression-release.md](../engines/market-monitoring-engine/signals/05-02-07-compression-release.md) |
 | `LevelTest` | Price tests a horizontal level (S/R, fib, pivot). | [level-test.md](../engines/market-monitoring-engine/signals/05-02-08-level-test.md) |
 | `TrendFlip` | Directional regime reverses (Supertrend, PSAR). | [trend-flip.md](../engines/market-monitoring-engine/signals/05-02-09-trend-flip.md) |
 | `VolumeClimax` | Abnormal volume surge. | [volume-climax.md](../engines/market-monitoring-engine/signals/05-02-10-volume-climax.md) |
@@ -214,7 +214,7 @@ The `context` field carries the **`MarketContext`** synthesis (`crates/shared/sr
 
 ### 5.0 Local-Regime vs Canonical-Regime Vocabulary
 
-> **Vocabulary mapping (Issue 4.U — clarification).** The platform uses **two distinct regime vocabularies** at different layers — they are not interchangeable:
+> **Vocabulary mapping.** The platform uses **two distinct regime vocabularies** at different layers — they are not interchangeable:
 
 | Layer | Vocabulary | Cardinality | Use |
 |-------|------------|-------------|------|

@@ -1,6 +1,6 @@
 # MME Signals Guide — Readable Technical Signal Rulebook
 
-**Version:** 2.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's discrete technical signals. It defines the 12 canonical `SignalKind`s, their detection semantics, and their confirmation lifecycle. Each SignalKind has a detailed specification under [signals/](signals/).
@@ -36,7 +36,7 @@ struct IndicatorSignal {
 | **Breakout** | Price breaks a structural boundary (channel, level). | [breakout.md](signals/05-02-04-breakout.md) |
 | **BandTouch** | Price contacts a channel/band edge. | [band-touch.md](signals/05-02-05-band-touch.md) |
 | **ZeroLineCross** | An oscillator crosses its zero/mid line. | [zero-line-cross.md](signals/05-02-06-zero-line-cross.md) |
-| **VolatilityCycle** | A volatility cycle phase transition (coiling + release). | [volatility-cycle.md](signals/05-02-07-volatility-cycle.md) |
+| **CompressionRelease** | A volatility cycle phase transition (coiling + release). | [compression-release.md](signals/05-02-07-compression-release.md) |
 | **LevelTest** | Price tests a horizontal level (S/R, fib, pivot, VWAP). | [level-test.md](signals/05-02-08-level-test.md) |
 | **TrendFlip** | A directional regime reverses (Supertrend, PSAR, Aroon). | [trend-flip.md](signals/05-02-09-trend-flip.md) |
 | **VolumeClimax** | Abnormal volume surge. | [volume-climax.md](signals/05-02-10-volume-climax.md) |

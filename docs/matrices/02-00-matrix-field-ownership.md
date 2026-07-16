@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 1.0
+**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -40,18 +40,19 @@ This document was introduced as part of the institutional-grade architectural re
                   │                            │
                   └─────────────┬──────────────┘
                                 ▼
-                  ┌─────────────────────────┐
-                  │   Decision Matrix (L6)  │  ← only synthesis point
-                  │   directional_guidance  │
-                  │   trade_readiness        │
-                  │   entry_danger│
-                  │   expected_rr_ratio       │
-                  └─────────────────────────┘
-                                │
-                                ▼
-                  ┌─────────────────────────┐
-                  │   Overview Matrix (L7)  │  ← cross-symbol aggregation
-                  └─────────────────────────┘
+                   ┌──────────────────────────┐
+                   │   Decision Matrix (L6)   │  ← only synthesis point
+                   │   directional_guidance   │
+                   │   trade_readiness         │
+                   │   entry_danger           │
+                   │   expected_reward_risk_ratio │
+                   │   stop_loss_distance_pct │
+                   └──────────────────────────┘
+                                 │
+                                 ▼
+                   ┌─────────────────────────┐
+                   │   Overview Matrix (L7)  │  ← cross-symbol aggregation
+                   └─────────────────────────┘
 ```
 
 ---
@@ -124,8 +125,7 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `invalidation_note` | L4 | Condition that nullifies the opportunity |
 | `entry_zone` (`PriceRange`) | L4 | Recommended entry band *(institutional redesign)* |
 | `target_zone` (`PriceRange`) | L4 | Expected target band *(institutional redesign)* |
-| `invalid_level` (`Decimal`) | L4 | **Renamed in v2.1 — actual field name in the wire schema is `invalidation_level`** to align with the Decision Matrix and Position Matrix. The `invalid_level` row above is a legacy name kept here as a migration reference; see [Opportunity Matrix §2.1](../matrices/02-08-opportunity-matrix.md) and the ontology note at §3.14. |
-| `invalid_level` legacy | L4 | Migrated to `invalidation_level`. The legacy alias is not serialized. |
+| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior name: `invalid_level`; renamed to `invalidation_level` so L4, Decision Matrix, and Position Matrix share one naming convention. The `invalid_level` legacy alias is **not** serialized.)* |
 | `expected_rr_internal` (`f64`) | L4 | Expected reward/risk ratio for this setup *(renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`)* |
 | `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 
@@ -134,6 +134,8 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 - L4 reads from L3 (Analysis) for `bias`, `state_confidence`, `market_quality`, and the qualitative assessments.
 
 > **Serialization convention.** `primary_opportunity` and `time_horizon` serialize as **SCREAMING_SNAKE_CASE strings on the wire / in policy conditions** (`"BREAKOUT"`, `"LIQUIDITY_SQUEEZE"`, `"INTRADAY"`, …); PascalCase is reserved for Rust internals. See the canonical note in [02-08-opportunity-matrix.md §7 Serialization note](../matrices/02-08-opportunity-matrix.md).
+
+**Ownership rules for L4:**
 - The setup-selection decision tree (formerly in `02-02-analysis-matrix.md §4.3`) is **moved** to the Opportunity Matrix and is the canonical source for `OpportunityType`.
 - L4 reads from L3 (Analysis) for `bias`, `state_confidence`, `market_quality`, and the qualitative assessments.
 
@@ -176,6 +178,7 @@ Owns: the **only synthesis point** in the pipeline. Combines L3 (state) + L4 (op
 | `entry_danger` (`RiskDimension`) | L6 | **Renamed from `environment_favorability` in v2.1** (semantic successor of `Risk.reward_risk`). The RiskDimension convention is **high score = danger, low score = safe** — consistent with all other Risk Matrix dimensions. |
 | `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — risk-discounted synthesis: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)` (canonical: [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md)). Note the `/100.0` divisor — `overall_risk` is on the canonical `[0, 100]` scale. |
 | `final_recommendation` (string) | L6 | Natural-language summary |
+| `stop_loss_distance_pct` (`f64`) | L6 | **Type-boundary handoff.** Raw percent float carried into TAE Position Sizing Protocol; cast to `Decimal` at the MME L6 → TAE L2 boundary. See `03-03-03-tae-layer2-execution.md §2` and `01-02-global-architecture.md §6.3`. |
 
 **`DecisionContext` (quantitative metadata):**
 
@@ -194,14 +197,16 @@ Owns: cross-symbol aggregation.
 |---|---|---|
 | `global_market_bias` (`GlobalBias` 6-state) | L7 | |
 | `market_breadth` (`MarketBreadth` 7-state) | L7 | |
+| `breadth_pct` (`f64`, [-100, 100]) | L7 | Continuous numeric derived from the `MarketBreadth` 7-state enum. UI renders as −100 % to +100 % gauge. |
 | `regime_distribution` (`map<string, f64>`) | L7 | |
 | `opportunity_distribution` (`map<string, u32>`) | L7 | Aggregated from L4 `primary_opportunity` |
 | `risk_distribution` (`RiskDistribution`) | L7 | |
+| `cascade_risk_index` (`RiskDimension` placeholder) | L7 | Stable contract only; not yet aggregated into `systemic_risk_score` (see `01-05 §Open questions`). |
 | `asset_ranking` (`AssetRank[]`) | L7 | score = `0.5 × confidence_assessment + 50` |
 | `market_synchronization` (`SyncLevel` 5-state) | L7 | |
 | `market_health` (`HealthLevel` 5-state) | L7 | |
 | `global_summary` (string) | L7 | |
-| `instance_count`, `active_symbols` | L7 | |
+| `instance_count`, `active_symbols` | L7 | **Invariant:** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. |
 | `systemic_risk_score` (derived) | L7 | `0.6 × high_pct + 0.4 × sync_penalty` |
 
 ---
@@ -248,9 +253,9 @@ The four `confidence`-bearing fields follow a strict hierarchy: indicator → st
 - Anything ← L7
 - Anything ← TAE / PME / PAE (those engines read from earlier matrices but their outputs are not feedback inputs)
 
-> **L4↔L1.5 / L4↔L2.5 architecture clarification (MAT-02).** The Opportunity Matrix `LiquiditySqueeze` precondition requires reading `LiquidityFlow.cascade_state` (L1.5 derivatives telemetry) and `LiquidationClusterMatrix.cascade_asymmetry` (L2.5 cluster matrix). A previous version of this section forbidden-listed all intermediate-layer reads (`L4 ↔ L1.5 / L2.5 forbidden`); the corrected rules above formalise L4's *forward-only* access to L1.5/L2.5 — the reverse edge (L1.5/L2.5 reading L4) remains forbidden.
+> **L4↔L1.5 / L4↔L2.5 architecture clarification.** The Opportunity Matrix `LiquiditySqueeze` precondition reads `LiquidityFlow.cascade_state` (L1.5 derivatives telemetry) and `LiquidationClusterMatrix.cascade_asymmetry` (L2.5 cluster matrix). The rule above formalises L4's *forward-only* access to L1.5/L2.5 — the reverse edge (L1.5/L2.5 reading L4) remains forbidden. The earlier restriction (`L4 ↔ L1.5 / L2.5 forbidden` without exception) was incorrect: a forward-only exception for the Liquidity Intelligence extension is required to evaluate the `LiquiditySqueeze` setup preconditions.
 >
-> **L5↔L1.5 / L5↔L2.5 architecture clarification (MAT-08).** Per [Risk Matrix §4](../matrices/02-11-risk-matrix.md) and [MME Layer 5 §1](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md), `cascade_risk` combines `LiquidityFlow.cascade_intensity` (L1.5) with `cascade_asymmetry` (L2.5). The dependency edge above is `L1.5 → L5` and `L2.5 → L5`. The 7-layer architecture is preserved by treating these as multi-source exceptions for the Liquidity Intelligence extension; the foundational 7-layer model remains the spine for non-liquidity layers.
+> **L5↔L1.5 / L5↔L2.5 architecture clarification.** Per [Risk Matrix §4](../matrices/02-11-risk-matrix.md) and [MME Layer 5 §1](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md), `cascade_risk` combines `LiquidityFlow.cascade_intensity` (L1.5) with `cascade_asymmetry` (L2.5). The dependency edges above are `L1.5 → L5` and `L2.5 → L5`. The 7-layer architecture is preserved by treating these as multi-source exceptions for the Liquidity Intelligence extension; the foundational 7-layer model remains the spine for non-liquidity layers.
 
 ---
 
