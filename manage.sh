@@ -45,13 +45,13 @@ build() {
     echo "✅ Build completed successfully."
 }
 
-run_foreground() {
+    run_foreground() {
     if [ ! -d "$FRONTEND_DIR/dist" ]; then
         echo "⚠️  Frontend build missing. Triggering compilation first..."
         build
     fi
     echo "🚀 Starting Market Monitor in the foreground..."
-    cargo run -- --web
+    cargo run --bin execution-daemon -- --web
 }
 
 run_silent() {
@@ -70,9 +70,9 @@ run_silent() {
 
     echo "🚀 Starting Market Monitor in the background..."
     echo "📝 Logs will be written to: $LOG_FILE"
-    
+
     # Run cargo in background and record PID
-    nohup cargo run -- --web > "$LOG_FILE" 2>&1 &
+    nohup cargo run --bin execution-daemon -- --web > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "✅ Engine running under PID: $!"
 }
@@ -128,7 +128,7 @@ run_tests() {
     test_core || { ((failures++)); echo "❌ TEST-CORE failed"; }
     echo ""
     echo "═══════════════════════════════════════════════════════════"
-    echo "  STAGE 2/3: TEST-ENGINE — DB + server"
+    echo "  STAGE 2/3: TEST-ENGINE — DB + server + e2e"
     echo "═══════════════════════════════════════════════════════════"
     test_engine || { ((failures++)); echo "❌ TEST-ENGINE failed"; }
     echo ""
@@ -146,23 +146,23 @@ run_tests() {
 }
 
 test_core() {
-    echo "🦀 TEST-CORE: Running shared crate tests (indicators + serialization)..."
-    cargo test -p shared
+    echo "🦀 TEST-CORE: Running core-domain + market-analyzer + config-models..."
+    cargo test -p core-domain -p market-analyzer -p config-models
 }
 
 test_engine() {
-    echo "🦀 TEST-ENGINE: Running engine integration tests..."
-    cargo test -p engine
+    echo "🦀 TEST-ENGINE: Running database-storage + api-gateway + portfolio-supervisor + performance-analytics + network-adapters + execution-daemon..."
+    cargo test -p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon
 }
 
 test_engine_full() {
-    echo "🦀 TEST-ENGINE-FULL: Running engine tests including load/stress..."
-    cargo test -p engine -- --include-ignored
+    echo "🦀 TEST-ENGINE-FULL: Running all engine tests including load/stress..."
+    cargo test --workspace -- --include-ignored
 }
 
 test_property() {
     echo "🦀 TEST-PROPERTY: Running generative property tests across all indicators..."
-    cargo test -p shared --test property_ema_sma --test property_rsi --test property_macd --test property_adx --test property_bollinger_atr --test property_squeeze --test property_bbwp --test property_fibonacci --test property_divergence --test property_patterns
+    cargo test -p market-analyzer --test property_ema_sma --test property_rsi --test property_macd --test property_adx --test property_bollinger_atr --test property_squeeze --test property_bbwp --test property_fibonacci --test property_divergence --test property_patterns
 }
 
 test_ui() {

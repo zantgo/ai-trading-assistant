@@ -1,23 +1,69 @@
 # AGENTS.md
 
-This project is a **Trading Platform** — a complete quantitative trading system that ingests live cryptocurrency data from exchanges, computes 50 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace containing 5 domain engines and a Svelte 5 dashboard.
+This project is a **Trading Platform** — a complete quantitative trading system that ingests live cryptocurrency data from exchanges, computes 50 technical indicators across 4 configurable timeframes, synthesizes multi-timeframe market intelligence, evaluates execution policies, manages portfolio risk, and provides historical performance analytics. Built as a Cargo Workspace of 9 specialized, decoupled crates and a Svelte 5 dashboard.
 
 ## Project overview
 
-The platform is organized around a **Two-Dimensional Architecture** — 5 specialized engines (horizontal) across sequenced analytical layers (vertical). See `docs/conceptual-foundations/global-architecture.md` for the full blueprint.
+The platform is organized around a **Two-Dimensional Architecture** — 5 specialized logical engines (DIE, MME, TAE, PME, PAE) across sequenced analytical layers. These logical engines are mapped onto 9 physical Rust crates so that "Engine" remains a logical term and the physical directories describe their engineering role.
 
-| Engine | Crate / Module | Responsibility |
-|--------|---------------|----------------|
-| Data Infrastructure Engine (DIE) | `engine` | WebSocket ingestion, OHLCV aggregation, data quality, broadcast distribution |
-| Market Monitoring Engine (MME) | `engine` | 50 indicators, signals, multi-timeframe alignment, opportunity/risk scoring, decision support |
-| Trade Automation Engine (TAE) | `engine` | Policy evaluation, position sizing, order routing, paper trading simulation |
-| Portfolio Management Engine (PME) | `engine` | Position tracking, exposure control, capital/margin management, safety veto |
-| Performance Analytics Engine (PAE) | `engine` | Trade reconstruction, NHST significance testing, drawdown/Sharpe, regime compatibility |
+| Logical Engine | Physical Crate(s) | Responsibility |
+|---------------|-------------------|----------------|
+| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries |
+| Market Monitoring Engine (MME) | `market-analyzer` | 50 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis |
+| Trade Automation Engine (TAE) | `portfolio-supervisor` | Policy evaluation, position sizing, profile evaluation, trigger engine |
+| Portfolio Management Engine (PME) | `portfolio-supervisor` + `api-gateway` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto |
+| Performance Analytics Engine (PAE) | `performance-analytics` | Dashboard stats compilation, strategy optimizer, performance evaluator |
+| (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps |
+| (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers |
+| (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving |
+| (cross-cutting) | `execution-daemon` | Headless CLI binary that wires everything together |
 
 ```
-crates/shared/       — MarketSnapshot model, 50 indicators, matrix schemas, serialization
-crates/engine/       — Binary: all 5 engines, Axum web server, SQLite telemetry
-crates/frontend/     — Svelte 5 + Vite dashboard (served as static assets by the engine binary)
+crates/
+├── core-domain/            # Stateless DTOs, JSON-RPC schemas, shared types
+├── config-models/          # All *Config structs + load_config() / load_instances()
+├── market-analyzer/        # 50 indicators, multi-TF pipeline, decision support
+├── database-storage/       # SQLite schema, migrations, WAL telemetry logger, queries
+├── network-adapters/       # WS/REST clients, NTP clock monitor, candle reconstruction
+├── portfolio-supervisor/   # Instances, sizing, safety vetoes, session, profile eval
+├── performance-analytics/  # Stats compiler, strategy optimizer, perf evaluator
+├── api-gateway/            # Axum router, WS broadcast, HTTP handlers, types
+└── execution-daemon/       # main.rs: parses CLI, loads config, boots tasks, starts Axum
+```
+
+Frontend:
+
+```
+crates/frontend/           # Svelte 5 + Vite dashboard (served as static assets)
+```
+
+The unidirectional dependency graph (core-domain is a leaf; nothing in the workspace depends on the leaf except transitively):
+
+```
+                       [config-models]
+                            ▲
+                            │
+                       [core-domain]
+                       ▲   ▲   ▲   ▲
+                       │   │   │   └─────────────────────┐
+                       │   │   │                         │
+               [market-analyzer]│                  [database-storage]
+                                 │                       ▲   ▲
+                                 │                       │   │
+                                 │                       │   │
+                        [network-adapters]               │   │
+                                 ▲                       │   │
+                                 │                       │   │
+                                 └──────────── [portfolio-supervisor]
+                                                         ▲
+                                                         │
+                                                 [performance-analytics]
+                                                         ▲
+                                                         │
+                                                    [api-gateway]
+                                                         ▲
+                                                         │
+                                                  [execution-daemon]
 ```
 
 ## Build & run
@@ -35,10 +81,10 @@ npm run build        # or: bun run build
 
 # 2. Build & run engine from workspace root
 cd ../..             # back to workspace root
-cargo run -- --web
+cargo run --bin execution-daemon -- --web
 ```
 
-The engine binary reads `config.json` from CWD at runtime. Run from the workspace root.
+The execution-daemon binary reads `config.toml` (legacy: `config.json`) from CWD at runtime. Run from the workspace root.
 
 ### Launch modes
 
@@ -69,14 +115,14 @@ npm run check        # svelte-check + tsc typecheck
 
 ### Connection Resilience & Quality
 
-- **Reconnect policy**: `crates/engine/src/adapters/resilience.rs` — exponential backoff (1s→30s, ±20% jitter) on WS disconnect; resilient to network crashes with auto-reconnect.
-- **Candle reconstruction**: `crates/engine/src/adapters/reconstruction.rs` — detects ingestion gaps on reconnect; ≥1m candles fetched from exchange REST historical, <1m candles synthesized via EMA/last-N closes. Reconstructed candles carry a `reconstructed: Some(ReconstructionMethod)` flag.
-- **Clock drift**: `crates/engine/src/clock_monitor.rs` — NTP polling enforces ≤50µs UTC drift budget; default warn loudly on breach, configurable to panic via `[clock_monitor].breach_action`.
-- **Quality tracking**: `crates/engine/src/connection_quality.rs` — rolling 1h/6h/24h windows with composite score formula: `0.5×uptime_pct + 30×(1 - min(disconnects/10, 1)) + 20×(1 - min(avg_reconnect_ms/5000, 1))`, clamped to 0..100.
+- **Reconnect policy**: `crates/network-adapters/src/adapters/resilience.rs` — exponential backoff (1s→30s, ±20% jitter) on WS disconnect; resilient to network crashes with auto-reconnect.
+- **Candle reconstruction**: `crates/network-adapters/src/adapters/reconstruction.rs` — detects ingestion gaps on reconnect; ≥1m candles fetched from exchange REST historical, <1m candles synthesized via EMA/last-N closes. Reconstructed candles carry a `reconstructed: Some(ReconstructionMethod)` flag.
+- **Clock drift**: `crates/network-adapters/src/clock_monitor.rs` — NTP polling enforces ≤50µs UTC drift budget; default warn loudly on breach, configurable to panic via `[clock_monitor].breach_action`.
+- **Quality tracking**: `crates/network-adapters/src/connection_quality_tracker.rs` (in-memory) + `crates/database-storage/src/connection_quality_persistence/mod.rs` (DB writer) — rolling 1h/6h/24h windows with composite score formula: `0.5×uptime_pct + 30×(1 - min(disconnects/10, 1)) + 20×(1 - min(avg_reconnect_ms/5000, 1))`, clamped to 0..100.
 
 ## Configuration
 
-`config.json` at workspace root controls indicator lookback windows, candle duration, exchange endpoints, engine toggles, fee rates, leverage, safety thresholds, and all per-engine parameters. Parsed at startup by `main.rs`. If missing, the engine panics.
+`config.toml` at workspace root controls indicator lookback windows, candle duration, exchange endpoints, engine toggles, fee rates, leverage, safety thresholds, and all per-engine parameters. Parsed at startup by `crates/config-models/src/lib.rs::load_config()`. If missing, the daemon panics.
 
 ## Documentation
 
@@ -93,14 +139,14 @@ Full specification documents under `docs/`:
 
 Start at `docs/README.md` for a guided reading order.
 
-## Testing (284 tests across 3 boundaries)
+## Testing (481 tests across 3 boundaries)
 
 | Suite | Command | Boundary | Tests | Runtime |
 |-------|---------|----------|-------|---------|
-| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization, liquidity module | 210 | <3s |
-| TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation event e2e | ~50 | <5s |
+| TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization, liquidity module (`core-domain`, `market-analyzer`, `config-models`) | ~280 | <3s |
+| TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation e2e, performance analytics, network adapters, daemon (`database-storage`, `api-gateway`, `portfolio-supervisor`, `performance-analytics`, `network-adapters`, `execution-daemon`) | ~177 | <10s |
 | TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots, LiquidityPanel | 24 | <10s |
-| All | `./manage.sh test` | Core → Engine → UI sequentially | 284 | <18s |
+| All | `./manage.sh test` | Core → Engine → UI sequentially | 481 | <20s |
 
 ### Liquidity Intelligence (Phases 0-4) test coverage
 

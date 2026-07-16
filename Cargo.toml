@@ -1,6 +1,13 @@
 [workspace]
 members = [
-    "crates/shared",
-    "crates/engine",
+    "crates/core-domain",
+    "crates/config-models",
+    "crates/market-analyzer",
+    "crates/database-storage",
+    "crates/network-adapters",
+    "crates/portfolio-supervisor",
+    "crates/performance-analytics",
+    "crates/api-gateway",
+    "crates/execution-daemon",
 ]
 resolver = "2"

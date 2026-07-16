@@ -1,0 +1,25 @@
+[package]
+name = "execution-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "execution-daemon"
+path = "src/main.rs"
+
+[dependencies]
+core-domain = { path = "../core-domain" }
+config-models = { path = "../config-models" }
+market-analyzer = { path = "../market-analyzer" }
+database-storage = { path = "../database-storage" }
+network-adapters = { path = "../network-adapters" }
+portfolio-supervisor = { path = "../portfolio-supervisor" }
+performance-analytics = { path = "../performance-analytics" }
+api-gateway = { path = "../api-gateway" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures-util = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+axum = { version = "0.7", features = ["ws", "json"] }

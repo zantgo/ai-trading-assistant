@@ -1,0 +1,227 @@
+//! # Market Context Synthesis Implementation
+//!
+//! The `MarketContext` DTO lives in `core-domain`; this module holds the
+//! `synthesize` constructor and its helpers because they need access to the
+//! indicator registry (`INDICATORS`) to group indicators by functional category.
+
+use crate::indicators::registry::{IndicatorGroup, INDICATORS};
+use core_domain::indicator_dtos::NormalizedIndicatorValue;
+use core_domain::market_context::{ContextDimension, MarketContext};
+use std::collections::HashMap;
+
+fn dir_label(
+    score: f64,
+    strong: &str,
+    weak: &str,
+    bear_strong: &str,
+    bear_weak: &str,
+    neutral: &str,
+) -> String {
+    if score >= 0.6 {
+        strong
+    } else if score >= 0.15 {
+        weak
+    } else if score <= -0.6 {
+        bear_strong
+    } else if score <= -0.15 {
+        bear_weak
+    } else {
+        neutral
+    }
+    .to_string()
+}
+
+/// Aggregate the enabled directional indicators of a functional group into a
+/// weighted-mean signed score + mean confidence.
+fn group_dimension(
+    map: &HashMap<String, NormalizedIndicatorValue>,
+    group: IndicatorGroup,
+    directional_only: bool,
+) -> ContextDimension {
+    let mut sum = 0.0;
+    let mut conf = 0.0;
+    let mut n = 0.0;
+    for meta in INDICATORS {
+        if meta.group != group {
+            continue;
+        }
+        if directional_only && !meta.directional {
+            continue;
+        }
+        if let Some(v) = map.get(meta.key) {
+            sum += v.normalized * v.confidence;
+            conf += v.confidence;
+            n += 1.0;
+        }
+    }
+    if n < f64::EPSILON {
+        return ContextDimension::neutral();
+    }
+    let mean = sum / n;
+    let conf = conf / n;
+    let score = mean;
+    let label = dir_label(
+        score,
+        "STRONG_BULL",
+        "WEAK_BULL",
+        "STRONG_BEAR",
+        "WEAK_BEAR",
+        "NEUTRAL",
+    );
+    ContextDimension {
+        score,
+        confidence: conf,
+        label,
+    }
+}
+
+/// Synthesize the context from a normalized indicator map.
+///
+/// Lives in `market-analyzer` because it reads `INDICATORS` to group
+/// contributions by functional category.
+pub fn synthesize_market_context(map: &HashMap<String, NormalizedIndicatorValue>) -> MarketContext {
+    let trend = group_dimension(map, IndicatorGroup::Trend, true);
+    let momentum = group_dimension(map, IndicatorGroup::Momentum, true);
+
+    // Volatility: magnitude from BBWP/HV (expansion vs compression), non-directional.
+    let bbwp = map.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
+    let vol_score = ((bbwp - 50.0) / 50.0).clamp(-1.0, 1.0);
+    let volatility = ContextDimension {
+        score: vol_score,
+        confidence: (bbwp / 100.0).clamp(0.0, 1.0),
+        label: if bbwp >= 90.0 {
+            "EXPANSION_CLIMAX".into()
+        } else if bbwp >= 60.0 {
+            "EXPANDING".into()
+        } else if bbwp <= 10.0 {
+            "MAX_COMPRESSION".into()
+        } else if bbwp <= 30.0 {
+            "CONTRACTING".into()
+        } else {
+            "NORMAL".into()
+        },
+    };
+
+    // Volume/participation: RVOL magnitude gate.
+    let rvol = map.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
+    let volume = ContextDimension {
+        score: (rvol - 1.0).clamp(-1.0, 1.0),
+        confidence: (rvol / 3.0).clamp(0.0, 1.0),
+        label: if rvol >= 3.0 {
+            "CLIMACTIC".into()
+        } else if rvol >= 1.5 {
+            "HIGH".into()
+        } else if rvol < 0.7 {
+            "THIN".into()
+        } else {
+            "NORMAL".into()
+        },
+    };
+
+    // Liquidity proxy: VWAP proximity + volume participation.
+    let vwap_conf = map.get("vwap").map(|v| v.confidence).unwrap_or(0.0);
+    let liquidity = ContextDimension {
+        score: 0.0,
+        confidence: ((vwap_conf + volume.confidence) / 2.0).clamp(0.0, 1.0),
+        label: if rvol >= 1.2 {
+            "GOOD".into()
+        } else if rvol < 0.6 {
+            "LOW".into()
+        } else {
+            "ADEQUATE".into()
+        },
+    };
+
+    // Regime from ADX strength + BBWP compression + trend agreement.
+    let adx = map.get("adx").map(|v| v.raw_value).unwrap_or(0.0);
+    let chop = map.get("choppiness").map(|v| v.raw_value).unwrap_or(50.0);
+    let regime = if bbwp <= 15.0 || chop >= 61.8 {
+        "COMPRESSION"
+    } else if bbwp >= 85.0 {
+        "EXPANSION"
+    } else if adx >= 25.0 || chop <= 38.2 {
+        "TRENDING"
+    } else {
+        "RANGE"
+    }
+    .to_string();
+
+    // Overall = confidence-weighted blend of trend + momentum (directional),
+    // dampened when the regime is range/compression.
+    let regime_gate = match regime.as_str() {
+        "TRENDING" | "EXPANSION" => 1.0,
+        "RANGE" => 0.6,
+        _ => 0.5,
+    };
+    let blended = (trend.score * 0.6 + momentum.score * 0.4) * regime_gate;
+    let overall_score = (blended * 100.0).round() as i32;
+    let overall_label = dir_label(
+        blended,
+        "STRONG_BULL",
+        "WEAK_BULL",
+        "STRONG_BEAR",
+        "WEAK_BEAR",
+        "NEUTRAL",
+    );
+
+    MarketContext {
+        trend,
+        momentum,
+        volatility,
+        volume,
+        liquidity,
+        regime,
+        overall_score,
+        overall_label,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_snapshot_inputs() -> HashMap<String, NormalizedIndicatorValue> {
+        HashMap::new()
+    }
+
+    fn scalar(key: &str, raw: f64, norm: f64) -> HashMap<String, NormalizedIndicatorValue> {
+        let mut m = empty_snapshot_inputs();
+        m.insert(
+            key.to_string(),
+            NormalizedIndicatorValue::scalar(raw, norm, "TEST"),
+        );
+        m
+    }
+
+    #[test]
+    fn empty_map_is_neutral() {
+        let ctx = synthesize_market_context(&empty_snapshot_inputs());
+        assert_eq!(ctx.regime, "RANGE");
+        assert_eq!(ctx.overall_label, "NEUTRAL");
+        assert_eq!(ctx.overall_score, 0);
+    }
+
+    #[test]
+    fn high_bbwp_is_expansion() {
+        let map = scalar("bbwp", 95.0, 0.9);
+        let ctx = synthesize_market_context(&map);
+        assert_eq!(ctx.regime, "EXPANSION");
+        assert_eq!(ctx.volatility.label, "EXPANSION_CLIMAX");
+    }
+
+    #[test]
+    fn bullish_trend_and_momentum_positive_overall() {
+        let mut map = empty_snapshot_inputs();
+        // Inject a few indicators so trend+momentum groups have something.
+        map.insert(
+            "rsi".into(),
+            NormalizedIndicatorValue::scalar(75.0, 0.8, "OVERBOUGHT"),
+        );
+        map.insert(
+            "macd".into(),
+            NormalizedIndicatorValue::scalar(1.5, 0.7, "BULLISH_EXPANDING"),
+        );
+        let ctx = synthesize_market_context(&map);
+        assert!(ctx.overall_score > 0, "expected positive overall score");
+    }
+}
