@@ -15,7 +15,7 @@
 | Charts | Lightweight Charts (TradingView) |
 | Styling | Scoped CSS Modules (`.module.css`), kebab-case → camelCase via `localsConvention` |
 | Visual style | "Premium Dark Cockpit" — Apple-inspired monochrome grid (see [07-02 §10](07-02-ui-dashboard-layout.md)) |
-| Static serving | Engine binary serves `crates/frontend/dist/` |
+| Static serving | Engine binary serves `ui/dist/` |
 
 ---
 
@@ -70,7 +70,7 @@ export class AppStore {
   - `priceText`, `volText`, `avgVolText` — formatted display strings.
   - `historyPrices`, `latestSnapshot` — chart seed arrays and the most recent raw snapshot.
   - Per-TF indicator parameter scalars (`emaFastVal`, `rsiPeriodVal`, `macdFastVal`, … — ~50 fields).
-  - **Liquidity Intelligence (Phase 0-4)** fields: `liquidity: LiquidityFlow | null`, `cluster: LiquidationClusterMatrix | null`, `liquiditySignals: LiquiditySignal[]`. These are surfaced by the WS demux in `crates/frontend/src/api/ws_client.rs` and live directly on each `TimeframeTelemetry` (e.g. `instance.microTerm.liquidity`).
+  - **Liquidity Intelligence (Phase 0-4)** fields: `liquidity: LiquidityFlow | null`, `cluster: LiquidationClusterMatrix | null`, `liquiditySignals: LiquiditySignal[]`. These are surfaced by the WS demux in `ui/src/api/ws_client.rs` and live directly on each `TimeframeTelemetry` (e.g. `instance.microTerm.liquidity`).
 
 ```ts
 // state.svelte.ts (excerpt)
@@ -95,7 +95,7 @@ The store uses `$state` for mutable fields and `$derived` for computed views. To
 1. **Snapshot write goes through plain field assignment** (e.g. `tf.latestSnapshot = snap`) — never through a `$derived` that re-derives from itself.
 2. **`$effect` blocks read store fields via local copies** at the top, perform side effects, and never mutate fields that the same effect reads.
 3. **Heavy aggregation runs in `$derived` chains** that do not mutate source `$state` (e.g. `change24h = $derived.by(...)` reading `microTerm.priceText`).
-4. The reconnect `$effect` only triggers when `activeTab` actually changes — see [`crates/frontend/src/App.svelte`](../../crates/frontend/src/App.svelte) for the canonical pattern.
+4. The reconnect `$effect` only triggers when `activeTab` actually changes — see [`ui/src/App.svelte`](../../ui/src/App.svelte) for the canonical pattern.
 
 ---
 
@@ -193,7 +193,7 @@ Every Svelte component with custom styles follows the **Scoped CSS Modules** pat
 2. The companion module is imported via `import styles from './[ComponentName].module.css'`.
 3. CSS class names use kebab-case (`.welcome-card`); Vite's `localsConvention: camelCaseOnly` maps them to camelCase for `<script>` bindings (`styles.welcomeCard`).
 4. Conditional class bindings use a template literal: `class="{styles.tab} {isActive ? styles.tabActive : ''}"`.
-5. Component-specific styling only — global tokens (palette, typography, spacing) live in `crates/frontend/src/styles/app.css` and `crates/frontend/src/styles/brutalist-grid.module.css`.
+5. Component-specific styling only — global tokens (palette, typography, spacing) live in `ui/src/styles/app.css` and `ui/src/styles/brutalist-grid.module.css`.
 6. Chart-only components (AtrChart, RsiChart, MacdChart, SqueezeChart, VolumeChart, AdxChart) that wrap a single canvas via Lightweight Charts with a minimal wrapper style (`.chart-container { width: 100%; height: 100% }`) are exempt from the companion-module requirement.
 
 **No single source file (`.svelte`, `.ts`, `.css`) may exceed 1000 lines of code.**

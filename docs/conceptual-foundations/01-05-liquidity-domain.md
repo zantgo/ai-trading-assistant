@@ -156,7 +156,7 @@ Total per-candle overhead: <5ms. Total memory: <300KB per pair per TF.
 | 1 | 15 | 1 | 16 | `crates/core-domain/tests/phase1_liquidity_flow.rs` + `crates/portfolio-supervisor/tests/phase1_liquidation_e2e.rs` |
 | 2 | 14 | 0 | 14 | `crates/core-domain/tests/phase2_cluster_matrix.rs` |
 | 3 | 10 | 0 | 10 | `crates/core-domain/tests/phase3_signals.rs` |
-| 4 | 5 | 0 | 5 | `crates/frontend/src/components/LiquidityPanel.test.ts` |
+| 4 | 5 | 0 | 5 | `ui/src/components/LiquidityPanel.test.ts` |
 | **Total** | **55** | **1** | **56** | |
 
 All 56 new tests pass. No existing tests were broken by the

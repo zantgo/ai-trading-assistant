@@ -356,7 +356,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
-        .fallback_service(ServeDir::new("crates/frontend/dist"))
+        .fallback_service(ServeDir::new("ui/dist"))
         .with_state(state)
 }
 

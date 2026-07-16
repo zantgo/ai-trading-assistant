@@ -13,7 +13,7 @@
 | Framework | Axum (Rust) on a Tokio runtime |
 | Base URL | `http://127.0.0.1:3000` (localhost only) |
 | Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is on the v5.0 roadmap. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
-| Static assets | `crates/frontend/dist/` served via `tower_http::services::ServeDir` |
+| Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
 
 ### 1.1 HTTP status codes and error envelope
 
@@ -284,7 +284,7 @@ The `operator_id` field on internal `execution.*` and `safety.*` control frames 
 
 ## 5. Fallback Route
 
-`/api/*` routes that do not match any documented endpoint return `404 Not Found` with the JSON error envelope of §1.1. Only non-`/api/*` paths fall through to the static-asset SPA handler serving `crates/frontend/dist/`. `/favicon.ico` redirects `301` → `/favicon.svg`.
+`/api/*` routes that do not match any documented endpoint return `404 Not Found` with the JSON error envelope of §1.1. Only non-`/api/*` paths fall through to the static-asset SPA handler serving `ui/dist/`. `/favicon.ico` redirects `301` → `/favicon.svg`.
 
 ---
 

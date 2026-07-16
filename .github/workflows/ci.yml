@@ -26,10 +26,10 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        working-directory: crates/frontend
+        working-directory: ui
         run: npm ci
       - name: Run UI tests
-        working-directory: crates/frontend
+        working-directory: ui
         run: npm run test
 
   test-engine:

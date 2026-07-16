@@ -16,7 +16,7 @@ set -euo pipefail
 
 # Configuration
 LOG_FILE="engine.log"
-FRONTEND_DIR="crates/frontend"
+FRONTEND_DIR="ui"
 PID_FILE=".engine.pid"
 
 show_help() {

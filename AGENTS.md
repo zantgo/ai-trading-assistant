@@ -34,7 +34,7 @@ crates/
 Frontend:
 
 ```
-crates/frontend/           # Svelte 5 + Vite dashboard (served as static assets)
+ui/           # Svelte 5 + Vite dashboard (served as static assets)
 ```
 
 The unidirectional dependency graph and the four cycle-breaking design decisions (MarketContext split, RegistryContext extraction, ConnectionQualityTracker split, paper_trading stub removal) live in **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md`** — the canonical single source of truth for "where does X live?" and "why don't these two crates import each other?". That document also covers the test-suite topology and the dev-dependency exceptions.
@@ -48,7 +48,7 @@ The unidirectional dependency graph and the four cycle-breaking design decisions
 ### Order matters
 ```bash
 # 1. Build frontend (produces dist/)
-cd crates/frontend
+cd ui
 npm install          # or: bun install
 npm run build        # or: bun run build
 
@@ -70,7 +70,7 @@ The execution-daemon binary reads `config.toml` (legacy: `config.json`) from CWD
 
 ### Frontend dev mode
 ```bash
-cd crates/frontend
+cd ui
 npm run dev          # Vite dev server
 npm run check        # svelte-check + tsc typecheck
 ```
@@ -84,7 +84,7 @@ npm run check        # svelte-check + tsc typecheck
 - Connection Quality API: `GET /api/connection-quality?window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`) and Bitget WebSocket (`wss://ws.bitget.com/v2/ws/public`)
-- Static assets served from `crates/frontend/dist`
+- Static assets served from `ui/dist`
 
 ### Connection Resilience & Quality
 
@@ -129,7 +129,7 @@ Start at `docs/README.md` for a guided reading order.
 | 1 | `crates/core-domain/tests/phase1_liquidity_flow.rs` + `crates/portfolio-supervisor/tests/phase1_liquidation_e2e.rs` | 15 + 1 | core + portfolio-supervisor |
 | 2 | `crates/core-domain/tests/phase2_cluster_matrix.rs` | 14 | core |
 | 3 | `crates/core-domain/tests/phase3_signals.rs` | 10 | core |
-| 4 | `crates/frontend/src/components/LiquidityPanel.test.ts` | 5 | ui |
+| 4 | `ui/src/components/LiquidityPanel.test.ts` | 5 | ui |
 | **Total** | | **56** | |
 
 ### Specialized test selectors

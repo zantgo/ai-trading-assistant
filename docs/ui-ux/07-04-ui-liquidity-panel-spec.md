@@ -2,10 +2,10 @@
 
 **Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
-**Component path:** `crates/frontend/src/components/LiquidityPanel.svelte` with companion CSS module `crates/frontend/src/components/LiquidityPanel.module.css`.
+**Component path:** `ui/src/components/LiquidityPanel.svelte` with companion CSS module `ui/src/components/LiquidityPanel.module.css`.
 **View key:** `liquidity` (in the `CurrentView` enum).
 **Mounted under:** the Bottom (Instance-Level) Navbar of `App.svelte` (see [07-02 §4](07-02-ui-dashboard-layout.md)), alongside Alignment / Opportunities / Risks / Analysis / Decision.
-**Data sources:** the three Phase 1-3 outputs are demultiplexed by `crates/frontend/src/api/ws_client.rs` into the per-timeframe `TimeframeTelemetry` shape. The panel reads them off the **micro timeframe** of the selected instance:
+**Data sources:** the three Phase 1-3 outputs are demultiplexed by `ui/src/api/ws_client.rs` into the per-timeframe `TimeframeTelemetry` shape. The panel reads them off the **micro timeframe** of the selected instance:
 
 ```ts
 const instance = $derived(app && pairKey ? app.instancesMap[pairKey] : undefined);
@@ -35,7 +35,7 @@ The component mounts only when an instance is selected (the Bottom Navbar is gat
 
 ## 2. Premium Dark Cockpit Color Tokens
 
-The panel follows the platform-wide **Premium Dark Cockpit** palette (see [07-02 §10](07-02-ui-dashboard-layout.md)). Component-local classes reference tokens defined in `crates/frontend/src/styles/brutalist-grid.module.css`; the cascade badge / signal-row states introduce four semantic colors:
+The panel follows the platform-wide **Premium Dark Cockpit** palette (see [07-02 §10](07-02-ui-dashboard-layout.md)). Component-local classes reference tokens defined in `ui/src/styles/brutalist-grid.module.css`; the cascade badge / signal-row states introduce four semantic colors:
 
 | Token / class | Value | Used for |
 |---|---|---|
@@ -346,7 +346,7 @@ Vite is configured with `localsConvention: 'camelCaseOnly'` (see [07-01 §7.1](0
 <div class="{styles.tab} {isActive ? styles.tabActive : ''}"></div>
 ```
 
-Global tokens (palette, typography, spacing) live in `crates/frontend/src/styles/brutalist-grid.module.css` and `crates/frontend/src/styles/app.css`; component-specific styles belong in the companion module.
+Global tokens (palette, typography, spacing) live in `ui/src/styles/brutalist-grid.module.css` and `ui/src/styles/app.css`; component-specific styles belong in the companion module.
 
 ---
 

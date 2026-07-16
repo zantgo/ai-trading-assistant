@@ -51,7 +51,7 @@ The platform is a 9-crate Cargo workspace + Svelte 5 frontend. The five logical 
 - `crates/performance-analytics` — Dashboard stats compiler, strategy optimizer (PAE).
 - `crates/api-gateway` — Axum HTTP router, WS broadcast server, HTTP handlers and request/response shapes.
 - `crates/execution-daemon` — Headless CLI binary that wires everything together (`--web` mode).
-- `crates/frontend` — Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
+- `ui` — Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
 
 ## Documentation
 

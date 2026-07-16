@@ -27,7 +27,7 @@ Frontend:
 
 | Folder | Responsibility |
 |---|---|
-| `crates/frontend` | Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools. Reads config via `GET /api/config`; never reads `config.toml` directly. |
+| `ui` | Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools. Reads config via `GET /api/config`; never reads `config.toml` directly. |
 
 ## 2. Dependency Graph
 

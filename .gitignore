@@ -20,8 +20,6 @@ jspm_packages/
 dist/
 dist-ssr/
 
-# Bun lockfile — the project uses npm (see .github/workflows/ci.yml `npm ci`).
-# A developer who runs `bun install` will produce bun.lock; ignore it.
 bun.lock
 bun.lockb
 
