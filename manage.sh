@@ -3,6 +3,14 @@
 # ==============================================================================
 # Market Monitor - Workspace Management Script
 # ==============================================================================
+#
+# Workspace architecture: see docs/conceptual-foundations/01-06-crate-layout-
+# and-cycles.md for the canonical crate inventory, dependency graph, and
+# cycle-breaking design rationale (single source of truth).
+# Configuration: `config.toml` (canonical; legacy `config.json` accepted by
+# config-models::load_config() as a fallback).
+# Binary: `cargo run --bin execution-daemon -- --web`
+# ==============================================================================
 
 set -euo pipefail
 

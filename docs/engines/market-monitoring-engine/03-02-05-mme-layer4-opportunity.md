@@ -1,6 +1,6 @@
 # MME Layer 4 — Opportunity Layer
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 4 of 7

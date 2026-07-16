@@ -1,6 +1,6 @@
 # LiquidityPanel UI Specification (Phase 4)
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Component path:** `crates/frontend/src/components/LiquidityPanel.svelte` with companion CSS module `crates/frontend/src/components/LiquidityPanel.module.css`.
 **View key:** `liquidity` (in the `CurrentView` enum).

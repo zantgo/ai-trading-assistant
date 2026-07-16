@@ -1,9 +1,10 @@
-# Documentation Consistency Manifest — v4.0
+# Documentation Consistency Manifest — v5.0
 
 **Generated:** 2026-07-16
-**Audit run:** v4.0 corpus closure (12 phases, all complete)
-**Scope:** `docs/` — 130 markdown files (1 README + 1 CHANGELOG + 128 numbered docs)
-**Source code:** **Not inspected.** All count and structural claims are derived from `docs/CHANGELOG.md` and from inspecting the corpus itself.
+**Audit run:** v5.0 workspace-restructure doc pass (3 commits, all complete)
+**Scope:** `docs/` — 131 markdown files at v5.0 (1 README + 1 CHANGELOG + 129 numbered docs)
+**Source code:** **Inspected.** v5.0 is the first manifest version where the doc audit verified against the actual workspace layout (`crates/` directory tree and `Cargo.toml` workspace members). v4.0 only inspected the corpus itself.
+**v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
 
 ---
 
@@ -36,7 +37,7 @@ docs/
 
 **Total: 130 markdown files.** v3 → v4 added 1 file (`docs/CHANGELOG.md`); all other file paths are unchanged.
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 4.0 (2026-07-16) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep against the corpus; zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 5.0 (2026-07-16) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep against the corpus; zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x stamps.
 
 ---
 
@@ -55,7 +56,7 @@ docs/
 | **8** | `06-01-api-gateway-contract.md` | H-18 (A-1), A-2, A-3, A-4, A-5, A-6, A-7, A-8, AUDIT-V4-047 … AUDIT-V4-055 |
 | **9** | `06-02-database-schema-spec.md` | B-1 … B-11, AUDIT-V4-040 … AUDIT-V4-046 |
 | **10** | Authoring hygiene (corpus-wide) | inline audit-marker cleanup, ladder-version removal (`1.0`/`2.0`/`2.1`/`2.2` removed); cross-doc `crates/...rs` source-line path references retained only as cross-doc module identifiers (no literal line citations) |
-| **11** | Versioning (v4.0) | every numbered doc carries `**Version:** 4.0 (2026-07-16)`; verified by automated grep |
+| **11** | Versioning (v4.0) | every numbered doc carries `**Version:** 5.0 (2026-07-16)`; verified by automated grep |
 | **12** | Verification + this manifest | All Phase-12 checks below |
 
 ---
@@ -142,13 +143,23 @@ docs/
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
 
 ### 12.11 File-count invariant
-- [x] `docs/` contains **130** files (129 + new `CHANGELOG.md`).
-- [x] `docs/README.md` total-count line updated to **130**.
+- [x] `docs/` contains **131** files at v5.0 (130 + new `01-06-crate-layout-and-cycles.md`).
+- [x] `docs/README.md` total-count line updated to **131** and the directory map carries the new file entry.
 
 ### 12.12 Versioning
-- [x] Every numbered doc carries `**Version:** 4.0 (2026-07-16) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep.
+- [x] Every numbered doc carries `**Version:** 5.0 (2026-07-16) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep (the v4.0 stamps have all been rolled forward to v5.0; the v4.0 entry in `CHANGELOG.md` is historical).
 - [x] `docs/README.md` and `docs/CHANGELOG.md` are the only two files permitted to use a "version" stamp outside this convention (`README.md` is the entry point and carries "v2 platform-summary" wording in the historical reference; `CHANGELOG.md` is the canonical single version history).
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
+
+### 12.13 v5.0 physical-layout audit (new in v5.0)
+
+- [x] **Zero stale crate paths.** grep audit across `docs/`, `AGENTS.md`, `README.md`, and `manage.sh` for `crates/engine`, `crates/shared`, and `crates/backend` returns zero matches after the v5.0 doc rewrite commit.
+- [x] **Single source of truth for physical layout.** `01-06-crate-layout-and-cycles.md` is the canonical home; the AGENTS.md duplicated dependency-graph ASCII diagram was removed in favor of a one-line pointer to the new doc.
+- [x] **Cycle-breaking decisions are documented.** Four decisions (MarketContext split, RegistryContext extraction, ConnectionQualityTracker split, paper_trading stub removal) each carry a `§3.X` subsection in the new doc with rationale, tradeoffs, and future-proofing notes.
+- [x] **Config-format consistency.** Every prose `config.json` reference that describes CURRENT operating config has been rewritten to `config.toml` (89 substitutions). The 2 historical AUDIT entries in `CHANGELOG.md` AUDIT-V4-016 / AUDIT-V4-028 that document pre-migration config decisions are intentionally preserved. Every rewrite notes the legacy `config.json` fallback.
+- [x] **Binary name updated.** `cargo run --` → `cargo run --bin execution-daemon --` across `AGENTS.md`, `README.md`, and `manage.sh`.
+- [x] **manage.sh `destroy` command fixed.** Was scaffolding `config.toml` from `config.default.json` (cross-format copy). Now scaffolds from `config.default.toml`.
+- [x] **No contradiction with v4.0 corpus.** v4.0's registry-verified counts (50 indicators, 100 signal-kind declarations, 12 SignalKinds) are unchanged by the workspace split — verified by spot-check of `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 

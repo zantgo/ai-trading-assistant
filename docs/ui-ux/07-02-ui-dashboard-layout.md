@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), and the internal sub-sidebar pattern. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 

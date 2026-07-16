@@ -1,6 +1,6 @@
 # TAE — Execution Policy Specification
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document defines the formal syntax, semantics, and lifecycle of **Execution Policies** — the user-configured conditional rules that govern automated order dispatch. Execution policies are the bridge between passive MME intelligence and active TAE execution.

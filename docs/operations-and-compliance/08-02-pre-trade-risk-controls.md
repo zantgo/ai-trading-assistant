@@ -1,6 +1,6 @@
 # Pre-Trade Risk Controls
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 

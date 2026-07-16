@@ -1,6 +1,6 @@
 # SMC Market Structure (BOS / CHoCH)
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 
 
 ## 1. Introduction — Trading Function

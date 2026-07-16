@@ -1,6 +1,6 @@
 # Phase 0-4 Liquidity Intelligence — Architecture Spec
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented (Phases 0-4)
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 

@@ -4,6 +4,80 @@
 
 ---
 
+## v5.0 (2026-07-16) — Workspace restructure
+
+### What changed
+
+**The two monolithic crates (`crates/engine` + `crates/shared`) are split into 9 specialized crates.** This is the physical-workspace refactor that the user's plan described. The five logical engines (DIE, MME, TAE, PME, PAE) and the three cross-cutting concerns (domain types, config models, HTTP gateway, headless daemon) are now mapped one-to-one to the crates below. The full crate table, the dependency graph, and the four cycle-breaking design decisions are in [`01-06-crate-layout-and-cycles.md`](../conceptual-foundations/01-06-crate-layout-and-cycles.md).
+
+| Old (v4.0) | New (v5.0) | Purpose |
+|---|---|---|
+| `crates/shared` (monolithic DTOs + 50 indicators) | `crates/core-domain` + `crates/market-analyzer` | Stateless DTOs split from raw indicator math |
+| `crates/engine` (everything else) | `crates/network-adapters` + `crates/database-storage` + `crates/portfolio-supervisor` + `crates/performance-analytics` + `crates/api-gateway` + `crates/execution-daemon` | One engine → one crate |
+| (none) | `crates/config-models` | New leaf crate for `*Config` structs + `load_config()` |
+| `crates/engine/src/main.rs` | `crates/execution-daemon/src/main.rs` | Renamed binary; `cargo run --bin execution-daemon` |
+| `crates/backend/` (orphan) | (deleted) | Was a stale duplicate, never in workspace |
+
+### Why four cycle-breaking decisions were needed
+
+Rust Cargo forbids cyclic crate deps. Four of the natural edges between the new crates would have been cycles; each was resolved by moving either the **type definition** or the **function body** to the right crate:
+
+1. **`MarketContext`** struct in `core-domain`; `synthesize_market_context()` function in `market-analyzer`. (Avoids `core-domain → market-analyzer`.)
+2. **`AppState`** in `api-gateway`; `RegistryContext` in `portfolio-supervisor` with `AppState::registry_context()` as a one-method bridge. (Avoids `api-gateway ↔ portfolio-supervisor`.)
+3. **`ConnectionQualityTracker`** event-emitter in `network-adapters` (no `sqlx`); persistence loop in `database-storage::connection_quality_persistence`. (Avoids `network-adapters → database-storage`.)
+4. **`paper_trading::invalidate_position`** stub removed from the analyzer pipeline. (Avoids `market-analyzer → portfolio-supervisor`.)
+
+Full rationale in [`01-06 §3`](../conceptual-foundations/01-06-crate-layout-and-cycles.md).
+
+### Configuration format change
+
+`config.toml` is now the canonical configuration file (replacing the legacy `config.json`). The `config-models::load_config()` reader recognizes **both** — `config.toml` is preferred for new deploys, `config.json` is accepted as a legacy fallback. The `manage.sh` `destroy` command scaffolds `config.toml` from `config.default.toml`. The 08-01-user-manual.md `§2` and `§5` are updated to reflect the new canonical format.
+
+### Documentation path rewrites
+
+89 stale `crates/engine` / `crates/shared` / `crates/backend` references in `docs/`, `AGENTS.md`, `README.md`, and `manage.sh` were updated in commit `docs: rewire crates/{engine,shared} -> 9-crate paths + config.json -> config.toml`. The grep audit at the end of that commit showed zero remaining stale paths.
+
+### Test suite changes
+
+| Before (v4.0) | After (v5.0) |
+|---|---|
+| `./manage.sh test-core` ran `cargo test -p shared` | runs `-p core-domain -p market-analyzer -p config-models` |
+| `./manage.sh test-engine` ran `cargo test -p engine` | runs `-p database-storage -p api-gateway -p portfolio-supervisor -p performance-analytics -p network-adapters -p execution-daemon` |
+| `./manage.sh run` ran `cargo run --` | runs `cargo run --bin execution-daemon --` |
+
+481 tests pass after the restructure (up from 284 in v4.0; the additional tests include previously dormant property tests + new fault-tolerance and e2e tests that the engine crate had suppressed).
+
+### New audit register
+
+This version introduces the `AUDIT-V5-NN` series for tracking gaps between the new doc `01-06-crate-layout-and-cycles.md` and the actual workspace layout. See **Resolved Issues in v5.0** below.
+
+### Migration notes for downstream consumers
+
+- **Code paths** that referenced `shared::` or `engine::` were updated in commit `d0e3ac2` (the source restructure) and again in this commit (the docs restructure). There is no in-tree code or doc that still references the old crate names.
+- **Config files**: existing `config.json` files continue to work — `load_config()` reads them as a fallback. Operators may rename to `config.toml` at their leisure; the two file formats are structurally identical (TOML keys = JSON keys, with TOML's `[table]` syntax for nested objects).
+- **Database schema**: unchanged. The 24 migrations moved from `crates/engine/migrations/` to `crates/database-storage/migrations/`; `sqlx::migrate!()` reads them relative to `CARGO_MANIFEST_DIR` so the move is transparent at runtime.
+- **Frontend**: the frontend reads config via `GET /api/config` and never imports from any Rust crate, so the split is invisible. The two Rust-comment references in `crates/frontend/src/types.ts` to "Rust shared::indicators" were updated to "Rust market-analyzer::indicators".
+
+### Resolved Issues in v5.0
+
+| ID | Issue | Resolution |
+|---|---|---|
+| `AUDIT-V5-001` | `docs/CHANGELOG.md` v4.0 reconciliation paragraph cited `crates/shared/src/indicators/registry.rs` | Path updated to `crates/market-analyzer/src/indicators/registry.rs` |
+| `AUDIT-V5-002` | `docs/conceptual-foundations/01-01-ontology.md` Appendix B §B.3 cited `crates/shared/src/indicators/registry.rs` | Path updated to `crates/market-analyzer/src/indicators/registry.rs` |
+| `AUDIT-V5-003` | `docs/conceptual-foundations/01-05-liquidity-domain.md` claimed "no `config.toml` exists" | Sentence replaced; the legacy `config.json` form is documented as the historical predecessor and `config.toml` is now canonical |
+| `AUDIT-V5-004` | `docs/engines/trade-automation-engine/03-03-03-tae-layer2-execution.md` cited `crates/engine/src/profile_evaluation/*` | Path updated to `crates/portfolio-supervisor/src/profile_evaluation/*` |
+| `AUDIT-V5-005` | `docs/engines/portfolio-management-engine/03-04-01-pme-overview-spec.md` cited `crates/engine/src/safety.rs` | Path updated to `crates/portfolio-supervisor/src/safety.rs` |
+| `AUDIT-V5-006` | `docs/operations-and-compliance/08-06-clock-monitor.md` §Module path cited `crates/engine/src/main.rs` | Path updated to `crates/execution-daemon/src/main.rs` |
+| `AUDIT-V5-007` | `docs/operations-and-compliance/08-04-candle-reconstruction.md` cited `crates/engine/src/adapters/reconnection_handler.rs` (file never existed) | Path updated to `crates/network-adapters/src/adapters/reconstruction.rs` |
+| `AUDIT-V5-008` | `docs/operations-and-compliance/08-03-connection-resilience.md` cited `crates/engine/src/api_client` (file never existed) | Stale reference deleted; replaced with `crates/network-adapters/src/adapters/*_rest.rs` |
+| `AUDIT-V5-009` | `AGENTS.md` test-coverage table cited `crates/engine/tests/phase0_derivatives.rs` and `crates/engine/tests/phase1_liquidation_e2e.rs` | Paths updated to `crates/portfolio-supervisor/tests/...` |
+| `AUDIT-V5-010` | `README.md` Workspace Structure described a 2-crate workspace | Replaced with the 9-crate tree |
+| `AUDIT-V5-011` | `AGENTS.md` duplicated the dependency-graph ASCII diagram | Removed; `01-06-crate-layout-and-cycles.md` is the single source of truth |
+
+(11 AUDITs; commit `docs: rewire crates/{engine,shared} -> 9-crate paths + config.json -> config.toml` resolved AUDIT-V5-001..010; this changelog resolution is AUDIT-V5-011.)
+
+---
+
 ## v4.0 (2026-07-16) — Corpus closure
 
 ### What changed

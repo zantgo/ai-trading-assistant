@@ -1,6 +1,6 @@
 # 02-13: LiquidationClusterMatrix — Estimated Heatmap (Phase 2)
 
-**Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 
 **Producer:** MME L2.5 (cluster estimation task, 5-min refresh)
 **Consumer:** MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — LiquidityPanel Cluster tab

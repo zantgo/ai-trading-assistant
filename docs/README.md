@@ -101,7 +101,7 @@ docs/
     └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
 ```
 
-Total: **131 markdown files** at v5.0 (1 README + 7 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 new `CHANGELOG.md` = **130** numbered docs + README). 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The v5.0 addition (`+1` vs v4.0) is the new `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` documenting the 9-crate workspace split.
+Total: **132 markdown files** at v5.0 (1 README + 7 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 `CHANGELOG.md` + 1 `DOCS-CONSISTENCY-MANIFEST.md` = **131** numbered docs + README). 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The v5.0 additions vs v4.0 are: (a) new `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` documenting the 9-crate workspace split, and (b) new `docs/DOCS-CONSISTENCY-MANIFEST.md` promoted from a v4.0 audit artefact to a v5.0 standing doc per its own §12.13 closure.
 
 ## The Five Engines
 
