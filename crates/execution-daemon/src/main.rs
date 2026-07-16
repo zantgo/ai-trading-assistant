@@ -1,41 +1,154 @@
 //! # Execution Daemon
 //!
 //! Headless orchestrator binary. Reads configuration, initializes the
-//! SQLite database, builds the Axum `AppState`, spawns background tasks
-//! (telemetry logger, portfolio equity logger, performance evaluator,
-//! strategy optimizer, clock monitor, connection-quality persistence),
+//! SQLite database, builds the Axum `AppState`, spawns background tasks,
 //! then runs the Axum HTTP server on `127.0.0.1:3000`.
 //!
-//! Configuration is loaded from a single file, `config.toml`, in the
-//! workspace root. The file contains TWO top-level tables: `[platform]`
-//! (exchange endpoints + NTP clock monitor) and `[workspace]` (portfolio
-//! + analytics + strategies + market-monitor defaults + instances[]).
-//! See `docs/conceptual-foundations/01-07-data-model-hierarchy.md`.
+//! ## Launch modes
+//!
+//! - `--mode web` (default): starts the Axum server + serves the Svelte
+//!   dashboard. The Welcome Gate prompts the user to select an exchange and
+//!   currency before adding instances.
+//! - `--mode headless`: auto-initialises the session from CLI args (or
+//!   workspace config defaults), auto-spawns all instances declared in
+//!   `workspace.instances[]`, then starts the Axum server for monitoring
+//!   (accessible via SSH tunnel). No Welcome Gate prompt appears.
+//!
+//! ## CLI flags
+//!
+//! - `--exchange <hyperliquid|bitget>` — overrides the workspace
+//!   `default_exchange`. Only meaningful in `headless` mode.
+//! - `--currency <USDC|USDT>` — overrides the workspace `default_currency`.
+//!   Only meaningful in `headless` mode.
+//! - `--config <path>` — path to `config.toml`. Overrides the
+//!   `MARKET_MONITOR_CONFIG` env var.
+//!
+//! ## Config sharing workflow
+//!
+//! 1. GUI machine: `./manage.sh run`, configure settings + instances via
+//!    the dashboard, click "Download Config" → `config.toml` saved.
+//! 2. Headless machine: `scp config.toml ec2-user@host:/app/`
+//! 3. Start: `cargo run --bin execution-daemon -- --mode headless --exchange hyperliquid --currency USDC`
+//! 4. Or point at config directly:
+//!    `MARKET_MONITOR_CONFIG=/mnt/efs/config.toml cargo run --bin execution-daemon -- --mode headless`
+//!
+//! See `docs/conceptual-foundations/01-07-data-model-hierarchy.md` for the
+//! canonical design document.
 
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use api_gateway::{build_router, AppState};
-use config_models::{load_platform, load_workspace, save_workspace, ClockMonitorBreachAction};
+use config_models::{load_platform, load_workspace, ClockMonitorBreachAction};
 use database_storage::{init_db, run_telemetry_logger, verify_encryption_or_panic};
 use network_adapters::{
     clock_monitor::{BreachAction, ClockMonitor, ClockMonitorConfig},
     connection_quality_tracker::ConnectionQualityTracker,
 };
 use performance_analytics::{performance_evaluator, strategy_optimizer};
-use portfolio_supervisor::{portfolio_equity, workspace_state::WorkspaceState};
+use portfolio_supervisor::{
+    portfolio_equity, registry, workspace_state::WorkspaceState,
+    session::{Currency, ExchangeChoice},
+};
+
+// ─── CLI argument parsing ────────────────────────────────────────────
+
+struct CliArgs {
+    mode: LaunchMode,
+    exchange: Option<String>,
+    currency: Option<String>,
+    config_path: Option<String>,
+}
+
+enum LaunchMode {
+    Web,
+    Headless,
+}
+
+fn parse_args() -> CliArgs {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut mode = LaunchMode::Web; // default
+    let mut exchange = None;
+    let mut currency = None;
+    let mut config_path = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--mode" => {
+                i += 1;
+                if i < args.len() {
+                    mode = match args[i].as_str() {
+                        "headless" => LaunchMode::Headless,
+                        _ => LaunchMode::Web,
+                    };
+                }
+            }
+            "--exchange" => {
+                i += 1;
+                if i < args.len() {
+                    exchange = Some(args[i].clone());
+                }
+            }
+            "--currency" => {
+                i += 1;
+                if i < args.len() {
+                    currency = Some(args[i].clone());
+                }
+            }
+            "--config" => {
+                i += 1;
+                if i < args.len() {
+                    config_path = Some(args[i].clone());
+                }
+            }
+            "--web" | "--gui" => {
+                mode = LaunchMode::Web;
+            }
+            _ => { /* ignore unknown args */ }
+        }
+        i += 1;
+    }
+
+    CliArgs { mode, exchange, currency, config_path }
+}
+
+impl CliArgs {
+    /// Resolve the exchange from CLI arg or workspace config default.
+    fn resolve_exchange(&self, default_exchange: &str) -> ExchangeChoice {
+        let raw = self.exchange.as_deref().unwrap_or(default_exchange);
+        match raw.to_lowercase().as_str() {
+            "bitget" => ExchangeChoice::Bitget,
+            _ => ExchangeChoice::Hyperliquid,
+        }
+    }
+
+    /// Resolve the currency from CLI arg or workspace config default.
+    fn resolve_currency(&self, default_currency: &str) -> Currency {
+        let raw = self.currency.as_deref().unwrap_or(default_currency);
+        match raw.to_uppercase().as_str() {
+            "USDT" => Currency::USDT,
+            _ => Currency::USDC,
+        }
+    }
+}
+
+// ─── Main ────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let _web_mode = args.is_empty() || args.iter().any(|a| a == "--web" || a == "--gui");
+    let cli = parse_args();
+
+    // If --config is provided, set the env var that config-models reads.
+    if let Some(ref path) = cli.config_path {
+        std::env::set_var("MARKET_MONITOR_CONFIG", path);
+    }
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     println!("⚙️  Market Monitor: Loading Master Configuration...");
 
-    // ── PLATFORM + WORKSPACE: the only two config structs the binary reads. ──
     let platform = load_platform().expect(
         "❌ Configuration Error: failed to parse platform config from config.toml",
     );
@@ -48,9 +161,10 @@ async fn main() {
         if workspace.instances.len() == 1 { "" } else { "s" }
     );
 
-    println!(
-        "🚪 Session-first boot: system starts empty and inactive. Awaiting Welcome Gate session initialization before any pipelines spawn."
-    );
+    match cli.mode {
+        LaunchMode::Headless => println!("🤖 Launch mode: HEADLESS (auto-spawn, no Welcome Gate)"),
+        LaunchMode::Web => println!("🖥️  Launch mode: WEB (Welcome Gate will prompt for exchange/currency)"),
+    }
 
     println!("🗄️  Initializing local SQLite telemetry database...");
     let db_pool = init_db().await;
@@ -75,9 +189,8 @@ async fn main() {
     let symbol_mapper = Arc::new(core_domain::normalized::SymbolMapper::new());
     let connection_quality = Arc::new(ConnectionQualityTracker::new());
 
-    // ── Wrap config + workspace in the runtime state objects. ──
     let platform_arc = Arc::new(RwLock::new(platform));
-    let workspace_state = WorkspaceState::new(workspace);
+    let workspace_state = WorkspaceState::new(workspace.clone());
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
@@ -96,6 +209,54 @@ async fn main() {
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
     });
+
+    // ── Session auto-init (headless and web mode) ──────────────────
+    //
+    // In both modes we initialise the session so that instances can be
+    // spawned. In web mode the user may re-select the exchange via the
+    // Welcome Gate; the gate handler will overwrite the session fields.
+    {
+        let exchange = cli.resolve_exchange(&workspace.default_exchange);
+        let currency = cli.resolve_currency(&workspace.default_currency);
+        if let Err(e) = app_state.init_session(currency, exchange).await {
+            eprintln!("⚠️  Session auto-init failed: {}", e);
+        } else {
+            println!(
+                "✅ Session auto-initialised: {} on {}",
+                currency.as_str(),
+                exchange.as_str(),
+            );
+        }
+    }
+
+    // ── Instance auto-spawn (both modes) ───────────────────────────
+    //
+    // Every entry in workspace.instances[] is spawned automatically.
+    // In web mode the user may additionally add more pairs via the GUI.
+    // In headless mode this is the ONLY way instances are created.
+    {
+        let ctx = app_state.registry_context();
+        for entry in &workspace.instances {
+            if entry.symbol.is_empty() {
+                continue;
+            }
+            let (base, quote) = match entry.symbol.split_once('-') {
+                Some((b, q)) => (b.to_string(), q.to_string()),
+                None => {
+                    eprintln!("⚠️  Skipping malformed symbol: {}", entry.symbol);
+                    continue;
+                }
+            };
+            match registry::add_instance(&ctx, (base, quote)).await {
+                Ok(_inst) => {
+                    println!("✅ Instance spawned: {}", entry.symbol);
+                }
+                Err(e) => {
+                    eprintln!("⚠️  Failed to spawn instance {}: {}", entry.symbol, e);
+                }
+            }
+        }
+    }
 
     let app = build_router(app_state.clone());
 
@@ -125,9 +286,8 @@ async fn main() {
         .await;
     }));
 
-    // Clock-drift monitor (NTP-based) — driven from the platform config.
-    let platform_for_clock = platform_arc.clone();
-    if let Some(clock_cfg) = platform_for_clock.read().await.clock_monitor.clone() {
+    // Clock-drift monitor (NTP-based)
+    if let Some(clock_cfg) = platform_arc.read().await.clock_monitor.clone() {
         if clock_cfg.is_active() {
             let monitor_cfg = ClockMonitorConfig {
                 ntp_servers: clock_cfg.ntp_servers.clone(),
@@ -154,10 +314,10 @@ async fn main() {
                 monitor.run_until_cancelled(clock_cancel).await;
             }));
         } else {
-            println!("🕒 Clock Monitor: disabled by config (enabled=false or no NTP servers)");
+            println!("🕒 Clock Monitor: disabled by config");
         }
     } else {
-        println!("🕒 Clock Monitor: no [clock_monitor] section in config.toml — drift enforcement disabled");
+        println!("🕒 Clock Monitor: no [clock_monitor] section — drift enforcement disabled");
     }
 
     let quality_pool = db_pool.clone();
@@ -185,14 +345,4 @@ async fn main() {
     }));
 
     let _ = futures_util::future::join_all(handles).await;
-}
-
-// Suppress unused warnings for items used implicitly by AppState but not in
-// this file.
-#[allow(dead_code)]
-async fn _ensure_types_used() {
-    let _ = WorkspaceState::new(config_models::WorkspaceConfig::default());
-    // Touch save_workspace so the symbol isn't dead.
-    let mut ws = config_models::WorkspaceConfig::default();
-    let _ = save_workspace(&ws);
 }

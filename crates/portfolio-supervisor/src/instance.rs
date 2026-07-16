@@ -255,7 +255,7 @@ impl Instance {
             trading: RwLock::new(TradingState::default()),
             config_state: RwLock::new(ConfigState::new(
                 config_models::IntervalsConfig::default(),
-                config_models::OperationalMode::ManualOnly,
+                config_models::OperationalMode::Advisory,
             )),
             safety_config: config_models::SafetyConfig::default(),
             safety: Arc::new(SafetyManager::new(3, 5, 8, 30.0)),

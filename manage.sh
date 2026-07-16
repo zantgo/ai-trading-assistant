@@ -25,8 +25,9 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  build              Compile frontend assets and verify cargo workspace compiles"
-    echo "  run                Run the engine in the foreground with live logs"
+    echo "  run                Run the engine in the foreground with live logs (web mode)"
     echo "  run-silent         Run the engine in the background, redirecting logs to $LOG_FILE"
+    echo "  run-headless       Run in headless mode (no Welcome Gate, auto-spawns instances from config.toml, API server active for monitoring)"
     echo "  stop               Stop any background engine instance currently running"
     echo "  status             Check if the engine is running (and print process info)"
     echo "  test               Run all test suites (core → engine → ui)"
@@ -83,6 +84,31 @@ run_silent() {
     nohup cargo run --bin execution-daemon -- --web > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "✅ Engine running under PID: $!"
+}
+
+run_headless() {
+    if [ ! -d "$FRONTEND_DIR/dist" ]; then
+        echo "⚠️  Frontend build missing (needed for monitoring). Triggering compilation first..."
+        build
+    fi
+
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "⚠️  Engine is already running in the background (PID: $PID)."
+            exit 0
+        fi
+    fi
+
+    echo "🚀 Starting Market Monitor in HEADLESS mode..."
+    echo "   🔧 No Welcome Gate — session auto-initialised from config.toml"
+    echo "   📡 Instances auto-spawned from workspace.instances[]"
+    echo "   🌐 API server on port 3000 for monitoring"
+    echo "📝 Logs will be written to: $LOG_FILE"
+
+    nohup cargo run --bin execution-daemon -- --mode headless > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    echo "✅ Engine running in headless mode under PID: $!"
 }
 
 stop_instance() {
@@ -234,6 +260,9 @@ case "$1" in
         ;;
     run-silent)
         run_silent
+        ;;
+    run-headless)
+        run_headless
         ;;
     stop)
         stop_instance

@@ -5,7 +5,40 @@
 
     const app = useAppStore();
 
-    let activeSection = $state<'fee' | 'settings'>('settings');
+    let activeSection = $state<'fee' | 'settings' | 'share'>('settings');
+
+    // ─── Config sharing ───────────────────────────────────────────────
+    let importStatus = $state<'idle' | 'importing' | 'success' | 'error'>('idle');
+    let importMessage = $state('');
+
+    function handleFilePicked(e: Event) {
+        const input = e.target as HTMLInputElement;
+        const file = input.files?.[0];
+        if (!file) return;
+        importStatus = 'importing';
+        importMessage = '';
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+            const toml = ev.target?.result as string;
+            try {
+                const res = await fetch('/api/workspace/toml', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+                    body: toml,
+                });
+                const msg = await res.text();
+                importStatus = res.ok ? 'success' : 'error';
+                importMessage = msg;
+                if (res.ok) {
+                    setTimeout(() => { importStatus = 'idle'; importMessage = ''; }, 5000);
+                }
+            } catch (e: any) {
+                importStatus = 'error';
+                importMessage = e?.message || 'Import failed';
+            }
+        };
+        reader.readAsText(file);
+    }
 
     // ─── API Failover settings ───────────────────────────────────────────
     let draftFailoverRetries = $state(5);
@@ -94,10 +127,54 @@
             </svg>
             Settings
         </button>
+        <button
+            class="{styles.sidebarItem} {activeSection === 'share' ? styles.sidebarActive : ''}"
+            onclick={() => activeSection = 'share'}
+        >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            Share Config
+        </button>
     </div>
 
     <div class={styles.profileContent}>
-        {#if activeSection === 'fee'}
+        {#if activeSection === 'share'}
+            <div class={styles.profileCard}>
+                <h3>Share Configuration</h3>
+                <p class={styles.cardSub}>
+                    Download your workspace (instances, timeframes, indicators, fees, safety rules) as a single <code>config.toml</code> file.
+                    Copy it to another machine and start with <code>--mode headless</code> to run the same setup there.
+                    Platform-level fields (exchange URLs, clock monitor) are preserved from the target machine.
+                </p>
+                <div class={styles.shareActions} style="display:flex; gap:1rem; margin-top:1rem; flex-wrap:wrap;">
+                    <a
+                        href="/api/workspace/toml"
+                        download="config.toml"
+                        class={styles.saveBtn}
+                        style="text-decoration:none; display:inline-block;"
+                    >
+                        ⬇ Download config.toml
+                    </a>
+                    <label class={styles.saveBtn} style="cursor:pointer; display:inline-block; margin:0;">
+                        ⬆ Import config.toml
+                        <input
+                            type="file"
+                            accept=".toml"
+                            onchange={handleFilePicked}
+                            style="display:none;"
+                        />
+                    </label>
+                </div>
+                {#if importStatus === 'importing'}
+                    <p class={styles.cardSub} style="margin-top:0.75rem;">Importing...</p>
+                {:else if importStatus === 'success'}
+                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #4caf50;">{importMessage}</p>
+                {:else if importStatus === 'error'}
+                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #f44336;">{importMessage}</p>
+                {/if}
+            </div>
+        {:else if activeSection === 'fee'}
             <div class={styles.profileCard}>
                 <h3>Fee Reference Calculator</h3>
                 <p class={styles.cardSub}>Calculate round-trip fees and minimum profit needed to break even</p>

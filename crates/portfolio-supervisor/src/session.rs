@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicBool;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Currency {
     USDT,
     USDC,
@@ -16,7 +16,7 @@ impl Currency {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExchangeChoice {
     Hyperliquid,
     Bitget,

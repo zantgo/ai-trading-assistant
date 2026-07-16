@@ -209,6 +209,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::config::serve_config).post(handlers::config::update_config),
         )
         .route(
+            "/api/workspace/toml",
+            get(handlers::config::serve_workspace_toml).post(handlers::config::serve_workspace_toml_import),
+        )
+        .route(
             "/api/rules",
             get(handlers::config::serve_get_rules).post(handlers::config::serve_set_rules),
         )

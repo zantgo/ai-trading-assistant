@@ -418,7 +418,7 @@ candles = { duration_seconds = 180, analysis_limit = 500 }
             slow_term: None,
             macro_term: None,
             automation: AutomationConfig::default(),
-            operational_mode: OperationalMode::ManualOnly,
+            operational_mode: OperationalMode::Advisory,
             weight_overrides: None,
             position_scaling: None,
         });
@@ -433,7 +433,7 @@ candles = { duration_seconds = 180, analysis_limit = 500 }
             slow_term: None,
             macro_term: None,
             automation: AutomationConfig::default(),
-            operational_mode: OperationalMode::ManualOnly,
+            operational_mode: OperationalMode::Advisory,
             weight_overrides: None,
             position_scaling: None,
         });

@@ -623,19 +623,44 @@ fn default_automation_interval() -> u64 {
 
 // ─── Operational Mode ──────────────────────────────────────────
 
+/// Each instance runs in exactly one mode:
+///
+/// - **Advisory**: market monitor only — indicators, signals, snapshots are
+///   computed and broadcast, but no trade orders are ever submitted. This is
+///   the default and the safest mode for observation.
+/// - **PaperTrading**: the paper trading engine executes simulated orders on
+///   the internal matching engine. Portfolio, risk, and performance analytics
+///   are updated as if real trades occurred.
+/// - **LiveTrading**: the live exchange adapter (Hyperliquid or Bitget) submits
+///   real orders. This mode is **not yet implemented** — enabling it currently
+///   panics at the execution boundary.
+///
+/// PaperTrading and LiveTrading follow the **same code path** — the
+/// execution layer is strategy-identical. Toggling between them changes only
+/// the order-routing backend, ensuring a strategy that works in paper mode
+/// works identically in live mode (when implemented).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OperationalMode {
     #[default]
-    ManualOnly,
-    DeterministicHeuristics,
+    Advisory,
+    PaperTrading,
+    LiveTrading,
 }
 
 impl OperationalMode {
     pub fn as_str(&self) -> &'static str {
         match self {
-            OperationalMode::ManualOnly => "ManualOnly",
-            OperationalMode::DeterministicHeuristics => "DeterministicHeuristics",
+            OperationalMode::Advisory => "advisory",
+            OperationalMode::PaperTrading => "paper_trading",
+            OperationalMode::LiveTrading => "live_trading",
         }
+    }
+
+    /// True when this mode permits the execution layer to submit orders
+    /// (either simulated or real).
+    pub fn is_trading(&self) -> bool {
+        matches!(self, OperationalMode::PaperTrading | OperationalMode::LiveTrading)
     }
 }
 

@@ -180,14 +180,15 @@ pub async fn serve_update_instance_config(
             entry.slow_term = payload.slow_term.or(entry.slow_term);
             entry.macro_term = payload.macro_term.or(entry.macro_term);
             entry.automation = payload.automation.unwrap_or(entry.automation);
-            entry.operational_mode = payload
+             entry.operational_mode = payload
                 .operational_mode
                 .as_deref()
                 .and_then(|s| match s {
-                    "ManualOnly" => Some(config_models::OperationalMode::ManualOnly),
-                    "DeterministicHeuristics" => {
-                        Some(config_models::OperationalMode::DeterministicHeuristics)
+                    "advisory" | "ManualOnly" => Some(config_models::OperationalMode::Advisory),
+                    "paper_trading" | "DeterministicHeuristics" => {
+                        Some(config_models::OperationalMode::PaperTrading)
                     }
+                    "live_trading" => Some(config_models::OperationalMode::LiveTrading),
                     _ => None,
                 })
                 .unwrap_or(entry.operational_mode);
