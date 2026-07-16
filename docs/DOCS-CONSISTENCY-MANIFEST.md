@@ -67,7 +67,7 @@ docs/
 - [x] No `§3.7 weights`-style references to non-existent sections. The previously broken reference in `02-04-decision-matrix.md §6` is replaced by `02-04-decision-matrix.md §2.3` (the new `confluence_score` formula), and the file owns its own headline score formula.
 - [x] Every cross-doc rename usage is `state_confidence`, `forecast_confidence`, `score_confidence`, `confidence_assessment`, `entry_danger`, `expected_rr_internal`, `expected_reward_risk_ratio`, `invalidation_level`, `execution_liquidity_risk`, `cascade_risk`, `tradability_dim`, `CompressionRelease` — verified by per-term grep counts (§4 below).
 
-### 12.2 Numerical counts (registry-verified, `crates/shared/src/indicators/registry.rs` at `2026-07-16`)
+### 12.2 Numerical counts (registry-verified, `crates/market-analyzer/src/indicators/registry.rs` at `2026-07-16`)
 - [x] **50 indicators / 8 groups** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives)
 - [x] **100 signal-kind declarations** (sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100)
 - [x] **12 distinct SignalKinds** (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming)
@@ -137,7 +137,7 @@ docs/
 
 ### 12.10 Authoring hygiene
 - [x] Zero inline `(MAT-XX)`, `(SIG-XX)`, `(EXE-XX)`, `(OPS-XX)`, `(UI-XX)`, `(DB-XX)`, `(API-XX)`, `(AUDIT-XX)`, `(Issue NN)` markers in normative sections. The only surviving audit identifiers are in `docs/CHANGELOG.md`, exactly per the locked decision Q3. (Verified by `grep -rE "\(MAT-[0-9]+..." docs/ | grep -v CHANGELOG` → empty output.)
-- [x] Zero literal source-line citations (`crates/...rs:N` or `crates/...rs::func(...)`). Module-path cross-references (e.g. `crates/shared/src/indicators/registry.rs`) are retained as cross-doc identifiers (these are module paths, not line numbers).
+- [x] Zero literal source-line citations (`crates/...rs:N` or `crates/...rs::func(...)`). Module-path cross-references (e.g. `crates/market-analyzer/src/indicators/registry.rs`) are retained as cross-doc identifiers (these are module paths, not line numbers).
 - [x] Subjective adjectives in algorithmic specs are limited to "default" (e.g. "the default ladder is micro 60 s / fast 180 s / slow 300 s / macro 900 s"), "deterministic", and "canonical" — none of the "most defensible" / "best forward-looking" / "robust" / "comprehensive" filler.
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
 

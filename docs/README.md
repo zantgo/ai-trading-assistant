@@ -144,12 +144,12 @@ Total: **130 markdown files** (1 README + 6 conceptual + 15 matrix + **31 engine
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
-- All configuration is stored in **`config.json`** at the workspace root.
+- All configuration is stored in **`config.toml`** at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()`).
 - Engine communication is **unidirectional** — no backward dependencies.
 - Every engine **layer** produces exactly one immutable **Matrix** as its output contract.
 - The platform is **strategy-agnostic** — engines interpret markets; execution policies are user-defined.
 - MME Layers 4 (Opportunity) and 5 (Risk) execute **in parallel** from L3 (Analysis) and converge at L6 (Decision Support).
-- All candle aggregation closes candles at the **exact epoch-duration multiple of UTC** (a 60 s candle for a trade at 123456 ms aligns to `[120000, 180000)`, closing at 180000 ms = `:00.000` of the next minute) — see `01-04-timeframe-model.md §3.1`. Local clock drift budget is ≤ 50 µs of UTC, enforced at runtime by `crates/engine/src/clock_monitor.rs` (configurable via the `"clock_monitor"` block of `config.json`).
+- All candle aggregation closes candles at the **exact epoch-duration multiple of UTC** (a 60 s candle for a trade at 123456 ms aligns to `[120000, 180000)`, closing at 180000 ms = `:00.000` of the next minute) — see `01-04-timeframe-model.md §3.1`. Local clock drift budget is ≤ 50 µs of UTC, enforced at runtime by `crates/network-adapters/src/clock_monitor.rs` (configurable via the `[clock_monitor]` section of `config.toml`).
 - Position sizing uses **available margin** (`available_margin`), not raw equity, with formula `S = E·R / (D_sl / 100)` (see `03-03-03-tae-layer2-execution.md §2`).
 - Divergences are nested `Divergence` signals on the parent indicator key — there are no separate `*_divergence` registry entries (see `04-02-00-indicator-index.md`).
 - Monte Carlo significance uses **sign-randomization** (±1 on each PnL), not order-shuffling (see `03-05-03-pae-layer2-strategy-analytics.md §3.3`).

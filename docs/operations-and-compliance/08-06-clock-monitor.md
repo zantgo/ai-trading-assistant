@@ -2,7 +2,7 @@
 
 **Version:** 4.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
 **Status:** Implemented
-**Module path:** the clock-monitor task is spawned by `crates/engine/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `"clock_monitor"` block of `config.json`.
+**Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 
 ## Purpose
 
@@ -37,7 +37,7 @@ pub async fn run_until_cancelled(self, cancel: CancellationToken);
 
 ## Configuration
 
-In `config.json` (the platform's single source of configuration truth — *no* `config.toml` exists):
+In `config.toml` (the platform's single source of configuration truth — *no* `config.toml` exists):
 ```json
 {
   "clock_monitor": {
@@ -51,7 +51,7 @@ In `config.json` (the platform's single source of configuration truth — *no* `
 }
 ```
 
-> **Single source of truth.** All clock-monitor fields live in `config.json` and can be edited via `POST /api/config` or directly in the file at the workspace root. An earlier revision of this file showed a TOML block — that was an artifact of an early prototype; the platform has never used TOML.
+> **Single source of truth.** All clock-monitor fields live in `[clock_monitor]` in `config.toml` and can be edited via `POST /api/config` or directly in the file at the workspace root. `config.json` is still recognized by `config-models::load_config()` as a legacy fallback (the JSON reader path is preserved for backward compatibility with existing user installations but is not documented for new deploys).
 
 ## NTP Measurement
 

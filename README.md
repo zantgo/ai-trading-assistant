@@ -39,9 +39,19 @@ chmod +x manage.sh
 Once running, navigate to http://127.0.0.1:3000 to access the dashboard.
 
 ## Workspace Structure
-- `crates/shared`: Shared domain structures (`MarketSnapshot`) and technical indicator math engines (50 indicators across 8 groups).
-- `crates/engine`: Ingestion engine, WebSocket clients (Hyperliquid + Bitget), SQLite persistence, and HTTP/WS server serving dashboard assets.
-- `crates/frontend`: Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
+
+The platform is a 9-crate Cargo workspace + Svelte 5 frontend. The five logical engines (DIE, MME, TAE, PME, PAE) are mapped onto these physical crates:
+
+- `crates/core-domain` — Stateless DTOs (`MarketSnapshot`, matrices), JSON-RPC, indicator value types.
+- `crates/config-models` — All `*Config` structs + `load_config()` / `load_instances()` readers.
+- `crates/market-analyzer` — 50 technical indicators, signals, multi-TF pipeline, decision support, liquidity math (MME).
+- `crates/database-storage` — SQLite schema, migrations, WAL telemetry logger, queries (DIE persistence layer).
+- `crates/network-adapters` — WS/REST clients (Hyperliquid, Bitget), NTP clock monitor, candle reconstruction, connection-quality tracker (DIE).
+- `crates/portfolio-supervisor` — Instance lifecycle, position sizing, safety veto, session state, risk/commission math (PME + TAE).
+- `crates/performance-analytics` — Dashboard stats compiler, strategy optimizer (PAE).
+- `crates/api-gateway` — Axum HTTP router, WS broadcast server, HTTP handlers and request/response shapes.
+- `crates/execution-daemon` — Headless CLI binary that wires everything together (`--web` mode).
+- `crates/frontend` — Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools.
 
 ## Documentation
 

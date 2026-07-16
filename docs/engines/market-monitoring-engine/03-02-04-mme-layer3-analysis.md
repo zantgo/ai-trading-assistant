@@ -24,7 +24,7 @@ The Analysis Layer is the transition from *observation* to *understanding*. It c
 
 The L3 output fans out to three downstream consumers. **L4 and L5 are strictly orthogonal** — they do not read each other's matrices. L6 is the only synthesis point. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
 
-Implementation: `crates/shared/src/analysis.rs::derive_analysis()`.
+Implementation: `crates/core-domain/src/analysis.rs::derive_analysis()`.
 
 ---
 

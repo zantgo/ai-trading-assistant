@@ -160,7 +160,7 @@ A Timeframe defines the temporal resolution used to analyze an entity. Timeframe
 ### 3.8 Indicator
 An Indicator is a continuous quantitative measurement derived from market data. Rather than returning a single numeric value, an indicator is represented as a structured telemetry object projected across multiple **Indicator Evaluation Axes** to provide immediate mathematical and behavioral context.
 
-> **Target Architecture (Not Yet Implemented).** On the planned Data-Oriented hot path (DIE ingestion + MME Layers 1–5), indicators are computed with fast floating-point primitives (`f64`/`f32`) packed contiguously in memory (Structure of Arrays), enabling SIMD auto-vectorization, and are converted to exact decimals (`rust_decimal::Decimal`) only when crossing the transactional execution boundary (MME Layer 6 → TAE). *Current implementation:* most indicator calculators compute in `rust_decimal::Decimal` over `VecDeque` rolling windows (`crates/shared/src/indicators/*.rs`), with `f64` used at the normalization/synthesis stage.
+> **Target Architecture (Not Yet Implemented).** On the planned Data-Oriented hot path (DIE ingestion + MME Layers 1–5), indicators are computed with fast floating-point primitives (`f64`/`f32`) packed contiguously in memory (Structure of Arrays), enabling SIMD auto-vectorization, and are converted to exact decimals (`rust_decimal::Decimal`) only when crossing the transactional execution boundary (MME Layer 6 → TAE). *Current implementation:* most indicator calculators compute in `rust_decimal::Decimal` over `VecDeque` rolling windows (`crates/market-analyzer/src/indicators/*.rs`), with `f64` used at the normalization/synthesis stage.
 
 ### 3.9 Signal
 A Signal is a discrete technical event detected from market telemetry. Rather than returning a binary state, a signal is represented as a structured telemetry object projected across multiple **Signal Evaluation Axes** to supply structural, risk-based, and transactional context.
@@ -219,7 +219,7 @@ An Execution Policy is a user-defined, conditional rule managed by the Trade Aut
 ### 3.19 Trade Execution
 Trade Execution represents the physical interaction with an exchange interface or simulated execution environments. It manages order types, routes, transactional states, slippage controls, and exchange acknowledgments.
 
-> **Target Architecture (Not Yet Implemented).** Trade Execution belongs to the OOP/Domain-Driven **cold path**: order routing, sizing, and transactional state are governed by 128-bit arbitrary-precision decimals (`rust_decimal::Decimal`) to prevent rounding errors and exchange rejections. *Current implementation:* the position-sizing / risk calculator (`crates/engine/src/risk_calculator.rs`) computes in `f64`; `Decimal` is used for stored order/position fields and quote data.
+> **Target Architecture (Not Yet Implemented).** Trade Execution belongs to the OOP/Domain-Driven **cold path**: order routing, sizing, and transactional state are governed by 128-bit arbitrary-precision decimals (`rust_decimal::Decimal`) to prevent rounding errors and exchange rejections. *Current implementation:* the position-sizing / risk calculator (`crates/portfolio-supervisor/src/risk_calculator.rs`) computes in `f64`; `Decimal` is used for stored order/position fields and quote data.
 
 ### 3.20 Position
 A Position represents an active market exposure within the portfolio. It contains all real-time tracking parameters, such as entry price, current price, size, unrealized PnL, leverage, and active stop/target coordinates.
@@ -1439,7 +1439,7 @@ $$\text{SystemicRisk} = 0.6 \cdot \text{high\_pct} + 0.4 \cdot \text{sync\_penal
 
 ## Appendix B — Complete Indicator, Signal, and SignalKind Manifest
 
-This appendix provides the definitive registry-verified manifest of all 50 indicators, **100 signal-kind declarations** (post-v2.1 — the 101 → 100 transition is documented in §B.3's editor's note and §B.2's count row), and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/shared/src/indicators/registry.rs`.
+This appendix provides the definitive registry-verified manifest of all 50 indicators, **100 signal-kind declarations** (post-v2.1 — the 101 → 100 transition is documented in §B.3's editor's note and §B.2's count row), and 12 SignalKind types in the platform. Counts are authoritative — drawn from `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 
@@ -1556,7 +1556,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 
 ### B.3 SignalKind Frequency Table
 
-Canonical counts — registry-verified against `crates/shared/src/indicators/registry.rs` at `2026-07-16`:
+Canonical counts — registry-verified against `crates/market-analyzer/src/indicators/registry.rs` at `2026-07-16`:
 
 | # | SignalKind | Declarations | Description |
 |---|-----------|-------------|-------------|
@@ -1574,7 +1574,7 @@ Canonical counts — registry-verified against `crates/shared/src/indicators/reg
 | 12 | `PatternForming` | **3** | Chart/candlestick pattern detected. Producers: `patterns`, `candlestick`, `smc_liquidity`. |
 | | **TOTAL** | **100** | Sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100. |
 
-> The registry is the authoritative source of truth (`crates/shared/src/indicators/registry.rs`). Any disagreement between this table and the registry is resolved in favor of the registry.
+> The registry is the authoritative source of truth (`crates/market-analyzer/src/indicators/registry.rs`). Any disagreement between this table and the registry is resolved in favor of the registry.
 
 **×N notation.** The `×N` suffix on per-indicator manifest rows (e.g. `PatternForming×2` for `patterns` and `candlestick`) counts **internal event multiplicity within a single declaration**, not declaration count. For example, `patterns` has exactly one `(patterns, PatternForming)` declaration in the registry, but emits multiple PatternForming event subtypes — the `×2` reflects that internal multiplicity. It does **not** mean "2 declarations of `(patterns, PatternForming)`". The 100-declaration total above is the sum of distinct `(indicator, SignalKind)` pairs across all 50 indicators.
 

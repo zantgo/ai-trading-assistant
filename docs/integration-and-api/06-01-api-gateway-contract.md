@@ -146,7 +146,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `use_dynamic_atr` | `bool` | no | `true` to compute the stop and target from ATR instead of the explicit prices. |
 | `min_tick_size` | `Decimal` (string) | no | Minimum order size increment (base asset units). Position size is quantized to this tick. |
 
-> Schema authoritative: `crates/engine/src/server/types.rs::RiskCalculationPayload` and `crates/engine/src/risk_calculator.rs::RiskCalculationInput`. The runtime casts the `Decimal` fields from strings at the wire boundary.
+> Schema authoritative: `crates/api-gateway/src/types.rs::RiskCalculationPayload` and `crates/portfolio-supervisor/src/risk_calculator.rs::RiskCalculationInput`. The runtime casts the `Decimal` fields from strings at the wire boundary.
 
 #### 2.6.2 `RiskCalculation` schema
 
@@ -216,7 +216,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 
 ### 2.10 Exchange Keys (encrypted credentials)
 
-> Live credentials must be entered through the encrypted `exchange_keys` SQLite table, **not** through `config.json`. `config.json` holds no secret material. The encryption contract is in [`06-02-database-schema-spec.md §3.5`](06-02-database-schema-spec.md).
+> Live credentials must be entered through the encrypted `exchange_keys` SQLite table, **not** through `config.toml`. `config.toml` holds no secret material. The encryption contract is in [`06-02-database-schema-spec.md §3.5`](06-02-database-schema-spec.md).
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
@@ -263,7 +263,7 @@ Key properties:
 
 ### 3.3 JSON-RPC 2.0 method names
 
-The shared crate (`crates/shared/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.
+The shared crate (`crates/core-domain/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.
 
 The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the local-operator identity (see §1) — `local_operator` in v4.0, caller-supplied via `X-Operator-Id` header in v5.0.
 

@@ -40,7 +40,7 @@ The Metrics Matrix is **strategy-agnostic**: it describes what the market *is*, 
 
 ## 2. Physical Schema
 
-The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/shared/src/models.rs`). It is the single object streamed over the WebSocket bus and persisted to the telemetry store.
+The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/core-domain/src/models.rs`). It is the single object streamed over the WebSocket bus and persisted to the telemetry store.
 
 > **Target Architecture (Not Yet Implemented).** The Metrics Matrix is intended to have a **dual representation**:
 >
@@ -117,7 +117,7 @@ The ontology defines 8 Indicator Evaluation Axes. They are derived from the `Ind
 
 ### 3.3 Registry Binding
 
-Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry in the authoritative registry (`crates/shared/src/indicators/registry.rs`). Registry metadata carried per indicator:
+Every indicator key in the map corresponds to exactly one `IndicatorMeta` entry in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`). Registry metadata carried per indicator:
 
 | Registry Field | Purpose |
 |----------------|---------|
@@ -135,7 +135,7 @@ See the [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-0
 
 ### 3.4 `StatisticalContext` Schema
 
-The `StatisticalContext` sub-object carries the statistical-intelligence envelope that supports the Opportunity Matrix's Monte Carlo components and the Risk Matrix's z-score gates. Authoritative source: `crates/shared/src/statistics.rs::StatisticalContext`.
+The `StatisticalContext` sub-object carries the statistical-intelligence envelope that supports the Opportunity Matrix's Monte Carlo components and the Risk Matrix's z-score gates. Authoritative source: `crates/core-domain/src/statistics.rs::StatisticalContext`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -210,7 +210,7 @@ Each `IndicatorSignal` in an indicator's `signals` array is a discrete detected 
 
 ## 5. Market Context Sub-Object
 
-The `context` field carries the **`MarketContext`** synthesis (`crates/shared/src/market_context.rs`) — a per-timeframe aggregation of the indicator map into higher-level dimensions. It is meta-intelligence built on the indicators, not a standalone indicator.
+The `context` field carries the **`MarketContext`** synthesis (`crates/core-domain/src/market_context.rs`) — a per-timeframe aggregation of the indicator map into higher-level dimensions. It is meta-intelligence built on the indicators, not a standalone indicator.
 
 ### 5.0 Local-Regime vs Canonical-Regime Vocabulary
 

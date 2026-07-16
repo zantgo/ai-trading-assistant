@@ -21,7 +21,7 @@ Where the [Metrics Matrix](02-07-metrics-matrix.md) measures *local confluence* 
 [Metrics Matrix: macro 900s]─┘         (10 dimensions)
 ```
 
-The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/shared/src/alignment.rs`), produced by `compute_alignment()`.
+The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/src/alignment.rs`), produced by `compute_alignment()`.
 
 ---
 

@@ -21,7 +21,7 @@ The Decision Support Layer transforms market intelligence into **actionable guid
 [Risk Matrix     ] ─┘     compute_advisory()
 ```
 
-Implementation: `crates/shared/src/advisory.rs::compute_advisory()`, `decision_context.rs`.
+Implementation: `crates/core-domain/src/advisory.rs::compute_advisory()`, `decision_context.rs`.
 
 ---
 

@@ -53,7 +53,7 @@ All scores are **unipolar** in `[0, 100]` (higher = riskier). Per-dimension addi
 
 ## 3. Overall Aggregation
 
-The overall risk score is a weighted aggregate of the **eight unipolar sub-dimensions** (no `reward_risk` — reward synthesis is a Decision-Layer concern). Final normalized weights summing to 1.0 are defined in the producing code at `crates/shared/src/risk.rs::compute_risk` and reflected here:
+The overall risk score is a weighted aggregate of the **eight unipolar sub-dimensions** (no `reward_risk` — reward synthesis is a Decision-Layer concern). Final normalized weights summing to 1.0 are defined in the producing code at `crates/core-domain/src/risk.rs::compute_risk` and reflected here:
 
 $$\text{overall} = 0.14\,M + 0.14\,V + 0.14\,L_{ex} + 0.10\,S_{tr} + 0.14\,M_{om} + 0.10\,S_{ig} + 0.10\,E + 0.14\,C$$
 

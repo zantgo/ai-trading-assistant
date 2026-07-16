@@ -129,9 +129,7 @@ All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See 
 
 ## Configuration surface
 
-The `"liquidity"` block in **`config.json`** (the platform's single source of configuration truth — *no* `config.toml` exists) is the only new configuration surface. All fields have safe defaults. See [02-12-liquidity-matrix.md](../matrices/02-12-liquidity-matrix.md) for the field reference, and [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical JSON shape.
-
-> A previous version of this section referenced `config.toml`. The platform does not use `config.toml` — every Liquidity Intelligence parameter lives in the `"liquidity"` block of `config.json` (the same `config.json` consumed by `GET /api/config`).
+The `[liquidity]` block in **`config.toml`** (the platform's single source of configuration truth) is the only new configuration surface. All fields have safe defaults. See [02-12-liquidity-matrix.md](../matrices/02-12-liquidity-matrix.md) for the field reference, and [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical TOML shape.
 
 ## Test coverage
 

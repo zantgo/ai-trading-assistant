@@ -14,8 +14,8 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.16, **Decisi
 
 The Decision Matrix is realized by two complementary structures:
 
-1. **`AdvisoryMatrix`** (`crates/shared/src/advisory.rs`) — the human-facing guidance layer (directional guidance, stance, entry/exit/protection/target strategy).
-2. **`DecisionContext`** (`crates/shared/src/decision_context.rs`) — the quantitative decision metadata (score, bias, confidence, contributing indicators).
+1. **`AdvisoryMatrix`** (`crates/core-domain/src/advisory.rs`) — the human-facing guidance layer (directional guidance, stance, entry/exit/protection/target strategy).
+2. **`DecisionContext`** (`crates/core-domain/src/decision_context.rs`) — the quantitative decision metadata (score, bias, confidence, contributing indicators).
 
 ```
 [Analysis Matrix] ─┐

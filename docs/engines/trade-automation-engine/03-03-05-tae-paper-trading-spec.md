@@ -56,10 +56,10 @@ Once triggered, the order becomes a market order and fills per §3.1.
 
 | Cost | Default | Config Source |
 |------|---------|---------------|
-| Maker fee | 0.02% | `config.json` `fees.maker_fee_pct` |
-| Taker fee | 0.06% | `config.json` `fees.taker_fee_pct` |
-| Funding rate (8h) | 0.01% | `config.json` `fees.funding_rate_8h` |
-| Simulated spread | 0.01% | `config.json` `fees` or per-instance |
+| Maker fee | 0.02% | `config.toml` `fees.maker_fee_pct` |
+| Taker fee | 0.06% | `config.toml` `fees.taker_fee_pct` |
+| Funding rate (8h) | 0.01% | `config.toml` `fees.funding_rate_8h` |
+| Simulated spread | 0.01% | `config.toml` `fees` or per-instance |
 
 Fees are deducted from the realized PnL on each fill.
 

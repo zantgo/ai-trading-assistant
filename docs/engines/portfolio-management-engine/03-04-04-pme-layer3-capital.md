@@ -73,7 +73,7 @@ Equity snapshots are persisted every 60 seconds to `portfolio_equity_history` fo
 
 ### 4.1 Cross Margin (Default)
 
-All positions share a single margin pool. The engine uses **cross leverage** (default: 20×, configurable via `config.json` `leverage.cross_leverage`). All quantities in the margin model are `rust_decimal::Decimal`.
+All positions share a single margin pool. The engine uses **cross leverage** (default: 20×, configurable via `config.toml` `[leverage.cross_leverage]`). All quantities in the margin model are `rust_decimal::Decimal`.
 
 $$\text{margin\_required} = \frac{\text{position\_notional}}{\text{cross\_leverage}}$$
 
@@ -114,7 +114,7 @@ All definitions of `available_margin` across the corpus (this file §4.2, `03-03
 | **Funding payments** | Accrued on receipt of each `FundingRate` event from the DIE; for venues publishing every 8 hours (`funding_rate_8h`), each event is recorded as a discrete accrual. The 8-hour cadence is a **venue property**, not an internal cron. |
 | **Spread cost** | Implicit cost captured by comparing fill price to mid-price; logged to `execution_slippage`. |
 
-All fees are configurable via `config.json` `fees`.
+All fees are configurable via `config.toml` `[fees]`.
 
 ---
 

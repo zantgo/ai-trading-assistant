@@ -47,7 +47,7 @@ See [indicators/index.md](indicators/04-02-00-indicator-index.md) for the author
 
 ## 3. Stage 2 — Normalization
 
-The `NormalizationEngine` (`crates/shared/src/indicators/normalized/`) maps each raw value to a continuous `normalized ∈ [-1.0, 1.0]` score and a context-aware `state_label`. Normalization is **regime-aware**: thresholds shift with market context (e.g. RSI overbought tightens to 80 in a strong trend).
+The `NormalizationEngine` (`crates/market-analyzer/src/indicators/normalized/`) maps each raw value to a continuous `normalized ∈ [-1.0, 1.0]` score and a context-aware `state_label`. Normalization is **regime-aware**: thresholds shift with market context (e.g. RSI overbought tightens to 80 in a strong trend).
 
 Each indicator becomes an `IndicatorEvaluation` (`NormalizedIndicatorValue`) carrying `raw_value`, `normalized`, `state_label`, optional `values`, `signals`, and `confidence`. See [Metrics Matrix §3](../../matrices/02-07-metrics-matrix.md).
 

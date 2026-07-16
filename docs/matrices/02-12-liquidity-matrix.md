@@ -74,11 +74,11 @@ Declining intensity after `Sustained` → `Exhausted`.
 
 ## Cascade Intensity Computation (`LiquidityFlow.cascade_intensity`)
 
-The `cascade_intensity` field is the **canonical risk-feed value** consumed by `RiskMatrix.cascade_risk` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)) and surfaced on the Frontend's `LiquidityPanel` (§[07-04-ui-liquidity-panel-spec.md Flow tab](../../ui-ux/07-04-ui-liquidity-panel-spec.md)). This section is the **single canonical specification** of how the value is computed. The implementation lives in `crates/shared/src/liquidity.rs::LiquidityEventAccumulator::update`; the equations below mirror that implementation 1:1.
+The `cascade_intensity` field is the **canonical risk-feed value** consumed by `RiskMatrix.cascade_risk` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)) and surfaced on the Frontend's `LiquidityPanel` (§[07-04-ui-liquidity-panel-spec.md Flow tab](../../ui-ux/07-04-ui-liquidity-panel-spec.md)). This section is the **single canonical specification** of how the value is computed. The implementation lives in `crates/core-domain/src/liquidity.rs::LiquidityEventAccumulator::update`; the equations below mirror that implementation 1:1.
 
 ### Windowing
 
-- **Rolling baseline window** — `W = 200` completed micro candles (configurable via `config.json` `liquidity.cascade_baseline_window_bars`, default 200). The baseline statistics are computed over the last `W` completed bars' per-bar notional volume: mean `μ` (micro-window) and standard deviation `σ` (micro-window). On engine start (zero history) and when fewer than `min(window_bars, 30)` completed bars are available, the baseline is treated as `μ = 0, σ = 0` and the z-score is defined as `0` (no abnormal intensity claim is made until the warm-up threshold is reached — see "Warm-up reset behavior" below).
+- **Rolling baseline window** — `W = 200` completed micro candles (configurable via `config.toml` `[liquidity.cascade_baseline_window_bars]`, default 200). The baseline statistics are computed over the last `W` completed bars' per-bar notional volume: mean `μ` (micro-window) and standard deviation `σ` (micro-window). On engine start (zero history) and when fewer than `min(window_bars, 30)` completed bars are available, the baseline is treated as `μ = 0, σ = 0` and the z-score is defined as `0` (no abnormal intensity claim is made until the warm-up threshold is reached — see "Warm-up reset behavior" below).
 - **Recent-event window** — `K = 20` most recent liquidation events (the recent-events rolling buffer used for the state-machine classification in the next section). The intensity signal is computed from this window, not from the baseline window, so the value is responsive to recent events rather than slow-moving.
 
 ### Per-bar notional definition
@@ -134,7 +134,7 @@ from this field.
 
 ## 6. Configuration Surface
 
-The Liquidity Intelligence configuration is set in `config.json` under the `liquidity` block. The canonical configuration surface is defined by `crates/engine/src/config/models.rs::LiquidityConfig`; the JSON below mirrors that struct exactly.
+The Liquidity Intelligence configuration is set in `config.toml` under the `[liquidity]` table. The canonical configuration surface is defined by `crates/config-models/src/models.rs::LiquidityConfig`; the TOML below mirrors that struct exactly (legacy `config.json` readers are still accepted by `load_config()` for backward compatibility).
 
 ```json
 {
@@ -176,4 +176,4 @@ The Liquidity Intelligence configuration is set in `config.json` under the `liqu
 | `liquidity_vacuum_threshold` | `0.3` | Liquidity-vacuum detection threshold. |
 | `oi_funding_divergence_pct` | `2.0` | OI/funding divergence percentage. |
 
-> **Configuration key alignment (v2.1 — canonical).** A previous version of this table used different keys (`cascade_z_score_threshold`, `cascade_sustained_min_events`, `cluster_refresh_interval_secs`, `funding_flip_threshold_pct`, `cascade_rolling_window_bars`, `oi_divergence_window_bars`) that did not match the runtime `LiquidityConfig` struct or the [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) source-of-truth block. The corrected surface above is the single canonical configuration; the runtime enforces it via `serde` deserialization in `crates/engine/src/config/models.rs`.
+> **Configuration key alignment (v2.1 — canonical).** A previous version of this table used different keys (`cascade_z_score_threshold`, `cascade_sustained_min_events`, `cluster_refresh_interval_secs`, `funding_flip_threshold_pct`, `cascade_rolling_window_bars`, `oi_divergence_window_bars`) that did not match the runtime `LiquidityConfig` struct or the [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) source-of-truth block. The corrected surface above is the single canonical configuration; the runtime enforces it via `serde` deserialization in `crates/config-models/src/models.rs`.

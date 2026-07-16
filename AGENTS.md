@@ -106,7 +106,7 @@ npm run check        # svelte-check + tsc typecheck
 
 - Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
-- Config API: `GET /api/config` (returns parsed `config.json`)
+- Config API: `GET /api/config` (returns parsed `config.toml` (with `config.json` legacy fallback))
 - History API: `GET /api/history` (returns last 100 close prices)
 - Connection Quality API: `GET /api/connection-quality?window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
@@ -152,10 +152,10 @@ Start at `docs/README.md` for a guided reading order.
 
 | Phase | Test file | Tests | Boundary |
 |---|---|---|---|
-| 0 | `crates/engine/tests/phase0_derivatives.rs` | 11 | engine |
-| 1 | `crates/shared/tests/phase1_liquidity_flow.rs` + `crates/engine/tests/phase1_liquidation_e2e.rs` | 15 + 1 | core + engine |
-| 2 | `crates/shared/tests/phase2_cluster_matrix.rs` | 14 | core |
-| 3 | `crates/shared/tests/phase3_signals.rs` | 10 | core |
+| 0 | `crates/portfolio-supervisor/tests/phase0_derivatives.rs` | 11 | portfolio-supervisor |
+| 1 | `crates/core-domain/tests/phase1_liquidity_flow.rs` + `crates/portfolio-supervisor/tests/phase1_liquidation_e2e.rs` | 15 + 1 | core + portfolio-supervisor |
+| 2 | `crates/core-domain/tests/phase2_cluster_matrix.rs` | 14 | core |
+| 3 | `crates/core-domain/tests/phase3_signals.rs` | 10 | core |
 | 4 | `crates/frontend/src/components/LiquidityPanel.test.ts` | 5 | ui |
 | **Total** | | **56** | |
 
@@ -176,7 +176,7 @@ Start at `docs/README.md` for a guided reading order.
 ## Architecture notes
 
 - The engine uses a multi-stage pipeline: WebSocket → channel → indicator analysis → broadcast → WebSocket to frontend
-- `config.json` is the single source of truth for all platform parameters — both engine and frontend read it (frontend via `/api/config`)
+- `config.toml` is the single source of truth for all platform parameters — both engine and frontend read it (frontend via `/api/config`; legacy `config.json` is still recognized by `load_config()` as a fallback)
 - The Svelte frontend uses Svelte 5 runes (`$state`, `$effect`) — not Svelte 4 syntax
 - Candle aggregation happens server-side; the broadcast includes both completed candle snapshots and "shadow" (real-time flickering) values
 - The local variable holding `getState()` must NOT be named `state` — it conflicts with the `$state` rune. Use `app` or `store` instead.

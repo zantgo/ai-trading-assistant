@@ -30,7 +30,7 @@ If every pivot point were plotted, the charts would become cluttered with minor 
 
 ---
 
-## 3. The Role-Reversal Engine (`crates/engine/src/sr_engine.rs`)
+## 3. The Role-Reversal Engine (`crates/<see crate mapping above>/src/sr_engine.rs`)
 
 The core of this system is the real-time Role-Reversal Engine. It operates on the principle that once a key horizontal barrier is broken, its structural role flips: broken resistance becomes support, and broken support becomes resistance.
 

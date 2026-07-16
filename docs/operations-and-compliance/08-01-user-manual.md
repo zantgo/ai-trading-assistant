@@ -30,10 +30,10 @@ cd crates/frontend
 npm install          # or: bun install
 npm run build        # or: bun run build
 cd ../..
-cargo run -- --web
+cargo run --bin execution-daemon -- --web
 ```
 
-The engine reads `config.json` from the workspace root on startup. **If `config.json` is missing entirely**, the `manage.sh` first-run flow scaffolds a default from the documented schema before the binary launches (one-shot bootstrap — repeat invocations leave an existing `config.json` untouched). **If `config.json` exists but is malformed**, the binary panics with a descriptive error and the operator must fix the file before the next start — there is no automatic re-scaffolding on parse failure (a corrupt-but-existing file might contain deliberate operator edits, so re-scaffolding would risk silently overwriting them).
+The engine reads `config.toml` from the workspace root on startup. **If `config.toml` is missing entirely**, the `manage.sh` first-run flow scaffolds a default from the documented schema before the binary launches (one-shot bootstrap — repeat invocations leave an existing `config.toml` untouched). **If `config.toml` exists but is malformed**, the binary panics with a descriptive error and the operator must fix the file before the next start — there is no automatic re-scaffolding on parse failure (a corrupt-but-existing file might contain deliberate operator edits, so re-scaffolding would risk silently overwriting them). Legacy `config.json` is still recognized by `load_config()` as a fallback for existing installations; new deploys should use `config.toml`.
 
 ---
 
@@ -52,7 +52,7 @@ The project ships a convenience wrapper (`./manage.sh`):
 | `./manage.sh test-engine` | DB, server, failover | Run only TEST-ENGINE (<5 s). |
 | `./manage.sh test-ui` | Svelte 5 runes / components | Run only TEST-UI (<10 s). |
 
-Headless cloud operation is supported by running the same binary without `--web` and applying a pre-validated `config.json` (see [Global Architecture §4](../conceptual-foundations/01-02-global-architecture.md)).
+Headless cloud operation is supported by running the same binary without `--web` and applying a pre-validated `config.toml` (see [Global Architecture §4](../conceptual-foundations/01-02-global-architecture.md)).
 
 ---
 
@@ -70,7 +70,7 @@ For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) 
 
 ## 5. Configuring Engines & Timeframes
 
-The single source of configuration truth is `config.json` at the workspace root. It controls:
+The single source of configuration truth is `config.toml` at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()` for existing installations). It controls:
 
 - `candles.duration_seconds` — base (micro) timeframe
 - `fast_timeframe`, `slow_timeframe`, `macro_timeframe` — additional timeframe tiers, each with `enabled` and `duration_seconds`
@@ -81,13 +81,13 @@ The single source of configuration truth is `config.json` at the workspace root.
 
 For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 
-The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.json` **explicitly**; the API is the only path that mutates `config.json` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.json` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3.0](../../integration-and-api/06-02-database-schema-spec.md).
+The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3.0](../../integration-and-api/06-02-database-schema-spec.md).
 
 ---
 
 ## 6. Running & Monitoring Trades
 
-**Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.json`.** `config.json` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
+**Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
 
 **Reading the Decision Matrix.** The Decision Matrix is delivered per Market Instance on the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint. Open a Market Instance, switch to the "Decision" tab, and you will see `directional_guidance`, `market_stance`, `trade_readiness`, `confidence_assessment`, and the recommended `entry/exit/protection/target` strategies.
 
@@ -115,11 +115,11 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Engine panics on startup with "config not found" | No `config.json` at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.json`. |
+| Engine panics on startup with "config not found" | No `config.toml` (and no legacy `config.json` fallback) at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.toml`. |
 | WebSocket frames never arrive | `crates/frontend/dist/` is missing or empty | Rebuild frontend (`cd crates/frontend && npm run build`). |
 | All values `null` in dashboard | Initial warm-up not finished | Wait `analysis_limit × duration_seconds` (default 500 × 60 s ≈ 8 h on micro); reduce `analysis_limit` for faster warm-up at the cost of less history. |
 | `margin_usage_ratio > 95%` warning | Position size too large for current equity | Reduce `max_position_size_usd` in policy or close a position. |
-| Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.json` `indicators.*`; check the indicator rulebook via `GET /api/rules`. |
+| Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.toml` `[indicators.*]`; check the indicator rulebook via `GET /api/rules`. |
 | Connectivity warning on a specific exchange | Adapter is in backoff after repeated disconnects | Check `/api/system/status`; permanent disable after 5 consecutive failures (supervisor must be restarted). |
 | SQLite "database is locked" errors | Long-running query holding a write transaction | Reduce log retention or query frequency; the WAL mode is already enabled. |
 | Veto stuck at `AVOID` for a symbol | PME safety trigger fired; threshold must clear | Inspect portfolio equity vs. peak; check `systemic_risk_score`; follow the [PME veto release procedure](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#43-veto-release). |

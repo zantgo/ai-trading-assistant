@@ -5,7 +5,7 @@
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
 
-> This guide is served to consumers via the `GET /api/rules` endpoint and is the readable companion to the authoritative registry in `crates/shared/src/indicators/registry.rs`.
+> This guide is served to consumers via the `GET /api/rules` endpoint and is the readable companion to the authoritative registry in `crates/market-analyzer/src/indicators/registry.rs`.
 
 ---
 
@@ -62,7 +62,7 @@ Open Interest, OI Delta, Funding Rate, OI-Price Divergence, Order Flow Imbalance
 | MACD | line × signal cross | Momentum crossover |
 | Squeeze | on→off | Compression release |
 
-Configurable in `config.json` `indicators`. Full per-indicator thresholds: [indicators/](indicators/04-02-00-indicator-index.md).
+Configurable in `config.toml` `indicators`. Full per-indicator thresholds: [indicators/](indicators/04-02-00-indicator-index.md).
 
 ---
 

@@ -19,7 +19,7 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.17, **Market
         + [Instance Metadata]
 ```
 
-Implemented as `OverviewMatrix` (`crates/shared/src/overview.rs`), produced by `compute_overview()`.
+Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced by `compute_overview()`.
 
 ---
 

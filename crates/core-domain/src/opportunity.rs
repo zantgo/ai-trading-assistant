@@ -24,7 +24,7 @@ pub struct OpportunityMatrix {
     /// Canonical `OpportunityType` enum value as a string (one of `TrendContinuation`,
     /// `Breakout`, `Pullback`, `MeanReversion`, `Reversal`, `LiquiditySqueeze`,
     /// `NoClearOpportunity`). Enum lives in
-    /// `crates/shared/src/analysis.rs::OpportunityType`; this field carries the
+    /// `crates/core-domain/src/analysis.rs::OpportunityType`; this field carries the
     /// serialized name.
     pub opportunity_type: String,
     /// `opportunity_score ∈ [0, 100]` — setup viability from the L4 weighted blend.

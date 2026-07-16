@@ -7,7 +7,7 @@
 
 Open Interest (OI) tracks the total number of outstanding derivative contracts (futures/perpetuals) that have not been settled. It represents the *flow of capital* into or out of the market — rising OI signals new money entering, falling OI signals exiting or liquidation.
 
-The `OpenInterest` struct (`crates/shared/src/indicators/open_interest.rs`) maintains a rolling history of OI values (configurable `oi_lookback` window) and computes:
+The `OpenInterest` struct (`crates/market-analyzer/src/indicators/open_interest.rs`) maintains a rolling history of OI values (configurable `oi_lookback` window) and computes:
 
 - **Raw current OI** — the latest observed open interest value.
 - **Rolling average OI** — mean over the lookback window.

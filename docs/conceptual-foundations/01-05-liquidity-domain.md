@@ -57,7 +57,7 @@ WS broadcast payload
     │   └─ liquidity, cluster, liquidity_signals              ← liquidity extension surface
     └─ sent as a single MarketSnapshot frame on /ws
 
-> **Top-level liquidity fields.** The three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) are siblings of `indicators` on the `MarketSnapshot` wire frame — not nested within `indicators`. The canonical contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); the underlying Rust type is in `crates/shared/src/models.rs`. Placement within `indicators` would have contradicted both the Metrics Matrix contract and the canonical wire-frame definition.
+> **Top-level liquidity fields.** The three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) are siblings of `indicators` on the `MarketSnapshot` wire frame — not nested within `indicators`. The canonical contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); the underlying Rust type is in `crates/core-domain/src/models.rs`. Placement within `indicators` would have contradicted both the Metrics Matrix contract and the canonical wire-frame definition.
 ```
 
 ## Architectural placement
@@ -109,7 +109,7 @@ without the new fields deserialize cleanly. The legacy
 
 ## Configuration
 
-The platform uses **`config.json`** as the single source of configuration truth — no `config.toml` exists. The Liquidity Intelligence extension contributes a `"liquidity"` sub-section inside `config.json` (see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md)):
+The platform uses **`config.toml`** as the single source of configuration truth (the legacy `config.json` form is still recognized by `load_config()` as a fallback; see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md) for the operator-facing install path). The Liquidity Intelligence extension contributes a `[liquidity]` table inside `config.toml` (TOML mirror of the JSON block below):
 
 ```json
 {
@@ -133,7 +133,7 @@ The platform uses **`config.json`** as the single source of configuration truth 
 }
 ```
 
-> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.json` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform does not use `config.toml`; the TOML form in an earlier revision of this file was retained from a prototype that never shipped.
+> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.toml` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform previously used `config.json`; the TOML form became canonical at v5.0 with the workspace restructure (see `docs/CHANGELOG.md`). `config.json` is still recognized as a legacy alias by `load_config()` for backward compatibility.. **Config format note (v5.0).** The canonical config format is `config.toml`. `config.json` is still recognized by `config-models/src/lib.rs::load_config()` as a legacy fallback (the legacy reader code path is preserved for backward compatibility with existing user installations but is not documented for new deploys)..
 
 ## Performance
 
@@ -152,10 +152,10 @@ Total per-candle overhead: <5ms. Total memory: <300KB per pair per TF.
 
 | Phase | Unit tests | Integration tests | Total | Source files |
 |---|---|---|---|---|
-| 0 | 11 | 0 | 11 | `crates/engine/tests/phase0_derivatives.rs` |
-| 1 | 15 | 1 | 16 | `crates/shared/tests/phase1_liquidity_flow.rs` + `crates/engine/tests/phase1_liquidation_e2e.rs` |
-| 2 | 14 | 0 | 14 | `crates/shared/tests/phase2_cluster_matrix.rs` |
-| 3 | 10 | 0 | 10 | `crates/shared/tests/phase3_signals.rs` |
+| 0 | 11 | 0 | 11 | `crates/portfolio-supervisor/tests/phase0_derivatives.rs` |
+| 1 | 15 | 1 | 16 | `crates/core-domain/tests/phase1_liquidity_flow.rs` + `crates/portfolio-supervisor/tests/phase1_liquidation_e2e.rs` |
+| 2 | 14 | 0 | 14 | `crates/core-domain/tests/phase2_cluster_matrix.rs` |
+| 3 | 10 | 0 | 10 | `crates/core-domain/tests/phase3_signals.rs` |
 | 4 | 5 | 0 | 5 | `crates/frontend/src/components/LiquidityPanel.test.ts` |
 | **Total** | **55** | **1** | **56** | |
 

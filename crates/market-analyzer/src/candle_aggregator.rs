@@ -1,7 +1,7 @@
 use core_domain::normalized::NormalizedCandle;
 use tokio::sync::{broadcast, mpsc};
 
-// Clock drift enforcement is handled by crates/engine/src/clock_monitor.rs.
+// Clock drift enforcement is handled by crates/network-adapters/src/clock_monitor.rs.
 // On startup, main.rs spawns ClockMonitor::run_until_cancelled which polls NTP
 // every 30s and warns/panics if drift exceeds the configured threshold.
 

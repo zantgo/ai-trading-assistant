@@ -7,7 +7,7 @@
 
 Depth Bias measures the bid-side vs ask-side depth ratio across the **full sampled order book** (all depth levels, not just the top N). While Order Flow Imbalance (OFI) captures near-term pressure at the top of the book, Depth Bias captures the broader structural support/resistance in the limit order book.
 
-Computed from the `OrderBookAnalysis` struct (`crates/shared/src/indicators/order_book.rs`):
+Computed from the `OrderBookAnalysis` struct (`crates/market-analyzer/src/indicators/order_book.rs`):
 
 ```
 cum_bid = Σ bid_size across all sampled depth levels

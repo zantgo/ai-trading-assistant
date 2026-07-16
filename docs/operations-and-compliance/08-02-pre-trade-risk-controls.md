@@ -23,8 +23,8 @@ The following gates run between a Policy trigger (L1) and the Exchange dispatch 
 | 1 | **Symbol stance** | The current `Stance` for the symbol must be `ACTIVE`, or the order must be a `reduce_only = true` exit under `CLOSE_ONLY`. `AVOID` blocks all dispatches except those tagged `emergency_liquidation = true` (Hard Exit path, see Gate 7 below and [PME Layer 4 §4.2](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). | Set manually by operator or automatically by the [PME Veto](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#4-ontological-priority-veto). |
 | 2 | **Decision guard (trade readiness)** | The Decision Matrix's `trade_readiness` field must be `READY` or `FORMING`. `WATCH` is a soft warning; `STAND_ASIDE` blocks the dispatch. | Computed by the MME Decision Layer from `directional_guidance × confidence_assessment × market_stance`. See [Decision Matrix §4](../matrices/02-04-decision-matrix.md). |
 | 3 | **Capital query — available margin** | The TAE issues a synchronous request to the PME Capital Matrix for `available_margin`. The query returns 0 if the order would push `margin_usage_ratio` ≥ 0.95. | Live, computed from [PME Layer 3](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md). |
-| 4 | **Position sizing** | The Position Sizing Protocol computes $S = E \times R / (D_{sl} / 100)$. If the result exceeds `risk_parameters.max_position_size_usd`, sizing is clipped. If `risk_parameters.max_leverage` is exceeded, the order is rejected. **Bypass:** orders with `reduce_only = true` skip Gate 4 (sizing) — size is copied verbatim from the Position Matrix. | Per-policy in `config.json` `execution_policies.*`. |
-| 5 | **Slippage ceiling** | The Execution Layer queries the live order book and computes estimated slippage. If estimated slippage **exceeds** the configured ceiling (default 0.5 % of position size), the order is held for manual review (strict `>` — an order exactly at the ceiling is allowed through). | `config.json` `execution.slippage_ceiling_pct`. |
+| 4 | **Position sizing** | The Position Sizing Protocol computes $S = E \times R / (D_{sl} / 100)$. If the result exceeds `risk_parameters.max_position_size_usd`, sizing is clipped. If `risk_parameters.max_leverage` is exceeded, the order is rejected. **Bypass:** orders with `reduce_only = true` skip Gate 4 (sizing) — size is copied verbatim from the Position Matrix. | Per-policy in `config.toml` `[execution_policies.*]`. |
+| 5 | **Slippage ceiling** | The Execution Layer queries the live order book and computes estimated slippage. If estimated slippage **exceeds** the configured ceiling (default 0.5 % of position size), the order is held for manual review (strict `>` — an order exactly at the ceiling is allowed through). | `config.toml` `[execution.slippage_ceiling_pct]`. |
 | 6 | **Exposure concentration** | The Exposure Layer rejects new positions that would breach the single-pair concentration limit (default 0.20), the portfolio exposure limit (default 0.50), or the correlation limit (default 0.8). **Bypass:** orders with `reduce_only = true` skip Gate 6 (concentration) — exit orders must be permitted even if the portfolio is overconcentrated. | [PME Layer 2 §3](../engines/portfolio-management-engine/03-04-03-pme-layer2-exposure.md). |
 | 7 | **PME safety veto** | Even if all previous gates pass, the PME Portfolio Layer can force a stance change to `AVOID` or `CLOSE_ONLY` when systemic thresholds are breached (drawdown ≥ `drawdown_limit_pct`, margin ceiling, loss streak ≥ dropout_threshold, or MME `systemic_risk_score ≥ systemic_risk_threshold`). **Bypass:** orders tagged `emergency_liquidation = true` (Hard Exit path from `AVOID` triggers) bypass Gate 7 so the liquidation is dispatched even when the stance is `AVOID`. | [PME Layer 4 §4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
 
@@ -80,21 +80,21 @@ Orders held by Gate 5 (slippage ceiling) or pending manual review sit in the **`
 
 | Parameter | Source | Default | Override Path |
 |-----------|--------|---------|---------------|
-| `risk_per_trade_pct` | per-policy `risk` block | 1.0 | Edit `config.json` `execution_policies.*.risk.risk_per_trade_pct` |
+| `risk_per_trade_pct` | per-policy `risk` block | 1.0 | Edit `config.toml` `[execution_policies.*.risk.risk_per_trade_pct]` |
 | `max_position_size_usd` | per-policy | unlimited | Set in policy |
 | `max_leverage` | per-policy | 20 | Set in policy |
-| `execution.slippage_ceiling_pct` | global | 0.5 | Set in `config.json` |
-| `leverage.cross_leverage` | global | 20 | Set in `config.json` |
-| `safety.drawdown_limit_pct` | global | 0.30 (= 30 %) | Set in `config.json` `safety.*` |
-| `safety.max_daily_drawdown_pct` | global | 0.05 (= 5 %) | Set in `config.json` `safety.*` (drives the `WARN` state — see [03-04-05 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)) |
-| `safety.caution_threshold` | global | 3 losses | Set in `config.json` `safety.*` |
-| `safety.dropout_threshold` | global | 5 losses | Set in `config.json` `safety.*` |
-| `safety.systemic_risk_threshold` | global | **80** (`systemic_risk_score ≥ 80` triggers the systemic-risk veto branch of Gate 7, on the canonical `[0, 100]` scale from [02-09-overview-matrix.md §4](../matrices/02-09-overview-matrix.md)) | Set in `config.json` `safety.systemic_risk_threshold` |
+| `execution.slippage_ceiling_pct` | global | 0.5 | Set in `config.toml` |
+| `leverage.cross_leverage` | global | 20 | Set in `config.toml` |
+| `safety.drawdown_limit_pct` | global | 0.30 (= 30 %) | Set in `config.toml` `safety.*` |
+| `safety.max_daily_drawdown_pct` | global | 0.05 (= 5 %) | Set in `config.toml` `safety.*` (drives the `WARN` state — see [03-04-05 §3](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)) |
+| `safety.caution_threshold` | global | 3 losses | Set in `config.toml` `safety.*` |
+| `safety.dropout_threshold` | global | 5 losses | Set in `config.toml` `safety.*` |
+| `safety.systemic_risk_threshold` | global | **80** (`systemic_risk_score ≥ 80` triggers the systemic-risk veto branch of Gate 7, on the canonical `[0, 100]` scale from [02-09-overview-matrix.md §4](../matrices/02-09-overview-matrix.md)) | Set in `config.toml` `safety.systemic_risk_threshold` |
 | `risk_profiles.*.max_risk_pct` | per risk-profile | 2 (= 2 %) | Edit via `POST /api/risk-profiles` |
 | `risk_profiles.*.leverage` | per risk-profile | 20 | Edit via `POST /api/risk-profiles` |
-| `fees.maker_fee_pct` | global | 0.02 (= 0.02 %) | Set in `config.json` `fees.*` |
-| `fees.taker_fee_pct` | global | 0.06 (= 0.06 %) | Set in `config.json` `fees.*` |
-| `fees.funding_rate_8h` | global | 0.01 (= 0.01 %) | Set in `config.json` `fees.*` (8-hour funding rate; see [03-03-05 §4](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md)) |
+| `fees.maker_fee_pct` | global | 0.02 (= 0.02 %) | Set in `config.toml` `fees.*` |
+| `fees.taker_fee_pct` | global | 0.06 (= 0.06 %) | Set in `config.toml` `fees.*` |
+| `fees.funding_rate_8h` | global | 0.01 (= 0.01 %) | Set in `config.toml` `fees.*` (8-hour funding rate; see [03-03-05 §4](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md)) |
 
 ---
 

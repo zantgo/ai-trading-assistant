@@ -22,7 +22,7 @@ Crucially, Risk is a property of an *interpretation*, not of raw observations: y
 [Metrics Matrix ]  ┘      compute_risk()      (eight sub-dims + overall_risk)
 ```
 
-Implemented as `RiskMatrix` (`crates/shared/src/risk.rs`), produced by `compute_risk()`.
+Implemented as `RiskMatrix` (`crates/core-domain/src/risk.rs`), produced by `compute_risk()`.
 
 ---
 
@@ -124,7 +124,7 @@ if ATR present: score = mean(score, relative_atr)
 
 ### 4.8 Cascade Risk (baseline 30, Phase 3)
 
-Cascade risk quantifies the danger from forced liquidation cascades. It consumes the [Liquidity Matrix](02-12-liquidity-matrix.md) (`LiquidityFlow`) and the [Liquidation Cluster Matrix](02-13-liquidation-cluster-matrix.md) (`LiquidationClusterMatrix`). The derivation mirrors `crates/shared/src/risk.rs::assess_cascade_risk`:
+Cascade risk quantifies the danger from forced liquidation cascades. It consumes the [Liquidity Matrix](02-12-liquidity-matrix.md) (`LiquidityFlow`) and the [Liquidation Cluster Matrix](02-13-liquidation-cluster-matrix.md) (`LiquidationClusterMatrix`). The derivation mirrors `crates/core-domain/src/risk.rs::assess_cascade_risk`:
 
 ```
 score = baseline 30.0
@@ -139,7 +139,7 @@ Evidence strings record both the cascade state (when active) and any significant
 
 ### 4.9 Overall Risk (weighted aggregate)
 
-The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `reward_risk` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/shared/src/risk.rs::compute_risk`.
+The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `reward_risk` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/core-domain/src/risk.rs::compute_risk`.
 
 > **Self-consistency check (v2.1 — correction).** The JSON example below uses the eight sub-dimension scores `(M=35, V=45, L_ex=15, S=25, Mo=20, Sig=30, E=25, C=30)`. Plugging these into the canonical weighted formula `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C`:
 >

@@ -18,7 +18,7 @@ The Alignment Layer answers *"do the timeframes agree?"*. It consumes the set of
                                      compute_alignment()        (10 dimensions)
 ```
 
-Implementation: `crates/shared/src/alignment.rs::compute_alignment()`.
+Implementation: `crates/core-domain/src/alignment.rs::compute_alignment()`.
 
 ---
 

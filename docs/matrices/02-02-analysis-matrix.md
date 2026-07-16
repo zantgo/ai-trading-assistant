@@ -22,7 +22,7 @@ Its two headline outputs are:
                           derive_analysis()        (bias + regime + 6 assessments)
 ```
 
-Implemented as `AnalysisMatrix` (`crates/shared/src/analysis.rs`), produced by `derive_analysis()`.
+Implemented as `AnalysisMatrix` (`crates/core-domain/src/analysis.rs`), produced by `derive_analysis()`.
 
 ---
 

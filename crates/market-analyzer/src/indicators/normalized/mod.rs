@@ -1,7 +1,7 @@
 //! # Fractional Normalized Indicator Model (v2.0)
 //!
 //! Centralized, stateless normalization layer. The low-level indicator
-//! calculators under `crates/shared/src/indicators/` remain pure math
+//! calculators under `crates/market-analyzer/src/indicators/` remain pure math
 //! producers of raw metrics. This module maps those raw metrics — together
 //! with a [`NormalizationContext`] carrying directional/positional state —
 //! into a unified `[-1.0, 1.0]` scale paired with a context-aware label.

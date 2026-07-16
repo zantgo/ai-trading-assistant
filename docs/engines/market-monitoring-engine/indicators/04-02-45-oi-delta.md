@@ -7,7 +7,7 @@
 
 OI Delta measures the **rate of change** of Open Interest over a rolling window (default 1 hour). Unlike raw OI (a static level), OI Delta captures the *direction and velocity* of capital flow — the first derivative of open interest.
 
-Computed from the `OpenInterest` tracker (`crates/shared/src/indicators/open_interest.rs`):
+Computed from the `OpenInterest` tracker (`crates/market-analyzer/src/indicators/open_interest.rs`):
 
 ```
 delta = current_oi - oi_1hour_ago
@@ -17,7 +17,7 @@ The delta is normalized to `[-1, 1]` via:
 
 $$\text{normalized} = \text{clamp}\left(\frac{\text{delta}}{\text{divisor}},\ -1,\ 1\right)$$
 
-> **Scaling note (v2.1).** The fixed divisor `1000` is a default that assumes an asset with OI in the thousands (typical for Hyperliquid/Bitget perpetuals). For assets with OI in the hundreds or tens of thousands, the normalized value will saturate at ±1 or flatline near 0. The divisor is configurable via `config.json` `indicators.oi_delta.divisor` (default `1000`). For percentage-based scaling, use `divisor = total_open_interest × pct_threshold` (e.g. 1 % of total OI = `divisor = total_oi / 100`).
+> **Scaling note (v2.1).** The fixed divisor `1000` is a default that assumes an asset with OI in the thousands (typical for Hyperliquid/Bitget perpetuals). For assets with OI in the hundreds or tens of thousands, the normalized value will saturate at ±1 or flatline near 0. The divisor is configurable via `config.toml` `[indicators.oi_delta.divisor]` (default `1000`). For percentage-based scaling, use `divisor = total_open_interest × pct_threshold` (e.g. 1 % of total OI = `divisor = total_oi / 100`).
 
 ## Interpretation
 

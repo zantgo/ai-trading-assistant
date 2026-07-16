@@ -50,7 +50,7 @@ The Portfolio Layer is the PME's **command authority**. It synthesizes Position,
 
 ## 3. Safety Circuit Breakers
 
-The `SafetyManager` (`crates/engine/src/safety.rs`) tracks five escalating safety states:
+The `SafetyManager` (`crates/portfolio-supervisor/src/safety.rs`) tracks five escalating safety states:
 
 ```
 NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
@@ -67,7 +67,7 @@ NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
 | `SUSPENDED` | `consecutive_losses[sym] ≥ dropout_threshold` (default 5) | Affected symbol's stance → `CLOSE_ONLY`; 8-hour cooldown. A win resets that symbol's counter. Other symbols are unaffected. | **Per-symbol** |
 | `DRAWDOWN_STOP` | Equity drawdown ≥ `drawdown_limit_pct` (default 0.30 = 30 %) | All stances → `AVOID`; immediate veto. | Platform-wide |
 
-Defaults are configurable via `config.json` `safety`.
+Defaults are configurable via `config.toml` `[safety]`.
 
 > **`consecutive_losses` scope.** The counter is **per-symbol** (instance-scoped). A hot streak on `BTC-USDT` does not lock `ETH-USDT` positions. The `/safety/reset` endpoint operates per-symbol (`:id`). The `SUSPENDED` state on one symbol does not affect other symbols.
 >

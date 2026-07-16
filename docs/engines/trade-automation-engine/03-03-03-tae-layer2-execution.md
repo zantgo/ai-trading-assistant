@@ -26,12 +26,12 @@ The Execution Layer is the platform's **order routing authority**. It receives t
 
 ### 2.0 Synchronization Guarantees
 
-The TAE Execution Layer and the PME Capital Layer run **in-process** within the `crates/engine` binary — both execute inside the same Tokio runtime, sharing the same memory space. There is **no IPC, no cross-process message bus, and no SQLite round-trip** on the sizing hot path.
+The TAE Execution Layer and the PME Capital Layer run **in-process** within the `crates/execution-daemon` binary (specifically inside the `crates/portfolio-supervisor` library it loads) — both execute inside the same Tokio runtime, sharing the same memory space. There is **no IPC, no cross-process message bus, and no SQLite round-trip** on the sizing hot path.
 
 The "synchronous read-only pull" from the PME Capital Matrix is implemented as:
 
 ```rust
-// PSEUDOCODE — actual API at crates/engine/src/profile_evaluation/*
+// PSEUDOCODE — actual API at crates/portfolio-supervisor/src/profile_evaluation/*
 let available_margin: Decimal = {
     let capital = capital_matrix.read().await; // tokio::sync::RwLock
     capital.available_margin
@@ -81,9 +81,9 @@ The size is then converted to base-asset units using the current mid-price and r
 > let size_quote_usd = (available_margin * risk_fraction) / d_sl_frac;            // Decimal math — notional in quote currency
 > ```
 >
-> *Current implementation:* the sizing math in `crates/engine/src/risk_calculator.rs` runs in `f64` end-to-end (`capital`, `max_risk_pct`, `position_notional` are all `f64`); the `Decimal` boundary cast is a planned migration, not the present behaviour.
+> *Current implementation:* the sizing math in `crates/portfolio-supervisor/src/risk_calculator.rs` runs in `f64` end-to-end (`capital`, `max_risk_pct`, `position_notional` are all `f64`); the `Decimal` boundary cast is a planned migration, not the present behaviour.
 >
-> **Variable-naming hazard (correction).** A previous version used `risk_pct` directly in the multiplication, which is a 100× off-by-default error if the value is the raw-percent float (`risk_per_trade_pct = 1.0` would produce a 1.0 × E size instead of `0.01 × E`). The canonical variable name for the **fraction** is **`risk_fraction`** (or `risk_frac`); the raw-percent input is **`risk_per_trade_pct`** (as set in `config.json` `execution_policies.*.risk.risk_per_trade_pct`). All downstream consumers must respect this distinction.
+> **Variable-naming hazard (correction).** A previous version used `risk_pct` directly in the multiplication, which is a 100× off-by-default error if the value is the raw-percent float (`risk_per_trade_pct = 1.0` would produce a 1.0 × E size instead of `0.01 × E`). The canonical variable name for the **fraction** is **`risk_fraction`** (or `risk_frac`); the raw-percent input is **`risk_per_trade_pct`** (as set in `config.toml` `[execution_policies.*.risk.risk_per_trade_pct]`). All downstream consumers must respect this distinction.
 
 ---
 

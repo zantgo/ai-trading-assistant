@@ -7,7 +7,7 @@
 
 The **Funding Rate** is the periodic payment exchanged between long and short perpetual swap traders to tether the perpetual price to the underlying spot price. When the perpetual trades at a premium to spot, longs pay shorts (positive funding); when at a discount, shorts pay longs (negative funding).
 
-The `FundingRate` struct (`crates/shared/src/indicators/funding.rs`) tracks:
+The `FundingRate` struct (`crates/market-analyzer/src/indicators/funding.rs`) tracks:
 
 - **Raw funding rate** — the per-8-hour rate as a decimal (e.g. `0.0001` = 0.01%).
 - **Rolling average** — mean funding over a lookback window.

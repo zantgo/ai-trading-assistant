@@ -7,7 +7,7 @@
 
 When the WebSocket connection drops, the engine's candle stream has a gap. On reconnect, the engine must reconstruct the missing candles so downstream indicators, signals, and the MME pipeline operate on a continuous history. Reconstruction fidelity is critical: a 5-minute gap during high-volatility price action produces 5 consecutive false closes if not filled.
 
-**Reconnect sequencing.** The reconstruction task runs synchronously inside the reconnect handler. New ticks delivered to `on_message` are buffered (not yet applied to indicator state) until the reconstruction task completes. Indicator computation resumes only on a fully reconstructed rolling history. This ordering is enforced by the `crates/engine/src/adapters/reconnection_handler.rs` ordering contract; if you reverse it, downstream candle aggregators emit a discontinuous series with a false open, which the warming-up confidence floor would mask but the MME pipeline would not.
+**Reconnect sequencing.** The reconstruction task runs synchronously inside the reconnect handler. New ticks delivered to `on_message` are buffered (not yet applied to indicator state) until the reconstruction task completes. Indicator computation resumes only on a fully reconstructed rolling history. This ordering is enforced by the `crates/network-adapters/src/adapters/reconstruction.rs` ordering contract; if you reverse it, downstream candle aggregators emit a discontinuous series with a false open, which the warming-up confidence floor would mask but the MME pipeline would not.
 
 ## Two Reconstruction Strategies
 
@@ -53,7 +53,7 @@ Volume = 0
 
 The flat-candle assumption is explicit: with no trade tape to reconstruct from, the EMA value is the only deterministic, re-playable estimate (alternative estimators — last-close, mid-point, linear projection — produce values that diverge as the gap widens, and would corrupt any backtest whose gap falls inside a measured window). Downstream consumers can detect this via the `reconstructed: Some(ExponentialMovingAverage)` flag on the `NormalizedCandle`.
 
-> **EMA warm-up with fewer than 200 bars.** EMA operates with `N = ema_window (default 200)` regardless of available buffer size. With only 50 closes, the smoothing factor `α = 2/(200+1) ≈ 0.00995` is applied over those 50 closes; the reconstructed candle reflects the slower EMA output (heavily weighted toward the most recent close but with substantial inertia from earlier values). Operators may lower `ema_window` via `config.json` (`adapters.ema_window`) for faster adaptation at the cost of noise sensitivity.
+> **EMA warm-up with fewer than 200 bars.** EMA operates with `N = ema_window (default 200)` regardless of available buffer size. With only 50 closes, the smoothing factor `α = 2/(200+1) ≈ 0.00995` is applied over those 50 closes; the reconstructed candle reflects the slower EMA output (heavily weighted toward the most recent close but with substantial inertia from earlier values). Operators may lower `ema_window` via `config.toml` (`[adapters.ema_window]`) for faster adaptation at the cost of noise sensitivity.
 >
 > **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
 >
@@ -96,7 +96,7 @@ pub fn detect_gap(
 
 Returns `Some((gap_start, gap_end))` when the elapsed time since the last persisted candle exceeds the threshold; `None` otherwise. The threshold is configurable per-exchange.
 
-**Default value.** `gap_threshold_secs = 2 × candles.duration_seconds` (twice the base micro timeframe duration, e.g. `120` for the default `micro60`). This prevents false gap detections from clock jitter while still catching real disconnects. Operators may override per-exchange via `config.json` (`adapters.<exchange>.gap_threshold_secs`). Setting the threshold below the base candle duration will trigger false gap detections.
+**Default value.** `gap_threshold_secs = 2 × candles.duration_seconds` (twice the base micro timeframe duration, e.g. `120` for the default `micro60`). This prevents false gap detections from clock jitter while still catching real disconnects. Operators may override per-exchange via `config.toml` (`[adapters.<exchange>.gap_threshold_secs]`). Setting the threshold below the base candle duration will trigger false gap detections.
 
 ## Serialization
 

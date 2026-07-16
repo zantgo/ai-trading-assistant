@@ -8,7 +8,7 @@
 
 ## 1. The 4-Tier Model
 
-The engine uses a fixed 4-tier structure, but each tier's duration is **configurable per session** via `config.json`. The tiers are always ordered fastest to slowest:
+The engine uses a fixed 4-tier structure, but each tier's duration is **configurable per session** via `config.toml`. The tiers are always ordered fastest to slowest:
 
 | Tier | Name | Default Duration | Default Label | Config Key |
 |------|------|-----------------|---------------|------------|
@@ -19,13 +19,13 @@ The engine uses a fixed 4-tier structure, but each tier's duration is **configur
 
 The `fast_timeframe`, `slow_timeframe`, and `macro_timeframe` objects each have an `enabled` toggle (`true`/`false`) and a `duration_seconds` parameter. The micro timeframe is always active (it is the base candle duration from `candles`).
 
-> **Sub-minute durations (v2.1).** The 4-tier model supports any positive integer duration via `config.json`. The micro tier default is 60 s, but operators may configure sub-minute durations (e.g. 15 s, 30 s) for high-frequency strategies by setting `candles.duration_seconds` to the desired value. Sub-minute timeframes are not documented in the standard 4-tier ladder because most institutional strategies operate at 1m+ resolution; they are supported by the underlying pipeline (and by the reconstruction engine — see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)) but require explicit configuration.
+> **Sub-minute durations (v2.1).** The 4-tier model supports any positive integer duration via `config.toml`. The micro tier default is 60 s, but operators may configure sub-minute durations (e.g. 15 s, 30 s) for high-frequency strategies by setting `[candles.duration_seconds]` to the desired value. Sub-minute timeframes are not documented in the standard 4-tier ladder because most institutional strategies operate at 1m+ resolution; they are supported by the underlying pipeline (and by the reconstruction engine — see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)) but require explicit configuration.
 
 ---
 
 ## 2. Configuration
 
-All four tiers are configured in `config.json`:
+All four tiers are configured in `config.toml`:
 
 ```json
 {
@@ -88,7 +88,7 @@ Each candle closes at the next exact UTC epoch-duration multiple:
 The aggregator formula — `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` — deterministically produces the **start of the candle interval** as the integer epoch multiple. The **closing instant** of the candle is `interval_start + duration_ms` (i.e. the start of the next interval). Candles close on the integer epoch multiple (e.g. a `micro60` candle closing at the start of the next minute), never at `:59.999`.
 
 - **Late-Trade Recovery:** Any late-arriving trade whose exchange-server timestamp belongs to a prior time boundary is processed as a retroactive update to the historical buffer. It must never cause the active candle boundary to shift or delay its close.
-- **Clock Drift:** Local server system clocks execute continuous NTP polling to keep local system time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring local indicator values align exactly with exchange historical benchmarks. Drift is enforced at runtime by `crates/engine/src/clock_monitor.rs` (spawned from `main.rs`, configured via the `"clock_monitor"` block of `config.json`). See [Global Architecture §2.1](01-02-global-architecture.md).
+- **Clock Drift:** Local server system clocks execute continuous NTP polling to keep local system time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring local indicator values align exactly with exchange historical benchmarks. Drift is enforced at runtime by `crates/network-adapters/src/clock_monitor.rs` (spawned from `main.rs`, configured via the `"clock_monitor"` block of `config.toml`). See [Global Architecture §2.1](01-02-global-architecture.md).
 
 ---
 

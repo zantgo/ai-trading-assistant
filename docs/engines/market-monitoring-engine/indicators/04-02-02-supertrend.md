@@ -45,7 +45,7 @@ The magnitude floor is ±0.6 (Supertrend never produces a near-zero reading). La
 | LevelTest | SUPERTREND_RESISTANCE_TEST | Price tests the Supertrend line from below (acting as dynamic resistance) without crossing above. Confirms trend resistance. | Bearish |
 | LevelTest | SUPERTREND_SUPPORT_TEST | Price tests the Supertrend line from above (acting as dynamic support) without crossing below. Confirms trend support. | Bullish |
 
-> **Renamed in v2.1 (consolidation audit fix).** A previous version of this table classified the two proximity signals as `BandTouch` (`SUPERTREND_LINE_TOUCH_BULLISH` / `SUPERTREND_LINE_TOUCH_BEARISH`). These were reclassified to `LevelTest` because Supertrend does not emit `SignalKind::BandTouch` in the runtime — only `TrendFlip`, `Crossover`, and `LevelTest` are produced by `crates/shared/src/indicators/normalized/all.rs`. The label patterns `SUPERTREND_RESISTANCE_TEST` / `SUPERTREND_SUPPORT_TEST` reflect the actual runtime emission.
+> **Renamed in v2.1 (consolidation audit fix).** A previous version of this table classified the two proximity signals as `BandTouch` (`SUPERTREND_LINE_TOUCH_BULLISH` / `SUPERTREND_LINE_TOUCH_BEARISH`). These were reclassified to `LevelTest` because Supertrend does not emit `SignalKind::BandTouch` in the runtime — only `TrendFlip`, `Crossover`, and `LevelTest` are produced by `crates/market-analyzer/src/indicators/normalized/all.rs`. The label patterns `SUPERTREND_RESISTANCE_TEST` / `SUPERTREND_SUPPORT_TEST` reflect the actual runtime emission.
 
 ## 5. Scoring
 

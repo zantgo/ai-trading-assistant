@@ -7,7 +7,7 @@
 
 Order Flow Imbalance measures the net pressure at the top of the limit order book: is there more resting volume on the bid side (buyers) or ask side (sellers)? It is a leading directional signal — short-term imbalances often precede price moves.
 
-Computed from the `OrderBookAnalysis` struct (`crates/shared/src/indicators/order_book.rs`):
+Computed from the `OrderBookAnalysis` struct (`crates/market-analyzer/src/indicators/order_book.rs`):
 
 ```
 bid_vol = Σ bid_size for top N depth levels

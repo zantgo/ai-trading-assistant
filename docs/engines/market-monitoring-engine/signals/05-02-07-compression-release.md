@@ -6,7 +6,7 @@
 **Category:** Volatility
 **Purpose:** Specification for the `CompressionRelease` SignalKind — the event marking any state transition of the volatility regime: compression (coiling), expansion (release), or the boundaries between them. The full volatility-cycle lifecycle is captured under one SignalKind so that downstream consumers see both ends of the cycle without inventing new kinds.
 
-> **v4.0 rename note.** The registry-source-of-truth name is `CompressionRelease` (verified `crates/shared/src/indicators/registry.rs` at `2026-07-16`). An earlier v2.1 docs-only rename to `VolatilityCycle` never propagated to the registry. v4.0 reverts the docs to the canonical registry name. The label strings (`COMPRESSION_COILING`, `COMPRESSION_RELEASE`, `MAX_VOLATILITY_COMPRESSION`, `ATR_CONTRACTING`, `ATR_EXPANDING`, etc.) are unchanged across the rename.
+> **v4.0 rename note.** The registry-source-of-truth name is `CompressionRelease` (verified `crates/market-analyzer/src/indicators/registry.rs` at `2026-07-16`). An earlier v2.1 docs-only rename to `VolatilityCycle` never propagated to the registry. v4.0 reverts the docs to the canonical registry name. The label strings (`COMPRESSION_COILING`, `COMPRESSION_RELEASE`, `MAX_VOLATILITY_COMPRESSION`, `ATR_CONTRACTING`, `ATR_EXPANDING`, etc.) are unchanged across the rename.
 
 ---
 

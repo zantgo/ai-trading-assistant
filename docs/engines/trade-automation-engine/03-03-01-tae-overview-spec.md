@@ -101,7 +101,7 @@ The TAE's defining computation is the Position Sizing Protocol (see [Execution L
 
 $$S = \frac{E \times R}{D_{sl} / 100}$$
 
-where `E` = available margin (from PME), `R` = risk-per-trade as a decimal fraction (`risk_per_trade_pct / 100`), `D_sl` = stop-loss distance as a raw percentage float (divided by 100 in the formula). Implemented in `crates/engine/src/risk_calculator.rs`.
+where `E` = available margin (from PME), `R` = risk-per-trade as a decimal fraction (`risk_per_trade_pct / 100`), `D_sl` = stop-loss distance as a raw percentage float (divided by 100 in the formula). Implemented in `crates/portfolio-supervisor/src/risk_calculator.rs`.
 
 ---
 

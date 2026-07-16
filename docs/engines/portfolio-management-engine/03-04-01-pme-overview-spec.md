@@ -48,7 +48,7 @@ Equity snapshots are logged periodically (60 s cadence, `portfolio_equity.rs`) w
 
 | Restriction | Default | Source |
 |-------------|---------|--------|
-| Cross leverage | 20× | `config.json` `leverage.cross_leverage` |
+| Cross leverage | 20× | `config.toml` `leverage.cross_leverage` |
 | Max single-pair exposure | 20% of capital | `PortfolioRiskState` |
 | Max portfolio exposure | 50% of capital | `PortfolioRiskState` |
 | Max correlation | 0.8 | `PortfolioRiskState` |
@@ -61,7 +61,7 @@ These two drawdown metrics are distinct and are not synonyms. See §4.1 below an
 
 ## 4. Safety Circuit Breakers
 
-The `SafetyManager` (`crates/engine/src/safety.rs`) tracks **five** escalating states:
+The `SafetyManager` (`crates/portfolio-supervisor/src/safety.rs`) tracks **five** escalating states:
 
 ```
 NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
@@ -70,7 +70,7 @@ NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
        ──(equity drawdown ≥ drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
 
-Defaults (`config.json` `safety`): WARN at 5 % daily drawdown (no stance change — pre-veto alert), caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30 % (`drawdown_limit_pct`). A win resets the consecutive-loss counter. See README "Key Conventions" for the distinction between `max_daily_drawdown_pct` (5 % early-warning, session PnL) and `drawdown_limit_pct` (30 % equity peak-to-trough, hard veto).
+Defaults (`config.toml` `safety`): WARN at 5 % daily drawdown (no stance change — pre-veto alert), caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30 % (`drawdown_limit_pct`). A win resets the consecutive-loss counter. See README "Key Conventions" for the distinction between `max_daily_drawdown_pct` (5 % early-warning, session PnL) and `drawdown_limit_pct` (30 % equity peak-to-trough, hard veto).
 
 ---
 

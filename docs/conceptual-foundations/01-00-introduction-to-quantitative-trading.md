@@ -419,7 +419,7 @@ Every concept in this document maps to a concrete implementation file:
 | 5 | Walk-the-book | `03-03-03-tae-layer2-execution.md` §5 Slippage Control |
 | 6 | Taker execution | `03-03-03-tae-layer2-execution.md` §1 |
 | 7 | Time-based / Predicate-based | `03-03-01-tae-overview-spec.md` §2 Operational Modes |
-| 8 | Stepped / Linear / Exponential | [`01-00-introduction-to-quantitative-trading.md` §8.1–§8.4](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) — sizing curves defined canonically in this § 8 (implementation in `crates/engine/src/profile_evaluation/scoring.rs`) |
+| 8 | Stepped / Linear / Exponential | [`01-00-introduction-to-quantitative-trading.md` §8.1–§8.4](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) — sizing curves defined canonically in this § 8 (implementation in `crates/portfolio-supervisor/src/profile_evaluation/scoring.rs`) |
 | 8 | Hard-Tanh / Tanh (new) | [`01-00-introduction-to-quantitative-trading.md` §8.5–§8.6](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) — same canonical definitions as above |
 | 8 | Fixed-fractional `S = E·R/D_sl` (textbook form, §8.7) — equivalent engine form `S = (E·R)/(D_sl/100)` | [`01-00-introduction-to-quantitative-trading.md` §8.7](../conceptual-foundations/01-00-introduction-to-quantitative-trading.md) + `08-02-pre-trade-risk-controls.md` Gate 4 + `03-03-03-tae-layer2-execution.md` §2 |
 | 9 | Exposure slot caps | `03-04-03-pme-layer2-exposure.md` §3 Concentration Limits |

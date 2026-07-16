@@ -19,7 +19,7 @@ Status = Formed (Potential)       adjusts confidence, rejects       Status = Con
 
 ---
 
-## 2. Stage 1 — Geometric Detection (`crates/shared/src/indicators/candlestick.rs`)
+## 2. Stage 1 — Geometric Detection (`crates/market-analyzer/src/indicators/candlestick.rs`)
 
 The `Candlestick` calculator maintains a rolling 6-candle window and, on each completed candle, scans for the highest-specificity pattern (continuation → three → two → single precedence). Every candle is reduced to f64 geometry: body, range, upper/lower wicks, colour.
 

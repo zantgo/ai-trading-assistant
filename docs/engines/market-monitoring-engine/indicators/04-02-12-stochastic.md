@@ -20,7 +20,7 @@ Slow %K = SMA(%K, s_period)                                                  // 
 
 > **`%D` double-smoothing convention.** `%D` is the simple moving average of `Slow %K` (the SMA-smoothed `%K`), producing the canonical two-stage smoothing: `Fast %K → Slow %K (SMA) → %D (SMA of Slow %K)`. Single-stage smoothing directly off `Fast %K` deviates from the standard Stochastic construction and produces materially different values compared to TA-Lib and other institutional implementations.
 
-The `k_period` (`stoch_k_period`, default `18`), `d_period` (`stoch_d_period`, default `5`), and `s_period` (`stoch_s_period`, default `9`) controls are configurable via `[indicators]` in `config.json` (the platform's single source of configuration truth — see [08-01-user-manual.md §5](../../../operations-and-compliance/08-01-user-manual.md)).
+The `k_period` (`stoch_k_period`, default `18`), `d_period` (`stoch_d_period`, default `5`), and `s_period` (`stoch_s_period`, default `9`) controls are configurable via `[indicators]` in `config.toml` (the platform's single source of configuration truth — see [08-01-user-manual.md §5](../../../operations-and-compliance/08-01-user-manual.md)).
 
 ## 3. Normalization
 

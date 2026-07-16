@@ -34,7 +34,7 @@ IF rvol ≥ rvol_threshold_institutional (default 1.5) → elevated participatio
 IF rvol ≥ rvol_threshold_climax        (default 3.0) → VolumeClimax
 ```
 
-Thresholds are configurable (`config.json` `indicators.rvol_threshold_*`). The climax is emitted on the bar the threshold is breached.
+Thresholds are configurable (`config.toml` `[indicators.rvol_threshold_*]`). The climax is emitted on the bar the threshold is breached.
 
 ---
 

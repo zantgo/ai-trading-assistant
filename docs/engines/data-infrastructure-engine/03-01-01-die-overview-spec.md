@@ -41,7 +41,7 @@ The DIE is the **sole ingress point** for external market data. It owns everythi
 
 ## 2. Exchange Adapters
 
-The DIE supports pluggable venue adapters conforming to the `ExchangeAdapter` trait (`crates/shared/src/normalized/mod.rs`):
+The DIE supports pluggable venue adapters conforming to the `ExchangeAdapter` trait (`crates/core-domain/src/normalized/mod.rs`):
 
 ```rust
 #[async_trait]
@@ -63,7 +63,7 @@ pub trait ExchangeAdapter: Send + Sync {
 | **Hyperliquid** | `wss://api.hyperliquid.xyz/ws` | `hyperliquid_rest.rs` | `HyperliquidAdapter` |
 | **Bitget** | `wss://ws.bitget.com/v2/ws/public` | `bitget_rest.rs` | `bitget::run_for_symbol` |
 
-Endpoints are configured in `config.json` (`hyperliquid.ws_url`, `bitget.ws_url`).
+Endpoints are configured in `config.toml` (`[hyperliquid.ws_url]`, `[bitget.ws_url]`).
 
 ### 2.2 Ingested Data Types
 
@@ -97,7 +97,7 @@ Each adapter emits a `NormalizedEvent` enum:
 
 ## 4. Connection Monitoring & Fault Tolerance
 
-The `MarketDataOrchestrator` (`crates/engine/src/orchestrator.rs`) supervises every adapter in an independent Tokio task with a self-healing loop:
+The `MarketDataOrchestrator` (`crates/network-adapters/src/orchestrator.rs`) supervises every adapter in an independent Tokio task with a self-healing loop:
 
 ```
        ┌──────────────────────────────────────────────┐
@@ -136,7 +136,7 @@ Connecting ──► Connected ──► (stream) ──► Disconnected ──�
 
 ## 5. Symbol Normalization
 
-The `SymbolMapper` (`crates/shared/src/normalized/symbol_mapper.rs`) maps exchange-native symbols (e.g. Hyperliquid `BTC`, Bitget `BTCUSDT`) to unified internal symbols (e.g. `BTC-USDT`). The configured `symbols` list uses `Exchange:Symbol` syntax (e.g. `Hyperliquid:BTC`) to bind each internal symbol to exactly one preferred venue. **Aggregation of parallel streams from multiple venues for the same symbol is not supported; cross-venue failover is not implemented.**
+The `SymbolMapper` (`crates/core-domain/src/normalized/symbol_mapper.rs`) maps exchange-native symbols (e.g. Hyperliquid `BTC`, Bitget `BTCUSDT`) to unified internal symbols (e.g. `BTC-USDT`). The configured `symbols` list uses `Exchange:Symbol` syntax (e.g. `Hyperliquid:BTC`) to bind each internal symbol to exactly one preferred venue. **Aggregation of parallel streams from multiple venues for the same symbol is not supported; cross-venue failover is not implemented.**
 
 ---
 

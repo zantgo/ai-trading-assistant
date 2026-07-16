@@ -54,7 +54,7 @@ The Strategy Analytics Layer determines whether the trading system generates a *
 > - `gross_loss = Σ |pnl|` over losing trades (positive)
 > - `average_loss = Σ |pnl| / loss_count` (positive)
 >
-> Under this convention, the `expectancy` formula `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` is sign-consistent: the loss term is properly subtracted, giving `0.5 × 20 − 0.5 × 10 = 5` (correct). The runtime in `crates/shared/src/strategy_analytics.rs` (when implemented) MUST compute `average_loss = average_loss_raw.abs()` before storing, and the persistence layer MUST store the absolute value. This convention is mirrored in the [Database Schema `strategy_analytics_history.expectancy` column](../integration-and-api/06-02-database-schema-spec.md), which receives the post-correction value.
+> Under this convention, the `expectancy` formula `(win_rate × avg_win) − ((1 − win_rate) × avg_loss)` is sign-consistent: the loss term is properly subtracted, giving `0.5 × 20 − 0.5 × 10 = 5` (correct). The runtime in `crates/core-domain/src/strategy_analytics.rs` (when implemented) MUST compute `average_loss = average_loss_raw.abs()` before storing, and the persistence layer MUST store the absolute value. This convention is mirrored in the [Database Schema `strategy_analytics_history.expectancy` column](../integration-and-api/06-02-database-schema-spec.md), which receives the post-correction value.
 
 ## 3. Statistical Significance Testing
 

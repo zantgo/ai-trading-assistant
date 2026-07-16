@@ -34,7 +34,7 @@ The MME **interprets** the market. It consumes the DIE's Market Data Matrix and 
 
 ## 2. Module Pipeline
 
-The per-timeframe pipeline (`crates/engine/src/analyzer/mod.rs`) executes on every completed candle:
+The per-timeframe pipeline (`crates/market-analyzer/src/analyzer/mod.rs`) executes on every completed candle:
 
 ```
 completed candle
@@ -82,7 +82,7 @@ broadcast MarketSnapshot
 
 ## 4. Symbol-Specific Instance Management
 
-A **Market Instance** (`crates/engine/src/instance.rs`) is the smallest operational unit: one symbol with its four timeframe pipelines, trading state, safety manager, and config.
+A **Market Instance** (`crates/portfolio-supervisor/src/instance.rs`) is the smallest operational unit: one symbol with its four timeframe pipelines, trading state, safety manager, and config.
 
 ### 4.1 Instance Lifecycle
 
@@ -104,7 +104,7 @@ The MME follows a Welcome-Gate pattern: no pipelines spawn until a **session** (
 
 ## 5. Indicator & Signal System
 
-The MME computes **50 technical indicators** across 8 functional groups, with **100 signal-kind declarations** across 12 SignalKind types (post-v2.1; the 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md)). Every indicator is declared once in the authoritative registry (`crates/shared/src/indicators/registry.rs`).
+The MME computes **50 technical indicators** across 8 functional groups, with **100 signal-kind declarations** across 12 SignalKind types (post-v2.1; the 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../../conceptual-foundations/01-01-ontology.md)). Every indicator is declared once in the authoritative registry (`crates/market-analyzer/src/indicators/registry.rs`).
 
 - Per-indicator specifications: [indicators/](indicators/04-02-00-indicator-index.md)
 - Indicator rulebook: [mme-indicators-guide.md](03-02-09-mme-indicators-guide.md)

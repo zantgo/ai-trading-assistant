@@ -196,19 +196,20 @@ destroy_all() {
     rm -f "telemetry.db-shm"
     rm -f "telemetry.db-wal"
 
-    # The platform uses config.json (single source of truth, see docs/README.md
+    # The platform uses config.toml (single source of truth, see docs/README.md
     # "Key Conventions"). `./manage.sh destroy` resets the file from the bundled
-    # `config.default.json` template. A legacy `config.toml` is *removed* (the
-    # platform does not read it).
+    # `config.default.toml` template. A legacy `config.json` is preserved (the
+    # platform's `load_config()` recognizes it as a fallback) but commented out
+    # here for completeness — uncomment to also wipe the legacy config.
     rm -f "config.toml"
-    if [ -f "config.default.json" ]; then
-        echo "⚙️  Restoring config.json from config.default.json template..."
-        cp "config.default.json" "config.json"
-    elif [ -f "config.example.json" ]; then
-        echo "⚙️  Restoring config.json from config.example.json template..."
-        cp "config.example.json" "config.json"
+    if [ -f "config.default.toml" ]; then
+        echo "⚙️  Restoring config.toml from config.default.toml template..."
+        cp "config.default.toml" "config.toml"
+    elif [ -f "config.example.toml" ]; then
+        echo "⚙️  Restoring config.toml from config.example.toml template..."
+        cp "config.example.toml" "config.toml"
     else
-        echo "❌ Error: config.default.json / config.example.json is missing! Cannot restore default configuration."
+        echo "❌ Error: config.default.toml / config.example.toml is missing! Cannot restore default configuration."
         exit 1
     fi
 

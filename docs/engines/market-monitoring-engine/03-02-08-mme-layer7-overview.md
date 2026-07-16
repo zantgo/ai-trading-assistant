@@ -19,7 +19,7 @@ The Overview Layer synthesizes cross-symbol intelligence. Where Layers 1–6 des
 [Instance metadata            ] ─┘     compute_overview()
 ```
 
-Implementation: `crates/shared/src/overview.rs::compute_overview()`.
+Implementation: `crates/core-domain/src/overview.rs::compute_overview()`.
 
 ---
 

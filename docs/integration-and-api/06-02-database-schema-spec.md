@@ -18,7 +18,7 @@
 | Engine | **SQLite** with WAL (`journal_mode = WAL`), `synchronous = NORMAL`, `foreign_keys = ON` |
 | Driver | `rusqlite` (bundled) |
 | File | `./telemetry.db` at workspace root (`telemetry.db` local to CLI engine instance; cloud-headless setups use `rsync`, `scp`, or cloud-synced volumes) |
-| Migration | `crates/engine/src/db/migrations.rs` — applied on engine startup via `apply_pending_migrations()` |
+| Migration | `crates/database-storage/migrations/ (sqlx::migrate! consumes at build-time)` — applied on engine startup via `apply_pending_migrations()` |
 
 ### 1.1 Type conventions
 
@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS exchange_keys (
 CREATE INDEX IF NOT EXISTS idx_exchange_keys_exchange ON exchange_keys(exchange);
 ```
 
-> **Encrypted credentials only.** `config.json` holds no secret material — all API keys, secrets, and passphrases live in this table, encrypted at rest with `EXCHANGE_SECRET_KEY` (master key from environment variable). The contract is in [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md).
+> **Encrypted credentials only.** `config.toml` holds no secret material — all API keys, secrets, and passphrases live in this table, encrypted at rest with `EXCHANGE_SECRET_KEY` (master key from environment variable). The contract is in [`06-01-api-gateway-contract.md §2.10`](06-01-api-gateway-contract.md).
 
 ### 3.9 `connection_quality_samples` — per-instance uptime telemetry
 
@@ -417,7 +417,7 @@ The engine holds a single writer connection per process. Read concurrency is ach
 
 ## 9. Migration Strategy
 
-Migrations live in `crates/engine/src/db/migrations.rs`. The schema-version compatibility window is `user_version = N` where `N` is the most-recent migration applied. The engine refuses to start if `user_version` is **lower** than the minimum required version (no forward-only compatibility — re-run the migrations). Backward compatibility (newer code reading older `user_version`) is supported up to two minor versions.
+Migrations live in `crates/database-storage/migrations/ (sqlx::migrate! consumes at build-time)`. The schema-version compatibility window is `user_version = N` where `N` is the most-recent migration applied. The engine refuses to start if `user_version` is **lower** than the minimum required version (no forward-only compatibility — re-run the migrations). Backward compatibility (newer code reading older `user_version`) is supported up to two minor versions.
 
 The canonical v4.0 migration set adds three changes:
 

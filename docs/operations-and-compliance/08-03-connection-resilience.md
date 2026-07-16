@@ -60,7 +60,7 @@ The platform has three distinct retry budgets that operate independently. They a
 |---|---|---|---|
 | Adapter reconnect loop | One WebSocket cycle (sequence of `max_attempts` retries against the same exchange) | `max_attempts: None` (infinite) | The adapter keeps retrying indefinitely within a single cycle. The supervisor (next layer) terminates the cycle. |
 | Engine supervisor | Number of cycles before permanent adapter disable | 5 cycles | After 5 failed cycles the adapter is permanently disabled for that pair; operator must restart or re-enable manually. See [08-01-user-manual.md §8](../operations-and-compliance/08-01-user-manual.md) for the operator-facing behaviour ("permanent disable after 5 consecutive failures"). |
-| REST client retry budget | REST endpoint from `crates/engine/src/api_client` and the Svelte frontend wrapper | 30 attempts | The REST client retries up to 30 times before surfacing the failure to the caller. Independent of the adapter or supervisor budgets. |
+| REST client retry budget | REST endpoint from `crates/network-adapters/src/adapters/*_rest.rs (Hyperliquid: hyperliquid_rest.rs; Bitget: bitget_rest.rs)` and the Svelte frontend wrapper | 30 attempts | The REST client retries up to 30 times before surfacing the failure to the caller. Independent of the adapter or supervisor budgets. |
 
 ## State Transitions
 
@@ -102,7 +102,7 @@ Every state transition is logged:
 
 ## Integration
 
-Used by `crates/engine/src/adapters/hyperliquid.rs` and `crates/engine/src/adapters/bitget.rs` to wrap their WebSocket loops. The same policy is applied to both exchanges.
+Used by `crates/network-adapters/src/adapters/hyperliquid.rs` and `crates/network-adapters/src/adapters/bitget.rs` to wrap their WebSocket loops. The same policy is applied to both exchanges.
 
 ## Testing
 
