@@ -19,7 +19,8 @@ docs/
 │   ├── 01-02-global-architecture.md                  ← 5-engine blueprint, 2D framework, hybrid memory/math model
 │   ├── 01-03-systemic-data-flow.md                   ← chronological event sequences across engines
 │   ├── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
-│   └── 01-05-liquidity-domain.md                     ← Phase 0-4 Liquidity Intelligence architecture
+│   ├── 01-05-liquidity-domain.md                     ← Phase 0-4 Liquidity Intelligence architecture
+│   └── 01-06-crate-layout-and-cycles.md              ← 9-crate workspace layout, dependency graph, cycle-breaking design decisions
 ├── matrices/                                         (02 — 15 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
@@ -100,7 +101,7 @@ docs/
     └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
 ```
 
-Total: **130 markdown files** (1 README + 6 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 new `CHANGELOG.md` = **129** numbered docs + README; 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The +1 over the prior count (`129 → 130`) is the new canonical `docs/CHANGELOG.md` introduced in v4.0.
+Total: **131 markdown files** at v5.0 (1 README + 7 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 new `CHANGELOG.md` = **130** numbered docs + README). 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The v5.0 addition (`+1` vs v4.0) is the new `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` documenting the 9-crate workspace split.
 
 ## The Five Engines
 
@@ -119,6 +120,7 @@ Total: **130 markdown files** (1 README + 6 conceptual + 15 matrix + **31 engine
    - `01-02-global-architecture.md` — Two-Dimensional Framework + hybrid memory/math architecture (incl. §6 DOD/OOP target)
    - `01-03-systemic-data-flow.md` — how data flows through the system (incl. Sequence A bifurcation)
    - `01-04-timeframe-model.md` — 4-tier timeframe configuration + §3.1 UTC alignment rules
+   - `01-06-crate-layout-and-cycles.md` — 9-crate physical workspace, dependency graph, cycle-breaking design rationale (read this when mapping a feature to its crate)
 
 2. **Engine Overviews (`03-01-01`, `03-02-01`, `03-03-01`, `03-04-01`, `03-05-01`)** — each engine's boundaries
 

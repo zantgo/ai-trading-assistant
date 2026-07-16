@@ -37,34 +37,7 @@ Frontend:
 crates/frontend/           # Svelte 5 + Vite dashboard (served as static assets)
 ```
 
-The unidirectional dependency graph (core-domain is a leaf; nothing in the workspace depends on the leaf except transitively):
-
-```
-                       [config-models]
-                            ▲
-                            │
-                       [core-domain]
-                       ▲   ▲   ▲   ▲
-                       │   │   │   └─────────────────────┐
-                       │   │   │                         │
-               [market-analyzer]│                  [database-storage]
-                                 │                       ▲   ▲
-                                 │                       │   │
-                                 │                       │   │
-                        [network-adapters]               │   │
-                                 ▲                       │   │
-                                 │                       │   │
-                                 └──────────── [portfolio-supervisor]
-                                                         ▲
-                                                         │
-                                                 [performance-analytics]
-                                                         ▲
-                                                         │
-                                                    [api-gateway]
-                                                         ▲
-                                                         │
-                                                  [execution-daemon]
-```
+The unidirectional dependency graph and the four cycle-breaking design decisions (MarketContext split, RegistryContext extraction, ConnectionQualityTracker split, paper_trading stub removal) live in **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md`** — the canonical single source of truth for "where does X live?" and "why don't these two crates import each other?". That document also covers the test-suite topology and the dev-dependency exceptions.
 
 ## Build & run
 
