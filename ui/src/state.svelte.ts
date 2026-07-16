@@ -76,12 +76,12 @@ export class AppStore {
 
     // ─── Grid cockpit navigation state ────────────────────────────────
     isManageModalOpen = $state(false);
-    currentEngine = $state<'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile'>('profile');
+    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile'>('profile');
     middleTab = $state<string>('overview');
     activeEngineTab = $state<'overview' | 'instance'>('overview');
     selectedInstance = $state<string | null>(null);
 
-    selectEngine(engine: 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile') {
+    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile') {
         this.currentEngine = engine;
         this.middleTab = engine === 'market_monitor' ? 'workspace' : 'overview';
         if (engine === 'market_monitor') {

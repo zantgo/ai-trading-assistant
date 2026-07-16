@@ -149,6 +149,8 @@ indicators:
 | Estimated heatmap (Phase 2) | Cluster estimator | `cluster: LiquidationClusterMatrix` |
 | Liquidity signals (Phase 3) | Signal derivation | `liquidity_signals: Vec<LiquiditySignal>` |
 
+> **Liquidity fields are part of Metrics Layer L1, not an independent matrix or layer.** The `liquidity`, `cluster`, and `liquidity_signals` fields on `MarketSnapshot` are computed by the same indicator-and-signal pipeline that produces all 50 indicators. The Liquidity Intelligence extension (Phases 0-4) adds computation to Layer 1 — it does not introduce a new engine layer, a separate tab, or a standalone UI component. In the frontend, liquidation cluster data renders inline on the Charts tab alongside price candlesticks and indicator panes, never as a standalone view.
+
 These are not "indicators" in the strict sense (they are not
 normalised f64 signals in the indicator map) — they are
 *telemetry matrices* that ride the MarketSnapshot as optional

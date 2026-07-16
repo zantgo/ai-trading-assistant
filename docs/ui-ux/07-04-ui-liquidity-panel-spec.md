@@ -1,11 +1,14 @@
 # LiquidityPanel UI Specification (Phase 4)
 
 **Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
-**Status:** Approved
-**Component path:** `ui/src/components/LiquidityPanel.svelte` with companion CSS module `ui/src/components/LiquidityPanel.module.css`.
-**View key:** `liquidity` (in the `CurrentView` enum).
-**Mounted under:** the Bottom (Instance-Level) Navbar of `App.svelte` (see [07-02 §4](07-02-ui-dashboard-layout.md)), alongside Alignment / Opportunities / Risks / Analysis / Decision.
-**Data sources:** the three Phase 1-3 outputs are demultiplexed by `ui/src/api/ws_client.rs` into the per-timeframe `TimeframeTelemetry` shape. The panel reads them off the **micro timeframe** of the selected instance:
+**Status:** DEPRECATED — the standalone LiquidityPanel tab was removed in v6.0.
+**Component path:** `ui/src/components/LiquidityPanel.svelte` (kept on disk for future inline rendering).
+**View key:** `liquidity` — removed from the `CurrentView` enum in v6.0.
+**Mounted under:** no longer mounted as a standalone tab. The liquidation cluster heatmap and cascade risk data are now intended to render **inline on the Charts tab** (`LiveTerminal.svelte`) as a collapsible section alongside the price chart and indicator panes. The LiquidityPanel component is preserved as a reusable building block for that future inline integration.
+
+> **Architecture note (v6.0).** The liquidity data fields (`liquidity`, `cluster`, `liquidity_signals`) are part of the Market Monitor Metrics Layer (L1) — they are not a separate matrix, engine layer, or standalone UI component. The Phase 1-3 outputs flow through the same `MarketSnapshot` structure as all other indicators. See `03-02-02-mme-layer1-metrics.md §Liquidity fields` for the canonical statement.
+
+**Data sources:** unchanged — the three Phase 1-3 outputs remain on `MarketSnapshot` and are demultiplexed by the WebSocket client into the per-timeframe `TimeframeTelemetry` shape.
 
 ```ts
 const instance = $derived(app && pairKey ? app.instancesMap[pairKey] : undefined);

@@ -127,10 +127,8 @@ It applies an additional CSS class `styles.rowSubTabs` on top of `styles.rowTabs
 | `alignment` | Alignment | `AlignmentPanel` |
 | `opportunity` | Opportunities | `OpportunitiesPanel` |
 | `risk` | Risks | `RiskPanel` |
-| `connection` | Connection | `ConnectionQualityPanel` |
 | `analysis` | Analysis | `AnalysisPanel` |
 | `advisory` | Decision | `AdvisoryPanel` |
-| `liquidity` | Liquidity | `LiquidityPanel` |
 
 ### 4.2 Active Tab Behavior
 
@@ -138,10 +136,10 @@ It applies an additional CSS class `styles.rowSubTabs` on top of `styles.rowTabs
 - The active cell receives both `styles.cellActive` and `styles.cellActiveUnderline` (a 2 px bottom border accent).
 - When an instance is deselected (e.g. via the Workspaces Sidebar delete action), the Bottom Navbar unmounts; the content area falls back to `GeneralDashboard`.
 
-### 4.3 Liquidity & Connection Tabs
+### 4.3 Removed Tabs (v6.0)
 
-- **`Liquidity`** is instance-scoped and mounts for any active Market Instance when Phase 0-4 Liquidity Intelligence is enabled (see [07-04-ui-liquidity-panel-spec.md](07-04-ui-liquidity-panel-spec.md)).
-- **`Connection`** is instance-scoped and surfaces per-WS uptime, disconnect count, reconnect latency, and rolling-window scores for the WebSocket serving this instance (see [08-05-connection-quality.md](../operations-and-compliance/08-05-connection-quality.md)).
+- **`Liquidity`** — removed as a standalone tab. The liquidation cluster heatmap and cascade risk data belong to the Metrics Layer (L1) and render inline on the Charts tab alongside the price chart and indicator panes. See `03-02-02-mme-layer1-metrics.md §Liquidity fields` and the deprecated `07-04-ui-liquidity-panel-spec.md`.
+- **`Connection`** — moved to the new **Data Infrastructure** engine. Connection quality (WebSocket uptime, disconnect count, reconnect latency, composite score) is now accessible under Data Infrastructure → Overview → Connectivity (see §7).
 
 ---
 
@@ -152,21 +150,20 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 ### 5.1 Wireframe
 
 ```
-┌─────────────────────────┐
-│                         │
-│  TRADING PLATFORM       │ ← sidebarBrand (top, uppercase)
-│                         │
-│  [⌂] Home               │
-│  [⊞] Portfolio          │
-│  [∿] Market        ●    │ ← active (cellActive)
-│  [$] Trading            │
-│  [⊕] Analysis           │
-│                         │
-│                         │
-│                         │
-│                         │
-│  [⏻] Quit Session       │ ← sidebarFooter (bottom-anchored)
-└─────────────────────────┘
+┌─────────────────────────────────┐
+│                                 │
+│  TRADING PLATFORM               │ ← sidebarBrand (top, uppercase)
+│                                 │
+│  [⊞] Data Infrastructure        │
+│  [∿] Market Monitoring     ●    │ ← active (cellActive)
+│  [$] Trade Automation           │
+│  [⊡] Portfolio Management       │
+│  [⊕] Performance Analytics      │
+│                                 │
+│                                 │
+│                                 │
+│  [⏻] Quit Session               │ ← sidebarFooter (bottom-anchored)
+└─────────────────────────────────┘
 ```
 
 ### 5.2 Components
@@ -185,10 +182,11 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 | Display label | Internal key | Active content when selected |
 |---------------|--------------|-------------------------------|
-| Home | `profile` | `GeneralSettings` (full-viewport; suppresses Middle + Bottom navbars). |
-| Portfolio | `portfolio` | Placeholder ("Coming soon"). |
-| Market | `market_monitor` | The full Market cockpit — Middle + Bottom navbars + per-instance panels. |
-| Trading | `trade_automation` | Placeholder ("Coming soon"). |
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status, NTP Clock Monitor. Overview + Settings tabs. |
+| Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). |
+| Trade Automation | `trade_automation` | `EngineOverview` card describing the execution policy engine, paper/live trading path, and sizing protocol. Settings tab for strategy config. |
+| Portfolio Management | `portfolio` | `EngineOverview` card describing position tracking, margin utilization, exposure, and safety veto. Settings tab for safety/fees config. |
+| Performance Analytics | `performance` | `EngineOverview` card describing dashboard stats, strategy optimizer, Monte Carlo significance testing. Settings tab for analytics cadences. |
 | Analysis | `performance` | Placeholder ("Coming soon"). |
 
 ### 5.4 Quit Session Flow

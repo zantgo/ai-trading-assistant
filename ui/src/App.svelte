@@ -10,13 +10,13 @@
     import AlignmentPanel from './components/AlignmentPanel.svelte';
     import OpportunitiesPanel from './components/OpportunitiesPanel.svelte';
     import RiskPanel from './components/RiskPanel.svelte';
-    import ConnectionQualityPanel from './components/ConnectionQualityPanel.svelte';
     import AnalysisPanel from './components/AnalysisPanel.svelte';
     import AdvisoryPanel from './components/AdvisoryPanel.svelte';
-    import LiquidityPanel from './components/LiquidityPanel.svelte';
     import GeneralDashboard from './components/GeneralDashboard.svelte';
     import GeneralSettings from './components/GeneralSettings.svelte';
     import WorkspaceSettings from './components/WorkspaceSettings.svelte';
+    import DataInfraDashboard from './components/DataInfraDashboard.svelte';
+    import EngineOverview from './components/EngineOverview.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
 
@@ -50,13 +50,13 @@
     let rowConfirm = $state<{ id: string; action: 'pause' | 'delete'; pair?: string } | null>(null);
 
     // ─── Engines ────────────────────────────────────────────────────────
-    type EngineKey = 'profile' | 'portfolio' | 'market_monitor' | 'trade_automation' | 'performance';
+    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance';
     const ENGINES_SIDEBAR: { key: EngineKey; label: string }[] = [
-        { key: 'profile',        label: 'Home' },
-        { key: 'portfolio',      label: 'Portfolio' },
-        { key: 'market_monitor', label: 'Market' },
-        { key: 'trade_automation', label: 'Trading' },
-        { key: 'performance',    label: 'Analysis' },
+        { key: 'data_infra',        label: 'Data Infrastructure' },
+        { key: 'market_monitor',    label: 'Market Monitoring' },
+        { key: 'trade_automation',  label: 'Trade Automation' },
+        { key: 'portfolio',         label: 'Portfolio Management' },
+        { key: 'performance',       label: 'Performance Analytics' },
     ];
 
     const MIDDLE_TABS: { key: string; label: string }[] = [
@@ -70,10 +70,8 @@
         { view: 'alignment',   label: 'Alignment' },
         { view: 'opportunity', label: 'Opportunities' },
         { view: 'risk',        label: 'Risks' },
-        { view: 'connection',  label: 'Connection' },
         { view: 'analysis',    label: 'Analysis' },
         { view: 'advisory',    label: 'Decision' },
-        { view: 'liquidity',   label: 'Liquidity' },
     ];
 
     const activePair = $derived(app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined);
@@ -216,6 +214,7 @@
     function sidebarSvg(key: EngineKey): string {
         const paths: Record<string, string> = {
             profile: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+            data_infra: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
             portfolio: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="12" y1="15" x2="16" y2="15"/><line x1="8" y1="15" x2="10" y2="15"/>',
             market_monitor: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
             trade_automation: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
@@ -296,6 +295,16 @@
         <main class={styles.contentArea}>
             {#if app.currentEngine === 'profile'}
                 <GeneralSettings />
+            {:else if app.currentEngine === 'data_infra'}
+                {#if app.middleTab === 'overview'}
+                    <DataInfraDashboard />
+                {:else}
+                    <div class={styles.profileCard} style="padding:2rem">
+                        <h3>Data Infrastructure Settings</h3>
+                        <p class={styles.cardSub}>Exchange endpoints and NTP clock monitor configuration.</p>
+                        <p class={styles.cardSub}>Edit <code>config.toml</code> → <code>[hyperliquid]</code>, <code>[bitget]</code>, <code>[clock_monitor]</code> sections directly. Restart the daemon after changes.</p>
+                    </div>
+                {/if}
             {:else if app.currentEngine === 'market_monitor'}
                 {#if app.middleTab === 'workspace'}
                     {#if app.selectedInstance && activePair}
@@ -309,14 +318,10 @@
                             <OpportunitiesPanel pairKey={app.activeTab} />
                         {:else if activePair.currentView === 'risk'}
                             <RiskPanel pairKey={app.activeTab} />
-                        {:else if activePair.currentView === 'connection'}
-                            <ConnectionQualityPanel />
                         {:else if activePair.currentView === 'analysis'}
                             <AnalysisPanel />
                         {:else if activePair.currentView === 'advisory'}
                             <AdvisoryPanel pairKey={app.activeTab} />
-                        {:else if activePair.currentView === 'liquidity'}
-                            <LiquidityPanel pairKey={app.activeTab} />
                         {/if}
                     {:else}
                         <GeneralDashboard />
@@ -327,7 +332,14 @@
                     <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
                 {/if}
             {:else}
-                <div class={styles.placeholder}><span class={styles.placeholderTitle}>{engineLabel(app.currentEngine)}</span><span class={styles.placeholderSub}>Coming soon</span></div>
+                {#if app.middleTab === 'overview'}
+                    <EngineOverview engine={app.currentEngine} />
+                {:else}
+                    <div class={styles.profileCard} style="padding:2rem">
+                        <h3>{engineLabel(app.currentEngine)} Settings</h3>
+                        <p class={styles.cardSub}>Configure <code>config.toml</code> → <code>[workspace]</code> section for workspace-wide settings like safety thresholds, fees, market-monitor defaults, and scheduler intervals. Use the Market Monitor Workspace settings panel to configure per-instance timeframes and indicators.</p>
+                    </div>
+                {/if}
             {/if}
         </main>
     </div>
