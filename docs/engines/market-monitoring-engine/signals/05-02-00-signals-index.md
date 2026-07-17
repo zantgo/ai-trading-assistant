@@ -1,8 +1,8 @@
 # Signal Specification Index
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
-> Index of 12 canonical `SignalKind` types. Each has a dedicated specification file documenting detection semantics, confirmation lifecycle, and contributing indicators.
+> Index of 12 canonical `SignalKind` types. Each has a dedicated specification file documenting detection semantics, confirmation lifecycle, and contributing indicators. The registry describes capability and never changes with runtime config.
 >
 > **Numbering.** File names follow `05-02-NN-kebab-case.md` where `NN` is the zero-padded SignalKind ordinal.
 

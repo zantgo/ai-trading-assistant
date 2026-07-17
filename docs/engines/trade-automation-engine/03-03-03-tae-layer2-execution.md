@@ -1,6 +1,6 @@
 # TAE Layer 2 — Execution Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 2 of 2
@@ -112,7 +112,7 @@ The size is then converted to base-asset units using the current mid-price and r
 | `price` | `Decimal` | Limit/stop trigger price (null for market). |
 | `size` | `Decimal` | Base-asset quantity. |
 | `reduce_only` | `bool` | Whether the order carries the reduce-only flag (a per-order attribute, NOT an order type). Mirrors the exchange-native concept (Hyperliquid `reduceOnly`, Bitget/Binance `reduceOnly`). Independent of — but deterministically populated by — the Policy Layer's `CLOSE_ONLY` stance; see §3.3. |
-| `is_emergency_liquidation` | `bool` | **Hard Exit path flag.** When `true`, the order bypasses pre-trade Gates 1, 2, 4, 5, 6, 7 (per [08-02-pre-trade-risk-controls.md §3](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)) so the liquidation is dispatched even when the symbol stance is `AVOID`. Forced by the PME Veto path in [PME Layer 4 §4.2](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — only `true` for orders originated by the Hard Exit directive. Set to `false` (default) for every other order. Persisted to `open_orders.is_emergency_liquidation` (see [06-02-database-schema-spec.md §3.2](../../integration-and-api/06-02-database-schema-spec.md)) for audit and replay. |
+| `is_emergency_liquidation` | `bool` | **Hard Exit path flag.** When `true`, the order bypasses pre-trade Gates 1, 2, 4, 5, 6, 7 (per [08-02-pre-trade-risk-controls.md §3](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)) so the liquidation is dispatched even when the symbol stance is `AVOID`. Forced by the PME Veto path in [PME Layer 4 §4.2](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — only `true` for orders originated by the Hard Exit directive. Set to `false` (default) for every other order. Persisted to `open_orders.is_emergency_liquidation` (see [06-02-database-schema-spec.md §3.2](../../integration-and-api/06-02-database-schema-spec.md)) for audit and replay. `close_reason = EMERGENCY_LIQUIDATION` is written at close; the flag covers the pre-close lifecycle. |
 | `associated_position_id` | `u64` | Position this order relates to (for exits/modifications). |
 
 ### 3.3 CLOSE_ONLY Stance → `reduce_only` Flag Handoff

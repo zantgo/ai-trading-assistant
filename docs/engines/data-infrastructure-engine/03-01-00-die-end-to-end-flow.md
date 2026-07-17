@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — End-to-End Flow
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document is the **single integrated narrative** for the Data Infrastructure Engine. It traces one trade tick from the exchange WebSocket to the dashboard broadcast and SQLite persistence in one diagram + walkthrough. Each layer's detailed contract lives in its dedicated doc; this document only cross-references them.
@@ -24,7 +24,6 @@ Exchange WS (Hyperliquid/Bitget)
     ▼
 [L2 Market Data Layer]               crates/market-analyzer/src/candle_generator.rs
     │  process_trade → (Option<completed>, live) on the base (micro) tier
-    │  on completion: build MarketSnapshot
     │  record_open_interest / record_funding_rate / record_mark_price / record_prev_day_px updates (if event)
     ▼
 [L3 Data Quality Layer]              inline in market-analyzer/mod.rs
@@ -46,12 +45,18 @@ Exchange WS (Hyperliquid/Bitget)
 └────────┬────────┴────────┬────────┴────────┬────────┘
          │                 │                 │
          ▼                 ▼                 ▼
-   Svelte 5          SQLite WAL         Indicator pipeline
-   runes store       market_snapshots   (50 indicators)
-                     + connection_
-                     quality_samples
-                     + liquidation_
-                     events
+   Svelte 5          SQLite WAL         build MarketSnapshot
+   runes store       market_snapshots   │
+                     + liquidation_     ▼
+                     events           Indicator pipeline
+                                      (50 indicators)
+
+Connection-quality samples are persisted outside the telemetry logger (see §3):
+
+network-adapters::connection_quality_tracker::run_persistence_loop
+    │  INSERT into connection_quality_samples (every 60 s)
+    ▼
+SQLite connection_quality_samples
 ```
 
 ---
@@ -70,7 +75,7 @@ Exchange WS (Hyperliquid/Bitget)
 | 8 | L4 | `broadcast_tx.send(snapshot)` | Publish on the `(symbol, timeframe)` channel. |
 | 9 | L4 | Telemetry logger | On `is_completed = true`, send `TelemetryMsg::InsertSnapshot` to the DB-write task. |
 | 10 | L4 | WS handler | Forward the snapshot to all subscribers on `/ws?symbol=…&timeframe_secs=…`. |
-| 11 | L4 | MME analyzer | Subscribe via in-process broadcast; run indicators; produce Alignment/Analysis/Risk/Advisory. |
+| 11 | L4 | MME analyzer | Subscribe via in-process broadcast; run indicators; produce Alignment/Analysis/Opportunity/Risk/Decision. |
 | 12 | DB | `logger.rs::run_telemetry_logger` | INSERT into `market_snapshots` (WAL mode). |
 
 Latency budget (per `AC-DIE-3`): p95 < 25 ms end-to-end.
@@ -129,7 +134,7 @@ The DIE does not compute indicators, bias, or risk. Those happen in the MME (con
 - `NormalizedEvent` stream (L1 → L2)
 - `NormalizedCandle` stream (L2 → L3)
 - `MarketSnapshot` transport (L4) — the snapshot is **built by the MME analyzer pipeline** (MME L1; see `01-06` §1); DIE attaches its `CandleQualityEnvelope` to the frame and routes it. DIE emits `NormalizedCandle` upstream (L2 → MME); it does not construct the snapshot.
-- `PipelineReliabilityMetrics` (per-instance, exposed via `/api/data-quality`)
+- `PipelineReliabilityMetrics` (per-instance; to be exposed via `/api/data-quality` — a planned Phase-3 endpoint, not currently served; see [06-01-api-gateway-contract.md](../../integration-and-api/06-01-api-gateway-contract.md) "Planned endpoints", AUDIT-V6-301)
 - `ConnectionQualityReport` (per-`(pair_key, timeframe_secs)`, exposed via `/api/connection-quality`)
 
 Anything that requires interpretation of the data (indicators, signals, regime, risk, opportunity, decision) is MME's responsibility and is documented in the MME spec files under `docs/engines/market-monitoring-engine/`.

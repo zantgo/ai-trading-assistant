@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — Overview Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document specifies the boundaries, responsibilities, layer structure, exchange adapters, performance targets, and connection-monitoring model of the Data Infrastructure Engine — the first engine in the platform's unidirectional cascade. The DIE ingests, normalizes, validates, and distributes exchange telemetry.
@@ -97,11 +97,14 @@ Each adapter emits a `NormalizedEvent` enum:
 | Variant | Payload | Source |
 |---------|---------|--------|
 | `Trade` | price, size, side, timestamp, id | Trade stream |
-| `OrderBook` | bids/asks depth ladders | L2 book stream |
+| `OrderBook` | bids/asks depth ladders | Level-2 order book stream |
 | `AssetContext` | previous-day price | Asset context feed |
 | `OpenInterest` | current OI | Derivatives feed |
 | `FundingRate` | current funding rate | Derivatives feed |
+| `Liquidation` | symbol, side, price, size, timestamp_ms | Liquidation event stream |
 | `Status` | connection lifecycle message | Adapter supervisor |
+
+`Liquidation` events follow a dedicated persistence path: network-adapters receives liquidation WS events → DIE L1 normalizes them into `NormalizedEvent::Liquidation` (full contract in [02-10-raw-data-matrix.md §2](../../matrices/02-10-raw-data-matrix.md)) → the telemetry logger persists them to `liquidation_events` (90-day retention per [02-12-liquidity-matrix.md](../../matrices/02-12-liquidity-matrix.md)).
 
 ---
 
@@ -116,13 +119,11 @@ Each adapter emits a `NormalizedEvent` enum:
 | Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) — **supervisor budget**; see [08-03 §Retry Budgets](../../operations-and-compliance/08-03-connection-resilience.md) for the three-layer retry model |
 | Permanent disable threshold | 5 consecutive cycles (supervisor) — see 08-03 for the adapter-layer `max_attempts: None` semantics |
 
-> **Target Architecture (Not Yet Implemented).** The ≥ 50,000 events/sec sustained-ingestion target above assumes the DOD hot-path model: raw frames parsed into pre-allocated flat buffers and processed as contiguous `f64` slices, avoiding per-event heap allocation. The current millisecond targets are met by the struct-based pipeline. See [01-07 §1 Target architecture inventory](../../conceptual-foundations/01-07-target-architecture-roadmap.md) for status.
-
 ---
 
 ## 4. Connection Monitoring & Fault Tolerance
 
-The `MarketDataOrchestrator` (`crates/network-adapters/src/orchestrator.rs`) supervises every adapter in an independent Tokio task with a self-healing loop:
+The `MarketDataOrchestrator` (`crates/network-adapters/src/orchestrator.rs`) supervises every adapter in an independent Tokio task per `TimeframePipeline` (symbol × timeframe), each with a self-healing loop:
 
 ```
        ┌──────────────────────────────────────────────┐
@@ -149,7 +150,7 @@ The `MarketDataOrchestrator` (`crates/network-adapters/src/orchestrator.rs`) sup
 These are the **supervisor-level** retry rules. The adapter-level rules (governed by `ReconnectPolicy` and `run_with_reconnect`) are documented in [08-03-connection-resilience.md](../../operations-and-compliance/08-03-connection-resilience.md) §Retry Budgets.
 
 - **Exponential backoff:** `backoff = min(backoff × 2, max_backoff)`, with `max_backoff = 30s`, starting at 1 s, with ±20 % jitter applied **before** the cap (so the effective delay range is `[delay × 0.8, min(delay × 1.2, max_backoff)]`). See [08-03-connection-resilience.md](../../operations-and-compliance/08-03-connection-resilience.md).
-- **Failure window reset:** If > 300 s elapse since the last failure, the consecutive-cycle counter resets to 0.
+- **Failure window reset:** See [08-03-connection-resilience.md](../../operations-and-compliance/08-03-connection-resilience.md) — the canonical home of the supervisor retry rules, including the failure-window reset.
 - **Permanent disable:** After 5 consecutive failed **cycles** (each cycle = one full `max_attempts` retry sequence in the adapter loop), the adapter emits a terminal `Disconnected` status and the supervisor loop breaks.
 - **Dormant state:** With no configured symbols, the adapter idles (polling every 2 s) rather than failing.
 

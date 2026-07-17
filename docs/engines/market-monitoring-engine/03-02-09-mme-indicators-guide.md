@@ -1,11 +1,11 @@
 # MME Indicators Guide — Readable Technical Rulebook
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
 
-> This guide is served to consumers via the `GET /api/rules` endpoint and is the readable companion to the authoritative registry in `crates/market-analyzer/src/indicators/registry.rs`.
+> This guide is served to consumers via the `GET /api/rules` endpoint and is the readable companion to the authoritative registry in `crates/market-analyzer/src/indicators/registry.rs`. The registry describes capability and never changes with runtime config.
 
 ---
 
@@ -18,14 +18,14 @@ Every indicator is projected across 8 Evaluation Axes (see [Ontology](../../conc
 - **`state_label`** — a qualitative bucket (e.g. `OVERBOUGHT_DISTRIBUTION`).
 - **`signals[]`** — discrete events fired this bar.
 
-**Directional** indicators contribute a signed score to confluence. **Non-directional gates** (ADX, Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding, Spread, Open Interest) do not vote on direction — they modulate confidence.
+**Directional** indicators contribute a signed score to confluence. **Non-directional gates** (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding, Spread, Open Interest) do not vote on direction — they modulate confidence. ADX measures strength; direction comes from DI± — the platform classifies it directional (registry row 05).
 
 ---
 
 ## 2. Functional Groups
 
 ### 2.1 Trend (10)
-EMA Ribbon, Supertrend, Donchian, Keltner, ADX (gate), VWAP, Anchored VWAP, Ichimoku, PSAR, Hull MA. Trend indicators establish directional structure. Interpret with the regime: in `TRENDING` they lead; in `RANGE` they whipsaw.
+EMA Ribbon, Supertrend, Donchian, Keltner, ADX, VWAP, Anchored VWAP, Ichimoku, PSAR, Hull MA. Trend indicators establish directional structure. Interpret with the regime: in `TRENDING` they lead; in `RANGE` they whipsaw.
 
 ### 2.2 Momentum (7)
 RSI, Stochastic, ChandeMO, Williams %R, Awesome Oscillator, CCI, MACD (+ divergence companions). Momentum indicators measure the *rate* of change and are the primary source of divergence signals. Overbought/oversold thresholds tighten in strong trends.
@@ -74,7 +74,7 @@ All indicators normalize to a common `[-1, 1]` scale so heterogeneous readings c
 
 ## 5. Divergence-Bearing Indicators
 
-Eight indicators support divergence detection: RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze. Divergence status progresses `Potential → Confirmed` when price breaks the nearest S/R level by a tolerance buffer. See [signals/divergence.md](signals/05-02-01-divergence.md).
+Eight indicators support divergence detection: RSI, MACD, Stochastic, ChandeMO, OBV, CMF, MFI, Squeeze. Divergence status progresses `Potential → Confirmed` following the producing indicator's rule (e.g., [04-02-11](indicators/04-02-11-rsi.md)'s sweep-and-reclaim). See [signals/divergence.md](signals/05-02-01-divergence.md).
 
 ---
 

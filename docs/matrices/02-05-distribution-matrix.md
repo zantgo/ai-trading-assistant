@@ -1,6 +1,6 @@
 # Distribution Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 4 — Data Distribution Layer
@@ -13,7 +13,7 @@
 The Distribution Layer is the DIE's **output boundary**. It receives validated candles from the Data Quality Layer and routes them to all subscribed downstream engines (MME, real-time dashboards, historical storage) via bounded asynchronous channels.
 
 ```
-[Data Quality Matrix] ──► DISTRIBUTION LAYER (L4) ──► [MME] · [DB Persistence] · [WebSocket to Frontend]
+[CandleQualityEnvelope] ──► DISTRIBUTION LAYER (L4) ──► [MME] · [DB Persistence] · [WebSocket to Frontend]
 ```
 
 ---
@@ -49,7 +49,15 @@ The observation-loop latency budget decomposes as: **DIE contribution ≤ 10 ms;
 
 ## 4. Distribution Contract
 
-Each distributed frame is an envelope containing the validated candle and its quality metadata:
+Each distributed frame is a **`CandleDistributionFrame`** — the wire envelope containing the validated candle and its quality metadata. The frame is a documented **projection** of the upstream products, not a verbatim copy:
+
+| Frame field | Projected from |
+|-------------|----------------|
+| `exchange`, `symbol`, `timeframe_secs`, `timestamp` | `NormalizedCandle` ([02-06-market-data-matrix.md](02-06-market-data-matrix.md)) — hoisted out of the candle to the envelope top level. |
+| `candle.open` / `high` / `low` / `close` / `volume` | `NormalizedCandle` (02-06). |
+| `quality.is_gap_filled`, `quality.quality_score`, `quality.sequence_integrity` | `CandleQualityEnvelope` ([02-03-data-quality-matrix.md](02-03-data-quality-matrix.md)) — the 3-field `CandleQualitySummary` subset. |
+
+`NormalizedCandle.trades_count` and the four remaining `CandleQualityEnvelope` quality fields (`is_stale`, `spike_detected`, `gap_since_last`, `validated_at`) are **intentionally excluded** from the wire frame.
 
 ```json
 {
@@ -86,6 +94,6 @@ Each distributed frame is an envelope containing the validated candle and its qu
 
 - [DIE Overview](../engines/data-infrastructure-engine/03-01-01-die-overview-spec.md) — Engine boundaries and performance targets.
 - [DIE Layer 4 — Data Distribution](../engines/data-infrastructure-engine/03-01-05-die-layer4-data-distribution.md) — Producing-layer specification.
-- [Data Quality Matrix](02-03-data-quality-matrix.md) — Upstream input.
+- [Candle Quality Envelope](02-03-data-quality-matrix.md) — Upstream input.
 - [Metrics Matrix](02-07-metrics-matrix.md) — Primary consumer (MME).
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — WebSocket distribution to frontend.

@@ -1,6 +1,6 @@
 # MME Layer 5 — Risk Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7
@@ -87,7 +87,7 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 | **Unipolar bounding** | Every score ∈ `[0, 100]`. |
 | **Explainability** | Every dimension exposes contributing evidence. |
 | **Empty safety** | Zero timeframes → all dimensions default to 50 (Moderate). |
-| **Orthogonality** | L5 reads L3, the L1 indicator map, and L2.5 — never L4 (orthogonality preserved). L5 does not influence opportunity scoring. |
+| **Orthogonality** | L5 reads L3, the L1 indicator map, L1.5, and L2.5 — never L4 (orthogonality preserved). L5 does not influence opportunity scoring. |
 
 ---
 

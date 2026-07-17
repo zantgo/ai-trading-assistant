@@ -1,6 +1,6 @@
 # DIE Layer 2 — Market Data Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 2 of 4
@@ -155,7 +155,7 @@ The L2 (Market Data Layer) layer meets these criteria when run with default conf
 | `AC-L2-1` | Candle close instant is exactly `interval_start + duration_ms` for every completed candle. | `crates/market-analyzer/tests/candle_alignment.rs` (existing) |
 | `AC-L2-2` | Multi-timeframe rollup preserves OHLCV invariants: `high = max(highs)`, `low = min(lows)`, `close = last close`, `volume = Σ volumes`, `trades_count = Σ counts`. | `crates/market-analyzer/tests/candle_aggregator.rs` (existing) |
 | `AC-L2-3` | Shadow candles never appear in the MME pipeline (verified by absence in `MarketSnapshot.is_completed = true` filter). | `crates/market-analyzer/tests/shadow_separation.rs` (Phase 1) |
-| `AC-L2-4` | `average_volume` is derived from `volume / trades_count` on the MME side; the L2 layer never emits it. | `crates/market-analyzer/tests/average_volume_derivation.rs` (Phase 1) |
+| `AC-L2-4` | `average_volume` is the MME-side rolling baseline ([02-07-metrics-matrix.md §2.1](../../matrices/02-07-metrics-matrix.md)); the per-candle `volume / trades_count` ratio is `avg_trade_size` and is not emitted. | `crates/market-analyzer/tests/average_volume_derivation.rs` (Phase 1) |
 
 ---
 

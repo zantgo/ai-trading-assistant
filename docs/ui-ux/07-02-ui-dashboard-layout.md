@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), and the internal sub-sidebar pattern. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -51,7 +51,7 @@ The Top Navbar is always rendered while the session is active. It uses a 4-colum
 
 | Cell | Content | Behavior |
 |------|---------|----------|
-| **Brand trigger** | `TRADING PLATFORM` (when on Home) or the active engine label (`DATA INFRA`, `MARKET`, `PORTFOLIO`, `TRADING`, `ANALYSIS`) | Click toggles the Engines Sidebar (left drawer). Shows a downward chevron on Home, the engine icon elsewhere. |
+| **Brand trigger** | `TRADING PLATFORM` (when on Home) or the active engine label (`DATA INFRA`, `MARKET`, `PORTFOLIO`, `TRADING`, `ANALYTICS`) | Click toggles the Engines Sidebar (left drawer). Shows a downward chevron on Home, the engine icon elsewhere. |
 | **Exchange chip** | `{app.sessionExchange} · {app.sessionCurrency}` (e.g. `Hyperliquid · USDC`) | Read-only. Monospace font, dim text. |
 | **Spacer** | empty | flex-grow column. |
 | **Workspaces trigger** | When no instance is selected: `Workspaces` label + 2x2 grid icon. When an instance is selected: pair label + live price + 24 h change % | Click toggles the Workspaces Sidebar (right drawer). |
@@ -74,7 +74,7 @@ The Middle Navbar mounts when `!isHome` (any non-Profile engine). It is a single
 | `market_monitor` (Market) | `Workspace` (forced first) · `Overview` · `Settings` |
 | `portfolio` (Portfolio) | `Overview` · `Settings` |
 | `trade_automation` (Trading) | `Overview` · `Settings` |
-| `performance` (Analysis) | `Overview` · `Settings` |
+| `performance` (Analytics) | `Overview` · `Settings` |
 
 `Workspace` is hard-coded for Market because the Market engine is the only one with active workspace instances; the other engines render the generic two-tab pair. Selecting `Workspace` from a non-Market engine is impossible by construction (the tab is not rendered).
 
@@ -182,7 +182,7 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 | Display label | Internal key | Active content when selected |
 |---------------|--------------|-------------------------------|
-| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status, NTP Clock Monitor. Overview + Settings tabs. |
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (pending backend endpoint — Phase 3, AUDIT-V6-301), NTP Clock Monitor (pending backend endpoint — Phase 3, AUDIT-V6-301). Overview + Settings tabs. |
 | Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). |
 | Trade Automation | `trade_automation` | `EngineOverview` card describing the execution policy engine, paper/live trading path, and sizing protocol. Settings tab for strategy config. |
 | Portfolio Management | `portfolio` | `EngineOverview` card describing position tracking, margin utilization, exposure, and safety veto. Settings tab for safety/fees config. |
@@ -264,7 +264,7 @@ Cancel  Pause      ← pause variant
 Cancel  Delete     ← delete variant (danger)
 ```
 
-This keeps the action reversible with one click and prevents accidental terminations. Confirming the action calls `POST /api/instances/{id}/{action}` (pause/resume) or `DELETE /api/instances/{id}` (delete). On delete, if the deleted pair was `selectedInstance`, the store calls `app.exitInstance()` to drop back to the empty Market view.
+This keeps the action reversible with one click and prevents accidental terminations. Confirming the action calls `POST /api/instances/:id/{action}` (pause/start — start resumes a paused instance) or `DELETE /api/instances/:id` (delete). On delete, if the deleted pair was `selectedInstance`, the store calls `app.exitInstance()` to drop back to the empty Market view.
 
 > **Lifecycle controls (v6.2).** The inline-confirm pattern extends to **Start** and **Stop** actions. Each instance row carries a lifecycle badge (RUNNING / instance PAUSED / STOPPING-flashing / STOPPED) and three lifecycle action icons: `▶ Start` (visible on PAUSED/STOPPED), `⏸ Pause` (visible on RUNNING), `■ Stop` (danger-styled like Delete, visible on RUNNING/PAUSED). An **automation summary line** lists active `start`/`pause`/`stop` conditions with an inline edit affordance that re-arms any edited condition per [03-03-06 IL-12](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). STOPPED instances remain fully navigable across every analytics page; deleted instances vanish from the list. See [03-03-06 §3/§6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
@@ -465,7 +465,7 @@ The `instancesMap` pattern means every panel mounted by the Bottom Navbar is **s
 
 ### 13.2 PnL Calendar
 
-`DashboardStats.pnl_calendar` provides a `CalendarDay[]` (date, pnl, month, day) for rendering a GitHub-style PnL heatmap. The data model exists; no dedicated calendar UI component is mounted in the current shell.
+`DashboardStats.pnl_calendar` provides a `CalendarDay[]` (date, pnl, month, day) for rendering a GitHub-style PnL heatmap.
 
 ---
 

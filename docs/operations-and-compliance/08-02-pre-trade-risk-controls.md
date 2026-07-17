@@ -1,6 +1,6 @@
 # Pre-Trade Risk Controls
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -26,8 +26,8 @@ The following gates run between a Policy trigger (L1) and the Exchange dispatch 
 | 3 | **Capital query — available margin** | The TAE issues a synchronous request to the PME Capital Matrix for `available_margin`. The query returns 0 if the order would push `margin_usage_ratio` ≥ 0.95. | Live, computed from [PME Layer 3](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md). |
 | 4 | **Position sizing** | The Position Sizing Protocol computes $S = E \times R / (D_{sl} / 100)$. If the result exceeds `risk_parameters.max_position_size_usd`, sizing is clipped. If `risk_parameters.max_leverage` is exceeded, the order is rejected. **Bypass:** orders with `reduce_only = true` skip Gate 4 (sizing) — size is copied verbatim from the Position Matrix. | Per-policy in `config.toml` `[execution_policies.*]`. |
 | 5 | **Slippage ceiling** | The Execution Layer queries the live order book and computes estimated slippage. If estimated slippage **exceeds** the configured ceiling (default 0.5 % of position size), the order is held for manual review (strict `>` — an order exactly at the ceiling is allowed through). | `config.toml` `[execution.slippage_ceiling_pct]`. |
-| 6 | **Exposure concentration** | The Exposure Layer rejects new positions that would breach the single-pair concentration limit (default 0.20), the portfolio exposure limit (default 0.50), or the correlation limit (default 0.8). **Bypass:** orders with `reduce_only = true` skip Gate 6 (concentration) — exit orders must be permitted even if the portfolio is overconcentrated. | [PME Layer 2 §3](../engines/portfolio-management-engine/03-04-03-pme-layer2-exposure.md). |
-| 7 | **PME safety veto** | Even if all previous gates pass, the PME Portfolio Layer can force a stance change to `AVOID` or `CLOSE_ONLY` when systemic thresholds are breached (drawdown ≥ `drawdown_limit_pct`, margin ceiling, loss streak ≥ dropout_threshold, or MME `systemic_risk_score ≥ systemic_risk_threshold`). **Bypass:** orders tagged `is_emergency_liquidation = true` (Hard Exit path from `AVOID` triggers) bypass Gate 7 so the liquidation is dispatched even when the stance is `AVOID`. | [PME Layer 4 §4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
+| 6 | **Exposure concentration** | The Exposure Layer rejects new positions that would breach the single-pair concentration limit (default 0.20), the portfolio exposure limit (default 0.50), or the correlation limit (default 0.8). **Scope:** Gate 6 rejects pre-trade only; post-fill exposure drift is handled by the PME veto (see [PME Layer 4 §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) exposure row → `CLOSE_ONLY`). **Bypass:** orders with `reduce_only = true` skip Gate 6 (concentration) — exit orders must be permitted even if the portfolio is overconcentrated. | [PME Layer 2 §3](../engines/portfolio-management-engine/03-04-03-pme-layer2-exposure.md). |
+| 7 | **PME safety veto** | Even if all previous gates pass, the PME Portfolio Layer can force a stance change to `AVOID` or `CLOSE_ONLY` when systemic thresholds are breached (drawdown strictly beyond the limit (equivalently `current_equity`/`peak_equity` < 1 − `drawdown_limit_pct`), margin ceiling, loss streak ≥ dropout_threshold, or MME `systemic_risk_score ≥ systemic_risk_threshold`). **Bypass:** orders tagged `is_emergency_liquidation = true` (Hard Exit path from `AVOID` triggers) bypass Gate 7 so the liquidation is dispatched even when the stance is `AVOID`. | [PME Layer 4 §4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md). |
 
 ---
 
@@ -55,12 +55,13 @@ Gate 6 concentration → if breach → block (reduce position size or close exis
 Gate 7 PME veto → if (stance == AVOID AND not is_emergency_liquidation) → block
 ```
 
-Hard-stops (block) vs hold-for-review (suspend):
+Hard-stops (block) vs hold-for-review (suspend) vs modified-and-continues (clip):
 
 | Disposition | Gates |
 |---|---|
 | **Hard-stop** (no order ever reaches exchange) | Gate 0 (lifecycle ≠ RUNNING for non-exit entries), Gate 1 (AVOID without is_emergency_liquidation, or CLOSE_ONLY without reduce_only), Gate 3, Gate 4 (max leverage), Gate 6 (for non-reduce_only orders), Gate 7 (AVOID without is_emergency_liquidation) |
-| **Hold-for-review** (logged, suspended, operator must manually approve) | Gate 2 (`STAND_ASIDE`: PRE_DISPATCH / `HELD_FOR_REVIEW`; operator override via `override-readiness`, logged as `risk_control_events.decision = OVERRIDE`), Gate 5 (slippage ceiling), Gate 4 (size cap — clipped, not blocked) |
+| **Hold-for-review** (logged, suspended, operator must manually approve) | Gate 2 (`STAND_ASIDE`: PRE_DISPATCH / `HELD_FOR_REVIEW`; operator override via `override-readiness`, logged as `risk_control_events.decision = OVERRIDE`), Gate 5 (slippage ceiling) |
+| **Modified and continues** (clipped, continues; logged as `CLIP_AND_CONTINUE`) | Gate 4 (size cap — clipped, not blocked) |
 
 ### 3.1 Exit / Reduce-Only Bypass Summary
 
@@ -111,7 +112,7 @@ Every gate failure produces:
 
 | Gate | Override endpoint | Behaviour |
 |---|---|---|
-| **Gate 2** (`STAND_ASIDE`) | `POST /api/orders/:id/override-readiness` | Marks the held order as `OVERRIDDEN` and re-submits it past Gate 2. The override is logged with `operator_id = "local_operator"` (see [`06-01-api-gateway-contract.md §1 Authentication`](../integration-and-api/06-01-api-gateway-contract.md) — caller-supplied identity is see README §Feature Status). |
+| **Gate 2** (`STAND_ASIDE`) | `POST /api/orders/:id/override-readiness` | Marks the held order as `OVERRIDDEN` and re-submits it past Gate 2. The override is logged with `operator_id = "local_operator"` (see [`06-01-api-gateway-contract.md §1 Authentication`](../integration-and-api/06-01-api-gateway-contract.md) — caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = "local_operator"`). |
 | **Gate 5** (slippage ceiling) | `GET /api/pre-dispatch`, `POST /api/pre-dispatch/:id/approve`, `DELETE /api/pre-dispatch/:id` | Order sits in `PRE_DISPATCH` with status `HELD_FOR_REVIEW`. Operator can wait, cancel, or approve. Approve continues the order past Gate 5; cancel aborts it. |
 | **Gate 6** (concentration breach) | (no automatic override) | Close an existing position in the affected sector first, then re-trigger. |
 | **Gate 7** (PME veto) | `POST /api/instances/:id/safety/release-veto` | The operator must clear the underlying condition (e.g. equity must recover above `drawdown_limit_pct`) **and** call this endpoint. Returns `422 Unprocessable Entity` if the veto condition is still active. |

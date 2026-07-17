@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -28,23 +28,20 @@ The `fast_timeframe`, `slow_timeframe`, and `macro_timeframe` objects each have 
 All four tiers are configured in `config.toml`:
 
 ```toml
-{
-  "candles": {
-    "duration_seconds": 60
-  },
-  "fast_timeframe": {
-    "enabled": true,
-    "duration_seconds": 180
-  },
-  "slow_timeframe": {
-    "enabled": true,
-    "duration_seconds": 300
-  },
-  "macro_timeframe": {
-    "enabled": true,
-    "duration_seconds": 900
-  }
-}
+[candles]
+duration_seconds = 60
+
+[fast_timeframe]
+enabled = true
+duration_seconds = 180
+
+[slow_timeframe]
+enabled = true
+duration_seconds = 300
+
+[macro_timeframe]
+enabled = true
+duration_seconds = 900
 ```
 
 The user may change any duration to suit their trading style (e.g., 15min / 1h / 4h / 1d for swing traders). The engine respects the 4-tier structure regardless of the numeric values — the semantics are always "micro < fast < slow < macro."

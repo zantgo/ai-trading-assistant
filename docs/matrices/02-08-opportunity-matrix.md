@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -33,14 +33,14 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `symbol` | `string` | Entity under analysis. |
 | `primary_opportunity` | `OpportunityType` | The dominant setup classification. |
 | `opportunity_score` | `f64` | Overall setup viability in `[0, 100]`. |
-| `setup_quality` | `SetupQuality` | Categorical quality band (§4). |
+| `setup_quality` | `SetupQuality` | Categorical quality band (§5). |
 | `profiles` | `OpportunityProfile[]` | Per-setup-type scored profiles (§3). |
 | `forecast_confidence` | `f64` | Confidence in the profiling `[0, 1]`. *(Renamed from `confidence` in the institutional redesign; see [02-00b-confidence-hierarchy.md](02-00b-confidence-hierarchy.md).)* |
 | `contributing_signals` | `string[]` | Signal labels supporting the primary opportunity. |
 | `invalidation_note` | `string` | Condition that would nullify the opportunity. |
 | `entry_zone` | `PriceRange` | Recommended entry band. *(Added in the institutional redesign — institutional quant field.)* |
 | `target_zone` | `PriceRange` | Expected target band. *(Added in the institutional redesign.)* |
-| `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; unified from `invalid_level` (L4/Decision) and `final_invalidation_level` (Position Matrix) to the canonical `invalidation_level` in v2.1.)* |
+| `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; the prior L4/Decision and Position Matrix spellings were unified to the canonical `invalidation_level` in v2.1 — retired names recorded in `docs/CHANGELOG.md`.)* |
 | `expected_rr_internal` | `f64` | Expected reward/risk ratio for this setup. Internal L4 value used by the L6 Decision Matrix's `expected_reward_risk_ratio` synthesis. *(Renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`.)* |
 | `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION`. The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
 
@@ -86,16 +86,18 @@ The `OpportunityType` enum is the **canonical home** of the setup selector (in t
 | `Breakout` | Volatility expansion (dim ≥ 70) + healthy structure (dim ≥ 60) + compression release or level breach. | `INTRADAY` |
 | `Pullback` | Established trend (dim ≥ 60) + weakening momentum + price retracing toward a dynamic level. | `SWING` |
 | `MeanReversion` | Volatility compression (dim ≤ 30) + range regime + oscillator extreme. | `INTRADAY` |
-| `Reversal` | Confirmed divergence + structure break + momentum reversing. | `SWING` |
-| `LiquiditySqueeze` | Force-liquidation cascade is imminent or in progress. Reads L1.5 `LiquidityFlow.cascade_state ∈ {Detected, Sustained}` AND `LiquidationClusterMatrix.cascade_asymmetry` has `|asymmetry| > 0.3` (cluster forward-pressure present). Regime context must be `EXPANSION` or `TRANSITION` (not a flat range). Maps to a defensive opportunity — the platform tracks the cascade flow and triggers reduce-only / protective-tightening policies. | `POSITION` |
+| `Reversal` | Confirmed divergence + structure break + momentum reversing. | `POSITION` |
+| `LiquiditySqueeze` | Force-liquidation cascade is imminent or in progress. Reads L1.5 `LiquidityFlow.cascade_state ∈ {Detected, Sustained}` AND `LiquidationClusterMatrix.cascade_asymmetry` has `|asymmetry| > 0.3` (cluster forward-pressure present). Regime context must be `EXPANSION` or `TRANSITION` (not a flat range). Maps to a defensive opportunity — the platform tracks the cascade flow and triggers reduce-only / protective-tightening policies. | `INTRADAY` |
 | `Scalp` | High per-candle volatility (BBWP ∈ [70, 95)) + tight structural context (alignment dimension 4 `Structure` ≥ 70) + directional bias (BULLISH / STRONG_BULLISH / BEARISH / STRONG_BEARISH) + regime ∈ {TRENDING_BULL, TRENDING_BEAR} (intraday-trending context, not swing). Designed for sub-minute-to-seconds holding periods, complementary to `Breakout` (which targets multi-bar continuation) and `TrendContinuation` (which targets multi-day). Every `Scalp` setup maps to `time_horizon = SCALP`, making the SCALP variant of `TimeHorizon` reachable from at least one `OpportunityType`. | `SCALP` |
 | `NoClearOpportunity` | Tradability dimension < 30 or conflicting evidence (and no `LiquiditySqueeze` precondition active). | `INTRADAY` |
+
+> **Horizon remapping.** `LiquiditySqueeze` defaults to `INTRADAY` (a defensive liquidation-cascade play cannot be a weeks-long hold) and `Reversal` to `POSITION` (divergence-driven reversals play out over weeks). Reachability across the `TimeHorizon` enum is preserved: `SCALP` ← `Scalp`, `INTRADAY` ← `Breakout` / `MeanReversion` / `LiquiditySqueeze` / `NoClearOpportunity`, `SWING` ← `TrendContinuation` / `Pullback`, `POSITION` ← `Reversal`. The §2.1.2 cadence table is keyed by `TimeHorizon` (not by `OpportunityType`) and is unaffected.
 
 ---
 
 ## 4. Setup-Selection Rule
 
-The Opportunity Layer applies the following decision tree (priority 1 → 7, first match wins) to derive `primary_opportunity`. This rule was formerly located in [02-02-analysis-matrix.md §4.3](02-02-analysis-matrix.md); it has been moved here as part of the institutional redesign because setup selection is a forecast, not a state interpretation.
+The Opportunity Layer applies the following decision tree (first match in the listed order: 0, 0.5, 1, 1b, 2–7) to derive `primary_opportunity`. This rule was formerly located in [02-02-analysis-matrix.md §4.3](02-02-analysis-matrix.md); it has been moved here as part of the institutional redesign because setup selection is a forecast, not a state interpretation.
 
 ```
 # Priority order (first match wins):
@@ -117,29 +119,23 @@ Where `confirmed_divergence` is true when at least one `Divergence` indicator si
 >
 > **`tradability_dim` (v2.1).** Rule 6 was previously `opportunity_dim < 30`. The Alignment Matrix dimension 9 was renamed from `opportunity_dim` to `tradability_dim` in the institutional redesign to disambiguate from the L4 Opportunity Matrix (L4 owns opportunity concepts; dimension 9 measures TFs agreeing on tradability).
 
-| SetupQuality | `opportunity_score` | Interpretation |
-|--------------|---------------------|----------------|
-| `Prime` | **> 85** | High-conviction configuration, all key preconditions met. |
-| `Strong` | **> 70 AND ≤ 85** | Robust setup with minor gaps. |
-| `Moderate` | **> 50 AND ≤ 70** | Tradable but requires confirmation. |
-| `Marginal` | **> 30 AND ≤ 50** | Weak edge; confluence-only. |
-| `None` | **≤ 30** | No actionable opportunity. |
+The resulting `opportunity_score` is bucketed into the categorical `setup_quality` bands (`Prime` / `Strong` / `Moderate` / `Marginal` / `None`) — the canonical band table is defined in §5 below.
 
 ---
 
 ## 5. Setup-Quality Classification
 
-The categorical `setup_quality` buckets the `opportunity_score`. The bands above (and reproduced in the §5 restatement below) use **strict half-open intervals** so each score value maps to exactly one band:
+The categorical `setup_quality` buckets the `opportunity_score`. This section is the **canonical home** of the band table (§4 keeps only a pointer here). The bands are **lower-inclusive half-open intervals** `[a, b)`, so each score maps to exactly one band:
 
 | SetupQuality | `opportunity_score` | Interpretation |
 |--------------|---------------------|----------------|
-| `Prime` | `> 85` | High-conviction configuration, all key preconditions met. |
-| `Strong` | `> 70 AND ≤ 85` | Robust setup with minor gaps. |
-| `Moderate` | `> 50 AND ≤ 70` | Tradable but requires confirmation. |
-| `Marginal` | `> 30 AND ≤ 50` | Weak edge; confluence-only. |
-| `None` | `≤ 30` | No actionable opportunity. |
+| `Prime` | `[85, 100]` | High-conviction configuration, all key preconditions met. |
+| `Strong` | `[70, 85)` | Robust setup with minor gaps. |
+| `Moderate` | `[50, 70)` | Tradable but requires confirmation. |
+| `Marginal` | `[30, 50)` | Weak edge; confluence-only. |
+| `None` | `< 30` | No actionable opportunity. |
 
-> **Band endpoint consistency.** The intervals above are the canonical form used by every SetupQuality table in the corpus. Each band is half-open on its lower bound (exclusive) and inclusive on its upper bound, so every `opportunity_score` maps to exactly one band and `85` belongs to `Strong` (`70 < score ≤ 85`) rather than `Prime`.
+> **Tiling note.** The bands tile `[0, 100]` with no gap and no overlap: `< 30` ∪ `[30, 50)` ∪ `[50, 70)` ∪ `[70, 85)` ∪ `[85, 100]` covers every score, and each boundary value belongs to exactly one band (`85.0 → Prime`, `70.0 → Strong`, `50.0 → Moderate`, `30.0 → Marginal`). The §7 example's `opportunity_score = 85.0` therefore maps to `Prime`.
 
 ---
 
@@ -162,32 +158,34 @@ The primary opportunity is determined by the **priority-ordered decision tree in
 
 ## 7. JSON Serialization Contract
 
-A representative Opportunity Matrix frame. The example illustrates the JSON shape; the canonical scoring formula is in §6.
+A representative Opportunity Matrix frame. The values derive from the canonical scenario chain (seed: [02-01-alignment-matrix.md §6](02-01-alignment-matrix.md); analysis inputs from [02-02-analysis-matrix.md §5](02-02-analysis-matrix.md)). The example illustrates the JSON shape; the canonical scoring formula is in §6.
 
 ```json
 {
   "symbol": "BTC-USDT",
-  "primary_opportunity": "BREAKOUT",
+  "primary_opportunity": "TREND_CONTINUATION",
   "opportunity_score": 85.0,
-  "setup_quality": "STRONG",
+  "setup_quality": "PRIME",
   "forecast_confidence": 0.81,
   "profiles": [
-    { "opportunity_type": "BREAKOUT", "score": 85.0,
+    { "opportunity_type": "TREND_CONTINUATION", "score": 85.0,
       "preconditions_met": 3, "preconditions_total": 3,
-      "notes": "Volatility expanding, structure healthy, compression released." },
-    { "opportunity_type": "TREND_CONTINUATION", "score": 62.0,
-      "preconditions_met": 2, "preconditions_total": 3,
-      "notes": "Trend healthy but momentum stabilizing." }
+      "notes": "Trend 78 ≥ 75, bias BULLISH, momentum STABLE not in {EXHAUSTED, REVERSING} — §4 tree rule 1 fires first." },
+    { "opportunity_type": "BREAKOUT", "score": 78.0,
+      "preconditions_met": 3, "preconditions_total": 3,
+      "notes": "Volatility 75 ≥ 70 and structure 65 ≥ 60, but loses §4 tree priority to trend continuation (rule 1 matched first)." }
   ],
-  "contributing_signals": ["squeeze:COMPRESSION_RELEASE", "donchian:BREAKOUT_UP"],
-  "invalidation_note": "Close back inside the prior Donchian channel invalidates the breakout.",
+  "contributing_signals": ["ema_stack:BULLISH_STACK", "macd:BULLISH_CROSSOVER"],
+  "invalidation_note": "A close below 63440.0 — under the most recent higher-low structure — invalidates the trend-continuation thesis.",
   "entry_zone":  { "low": "64000.0", "high": "64200.0" },
-  "target_zone": { "low": "64650.0", "high": "64800.0" },
-  "invalidation_level": "63850.0",
+  "target_zone": { "low": "65500.0", "high": "66000.0" },
+  "invalidation_level": "63440.0",
   "expected_rr_internal": 2.5,
-  "time_horizon": "INTRADAY"
+  "time_horizon": "SWING"
 }
 ```
+
+> **Worked-example consistency.** `expected_rr_internal = (target_mid − entry_mid) / (entry_mid − invalidation_level) = (65750 − 64100) / (64100 − 63440) = 1650 / 660 = 2.5`. `setup_quality = PRIME` because `opportunity_score = 85.0 ∈ [85, 100]` per the §5 canonical bands. `time_horizon = SWING` matches the §3 default for `TrendContinuation`.
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

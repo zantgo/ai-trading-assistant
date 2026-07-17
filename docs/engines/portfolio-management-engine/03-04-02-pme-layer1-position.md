@@ -1,6 +1,6 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4
@@ -69,7 +69,7 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 |-------|------|-------------|
 | `stop_loss_price` | `Decimal` | Current stop-loss trigger level. |
 | `take_profit_price` | `Decimal` | Current take-profit target level. |
-| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior names: `invalid_level` (L4/Decision) and `final_invalidation_level` (Position Matrix); unified to `invalidation_level` in v2.1. The migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
+| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior per-matrix spellings (L4/Decision and Position Matrix) unified to `invalidation_level` in v2.1 — retired names recorded in `docs/CHANGELOG.md`. The migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
 | `target_profit_ratio` | `Decimal` | Desired reward-to-risk ratio for this position. |
 
 ### 3.4 Scaled Entry Fields
@@ -102,6 +102,8 @@ A close at or beyond `invalidation_level` on the active timeframe is treated as 
 - Dispatches as a `Market` order to the exchange.
 
 The breach is detected on candle close at the active timeframe (i.e. intrabar wicks through the level do not trigger the liquidation).
+
+> **Two producers, one mechanism.** This thesis-failure `LiquidateCommand` (produced by the Position Layer on `invalidation_level` breach) is distinct from the veto Hard Exit produced by the Portfolio Layer on the §4.1 veto triggers ([03-04-05 §4.2](./03-04-05-pme-layer4-portfolio.md)) — but both converge on the same Hard Exit mechanism in the TAE: size copied verbatim from the Position Matrix, `reduce_only = true`, `is_emergency_liquidation = true`, `Market` dispatch.
 
 ---
 

@@ -1,6 +1,6 @@
 # PAE Layer 2 — Strategy Analytics Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 2 of 4
@@ -104,6 +104,8 @@ A low $p_{mc}$ (< 0.05) confirms the strategy's positive mean return is unlikely
 | `profit_factor ≥ 1.0 AND p_value ≤ 0.10` | **Weak / Marginal Edge** |
 | `profit_factor < 1.0 OR p_value > 0.10` | **No Edge / Negative** |
 | `total_trades < 30` | **Insufficient Data** |
+
+Evaluate rows in the listed order; a row whose required significance inputs are null is skipped; if `total_trades < 30` → **Insufficient Data** (checked before all rows).
 
 ---
 

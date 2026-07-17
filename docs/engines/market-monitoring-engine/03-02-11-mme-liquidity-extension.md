@@ -1,7 +1,7 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Implemented (Phases 0-4)
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
 **Existing layers:** unchanged
@@ -77,9 +77,9 @@ L1.5 Derivatives Telemetry         ← NEW
 L2   Alignment
 L2.5 Liquidity Synthesis             ← NEW
 L3   Analysis
-L4   Opportunity (parallel to L5)
+L4   Opportunity (parallel to L5)    ← gains LiquiditySqueeze opportunity type
 L5   Risk     (parallel to L4)       ← gains cascade_risk
-L6   Decision                        ← gains LiquiditySqueeze opportunity
+L6   Decision                        ← downstream consumer of L4 + L5 (unchanged interface)
 L7   Overview                        ← gains cascade_risk_index field on envelope (see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../../conceptual-foundations/01-05-liquidity-domain.md) for status)
 ```
 

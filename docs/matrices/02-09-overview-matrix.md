@@ -1,6 +1,6 @@
 # Overview Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 7 — Overview Layer
@@ -19,6 +19,8 @@ Per the [Ontology](../conceptual-foundations/01-01-ontology.md) §3.17, **Market
         + [Instance Metadata]
 ```
 
+L7 aggregates each instance's slow-tier (300 s) Decision Matrix; the tier is a documented constant, not currently configurable.
+
 Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced by `compute_overview()`.
 
 ---
@@ -31,11 +33,12 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 |-------|------|-------------|
 | `global_market_bias` | `GlobalBias` | Universe-wide directional bias (§3.1). |
 | `market_breadth` | `MarketBreadth` | Breadth classification (§3.2). |
+| `low_coverage` | `bool` | `true` when breadth is computed over a reduced signal set (fewer than 4 of the 12 SignalKinds enabled); default `false` (§3.2). |
 | `breadth_pct` | `f64 ∈ [-100, 100]` | Continuous numeric breadth: signed percentage of bullish-asset count. Source of the UI's −100 % to +100 % breadth gauge and the input to `market_breadth` and `market_synchronization`. |
 | `regime_distribution` | `map<string, f64>` | Fraction of assets per regime. (`f64` because the regime-classification partition is exhaustive — entries sum to `1.0`.) |
 | `opportunity_distribution` | `map<string, u32>` | Count of assets per opportunity type (incl. `LiquiditySqueeze` and `Scalp` since the v2.1 completeness sweep — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). (`u32` because opportunity types are not mutually exclusive — a single asset can simultaneously satisfy the preconditions of multiple setups, so the map is a per-type count rather than a partition.) |
 | `risk_distribution` | `RiskDistribution` | Low/moderate/high risk share + environment label (§4). |
-| `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). **Status placeholder.** See [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md) for the current implementation status; downstream docs link to that tracker rather than restating it. |
+| `cascade_risk_index` | `RiskDimension` | Cross-symbol aggregate of L5 `cascade_risk` (Phase 3). |
 | `systemic_risk_score` | `f64` | `0.6 × high_pct + 0.4 × sync_penalty`. The market-wide danger index the PME veto loop consumes (`≥` the operator-configured `systemic_risk_threshold`, default `80`, triggers the systemic-risk veto path per [03-04-05-pme-layer4-portfolio.md §4.1](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). |
 | `asset_ranking` | `AssetRank[]` | Assets ranked by composite score (§5). |
 | `market_synchronization` | `SyncLevel` | Cross-asset correlation of direction (§3.3). |
@@ -65,6 +68,15 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `moderate_pct` | `f64` | % at moderate risk. |
 | `high_pct` | `f64` | % at high risk. |
 | `risk_environment` | `string` | `LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA`. |
+
+`risk_environment` is derived from the distribution (ordered, first match wins):
+
+| Priority | Condition | `risk_environment` |
+|----------|-----------|--------------------|
+| 1 | `instance_count = 0` | `NO_DATA` |
+| 2 | `high_pct ≥ 50` | `HIGH_RISK` |
+| 3 | `high_pct ≥ 25` | `MODERATE` |
+| 4 | otherwise | `LOW_RISK` |
 
 ---
 
@@ -102,6 +114,10 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 7. otherwise                → VERY_WEAK
 ```
 
+> **`VERY_WEAK` semantics.** `VERY_WEAK` denotes marginally negative breadth — weaker than `BALANCED`, not yet a confirmed negative (`NEGATIVE` requires `breadth_pct < −20`).
+
+> **Low-coverage flag (`low_coverage`).** The Overview Matrix carries an additive `low_coverage: bool` field (default `false`) alongside `market_breadth`: it is `true` when fewer than 4 of the 12 `SignalKind`s are enabled in the active configuration (see [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)); breadth is then computed over the enabled subset only. In the empty state (§7) `low_coverage` is `false`.
+
 ### 3.3 SyncLevel (Market Synchronization)
 `HIGHLY_SYNCHRONIZED`, `SYNCHRONIZED`, `MIXED`, `FRAGMENTED`, `HIGHLY_FRAGMENTED` — from `|breadth_pct|`:
 ```
@@ -114,7 +130,15 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 ```
 
 ### 3.4 HealthLevel
-`POOR`, `WEAK`, `NEUTRAL`, `HEALTHY`, `STRONG` — from `global_market_bias`.
+`POOR`, `WEAK`, `NEUTRAL`, `HEALTHY`, `STRONG` — derived from `global_market_bias` × `risk_environment` (ordered, first match wins):
+
+| Priority | Condition | `market_health` |
+|----------|-----------|-----------------|
+| 1 | `risk_environment = HIGH_RISK` | `POOR` |
+| 2 | `global_market_bias ∈ {STRONG_BULLISH, STRONG_BEARISH}` | `STRONG` |
+| 3 | `global_market_bias ∈ {BULLISH, BEARISH}` | `HEALTHY` |
+| 4 | `global_market_bias = NEUTRAL` | `NEUTRAL` |
+| 5 | `global_market_bias = MIXED` | `WEAK` |
 
 ---
 
@@ -151,7 +175,7 @@ The resulting `risk_environment` label gates the PME [Ontological Priority Veto]
 
 #### 4.0.1 Cross-Reference
 
-The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-portfolio.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). For the implementation status of `cascade_risk_index` (§2.1), see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md).
+The Systemic Risk Score is consumed by the PME in [03-04-05-pme-layer4-portfolio.md §5](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) and is read by the operator-configurable threshold gate in [08-02-pre-trade-risk-controls.md Gate 7](../operations-and-compliance/08-02-pre-trade-risk-controls.md) (`systemic_risk_threshold`, default `≥ 80`). Systemic risk does not alter PME `safety_state`: a breach is enforced by Gate 7 (blocks new entries) and the PME veto loop (AVOID + Hard Exit).
 
 ---
 
@@ -164,7 +188,7 @@ $$\text{score} = 0.5 \cdot \text{confidence\_assessment} + 50$$
 Properties:
 - `confidence_assessment = 0` ⇒ `score = 50` (worst, neutral baseline).
 - `confidence_assessment = 100` ⇒ `score = 100` (best).
-- `confidence_assessment = 75` ⇒ `score = 87.5` ≈ `87` (matches §6 example).
+- `confidence_assessment = 75` ⇒ `score = 87.5` (matches §6).
 
 Rankings sort descending, producing a leaderboard of relative strength/weakness for portfolio-level allocation. The formula input is `confidence_assessment` from the Decision Matrix (§4), normalized to `[0, 100]`.
 
@@ -176,6 +200,7 @@ Rankings sort descending, producing a leaderboard of relative strength/weakness 
 {
   "global_market_bias": "BULLISH",
   "market_breadth": "POSITIVE",
+  "low_coverage": false,
   "breadth_pct": 60.0,
   "regime_distribution": { "TRENDING_BULL": 0.6, "RANGE": 0.4 },
   "opportunity_distribution": { "BREAKOUT": 2, "TREND_CONTINUATION": 1 },

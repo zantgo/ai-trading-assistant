@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -43,7 +43,7 @@ Implemented as `AnalysisMatrix` (`crates/core-domain/src/analysis.rs`), produced
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
 | `market_quality` | `QualityLevel` | Aggregate environment quality. Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
 | `market_quality_score` | `f64` | Raw numeric mean of the per-dimension scores (trend, momentum, structure, volume) in `[0, 100]`. The numeric companion to `market_quality`, consumed by the Layer 6 `confluence_score` formula and other downstream numeric aggregations. When unavailable at the L3 boundary, callers must map `QualityLevel → f64` via the §3.8 numeric bands. |
-| `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: `ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN` / `UNKNOWN` (§3.10). |
+| `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: 4 phases (`ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN`) + `UNKNOWN` empty-state sentinel (§3.9). |
 | `market_interpretation` | `string` | Human-readable natural-language summary. |
 | `rationale` | `string` | Explainability trace of the derivation. |
 | `supporting_signals` | `string[]` | Per-TF observations agreeing with `bias`. |
@@ -74,7 +74,7 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 
 `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`.
 
-> **Enum disambiguation.** `MarketRegime.ACCUMULATION/DISTRIBUTION` and `MarketPhase.ACCUMULATION/DISTRIBUTION` (§3.10) are different enums with different derivations; context determines which is meant. `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction; `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope.
+> **Enum disambiguation.** `MarketRegime.ACCUMULATION/DISTRIBUTION` and `MarketPhase.ACCUMULATION/DISTRIBUTION` (§3.9) are different enums with different derivations; context determines which is meant. `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction; `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope.
 
 **Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx` = the ADX indicator value on the instance's **macro timeframe** (L1 Metrics, `[0, 100]`), `bbwp` = the BBWP indicator's raw percentile output on the macro timeframe (L1 Metrics, `[0, 100]`), and `regime_one_bar_ago = prior Assessment Layer regime`.
 
@@ -94,19 +94,21 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 > **Layer-specific BBWP thresholds (intentional divergence).** This L3 decision tree uses `bbwp ≤ 10` for `CONTRACTION` and `bbwp ≥ 85` for `EXPANSION`. The Layer 1 local 4-state regime in [03-02-02-mme-layer1-metrics.md §6](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) uses looser thresholds (`bbwp ≤ 15` for `COMPRESSION`, `bbwp ≥ 85` for `EXPANSION`). A value in `[10, 15]` therefore classifies as `COMPRESSION` at Layer 1 but as `RANGE` (or `TRANSITION`) at Layer 3 — both states are valid for their respective layers. This document is authoritative for the L3 classifier; Layer 1's looser threshold is documented in the layer 1 spec.
 
 ### 3.3 TrendAssessment
-`WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED` — derived from alignment dimension 0 (trend).
+`WEAK`, `DEVELOPING`, `HEALTHY`, `STRONG`, `EXHAUSTED`, `UNKNOWN` — derived from alignment dimension 0 (trend).
 
 ### 3.4 MomentumAssessment
-`INCREASING`, `STABLE`, `WEAKENING`, `REVERSING` — derived from alignment dimension 1 (momentum).
+`INCREASING`, `STABLE`, `WEAKENING`, `REVERSING`, `UNKNOWN` — derived from alignment dimension 1 (momentum).
 
 ### 3.5 StructureAssessment
-`STRONG`, `HEALTHY`, `WEAK`, `BROKEN`, `UNCLEAR` — derived from alignment dimension 4 (structure).
+`STRONG`, `HEALTHY`, `WEAK`, `BROKEN`, `UNKNOWN` — derived from alignment dimension 4 (structure). *(Renamed from `UNCLEAR` — the canonical empty-state sentinel for every assessment/phase enum is `UNKNOWN`.)*
 
 ### 3.6 VolatilityAssessment
-`COMPRESSED`, `NORMAL`, `EXPANDING`, `EXTREME`, `UNSTABLE` — derived from alignment dimension 3 (volatility).
+`COMPRESSED`, `NORMAL`, `EXPANDING`, `EXTREME`, `UNSTABLE`, `UNKNOWN` — derived from alignment dimension 3 (volatility).
 
 ### 3.7 VolumeAssessment
-`WEAK`, `NORMAL`, `STRONG`, `EXCEPTIONAL` — derived from alignment dimension 2 (volume).
+`WEAK`, `NORMAL`, `STRONG`, `EXCEPTIONAL`, `UNKNOWN` — derived from alignment dimension 2 (volume).
+
+> **`UNKNOWN` sentinel.** Every assessment enum admits `UNKNOWN` as its empty-state value (§6). For Structure, `UNKNOWN` is also the §4.2 fall-through band (score `< 20`); for the other four enums it is reachable only via the empty state. Enum values serialize as `SCREAMING_SNAKE_CASE`.
 
 ### 3.8 QualityLevel
 `POOR`, `WEAK`, `AVERAGE`, `GOOD`, `EXCELLENT` — computed as the mean of the trend, momentum, structure, and volume dimension scores. Numeric bands:
@@ -119,8 +121,8 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 | `GOOD` | **≥ 70 AND < 85** |
 | `EXCELLENT` | **≥ 85** |
 
-### 3.10 MarketPhase
-`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`, `UNKNOWN` — Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
+### 3.9 MarketPhase
+Four phases — `ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN` — plus the `UNKNOWN` empty-state sentinel (§6). Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
 
 > **Enum disambiguation.** `MarketPhase.ACCUMULATION/DISTRIBUTION` and `MarketRegime.ACCUMULATION/DISTRIBUTION` (§3.2) are different enums with different derivations; context determines which is meant. `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope; `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction.
 
@@ -153,7 +155,7 @@ state_confidence = clamp(state_confidence, 0, 1)
 |-----------|-----------|-------|
 | Trend | dim 0 | `≥90` `STRONG` · `≥75` `HEALTHY` · `≥50` `DEVELOPING` · `≥25` `WEAK` · else `EXHAUSTED` |
 | Momentum | dim 1 | `≥80` `INCREASING` · `≥60` `STABLE` · `≥40` `WEAKENING` · else `REVERSING` |
-| Structure | dim 4 | `≥80` `STRONG` · `≥60` `HEALTHY` · `≥40` `WEAK` · `≥20` `BROKEN` · else `UNCLEAR` |
+| Structure | dim 4 | `≥80` `STRONG` · `≥60` `HEALTHY` · `≥40` `WEAK` · `≥20` `BROKEN` · else `UNKNOWN` |
 | Volatility | dim 3 | `≥90` `EXTREME` · `≥70` `EXPANDING` · `≥40` `NORMAL` · `≥20` `COMPRESSED` · else `UNSTABLE` |
 | Volume | dim 2 | `≥90` `EXCEPTIONAL` · `≥70` `STRONG` · `≥40` `NORMAL` · else `WEAK` |
 
@@ -181,7 +183,7 @@ The `rationale` and `market_interpretation` strings are generated deterministica
   "volatility_assessment": "EXPANDING",
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
-  "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, normal volatility, and strong volume participation. Favors trend continuation.",
+  "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, expanding volatility, and strong volume participation. Favors trend continuation.",
   "rationale": "state_confidence = |40|/100 + 0.15 (agreement 75%) + 0.10 (3 cross-TF signals) = 0.65",
   "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
   "contradicting_signals": [],
@@ -205,11 +207,11 @@ When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty
 | `market_quality` | `POOR` |
 | `market_quality_score` | `0.0` |
 | `market_phase` | `UNKNOWN` |
-| `trend_assessment` | `UNCLEAR` |
-| `momentum_assessment` | `UNCLEAR` |
-| `structure_assessment` | `UNCLEAR` |
-| `volatility_assessment` | `UNCLEAR` |
-| `volume_assessment` | `UNCLEAR` |
+| `trend_assessment` | `UNKNOWN` |
+| `momentum_assessment` | `UNKNOWN` |
+| `structure_assessment` | `UNKNOWN` |
+| `volatility_assessment` | `UNKNOWN` |
+| `volume_assessment` | `UNKNOWN` |
 | `market_interpretation` | `"No data available — no candles have been completed."` |
 | `supporting_signals` | `[]` |
 | `contradicting_signals` | `[]` |

@@ -1,6 +1,6 @@
 # TAE Layer 1 — Policy Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 1 of 2
@@ -37,8 +37,9 @@ An **Execution Policy** is a deterministic, user-configured conditional rule. Ea
 | `direction` | `Direction` | `Long` / `Short`. |
 | `conditions` | `Condition[]` | Ordered set of AND/OR clauses. |
 | `trigger_mode` | `TriggerMode` | When the policy is evaluated. |
-| `stance` | `Stance` | `ACTIVE` / `CLOSE_ONLY` / `AVOID`. |
 | `risk_parameters` | `RiskParams` | Risk-per-trade, max position size, etc. |
+
+> **Stance is not a policy field.** Execution authorization is read from the per-symbol stance ([03-04-05 §2](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)) at dispatch (stance semantics in §4 below).
 
 ### 2.2 Condition Structure
 

@@ -1,7 +1,7 @@
 # MME Layer 7 — Overview Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Approved — Backend computed; UI panel pending (deferred; see CHANGELOG §Open Items).
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Approved — feature status is tracked in [README §Feature Status](../../README.md).
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 7 of 7
 **Output Contract:** [Overview Matrix](../../matrices/02-09-overview-matrix.md)
@@ -30,6 +30,8 @@ The layer tallies directional guidance across all decision matrices:
 $$\text{breadth\_pct} = \frac{\text{long\_count} - \text{short\_count}}{\text{total}} \times 100$$
 
 This drives `global_market_bias` (STRONG_BULLISH … MIXED), `market_breadth` (STRONG_POSITIVE … STRONG_NEGATIVE), and `market_synchronization` (HIGHLY_SYNCHRONIZED … HIGHLY_FRAGMENTED). Bands in [Overview Matrix §3](../../matrices/02-09-overview-matrix.md).
+
+L7 aggregates each instance's slow-tier (300 s) Decision Matrix; the tier is a documented constant, not currently configurable.
 
 ---
 
@@ -60,7 +62,7 @@ Correlated downside elevates `sync_penalty` (0–100), because synchronized decl
 | `global_market_bias ∈ {BEARISH, STRONG_BEARISH}` + `HIGHLY_FRAGMENTED` | 0 |
 | `global_market_bias ∉ {BEARISH, STRONG_BEARISH}` | 0 |
 
-The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK`) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
+The resulting `risk_environment` label (`LOW_RISK` / `MODERATE` / `HIGH_RISK` / `NO_DATA` — canonical derivation rule table in [Overview Matrix §2.3](../../matrices/02-09-overview-matrix.md)) gates the [Ontological Priority Veto](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md).
 
 > **STRONG_BEARISH coverage (correction).** A previous version of this section used the informal phrase "unless the global bias is bearish" — this excluded `STRONG_BEARISH`. The corrected condition is member-set inclusion over `GlobalBias`'s bearish family (`BEARISH` ∪ `STRONG_BEARISH`), matching the canonical table in [Overview Matrix §4](../../matrices/02-09-overview-matrix.md).
 

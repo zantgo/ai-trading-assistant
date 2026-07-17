@@ -1,6 +1,6 @@
 # Consumer Onboarding Summary
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Single-page orientation for engineers integrating with the trading platform's data plane. Read this first; drill into the linked docs as needed.
 
@@ -39,7 +39,7 @@ ws.onmessage = (event) => {
 };
 ```
 
-Maintain **4 parallel WebSocket connections** per instance (one per timeframe tier: micro/fast/slow/macro). Reconnect with exponential backoff (1 s → 30 s ± 20 % jitter, max 30 retries — see [06-01 §3.2](../integration-and-api/06-01-api-gateway-contract.md)).
+Maintain **4 parallel WebSocket connections** per instance (one per timeframe tier: micro/fast/slow/macro). Retry policy is canonical in [08-03 connection-resilience](../operations-and-compliance/08-03-connection-resilience.md): the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter), REST calls cap at 30 attempts, and the frontend WS client caps at 30 attempts before showing an offline banner.
 
 ### 2.3 Pull historical candles
 
@@ -55,7 +55,7 @@ Returns the last `limit` completed candles (default 100, max 1000).
 
 ### 3.1 `MarketSnapshot` envelope (WebSocket frame `params.snapshot`)
 
-The full per-instance envelope described in [02-07-metrics-matrix.md](../matrices/02-07-metrics-matrix.md). Top-level fields:
+The full per-instance envelope described in [02-07-metrics-matrix.md](../matrices/02-07-metrics-matrix.md) — field set per 02-07 §2.1 (MANIFEST gate G13-verified). Top-level fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -66,8 +66,9 @@ The full per-instance envelope described in [02-07-metrics-matrix.md](../matrice
 | `is_completed` | `bool` | `true` for completed candles; `false` for live shadow frames. **Filter on this client-side**: only `is_completed = true` triggers the analytical cascade. |
 | `open` / `high` / `low` / `close` | `string` (Decimal) | OHLC. **Always parse as Decimal** — never as `f64`. |
 | `volume` | `string` (Decimal) | Base-asset volume. |
-| `trades_count` | `u64` | Number of trades aggregated. |
-| `mid_price` / `bid_price` / `ask_price` / `bid_size` / `ask_size` | `string?` (Decimal) | Latest book state at candle close. |
+| `average_volume` | `string?` (Decimal) | Rolling average volume baseline. |
+| `mid_price` / `bid_price` / `ask_price` | `string` (Decimal) | Latest top-of-book quotes at candle close (non-null). |
+| `bid_size` / `ask_size` | `string?` (Decimal) | Top-of-book depth at candle close (nullable). |
 | `funding_rate` / `open_interest` / `oi_delta_1h` / `prev_day_px` | `string?` (Decimal) | Derivatives context. |
 | `mark_price` / `index_price` / `mark_index_spread_pct` | `string?` / `string?` / `number?` | Mark/index context. Columns exist and are read as NULL until the Phase-3 writer ships (see [AUDIT-V6-301](../CHANGELOG.md)). |
 | `indicators` | `object` | Per-indicator values keyed by indicator name (50 indicators, 8 groups). |
@@ -132,8 +133,8 @@ The full REST surface is documented in [06-01 §2](../integration-and-api/06-01-
 - **Server:** `http://127.0.0.1:3000` (localhost only).
 - **Database:** `./telemetry.db` (SQLite WAL mode; auto-created at startup).
 - **Static assets:** `ui/dist/` served at `/`.
-- **Auth:** local-operator identity model; no per-route authentication. Caller-supplied `X-Operator-Id` is on the v5.0 roadmap (see [01-07](../conceptual-foundations/01-07-target-architecture-roadmap.md)).
-- **Reconnect on WebSocket:** exponential backoff 1 s → 30 s ± 20 % jitter, max 30 retries.
+- **Auth:** local-operator identity model; no per-route authentication. Caller-supplied `X-Operator-Id` is deferred — see `docs/CHANGELOG.md` Open Items.
+- **Reconnect policy:** retry budgets differ per client class (canonical: [08-03-connection-resilience.md](../operations-and-compliance/08-03-connection-resilience.md)) — the engine WS adapter retries indefinitely (exponential backoff 1 s → 30 s ± 20 % jitter); REST clients cap at 30 attempts; the Svelte frontend WS client caps at 30 attempts, then surfaces an offline banner.
 - **Retention:** 7 days for `market_snapshots`; 7 days for `connection_quality_samples` (Phase 1 will make this configurable via `[retention]` in `config.toml`).
 
 ---

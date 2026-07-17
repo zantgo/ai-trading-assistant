@@ -1,8 +1,8 @@
 # 02-12: LiquidityMatrix — Real Liquidation Flow (Phase 1)
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
-**Producer:** DIE L2 (WS liquidation events) → MME L1.5 (per-candle aggregation)
+**Producer:** DIE L1 (NormalizedEvent::Liquidation via WS liquidation events; persisted by the telemetry logger to liquidation_events, 90-day retention) → MME L1.5 (per-candle aggregation)
 **Consumer:** MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision) — Advisory rationale; Overview — cross-symbol aggregate
 **Per-bar:** yes (computed on every completed candle)
 **Snapshot field:** `MarketSnapshot.liquidity: Option<LiquidityFlow>`
@@ -113,6 +113,7 @@ The constants in the linear map (`+50` midpoint, `12.5` scaling) are fixed at th
 - **Initial cold start** (no completed micro candles): `cascade_intensity = 0.0` and `cascade_state = None`.
 - **Warm-up** (`window_bars < 30` baseline bars): the baseline is treated as `μ = 0, σ = 0`, and `cascade_intensity = raw_intensity` evaluated without z-score normalization — i.e. it is the un-normalized 0..100 scaled value, but consumers should treat it as "not yet statistically meaningful" via the `cascade_state = None` invariant (no `Detected`/`Sustained`/`Exhausted` transition can fire until the warm-up threshold is met).
 - **Stable state** (`window_bars ≥ 30`): the canonical z-score formula above applies.
+- **Consumer gating:** consumers gate on `cascade_state == null` and render intensity as no-data (not amber) while warm-up is in effect.
 
 ### Relationship to `cascade_state`
 
@@ -134,25 +135,22 @@ from this field.
 The Liquidity Intelligence configuration is set in `config.toml` under the `[liquidity]` table. The canonical configuration surface is defined by `crates/config-models/src/models.rs::LiquidityConfig`; the TOML below mirrors that struct exactly. The legacy `config.json` reader path in `load_config()` is preserved for backward compatibility but is **scheduled for removal at v7.0**; new deploys must use `config.toml`.
 
 ```toml
-{
-  "liquidity": {
-    "enabled": true,
-    "mark_price_poll_ms": 60000,
-    "funding_refresh_ms": 60000,
-    "event_retention_days": 90,
-    "bucket_retention_days": 7,
-    "cluster_refresh_secs": 300,
-    "maintenance_margin_rate": 0.005,
-    "cascade_detected_zscore": 2.5,
-    "cascade_sustained_events": 3,
-    "cascade_baseline_window_bars": 200,
-    "cascade_min_warmup_bars": 30,
-    "funding_extreme_pct": 0.0005,
-    "magnet_activation_distance_pct": 0.5,
-    "liquidity_vacuum_threshold": 0.3,
-    "oi_funding_divergence_pct": 2.0
-  }
-}
+[liquidity]
+enabled = true
+mark_price_poll_ms = 60000
+funding_refresh_ms = 60000
+event_retention_days = 90
+bucket_retention_days = 7
+cluster_refresh_secs = 300
+maintenance_margin_rate = 0.005
+cascade_detected_zscore = 2.5
+cascade_sustained_events = 3
+cascade_baseline_window_bars = 200
+cascade_min_warmup_bars = 30
+funding_extreme_pct = 0.0005
+magnet_activation_distance_pct = 0.5
+liquidity_vacuum_threshold = 0.3
+oi_funding_divergence_pct = 2.0
 ```
 
 | Field | Default | Description |

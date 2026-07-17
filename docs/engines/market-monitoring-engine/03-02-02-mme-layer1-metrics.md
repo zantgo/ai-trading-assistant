@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -158,7 +158,7 @@ indicators:
 These are not "indicators" in the strict sense (they are not
 normalised f64 signals in the indicator map) — they are
 *telemetry matrices* that ride the MarketSnapshot as optional
-fields and are consumed by extension layers L1.5/L2.5 (fractional layers of MME), L5, and the UI.
+fields and are consumed by extension layers L1.5/L2.5 (fractional layers of MME), L4 (Opportunity), L5, and the UI.
 
 ## 10. Cross-References
 

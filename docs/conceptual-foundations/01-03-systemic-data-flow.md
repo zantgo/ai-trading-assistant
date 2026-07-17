@@ -1,6 +1,6 @@
 # Systemic Data Flow Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved  
 **Purpose:** This document details the chronological, systemic data flows across the five core engines of the Trading Platform. It specifies the step-by-step path of telemetry as it transforms from raw exchange events into structured market intelligence, automated order routing, active portfolio tracking, and post-trade performance analytics.
 
@@ -22,6 +22,8 @@ The platform enforces a strict **Unidirectional Stream Cascade** model. Informat
 |   Engine (PAE)    | <=== |   Engine (PME)    | <=== | (Exchange/Paper)  |
 +-------------------+      +-------------------+      +-------------------+
 ```
+
+> **Price fan-out edges (not drawn above).** Three real edges complement the matrix cascade: **DIE → TAE** (mid-price: paper fills + lifecycle automation), **DIE → PME** (mark prices), and **MME → PME** (Decision Matrix invalidation levels). Matrices flow DIE→MME only; prices fan out from DIE to TAE/PME.
 
 ### 1.1 Core Flow Rules
 *   **Rule 1: Forward Cascade Only:** Upstream matrices are entirely blind to downstream states. The Market Monitoring Engine (MME) cannot query the Portfolio Management Engine (PME) to alter its calculation of market bias or risk scores.
@@ -47,6 +49,8 @@ Exchange       DIE           MME           TAE           PME           PAE
    |--[Events]===========================================>|             |
    |            |             |             |             |--[Logs]---->|
 ```
+
+> **Price fan-out edges (not drawn above).** Three real edges complement the matrix cascade: **DIE → TAE** (mid-price: paper fills + lifecycle automation), **DIE → PME** (mark prices), and **MME → PME** (Decision Matrix invalidation levels). Matrices flow DIE→MME only; prices fan out from DIE to TAE/PME.
 
 ---
 
@@ -85,7 +89,7 @@ Exchange                DIE                                    MME
 
 #### Detailed Operations:
 1. **DIE Ingestion:** The exchange socket pushes raw trades and order book updates. The DIE standardizes the network frame at Layer 1 and groups updates into uniform time intervals (OHLCV) at Layer 2.
-2. **Quality Verification:** Layer 3 validates sequence integrity, cleans bad ticks, and publishes the immutable **Market Data Matrix**.
+2. **Quality Verification:** Layer 3 validates sequence integrity and cleans bad ticks. The Distribution Layer (L4) then publishes the immutable **Market Data Matrix**, fanning the validated candle out to the MME, the UI, and the telemetry logger.
 3. **MME Multi-Axis Projection:** The MME reads the Market Data Matrix. Layer 1 calculates indicators and signals, projecting them onto their standardized **Evaluation Axes** (e.g., converting RSI to a structured object containing Value, State, Direction, and Strength).
 4. **Consensus & Regime Diagnosis:** Layer 2 measures cross-timeframe alignment scores. Layer 3 evaluates these inputs to determine the categorical `market_bias` and computes the continuous numeric `market_bias_score` (between $-1.0$ and $+1.0$).
 5. **Opportunity Scoring:** Layer 4 evaluates specific strategy-agnostic opportunities (0-100 score) based on the Analysis Matrix, running in parallel with Layer 5.
@@ -148,6 +152,8 @@ Exchange                 PME (Position & Exposure)              MME (Decision Su
    |                                 |--[Adjust Dynamic Stop orders]      |
 ```
 
+> **DIE → PME mark-price feed.** The `[Continuous Mark-Price]` stream above is the DIE→PME mark-price edge: the DIE ingests mark prices from the exchange and forwards them to the PME Position Layer for mark-to-market valuation (step 3 below).
+
 #### Detailed Operations:
 1. **Position Initialization:** PME receives execution events from the transaction venue. Layer 1 initializes the trade metrics (volume-weighted entry price, size, and initial stop limits) in the **Position Matrix**.
 2. **Exposure Recalculation:** Layer 2 aggregates net and gross exposure limits across correlated asset pairs and sectors, writing the results to the **Exposure Matrix** to prevent concentration breaches.
@@ -208,7 +214,7 @@ The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`
 
 3. **PME asserts Ontological Priority (Veto Power).** It publishes a high-priority `VetoMessage` to the TAE, including trigger type and target stance (`AVOID` or `CLOSE_ONLY`).
 
-4. **Hard Exit Dispatch (AVOID triggers only — Step 2a in diagram).** For each active position on the affected symbol, the TAE Policy Layer dispatches a liquidation directive to the Execution Layer. The Execution Layer constructs a `Market` order with `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) and dispatches to the exchange. The directive fires **before** the stance transitions to `AVOID` so the liquidation order carries the pre-veto authorization (avoiding the Gate-1 deadlock).
+4. **Hard Exit Dispatch (AVOID triggers only — Step 2a in diagram).** For each active position on the affected symbol, the TAE Policy Layer dispatches a liquidation directive to the Execution Layer. The Execution Layer constructs a `Market` order with `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) and dispatches to the exchange. The directive fires **before** the stance transitions to `AVOID` so the liquidation order carries the pre-veto authorization (the exit size is snapshotted from the pre-veto Position Matrix and the acknowledgement is recorded against the pre-veto stance, per 03-03-02 §7).
 
 5. **Hard Exit Acknowledgement (AVOID triggers only — Step 2b in diagram).** The TAE Execution Layer waits for exchange acknowledgement of each Hard Exit fill (or bounded retry deadline `hard_exit_ack_timeout_ms`, default 2000 ms). If acknowledgement exceeds the timeout, the cancellation batch in step 6 still proceeds and the liquidation is flagged `unconfirmed_exit` in the audit trail.
 

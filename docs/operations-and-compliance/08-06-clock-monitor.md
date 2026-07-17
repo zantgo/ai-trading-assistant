@@ -1,6 +1,6 @@
 # Clock Monitor (NTP Drift Enforcement)
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 
@@ -8,7 +8,7 @@
 
 The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤50 µs drift budget** of true UTC.
 
-**Why 50 µs.** NTPv4 over a LAN achieves typical offset of 10–100 µs. The 50 µs threshold is the midpoint of that band and is chosen so that the maximum candle-boundary error stays below 0.01 % of the shortest supported candle duration (0.5 s at 60 s micro-tier). A 50 µs drift produces a 0.000083 % boundary error, which is well within the indicator pipeline's numerical tolerance. Operators running direct-exchange colocation may tighten this via config; operators running cloud VPS with >100 µs typical jitter should widen it.
+**Why 50 µs.** NTPv4 over a LAN achieves typical offset of 10–100 µs. The 50 µs threshold is the midpoint of that band and is chosen so that the maximum candle-boundary error stays below 0.01 % of the shortest supported candle duration (0.01 % of the 60 s micro tier = 6 ms; the 50 µs budget is 120× tighter). A 50 µs drift produces a 0.000083 % boundary error, which is well within the indicator pipeline's numerical tolerance. Operators running direct-exchange colocation may tighten this via config; operators running cloud VPS with >100 µs typical jitter should widen it.
 
 The `ClockMonitor` enforces this budget by polling NTP servers at a configurable interval and reacting to threshold breaches.
 
@@ -128,6 +128,15 @@ The user controls what happens on breach via `breach_action`:
 | `warn` (default) | Log error and continue | Production |
 | `panic` | Log error and panic | Local dev / CI validation |
 
+Logging on breach is gated by `warn_on_breach`; the panic path is gated by `breach_action = Panic`. The two switches are independent:
+
+| `warn_on_breach` | `breach_action` | Behavior on drift breach |
+|---|---|---|
+| `true` (default) | `Warn` (default) | Error logged; monitor continues. |
+| `true` | `Panic` | Error logged, then the process panics. |
+| `false` | `Warn` | Nothing logged; monitor continues. |
+| `false` | `Panic` | Nothing logged; the process panics. |
+
 The system is **resilient to network crashes**: if NTP servers are unreachable, the monitor logs a warning, retries with backoff (exponential, capped at the poll interval), and never panics on transport errors. Only an actual clock drift breach triggers a panic when configured.
 
 ### Drift-breach consequence on candle alignment
@@ -136,7 +145,7 @@ If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 
 
 ## Integration
 
-`main.rs` spawns `ClockMonitor::run_until_cancelled(clock_cancel)` after engine initialization and before live ingestion. The cancel token is shared with the rest of the engine, so clean shutdown stops the monitor too. The historical TODO marker previously noted in `candle_aggregator.rs` has been replaced with a 3-line cross-reference to this module; see `crates/market-analyzer/src/candle_aggregator.rs` (verify post-Phase 1 of the v6.0 closure plan that the cross-reference is still present).
+`main.rs` spawns `ClockMonitor::run_until_cancelled(clock_cancel)` after engine initialization and before live ingestion. The cancel token is shared with the rest of the engine, so clean shutdown stops the monitor too. The historical to-do marker previously noted in `candle_aggregator.rs` has been replaced with a 3-line cross-reference to this module; see `crates/market-analyzer/src/candle_aggregator.rs` (verify post-Phase 1 of the v6.0 closure plan that the cross-reference is still present).
 
 ## Testing
 

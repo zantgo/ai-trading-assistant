@@ -1,6 +1,6 @@
 # MME Signals Guide — Readable Technical Signal Rulebook
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's discrete technical signals. It defines the 12 canonical `SignalKind`s, their detection semantics, and their confirmation lifecycle. Each SignalKind has a detailed specification under [signals/](signals/05-02-00-signals-index.md).
@@ -61,6 +61,8 @@ first detection ──► POTENTIAL ──(confirming condition)──► CONFIR
 | `Confirmed` | Confirming trigger fired (e.g. decisive candle close through a level); full weight. |
 | `Active` | A confirmed state persisting over bars, tracked via `age_bars`. |
 
+> **Momentary vs. stateful.** Momentary kinds never enter `ACTIVE` — they fire on the transition bar only; the persistence chain to `ACTIVE` applies to stateful kinds (see [05-02-00](signals/05-02-00-signals-index.md)).
+
 ---
 
 ## 4. Freshness & Aging
@@ -85,7 +87,7 @@ Several SignalKinds require structural confirmation before upgrading `Potential 
 
 | SignalKind | Confirmation |
 |-----------|--------------|
-| Divergence | Candle close breaks nearest S/R by tolerance buffer. |
+| Divergence | Follows the producing indicator's rule (e.g., [04-02-11](indicators/04-02-11-rsi.md)'s sweep-and-reclaim). |
 | Breakout | Close beyond the boundary (not just a wick). |
 | TrendFlip | Confirmed on candle close, not intrabar. |
 | PatternForming | Pattern completes its defining structure. |

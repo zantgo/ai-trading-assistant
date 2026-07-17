@@ -1,6 +1,6 @@
 # Portfolio Management Engine — Overview Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Purpose:** This document specifies the boundaries, ledger model, margin/leverage restrictions, and safety architecture of the Portfolio Management Engine — the engine responsible for capital preservation, position tracking, exposure control, and the systemic safety veto.
@@ -69,6 +69,8 @@ NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
        ──(consecutive_losses ≥ dropout_threshold)──► SUSPENDED (timed)
        ──(current_equity / peak_equity < 1 − drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
+
+Systemic-risk breach is enforced by the veto loop ([03-04-05 §4.1](03-04-05-pme-layer4-portfolio.md)) and pre-trade Gate 7 ([08-02](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)), not by safety states.
 
 Defaults (`config.toml` `safety`): WARN at 5 % daily drawdown (no stance change — pre-veto alert), caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30 % (`drawdown_limit_pct`). A win resets the consecutive-loss counter. See README "Key Conventions" for the distinction between `max_daily_drawdown_pct` (5 % early-warning, session PnL) and `drawdown_limit_pct` (30 % equity peak-to-trough, hard veto).
 

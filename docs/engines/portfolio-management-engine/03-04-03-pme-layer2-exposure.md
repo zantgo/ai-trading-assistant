@@ -1,6 +1,6 @@
 # PME Layer 2 — Exposure Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 2 of 4
@@ -48,9 +48,9 @@ Per [PME Overview](../portfolio-management-engine/03-04-01-pme-overview-spec.md)
 | Max correlation threshold | 0.8 | Exposure Layer — blocks correlated entries above this. |
 
 When a limit is approached:
-1. New position requests for the affected symbol/sector are held.
+1. New position requests that would breach the limit are rejected pre-trade at Gate 6 (see [08-02-pre-trade-risk-controls.md](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)).
 2. The Portfolio Layer (L4) is notified.
-3. If breached, existing positions may be flagged for reduction (`CLOSE_ONLY` stance).
+3. If breached on the existing portfolio, positions are flagged for reduction (`CLOSE_ONLY` stance) via the exposure-limit veto row in [PME Layer 4 §4.1](03-04-05-pme-layer4-portfolio.md) (no Hard Exit; released when back under limit).
 
 ---
 
@@ -73,7 +73,7 @@ Assets are grouped into correlation sectors based on historical price co-movemen
 | Sector | Example Assets |
 |--------|---------------|
 | Base Chain | BTC, SOL, AVAX |
-| Layer 2 | ARB, OP, MATIC |
+| L2 Protocols | ARB, OP, MATIC |
 | DeFi | UNI, AAVE, MKR |
 | Meme | DOGE, SHIB, PEPE |
 

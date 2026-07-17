@@ -1,6 +1,6 @@
 # DIE Layer 1 — Raw Data Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 1 of 4
@@ -38,7 +38,7 @@ The Raw Data Matrix is the `NormalizedEvent` enum (`crates/core-domain/src/norma
 | Variant | Fields | Description |
 |---------|--------|-------------|
 | `Trade(NormalizedTrade)` | exchange, symbol, price, size, side, timestamp_ms, trade_id | A single executed trade. |
-| `OrderBook(NormalizedOrderBook)` | exchange, symbol, `bids: Vec<[Decimal; 2]>`, `asks: Vec<[Decimal; 2]>`, timestamp_ms | L2 depth snapshot. Each ladder entry is a `[price, size]` tuple. |
+| `OrderBook(NormalizedOrderBook)` | exchange, symbol, `bids: Vec<[Decimal; 2]>`, `asks: Vec<[Decimal; 2]>`, timestamp_ms | Level-2 order book depth snapshot. Each ladder entry is a `[price, size]` tuple. |
 | `AssetContext(AssetContext)` | symbol, prev_day_px | Reference context. |
 | `OpenInterest(OpenInterestEvent)` | symbol, oi | Derivatives open interest. |
 | `FundingRate(FundingRateEvent)` | symbol, rate | Perpetual funding rate. |
@@ -56,10 +56,12 @@ Each registered adapter runs in an independent Tokio task spawned by the `Market
 
 | Property | Value |
 |----------|-------|
-| Isolation | One task per venue; a crash in one never affects another. |
+| Isolation | One adapter task + one WebSocket connection per `TimeframePipeline` (symbol × timeframe); a crash in one pipeline never affects another. |
 | Channel | Bounded `mpsc` channel, capacity 10,000 `NormalizedEvent`s. |
 | Backpressure | When the channel is full, the adapter awaits; no events are dropped silently. |
 | Symbol scoping | Each adapter subscribes only to its assigned normalized symbols (via `SymbolMapper`). |
+
+> **Per-pipeline tasks.** `run_for_symbol` spawns the symbol's per-timeframe adapter tasks — one task plus one WebSocket connection per `TimeframePipeline` — so each (symbol, timeframe) pipeline fails and reconnects independently, and connection quality is tracked per (pair, timeframe) (see [08-05-connection-quality.md](../../operations-and-compliance/08-05-connection-quality.md)).
 
 ---
 
@@ -105,8 +107,8 @@ Reconnection is owned by the `MarketDataOrchestrator` supervisor loop (see [Over
 
 1. Adapter `start()` returns (clean exit or error).
 2. Supervisor emits a `Status` event describing the outcome.
-3. On error: increment consecutive-failure counter (reset if > 300 s since last failure).
-4. If failures ≥ 5 → permanent disable.
+3. On error: increment the consecutive-failed-cycle counter (a cycle = one full backoff sequence; a failure = one attempt); the counter resets if > 300 s have elapsed since the last failed cycle.
+4. If consecutive failed cycles ≥ 5 → permanent disable.
 5. Otherwise sleep `backoff`, then loop; `backoff = min(backoff × 2, 30)` — **canonical cap is `30 s`** (matches [08-03-connection-resilience.md §3](../../operations-and-compliance/08-03-connection-resilience.md), the canonical resilience contract, and the runtime `ReconnectPolicy::default` in `crates/network-adapters/src/adapters/resilience.rs`).
 
 ---

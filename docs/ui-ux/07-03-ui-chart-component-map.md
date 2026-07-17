@@ -1,6 +1,6 @@
 # UI Chart Component Map
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Per-indicator mapping from registry key to frontend rendering location. Companion to [UI Overview](07-01-ui-overview-spec.md) and [Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -82,7 +82,7 @@ The six chart-only components (`AtrChart`, `RsiChart`, `MacdChart`, `SqueezeChar
 
 ## 3. Reused / Generic Panes (rendered in shared panes)
 
-The following 10 indicators share existing chart surfaces rather than having dedicated ones. They prevent vertical screen crowding when all 28 chart surfaces (PriceChart + 18 dedicated + 9 other = 28) would otherwise dominate the viewport.
+The following 10 indicators share existing chart surfaces rather than having dedicated ones. They prevent vertical screen crowding when all 21 chart surfaces (PriceChart + 18 dedicated + the generic "Oscillator" and "Derivatives" panes = 21) would otherwise dominate the viewport.
 
 | Registry Key | Display Name | Rendered In |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Instance Lifecycle & Programmable State Control
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Trade Automation Engine (TAE)
 **Owner:** portfolio-supervisor + execution-daemon
@@ -149,7 +149,7 @@ Active-table count in `06-02 §3` changes **24 → 26**.
 | Automation condition fires while instance STOPPING | Ignored; no event row |
 | Session quit (`POST /api/session/quit`) | Existing "cleans all instances" behavior; instances persist in registry as STOPPED (actor = `system`) |
 
-**Scoped-enum rule:** enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (stance and safety — pre-existing) never co-refer. On first use in any document section, qualify the axis ("instance PAUSED", "policy AUTO_PAUSED").
+**Scoped-enum rule:** enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (safety axis — pre-existing) never co-refer. On first use in any document section, qualify the axis ("instance PAUSED", "policy AUTO_PAUSED").
 
 ---
 

@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -170,9 +170,9 @@ otherwise   → NEUTRAL_MTF
   "dimensions": [
     { "score": 78.0, "state": "BULLISH", "confidence": 78.0 },
     { "score": 65.0, "state": "NEUTRAL", "confidence": 65.0 },
-    { "score": 55.0, "state": "NEUTRAL", "confidence": 55.0 },
-    { "score": 60.0, "state": "NEUTRAL", "confidence": 60.0 },
-    { "score": 33.3, "state": "PARTIAL", "confidence": 33.3 },
+    { "score": 72.0, "state": "NEUTRAL", "confidence": 72.0 },
+    { "score": 75.0, "state": "NEUTRAL", "confidence": 75.0 },
+    { "score": 65.0, "state": "ALIGNED", "confidence": 65.0 },
     { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
     { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
     { "score": 88.0, "state": "ALIGNED", "confidence": 88.0 },
@@ -194,6 +194,22 @@ otherwise   → NEUTRAL_MTF
   "trend_agreement_pct": 75.0
 }
 ```
+
+### 6.1 Worked per-TF decomposition (Volume & Volatility)
+
+The Volume (72.0) and Volatility (75.0) dimension scores above decompose into per-timeframe signed scores as follows (weights per §4.1 with the default durations: micro 0.2, fast 0.2, slow 0.3333, macro 1.0; Σw = 1.7333):
+
+| Timeframe | Weight `w` | Volume `s` | Volatility `s` |
+|-----------|-----------|-----------|----------------|
+| micro60 | 0.2 | +0.50 | +0.30 |
+| fast180 | 0.2 | +0.50 | +0.30 |
+| slow300 | 0.3333 | +0.25 | −0.52 |
+| macro900 | 1.0 | −0.11 | +0.40 |
+
+- **Signed mean** `m = Σ w·s / Σw` (direction, §3.1): Volume `(0.100 + 0.100 + 0.08333 − 0.110) / 1.7333 = 0.17333 / 1.7333 = 0.10` → `mtf_volume_alignment = 0.10`; Volatility `(0.060 + 0.060 − 0.17333 + 0.400) / 1.7333 = 0.34667 / 1.7333 = 0.20` → `mtf_volatility_alignment = 0.20`. Both `|m| ≤ 0.3` → `NEUTRAL`.
+- **Sign agreement** (majority-sign share, conviction-weighted: `a = Σ w·|s|` over majority-sign TFs `/ Σ w·|s|` over all TFs): Volume `a = (0.100 + 0.100 + 0.08333) / (0.28333 + 0.110) = 0.28333 / 0.39333 = 0.7203 → 0.72` → score `72.0`; Volatility `a = (0.060 + 0.060 + 0.400) / (0.520 + 0.17333) = 0.520 / 0.69333 = 0.75` → score `75.0`. Both `a ≥ 0.6` (not `MIXED`).
+
+> **Rounding note.** Per-TF values are rounded to 2 dp; weighted aggregates are computed from the unrounded values. Multiple valid per-TF decompositions exist; this one satisfies `m = 0.10` / `0.20` and `a → 0.72` / `0.75` simultaneously.
 
 ---
 

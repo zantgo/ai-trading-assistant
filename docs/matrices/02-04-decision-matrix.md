@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -122,13 +122,47 @@ All five `MarketStance` values are reachable. The `AVOID` and `CAUTIOUS` guards 
 > **Default-stance rationale.** The default fallback is `CAUTIOUS`, which preserves monotonic escalation: as risk rises, the stance retreats `CONSTRUCTIVE → NEUTRAL → CAUTIOUS → AVOID` without ever advancing again. Choosing `CONSTRUCTIVE` as the default would create the inverse anomaly (higher-risk environments with `POOR` quality receiving a more aggressive stance than lower-risk ones via the same rule, since `CONSTRUCTIVE` would be the unconditional fall-through while `AVOID` requires `POOR`-quality to fire).
 
 ### 3.3 StrategyEnvironment
-`TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` — from `market_regime`.
+`TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` — from `market_regime` ([Analysis Matrix §3.2](../matrices/02-02-analysis-matrix.md)):
+
+| `MarketRegime` | `StrategyEnvironment` |
+|----------------|-----------------------|
+| `TRENDING_BULL` / `TRENDING_BEAR` | `TREND_FOLLOWING` |
+| `ACCUMULATION` / `DISTRIBUTION` | `BREAKOUT` |
+| `RANGE` | `MEAN_REVERSION` |
+| `EXPANSION` | `HIGH_VOLATILITY` |
+| `CONTRACTION` | `LOW_ACTIVITY` |
+| `TRANSITION` | `UNFAVORABLE` |
+
+The mapping is total over all 8 `MarketRegime` values (2 + 2 + 1 + 1 + 1 + 1), and all six `StrategyEnvironment` values are reachable.
 
 ### 3.4 EntryGuidance
-`IMMEDIATE`, `WAIT_FOR_CONFIRMATION`, `PULLBACK`, `BREAKOUT`, `NO_ENTRY_CONTEXT` — from `trend_assessment × volatility_risk`.
+`IMMEDIATE`, `WAIT_FOR_CONFIRMATION`, `PULLBACK`, `BREAKOUT`, `NO_ENTRY_CONTEXT` — from `trend_assessment × volatility_risk` (the L5 Risk Matrix `volatility_risk.score` on the canonical `[0, 100]` scale). Ordered first-match rules:
+
+```
+# Priority order (first match wins):
+1. volatility_risk ≥ 60                                                → NO_ENTRY_CONTEXT
+2. trend ∈ {STRONG, HEALTHY}  AND  volatility_risk < 40                → IMMEDIATE
+3. trend ∈ {STRONG, HEALTHY}  AND  volatility_risk ∈ [40, 60)          → PULLBACK
+4. trend = DEVELOPING  AND  volatility_risk < 20                       → BREAKOUT
+5. trend = DEVELOPING                                                  → WAIT_FOR_CONFIRMATION
+6. otherwise (trend ∈ {WEAK, EXHAUSTED, UNKNOWN})                      → NO_ENTRY_CONTEXT
+```
+
+The rules tile the input space with no gap or overlap: `volatility_risk ≥ 60` exits at rule 1; below that, `STRONG`/`HEALTHY` trends split on the `[40, 60)` boundary (rules 2–3) and `DEVELOPING` trends split on the `< 20` boundary (rules 4–5); every other trend assessment falls through to rule 6. All five `EntryGuidance` values are reachable. Canonical scenario (trend `HEALTHY`, `volatility_risk = 45`) → rule 3 → `PULLBACK`.
 
 ### 3.5 ExitGuidance
-`TREND_WEAKENING`, `MOMENTUM_EXHAUSTION`, `STRUCTURE_BREAKDOWN`, `RISK_INCREASING`, `NO_WARNING` — from `momentum_assessment × overall_risk`.
+`TREND_WEAKENING`, `MOMENTUM_EXHAUSTION`, `STRUCTURE_BREAKDOWN`, `RISK_INCREASING`, `NO_WARNING` — from `momentum_assessment × structure_assessment × overall_risk`. Ordered first-match rules:
+
+```
+# Priority order (first match wins):
+1. overall_risk ≥ 80                                       → RISK_INCREASING
+2. structure ∈ {BROKEN, UNKNOWN}                           → STRUCTURE_BREAKDOWN
+3. momentum = REVERSING                                    → MOMENTUM_EXHAUSTION
+4. momentum = WEAKENING  OR  overall_risk ≥ 60             → TREND_WEAKENING
+5. otherwise                                               → NO_WARNING
+```
+
+`structure_assessment` is a declared input: the previous `momentum × overall_risk` input set could never produce `STRUCTURE_BREAKDOWN`. All five `ExitGuidance` values are reachable. Canonical scenario (momentum `STABLE`, structure `HEALTHY`, `overall_risk = 28.3`) → rule 5 → `NO_WARNING`.
 
 ### 3.6 ProtectionStrategy (Dynamic Stops)
 `STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION`.
@@ -189,14 +223,23 @@ The Decision Matrix's headline confidence combines analysis conviction with risk
 
 $$\text{confidence\_assessment} = \text{clamp}\Big(\text{analysis.state\_confidence} \times \big(1 - \tfrac{\text{overall\_risk}}{100}\big) \times 100,\ 0,\ 100\Big)$$
 
-Trade readiness is a function of this confidence and the directional guidance:
+Trade readiness is a function of this confidence, the directional guidance, the entry guidance, and `market_stance`. Ordered first-match rules (bounds in `[a, b)` notation):
 
-| Readiness | Condition |
-|-----------|-----------|
-| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + `market_stance` ∈ {AGGRESSIVE, CONSTRUCTIVE}. |
-| `FORMING` | Directional guidance present but confidence `[40, 60)` or entry = WAIT_FOR_CONFIRMATION. |
-| `WATCH` | Neutral guidance or `confidence_assessment [20, 40)`. |
-| `STAND_ASIDE` | `market_stance = AVOID` or `confidence_assessment < 20`. |
+```
+# Priority order (first match wins):
+1. market_stance = AVOID  OR  confidence < 20                            → STAND_ASIDE
+2. non-neutral guidance AND confidence ≥ 60
+   AND market_stance ∈ {AGGRESSIVE, CONSTRUCTIVE}
+   AND entry_guidance ≠ WAIT_FOR_CONFIRMATION                            → READY
+3. non-neutral guidance                                                  → FORMING
+4. confidence ∈ [20, 40)  OR  neutral guidance                           → WATCH
+5. otherwise (default)                                                   → WATCH
+```
+
+> **Tiling proof (no gap, no overlap).** Under first-match ordering the five rules partition the full input space (`market_stance` × `confidence_assessment` × `directional_guidance` × `entry_guidance`):
+> - Rule 1 absorbs every state with `market_stance = AVOID` or `confidence < 20`. The former overlap — `confidence ∈ [40, 60)` with `market_stance = AVOID` matching both `FORMING` and `STAND_ASIDE` — now resolves unambiguously to `STAND_ASIDE`.
+> - Rules 2–3 partition the surviving non-neutral-guidance states: rule 2 takes the confirmed high-conviction subset (`confidence ≥ 60`, stance ∈ {AGGRESSIVE, CONSTRUCTIVE}, entry ≠ `WAIT_FOR_CONFIRMATION`) → `READY`; rule 3 takes every other non-neutral state → `FORMING`. This closes the former gap: `confidence ≥ 60` with stance `CAUTIOUS`/`NEUTRAL` and non-neutral guidance, and `entry_guidance = WAIT_FOR_CONFIRMATION` at any `confidence ≥ 20`, both now land in `FORMING`.
+> - Rule 4 catches the entire remainder: any state reaching it has neutral guidance (non-neutral states were absorbed by rules 2–3) with `confidence ≥ 20` and `market_stance ≠ AVOID`, so the neutral-guidance disjunct alone suffices; the `confidence ∈ [20, 40)` disjunct is an explicit guard keeping the band visible. Rule 5 is a defensive default — unreachable under the current vocabulary — keeping the ruleset total if the guidance enums grow.
 
 > **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID`, derived from L3 `market_quality` × L5 `overall_risk`). They do **not** reference the symbol **stance** (L1 `Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID`, managed by PME Veto). Although both enums share an `AVOID` variant, they are independent and serve different purposes — `market_stance` is the *environmental aggressiveness assessment* of the L6 Decision Layer, while symbol `stance` is the *execution-authorization state* enforced by the PME safety veto. The pre-trade gate in [08-02-pre-trade-risk-controls.md Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by symbol stance before the readiness check.
 
@@ -245,12 +288,15 @@ The Decision Matrix carries the structural invalidation and target context used 
 ```
 
 **Self-consistency check** — Scenario B — perfect alignment (independent of the ontology §A-series) (the example values satisfy the §2.3 / §3.1 / §3.6 / §3.7 / §3.8 / §4 formulas):
+
+> **Independent boundary example — not part of the canonical scenario chain (seed [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)).**
 - Analysis Matrix `state_confidence` = 1.0; Risk Matrix `overall_risk.score = 28.3` (matches the canonical Risk Matrix JSON example; expressed as a fraction, `0.283`).
 - `confidence_assessment = clamp(1.0 × (1 − 0.283) × 100, 0, 100) = clamp(71.7, 0, 100) = 71.7` ✓
 - `bias = STRONG_BULLISH` with `overall_risk = 28.3 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
 - `decision_context.score = 97.0` per the §2.3 confluence-score formula: with `alignment.tradability_dim = 100`, `analysis.market_quality_score = 100` (EXCELLENT → 100), and `opportunity.opportunity_score = 85`, the formula yields `0.50·100 + 0.30·100 + 0.20·85 = 97.0` ⇒ `score_confidence = |score| / 100 = 0.97` per the §2.2 mapping ✓
 - `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.expected_rr_internal = 2.5` from the Opportunity Matrix example and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
 - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals) ✓
+- `trade_readiness = READY` per the §4 ordered rules: rule 1 does not fire (`market_stance = CONSTRUCTIVE`, `confidence_assessment = 71.7 ≥ 20`); rule 2 fires — non-neutral guidance (`STRONG_LONG`), `71.7 ≥ 60`, `market_stance = CONSTRUCTIVE ∈ {AGGRESSIVE, CONSTRUCTIVE}`, `entry_guidance = IMMEDIATE ≠ WAIT_FOR_CONFIRMATION` ✓
 - `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary.
 
 > Scenario A (alignment score 40) is worked end-to-end in 01-01-ontology.md §A.2–A.6.

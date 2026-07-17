@@ -1,7 +1,6 @@
 # Liquidity Phase 0-4 — Architecture Spec
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Implemented (Phases 0-4)
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
 ## Overview
@@ -66,8 +65,10 @@ The Liquidity Intelligence subsystem extends the existing two-
 dimensional architecture (5 engines × N layers) without creating a
 sixth engine. The new components live in MME L1.5 (per-candle
 liquidity accumulation) and MME L2.5 (cluster estimation). This
-preserves the unidirectional cascade: MME L1.5 → MME L2.5 → MME L5
-(Risk) → MME L6 (Decision) → TAE / PME.
+preserves the unidirectional cascade: MME L1.5 → {MME L4, MME L5};
+MME L2.5 → {MME L4, MME L5}; MME L4 + MME L5 → MME L6 (Decision) →
+TAE / PME. (L4 consumes the `LiquiditySqueeze` preconditions from
+L1.5/L2.5 — see Decision integration below.)
 
 The unidirectional invariant is preserved because:
 
@@ -107,28 +108,25 @@ without the new fields deserialize cleanly. The legacy
 
 ## Configuration
 
-The platform uses **`config.toml`** as the single source of configuration truth (the legacy `config.json` form is still recognized by `load_config()` as a fallback; see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md) for the operator-facing install path). The Liquidity Intelligence extension contributes a `[liquidity]` table inside `config.toml` (TOML mirror of the JSON block below):
+The platform uses **`config.toml`** as the single source of configuration truth (the legacy `config.json` form is still recognized by `load_config()` as a fallback; see [08-01-user-manual.md §5](../operations-and-compliance/08-01-user-manual.md) for the operator-facing install path). The Liquidity Intelligence extension contributes a `[liquidity]` table inside `config.toml`:
 
-```json
-{
-  "liquidity": {
-    "enabled": true,                          // master switch
-    "mark_price_poll_ms": 60000,              // HL mark/OI/funding poll cadence
-    "funding_refresh_ms": 60000,              // Bitget funding refresh floor
-    "event_retention_days": 90,               // raw liquidation_events retention
-    "bucket_retention_days": 7,               // aggregated buckets retention
-    "cluster_refresh_secs": 300,              // cluster matrix refresh
-    "maintenance_margin_rate": 0.005,         // 0.5% (industry standard for perps)
-    "cascade_detected_zscore": 2.5,           // single-event cascade trigger
-    "cascade_sustained_events": 3,            // events in window for Sustained
-    "cascade_baseline_window_bars": 200,      // baseline stats window for cascade_intensity z-score computation
-    "cascade_min_warmup_bars": 30,            // min completed bars before z-score is statistically meaningful
-    "funding_extreme_pct": 0.0005,            // 0.05% / 8h
-    "magnet_activation_distance_pct": 0.5,    // 0.5% from mid
-    "liquidity_vacuum_threshold": 0.3,
-    "oi_funding_divergence_pct": 2.0
-  }
-}
+```toml
+[liquidity]
+enabled = true                          # master switch
+mark_price_poll_ms = 60000              # HL mark/OI/funding poll cadence
+funding_refresh_ms = 60000              # Bitget funding refresh floor
+event_retention_days = 90               # raw liquidation_events retention
+bucket_retention_days = 7               # aggregated buckets retention
+cluster_refresh_secs = 300              # cluster matrix refresh
+maintenance_margin_rate = 0.005         # 0.5% (industry standard for perps)
+cascade_detected_zscore = 2.5           # single-event cascade trigger
+cascade_sustained_events = 3            # events in window for Sustained
+cascade_baseline_window_bars = 200      # baseline stats window for cascade_intensity z-score computation
+cascade_min_warmup_bars = 30            # min completed bars before z-score is statistically meaningful
+funding_extreme_pct = 0.0005            # 0.05% / 8h
+magnet_activation_distance_pct = 0.5    # 0.5% from mid
+liquidity_vacuum_threshold = 0.3
+oi_funding_divergence_pct = 2.0
 ```
 
 > **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.toml` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform previously used `config.json`; the TOML form became canonical at v5.0 with the workspace restructure (see `docs/CHANGELOG.md`). `config.json` is still recognized as a legacy alias by `load_config()` for backward compatibility. **Config format note (v5.0).** The canonical config format is `config.toml`. `config.json` is still recognized by `config-models/src/lib.rs::load_config()` as a legacy fallback (the legacy reader code path is preserved for backward compatibility with existing user installations but is not documented for new deploys).

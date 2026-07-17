@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -109,7 +109,7 @@ The store uses `$state` for mutable fields and `$derived` for computed views. To
 | URL pattern | `ws://host/ws?symbol=BTC-USDT&timeframe_secs=60`. |
 | Protocol | Incoming JSON-RPC 2.0 `broadcast.market_snapshot` notifications. |
 | `applySnapshotToTimeframe()` | Parses nested `snapshot`, writes to `*Term.latestSnapshot` and per-TF `indicators` map. |
-| Reconnect | Exponential backoff (1 s → 30 s, ±20 % jitter, max 30 retries). |
+| Reconnect | Exponential backoff per the client-class table in [08-03 Connection Resilience](../operations-and-compliance/08-03-connection-resilience.md) — Svelte frontend WS client: 30 attempts, then offline banner. |
 | Lifecycle | Connect on mount, disconnect on destroy, reconnect when `activeTab` changes. |
 
 ---
@@ -257,6 +257,6 @@ The `camelCaseOnly` mode guarantees that `.liquidity-cluster-row` is accessible 
 
 - [UI Dashboard Layout](07-02-ui-dashboard-layout.md) — Wireframes and component placement for the 3 navbars and 2 drawers.
 - [Chart Component Map](07-03-ui-chart-component-map.md) — Per-indicator rendering destinations.
-- [Liquidity Panel Spec](07-04-ui-liquidity-panel-spec.md) — Phase 4 Liquidity Intelligence tabs.
+- [Liquidity Panel Spec](07-04-ui-liquidity-panel-spec.md) — Phase 4 Liquidity Intelligence tabs (historical reference only; 07-04 is deprecated).
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — WS and REST consumed by the frontend.
 - [AGENTS.md](../../AGENTS.md) — Build instructions and Svelte 5 conventions.

@@ -1,6 +1,6 @@
 # PAE Layer 3 — Risk Analytics Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 3 of 4
@@ -92,7 +92,7 @@ Measures both depth and duration of drawdowns. Lower is better.
 |----------|-----------|
 | **Full equity curve** | Ratios are computed from the complete `portfolio_equity_history` — no subsampling. |
 | **Annualization** | Sharpe/Sortino are annualized assuming 365 trading days for crypto. |
-| **Negative handling** | Sharpe is reported as computed (negative for losing strategies); it is `null` only when σ = 0 (undefined) (not undefined). |
+| **Negative handling** | Sharpe is reported as computed (negative for losing strategies); it is `null` only when σ = 0 (undefined when σ = 0). |
 
 ---
 

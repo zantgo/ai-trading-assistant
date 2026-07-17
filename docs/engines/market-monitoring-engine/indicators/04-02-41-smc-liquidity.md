@@ -1,6 +1,6 @@
 # SMC Liquidity (Sweeps)
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 **Group:** Institutional
 

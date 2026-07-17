@@ -1,6 +1,7 @@
 # Candle Reconstruction
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Status:** Implemented
 
 ## Glossary (canonical)
 
@@ -13,7 +14,6 @@ Three related-but-distinct terms appear throughout the corpus. This glossary is 
 | **Synthesis** | A subset of *Fill*: candle production without exchange data, using recent history. | EMA synthesis (`α = 2/(N+1)`), linear extrapolation of the last two closes. |
 
 In the `ReconstructionMethod` enum (below), `ExchangeHistorical` is a **fill** (REST-derived) but not a **synthesis** (uses exchange data); `ExponentialMovingAverage` and `LinearExtrapolation` are both **fills** and **syntheses**; `Unavailable` is neither.
-**Status:** Implemented
 
 ## Purpose
 
@@ -28,7 +28,7 @@ The strategy is chosen based on candle duration:
 | Duration | Strategy | Source |
 |----------|----------|--------|
 | ≥ 1 minute | **Exchange historical fetch** | Hyperliquid `/info` candle snapshot; Bitget `/api/v2/mix/market/candles` |
-| < 1 minute | **Synthesis from recent history** | EMA of last N=200 micro-candles (preferred) or linear interpolation between last 2 closes (fallback) |
+| < 1 minute | **Synthesis from recent history** | EMA of last N=200 micro-candles (preferred) or linear extrapolation of the last 2 closes (fallback) |
 
 ## Reconstruction Method Enum
 
@@ -69,7 +69,7 @@ The flat-candle assumption is explicit: with no trade tape to reconstruct from, 
 >
 > **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
 >
-> **Cold-start minimums.** The reconstruction engine requires: (a) ≥ 2 recent closes for linear interpolation fallback (sub-minute), (b) ≥ 50 recent closes for EMA synthesis (sub-minute preferred), (c) ≥ 50 closes per timeframe for indicator warm-up (any timeframe). On cold start with zero history, all indicators emit `state_label = INSUFFICIENT_DATA` and `confidence = 0.0` until the minimum buffer is reached. The minimum warm-up duration is `min_buffer × duration_seconds` — for a 1m micro timeframe with 50-bar minimum EMA warm-up, this is ~50 minutes.
+> **Cold-start minimums.** The reconstruction engine requires: (a) ≥ 2 recent closes for linear extrapolation fallback (sub-minute), (b) ≥ 50 recent closes for EMA synthesis (sub-minute preferred), (c) ≥ 50 closes per timeframe for indicator warm-up (any timeframe). On cold start with zero history, all indicators emit `state_label = INSUFFICIENT_DATA` and `confidence = 0.0` until the minimum buffer is reached. The minimum warm-up duration is `min_buffer × duration_seconds` — for a 1m micro timeframe with 50-bar minimum EMA warm-up, this is ~50 minutes.
 
 ## Linear Extrapolation (Sub-Minute Fallback)
 
@@ -123,13 +123,13 @@ Returns `Some((gap_start, gap_end))` when the elapsed time since the last persis
   - `gap_detector_returns_gap_when_exceeds_threshold`
   - `reconstruct_1m_returns_none_caller_uses_exchange`
   - `reconstruct_sub_1m_with_ema_history`
-  - `reconstruct_sub_1m_with_minimal_history_uses_interpolation`
+  - `reconstruct_sub_1m_with_minimal_history_uses_extrapolation`
   - `reconstruct_returns_none_with_no_history`
   - `ema_produces_smooth_values`
-  - `interpolation_is_linear`
+  - `extrapolation_is_linear`
 
 ## Cross-References
 
 - [Connection Resilience](08-03-connection-resilience.md) — source of `ReconnectState` events that trigger reconstruction
 - [Connection Quality](08-05-connection-quality.md) — counts reconstructed candles in the `reconstructed_candles` field
-- [Risk Matrix §4.8](../matrices/02-11-risk-matrix.md) — `cascade_risk` dimension
+- [Candle Quality Envelope §2](../matrices/02-03-data-quality-matrix.md) — `is_gap_filled` validity flag carried by synthetically filled candles

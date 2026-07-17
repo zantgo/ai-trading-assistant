@@ -1,10 +1,10 @@
 # Database Schema Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Specified — target of record
 
-**This catalog is the v6.3 target schema.** Per-table implementation status is tracked in README §Feature Status.
+**This catalog is the current target schema (version per README §Feature Status).** Per-table implementation status is tracked in README §Feature Status.
 **Purpose:** This document specifies the SQLite database schema — all persistent tables, indexes, WAL configuration, and migration strategy for the Trading Platform's shared telemetry store.
 
 **Active tables (26):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)).
@@ -29,8 +29,8 @@
 | Auto-increment ID | `INTEGER PRIMARY KEY AUTOINCREMENT` |
 | Timestamp (epoch ms) | `INTEGER NOT NULL` |
 | Timestamp (epoch sec) | `INTEGER NOT NULL` |
-| `Decimal` (price, size, capital) | `TEXT NOT NULL` — serialized via `rust_decimal::Decimal::to_string()`. Per-column `GLOB` CHECKs have been removed from all DDL blocks; validation is enforced at the Rust `Decimal::from_str()` type boundary. |
-| Nullable value (optional Decimal) | `TEXT` — distinguishes `NULL` (inherit global) from the canonical pattern (e.g. `"0"` = disable). Per-column `GLOB` CHECKs removed; validation at the Rust type boundary. |
+| `Decimal` (price, size, capital) | `TEXT NOT NULL` — serialized via `rust_decimal::Decimal::to_string()`. Per-column `GLOB` CHECKs are retired in all tables migrated since v4.0; validation is enforced at the Rust `Decimal::from_str()` type boundary. Named exceptions that retain GLOB CHECKs until their next migration: the 13 legacy tables (§3.11) and `funding_rate_8h` (§9 item 7). |
+| Nullable value (optional Decimal) | `TEXT` — distinguishes `NULL` (inherit global) from the canonical pattern (e.g. `"0"` = disable). Per-column `GLOB` CHECKs retired except in the named exceptions above; validation at the Rust type boundary. |
 | Boolean | `INTEGER NOT NULL CHECK (value IN (0, 1))` |
 | JSON value | `TEXT NOT NULL CHECK (json_valid(value))` |
 | JSON array | `TEXT NOT NULL CHECK (json_valid(value))` (always JSON, even for empty — the platform distinguishes JSON-empty from key-omitted via `json_valid` + presence) |
@@ -42,7 +42,7 @@ All `Decimal` fields are serialized via `rust_decimal::Decimal::to_string()` and
 
 ### 1.2 Schema-version invariant
 
-Every table includes a `_schema_version` row in its body documentation. Migrations bump this column when the schema for that table changes. The engine refuses to start if the database `user_version` does not match the schema-version compatibility window — see §11.
+Schema versions are tracked per-table in this catalog text: each table's section (§3.N) records its schema version and migration notes in prose — there is no physical `_schema_version` row or column in the DDL. Migrations bump the documented per-table version when the schema for that table changes. The engine refuses to start if the database `user_version` does not match the schema-version compatibility window — see §9.
 
 ---
 
@@ -54,14 +54,16 @@ Indexes are created on each table for the query patterns the engine actually use
 |---|---|---|
 | `idx_market_snapshots_pair_time` | `(pair_key, timeframe_secs, timestamp DESC)` | Replay history fetch |
 | `idx_market_snapshots_completed` | `(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1` | MME pipeline (only completed snapshots) |
+| `idx_market_snapshots_reconstructed` | `(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1` | Reconstructed-candle audit |
 | `idx_open_orders_state` | `(state, instance_id, created_at)` | Live order lifecycle queries |
 | `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
 | `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
-| `idx_risk_control_events_pair_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
-| `idx_risk_control_events_operator` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local_operator"`) |
+| `idx_rce_instance_gate_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
+| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local_operator"`) |
 | `idx_order_fills_trade` | `(trade_id)` | Per-fill PAE reconstruction |
 | `idx_order_fills_order` | `(order_id)` | Per-order fill chain |
 | `idx_cq_pair_timeframe_window_time` | `(pair_key, timeframe_secs, window, timestamp_ms DESC)` | Connection-quality queries (per-instance × per-timeframe window filter) |
+| `idx_lifecycle_events_instance_time` | `(instance_id, timestamp_ms DESC)` | Lifecycle transition audit queries |
 
 ---
 
@@ -71,7 +73,7 @@ Tables are grouped by ownership. Each entry shows the canonical schema (DDL-styl
 
 ### 3.1 `market_snapshots` — MME telemetry persistence (storage owned by DIE; content produced by MME)
 
-The primary time-series table — one row per completed candle, paired with the rolled-up MME matrix outputs that ride the WS `MarketSnapshot`.
+The primary time-series table — one row per completed candle, paired with the rolled-up MME matrix outputs that ride the WS `MarketSnapshot`. Rows are written only for completed candles; the `is_completed` column is retained for forward compatibility with shadow persistence (always `1` today), and the partial index `idx_market_snapshots_completed` is defensive.
 
 ```sql
 CREATE TABLE IF NOT EXISTS market_snapshots (
@@ -121,7 +123,9 @@ CREATE INDEX IF NOT EXISTS idx_market_snapshots_completed ON market_snapshots(pa
 CREATE INDEX IF NOT EXISTS idx_market_snapshots_reconstructed ON market_snapshots(pair_key, timeframe_secs, reconstruction_method) WHERE reconstructed = 1;
 ```
 
-**Persistence rule.** `market_snapshots` stores the **core candle + MME matrix fields** that are needed for replay and historical backtesting. Fields that are local to the live WS broadcast envelope (e.g. live shadow values that flicker until the next completed candle, the §A.7 `cascade_risk_index` placeholder) are **not persisted** to keep the table tight. The canonical wire contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); live-only fields are computed on the wire and recomputed by the MME during replay. The wire and persistent contracts are deliberately scoped — see `docs/CHANGELOG.md` for the `AUDIT-V4-042` resolution.
+**Persistence rule.** `market_snapshots` stores the **core candle + MME matrix fields** that are needed for replay and historical backtesting. Fields that are local to the live WS broadcast envelope (e.g. live shadow values that flicker until the next completed candle, the §A.7 `cascade_risk_index` placeholder) are **not persisted** to keep the table tight. The canonical wire contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); live-only fields are computed on the wire and recomputed by the MME during replay. The wire and persistent contracts are deliberately scoped — see `docs/CHANGELOG.md` for the resolution history.
+
+**Book-state provenance.** `mid_price`, `bid_price`, `ask_price`, and `average_volume` are sourced from the AssetContext/book channels (not from the candle close itself) and may lag the close.
 
 **Liquidity signals serialization.** `liquidity_signals_json` is **always serialized** as a JSON array (never omitted via `skip_serializing_if`). An empty signal set produces `"[]"`. This policy is matched by the live `/ws` payload and by [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md).
 
@@ -144,6 +148,7 @@ CREATE TABLE IF NOT EXISTS open_orders (
     take_profit_price TEXT,
     invalidation_level TEXT,
     is_reduce_only INTEGER NOT NULL DEFAULT 0,
+    is_emergency_liquidation INTEGER NOT NULL DEFAULT 0 CHECK (is_emergency_liquidation IN (0, 1)),
     slippage_bps INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -157,6 +162,8 @@ CREATE INDEX IF NOT EXISTS idx_open_orders_state ON open_orders(state, instance_
 **Per `03-03-03-tae-layer2-execution.md §4`:** `PRE_DISPATCH` orders are held in process memory only and are **never** persisted to `open_orders`. The `risk_control_events` table (§3.10) is the persistent audit trail for every held order; the `/api/pre-dispatch/*` resource ([`06-01 §2.9`](06-01-api-gateway-contract.md)) is the operator surface.
 
 The `close_reason` vocabulary is canonical: `STOP_LOSS`, `TAKE_PROFIT`, `SIGNAL_EXIT`, `MANUAL`, `VETO`, `TIMEOUT`, `EMERGENCY_LIQUIDATION`. The PAE contract consumes this exact enum without aliasing.
+
+**Emergency-liquidation flag.** `is_emergency_liquidation` is persisted for audit and replay: `close_reason = 'EMERGENCY_LIQUIDATION'` is written at close, while the flag covers the pre-close lifecycle (set when the order is dispatched as an emergency liquidation, e.g. by the `/stop` flatten path).
 
 ### 3.3 `user_trades` — operator-created manual trades
 
@@ -217,7 +224,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the pre-v2.1 legacy alias `roi_percentage` was removed at v5.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy export alias (retired name recorded in `docs/CHANGELOG.md`) is deprecated — removal tracked as AUDIT-V4-044, target v6.5 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -337,10 +344,10 @@ CREATE TABLE IF NOT EXISTS risk_control_events (
     policy_id TEXT,
     instance_id TEXT NOT NULL,
     gate_id INTEGER NOT NULL,
-    decision TEXT NOT NULL CHECK (decision IN ('BLOCK', 'HELD_FOR_REVIEW', 'MODIFIED_AND_CONTINUED', 'CLIP_AND_CONTINUE', 'OVERRIDE')),
+    decision TEXT NOT NULL CHECK (decision IN ('BLOCK', 'HELD_FOR_REVIEW', 'CLIP_AND_CONTINUE', 'OVERRIDE')),
     reason TEXT NOT NULL,
     requested_disposition TEXT NOT NULL,
-    operator_id TEXT NOT NULL DEFAULT 'local_operator' CHECK (operator_id IN ('local_operator', 'anonymous')),
+    operator_id TEXT NOT NULL DEFAULT 'local_operator',
     prior_state TEXT,
     resulting_state TEXT,
     pre_dispatch_order_id TEXT,
@@ -351,13 +358,13 @@ CREATE INDEX IF NOT EXISTS idx_rce_instance_gate_time ON risk_control_events(ins
 CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator_id, timestamp_ms DESC);
 ```
 
-`operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` is reserved for cases where the API layer forwards without an explicit identity (not currently surfaced). Caller-supplied identity via `X-Operator-Id` is see README §Feature Status.
+`operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` remains available by convention for cases where the API layer forwards without an explicit identity (not currently surfaced). The column carries no CHECK — plain `TEXT NOT NULL DEFAULT 'local_operator'` — forward-compatible with caller-supplied identity (AUDIT-V4-076). Caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = local_operator`.
 
 ### 3.11 — 3.26 Remaining tables
 
-The remaining tables: 14 retain their pre-v4.0 schemas (with the two v4.0 updates below); `instance_lifecycle` and `instance_lifecycle_events` were added in v6.2 and are detailed in §3.25/§3.26.
+The remaining tables: 13 retain their pre-v4.0 schemas (with the two v4.0 updates below); `instance_lifecycle` and `instance_lifecycle_events` were added in v6.2 and are detailed in §3.25/§3.26. Sections §3.N map to table N of 26; §3.7 covers `paper_trades` and `order_fills` together.
 
-- `decimal_value` columns use the same `CHECK (value GLOB ...)` constraint pattern as the canonical schema.
+- `decimal_value` columns in these 13 legacy tables retain the `CHECK (value GLOB ...)` constraint pattern (named exception per §1.1) until their next migration.
 - Foreign keys are added only where the relationship is genuinely relational (most references are denormalized config identifiers like `policy_id`/`instance_id` strings and are not FKs).
 
 The unchanged tables:
@@ -385,7 +392,7 @@ CREATE TABLE IF NOT EXISTS instance_lifecycle (
 );
 ```
 
-The column `lifecycle_state` carries the 4-value enum (RUNNING/lifecycle `PAUSED`/STOPPING/STOPPED). DELETED instances are represented by a non-NULL `deleted_at_ms` tombstone and are excluded from all query views. `entered_state_at_ms` drives `after_duration_secs` automation (IL-12). `entered_state_at_ms` drives `after_duration_secs` automation (IL-12). Full contract: [`03-03-06-tae-instance-lifecycle-spec.md §5`](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
+The column `lifecycle_state` carries the 4-value enum (RUNNING/lifecycle `PAUSED`/STOPPING/STOPPED). DELETED instances are represented by a non-NULL `deleted_at_ms` tombstone and are excluded from all query views. `entered_state_at_ms` drives `after_duration_secs` automation (IL-12). Full contract: [`03-03-06-tae-instance-lifecycle-spec.md §5`](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
 ### 3.26 `instance_lifecycle_events` — full transition audit (added in v6.2, IL-13)
 
@@ -462,7 +469,7 @@ The engine holds a single writer connection per process. Read concurrency is ach
 
 Migrations live in `crates/database-storage/migrations/ (sqlx::migrate! consumes at build-time)`. The schema-version compatibility window is `user_version = N` where `N` is the most-recent migration applied. The engine refuses to start if `user_version` is **lower** than the minimum required version (no forward-only compatibility — re-run the migrations). Backward compatibility (newer code reading older `user_version`) is supported up to two minor versions.
 
-The canonical v4.0 migration set adds seven changes:
+The canonical v4.0 migration set adds eight changes:
 
 1. **`open_orders` state vocabulary unification** — replaces any prior state literals with the canonical lifecycle from `03-03-03-tae-layer2-execution.md §4`.
 2. **`risk_control_events` new table** — populated retroactively from any prior in-memory audit log; if absent, history before v4.0 is uncovered (operator-visible notice on first launch).
@@ -470,7 +477,8 @@ The canonical v4.0 migration set adds seven changes:
 4. **`market_snapshots` partial-persistence scope** — schema unchanged; column-level persistence scope documented in §3.1 (the wire contract remains authoritative).
 5. **`connection_quality_samples` instance + timeframe scope** — adds `timeframe_secs` and reindexes `idx_cq_pair_window_time` → `idx_cq_pair_timeframe_window_time`. Existing rows from earlier versions may lack the new `timeframe_secs` column and require the migration to default to `60` (micro).
 6. **`liquidity_signals_json` always-present policy** — `DEFAULT '[]' CHECK (json_valid(...))`; migration backfills `'[]'` for any prior `NULL` or absent row.
-7. **`funding_rate_8h` nullable semantics** — column type changes from `TEXT NOT NULL '0'` to `TEXT` (nullable) with `CHECK (value IS NULL OR value GLOB ...)`. Existing `0` literals remain `0` (= explicit-disable); missing values become `NULL` (= inherit global). See [`06-01 §2.5 / §2.6`](06-01-api-gateway-contract.md).
+7. **`funding_rate_8h` nullable semantics** — column type changes from `TEXT NOT NULL '0'` to `TEXT` (nullable) with `CHECK (value IS NULL OR value GLOB ...)`. Existing `0` literals remain `0` (= explicit-disable); missing values become `NULL` (= inherit global). This column is a named exception to the retired per-column GLOB CHECKs (§1.1) and retains its GLOB CHECK until its next migration. See [`06-01 §2.5 / §2.6`](06-01-api-gateway-contract.md).
+8. **`open_orders.is_emergency_liquidation`** — adds `open_orders.is_emergency_liquidation` (active tables unchanged at 26).
 
 ---
 

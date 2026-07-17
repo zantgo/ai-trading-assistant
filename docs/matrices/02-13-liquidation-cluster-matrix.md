@@ -1,9 +1,9 @@
 # 02-13: LiquidationClusterMatrix — Estimated Heatmap (Phase 2)
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 **Producer:** MME L2.5 (cluster estimation task, 5-min refresh)
-**Consumer:** MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — LiquidityPanel Cluster tab
+**Consumer:** MME L4 (Opportunity) — LiquiditySqueeze preconditions; MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision); UI — inline cluster panel on the Charts tab (07-02 §4.3)
 **Per-bar:** NO (refreshed every 5 minutes per symbol)
 **Snapshot field:** `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>`
 
@@ -120,5 +120,6 @@ Lower when:
 ## Frontend exposure
 
 `MarketSnapshot.cluster` rides the WebSocket frame to the frontend
-under `cluster`. The LiquidityPanel Cluster tab renders this field
-with sortable rows, magnet-strength bars, and assumption disclosure.
+under `cluster`. The inline cluster panel on the Charts tab
+(07-02 §4.3) renders this field with sortable rows, magnet-strength
+bars, and assumption disclosure.

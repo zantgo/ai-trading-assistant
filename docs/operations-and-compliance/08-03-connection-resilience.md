@@ -1,6 +1,6 @@
 # Connection Resilience
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 
 ## Purpose
@@ -44,13 +44,16 @@ attempts ≥ 6: base_n = 30 → effective ∈ [24 s, 30 s]
 
 ## Retry Budgets
 
-The platform has three distinct retry budgets that operate independently. They are not interchangeable; conflating them produces either silent stalls (when `max_attempts = None` is treated as a fixed cap) or premature abandonments (when the supervisor's 5-cycle disable is treated as `max_attempts`):
+The platform has four distinct retry budgets that operate independently. They are not interchangeable; conflating them produces either silent stalls (when `max_attempts = None` is treated as a fixed cap) or premature abandonments (when the supervisor's 5-cycle disable is treated as `max_attempts`):
 
 | Layer | Scope | Default | Effect on exhaustion |
 |---|---|---|---|
 | Adapter reconnect loop | One WebSocket cycle (sequence of `max_attempts` retries against the same exchange) | `max_attempts: None` (infinite) | The adapter keeps retrying indefinitely within a single cycle. The supervisor (next layer) terminates the cycle. |
 | Engine supervisor | Number of cycles before permanent adapter disable | 5 cycles | After 5 failed cycles the adapter is permanently disabled for that pair; operator must restart or re-enable manually. See [08-01-user-manual.md §8](../operations-and-compliance/08-01-user-manual.md) for the operator-facing behaviour ("permanent disable after 5 consecutive failures"). |
-| REST client retry budget | REST endpoint from `crates/network-adapters/src/adapters/*_rest.rs (Hyperliquid: hyperliquid_rest.rs; Bitget: bitget_rest.rs)` and the Svelte frontend wrapper | 30 attempts | The REST client retries up to 30 times before surfacing the failure to the caller. Independent of the adapter or supervisor budgets. |
+| REST client retry budget | REST endpoint from `crates/network-adapters/src/adapters/*_rest.rs` (Hyperliquid: `hyperliquid_rest.rs`; Bitget: `bitget_rest.rs`) | 30 attempts | The REST client retries up to 30 times before surfacing the failure to the caller. Independent of the adapter or supervisor budgets. |
+| Svelte frontend WS client | Dashboard WebSocket connections (`ui/src/lib/websocket.svelte.ts`) | 30 attempts | After 30 consecutive failures the client stops retrying and surfaces an offline banner in the dashboard. Independent of the engine-side budgets. |
+
+**Consecutive-failure reset.** After 300 s without a failure, the consecutive-failure counter resets — an isolated failure followed by five clean minutes does not accumulate toward the supervisor's permanent-disable threshold.
 
 ## State Transitions
 

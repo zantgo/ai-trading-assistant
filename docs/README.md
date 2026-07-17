@@ -40,6 +40,7 @@ docs/
 │   └── 02-13-liquidation-cluster-matrix.md            ← Phase 2 LiquidationClusterMatrix
 ├── engines/
 │   ├── data-infrastructure-engine/                     (03-01 — 6 files)
+│   │   ├── 03-01-00-die-end-to-end-flow.md           ← single integrated end-to-end DIE flow narrative
 │   │   ├── 03-01-01-die-overview-spec.md             ← DIE boundaries, adapters, fault tolerance
 │   │   ├── 03-01-02-die-layer1-raw-data.md
 │   │   ├── 03-01-03-die-layer2-market-data.md
@@ -87,12 +88,13 @@ docs/
 │       ├── 03-05-04-pae-layer3-risk-analytics.md
 │       └── 03-05-05-pae-layer4-performance.md
 ├── integration-and-api/                              (06 — 3 files)
+│   ├── 06-00-consumer-onboarding.md                  ← single-page integrator orientation
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
 │   └── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
 ├── ui-ux/                                            (07 — 4 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
-│   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 20 dedicated components)
+│   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
 │   └── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
 └── operations-and-compliance/                        (08 — 7 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
@@ -100,10 +102,11 @@ docs/
     ├── 08-03-connection-resilience.md                ← WebSocket reconnect policy + backoff state machine
     ├── 08-04-candle-reconstruction.md                ← gap detection + exchange historical fetch + sub-1m synthesis
     ├── 08-05-connection-quality.md                   ← rolling 1h/6h/24h quality score + dashboard panel
-    └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
+    ├── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
+    └── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
 ```
 
-Total: **138 markdown files** at v6.3 — 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 15 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 layers (L1–L7) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
+Total: **138 markdown files** at v6.4 — 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 15 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 layers (L1–L7) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
 
 ## The Five Engines
 
@@ -162,16 +165,20 @@ This table is the **single source of implementation truth** — every spec in `d
 | Position sizing + execution | Implemented | `03-03-02`, `03-03-03` |
 | PME safety veto + stance control | Implemented | `03-04-05` |
 | Performance analytics (PAE L1–L4) | Implemented | `03-05-01`…`03-05-05` |
-| Instance lifecycle (Gate 0, lifecycle tables, automation) | Specified | `03-03-06` |
-| Configurable activation (denylists, config_version, AUTO_PAUSED) | Specified | `03-02-12` |
+| Overview UI panel | Implemented | `07-02`, `03-02-08` |
+| Instance lifecycle (Gate 0, lifecycle tables, automation) | Specified; implementation v6.5 (AUDIT-V6-202…207) | `03-03-06` |
+| Configurable activation (denylists, config_version, AUTO_PAUSED) | Specified; implementation v6.5 (AUDIT-V6-208…214) | `03-02-12` |
 | Pre-dispatch persistence (pre_dispatch_orders table) | Not started | `06-01` §2.9 |
 | Liquidity Intelligence (Phases 0-4) | Partial (Phase 0-2 implemented) | `01-05`, `03-02-11` |
-| Exchange key rotation | Not started | `08-07` |
+| Exchange key rotation | Manual rotation procedure documented (08-07); in-process rotation tool unscheduled (AUDIT-V6-077) | `08-07` |
+| Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | Pending — v6.5 (AUDIT-V6-301) | `06-01` |
 
 ## Key Conventions
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
+- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.4).
+- All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
 - All configuration is stored in **`config.toml`** at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()`).
 - Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.
 - Every engine **layer** produces exactly one immutable **Matrix** as its output contract.

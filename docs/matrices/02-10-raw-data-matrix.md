@@ -1,6 +1,6 @@
 # Raw Data Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 1 — Raw Data Layer
@@ -22,11 +22,12 @@ The Raw Data Matrix is the DIE's first transformation: converting raw WebSocket 
 
 | Variant | Payload | Description |
 |---------|---------|-------------|
-| `Trade` | price, size, side, timestamp, trade_id | Single executed trade. |
-| `OrderBook` | `bids: Vec<[Decimal; 2]>`, `asks: Vec<[Decimal; 2]>`, `timestamp_ms: u64` | L2 order book snapshot or delta. Each entry is a `[price, size]` tuple, ordered best-to-worst (bids descending, asks ascending). |
+| `Trade` | price, size, side, timestamp_ms, trade_id | Single executed trade. |
+| `OrderBook` | `bids: Vec<[Decimal; 2]>`, `asks: Vec<[Decimal; 2]>`, `timestamp_ms: u64` | Level-2 order book snapshot or delta. Each entry is a `[price, size]` tuple, ordered best-to-worst (bids descending, asks ascending). |
 | `AssetContext` | prev_day_px | Prior-day reference price. |
-| `OpenInterest` | symbol, oi_value, timestamp | Current open interest. |
-| `FundingRate` | symbol, rate, timestamp | Current perpetual funding rate. |
+| `OpenInterest` | symbol, oi_value, timestamp_ms | Current open interest. |
+| `FundingRate` | symbol, rate, timestamp_ms | Current perpetual funding rate. |
+| `Liquidation` | symbol, side, price, size, timestamp_ms | Force-closed position (liquidation) event published by the exchange. |
 | `Status` | exchange, status, message | Connection lifecycle event (Connected, Disconnected, Reconnecting). |
 
 ---
@@ -39,11 +40,12 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
 ```json
 {
   "exchange": "Hyperliquid",
+  "event_type": "TRADE",
   "symbol": "BTC-USDT",
   "timestamp_ms": 1752192000000,
   "price": "64012.5",
   "size": "0.15",
-  "side": "Buy",
+  "side": "BUY",
   "trade_id": "123456"
 }
 ```
@@ -52,6 +54,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
 ```json
 {
   "exchange": "Hyperliquid",
+  "event_type": "ORDER_BOOK",
   "symbol": "BTC-USDT",
   "timestamp_ms": 1752192000000,
   "bids": [["64012.0", "0.5"], ["64011.5", "1.2"], ["64010.0", "0.8"]],
@@ -63,6 +66,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
 ```json
 {
   "exchange": "Hyperliquid",
+  "event_type": "ASSET_CONTEXT",
   "symbol": "BTC-USDT",
   "prev_day_px": "63500.0"
 }
@@ -72,6 +76,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
 ```json
 {
   "exchange": "Hyperliquid",
+  "event_type": "OPEN_INTEREST",
   "symbol": "BTC-USDT",
   "oi_value": "125000.0",
   "timestamp_ms": 1752192000000
@@ -82,6 +87,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
 ```json
 {
   "exchange": "Hyperliquid",
+  "event_type": "FUNDING_RATE",
   "symbol": "BTC-USDT",
   "rate": "0.000125",
   "timestamp_ms": 1752192000000
@@ -92,8 +98,22 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
 ```json
 {
   "exchange": "Hyperliquid",
-  "status": "Connected",
+  "event_type": "STATUS",
+  "status": "CONNECTED",
   "message": ""
+}
+```
+
+### 3.7 `Liquidation`
+```json
+{
+  "exchange": "Hyperliquid",
+  "event_type": "LIQUIDATION",
+  "symbol": "BTC-USDT",
+  "side": "LONG",
+  "price": "64012.5",
+  "size": "0.15",
+  "timestamp_ms": 1752192000000
 }
 ```
 

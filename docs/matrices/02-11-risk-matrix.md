@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -73,7 +73,7 @@ Unlike the signed `[-1, 1]` scores of the Metrics/Analysis matrices, all Risk sc
 
 ## 4. Per-Dimension Assessment Contracts
 
-Each assessment starts from a baseline and adjusts by additive evidence. All final scores clamp to `[0, 100]`.
+Each assessment starts from a baseline and adjusts by additive evidence. Threshold tiers within a dimension are non-cumulative; only the highest satisfied tier applies (e.g. in §4.2, BBWP 95 yields +30, not +30 + 15 = +45). All final scores clamp to `[0, 100]`.
 
 ### 4.1 Market Risk (baseline 50)
 ```

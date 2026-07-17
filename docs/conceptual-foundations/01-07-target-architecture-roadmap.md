@@ -1,6 +1,6 @@
 # Target Architecture Roadmap
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical home for "Target Architecture (Not Yet Implemented)" callouts scattered across the corpus. It enumerates each target state, its current status, blocking requirements, and target version. Future revisions update this single document instead of duplicating target notes across layer docs.
 
@@ -10,14 +10,14 @@
 
 | Target | Current status | Blocking requirement | Target version | Owner |
 |--------|----------------|----------------------|----------------|-------|
-| **DOD hot-path (≥ 50,000 events/sec)** | Not started. Events flow as `NormalizedEvent`/`NormalizedCandle` structs with `Decimal` over Tokio mpsc. | Refactor L1 parser to write directly into pre-allocated flat arena buffers; replace `Decimal` arithmetic in L2/L3 hot path with `f64` slices; profile the SoA layout for cache locality. | Deferred (v6.1+) | DIE team |
-| **AoS → SoA candle history** | Not started. History is `Vec<NormalizedCandle>` (AoS). | Decide per-indicator strategy: SIMD-vectorize on SoA, or accept AoS for indicators that can't vectorize. | Deferred (v6.1+) | MME team |
-| **Zero-copy MME distribution** | Not started. Internal distribution uses cloned `MarketSnapshot` structs. | Establish a stable ABI between DIE and MME; introduce a binary-serialised intermediate format. | Deferred (v6.2+) | DIE + MME |
-| **Multi-venue failover** | Not supported. `SymbolMapper` binds each internal symbol to exactly one venue. | Define a "primary venue" model with N-second failover timeout; introduce cross-venue reconciliation (currently listed in [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) as `cross_venue_offset` but not implemented). | Deferred (no committed version) | DIE team |
-| **WASM per-instance connection-quality scoring** | Not started. Tracker is process-wide; target: per-(pair, timeframe). | Move tracker to a WASM module to isolate per-instance memory; profile overhead. | Deferred (v4.1 per `AUDIT-V4-078`) | DIE team |
-| **Pre-dispatch crash-recoverable persistence** | Not implemented. `PRE_DISPATCH` orders live in process memory only. | Add `pre_dispatch_orders` SQLite table; recovery path on daemon restart. | Deferred (v4.1 per `docs/CHANGELOG.md §Open Items`) | TAE team |
-| **caller-supplied `X-Operator-Id` identity** | Not implemented. v4.0 fixed identity = `local_operator`. | Auth contract; possibly mTLS for non-local callers. | Deferred (v5.0 per `AUDIT-V4-076`) | Cross-cutting |
-| **`cascade_risk_index` aggregation** | Placeholder field. Not aggregated into `systemic_risk_score`. | Define aggregation formula; produce L7 sample rows. | Deferred (v4.1) | PAE team |
+| **DOD hot-path (≥ 50,000 events/sec)** | Not started. Events flow as `NormalizedEvent`/`NormalizedCandle` structs with `Decimal` over Tokio mpsc. | Refactor L1 parser to write directly into pre-allocated flat arena buffers; replace `Decimal` arithmetic in L2/L3 hot path with `f64` slices; profile the SoA layout for cache locality. | Unscheduled | DIE team |
+| **AoS → SoA candle history** | Not started. History is `Vec<NormalizedCandle>` (AoS). | Decide per-indicator strategy: SIMD-vectorize on SoA, or accept AoS for indicators that can't vectorize. | Unscheduled | MME team |
+| **Zero-copy MME distribution** | Not started. Internal distribution uses cloned `MarketSnapshot` structs. | Establish a stable ABI between DIE and MME; introduce a binary-serialised intermediate format. | Unscheduled | DIE + MME |
+| **Multi-venue failover** | Not supported. `SymbolMapper` binds each internal symbol to exactly one venue. | Define a "primary venue" model with N-second failover timeout; introduce cross-venue reconciliation (currently listed in [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) as `cross_venue_offset` but not implemented). | Unscheduled | DIE team |
+| **WASM per-instance connection-quality scoring** | Not started. Tracker is process-wide; target: per-(pair, timeframe). | Move tracker to a WASM module to isolate per-instance memory; profile overhead. | Unscheduled (AUDIT-V4-078) | DIE team |
+| **Pre-dispatch crash-recoverable persistence** | Not implemented. `PRE_DISPATCH` orders live in process memory only. | Add `pre_dispatch_orders` SQLite table; recovery path on daemon restart. | Unscheduled (per [README §Feature Status](../README.md#feature-status)) | TAE team |
+| **caller-supplied `X-Operator-Id` identity** | Not implemented. v4.0 fixed identity = `local_operator`. | Auth contract; possibly mTLS for non-local callers. | Unscheduled (AUDIT-V4-076) | Cross-cutting |
+| **`cascade_risk_index` aggregation** | Placeholder field. Not aggregated into `systemic_risk_score`. | Define aggregation formula; produce L7 sample rows. | Deferred (v6.5) | PAE team |
 
 ---
 

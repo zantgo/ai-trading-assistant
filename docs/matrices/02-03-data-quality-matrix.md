@@ -1,8 +1,8 @@
 # Candle Quality Envelope Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
-**Engine:** Data Infrastructure Engine (DIE) (per-candle); Market Monitoring Engine (computation)
+**Engine:** Produced by DIE Layer 3 validation logic (executed inline in market-analyzer) and attached to the MME MarketSnapshot envelope.
 **Producing Layer:** Layer 3 — Data Quality Layer (DIE); layer name in code: `CandleQualityEnvelope`
 **Purpose:** This document defines the physical schema of the **per-candle quality envelope** — the integrity-checked candle with attached validity metadata that rides the `MarketSnapshot` payload. (v6.0 renamed the document from "Data Quality Matrix Specification" to "Candle Quality Envelope Specification" to disambiguate it from the per-instance `PipelineReliabilityMetrics` documented in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md).)
 
@@ -28,7 +28,7 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
 | `spike_detected` | `bool` | `true` if a price spike was filtered from this candle. |
 | `sequence_integrity` | `SequenceIntegrity` | `VALID` / `OUT_OF_ORDER` / `DUPLICATE`. |
 | `quality_score` | `f64` | Overall reliability metric in `[0, 100]`. |
-| `gap_since_last` | `u64` | Seconds since the last valid candle (0 = continuous). |
+| `gap_since_last` | `u64` | Seconds since the last valid candle (≤ timeframe_secs = continuous). |
 | `validated_at` | `u64` | Unix epoch of quality validation, in **milliseconds** (consistent with the canonical timestamp unit defined in [02-06-market-data-matrix.md §2](02-06-market-data-matrix.md)). |
 
 ---

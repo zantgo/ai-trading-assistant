@@ -1,6 +1,6 @@
 # MME Layer 3 — Analysis Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 3 of 7
@@ -83,14 +83,16 @@ Each is derived from a specific alignment dimension score (see [Analysis Matrix 
 
 | Assessment | Source dim | Vocabulary |
 |-----------|-----------|-----------|
-| Trend | 0 | `WEAK` / `DEVELOPING` / `HEALTHY` / `STRONG` / `EXHAUSTED` |
-| Momentum | 1 | `INCREASING` / `STABLE` / `WEAKENING` / `REVERSING` |
-| Volume | 2 | `WEAK` / `NORMAL` / `STRONG` / `EXCEPTIONAL` |
-| Volatility | 3 | `COMPRESSED` / `NORMAL` / `EXPANDING` / `EXTREME` / `UNSTABLE` |
-| Structure | 4 | `STRONG` / `HEALTHY` / `WEAK` / `BROKEN` / `UNCLEAR` |
+| Trend | 0 | `WEAK` / `DEVELOPING` / `HEALTHY` / `STRONG` / `EXHAUSTED` / `UNKNOWN` |
+| Momentum | 1 | `INCREASING` / `STABLE` / `WEAKENING` / `REVERSING` / `UNKNOWN` |
+| Volume | 2 | `WEAK` / `NORMAL` / `STRONG` / `EXCEPTIONAL` / `UNKNOWN` |
+| Volatility | 3 | `COMPRESSED` / `NORMAL` / `EXPANDING` / `EXTREME` / `UNSTABLE` / `UNKNOWN` |
+| Structure | 4 | `STRONG` / `HEALTHY` / `WEAK` / `BROKEN` / `UNKNOWN` |
 | Quality | mean(0,1,2,4) | `POOR` / `WEAK` / `AVERAGE` / `GOOD` / `EXCELLENT` |
 
 *Note: the `Opportunity` assessment was removed in the institutional redesign — `OpportunityType` is now produced by L4 (the [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md)) as a forecast field, not a state interpretation.*
+
+*Note: `UNKNOWN` is the empty-state sentinel admitted by every assessment enum (mirroring [02-02-analysis-matrix.md §3.5–3.8](../../matrices/02-02-analysis-matrix.md)); the Structure enum's former `UNCLEAR` value was renamed `UNKNOWN`, and enum values serialize as `SCREAMING_SNAKE_CASE`.*
 
 ---
 

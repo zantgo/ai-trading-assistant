@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -12,7 +12,7 @@
 |----------|-------|
 | Framework | Axum (Rust) on a Tokio runtime |
 | Base URL | `http://127.0.0.1:3000` (localhost only) |
-| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is see README §Feature Status. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
+| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = local_operator`. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
 | Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
 
 ### 1.0 Canonical glossary (Market Instance identifier)
@@ -25,7 +25,9 @@ Throughout this API and the corpus, three names refer to the same identifier:
 | SQLite schema column | `pair_key` | `connection_quality_samples.pair_key` |
 | Dashboard UI label | "Active pair" / "Market Instance" | "BTC-USDT (Hyperliquid)" |
 
-All three denote the same runtime container: a single trading pair (`pair_key` form: `BTC-USDT@Hyperliquid` or just `BTC-USDT` when exchange is unambiguous) on a single venue, with its own analyzer pipeline, telemetry stream, connection-quality tracker, and risk profile. The canonical identifier format on the wire is the **unified internal symbol** (e.g. `BTC-USDT`), with the exchange implied by the runtime configuration; `pair_key` extends it to `<symbol>@<exchange>` for unambiguous DB joins.
+All three denote the same runtime container — the **Market Instance**: a `(symbol, exchange)` pair (`pair_key` form: `BTC-USDT@Hyperliquid` or just `BTC-USDT` when exchange is unambiguous) on a single venue, owning up to four **TimeframePipelines** (one per configured timeframe tier), each with its own analyzer pipeline, telemetry stream, connection-quality tracker, and risk profile. The canonical identifier format on the wire is the **unified internal symbol** (e.g. `BTC-USDT`), with the exchange implied by the runtime configuration; `pair_key` extends it to `<symbol>@<exchange>` for unambiguous DB joins.
+
+> **TimeframePipeline.** The per-`(symbol, timeframe)` analytical unit owned by a Market Instance — one pipeline per configured timeframe tier (micro/fast/slow/macro; 60/180/300/900 s by default), each running its own ingestion → indicator → matrix cascade. Per-timeframe telemetry and matrices are always scoped `instance_id × timeframe_secs` (see §2.3).
 
 > **Cross-references.** This glossary is the single source of truth for the three names. Docs that previously used the three names interchangeably (e.g. `/api/connection-quality` formerly mixing `instance_id` and `pair_key`) now point here for resolution.
 
@@ -40,7 +42,7 @@ Every response uses one of the following status codes:
 | `204 No Content` | Successful mutation, no body |
 | `400 Bad Request` | JSON parse error, missing required field, malformed value |
 | `404 Not Found` | Unknown resource (unknown `instance_id`, unknown pair_key, etc.) |
-| `409 Conflict` | State conflict (e.g. duplicate symbol, paused instance cannot be reconfigured) |
+| `409 Conflict` | State conflict (e.g. duplicate symbol). Instances in lifecycle `PAUSED` state accept reconfiguration — the pipeline stays alive; Gate 0 blocks only new entries |
 | `422 Unprocessable Entity` | Semantic validation failure (e.g. operator override while veto condition still active) |
 | `500 Internal Server Error` | Unhandled server-side failure |
 | `503 Service Unavailable` | Engine not yet initialized, exchange connectivity down |
@@ -69,7 +71,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 
 ## 2. REST API Reference
 
-> **Per-instance matrices via WebSocket only.** The Decision Matrix, Analysis Matrix, Opportunity Matrix, Risk Matrix, and other per-Market-Instance MME outputs are delivered exclusively via the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint, because these matrices update on every completed candle and a polling REST surface would stale. Use `/ws?symbol=…&timeframe_secs=…` for live access; use `/api/history?symbol=…&timeframe_secs=…` for replay. Global aggregations (Overview Matrix) are also WebSocket-only.
+> **Per-instance matrices via WebSocket only.** The Decision Matrix, Analysis Matrix, Opportunity Matrix, Risk Matrix, and other per-Market-Instance MME outputs are delivered exclusively via the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint, because these matrices update on every completed candle and a polling REST surface would stale. Use `/ws?symbol=…&timeframe_secs=…` for live access; use `/api/history?symbol=…&timeframe_secs=…` for replay. Global aggregations (Overview Matrix) are also WebSocket-only; the aggregate payload includes `market_breadth.low_coverage` (`bool`, default `false` — `true` when fewer than 4 of 12 SignalKinds are enabled; schema in [`02-09-overview-matrix.md §3.2`](../matrices/02-09-overview-matrix.md)).
 
 ### 2.1 Session Management
 
@@ -206,7 +208,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the pre-v2.1 legacy alias `roi_percentage` was removed at v5.0). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the legacy export alias is deprecated — removal tracked as AUDIT-V4-044, target v6.5; retired name recorded in `docs/CHANGELOG.md`). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -225,10 +227,10 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
 | `GET` | `/api/pre-dispatch?instance_id=` | — | `{ items: PreDispatchOrder[] }` — every `PRE_DISPATCH` order matching the instance scope (or all instances if `instance_id` is omitted). `PreDispatchOrder { order_id, instance_id, pair_key, side, requested_size, estimated_slippage_pct, gate_reasons, held_since_ms }`. |
-| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local_operator"`; caller-supplied identity is see README §Feature Status. |
+| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local_operator"`; caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = local_operator`. |
 | `DELETE` | `/api/pre-dispatch/:id` | — | `204 No Content` (the held order is discarded without dispatch; the associated `risk_control_events` row is preserved). |
 
-`Pre-dispatch` orders are not persisted to the `open_orders` table (per [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)); They live only in process memory. An engine restart, crash, or process termination during the slippage-review window means the held order is lost on restart; only its gate decision survives in `risk_control_events`. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery. The future `pre_dispatch_orders` table for crash-recoverable persistence is on the v4.1 roadmap (see `docs/CHANGELOG.md`).
+`Pre-dispatch` orders are not persisted to the `open_orders` table (per [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)); They live only in process memory. An engine restart, crash, or process termination during the slippage-review window means the held order is lost on restart; only its gate decision survives in `risk_control_events`. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery. The future `pre_dispatch_orders` table for crash-recoverable persistence is unscheduled (see `docs/CHANGELOG.md`).
 
 ### 2.10 Exchange Keys (encrypted credentials)
 
@@ -239,6 +241,18 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `POST` | `/api/keys` | `{ exchange: string, api_key: string, api_secret: string, passphrase?: string }` | `201 Created` on insert. Body is **never** echoed back; `api_secret` and `passphrase` are stored encrypted with `EXCHANGE_SECRET_KEY` (AES-256-GCM). |
 | `GET` | `/api/keys?exchange=` | — | `{ items: [{ exchange, key_id, created_at, last_rotated_at }] }` (the encrypted credentials are **not** in the response). |
 | `DELETE` | `/api/keys/:key_id` | — | `204 No Content` |
+
+### 2.11 Planned endpoints (not yet served)
+
+The following routes are **specified but not yet served** — the Phase-3 REST handlers are tracked as AUDIT-V6-301 (target v6.5) and the key-rotation routes as AUDIT-V6-077 (Unscheduled). They are listed here for forward planning only and are not part of the served surface above: today they return `404 Not Found` per §5. Do not build clients against them.
+
+| Method | Path | Planned purpose |
+|--------|------|-----------------|
+| `GET` | `/api/system/clock` | NTP clock-monitor state (drift budget, last poll, breach action). |
+| `GET` | `/api/exchange-status` | Per-exchange connectivity status. |
+| `GET` | `/api/data-quality` | Ingestion data-quality summary (gaps, reconstructed candles). |
+| `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). |
+| `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. |
 
 ---
 
@@ -268,7 +282,7 @@ Every server→client frame:
 }
 ```
 
-The `snapshot` field is the serialized `MarketSnapshot` schema defined in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md). Every top-level field is present on the wire: `indicators`, `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context`, `context`, `liquidity`, `cluster`, `liquidity_signals`, `statistical_context`, `risk_profile` (each is `Option::None` or empty-object as appropriate). Both `is_completed = true` completed snapshots and `is_completed = false` shadow snapshots ride the same channel; shadow snapshots are display-only and never enter the L4/L5/L6 synthesis cascade.
+The `snapshot` field is the serialized `MarketSnapshot` schema defined in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md) — fields per 02-07 §2.1 (MANIFEST gate G13). Both `is_completed = true` completed snapshots and `is_completed = false` shadow snapshots ride the same channel; shadow snapshots are display-only and never enter the L4/L5/L6 synthesis cascade.
 
 Key properties:
 - No `id` field (notification — no response expected).
@@ -281,7 +295,7 @@ Key properties:
 
 The shared crate (`crates/core-domain/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.
 
-The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the local-operator identity (see §1) — `local_operator` in v4.0, caller-supplied via `X-Operator-Id` header in v5.0.
+The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the local-operator identity (see §1) — `local_operator` today; caller-supplied identity via the `X-Operator-Id` header is deferred (see `docs/CHANGELOG.md` Open Items).
 
 ---
 
@@ -307,7 +321,7 @@ The `operator_id` field on internal `execution.*` and `safety.*` control frames 
 ## 6. Cross-References
 
 - [Database Schema](06-02-database-schema-spec.md) — Persistent state; persistent `risk_control_events` table (§3.10); encrypted `exchange_keys` table (§3.5); canonical `order_fills` table (§3.7); `open_orders` lifecycle (§3.2).
-- [UI Overview](../ui-ux/07-01-ui-overview-spec.md) — Frontend consumption and `instance.timeframes.{micro|fast|slow|macro}` demux shape.
+- [UI Overview](../ui-ux/07-01-ui-overview-spec.md) — Frontend consumption and the `microTerm` / `fastTerm` / `slowTerm` / `macroTerm` demux shape (07-01 §2.3).
 - [Systemic Data Flow](../conceptual-foundations/01-03-systemic-data-flow.md) — Sequence diagrams for the engine pipeline.
 - [Pre-Trade Risk Controls](../operations-and-compliance/08-02-pre-trade-risk-controls.md) — Gate ordering and override semantics for `/api/pre-dispatch/*` and `/api/orders/:id/override-readiness`.
 - [Connection Quality](../operations-and-compliance/08-05-connection-quality.md) — `/api/connection-quality` scope (instance × timeframe) and score formula.

@@ -1,8 +1,8 @@
-# Documentation Consistency Manifest — v6.2
+# Documentation Consistency Manifest — v6.4
 
 **Generated:** 2026-07-17
-**Audit run:** v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete)
-**Scope:** `docs/` — 138 markdown files at v6.2 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 135 numbered docs)
+**Audit run:** v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation). Prior run: v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete).
+**Scope:** `docs/` — 138 markdown files at v6.4 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 135 numbered docs)
 **Source code:** **Inspected.** v6.2 is the first manifest version where the doc audit covers the per-instance `LifecycleState` axis (RUNNING / PAUSED / STOPPING / STOPPED) and the new Gate 0 (lifecycle) in the pre-trade chain.
 **v6.2 source-of-truth:** `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` (introduced in v6.2). All lifecycle-table and Gate-0 ordering claims in this manifest are verified against that document.
 **v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
@@ -11,7 +11,7 @@
 
 ## 1. Verdict
 
-The corpus is **internally consistent and free of HIGH-severity issues** as of v5.0. The v2.x audit register (18 HIGH-severity inconsistencies surfaced in the pre-v4.0 audit) is closed; the canonical deferred-work tracker is in `docs/CHANGELOG.md §Open Items`. The v4.0 closure pattern was: edit the corpus first, then record each issue under `AUDIT-V4-NN` in the changelog, never the reverse. The "AI-correction notes stapled over stale cells" pattern documented in the pre-v4.0 audit is fully eliminated from normative sections; the only remaining audit-marker identifiers (`AUDIT-V4-NN`, `MAT-NN`, `SIG-NN`, `Issue NN`) live in `docs/CHANGELOG.md` and the historical-narrative footnotes that document what was wrong and why the current text is correct. v6.2's v5.0-→v6.2 additions (instance-lifecycle spec + Gate 0 + scoped-enum rule) are verified by §12.11.
+The corpus is **internally consistent and free of HIGH-severity issues** at v6.4; this verdict is re-verified by the release gates in §12 on every release. The v2.x audit register (18 HIGH-severity inconsistencies surfaced in the pre-v4.0 audit) is closed; the canonical deferred-work tracker is in `docs/CHANGELOG.md §Open Items`. The v4.0 closure pattern was: edit the corpus first, then record each issue under `AUDIT-V4-NN` in the changelog, never the reverse. The "AI-correction notes stapled over stale cells" pattern documented in the pre-v4.0 audit is fully eliminated from normative sections; the only remaining audit-marker identifiers (`AUDIT-V4-NN`, `MAT-NN`, `SIG-NN`, `Issue NN`) live in `docs/CHANGELOG.md` and the historical-narrative footnotes that document what was wrong and why the current text is correct. v6.2's v5.0-→v6.2 additions (instance-lifecycle spec + Gate 0 + scoped-enum rule) are verified by §12.11.
 
 ---
 
@@ -41,7 +41,7 @@ docs/
 Engine specs: 34 = 6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE.
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep against the corpus; zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
 
 ---
 
@@ -67,6 +67,29 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 
 ## 4. Phase-12 Verification Checklist Results
 
+### 12.0 Release gates (G1–G16)
+
+The following gates run on every release. The v6.4 result column is filled in by the orchestrator after each gate run.
+
+| Gate | Rule | Mechanical check | v6.4 result |
+|---|---|---|---|
+| G1 | Version coherence (D2): the corpus version appears simultaneously in the README stats line, the CHANGELOG top entry, the MANIFEST title, and every numbered-doc `**Version:**` stamp | grep `**Version:**` stamps + version strings in README / CHANGELOG / MANIFEST title | PASS (2026-07-17) |
+| G2 | File-count invariant: 138 = 135 numbered + 3 governance | filesystem count vs §2 inventory | PASS (2026-07-17) |
+| G3 | CSR duplication scan: each normative table registered in §13 appears exactly once; all other mentions are links | grep normative table headers outside the owning document | PASS (2026-07-17) |
+| G4 | Canonical scenario recompute: scripted recomputation of the chain `02-01` §6 (seed) → `02-02` §5 → `02-08` §7 → `01-01` §A.2–A.7 | recompute script over the chain's section formulas | PASS (2026-07-17) |
+| G5 | Enum cardinality & band tiling scan: cardinalities per §12.2; bands tile their domains with no gaps/overlaps | script over enum tables and band tables | PASS (2026-07-17) |
+| G6 | Enum-casing lint: enums serialize SCREAMING_SNAKE_CASE in JSON examples (PascalCase only when citing Rust types in prose) | lint JSON example blocks | PASS (2026-07-17) |
+| G7 | TOML-fence lint: every fenced `toml` code block parses as TOML | parse all `toml` fences | PASS (2026-07-17) |
+| G8 | Stale-target scan: no `target: vX` with X < current corpus version, including the CHANGELOG §Open Items table | grep `target: v` corpus-wide | PASS (2026-07-17) |
+| G9 | Placeholder scan: no `<placeholder>`, `TODO`, `TBD` outside the CHANGELOG | grep | PASS (2026-07-17) |
+| G10 | API-path coverage: every `/api/*` path referenced anywhere in the corpus is documented in `06-01` §2 as served or listed in `06-01`'s "Planned endpoints" section | diff grep-extracted paths vs `06-01` §2 | PASS (2026-07-17) |
+| G11 | Audit-ID existence: every `AUDIT-*` cited outside the CHANGELOG resolves to a CHANGELOG §Open Items row | cross-reference grep | PASS (2026-07-17) |
+| G12 | Nonsense-phrase scan: no "deadlock"; no "formerly called X" where X is the current name | grep (normative sections; CHANGELOG audit trail excluded) | PASS (2026-07-17) |
+| G13 | Appendix-A ≡ `02-07` §2.1 field-set diff (ontology Appendix A is an illustrative worked example derived from the wire schema) | scripted field-set diff | PASS (2026-07-17) |
+| G14 | Relative-link existence: every internal markdown link resolves | link checker | PASS (2026-07-17) |
+| G15 | DDL ↔ index-name agreement (`06-02` §2 index catalog vs §3.x DDL `CREATE INDEX` statements) | scripted name diff | PASS (2026-07-17) |
+| G16 | Open-item target validity: every CHANGELOG §Open Items row carries a target ≥ current corpus version or the literal word "Unscheduled" | parse CHANGELOG §Open Items table | PASS (2026-07-17) |
+
 ### 12.1 Cross-reference integrity
 - [x] Every internal markdown link resolves. (Manual scan; broken-link detector passes for the 18 file-tree spanning the corpus.)
 - [x] No `§3.7 weights`-style references to non-existent sections. The previously broken reference in `02-04-decision-matrix.md §6` is replaced by `02-04-decision-matrix.md §2.3` (the new `confluence_score` formula), and the file owns its own headline score formula.
@@ -79,7 +102,7 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 - [x] **9 Divergence declarations** (8 nested `supports_divergence: true` + 1 standalone `oi_price_divergence`)
 - [x] **8 Risk sub-dimensions + `overall_risk`** = 9 fields (Weights: `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C` = `0.70 + 0.30 = 1.00`)
 - [x] **10 alignment dimensions**; dim 9 = `tradability` (renamed from `opportunity`)
-- [x] **8 MarketRegime / 5 MarketBias / 4 MarketPhase / 5 QualityLevel**
+- [x] **8 MarketRegime / 5 MarketBias / 4 MarketPhase phases + UNKNOWN sentinel / 5 QualityLevel** — MarketPhase serializes 4 phases; UNKNOWN is the empty-state sentinel, not a fifth phase. The four assessment enums (Trend / Momentum / Volatility / Volume Assessment) each include an UNKNOWN empty value; StructureAssessment's empty value is UNKNOWN.
 - [x] **6 StrategyEnvironment / 5 ProtectionStrategy / 5 TargetStrategy**
 - [x] **2 distinct drawdown metrics** (`max_daily_drawdown_pct` 5 % early-warning vs `drawdown_limit_pct` 30 % hard veto)
 - [x] **Sizing formula** `S = (E × R) / (D_sl / 100)` with `E = available_margin`, `R = risk_per_trade_pct / 100`, `D_sl = stop_loss_distance_pct` (raw percent float) — present and consistent across `01-00 §8.7`, `01-02 §6.3`, `03-03-01 §6`, `03-03-03 §2`, `03-03-04 §6`, `03-04-04 §4.2`, `08-02 Gate 4`
@@ -92,7 +115,7 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 - [x] `01-01 §A.6` `expected_reward_risk_ratio = 1.79` from `(expected_rr_internal=2.5, overall_risk=28.3)`: `2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.7925` ✓. *Verified: 2026-07-17.*
 - [x] `02-04 §6` worked example (Scenario B) — recomputed under `confluence_score = 0.50·100 + 0.30·100 + 0.20·85 = 97.0` (max feasible) and the L6 `confidence_assessment = 71.7` ✓. *Verified: 2026-07-17.*
 - [x] `02-04-decision-matrix.md §3.6/§3.7` `NO_RECOMMENDATION` is reached on the empty-state fallback (full coverage of all 5 variants per enum) ✓
-- [x] `08-05 §Composite Score` worked example: `50×0.95 + 30×(1−0.8) + 20×(1−0.4) − 5×min(120/600,1) − 5×min(40/100,1) = 47.5 + 6 + 12 − 1.0 − 2.0 = 62.5` ✓. *Verified: 2026-07-17.*
+- [x] `08-05 §Composite Score` worked example: `50×0.95 + 30×(1−0.8) + 20×(1−0.4) − 5×min(300/600,1) − 5×min(50/100,1) = 47.5 + 6 + 12 − 2.5 − 2.5 = 60.5` ✓. *Verified: 2026-07-17.*
 - [x] `01-02 §6.3` `expected_reward_risk_ratio = 2.5 × (1 − 0.283) = 1.79` ✓
 - [x] `01-02 §2.2` clock-drift boundary: `:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000` — all integer epoch multiples ✓
 
@@ -100,17 +123,19 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 - [x] Zero occurrences of `:59.999` as a candle-close time — the only remaining mention in the corpus is the *forbidden-convention* explanation in `01-04-timeframe-model.md §3.1` and `08-06-clock-monitor.md §Purpose` ("**The boundary is the integer epoch multiple — never `:MM:59.999`**").
 - [x] All candle-boundary examples use `:MM:00.000` (integer epoch multiple).
 - [x] Slippage ceiling uses strict `>` (the v4.0 change from `≥` is reflected in `08-02 §2` and `08-02 §3`).
-- [x] Half-open banding preserved. `entry_danger.score = 20.0` now correctly maps to `LOW` (half-open `[20, 40)`), not `VERY_LOW`.
+- [x] **Uniform band convention (canonical).** All score→label bands are lower-inclusive half-open `[a, b)` — risk levels, `entry_danger`, quality levels, and SetupQuality bands alike. Canonical boundary examples: `entry_danger.score = 20.0` → `LOW` (`[20, 40)`, not `VERY_LOW`); `setup_quality score = 85.0` → `PRIME` (PRIME ≥ 85). Sole documented exception: the `MarketBias` NEUTRAL band is the closed interval `[-20, 20]`. No claim of a different band orientation survives in the corpus.
 
 ### 12.5 Liquidity & risk
 - [x] `cascade_asymmetry > 0` ⇒ `SHORT_SQUEEZE_RISK`; `< 0` ⇒ `LONG_SQUEEZE_RISK`. Verified in `02-13-liquidation-cluster-matrix.md §Cascade asymmetry` (canonical) and `07-04-ui-liquidity-panel-spec.md §Cascade asymmetry sign convention (canonical mapping)` (UI); the worked example in `07-04` now reads `Sign: -0.400  Direction: LONG_SQUEEZE_RISK` (was the inverted `SHORT_SQUEEZE_RISK`).
 - [x] Canonical `LIQUIDITY_*` signal names used everywhere (Phase 3 LiquidityPanel example) ✓
 - [x] `cascade_risk` is the **8th** of the eight sub-dimensions (plus `overall_risk` as the 9th aggregate field). The textual reference at `03-02-06 §7` ("plus `overall_risk` as the 9th and final aggregate field") is correct; no surviving "9th dimension" error.
-- [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred to v4.1 per `01-05 §Open questions`).
+- [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred to v6.5 per CHANGELOG §Open Items `AUDIT-V4-005`).
+- [x] **Liquidity data-flow invariant (pinned).** `L1.5 → {L4, L5}; L2.5 → {L4, L5}; L4 + L5 → L6`.
+- [x] **Instance identity (canonical register).** Market Instance = (symbol, exchange) container of up to four TimeframePipelines; canonical glossary: `06-01` §1.0. All other documents link to the glossary instead of restating the definition.
 
 ### 12.6 Auth / audit / operator
 - [x] `local_operator` identity model documented once in `06-01 §1` with cross-references from `06-01 §2.4` (override endpoints), `06-01 §2.9` (pre-dispatch), `06-01 §3.3` (WS control frames), `06-02 §3.10` (`risk_control_events.operator_id` column). The legacy "Authentication: None" bare assertion is replaced by the explanatory "local-operator identity model" paragraph.
-- [x] Caller-supplied identity via `X-Operator-Id` header is on the v5.0 roadmap (deferred).
+- [x] Caller-supplied identity via `X-Operator-Id` header is deferred (AUDIT-V4-076, Unscheduled).
 
 ### 12.7 HTTP & API contract
 - [x] `/ws` payload has a normative reference to `02-07-metrics-matrix.md §2.1`. The legacy `/* MarketSnapshot */` placeholder is replaced by the inline comment `MarketSnapshot — byte-for-byte per 02-07-metrics-matrix.md §2.1` plus the canonical reference.
@@ -119,9 +144,12 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 - [x] `/api/pre-dispatch` resource complete: `GET /api/pre-dispatch`, `POST /api/pre-dispatch/:id/approve`, `DELETE /api/pre-dispatch/:id`; `operator_id` field captured.
 - [x] HTTP status & error envelope documented (`200/201/204/400/404/409/422/500/503`; `{ error: { code, message, details, request_id, documentation_url } }`).
 - [x] SPA fallback scoped to non-`/api/*` paths (§5 in `06-01`).
+- [x] **API-path coverage (re-scoped, v6.4).** Every `/api/*` path referenced anywhere in the corpus is documented in `06-01` §2 — either as a served endpoint or as an entry in `06-01`'s "Planned endpoints" section (gate G10).
 
 ### 12.8 DB schema
-- [x] Header inventory reconciles with §3 catalog (26 active tables; `individual_indicator_logs` removed from header; `open_orders` added; `risk_control_events` and `order_fills` activated as live in v4.0).
+- [x] Header inventory reconciles with §3 catalog (26 active tables; `individual_indicator_logs` removed from header; `open_orders` added; `risk_control_events` and `order_fills` activated as live in v4.0; 26-table arithmetic per the retained/added mapping note in `06-02` §3.11).
+- [x] `open_orders.is_emergency_liquidation` exists in `06-02` §3.2 (`INTEGER NOT NULL DEFAULT 0`, `CHECK (is_emergency_liquidation IN (0,1))`) — closes the emergency-liquidation audit gap for in-flight orders.
+- [x] **Gate:** every column cross-referenced from an engine spec exists in the `06-02` DDL (name-grep of cited columns against the §3.x table definitions).
 - [x] All `id` PKs use `INTEGER PRIMARY KEY AUTOINCREMENT` per the canonical SQLite notation.
 - [x] `open_orders` state vocabulary matches Execution Matrix lifecycle (`PENDING/SUBMITTED/OPEN/PARTIALLY_FILLED/CLOSED/REJECTED/CANCELLED`).
 - [x] `risk_control_events` table present with required columns (`event_id`, `gate_id`, `decision`, `operator_id`, `prior_state`, `resulting_state`, `timestamp_ms`, `retention_until_ms`).
@@ -145,16 +173,16 @@ File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-0
 - [x] Zero literal source-line citations (`crates/...rs:N` or `crates/...rs::func(...)`). Module-path cross-references (e.g. `crates/market-analyzer/src/indicators/registry.rs`) are retained as cross-doc identifiers (these are module paths, not line numbers).
 - [x] Subjective adjectives in algorithmic specs are limited to "default" (e.g. "the default ladder is micro 60 s / fast 180 s / slow 300 s / macro 900 s"), "deterministic", and "canonical" — none of the "most defensible" / "best forward-looking" / "robust" / "comprehensive" filler.
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
-### 12.11 File-count invariant
+### 12.11 v6.2 additions verification (file-count invariant, scoped-enum rule, Gate-0 ordering)
 
 - [x] `docs/` contains **138** files at v6.2 (137 + new `03-03-06-tae-instance-lifecycle-spec.md`).
 - [x] `docs/README.md` total-count line updated to **138** and the directory map carries the new file entry.
-- [x] **Scoped-enum rule (v6.2, new).** Enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (stance and safety — pre-existing) never co-refer. The canonical rule is documented in [03-03-06 §6](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). On first use in any document section, the axis is qualified (`instance PAUSED`, `policy AUTO_PAUSED`). Verified by `grep -rE "(PAUSED|AUTO_PAUSED|SUSPENDED)" docs/`; no bare `PAUSED` outside a qualified context.
+- [x] **Scoped-enum rule (v6.2, new).** Enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (safety axis — pre-existing) never co-refer. The canonical rule is documented in [03-03-06 §6](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). On first use in any document section, the axis is qualified (`instance PAUSED`, `policy AUTO_PAUSED`). Verified by `grep -rE "(PAUSED|AUTO_PAUSED|SUSPENDED)" docs/`; no bare `PAUSED` outside a qualified context.
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
 
-- [x] Every numbered doc carries `**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep (the v5.0 stamps have all been rolled forward to v6.2; the v5.0 entry in `CHANGELOG.md` is historical).
-- [x] `docs/README.md` and `docs/CHANGELOG.md` are the only two files permitted to use a "version" stamp outside this convention (`README.md` is the entry point and carries "v2 platform-summary" wording in the historical reference; `CHANGELOG.md` is the canonical single version history).
+- [x] Every numbered doc carries `**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
+- [x] Exactly three files are permitted to carry a version marker outside the numbered-doc stamp convention: `docs/README.md` (stats line; the corpus entry point), `docs/CHANGELOG.md` (the canonical single version history), and this MANIFEST (the title line). All four coherence points must read the current corpus version.
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 
 ### 12.13 v5.0 physical-layout audit (new in v5.0)
@@ -183,7 +211,7 @@ Grep counts for the canonical renames (post-v4.0 corpus):
 | `expected_rr_internal` (L4) | 4 | distinct from `expected_reward_risk_ratio` (L6) |
 | `expected_reward_risk_ratio` (L6) | 6 | no `expected_rr_ratio` abbreviation (H-10 fix) |
 | `invalidation_level` (L4 / L6 / Position Matrix) | 6 | no `invalid_level` or `final_invalidation_level` survivors (H-11 fix) |
-| `execution_liquidity_risk` (L5) | 9 | no `liquidity_risk` survivors |
+| `execution_liquidity_risk` (L5) | 9 | no normative `liquidity_risk` survivors; one documented serde alias remains in `01-05` (backward compatibility) |
 | `cascade_risk` (L5, 8th sub-dim) | 15 | no "9th dimension" survivors |
 | `tradability_dim` (Alignment dim 9) | referenced | no `Opportunity` survivors |
 | `CompressionRelease` (SignalKind) | full coverage | no `VolatilityCycle` survivors in normative text |
@@ -217,11 +245,11 @@ Per the Phase-12 checklist above, v4.0 is declared **internally consistent**:
 - **UI:** the LiquidityPanel sign convention matches canonical; the CSS Modules pattern has a normative example block; the dashboard Composition panel and Analysis panel match the schema.
 - **Authoring:** zero inline audit markers in normative sections; zero literal source-line citations; subjective adjectives in algorithmic specs are reduced to mechanical defaults.
 
-### 12.13 v6.3 verification rows
+### 12.14 v6.3 verification rows
 
 The following rows are verified at every release (first verified 2026-07-17 for v6.3):
 
-1. **Canonical worked example recomputes end-to-end** ✓ (Appendix-1 chain: 02-01 §6 → 02-02 §5 → 02-08 §7 → 02-04 §6 → 01-01 §A.1–A.7; all values recomputed against section formulas)
+1. **Canonical worked example recomputes end-to-end** ✓ (chain: 02-01 §6 (seed) → 02-02 §5 → 02-08 §7 → 01-01 §A.2–A.7; all values recomputed against section formulas. 02-04 §6 Scenario B and 02-09 §6 are explicitly independent boundary examples, excluded from the chain)
 2. **File inventory regenerated from filesystem** ✓ (138 files; counts by directory match; totals arithmetic verified)
 3. **Sign conventions** ✓ (`cascade_asymmetry` mapping identical in all docs; grep `SQUEEZE_RISK` — all non-deprecated mappings match 02-13)
 4. **Endpoint semantics** ✓ (each endpoint string appears with exactly one semantic description; grep `DELETE /api/instances/by-pair`, `POST /api/instances/:id/manual/close`, `DELETE /api/pre-dispatch/:id`)
@@ -232,4 +260,42 @@ The following rows are verified at every release (first verified 2026-07-17 for 
 9. **Enum casing** ✓ (all JSON examples serialize enums SCREAMING_SNAKE_CASE; PascalCase limited to Rust-internal prose)
 10. **Reachability** ✓ (for every derivation rule table — MarketStance, DirectionalGuidance, TradeReadiness, SetupQuality, PerformanceClassification — witness inputs exist for every enum value; bands tile the domain with no gaps/overlaps)
 
-This manifest is the v4.0 closure record refined through v6.3. The Phase-12 checklist above was re-verified at v6.3; §12.13 items were added. Future revisions (v6.4, v7.0, …) must append to `docs/CHANGELOG.md` and re-run the Phase-12 checklist + §12.13 rows; §Open Items in the changelog tracks forward work.
+This manifest is the v4.0 closure record refined through v6.4. The Phase-12 checklist above was re-verified at v6.3; the §12.14 rows were added at v6.3 and the §12.0 release gates (G1–G16) at v6.4. Future revisions (v6.5, v7.0, …) must append to `docs/CHANGELOG.md` and re-run the Phase-12 checklist + §12.0 gates + §12.14 rows; §Open Items in the changelog tracks forward work.
+
+---
+
+## 13. Canonical Source Registry (CSR) & Terminology Register
+
+Any normative table found in two places is by definition a defect. Every concept below has exactly one canonical owner; everything outside the owning document **links** to the owner instead of copying. Gate G3 enforces the single-appearance rule.
+
+### 13.1 Canonical Source Registry
+
+| Concept | Canonical owner | All other mentions |
+|---|---|---|
+| Matrix wire schemas | `matrices/02-*` | Link only — including ontology Appendix A (demoted to illustrative worked example) |
+| Setup-quality bands | `02-08` §5 | Link only |
+| Readiness / protection / target rules | `02-04` §4, §3.6, §3.7 | Link only |
+| Confidence hierarchy & scales | `02-00b` | Link only |
+| Dependency edges | `02-00` §5 | Link only |
+| Glossary / identity terms | `06-01` §1.0 | Link only |
+| Supervisor retry rules | `08-03` | Link only |
+| CQ persistence DDL | `06-02` §3.9 | Link only |
+| `open_orders` DDL | `06-02` §3.2 | Link only |
+| Enum cardinalities | this registry (§12.2) | Link only |
+| Feature status | `README.md` §Feature Status | Forbidden elsewhere |
+| History / renames | `CHANGELOG.md` | Link only |
+| Canonical scenario | `02-01` §6 (seed) + derived chain `02-02` §5 → `02-08` §7 → `01-01` §A.2–A.7 | Link only |
+
+### 13.2 Terminology register (canonical forms)
+
+- **Market Instance** = (symbol, exchange) container of up to four TimeframePipelines; `instance_id = <symbol>@<exchange>`. Canonical glossary: `06-01` §1.0.
+- **Enum serialization:** SCREAMING_SNAKE_CASE on the wire and in JSON examples; PascalCase only when citing Rust types in prose.
+- **Empty-state sentinel:** UNKNOWN for every assessment/phase enum (MarketPhase = 4 phases + UNKNOWN).
+- **Confidence scales:** indicator/signal [0, 1]; alignment/risk dimension [0, 100]; pipeline-level per `02-00b`.
+- **Matrix names** per the CSR above — "Data Quality Matrix" is retired (`CandleQualityEnvelope` + `PipelineReliabilityMetrics`).
+- **"Decoupled Producer/Consumer"** replaces "Zero Shared State".
+- **"level-2 order book"** is spelled out (never "L2" for book depth).
+- **UI engine label** ANALYTICS (not ANALYSIS).
+- **Reconnect unit:** "cycle" (full backoff sequence) vs "failure" (one attempt).
+- **API placeholder style:** `:id`.
+- **Band convention:** lower-inclusive half-open `[a, b)` per §12.4, with the single `MarketBias` NEUTRAL `[-20, 20]` exception.

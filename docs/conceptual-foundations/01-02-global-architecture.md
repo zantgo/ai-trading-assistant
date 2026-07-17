@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 ---
@@ -55,7 +55,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 #### Layer 3: Data Quality Layer
 *   **Purpose:** Enforce data integrity and detect stream anomalies.
 *   **Processing:** Audit historical sequences for missing bars, parse for stale tick values, filter spikes, and drop out-of-order ticks and count them in `out_of_order_dropped` (late trades on closed candles are never merged retroactively — see 03-01-04-die-layer3-data-quality.md §3).
-*   **Output (Data Quality Matrix):** Sanitized, gap-filled market datasets paired with reliability metrics.
+*   **Output (CandleQualityEnvelope + PipelineReliabilityMetrics):** Sanitized, gap-filled market datasets paired with reliability metrics.
 
 #### Layer 4: Data Distribution Layer
 *   **Purpose:** Route verified data streams to downstream system consumers.
@@ -228,6 +228,8 @@ Engines maintain high operational efficiency by communicating through strictly d
   +------------------+
 ```
 
+> **Price fan-out edges (not drawn above).** Three real edges complement the matrix cascade: **DIE → TAE** (mid-price: paper fills + lifecycle automation), **DIE → PME** (mark prices), and **MME → PME** (Decision Matrix invalidation levels). Matrices flow DIE→MME only; prices fan out from DIE to TAE/PME.
+
 ### 3.1 Unidirectional Stream Cascade
 The platform prohibits bidirectional dependency chains. Execution details do not influence market interpretation; instead, normalized telemetry cascades forward. If a downstream engine requires information from an upstream engine, it subscribes to that engine's published, read-only matrix stream.
 
@@ -236,7 +238,7 @@ Engines interact using two communication methods:
 1.  **Publish/Subscribe (Event Stream):** Used for real-time, continuous streams of data (such as sending ticks from DIE, decision matrices from MME, or position valuations from PME).
 2.  **Request/Response (Service Call):** Used for single operations or specific state queries (such as dispatching an order packet or retrieving portfolio parameters).
 
-### 3.3 Zero Shared State
+### 3.3 Decoupled Producer/Consumer
 Engines must run in separate memory structures or isolated processes. No engine is permitted to query another engine's private database tables or manipulate its internal runtime variables. All exchange of information is governed strictly by the public matrices defined.
 
 > **Documented exception: TAE–PME in-process sizing query.** The TAE Execution Layer and the PME Capital Layer share state via an in-process `tokio::sync::RwLock` over the in-memory `Capital Matrix` (no IPC, no SQLite round-trip on the sizing hot path). This is a deliberate latency-driven compromise — the Position Sizing Protocol must complete in microseconds, which is incompatible with cross-process RPC or DB round-trips. See [03-03-03-tae-layer2-execution.md §2.0](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) for the synchronization contract. Migration to out-of-process isolation is on the post-v2.2 roadmap.
@@ -308,7 +310,7 @@ Both modes write metrics, signals, orders, and execution events to a shared SQL/
 
 To illustrate the complete pipeline in practice, below is the sequence of events that occurs when a market movement triggers a trade and is subsequently logged by the analytics engine:
 
-1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and broadcasts the updated **Market Data Matrix**.
+1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and the *Distribution Layer* publishes the validated candle — fanning it out to the MME, the UI, and the telemetry logger as the updated **Market Data Matrix**.
 2.  **Telemetry:** The Market Monitoring Engine (MME) receives the update. The *Metrics Layer* recalculates indicators and detects signals, immediately projecting them onto their respective multi-dimensional Evaluation Axes (e.g., extracting State, Direction, Strength, and Quality) and updating the **Metrics Matrix**.
 3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, slow, and macro time horizons, updating the **Alignment Matrix**.
 4.  **Diagnosis:** The *Analysis Layer* confirms a transition to a `TRENDING_BULL` regime under a `STRONG_BULLISH` bias (with a `Market Bias Score: +0.82`), updating the **Analysis Matrix**.

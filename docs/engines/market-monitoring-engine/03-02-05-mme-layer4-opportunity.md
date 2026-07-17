@@ -1,6 +1,6 @@
 # MME Layer 4 — Opportunity Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 4 of 7
@@ -62,17 +62,7 @@ The **primary opportunity** is determined by the priority-ordered decision tree 
 
 ## 4. Setup-Quality Classification
 
-**Strict half-open intervals** — each `opportunity_score ∈ [0, 100]` maps to exactly one SetupQuality band, no endpoint ambiguity:
-
-| SetupQuality | Score band | Interpretation |
-|--------------|------------|----------------|
-| `Prime` | `> 85` | High-conviction configuration, all key preconditions met. |
-| `Strong` | `> 70 AND ≤ 85` | Robust setup with minor gaps. |
-| `Moderate` | `> 50 AND ≤ 70` | Tradable but requires confirmation. |
-| `Marginal` | `> 30 AND ≤ 50` | Weak edge; confluence-only. |
-| `None` | `≤ 30` | No actionable opportunity. |
-
-The canonical form (above) matches [Opportunity Matrix §5](../../matrices/02-08-opportunity-matrix.md) and [01-01-ontology.md §A.4](../../conceptual-foundations/01-01-ontology.md). A previous version of this table used `[85, 100]`, `[70, 85]`, etc. — these closing both ends created two-band ambiguity at boundaries (e.g. a score of `85` would satisfy both `Prime` and `Strong` simultaneously). The strict half-open form eliminates this.
+The canonical SetupQuality score→label bands are defined in [Opportunity Matrix §5](../../matrices/02-08-opportunity-matrix.md) (see also [01-01-ontology.md §A.4](../../conceptual-foundations/01-01-ontology.md)); this layer does not re-define them. The bands are lower-inclusive half-open intervals `[a, b)` — `Prime` ≥ 85, `Strong` [70, 85), `Moderate` [50, 70), `Marginal` [30, 50), `None` < 30 — so each `opportunity_score ∈ [0, 100]` maps to exactly one band, no endpoint ambiguity.
 
 ---
 

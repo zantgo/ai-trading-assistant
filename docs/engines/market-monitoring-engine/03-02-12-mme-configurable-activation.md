@@ -1,6 +1,6 @@
 # Configurable Data Activation — Architecture Spec
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** MME (Layer 1 pipeline)
 **Owner:** market-analyzer crate (docs/engines/market-monitoring-engine/)
@@ -43,7 +43,7 @@ Three layers must never be conflated:
 | CA-12 | Wire block: `MarketSnapshot.metrics_config` — **omitted entirely when defaults apply** (all enabled) ⇒ current frames are byte-identical; backward compatible. `config_version` is a new AppConfig field (NOT the SQLite `user_version` PRAGMA). |
 | CA-13 | Attribution: `metrics_config.config_version` + the disabled lists persist with the snapshot (`market_snapshots.metrics_config_json`) and are copied onto decision/trade telemetry; PAE joins on `config_version`. |
 | CA-14 | Registry invariant: the **50-indicator / 12-SignalKind / 100-declaration** registry describes **capability** and never changes with config. Activation is a runtime config concern; the registry manifest is invariant. |
-| CA-15 | Liquidity chain: `[liquidity]` master switch + sub-toggles `liquidation_feed`, `cluster_estimation`, `signals` (all default true). Master off ⇒ L1.5/L2.5/Phase-3 off ⇒ `liquidity`/`cluster`/`liquidity_signals` absent, `cascade_risk` NO_DATA (confidence 0), `LiquiditySqueeze` unavailable. Feed-off uses PDR-001's `degraded`/`UNKNOWN` semantics. |
+| CA-15 | Liquidity chain: `[liquidity]` master switch + sub-toggles `liquidation_feed`, `cluster_estimation`, `signals` (all default true). Master off ⇒ L1.5/L2.5/Phase-3 off ⇒ `liquidity`/`cluster`/`liquidity_signals` absent, `cascade_risk` NO_DATA (confidence 0), `LiquiditySqueeze` unavailable. Feed-off uses the `degraded`/`UNKNOWN` semantics recorded in §CA-15. |
 
 ---
 
@@ -58,7 +58,7 @@ disabled_signal_kinds = []               # global per-kind kill switch, e.g. ["D
 
 [liquidity]
 enabled            = true                # existing master switch
-liquidation_feed   = true                # PDR-001 feed; false ⇒ degraded/UNKNOWN semantics
+liquidation_feed   = true                # false ⇒ degraded/UNKNOWN semantics (§CA-15)
 cluster_estimation = true                # L2.5
 signals            = true                # Phase-3 liquidity_signals emission
 
@@ -99,7 +99,7 @@ disabled_signals    = ["macd:Divergence"]
 
 | Consumer | Rule when inputs are disabled |
 |----------|-------------------------------|
-| L2 Alignment dims | Means/counts over **enabled ∧ available** indicators only; dimension with zero members → `score 0, state NO_DATA`-equivalent per AlignState extension (PARTIAL/DIVERGENT). |
+| L2 Alignment dims | Means/counts over **enabled ∧ available** indicators only; dimension with zero members → state `NO_DATA` (score 0). |
 | L1 `market_context.overall_score` | Weights renormalize across enabled groups; both off ⇒ `overall_score: null`, label `NO_DATA`. |
 | L3 regime tree | Rule with disabled input cannot fire → fall through; `market_quality` = mean over available of the four dims. |
 | L4 Opportunity | Preconditions referencing disabled indicators fail closed; `LiquiditySqueeze` unavailable when liquidity chain off. |

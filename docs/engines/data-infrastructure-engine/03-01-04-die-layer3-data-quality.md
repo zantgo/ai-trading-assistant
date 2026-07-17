@@ -1,10 +1,10 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4
-**Output Contract:** Data Quality Matrix (validated, gap-filled candle sets + reliability metrics)
+**Output Contract:** CandleQualityEnvelope + PipelineReliabilityMetrics (validated, gap-filled candle sets + reliability metrics)
 **Purpose:** This document specifies the Data Quality Layer — the tier that enforces data integrity through REST gap-filling, sequence auditing, and median-based outlier filtering. It transforms raw candle streams into sanitized, trustworthy datasets.
 
 ---
@@ -54,7 +54,7 @@ The cascade is uniform across all timeframes — including sub-minute. Sub-minut
 The startup cascade (invoked from `registry/bootstrap.rs::fetch_and_warm_bootstrap`) tries the following in order:
 
 1. Query the local DB for the most recent `analysis_limit` candles of `(symbol, secs)`. The DB may already contain sub-minute candles persisted from a previous session, which is the most reliable warm seed.
-2. With no local data, fetch the full `secs × analysis_limit` lookback from REST with `limit=200` (best-effort — venues without sub-minute history may return an empty array).
+2. With no local data, paginate REST fetches (venue page cap, e.g. `limit=200`) until the full `secs × analysis_limit` lookback is retrieved; on venues with hard caps, proceed best-effort — `min_warmup_bars` (50) remains the gate (venues without sub-minute history may return an empty array).
 3. With no REST coverage, begin live tick ingestion from the moment of subscription; the EMA/linear reconstructor fills the pre-subscription window as it goes.
 
 Returning an empty array for sub-minute timeframes would starve the EMA reconstruction on startup — see [08-04-candle-reconstruction.md §EMA Synthesis](../../operations-and-compliance/08-04-candle-reconstruction.md) — and force the platform into linear interpolation (or no reconstruction at all if history < 2) exactly when a network disconnect is most likely to need EMA-quality fills. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed uses linear projection for the first few reconstructions until the buffer fills.
@@ -131,7 +131,7 @@ Candles failing validity are quarantined and refetched from REST.
 
 ## 5. Pipeline Reliability Metrics
 
-These are **per-instance** operational metrics (not the per-candle `CandleQualityEnvelope` envelope defined in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md)). They are exposed via the `/api/data-quality` endpoint (Phase 3) and roll up to the dashboard's Data Quality panel.
+These are **per-instance** operational metrics (not the per-candle `CandleQualityEnvelope` envelope defined in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md)). They will be exposed via `/api/data-quality` — a planned Phase-3 endpoint, not currently served (see [06-01-api-gateway-contract.md](../../integration-and-api/06-01-api-gateway-contract.md) "Planned endpoints", AUDIT-V6-301) — and roll up to the dashboard's Data Quality panel.
 
 | Metric | Meaning |
 |--------|---------|
@@ -139,9 +139,9 @@ These are **per-instance** operational metrics (not the per-candle `CandleQualit
 | Gap count | Number of holes detected and repaired. |
 | Outliers rejected | Count of ticks filtered this session. |
 | Source mix | Ratio of DB-warm vs REST-gap vs live candles. |
-| `out_of_order_dropped` | Trades dropped because their `timestamp_ms` fell inside a previously-completed interval (§3). Persisted in-memory; surfaced through `/api/data-quality`; lost on restart. |
+| `out_of_order_dropped` | Trades dropped because their `timestamp_ms` fell inside a previously-completed interval (§3). Persisted in-memory; surfaced through the planned `/api/data-quality` endpoint; lost on restart. |
 
-**Naming disambiguation.** The per-candle envelope documented in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md) is `CandleQualityEnvelope` (formerly called `CandleQualityEnvelope`). It rides the `MarketSnapshot` and contains `quality_score: f64 ∈ [0, 100]`. The metrics in this section are `PipelineReliabilityMetrics` — a per-instance roll-up, not a per-candle annotation. The two are complementary: `CandleQualityEnvelope` evaluates one candle's validity; `PipelineReliabilityMetrics` measures the sanitization pipeline's health.
+**Naming disambiguation.** The per-candle envelope documented in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md) is `CandleQualityEnvelope` (formerly called the Data Quality Matrix). It rides the `MarketSnapshot` and contains `quality_score: f64 ∈ [0, 100]`. The metrics in this section are `PipelineReliabilityMetrics` — a per-instance roll-up, not a per-candle annotation. The two are complementary: `CandleQualityEnvelope` evaluates one candle's validity; `PipelineReliabilityMetrics` measures the sanitization pipeline's health.
 
 ---
 

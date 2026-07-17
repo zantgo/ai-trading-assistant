@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -73,9 +73,10 @@ Owns: foundational indicator telemetry for a single Market Instance (Symbol × T
 | `indicators` (map of `IndicatorEvaluation`) | L1 (indicator calculators) | 50 indicators with normalized scores, state_labels, signals |
 | `context` (`MarketContext`) | L1 (`MarketContext::synthesize()`) | Per-TF context dimensions |
 | `metrics_config` | L1 (config-driven Active Set) | **Configurable Data Activation** (added v6.2 per [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)). Records the active indicator/signal set actually present in this snapshot. Omitted entirely when the active set equals the registry default. Carries `config_version` for PAE attribution. |
-| `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context`, `statistical_context` | **Attached matrices** | Composite envelope — L1 owns the envelope; the attached fields are *sourced* from L2–L6 for WebSocket delivery convenience (single frame carries the full cascade). The canonical sources of these fields are their respective layer matrices, NOT the Metrics Matrix. |
+| `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context` | **Attached matrices** | Composite envelope — L1 owns the envelope; the attached fields are *sourced* from L2–L6 for WebSocket delivery convenience (single frame carries the full cascade). The canonical sources of these fields are their respective layer matrices, NOT the Metrics Matrix. |
+| `statistical_context` (`StatisticalContext`) | L1 (statistics module) | Native Metrics Matrix field — **not** an attached matrix. Statistical-intelligence envelope (Monte Carlo + z-scores) supporting the L4 Monte Carlo components and L5 z-score gates; schema in [02-07-metrics-matrix.md §3.4](02-07-metrics-matrix.md). |
 
-> **Composite envelope convention.** The Metrics Matrix is the **WebSocket delivery unit** — a single `MarketSnapshot` frame contains the per-TF Metrics data plus the attached higher-order matrices. This is a *delivery* pattern, not a *production* pattern. The canonical owners of `alignment`, `analysis`, `risk`, `advisory`, `decision_context` remain L2, L3, L5, L6, L6 respectively (see [02-07-metrics-matrix.md §2.1](02-07-metrics-matrix.md)).
+> **Composite envelope convention.** The Metrics Matrix is the **WebSocket delivery unit** — a single `MarketSnapshot` frame contains the per-TF Metrics data plus the attached higher-order matrices. This is a *delivery* pattern, not a *production* pattern. The canonical owners of `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context` remain L2, L3, L4, L5, L6, L6 respectively; `statistical_context` is **L1-native** — produced by the Metrics layer as part of the Metrics Matrix itself (schema in §3.4 there), not attached from a later layer (see [02-07-metrics-matrix.md §2.1](02-07-metrics-matrix.md)).
 
 ### 2.2 Alignment Matrix (L2) — `02-01-alignment-matrix.md`
 
@@ -126,7 +127,7 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `invalidation_note` | L4 | Condition that nullifies the opportunity |
 | `entry_zone` (`PriceRange`) | L4 | Recommended entry band *(institutional redesign)* |
 | `target_zone` (`PriceRange`) | L4 | Expected target band *(institutional redesign)* |
-| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior names: `invalid_level` (L4/Decision) and `final_invalidation_level` (Position Matrix); unified to `invalidation_level` in v2.1.)* |
+| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior per-matrix spellings (L4/Decision and Position Matrix) unified to `invalidation_level` in v2.1; retired names recorded in `docs/CHANGELOG.md`.)* |
 | `expected_rr_internal` (`f64`) | L4 | Expected reward/risk ratio for this setup *(renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`)* |
 | `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 
@@ -239,7 +240,7 @@ The four `confidence`-bearing fields follow a strict hierarchy: indicator → st
 L2 ← L1 (per-TF)
 L3 ← L2 (per-instance)
 L4 ← {L3, L1 metrics signals, L1.5/L2.5 liquidity products}
-L5 ← {L3, L1 indicator map, L2.5}
+L5 ← {L3, L1 indicator map, L1.5, L2.5}
 L6 ← {L2 tradability, L3, L4, L5}
 L7 ← {L6 of all symbols}
 ```

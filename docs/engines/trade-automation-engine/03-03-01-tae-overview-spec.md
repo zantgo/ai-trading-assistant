@@ -1,6 +1,6 @@
 # Trade Automation Engine — Overview Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, API limits, transaction state-transition model, and order-management architecture of the Trade Automation Engine — the engine that evaluates user-defined execution policies against MME decision support and routes orders to live or simulated venues.
@@ -81,7 +81,7 @@ Every transition is written to the Execution Matrix with a high-resolution times
 | Concern | Design |
 |---------|--------|
 | Order types | Market, Limit, Stop, Reduce-Only. `reduce_only` is an order attribute, not an order type (see [03-03-03 §3.1](03-03-03-tae-layer2-execution.md)). |
-| Order registry | `open_orders` table tracks outstanding orders (`order_type`, `direction`, `price`, `trigger_price`, `size`, `is_reduce_only`, `associated_position_id`). |
+| Order registry | `open_orders` table tracks outstanding orders through their lifecycle for audit and replay. Canonical column set: [06-02-database-schema-spec.md §3.2](../../integration-and-api/06-02-database-schema-spec.md). |
 | Partial fills | Tracked against the associated position. |
 | Reduce-only | Enforced during veto / de-risking. |
 

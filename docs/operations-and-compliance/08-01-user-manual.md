@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -137,7 +137,7 @@ A value of `0` disables the cleanup loop for that table (rows accumulate indefin
 | All values `null` in dashboard | Initial warm-up not finished | Wait `analysis_limit × duration_seconds` (default 500 × 60 s ≈ 8 h on micro); reduce `analysis_limit` for faster warm-up at the cost of less history. |
 | `margin_usage_ratio > 95%` warning | Position size too large for current equity | Reduce `max_position_size_usd` in policy or close a position. |
 | Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.toml` `[indicators.*]`; check the indicator rulebook via `GET /api/rules`. |
-| Connectivity warning on a specific exchange | Adapter is in backoff after repeated disconnects | Check `/api/system/status`; permanent disable after 5 consecutive failures (supervisor must be restarted). |
+| Connectivity warning on a specific exchange | Adapter is in backoff after repeated disconnects | Check `/api/system/status`; permanent disable after 5 consecutive failed cycles (a cycle = a full backoff sequence; a failure = one attempt), shown as "5 consecutive failures" (supervisor must be restarted). |
 | SQLite "database is locked" errors | Long-running query holding a write transaction | Reduce log retention or query frequency; the WAL mode is already enabled. |
 | Veto stuck at `AVOID` for a symbol | PME safety trigger fired; threshold must clear | Inspect portfolio equity vs. peak; check `systemic_risk_score`; follow the [PME veto release procedure](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#43-veto-release). |
 

@@ -1,6 +1,6 @@
 # Exchange Key Rotation Procedure
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Operator procedure for rotating the `EXCHANGE_SECRET_KEY` (master encryption key for the `exchange_keys` SQLite table) and re-encrypting credentials without losing access to live exchange connections.
 
@@ -37,12 +37,14 @@ chmod 600 /tmp/new_exchange_secret_key
 
 v6.0 does **not** ship an in-process rotation tool; the operator uses the documented `POST /api/keys` endpoint. The flow:
 
-1. Stop the daemon: `./manage.sh stop`.
-2. Start the daemon with the **old** key: `EXCHANGE_SECRET_KEY=$OLD_KEY ./execution-daemon`.
-3. For each existing `key_id`, read the exchange credentials out-of-band (e.g. from the exchange's UI) and re-insert via `POST /api/keys` with the same `exchange`. The new row replaces the old (Ops Phase 2 endpoint will support UPDATE; v6.0 requires DELETE + INSERT).
-4. Verify: `sqlite3 telemetry.db "SELECT COUNT(*) FROM exchange_keys;"` — should match the pre-rotation count.
-5. Stop the daemon.
-6. Start the daemon with the **new** key: `EXCHANGE_SECRET_KEY=$NEW_KEY ./execution-daemon`.
+> **Warning.** Re-inserting keys before switching the master key does not rotate anything — rows remain encrypted under the old key.
+
+1. **Record all credentials out-of-band.** For every `key_id` from the pre-rotation inventory (§2), copy the api_key/api_secret/passphrase from the exchange's UI or the operator's secret store. After step 3 the existing rows are unreadable — this record is the only copy.
+2. **Stop the daemon:** `./manage.sh stop`.
+3. **Start the daemon with the new master key:** `EXCHANGE_SECRET_KEY=$NEW_KEY ./execution-daemon`. The existing `exchange_keys` rows were encrypted under the old key and are now unreadable; the daemon treats the store as unconfigured.
+4. **Re-insert every credential** via `POST /api/keys` with the same `exchange`; each insert encrypts under the new key. The new row replaces the old (Ops Phase 2 endpoint will support UPDATE; v6.0 requires DELETE + INSERT).
+5. **Verify `ws::account` auth per key** — each key's private account stream must authenticate against the newly inserted credentials.
+6. **Scrub the old key from every environment source** (shell environment, systemd units, `.env` files, secret managers) so it cannot be reused by accident.
 7. Smoke test: confirm a trade tick arrives within 60 s.
 
 ### 3.3 Cleanup
@@ -51,6 +53,8 @@ v6.0 does **not** ship an in-process rotation tool; the operator uses the docume
 unset NEW_KEY
 rm -f /tmp/new_exchange_secret_key
 ```
+
+Repeat the re-insertion (§3.2 step 4) for every `key_id` before decommissioning the old key.
 
 ---
 
@@ -72,7 +76,7 @@ If `EXCHANGE_SECRET_KEY` is suspected to have been exposed:
 - Hot key rotation via SIGHUP — daemon re-reads `EXCHANGE_SECRET_KEY` on signal.
 - Encrypted-backup export — `GET /api/keys/backup` returns an encrypted blob keyed by a passphrase, suitable for off-machine storage.
 
-These are tracked under `AUDIT-V6-077` (open) in `docs/CHANGELOG.md`.
+These are tracked under `AUDIT-V6-077` (in-process exchange-key-rotation tool, Unscheduled) in `docs/CHANGELOG.md` — a tracked future tool, not an existing one; until it ships, the §3.2 manual flow remains the rotation path.
 
 ---
 

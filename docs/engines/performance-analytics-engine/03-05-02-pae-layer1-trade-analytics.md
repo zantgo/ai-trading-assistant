@@ -1,6 +1,6 @@
 # PAE Layer 1 — Trade Analytics Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 1 of 4
@@ -40,7 +40,7 @@ The Trade Analytics Layer is the PAE's **trade reconstruction engine**. It consu
 | `mfe` | `Decimal` | Maximum Favorable Excursion — peak unrealized profit during the trade. |
 | `mae` | `Decimal` | Maximum Adverse Excursion — peak unrealized loss during the trade. |
 | `trigger_source` | `string` | The execution policy or manual action that initiated the trade. |
-| `exit_reason` | `string` | `STOP_LOSS` / `TAKE_PROFIT` / `SIGNAL_EXIT` / `MANUAL` / `VETO`. |
+| `exit_reason` | `string` | `STOP_LOSS` / `TAKE_PROFIT` / `SIGNAL_EXIT` / `MANUAL` / `VETO_LIQUIDATION` / `EMERGENCY_LIQUIDATION` / `THESIS_INVALIDATION`. Legacy rows may carry `VETO`; map to `VETO_LIQUIDATION` on read. |
 | `flat_trade` | `bool` | `true` if the trade's gross PnL was zero before fees (avoids division-by-zero in `fee_efficiency`); see §4 guard. |
 
 ---

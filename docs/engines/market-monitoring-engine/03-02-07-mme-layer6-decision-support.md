@@ -1,6 +1,6 @@
 # MME Layer 6 — Decision Support Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 6 of 7
@@ -27,14 +27,9 @@ Implementation: `crates/core-domain/src/advisory.rs::compute_advisory()`, `decis
 
 ## 2. Trade-Readiness State Management
 
-Trade readiness is derived from directional guidance, confidence, and stance. The canonical vocabulary is [Decision Matrix §4](../../matrices/02-04-decision-matrix.md):
+Trade readiness is derived from directional guidance, confidence, and `market_stance`. The canonical rule table is the ordered, first-match `TradeReadiness` ruleset — with a tiling proof that the rules partition the full input space — in [Decision Matrix §4](../../matrices/02-04-decision-matrix.md) (`READY` / `FORMING` / `WATCH` / `STAND_ASIDE`); this layer executes that ruleset and does not re-define it.
 
-| Readiness | Condition |
-|-----------|-----------|
-| `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + `market_stance` ∈ {`AGGRESSIVE`, `CONSTRUCTIVE`}. |
-| `FORMING` | Directional guidance present, `confidence_assessment` 40–60, or entry = `WAIT_FOR_CONFIRMATION`. |
-| `WATCH` | Neutral guidance or `confidence_assessment` 20–40. |
-| `STAND_ASIDE` | `market_stance = AVOID` or `confidence_assessment < 20`. |
+> **Stance-vs-`market_stance` disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID`, derived from L3 `market_quality` × L5 `overall_risk`) — the L6 Decision field. They do **not** reference the per-symbol **stance** (the `Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID`), which is the TAE/PME execution-authorization concept managed by the PME safety veto. Although both enums share an `AVOID` variant, they are independent and serve different purposes.
 
 Confidence itself is risk-discounted into the terminal `confidence_assessment` output (which lives on `advisory` and is distinct from the four-level pipeline-level confidence flow; see [`02-00b-confidence-hierarchy.md`](../../matrices/02-00b-confidence-hierarchy.md)):
 
@@ -52,7 +47,7 @@ confluence_score = clamp(
 
 The three components are read from L2 (Alignment `tradability_dim`), L3 (Analysis `market_quality_score` — the raw numeric mean in `[0, 100]`, distinct from the categorical `market_quality` `QualityLevel` enum), and L4 (Opportunity `opportunity_score`) respectively and weighted by their predictive power for entry timing. `confluence_score` is the **composite L6 output** distinct from the risk-discounted `confidence_assessment` (the latter is the safety-aware confidence, the former is the raw setup strength).
 
-> **`market_quality_score` vs `market_quality` (v2.1 — type clarification).** The Analysis Matrix schema ([02-02-analysis-matrix.md §2.1](../../matrices/02-02-analysis-matrix.md)) defines two distinct fields: the categorical `market_quality: QualityLevel` enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) and the numeric `market_quality_score: f64` carrying the raw mean in `[0, 100]`. The L6 formula uses the **numeric** `market_quality_score`, not the enum. If only the enum is available at runtime, an explicit `QualityLevel → f64` mapping (e.g. `POOR → 20.0, WEAK → 40.0, AVERAGE → 55.0, GOOD → 70.0, EXCELLENT → 90.0`) should be applied at the L3 → L6 boundary; the L3 Analyzer SHOULD populate `market_quality_score` directly when the per-dimension scores are available.
+> **`market_quality_score` vs `market_quality` (v2.1 — type clarification).** The Analysis Matrix schema ([02-02-analysis-matrix.md §2.1](../../matrices/02-02-analysis-matrix.md)) defines two distinct fields: the categorical `market_quality: QualityLevel` enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) and the numeric `market_quality_score: f64` carrying the raw mean in `[0, 100]`. The L6 formula uses the **numeric** `market_quality_score`, not the enum. If only the enum is available at runtime, an explicit `QualityLevel → f64` mapping (e.g. `POOR → 20.0, WEAK → 40.0, AVERAGE → 55.0, GOOD → 70.0, EXCELLENT → 100.0`) should be applied at the L3 → L6 boundary; the L3 Analyzer SHOULD populate `market_quality_score` directly when the per-dimension scores are available.
 
 ---
 
@@ -67,26 +62,12 @@ The three components are read from L2 (Alignment `tradability_dim`), L3 (Analysi
 The layer recommends **how** to place protective stops and targets — not the price directly, but the method:
 
 ### 4.1 Protection Strategy (Stops)
-```
-volatility compressed                                          → StructureBased
-volatility_risk > 60                                           → VolatilityBased
-regime = RANGE AND nearest S/R level distance < 0.5 × ATR     → SRBased
-otherwise                                                      → ATRBased
-```
 
-> **`SR_BASED` rule path.** `SR_BASED` is reached on range-regime setups where price is testing an S/R level closer than half the ATR. With the empty-state fallback (`no_indicators_available → NO_RECOMMENDATION`), all five `ProtectionStrategy` variants are reachable.
+The canonical ordered rules — including the `volatility_assessment ∈ {EXPANDING, EXTREME}` and `StructureAssessment ∈ {STRONG, HEALTHY}` conditions and the empty-state `NO_RECOMMENDATION` fallback — live in [Decision Matrix §3.6](../../matrices/02-04-decision-matrix.md); this layer executes that ruleset and does not re-define it.
 
 ### 4.2 Target Strategy
-```
-structure strong/healthy                                                         → ResistanceBased
-entry_danger.score < 40                                                          → RRBased
-entry_danger.score ∈ [40, 70] AND confirmed trailing-signal sequence active      → TrailingMethod
-otherwise                                                                        → VolatilityBased
-```
 
-> **`TRAILING_METHOD` rule path.** `TRAILING_METHOD` is reached on mid-range entry danger with an active trailing-signal sequence. With the empty-state fallback, all five `TargetStrategy` variants are reachable.
->
-> **`RR_BASED` threshold.** The condition `entry_danger.score < 40 → RR_BASED` is the same in both the L6 spec and the Decision Matrix §3.7 (canonical contract).
+The canonical ordered rules — including the `entry_danger.level`-banded `TRAILING_METHOD` condition and the empty-state `NO_RECOMMENDATION` fallback — live in [Decision Matrix §3.7](../../matrices/02-04-decision-matrix.md); this layer executes that ruleset and does not re-define it.
 
 ### 4.3 Stop-Loss Distance Handoff (Type Boundary)
 

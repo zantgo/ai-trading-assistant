@@ -1,8 +1,7 @@
 # Connection Quality
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
-**Spec version:** 1.0
 
 ## Purpose
 
@@ -69,7 +68,7 @@ total = 47.5 + 6 + 12 − 2.5 − 2.5 = 60.5
 
 A perfect session (100% uptime, 0 disconnects, 0 ms reconnect, 0 data loss, 0 reconstructed candles) scores 100.
 
-**Saturation rationale.** The 5 s reconnect ceiling and 10-disconnect ceiling match the [08-03-connection-resilience.md §State Transitions](../operations-and-compliance/08-03-connection-resilience.md) "anything worse than this is the supervisor's problem, not the tracker's" boundary. The 600 s data-loss ceiling matches the 5-minute operational SLO in [`08-01-user-manual.md §9`](../operations-and-compliance/08-01-user-manual.md). The 100-reconstructed-candle ceiling reflects one full micro-tier recovery window.
+**Saturation rationale.** The 5 s reconnect ceiling and 10-disconnect ceiling match the [08-03-connection-resilience.md §State Transitions](../operations-and-compliance/08-03-connection-resilience.md) "anything worse than this is the supervisor's problem, not the tracker's" boundary. The 600 s data-loss ceiling matches the 5-minute data-loss SLO defined here (300 s of 3600 s). The 100-reconstructed-candle ceiling reflects one full micro-tier recovery window.
 
 ## Event Sources
 
@@ -85,32 +84,14 @@ A perfect session (100% uptime, 0 disconnects, 0 ms reconnect, 0 data loss, 0 re
 
 Samples are written to the `connection_quality_samples` SQLite table every 60 seconds by a background task. The table is **per-`(pair_key, timeframe_secs)`** (one Market Instance × timeframe pipeline owns one series); a process-wide aggregate is not retained.
 
-```sql
-CREATE TABLE IF NOT EXISTS connection_quality_samples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pair_key TEXT NOT NULL,
-    timeframe_secs INTEGER NOT NULL,
-    timestamp_ms INTEGER NOT NULL,
-    window TEXT NOT NULL,
-    uptime_pct REAL NOT NULL,
-    disconnect_count INTEGER NOT NULL,
-    avg_reconnect_ms REAL NOT NULL,
-    total_data_loss_secs INTEGER NOT NULL,
-    reconstructed_candles INTEGER NOT NULL,
-    score REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_cq_pair_tf_window_time
-    ON connection_quality_samples(pair_key, timeframe_secs, window, timestamp_ms DESC);
-```
-
-The `pair_key` and `timeframe_secs` columns scope every sample to its owning `(instance, pipeline)`. v4.0 introduced this per-instance shape to back the per-instance dashboard panel; the earlier process-wide eight-column form is no longer used. See [`06-02-database-schema-spec.md §3.9`](../integration-and-api/06-02-database-schema-spec.md) for the authoritative DDL.
+The `pair_key` and `timeframe_secs` columns scope every sample to its owning `(instance, pipeline)`. This per-instance shape was merged at v6.0 (see `docs/CHANGELOG.md`) to back the per-instance dashboard panel; the earlier process-wide eight-column form is no longer used. See [`06-02-database-schema-spec.md §3.9`](../integration-and-api/06-02-database-schema-spec.md) for the authoritative DDL.
 
 ## REST API
 
 ```
 GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour
 
-The `instance_id` and `timeframe_secs` query parameters are **required** as of v4.0. Connection-quality is reported per Market Instance × timeframe (one WebSocket connection per `TimeframePipeline`); the API does not return a process-wide aggregate. See `06-01-api-gateway-contract.md §2.3`.
+The `instance_id` and `timeframe_secs` query parameters are **required** by the instance-scoped API at v6.0 (see `docs/CHANGELOG.md`). Connection-quality is reported per Market Instance × timeframe (one WebSocket connection per `TimeframePipeline`); the API does not return a process-wide aggregate. See `06-01-api-gateway-contract.md §2.3`.
 ```
 
 Default window: `one_hour`. Response: `ConnectionQualityReport` JSON.

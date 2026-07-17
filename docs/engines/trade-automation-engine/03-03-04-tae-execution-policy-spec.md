@@ -1,6 +1,6 @@
 # TAE — Execution Policy Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document defines the formal syntax, semantics, and lifecycle of **Execution Policies** — the user-configured conditional rules that govern automated order dispatch. Execution policies are the bridge between passive MME intelligence and active TAE execution.
@@ -36,11 +36,12 @@ Per the [Ontology](../../conceptual-foundations/01-01-ontology.md) §3.18:
 | `direction` | `Direction` | Yes | `Long` / `Short`. |
 | `conditions` | `ConditionGroup` | Yes | Boolean expression tree of conditions. |
 | `trigger_mode` | `TriggerMode` | Yes | When the policy is evaluated (§4). |
-| `stance` | `Stance` | Yes | Authorization state (§5). |
 | `risk` | `RiskParams` | Yes | Position sizing parameters (§6). |
 | `enabled` | `bool` | Yes | Master on/off switch. |
 | `cooldown_seconds` | `u64` | No | Minimum interval between consecutive triggers (prevents overtrading). |
 | `reduce_only_on_close_only` | `bool` | No (default `true`) | **Deprecated.** This option was an early design knob for toggling the `CLOSE_ONLY`-stance-to-`reduce_only` flag pipeline. The Execution Layer now unconditionally forces `reduce_only = true` for any order dispatched under a `CLOSE_ONLY` stance (see [TAE Layer 2 §3.3.1](03-03-03-tae-layer2-execution.md#331-safety-invariant-unconditional-force)), making this option a no-op for behavior. It is preserved in the schema for forward-compatibility reads; new policies should leave it at the default `true`. Operators who set it to `false` get the safe `true` behavior at load time. |
+
+> **Stance is not a policy field.** Execution authorization is read from the per-symbol stance ([03-04-05 §2](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)) at dispatch; the stance lifecycle is specified in §5.
 
 ### 2.2 Condition Structure
 
@@ -65,6 +66,14 @@ Value          ::= number | string | [number] | [string]
 | `analysis.market_quality` | `string` | Analysis Matrix | `"GOOD"`, `"EXCELLENT"` |
 | `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, `"SCALP"`, … — see [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical eight-variant precondition table (canonical producer — replaces the removed `decision.opportunity_type` field per the v2.1 institutional redesign; see [02-00-matrix-field-ownership.md §3](../../matrices/02-00-matrix-field-ownership.md) for the migration map) |
 | `opportunity.opportunity_score` | `number` | Opportunity Matrix | `85.0` (0–100) |
+| `risk.market_risk.score` | `number` | Risk Matrix | `35.0` (0–100) |
+| `risk.volatility_risk.score` | `number` | Risk Matrix | `45.0` (0–100) |
+| `risk.execution_liquidity_risk.score` | `number` | Risk Matrix | `15.0` (0–100) |
+| `risk.structure_risk.score` | `number` | Risk Matrix | `25.0` (0–100) |
+| `risk.momentum_risk.score` | `number` | Risk Matrix | `20.0` (0–100) |
+| `risk.signal_risk.score` | `number` | Risk Matrix | `30.0` (0–100) |
+| `risk.execution_risk.score` | `number` | Risk Matrix | `25.0` (0–100) |
+| `risk.cascade_risk.score` | `number` | Risk Matrix | `30.0` (0–100) |
 | `risk.overall_risk.score` | `number` | Risk Matrix | `28.0` (0–100) |
 
 ---
@@ -135,14 +144,16 @@ Multiple trigger modes may be active simultaneously on a single policy.
 
 ### 5.1 Stance Transitions
 
-```
-ACTIVE ──(operator disable)──► AVOID
-ACTIVE ──(PME veto)─────────► CLOSE_ONLY / AVOID
-CLOSE_ONLY ──(veto escalates)──► AVOID
-AVOID ──(operator re-enable)──► ACTIVE
-```
+| From | To | Driver |
+|------|----|--------|
+| `ACTIVE` | `CLOSE_ONLY` | PME veto (margin ceiling, loss streak, exposure limit) or operator |
+| `CLOSE_ONLY` | `ACTIVE` | Operator, after veto release per [03-04-05 §4.3](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) |
+| `ACTIVE` | `AVOID` | PME veto (drawdown breach, margin exhaustion, systemic risk) or operator disable |
+| `AVOID` | `ACTIVE` | Operator re-enable, after veto release per [03-04-05 §4.3](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) |
+| `CLOSE_ONLY` | `AVOID` | PME veto escalates |
+| `AVOID` | `CLOSE_ONLY` | Operator (a veto downgrade is not automatic) |
 
-Transitions to `CLOSE_ONLY` or `AVOID` from PME veto are **irreversible by the policy itself** — only manual operator confirmation can restore `ACTIVE`.
+Transitions to `CLOSE_ONLY` or `AVOID` from PME veto are **irreversible by the policy itself** — only manual operator confirmation can restore `ACTIVE`. All transitions are audit-logged.
 
 > **Policy `AUTO_PAUSED` (CA-10/QA-3, scope = policy).** Distinct from the instance-scope lifecycle `PAUSED` defined in [03-03-06-tae-instance-lifecycle-spec.md](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). When a policy-level `AUTO_PAUSED` fires (consecutive losses, operator override), the affected **policy** stops evaluating while the instance continues trading under its other policies; this never moves the instance's `LifecycleState`. Conversely, an instance-level `PAUSED` (lifecycle Gate 0) blocks entries for **every** policy on that instance but leaves policy state machines intact. The two axes are independent — see [03-03-06 §6 Interaction matrix](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 

@@ -1,6 +1,6 @@
 # Crate Layout & Cycle-Breaking Design
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 9 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.
@@ -16,7 +16,7 @@ The platform is a Cargo Workspace of 9 specialized, decoupled crates plus the Sv
 | `core-domain` | DTOs shared across all engines | Stateless data shapes: snapshot, matrices, indicator value types, JSON-RPC envelopes. Leaf crate — no deps on other workspace crates. |
 | `config-models` | All `*Config` structs | Configuration loading (`load_config()`, `load_instances()`), TOML/JSON deserialization. Leaf crate. |
 | `market-analyzer` | MME L1–L7 + market-context synthesis | 50 indicators across 4 timeframes, signal detection, multi-TF pipeline orchestrator (`ActivePair`, `TimeframePipeline`), `MarketContext` synthesis, indicator DTO re-exports. |
-| `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 migrations), WAL telemetry logger, all query layer, connection-quality persistence consumer, encryption helpers. |
+| `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 active tables; migration history tracks table additions — see CHANGELOG), WAL telemetry logger, all query layer, connection-quality persistence consumer, encryption helpers. |
 | `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid and Bitget, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
 | `portfolio-supervisor` | PME + TAE | Instance lifecycle, `SafetyManager`, sizing, exposure, capital, session state, profile evaluation, risk/commission math, registry orchestrator. |
 | `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator stub. |
@@ -61,6 +61,8 @@ The dependency graph is **strictly unidirectional** and **acyclic** — Cargo wi
                                                          │
                                                   [execution-daemon]
 ```
+
+> **Diagram convention.** Arrows point from dependent to dependency; `core-domain` and `config-models` are both leaves (no edge between them).
 
 Two leaf crates have **no outgoing edges** inside the workspace:
 - **`core-domain`** — has no field or service in any other workspace crate; if you need to add cross-cutting DTOs, put them here.

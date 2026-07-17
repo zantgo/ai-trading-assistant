@@ -1,8 +1,8 @@
 # Indicator Documentation Index
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
-> 50 indicators across 8 functional groups. Registry-verified count: 50 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-07-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry.
+> 50 indicators across 8 functional groups. Registry-verified count: 50 authoritative `IndicatorMeta` entries in `crates/market-analyzer/src/indicators/registry.rs` (verified `2026-07-16`). **Divergence** is a `SignalKind` emitted on its parent indicator by default — eight parent indicators are annotated `supports_divergence: true` (see the `Div` column). **Exception:** `oi_price_divergence` is itself a standalone registry entry with its own JSON key (see §Derivatives note below). All signal types match the authoritative registry. The registry describes capability and never changes with runtime config.
 >
 > **Counts policy.** The per-SignalKind breakdown in the *Summary* table below is authoritative; if any other doc disagrees, this file wins. Counts are re-derived from `crates/market-analyzer/src/indicators/registry.rs` and updated on every registry change.
 >
@@ -138,7 +138,7 @@ Divergence companions do **not** appear as separate rows or JSON keys — a dive
 ## Cross-References
 
 - [Metrics Matrix](../../../matrices/02-07-metrics-matrix.md) — Unified single-timeframe observation schema (indicator + signal telemetry objects)
-- [MME Layer 1 — Metrics](../../../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) — Indicator computation and 12-axis projection specification
+- [MME Layer 1 — Metrics](../../../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) — Indicator computation and evaluation-axis projection specification (8 indicator axes + 10 signal axes)
 - [MME Indicators Guide](../../../engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md) — Condensed signal threshold reference (readable rulebook)
 - [MME Signals Guide](../../../engines/market-monitoring-engine/03-02-10-mme-signals-guide.md) — Signal detection rulebook, indexed by SignalKind
 - [Signal Specifications](../signals/05-02-00-signals-index.md) — Per-SignalKind detailed specifications (sibling index)

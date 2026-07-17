@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -175,7 +175,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Direction:** The immediate directional trajectory of the indicator's value vector (e.g., Rising, Falling, Flat).
 *   **Strength:** The intensity or magnitude of the current reading relative to historical boundaries (e.g., Weak, Moderate, Strong, Extreme).
 *   **Market Regime:** The environmental context under which the indicator is evaluated (e.g., Trending, Ranging, Expansion, Compression). Indicators are interpreted differently depending on this active state.
-*   **Confidence:** The estimated mathematical reliability of the current reading, expressed as a probability percentile (0-100%).
+*   **Confidence:** The estimated mathematical reliability of the current reading, expressed as a probability ∈ [0, 1] (canonical confidence hierarchy: [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md)).
 *   **Freshness:** The temporal decay state of the evaluation, measuring how recently the current reading was established (e.g., New, Recent, Old, Expired).
 *   **Quality:** An audit of the indicator's signal-to-noise ratio, assessing whether the telemetry is clean or structurally distorted (e.g., Healthy, Noisy, Weak, Exceptional).
 
@@ -183,7 +183,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Signal Type:** The specific technical event or pattern classification detected (e.g., Bullish Divergence, EMA Crossover).
 *   **Direction:** The directional bias implied by the triggered event (e.g., Bullish, Bearish).
 *   **Strength:** The qualitative weight or intensity of the signal trigger (e.g., Weak, Medium, Strong).
-*   **Confidence:** The historical or statistical probability score associated with the trigger's reliability (0-100%).
+*   **Confidence:** The historical or statistical probability score associated with the trigger's reliability, ∈ [0, 1] (canonical confidence hierarchy: [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md)).
 *   **Freshness:** The chronological distance (measured in elapsed intervals or candles) since the signal triggered (e.g., Just Triggered, 3 candles ago, Expired).
 *   **Confirmation:** The validation state of the event, indicating whether supporting conditions have validated the trigger (e.g., `Potential`, `Confirmed`, `Active`). `Potential` indicates the geometry is present but unconfirmed (secondary confluence only); `Confirmed` means the confirming condition has fired (full scoring weight); `Active` indicates a confirmed **stateful** signal persisting over subsequent bars and tracked via `age_bars`. Momentary kinds never enter `Active`.
 *   **Market Regime:** The macro regime context in which the signal occurred, determining its localized baseline reliability (e.g., `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`).
@@ -284,7 +284,7 @@ The DIE ensures data timeliness and validity before publishing the **Market Data
 
 ### 4.5 Market Monitoring Engine (MME) Flow
 The MME transforms standardized market data into multi-timeframe, explainable market intelligence:
-$$\text{Market Data Matrix} \longrightarrow \text{Metrics Matrix} \longrightarrow \text{Alignment Matrix} \longrightarrow \text{Analysis Matrix} \longrightarrow \text{Opportunity Matrix} \longrightarrow \text{Risk Matrix} \longrightarrow \text{Decision Matrix} \longrightarrow \text{Overview Matrix}$$
+$$\text{Market Data Matrix} \longrightarrow \text{Metrics Matrix} \longrightarrow \text{Alignment Matrix} \longrightarrow \text{Analysis Matrix} \longrightarrow \{\,\text{Opportunity Matrix} \parallel \text{Risk Matrix}\,\} \longrightarrow \text{Decision Matrix} \longrightarrow \text{Overview Matrix}$$
 
 This vertical pipeline processes the raw data step-by-step, producing symbol-specific tactical blueprints and global market breadth indicators.
 
@@ -389,7 +389,7 @@ The Trading Platform is conceptually organized as a decentralized ecosystem of f
 *   **Domain:** Execution Policy Evaluation, Order Routing, Transaction Lifecycle Management, and Slippage Mitigation.
 *   **Primary Responsibility:** Evaluate user-configured execution policies against real-time market intelligence and dispatch structured orders to target exchanges.
 *   **Core Question:** *Do current market intelligence and portfolio conditions satisfy the configured parameters to execute a transactional action?*
-*   **Input Boundary:** Consumes the **Decision Matrix** (MME) and the current **Portfolio Matrix** (PME).
+*   **Input Boundary:** Consumes the **Decision Matrix** (MME) and queries the **Capital Matrix** (`available_margin`) (PME).
 *   **Output Boundary:** The **Execution Matrix**, containing active order status updates, transactional events, and execution feedback logs.
 
 ### 5.4 Portfolio Management Engine (PME)
@@ -467,7 +467,7 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Key Classifications:**
     *   *Market Bias:* `STRONG_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `STRONG_BEARISH`.
     *   *Market Regime:* `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`.[^regime-canonical]
-    *   *Market Phase:* `ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`.
+    *   *Market Phase:* `ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN` — 4 phases plus the `UNKNOWN` empty-state sentinel.
     *   *Market Quality (0-100):* Measure of trend clarity and structural predictability.
 
 [^regime-canonical]: **Canonical vocabulary.** The authoritative `MarketRegime` enum is defined in [Appendix A.3](#a3-analysis-matrix-schema-mme--layer-3) and [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md); this prose is mirrored from there.
@@ -926,7 +926,7 @@ To maintain modularity and prevent coupling, the platform enforces strict bounda
     *   Execute orders, dispatch transactions, or interact with exchange order-routing endpoints beyond data ingestion and account-status reads.
     *   Hold cross-instance shared mutable state (decoupled producer/consumer only).
     *   Apply market interpretation (no regime, bias, or trend classification).
-*   **Owns:** Raw Data Matrix (`NormalizedEvent` stream), Market Data Matrix (OHLCV candles), Data Quality Matrix (`CandleQualityEnvelope`), Distribution Matrix (per-instance `(symbol, timeframe)` channels), per-instance `PipelineReliabilityMetrics`, `connection_quality_samples` rows.
+*   **Owns:** Raw Data Matrix (`NormalizedEvent` stream), Market Data Matrix (OHLCV candles), `CandleQualityEnvelope` + per-instance `PipelineReliabilityMetrics`, Distribution Matrix (per-instance `(symbol, timeframe)` channels), `connection_quality_samples` rows.
 *   **Reads:** Exchange WS frames, exchange REST responses, NTP clock samples, historical DB candles (warm-up), persisted `connection_quality_samples` (replay). No upstream engine matrices.
 
 ### 14.1 Market Monitoring Engine (MME) Boundaries
@@ -1064,13 +1064,13 @@ The conceptual model integrates all five engines, their respective layers, and t
 
 ## Appendix A — Formal Matrix Definitions
 
-This appendix defines the authoritative physical schemas for all matrices produced by the Market Monitoring Engine. These schemas correspond to the dedicated specification documents under `docs/matrices/` and represent the canonical JSON serialization contracts. All enum values serialize as `SCREAMING_SNAKE_CASE`.
+This appendix is an illustrative serialization of the canonical scenario (seed: [02-01-alignment-matrix.md §6](../matrices/02-01-alignment-matrix.md)) for all matrices produced by the Market Monitoring Engine. Normative contracts live in `docs/matrices/02-*`. Field set verified by MANIFEST gate G13. All enum values serialize as `SCREAMING_SNAKE_CASE`.
 
 ---
 
 ### A.1 Metrics Matrix Schema (MME — Layer 1)
 
-Produced by the Metrics Layer for a single **Market Instance (Symbol × Timeframe)**. This is the foundational observation object: one `MarketSnapshot` per candle, containing the full `indicators` map of `IndicatorEvaluation` entries, each with nested `signals`, plus the attached higher-order matrices (Alignment, Analysis, Risk, Decision).
+Produced by the Metrics Layer: one `MarketSnapshot` per TimeframePipeline candle. This is the foundational observation object, containing the full `indicators` map of `IndicatorEvaluation` entries, each with nested `signals`, plus the attached higher-order matrices (Alignment, Analysis, Opportunity, Risk, Decision).
 
 Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
 
@@ -1096,6 +1096,12 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "open_interest": "1250000.0",
   "oi_delta_1h": "5000.0",
   "prev_day_px": "63500.0",
+  "mark_price": null,
+  "index_price": null,
+  "mark_index_spread_pct": null,
+  "liquidity": null,
+  "cluster": null,
+  "liquidity_signals": [],
   "indicators": {
     "rsi": {
       "raw_value": 68.4,
@@ -1104,9 +1110,9 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
       "confidence": 0.42,
       "signals": [
         {
-          "kind": "Threshold",
-          "direction": "Bearish",
-          "status": "Active",
+          "kind": "THRESHOLD",
+          "direction": "BEARISH",
+          "status": "ACTIVE",
           "label": "OVERBOUGHT_DISTRIBUTION",
           "strength": 0.6,
           "age_bars": 2
@@ -1121,9 +1127,9 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
       "confidence": 0.7,
       "signals": [
         {
-          "kind": "Crossover",
-          "direction": "Bullish",
-          "status": "Confirmed",
+          "kind": "CROSSOVER",
+          "direction": "BULLISH",
+          "status": "CONFIRMED",
           "label": "MACD_BULLISH_CROSSOVER",
           "strength": 0.8,
           "age_bars": 0
@@ -1146,10 +1152,20 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
     "timeframes_present": 4,
     "dimensions": [
       { "score": 78.0, "state": "BULLISH", "confidence": 78.0 },
-      { "score": 65.0, "state": "BULLISH", "confidence": 65.0 }
+      { "score": 65.0, "state": "NEUTRAL", "confidence": 65.0 },
+      { "score": 72.0, "state": "NEUTRAL", "confidence": 72.0 },
+      { "score": 75.0, "state": "NEUTRAL", "confidence": 75.0 },
+      { "score": 65.0, "state": "ALIGNED", "confidence": 65.0 },
+      { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
+      { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
+      { "score": 88.0, "state": "ALIGNED", "confidence": 88.0 },
+      { "score": 70.0, "state": "ALIGNED", "confidence": 70.0 },
+      { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 }
     ],
     "mtf_trend_alignment": 0.56,
     "mtf_momentum_alignment": 0.30,
+    "mtf_volume_alignment": 0.10,
+    "mtf_volatility_alignment": 0.20,
     "mtf_overall_score": 40.0,
     "mtf_overall_label": "WEAK_BULL_MTF",
     "trend_agreement_pct": 75.0,
@@ -1159,8 +1175,10 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "risk": { },
   "advisory": { },
   "decision_context": { },
+  "opportunity": { },
   "statistical_context": { },
-  "risk_profile": null
+  "risk_profile": null,
+  "metrics_config": null
 }
 ```
 
@@ -1168,7 +1186,7 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
 - All `Decimal` price/size fields serialize as **strings** for precision.
 - `Option::None` fields are omitted via `skip_serializing_if`.
 - Signals are **nested inside each indicator** under the `signals: [IndicatorSignal]` array — there is no top-level `signals` map.
-- Divergence signals use `kind: "Divergence"` and are pushed onto the parent indicator's `signals` array (e.g., a bullish RSI divergence appears under `rsi.signals`).
+- Divergence signals use `kind: "DIVERGENCE"` and are pushed onto the parent indicator's `signals` array (e.g., a bullish RSI divergence appears under `rsi.signals`).
 
 ---
 
@@ -1184,15 +1202,15 @@ Full specification: [Alignment Matrix](../matrices/02-01-alignment-matrix.md).
   "timeframes_present": 4,
   "dimensions": [
     { "score": 78.0, "state": "BULLISH", "confidence": 78.0 },
-    { "score": 65.0, "state": "BULLISH", "confidence": 65.0 },
-    { "score": 55.0, "state": "NEUTRAL", "confidence": 55.0 },
-    { "score": 60.0, "state": "BULLISH", "confidence": 60.0 },
-    { "score": 75.0, "state": "BULLISH", "confidence": 75.0 },
-    { "score": 33.3, "state": "BEARISH", "confidence": 33.3 },
-    { "score": 100.0, "state": "BULLISH", "confidence": 100.0 },
-    { "score": 88.0, "state": "BULLISH", "confidence": 88.0 },
-    { "score": 70.0, "state": "BULLISH", "confidence": 70.0 },
-    { "score": 100.0, "state": "BULLISH", "confidence": 100.0 }
+    { "score": 65.0, "state": "NEUTRAL", "confidence": 65.0 },
+    { "score": 72.0, "state": "NEUTRAL", "confidence": 72.0 },
+    { "score": 75.0, "state": "NEUTRAL", "confidence": 75.0 },
+    { "score": 65.0, "state": "ALIGNED", "confidence": 65.0 },
+    { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
+    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
+    { "score": 88.0, "state": "ALIGNED", "confidence": 88.0 },
+    { "score": 70.0, "state": "ALIGNED", "confidence": 70.0 },
+    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 }
   ],
   "mtf_trend_alignment": 0.56,
   "mtf_momentum_alignment": 0.30,
@@ -1248,10 +1266,10 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
   "trend_assessment": "HEALTHY",
   "momentum_assessment": "STABLE",
   "structure_assessment": "HEALTHY",
-  "volatility_assessment": "NORMAL",
+  "volatility_assessment": "EXPANDING",
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
-  "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, normal volatility, and strong volume participation. Favors trend continuation.",
+  "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, expanding volatility, and strong volume participation. Favors trend continuation.",
   "rationale": "MTF overall score 40/100 → BULLISH. Majority of 4 timeframes agree (75%). 3 signals across multiple timeframes.",
   "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
   "contradicting_signals": [],
@@ -1279,37 +1297,37 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
 ```json
 {
   "symbol": "BTC-USDT",
-  "primary_opportunity": "BREAKOUT",
+  "primary_opportunity": "TREND_CONTINUATION",
   "opportunity_score": 85.0,
-  "setup_quality": "STRONG",
+  "setup_quality": "PRIME",
   "forecast_confidence": 0.81,
   "profiles": [
     {
-      "opportunity_type": "BREAKOUT",
+      "opportunity_type": "TREND_CONTINUATION",
       "score": 85.0,
       "preconditions_met": 3,
       "preconditions_total": 3,
-      "notes": "Volatility expanding, structure healthy, compression released."
+      "notes": "§4 tree rule 1: trend score 78 ≥ 75, bias BULLISH, momentum STABLE."
     },
     {
-      "opportunity_type": "TREND_CONTINUATION",
-      "score": 62.0,
+      "opportunity_type": "BREAKOUT",
+      "score": 78.0,
       "preconditions_met": 2,
       "preconditions_total": 3,
-      "notes": "Trend healthy but momentum stabilizing."
+      "notes": "Volatility expanding, structure healthy; loses §4 tree priority to trend continuation."
     }
   ],
   "contributing_signals": ["squeeze:COMPRESSION_RELEASE", "donchian:BREAKOUT_UP"],
-  "invalidation_note": "Close back inside the prior Donchian channel invalidates the breakout.",
+  "invalidation_note": "A close below 63440.0 invalidates the trend-continuation setup.",
   "entry_zone":  { "low": "64000.0", "high": "64200.0" },
   "target_zone": { "low": "65500.0", "high": "66000.0" },
-  "invalidation_level": "63850.0",
+  "invalidation_level": "63440.0",
   "expected_rr_internal": 2.5,
   "time_horizon": "SWING"
 }
 ```
 
-**Setup Quality bands (strict half-open intervals):** `Prime` (`> 85`), `Strong` (`> 70 AND ≤ 85`), `Moderate` (`> 50 AND ≤ 70`), `Marginal` (`> 30 AND ≤ 50`), `None` (`≤ 30`). The half-open form ensures each `opportunity_score` maps to exactly one band.
+**Setup Quality bands (lower-inclusive half-open intervals `[a, b)`):** `PRIME` (`≥ 85`), `STRONG` (`[70, 85)`), `MODERATE` (`[50, 70)`), `MARGINAL` (`[30, 50)`), `NONE` (`< 30`). The half-open form ensures each `opportunity_score` maps to exactly one band; the example's 85.0 ∈ [85, 100] → `PRIME` (canonical bands: [02-08-opportunity-matrix.md §5](../matrices/02-08-opportunity-matrix.md)).
 
 **Scoring model:** `score = 0.35·Q_ctx + 0.30·S_sig + 0.20·A_mtf + 0.15·F_fresh`
 
@@ -1376,7 +1394,7 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
     "directional_guidance": "LONG",
     "market_stance": "CONSTRUCTIVE",
     "strategy_environment": "TREND_FOLLOWING",
-    "entry_guidance": "IMMEDIATE",
+    "entry_guidance": "PULLBACK",
     "exit_guidance": "NO_WARNING",
     "protection_strategy": "ATR_BASED",
     "target_strategy": "RESISTANCE_BASED",
@@ -1384,12 +1402,12 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
     "entry_danger": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
     "expected_reward_risk_ratio": 1.79,
     "confidence_assessment": 46.61,
-    "final_recommendation": "Long bias forming: BULLISH with 46.6% confidence; STRONG setup; await confirmation before full sizing."
+    "final_recommendation": "Long bias forming: BULLISH with 46.6% confidence; PRIME setup; await confirmation before full sizing."
   },
   "decision_context": {
-    "score": 88.8,
+    "score": 88.0,
     "bias": "BULLISH",
-    "score_confidence": 0.89,
+    "score_confidence": 0.88,
     "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"]
   }
 }
@@ -1433,7 +1451,7 @@ Full specification: [Overview Matrix](../matrices/02-09-overview-matrix.md).
     "high_pct": 60.0,
     "risk_environment": "HIGH_RISK"
   },
-  "cascade_risk_index": { "score": "<placeholder>", "level": "<placeholder>", "state": "STABLE", "confidence": 0.0, "evidence": ["Field is part of the canonical schema but the value is a placeholder (not yet wired into systemic_risk_score). See 01-05-liquidity-domain.md §Open questions."] },
+  "cascade_risk_index": { "score": null, "level": null, "state": "NO_DATA", "confidence": 0.0, "evidence": ["Field is part of the canonical schema but the value is a placeholder (not yet wired into systemic_risk_score). See 01-05-liquidity-domain.md §Open questions."] },
   "asset_ranking": [
     { "symbol": "BTC-USDT", "score": 87.5, "bias": "LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
   ],
@@ -1645,8 +1663,8 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
 *   **Engine:** The largest independent functional block within the trading platform, representing an autonomous business domain.
 *   **Execution Policy:** A deterministic, user-configured trigger rule evaluated by the Trade Automation Engine to govern order dispatch.
 *   **Layer:** An isolated sequential step within an engine's processing pipeline that transforms data to a higher level of abstraction.
-*   **Market Instance:** The pairing of a unique financial symbol and a defined temporal timeframe (e.g., ETHUSDT × 5 Minutes).
-*   **Market Phase:** The active stage of an asset within its broader market cycle (`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`).
+*   **Market Instance:** The (symbol, exchange) container owning up to four TimeframePipelines; the per-(symbol, timeframe) analytical unit is a TimeframePipeline. Canonical glossary: [06-01-api-gateway-contract.md §1.0](../integration-and-api/06-01-api-gateway-contract.md).
+*   **Market Phase:** The active stage of an asset within its broader market cycle — 4 phases (`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`) plus the `UNKNOWN` empty-state sentinel.
 *   **Market Regime:** The underlying environmental behavior of an asset, defining the structural context (e.g., `EXPANSION`, `RANGE`).
 *   **Matrix:** The structured, immutable output produced by an analytical layer, serving as the interface contract between stages.
 *   **Opportunity Score:** A numeric representation from 0 to 100 expressing the density of high-probability entry criteria present in the market.

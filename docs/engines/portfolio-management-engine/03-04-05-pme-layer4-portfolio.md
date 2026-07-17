@@ -1,6 +1,6 @@
 # PME Layer 4 — Portfolio Layer
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4
@@ -55,10 +55,11 @@ The `SafetyManager` (`crates/portfolio-supervisor/src/safety.rs`) tracks five es
 ```
 NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
        ──(consecutive_losses[sym] ≥ caution_threshold)──► CAUTIOUS
-       ──(systemic_risk_score ≥ systemic_risk_threshold)──► CAUTIOUS
        ──(consecutive_losses[sym] ≥ dropout_threshold)──► SUSPENDED (timed cooldown)
        ──(current_equity / peak_equity < 1 − drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
+
+Systemic-risk breach is enforced by the veto loop (§4.1) and pre-trade Gate 7 ([08-02](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)), not by safety states.
 
 > **Lifecycle ↔ safety orthogonality (v6.2).** `DRAWDOWN_STOP` (PME safety) and `LifecycleState` (instance lifecycle, [03-03-06-tae-instance-lifecycle-spec.md](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)) are **independent axes** (IL-06). A `STOP` during `DRAWDOWN_STOP` proceeds — flatten is the emergency path. A `START` during `DRAWDOWN_STOP` transitions the instance to `RUNNING`, but Gates 1/7 still block entries until `/safety/release-veto`. See [03-03-06 §6 Interaction matrix](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) for the full interaction table.
 
@@ -66,7 +67,7 @@ NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
 |-------|---------|--------|-------|
 | `NORMAL` | Default | Full trading permitted. | — |
 | `WARN` | `daily_drawdown_pct ≥ max_daily_drawdown_pct` (default 0.05 = 5 %), where `daily_drawdown_pct = -daily_pnl / starting_session_equity` | **Early-warning only — no stance changes.** A `WARN` event sets `safety_state = WARN`, surfaces a banner in the GUI (Portfolio panel), and is logged to the audit trail with the trigger reason. Trading continues as in `NORMAL`. `WARN` is cleared automatically when `daily_drawdown_pct` returns below the threshold *or* on the daily session reset. The 60-second equity snapshot cadence that drives the live `daily_drawdown_pct` metric is implemented in [PME Layer 3 §3](../portfolio-management-engine/03-04-04-pme-layer3-capital.md); the daily session reset (`peak_equity = current_equity` at the operator-defined `session_reset_cron`, default `00:00 UTC`) is documented in §4.4 below. | Platform-wide |
-| `CAUTIOUS` | `consecutive_losses[sym] ≥ caution_threshold` (default 3) | Warning only; no stance changes yet. | **Per-symbol** |
+| `CAUTIOUS` | `consecutive_losses[sym] ≥ caution_threshold` only (default 3) | Warning only; no stance changes yet. | **Per-symbol** |
 | `SUSPENDED` | `consecutive_losses[sym] ≥ dropout_threshold` (default 5) | Affected symbol's stance → `CLOSE_ONLY`; 8-hour cooldown. A win resets that symbol's counter. Other symbols are unaffected. | **Per-symbol** |
 | `DRAWDOWN_STOP` | `current_equity / peak_equity < 1 − drawdown_limit_pct` (default 0.30 = 30 %) | All stances → `AVOID`; immediate veto. | Platform-wide |
 
@@ -91,6 +92,7 @@ Each veto trigger maps to exactly one target `Stance` per the table below. `WARN
 | **Drawdown breach** | `current_equity / peak_equity < 1 − drawdown_limit_pct` (default 0.30) | `AVOID` | **Yes** (forced liquidation) | `current_equity / peak_equity ≥ 1 − drawdown_limit_pct` (see §4.3) |
 | **Margin ceiling** | `margin_usage_ratio ≥ 0.95` | `CLOSE_ONLY` | **No** (graceful wind-down) | `margin_usage_ratio < 0.90` sustained for 60 s |
 | **Margin exhaustion** | `margin_usage_ratio ≥ 1.00` | `AVOID` | **Yes** (forced liquidation) | `margin_usage_ratio < 0.95` sustained for 60 s |
+| **Exposure limit breach** | Existing portfolio breaches the single-pair or portfolio exposure limit (see [PME Layer 2 §3](03-04-03-pme-layer2-exposure.md); new entries are rejected pre-trade at Gate 6 per [08-02](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)) | `CLOSE_ONLY` | **No** (graceful wind-down) | Exposure back under the limit |
 | **Loss streak (≥ 5)** | `consecutive_losses[sym] ≥ dropout_threshold` (default 5) | `CLOSE_ONLY` (per-symbol) | **No** (graceful wind-down) | First winning trade (counter reset) or 8-hour cooldown expiry |
 | **Systemic risk** | `systemic_risk_score ≥ systemic_risk_threshold` (default 80) | `AVOID` | **Yes** (forced liquidation) | `systemic_risk_score < systemic_risk_threshold` (see §4.3) |
 | **Manual override** | Operator-initiated | as specified (operator chooses `AVOID` or `CLOSE_ONLY`) | depends on operator input | manual reset |
@@ -108,7 +110,7 @@ The veto execution sequence is **time-critical** and must follow the steps below
 1. **Portfolio Layer publishes a high-priority `VetoMessage` to TAE**, including the trigger type and target stance.
 2. **For `AVOID` triggers: dispatch Hard Exit (Step 2a) BEFORE stance transition (Step 3).** The TAE Policy Layer dispatches a **liquidation directive** (not a cancellation) to the Execution Layer. The Execution Layer:
    - Reads the current `size` for the position from the Position Matrix (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md) for the canonical "Exit and Reduce-Only Order Bypass" rules),
-   - Constructs a `Market` order with `reduce_only = true` (forced by the [§3.3 invariant](../trade-automation-engine/03-03-03-tae-layer2-execution.md), not by a §3.5 rule — §3.3 defines the `CLOSE_ONLY` stance → `reduce_only = true` mapping),
+   - Constructs a `Market` order with `reduce_only = true` (forced by the Hard Exit emergency directive itself — the pre-veto stance may be `ACTIVE`, so the [§3.3](../trade-automation-engine/03-03-03-tae-layer2-execution.md) `CLOSE_ONLY` stance → `reduce_only = true` mapping does not apply here),
    - Tags the order `is_emergency_liquidation = true` so it bypasses Gate 1 (stance) and other pre-trade gates per [08-02-pre-trade-risk-controls.md §3](../../operations-and-compliance/08-02-pre-trade-risk-controls.md),
    - Dispatches it to the exchange,
    - Waits for exchange acknowledgement (filled or terminal reject) with a bounded timeout `hard_exit_ack_timeout_ms` (default 2000 ms).
@@ -126,7 +128,7 @@ The veto execution sequence is **time-critical** and must follow the steps below
 When the condition clears (e.g., equity recovers above drawdown limit):
 
 1. **The veto condition is re-checked** for each trigger type:
-   - **`DRAWDOWN_STOP` (drawdown):** `current_equity / peak_equity ≥ 1 − drawdown_limit_pct`.
+   - **`DRAWDOWN_STOP` (drawdown):** `current_equity / peak_equity ≥ 1 − drawdown_limit_pct`. No separate hysteresis band (unlike the margin triggers' `0.95 → 0.90` release band): release fires when the drawdown is back under the limit (`< drawdown_limit_pct`); oscillation damping comes from the 300 s veto-loop cadence plus the 60 s equity-snapshot cadence — no new knob is introduced.
    - **`Systemic risk`:** `systemic_risk_score < systemic_risk_threshold`.
    - **`Margin ceiling`:** `margin_usage_ratio < 0.90` sustained for 60 s.
    - **`Loss streak (SUSPENDED)`:**
@@ -156,7 +158,7 @@ Without an explicit reset rule, a high-profit session could permanently trip the
 The Portfolio Layer reads the MME [Overview Matrix](../../matrices/02-09-overview-matrix.md) `systemic_risk_score` on every update:
 
 - The Systemic Risk Score combines market-wide danger factors (see Overview Matrix §4).
-- When elevated, the Portfolio Layer may pre-emptively set `safety_state = CAUTIOUS` even before a drawdown occurs. **Note:** `CAUTIOUS` is a `safety_state`, not a `Stance` — its effect is to surface a warning banner and (per the safety state machine §3) not to change any per-symbol `Stance` directly. The operator may then choose to manually set a `CLOSE_ONLY` or `AVOID` stance if warranted.
+- When elevated below the veto threshold, the score is surfaced for operator visibility via the Portfolio Matrix `systemic_risk_score` field (and the Overview Matrix §4 distributions) — without mapping to any `safety_state`. Per §3, `CAUTIOUS` is driven by `consecutive_losses ≥ caution_threshold` only; systemic-risk enforcement is the veto loop (§4.1) plus pre-trade Gate 7, not the safety state machine. The operator may then choose to manually set a `CLOSE_ONLY` or `AVOID` stance if warranted.
 - When `systemic_risk_score ≥ systemic_risk_threshold` (default 80), the veto loop fires with target stance `AVOID` (see §4.1 mapping table).
 - The operator may configure a `systemic_risk_threshold` to gate fully automated trading.
 

@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -83,10 +83,10 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `decision_context` | `DecisionContext` | Yes | Quantitative decision metadata. |
 | `opportunity` | `OpportunityMatrix` | Yes | Attached Opportunity Matrix — canonical source: 02-08-opportunity-matrix.md; null when no clear setup. |
 | `statistical_context` | `StatisticalContext` | Yes | Statistical intelligence — see schema in §3.4 below. |
-| `risk_profile` | `i64` | Yes | Associated risk-profile identifier (the integer primary key of the `risk_profiles` table per [06-02-database-schema-spec.md §3.3](../integration-and-api/06-02-database-schema-spec.md)). Use `Option<null>` when no profile is bound. |
+| `risk_profile` | `i64` | Yes | Associated risk-profile identifier (the integer primary key of the `risk_profiles` table per [06-02-database-schema-spec.md §3.3](../integration-and-api/06-02-database-schema-spec.md)). Serialized as JSON `null` when no profile is bound. |
 | `metrics_config` | `Option<MetricsConfig>` | Yes | **Configurable Data Activation** (added v6.2). Optional block recording the active indicator/signal set the cascade considered. **Omitted entirely** when the active set is the registry default (all enabled). Canonical form, semantics, and gating rules: [03-02-12-mme-configurable-activation.md §3](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). `metrics_config.config_version` joins PAE attribution. |
 
-> **Composite envelope.** Although the higher-order matrices (Alignment → Overview) are conceptually produced by later layers, they are attached to the completed Metrics Matrix envelope so that a single WebSocket frame carries the per-instance analytical cascade for one `(Symbol × Timeframe)` Market Instance. The composite envelope is **per-instance** (one `(symbol, timeframe_secs)` at a time); portfolio-wide aggregates (the Overview Matrix L7) are surfaced through a separate path and never ride a per-instance WS frame. The canonical sources of the attached fields are their respective layer matrices (Alignment, Analysis, Risk, Advisory, DecisionContext, StatisticalContext); the Metrics Matrix envelope is a delivery vehicle, not the canonical store.
+> **Composite envelope.** Although the higher-order matrices (Alignment → Decision) are conceptually produced by later layers, they are attached to the completed Metrics Matrix envelope so that a single WebSocket frame carries the per-instance analytical cascade for one `(Symbol × Timeframe)` Market Instance. The composite envelope is **per-instance** (one `(symbol, timeframe_secs)` at a time); portfolio-wide aggregates (the Overview Matrix L7) are surfaced through a separate path and never ride a per-instance WS frame. The canonical sources of the attached fields are their respective layer matrices (Alignment, Analysis, Risk, Advisory, DecisionContext, StatisticalContext); the Metrics Matrix envelope is a delivery vehicle, not the canonical store.
 
 ---
 

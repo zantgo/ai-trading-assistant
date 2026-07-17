@@ -4,6 +4,47 @@
 
 ------
 
+## v6.4 (2026-07-17) — Documentation consistency release
+
+Documentation-only release applying the corpus-wide architectural consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings). No platform behavior changes beyond the four documented contract adjustments below.
+
+### Contract adjustments
+
+- **C-1:** `open_orders.is_emergency_liquidation INTEGER NOT NULL DEFAULT 0 CHECK (… IN (0,1))` added (06-02 §3.2) — closes the emergency-liquidation audit gap for in-flight orders (H6).
+- **C-2:** `market_breadth.low_coverage` added to the Overview Matrix schema (02-09 §3.2) (M19).
+- **C-3:** `risk_control_events.decision` vocabulary aligned to {BLOCK, HELD_FOR_REVIEW, CLIP_AND_CONTINUE, OVERRIDE}; unused MODIFIED_AND_CONTINUED removed; `operator_id` CHECK relaxed to plain TEXT, forward-compatible with AUDIT-V4-076 (M9/M26).
+- **C-4:** `NormalizedEvent` gains a `Liquidation` variant (02-10 §2) (M12).
+
+### HIGH-severity fixes
+
+- **H1:** version coherence ratchet (MANIFEST §12.12 + gate G1): v6.3 content ratified; corpus re-stamped v6.4.
+- **H2:** canonical scenario chain rebuilt from the 02-01 §6 seed (three seed dimension scores corrected: structure 33.3→65, volume 55→72, volatility 60→75); primary opportunity corrected to TREND_CONTINUATION per the §4 tree; ontology Appendix A regenerated; MANIFEST §12.3 CQ row corrected to 60.5 (inputs 300/600, 50/100).
+- **H3:** systemic-risk enforcement consolidated to Gate 7 + PME veto; the CAUTIOUS safety-state mapping is removed.
+- **H4:** 08-07 §3.2 master-key rotation runbook rewritten (record out-of-band → stop → start on new key → re-insert → verify → scrub).
+- **H5:** ontology Appendix A demoted to illustrative worked example; matrices/02-* are the sole normative wire schemas (gate G13).
+- **H7:** Market Instance definition unified to the (symbol, exchange) container; canonical glossary 06-01 §1.0.
+- **H8:** errata — the v6.3 entry (below) claimed the "Gate-1 deadlock" rationale was removed from 01-03 Sequence D; it was not. Removed now (gate G12 guards regression).
+
+### Bands, enums, semantics
+
+- SetupQuality bands converted to lower-inclusive [a, b): 85.0 → PRIME (supersedes the v6.3 note that made 85.0 STRONG).
+- UNKNOWN empty-state sentinel standardized across assessment enums (StructureAssessment UNCLEAR → UNKNOWN); MarketPhase = 4 phases + UNKNOWN.
+- SUSPENDED scoped to the safety axis (scoped-enum rule corrected).
+- TradeReadiness rules made total and non-overlapping (ordered rules, 02-04 §4).
+- Stance is per-symbol state; the policy-schema `stance` field is removed (policies read stance at dispatch).
+- Exposure-limit disposition unified: reject at Gate 6 pre-trade; post-fill breach vetoes to CLOSE_ONLY (no Hard Exit).
+- Liquidity data-flow invariant pinned: L1.5 → {L4, L5}; L2.5 → {L4, L5}; L4 + L5 → L6.
+- ADX classified directional only (removed from the guide's gate list; 41 + 9 = 50 holds).
+- Ingestion topology pinned: one adapter task + one WS connection per TimeframePipeline.
+
+### Process
+
+- MANIFEST: Canonical Source Registry (§13), terminology register, executable gates G1–G16 (§12.0).
+- Open Items re-baselined (below): every item carries a target ≥ v6.5 or "Unscheduled".
+- ~60 documents corrected in place; zero files added or removed (inventory stays 138).
+
+---
+
 ## v6.3 (2026-07-17) — Consistency remediation release
 
 ### Fixed (logic)
@@ -461,14 +502,33 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 
 | ID | Item | Status | Target |
 |---|---|---|---|
-| `AUDIT-V4-005` | `cascade_risk_index` aggregation into `systemic_risk_score` | Open (placeholder field in canonical schema; aggregation formula deferred) | v4.1 |
-| `AUDIT-V4-046` | `safety_state` deterministic reconstruction algorithm | Open (reconstruction rule documented but not yet unit-tested) | v4.1 |
-| `AUDIT-V4-076` | `X-Operator-Id` optional header for caller-supplied operator identity | Open (single-user `local_operator` fixed identity in v4.0; caller-supplied identity in v5.0) | v5.0 |
-| `AUDIT-V4-077` | Authentication beyond `local_operator` (multi-user / OAuth / mTLS) | Open | v5.0 |
-| `AUDIT-V4-044` | `roi_percentage` legacy field removal | Deprecated in v4.0; remove entirely | v5.0 |
-| `AUDIT-V4-078` | Per-WASM lightweight connection-quality scoring | Open | v4.1 |
-| `AUDIT-V4-079` | PriceChart marker overlay for cluster positions (Phase 4 extension) | Deferred | v4.1 |
-| `AUDIT-V4-080` | `liquidation_events` → PAE backtest ingestion | Deferred | v5.0 |
+| `AUDIT-V4-005` | `cascade_risk_index` aggregation into `systemic_risk_score` | Open (placeholder field in canonical schema; aggregation formula deferred) | v6.5 |
+| `AUDIT-V4-044` | `roi_percentage` legacy field removal | Deprecated in v4.0; remove entirely | v6.5 |
+| `AUDIT-V4-046` | `safety_state` deterministic reconstruction algorithm | Open (reconstruction rule documented but not yet unit-tested) | Unscheduled |
+| `AUDIT-V4-076` | `X-Operator-Id` optional header for caller-supplied operator identity | Open (single-user `local_operator` fixed identity; caller-supplied identity deferred) | Unscheduled |
+| `AUDIT-V4-077` | Authentication beyond `local_operator` (multi-user / OAuth / mTLS) | Open | Unscheduled |
+| `AUDIT-V4-078` | Per-WASM lightweight connection-quality scoring | Open | Unscheduled |
+| `AUDIT-V4-079` | PriceChart marker overlay for cluster positions (Phase 4 extension) | Deferred | Unscheduled |
+| `AUDIT-V4-080` | `liquidation_events` → PAE backtest ingestion | Deferred | Unscheduled |
+| `AUDIT-V6-077` | In-process exchange-key rotation tool (`POST /api/keys/rotate` re-encryption under a new master key, SIGHUP hot rotation, encrypted-backup export) — manual procedure documented in `08-07` | Open | Unscheduled |
+| `AUDIT-V6-202` | `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions) | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V6-203` | `database-storage`: add `instance_lifecycle` + `instance_lifecycle_events` migrations; bump `user_version` | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V6-204` | `api-gateway`: implement `POST /api/instances/:id/start`; rewrite `/pause` (entry-gate semantics) and `/stop` (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V6-205` | `portfolio-supervisor`: implement Gate 0 check in pre-trade chain | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V6-206` | `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true` | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-210` | `core-domain`: add `metrics_config` field (`skip_serializing_if`) to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status` | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-211` | `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version` | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (specified in `03-02-12` §9) | v6.5 |
+| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Open | v6.5 |
+| `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed) | Open | v6.5 |
+| `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers) | Open | v6.5 |
+| `AUDIT-V6-304` | PAE→DB feedback (persist PAE analytical feedback to configuration databases for off-line policy optimization) | Open | Unscheduled |
+| `AUDIT-V6-305` | Remote config backends (load platform configuration from remote backends, not only local `config.toml`) | Open | Unscheduled |
 
 ---
 
