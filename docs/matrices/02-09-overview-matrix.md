@@ -1,6 +1,6 @@
 # Overview Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 7 — Overview Layer
@@ -122,7 +122,7 @@ Breadth percentage: $\text{breadth\_pct} = \frac{\text{long\_count} - \text{shor
 
 The `risk_distribution` bins assets by their Decision Matrix `confidence_assessment` (in `[0, 100]`; high confidence ⇒ low risk):
 
-> **Confidence source clarification.** The `confidence_assessment` used by `risk_distribution` is the L6 Decision Matrix's **risk-attenuated terminal value** (see [02-00b-confidence-hierarchy.md](../../matrices/02-00b-confidence-hierarchy.md)), not the L3 Analysis Matrix's `state_confidence`. The two are distinct: `state_confidence ∈ [0, 1]` is the L3 *state-interpretation* confidence driven by MTF agreement; `confidence_assessment ∈ [0, 100]` is the L6 *user-facing* confidence, attenuated by `overall_risk` per the formula in [02-04-decision-matrix.md §4](../matrices/02-04-decision-matrix.md). High `confidence_assessment` ⇒ low per-symbol risk ⇒ the asset is binned in `low_pct`.
+> **Confidence source clarification.** The `confidence_assessment` used by `risk_distribution` is the L6 Decision Matrix's **risk-attenuated terminal value** (see [02-00b-confidence-hierarchy.md](./02-00b-confidence-hierarchy.md)), not the L3 Analysis Matrix's `state_confidence`. The two are distinct: `state_confidence ∈ [0, 1]` is the L3 *state-interpretation* confidence driven by MTF agreement; `confidence_assessment ∈ [0, 100]` is the L6 *user-facing* confidence, attenuated by `overall_risk` per the formula in [02-04-decision-matrix.md §4](../matrices/02-04-decision-matrix.md). High `confidence_assessment` ⇒ low per-symbol risk ⇒ the asset is binned in `low_pct`.
 
 ```
 low_pct  = % of Decision Matrices with confidence_assessment > 70

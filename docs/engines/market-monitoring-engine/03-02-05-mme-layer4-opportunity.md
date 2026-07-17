@@ -1,6 +1,6 @@
 # MME Layer 4 — Opportunity Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 4 of 7
@@ -22,13 +22,13 @@ The Opportunity Layer identifies **positive** market configurations and scores t
                                           L6 (Decision)
 ```
 
-**Dependency edges:** L4 reads L3 only. L4 does **not** read L5. L4 outputs to L6 only. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
+**Dependency edges:** L4 reads L3, L1 metrics signals, and L1.5/L2.5 liquidity products (see 02-00-matrix-field-ownership.md §5). L4 does **not** read L5. L4 outputs to L6 only. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
 
 ---
 
 ## 2. Candidate Setup Types
 
-The layer profiles each candidate `OpportunityType`. The canonical enum is **eight-valued** — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension, plus `Scalp` added in the v2.1 institutional completeness sweep (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md) for the canonical precondition table and §4 for the decision tree):
+The layer profiles each candidate `OpportunityType`. The canonical enum is **eight-valued** — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension, plus `Scalp` added in the v2.1 institutional completeness sweep (see [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical precondition table and §4 for the decision tree):
 
 | Setup | Precondition Signature |
 |-------|------------------------|
@@ -72,7 +72,7 @@ The **primary opportunity** is determined by the priority-ordered decision tree 
 | `Marginal` | `> 30 AND ≤ 50` | Weak edge; confluence-only. |
 | `None` | `≤ 30` | No actionable opportunity. |
 
-The canonical form (above) matches [Opportunity Matrix §5](../../matrices/02-08-opportunity-matrix.md) and [01-01-ontology.md §A.4](../conceptual-foundations/01-01-ontology.md). A previous version of this table used `[85, 100]`, `[70, 85]`, etc. — these closing both ends created two-band ambiguity at boundaries (e.g. a score of `85` would satisfy both `Prime` and `Strong` simultaneously). The strict half-open form eliminates this.
+The canonical form (above) matches [Opportunity Matrix §5](../../matrices/02-08-opportunity-matrix.md) and [01-01-ontology.md §A.4](../../conceptual-foundations/01-01-ontology.md). A previous version of this table used `[85, 100]`, `[70, 85]`, etc. — these closing both ends created two-band ambiguity at boundaries (e.g. a score of `85` would satisfy both `Prime` and `Strong` simultaneously). The strict half-open form eliminates this.
 
 ---
 

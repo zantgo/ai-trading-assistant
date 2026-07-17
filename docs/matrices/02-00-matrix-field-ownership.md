@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -72,7 +72,8 @@ Owns: foundational indicator telemetry for a single Market Instance (Symbol × T
 | `open_interest`, `oi_delta_1h`, `prev_day_px` | L1 | From DIE OpenInterest / AssetContext |
 | `indicators` (map of `IndicatorEvaluation`) | L1 (indicator calculators) | 50 indicators with normalized scores, state_labels, signals |
 | `context` (`MarketContext`) | L1 (`MarketContext::synthesize()`) | Per-TF context dimensions |
-| `alignment`, `analysis`, `risk`, `advisory`, `decision_context`, `statistical_context` | **Attached matrices** | Composite envelope — L1 owns the envelope; the attached fields are *sourced* from L2–L6 for WebSocket delivery convenience (single frame carries the full cascade). The canonical sources of these fields are their respective layer matrices, NOT the Metrics Matrix. |
+| `metrics_config` | L1 (config-driven Active Set) | **Configurable Data Activation** (added v6.2 per [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md)). Records the active indicator/signal set actually present in this snapshot. Omitted entirely when the active set equals the registry default. Carries `config_version` for PAE attribution. |
+| `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context`, `statistical_context` | **Attached matrices** | Composite envelope — L1 owns the envelope; the attached fields are *sourced* from L2–L6 for WebSocket delivery convenience (single frame carries the full cascade). The canonical sources of these fields are their respective layer matrices, NOT the Metrics Matrix. |
 
 > **Composite envelope convention.** The Metrics Matrix is the **WebSocket delivery unit** — a single `MarketSnapshot` frame contains the per-TF Metrics data plus the attached higher-order matrices. This is a *delivery* pattern, not a *production* pattern. The canonical owners of `alignment`, `analysis`, `risk`, `advisory`, `decision_context` remain L2, L3, L5, L6, L6 respectively (see [02-07-metrics-matrix.md §2.1](02-07-metrics-matrix.md)).
 
@@ -125,7 +126,7 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `invalidation_note` | L4 | Condition that nullifies the opportunity |
 | `entry_zone` (`PriceRange`) | L4 | Recommended entry band *(institutional redesign)* |
 | `target_zone` (`PriceRange`) | L4 | Expected target band *(institutional redesign)* |
-| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior name: `invalid_level`; renamed to `invalidation_level` so L4, Decision Matrix, and Position Matrix share one naming convention. The `invalid_level` legacy alias is **not** serialized.)* |
+| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior name: `invalidation_level`; renamed to `invalidation_level` so L4, Decision Matrix, and Position Matrix share one naming convention. The `invalidation_level` legacy alias is **not** serialized.)* |
 | `expected_rr_internal` (`f64`) | L4 | Expected reward/risk ratio for this setup *(renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`)* |
 | `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 
@@ -135,10 +136,6 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 
 > **Serialization convention.** `primary_opportunity` and `time_horizon` serialize as **SCREAMING_SNAKE_CASE strings on the wire / in policy conditions** (`"BREAKOUT"`, `"LIQUIDITY_SQUEEZE"`, `"INTRADAY"`, …); PascalCase is reserved for Rust internals. See the canonical note in [02-08-opportunity-matrix.md §7 Serialization note](../matrices/02-08-opportunity-matrix.md).
 
-**Ownership rules for L4:**
-- The setup-selection decision tree (formerly in `02-02-analysis-matrix.md §4.3`) is **moved** to the Opportunity Matrix and is the canonical source for `OpportunityType`.
-- L4 reads from L3 (Analysis) for `bias`, `state_confidence`, `market_quality`, and the qualitative assessments.
-
 ### 2.5 Risk Matrix (L5) — `02-11-risk-matrix.md`
 
 Owns: pure environmental danger. **No reward, no opportunity, no state.**
@@ -146,11 +143,11 @@ Owns: pure environmental danger. **No reward, no opportunity, no state.**
 | Field | Producer | Notes |
 |---|---|---|
 | `symbol` | L5 | |
-| `market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk` | L5 | **Eight** unipolar risk sub-dimensions in [0, 100]. The legacy `liquidity_risk` was renamed to `execution_liquidity_risk` (with serde alias). `cascade_risk` is the 8th sub-dimension (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `reward_risk`/`correlation_risk`). |
+| `market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk` | L5 | **Eight** unipolar risk sub-dimensions in [0, 100]. The legacy `liquidity_risk` was renamed to `execution_liquidity_risk` (with serde alias). `cascade_risk` is the 8th sub-dimension (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `expected_rr`/`sync_risk`). |
 | `overall_risk` | L5 | Weighted aggregate of the **eight** sub-dimensions: `overall = 0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C` (total = 1.0; where `M`=market_risk, `V`=volatility_risk, `L_ex`=execution_liquidity_risk, `S`=structure_risk, `Mo`=momentum_risk, `Sig`=signal_risk, `E`=execution_risk, `C`=cascade_risk; see [Risk Matrix §4.9](02-11-risk-matrix.md) and [MME Layer 5 §3](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md)). **Nine fields total** (eight sub-dimensions + `overall_risk`). |
 
 **Removed (architectural redesign):**
-- ~~`reward_risk`~~ — moved to Decision Matrix (L6) as `entry_danger`. The reward dimension is a **synthesis** concept and belongs in L6, not L5.
+- ~~`expected_rr`~~ — moved to Decision Matrix (L6) as `entry_danger`. The reward dimension is a **synthesis** concept and belongs in L6, not L5.
 
 **Ownership rules for L5:**
 - L5 reads from L3 (Analysis) for `bias`, `market_regime`, `market_quality`, and the qualitative assessments.
@@ -175,7 +172,7 @@ Owns: the **only synthesis point** in the pipeline. Combines L3 (state) + L4 (op
 | `target_strategy` (`TargetStrategy` 5-state) | L6 | |
 | `confidence_assessment` (`f64`, [0,100]) | L6 | Risk-attenuated: `clamp(L3.state_confidence × (1 − L5.overall_risk/100) × 100, 0, 100)` |
 | `trade_readiness` (`TradeReadiness` 4-state) | L6 | **Added in institutional redesign** — was documented in §4 but missing from §2.1 schema |
-| `entry_danger` (`RiskDimension`) | L6 | **Renamed from `environment_favorability` in v2.1** (semantic successor of `Risk.reward_risk`). The RiskDimension convention is **high score = danger, low score = safe** — consistent with all other Risk Matrix dimensions. |
+| `entry_danger` (`RiskDimension`) | L6 | **Renamed from `risk_favorability` in v2.1** (semantic successor of `Risk.expected_rr`). The RiskDimension convention is **high score = danger, low score = safe** — consistent with all other Risk Matrix dimensions. |
 | `expected_reward_risk_ratio` (`f64`) | L6 | **Added in institutional redesign** — risk-discounted synthesis: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)` (canonical: [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md)). Note the `/100.0` divisor — `overall_risk` is on the canonical `[0, 100]` scale. |
 | `final_recommendation` (string) | L6 | Natural-language summary |
 | `stop_loss_distance_pct` (`f64`) | L6 | **Type-boundary handoff.** Raw percent float carried into TAE Position Sizing Protocol; cast to `Decimal` at the MME L6 → TAE L2 boundary. See `03-03-03-tae-layer2-execution.md §2` and `01-02-global-architecture.md §6.3`. |
@@ -216,7 +213,7 @@ Owns: cross-symbol aggregation.
 | Removed From | Old Field | New Location | Migration Note |
 |---|---|---|---|
 | Analysis Matrix (L3) | `opportunity_analysis` | Opportunity Matrix (L4) `primary_opportunity` | The setup selector moved to where it belongs: L4 owns forecasts. |
-| Risk Matrix (L5) | `reward_risk` | Decision Matrix (L6) `entry_danger` | The reward dimension is a synthesis, not pure danger; moved to L6. |
+| Risk Matrix (L5) | `expected_rr` | Decision Matrix (L6) `entry_danger` | The reward dimension is a synthesis, not pure danger; moved to L6. |
 
 ---
 
@@ -238,14 +235,14 @@ The four `confidence`-bearing fields follow a strict hierarchy: indicator → st
 ## 5. Dependency Edges (Allowed and Forbidden)
 
 **Allowed (forward-only, unidirectional):**
-- L1 → L2, L3, L4, L5, L6
-- L2 → L3, L6
-- L3 → L4, L5, L6 (the L3 fan-out — the only legitimate multi-edge from a single matrix)
-- L4 → L6
-- L5 → L6
-- L6 → L7
-- **L1.5 → L5** *(Phase 3 — Liquidity Intelligence extension)*: per-candle `LiquidityFlow` (cascade state + intensity) feeds into `cascade_risk`. This is an explicit multi-source exception for the Liquidity Intelligence layer; it preserves the unidirectional forward cascade by reading L1.5 telemetry into L5 synthesis only.
-- **L2.5 → L4 / L5** *(Phase 3 — Liquidity Intelligence extension)*: the 5-minute `LiquidationClusterMatrix` (forward-pressure `cascade_asymmetry`) feeds into both L4 (LiquiditySqueeze opportunity) and L5 (cascade_risk weighting). Same forward-cascade preservation rationale as L1.5 → L5.
+```
+L2 ← L1 (per-TF)
+L3 ← L2 (per-instance)
+L4 ← {L3, L1 metrics signals, L1.5/L2.5 liquidity products}
+L5 ← {L3, L1 indicator map, L2.5}
+L6 ← {L2 tradability, L3, L4, L5}
+L7 ← {L6 of all symbols}
+```
 
 **Forbidden:**
 - L4 ↔ L5 (no edge in either direction — they are strictly orthogonal; the only cross-coupling is via the shared L3 fan-out plus the L1.5/L2.5 multi-source exceptions above)

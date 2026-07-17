@@ -1,6 +1,6 @@
 # Analysis Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 3 — Analysis Layer
@@ -43,7 +43,7 @@ Implemented as `AnalysisMatrix` (`crates/core-domain/src/analysis.rs`), produced
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
 | `market_quality` | `QualityLevel` | Aggregate environment quality (§3.8 / §3.9). Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
 | `market_quality_score` | `f64` | Raw numeric mean of the per-dimension scores (trend, momentum, structure, volume) in `[0, 100]`. The numeric companion to `market_quality`, consumed by the Layer 6 `confluence_score` formula and other downstream numeric aggregations. When unavailable at the L3 boundary, callers must map `QualityLevel → f64` via the §3.8 numeric bands. |
-| `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: `ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN` (§3.10). |
+| `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: `ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN` / `UNKNOWN` (§3.10). |
 | `market_interpretation` | `string` | Human-readable natural-language summary. |
 | `rationale` | `string` | Explainability trace of the derivation. |
 | `supporting_signals` | `string[]` | Per-TF observations agreeing with `bias`. |
@@ -73,6 +73,8 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 ### 3.2 MarketRegime
 
 `TRENDING_BULL`, `TRENDING_BEAR`, `RANGE`, `ACCUMULATION`, `DISTRIBUTION`, `EXPANSION`, `CONTRACTION`, `TRANSITION`.
+
+> **Enum disambiguation.** `MarketRegime.ACCUMULATION/DISTRIBUTION` and `MarketPhase.ACCUMULATION/DISTRIBUTION` (§3.10) are different enums with different derivations; context determines which is meant. `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction; `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope.
 
 **Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx = Alignment Matrix dimension 0 score ∈ [0, 100]`, `bbwp = Context.volatility-derived BBWP score ∈ [0, 100]`, and `regime_one_bar_ago = prior Assessment Layer regime`.
 
@@ -118,7 +120,9 @@ The decision tree deterministically produces all 8 variants. Empty/initial state
 | `EXCELLENT` | **≥ 85** |
 
 ### 3.10 MarketPhase
-`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN` — Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
+`ACCUMULATION`, `MARKUP`, `DISTRIBUTION`, `MARKDOWN`, `UNKNOWN` — Wyckoff-style market-cycle phase. Derived from volume trend + price trend + structure slope:
+
+> **Enum disambiguation.** `MarketPhase.ACCUMULATION/DISTRIBUTION` and `MarketRegime.ACCUMULATION/DISTRIBUTION` (§3.2) are different enums with different derivations; context determines which is meant. `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope; `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction.
 
 | Phase | Condition |
 |-------|-----------|
@@ -169,7 +173,7 @@ The `rationale` and `market_interpretation` strings are generated deterministica
 {
   "symbol": "BTC-USDT",
   "bias": "BULLISH",
-  "state_confidence": 0.82,
+  "state_confidence": 0.65,
   "market_regime": "TRENDING_BULL",
   "trend_assessment": "HEALTHY",
   "momentum_assessment": "STABLE",
@@ -178,7 +182,7 @@ The `rationale` and `market_interpretation` strings are generated deterministica
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, normal volatility, and strong volume participation. Favors trend continuation.",
-  "rationale": "MTF overall score 40/100 → BULLISH. Majority of 4 timeframes agree (75%). 3 signals across multiple timeframes.",
+  "rationale": "state_confidence = |40|/100 + 0.15 (agreement 75%) + 0.10 (3 cross-TF signals) = 0.65",
   "supporting_signals": ["fast180 (bullish): score +42, TRENDING regime, 3 signals"],
   "contradicting_signals": [],
   "timeframes_considered": 4
@@ -200,7 +204,7 @@ When `timeframes_present == 0`, `derive_analysis` returns `AnalysisMatrix::empty
 | `market_regime` | `TRANSITION` |
 | `market_quality` | `POOR` |
 | `market_quality_score` | `0.0` |
-| `market_phase` | `ACCUMULATION` |
+| `market_phase` | `UNKNOWN` |
 | `trend_assessment` | `UNCLEAR` |
 | `momentum_assessment` | `UNCLEAR` |
 | `structure_assessment` | `UNCLEAR` |

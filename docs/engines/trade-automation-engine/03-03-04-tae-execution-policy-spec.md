@@ -1,6 +1,6 @@
 # TAE — Execution Policy Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document defines the formal syntax, semantics, and lifecycle of **Execution Policies** — the user-configured conditional rules that govern automated order dispatch. Execution policies are the bridge between passive MME intelligence and active TAE execution.
@@ -63,7 +63,7 @@ Value          ::= number | string | [number] | [string]
 | `decision.entry_guidance` | `string` | Decision Matrix | `"IMMEDIATE"`, `"PULLBACK"` |
 | `analysis.market_regime` | `string` | Analysis Matrix | `"TRENDING_BULL"`, `"RANGE"` |
 | `analysis.market_quality` | `string` | Analysis Matrix | `"GOOD"`, `"EXCELLENT"` |
-| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, `"SCALP"`, … — see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md) for the canonical eight-variant precondition table (canonical producer — replaces the removed `decision.opportunity_classification` field per the v2.1 institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) for the migration map) |
+| `opportunity.primary_opportunity` | `string` | Opportunity Matrix (L4) | `"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, `"SCALP"`, … — see [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical eight-variant precondition table (canonical producer — replaces the removed `decision.opportunity_type` field per the v2.1 institutional redesign; see [02-00-matrix-field-ownership.md §3](../../matrices/02-00-matrix-field-ownership.md) for the migration map) |
 | `opportunity.opportunity_score` | `number` | Opportunity Matrix | `85.0` (0–100) |
 | `risk.overall_risk.score` | `number` | Risk Matrix | `28.0` (0–100) |
 
@@ -144,6 +144,8 @@ AVOID ──(operator re-enable)──► ACTIVE
 
 Transitions to `CLOSE_ONLY` or `AVOID` from PME veto are **irreversible by the policy itself** — only manual operator confirmation can restore `ACTIVE`.
 
+> **Policy `AUTO_PAUSED` (CA-10/QA-3, scope = policy).** Distinct from the instance-scope lifecycle `PAUSED` defined in [03-03-06-tae-instance-lifecycle-spec.md](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). When a policy-level `AUTO_PAUSED` fires (consecutive losses, operator override), the affected **policy** stops evaluating while the instance continues trading under its other policies; this never moves the instance's `LifecycleState`. Conversely, an instance-level `PAUSED` (lifecycle Gate 0) blocks entries for **every** policy on that instance but leaves policy state machines intact. The two axes are independent — see [03-03-06 §6 Interaction matrix](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
+
 ---
 
 ## 6. Position Sizing Parameters
@@ -208,6 +210,7 @@ This data is available via `GET /api/system/observability` (see [API Gateway Con
 - [TAE Overview](03-03-01-tae-overview-spec.md) — Engine boundaries and operational modes.
 - [TAE Layer 1 — Policy](03-03-02-tae-layer1-policy.md) — Policy evaluation engine specification.
 - [TAE Layer 2 — Execution](03-03-03-tae-layer2-execution.md) — Position Sizing Protocol and order dispatch.
+- [TAE Instance Lifecycle & Programmable State Control](03-03-06-tae-instance-lifecycle-spec.md) — Lifecycle × policy orthogonality, scoped-enum rule.
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Primary intelligence source.
 - [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Veto authority over stances.
 - [Ontology — Execution Policy](../../conceptual-foundations/01-01-ontology.md) — Conceptual definitions.

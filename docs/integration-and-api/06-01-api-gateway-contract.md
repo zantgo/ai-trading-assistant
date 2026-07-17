@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -14,6 +14,20 @@
 | Base URL | `http://127.0.0.1:3000` (localhost only) |
 | Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is on the v5.0 roadmap. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
 | Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
+
+### 1.0 Canonical glossary (Market Instance identifier)
+
+Throughout this API and the corpus, three names refer to the same identifier:
+
+| Surface | Identifier name | Example |
+|---------|----------------|---------|
+| API query parameter / response field | `instance_id` | `?instance_id=BTC-USDT@Hyperliquid` |
+| SQLite schema column | `pair_key` | `connection_quality_samples.pair_key` |
+| Dashboard UI label | "Active pair" / "Market Instance" | "BTC-USDT (Hyperliquid)" |
+
+All three denote the same runtime container: a single trading pair (`pair_key` form: `BTC-USDT@Hyperliquid` or just `BTC-USDT` when exchange is unambiguous) on a single venue, with its own analyzer pipeline, telemetry stream, connection-quality tracker, and risk profile. The canonical identifier format on the wire is the **unified internal symbol** (e.g. `BTC-USDT`), with the exchange implied by the runtime configuration; `pair_key` extends it to `<symbol>@<exchange>` for unambiguous DB joins.
+
+> **Cross-references.** This glossary is the single source of truth for the three names. Docs that previously used the three names interchangeably (e.g. `/api/connection-quality` formerly mixing `instance_id` and `pair_key`) now point here for resolution.
 
 ### 1.1 HTTP status codes and error envelope
 
@@ -92,8 +106,10 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `DELETE` | `/api/instances/:id` | Delete instance. |
 | `DELETE` | `/api/instances/by-pair/:pair_key` | Delete by pair key. |
 | `POST` | `/api/instances/:id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
-| `POST` | `/api/instances/:id/pause` | Pause event loop. |
-| `POST` | `/api/instances/:id/stop` | Stop instance. |
+| `GET` | `/api/instances/:id/activation` | Returns the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) as applied at the current `config_version`. Response: `{ disabled_indicators: [], disabled_signals: [], disabled_signal_kinds: [], liquidity: {...}, config_version: u64 }`. Absent fields indicate the registry default. See [`03-02-12-mme-configurable-activation.md §2`](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). |
+| `POST` | `/api/instances/:id/start` | Transition STOPPED/lifecycle PAUSED → RUNNING (Gate 0 admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
+| `POST` | `/api/instances/:id/pause` | Close Gate 0 entry path; loop keeps running for policy-driven exits. Lifecycle axis only — distinct from stance `CLOSE_ONLY` and policy `AUTO_PAUSED` (see [03-03-06 §6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
+| `POST` | `/api/instances/:id/stop` | Transition RUNNING/lifecycle PAUSED → STOPPING → STOPPED (flatten: cancel orders + market-close positions with `is_emergency_liquidation = true`, `reduce_only = true`). DELETE on a non-STOPPED instance returns `409` (see [03-03-06 IL-08](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
 | `POST` | `/api/instances/:id/safety/reset` | Reset the per-symbol `consecutive_losses` counter (clears `consecutive_losses[sym]`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
 | `POST` | `/api/instances/:id/safety/release-veto` | **Release a hard drawdown / systemic veto.** The endpoint checks that the underlying veto condition (drawdown below threshold *and* `systemic_risk_score < systemic_risk_threshold`) has cleared, then restores the operator-configured default stances and clears the operator one-time-acknowledge flag. Returns `422 Unprocessable Entity` if the veto condition is still active, `200 OK` on success. Distinct from `/safety/reset` (which only clears the consecutive-loss counter). The `operator_id` from the local-operator model is recorded in the resulting `risk_control_events` row. |
 | `POST` | `/api/instances/:id/manual/open` | Log manual position open. Request: `InstanceManualRequest { action: string (required), direction: Option<string> ("LONG"\|"SHORT"), price: Option<f64>, pre_dispatch_order_id: Option<string> }`. The optional `pre_dispatch_order_id` references a held order in `PRE_DISPATCH` from Gate 5; if present, the manual action approves the held order rather than opening a separate position. |
@@ -190,7 +206,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical name; `roi_percentage` is a deprecated alias scheduled for removal at v5.0). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical name; `roi_pct` is a deprecated alias scheduled for removal at v5.0). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -199,12 +215,12 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | Method | Path | Response |
 |--------|------|----------|
 | `GET` | `/api/dashboard/stats?initial_capital=` | `DashboardStats` (20+ stat categories). |
-| `GET` | `/api/system/status` | `{ connected, latency_ms, journal_mode, active_pairs_count }`. |
+| `GET` | `/api/system/status` | `{ observation_loop_latency_ms, ingest_skew_ms, system_heartbeat_latency_ms, journal_mode, active_pairs_count }`. The three `*_latency_ms` / `*_skew_ms` fields are distinct: `observation_loop_latency_ms` is the end-to-end raw-frame-to-broadcast latency (DIE performance target, see [03-01-01 §3](../engines/data-infrastructure-engine/03-01-01-die-overview-spec.md) and [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md)); `ingest_skew_ms` is the difference between local receipt time and `timestamp_ms` (per-trade skew); `system_heartbeat_latency_ms` is the round-trip of the most recent WS control frame. |
 | `GET` | `/api/system/observability?symbol=` | `{ recent_decisions[], completed_trades[] }`. |
 
 ### 2.9 Pre-dispatch Approval (Gate 5)
 
-> `PRE_DISPATCH` orders are held in process memory only by the TAE Execution Layer. The HTTP resource below provides the durable audit-trail surface that is missing in earlier versions. The `risk_control_events` table (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)) is the persistent record of every gate-rejection and every pre-dispatch event.
+> `PRE_DISPATCH` orders are held in process memory only by the TAE Execution Layer. The HTTP resource below provides the durable audit-trail surface that was missing in earlier versions. The `risk_control_events` table (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)) is the persistent record of every gate-rejection and every pre-dispatch event.
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
@@ -252,7 +268,7 @@ Every server→client frame:
 }
 ```
 
-The `snapshot` field is the serialized `MarketSnapshot` schema defined in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md). Every top-level field is present on the wire: `indicators`, `alignment`, `analysis`, `risk`, `advisory`, `decision_context`, `context`, `liquidity`, `cluster`, `liquidity_signals`, `statistical_context`, `risk_profile` (each is `Option::None` or empty-object as appropriate). Both `is_completed = true` completed snapshots and `is_completed = false` shadow snapshots ride the same channel; shadow snapshots are display-only and never enter the L4/L5/L6 synthesis cascade.
+The `snapshot` field is the serialized `MarketSnapshot` schema defined in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md). Every top-level field is present on the wire: `indicators`, `alignment`, `analysis`, `opportunity`, `risk`, `advisory`, `decision_context`, `context`, `liquidity`, `cluster`, `liquidity_signals`, `statistical_context`, `risk_profile` (each is `Option::None` or empty-object as appropriate). Both `is_completed = true` completed snapshots and `is_completed = false` shadow snapshots ride the same channel; shadow snapshots are display-only and never enter the L4/L5/L6 synthesis cascade.
 
 Key properties:
 - No `id` field (notification — no response expected).

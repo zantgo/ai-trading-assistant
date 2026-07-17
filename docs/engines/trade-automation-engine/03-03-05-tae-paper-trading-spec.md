@@ -1,6 +1,6 @@
 # TAE — Paper Trading Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the internal paper trading engine — a simulated matching engine that mirrors live exchange order lifecycles for strategy development, backtesting, and zero-risk validation without external API dependencies.
@@ -29,6 +29,8 @@ The engine applies the same Position Sizing Protocol, order state machine, and a
 | Slippage model | Actual exchange slippage | Configurable simulated slippage |
 | Rejection sources | Exchange API errors | Pre-flight validation only |
 | Latency | Real network latency | Near-zero (local) |
+
+> **Lifecycle parity.** The paper engine honors the same `LifecycleState` axis as the live engine: Gate 0 admission, instance-lifecycle `PAUSED` (lifecycle `PAUSED`) entry-gate closure, and `STOPPING → STOPPED` flatten (cancel-all + market-close with `is_emergency_liquidation = true`, `reduce_only = true`) are evaluated identically. Automation conditions on `at_price_above/below` fire on the same DIE mid-price ticks in both modes. See [03-03-06-tae-instance-lifecycle-spec.md](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) (canonical).
 
 ---
 
@@ -94,5 +96,6 @@ The paper engine supports **deterministic replay**: feeding a historical sequenc
 - [TAE Overview](03-03-01-tae-overview-spec.md) — Operational modes and boundaries.
 - [TAE Layer 2 — Execution](03-03-03-tae-layer2-execution.md) — Order construction and sizing protocol.
 - [TAE Layer 1 — Policy](03-03-02-tae-layer1-policy.md) — Trigger source.
+- [TAE Instance Lifecycle & Programmable State Control](03-03-06-tae-instance-lifecycle-spec.md) — Lifecycle parity between live and paper engines.
 - [Database Schema](../../integration-and-api/06-02-database-schema-spec.md) — Persistent state.
 - [Systemic Data Flow — Sequence B](../../conceptual-foundations/01-03-systemic-data-flow.md) — Entry loop.

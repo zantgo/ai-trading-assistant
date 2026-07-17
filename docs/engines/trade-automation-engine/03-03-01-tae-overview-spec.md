@@ -1,6 +1,6 @@
 # Trade Automation Engine — Overview Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, API limits, transaction state-transition model, and order-management architecture of the Trade Automation Engine — the engine that evaluates user-defined execution policies against MME decision support and routes orders to live or simulated venues.
@@ -10,6 +10,8 @@
 ## 1. Mission & Boundaries
 
 The TAE is the platform's **execution authority**. It consumes the [Decision Matrix](../../matrices/02-04-decision-matrix.md) from the MME, evaluates it against user-configured execution policies, sizes positions, and transmits orders. It performs **no market interpretation** and holds **no capital ledger** (that is the PME's domain).
+
+**Per-instance lifecycle.** Every instance carries a `LifecycleState` ∈ {`RUNNING`, instance `PAUSED`, `STOPPING`, `STOPPED`} (orthogonal to `active_stance` and `safety_state`; see [TAE Instance Lifecycle §1/§6](03-03-06-tae-instance-lifecycle-spec.md)). The lifecycle axis is evaluated as **Gate 0** in the pre-trade chain — entries are admitted only when `RUNNING`; exits always pass.
 
 ```
 [Decision Matrix] ──► TAE ──► [Order Packets] ──► [Exchange / Paper Engine]
@@ -110,6 +112,7 @@ where `E` = available margin (from PME), `R` = risk-per-trade as a decimal fract
 - [TAE Layer 1 — Policy](03-03-02-tae-layer1-policy.md)
 - [TAE Layer 2 — Execution](03-03-03-tae-layer2-execution.md)
 - [TAE Paper Trading](03-03-05-tae-paper-trading-spec.md)
+- [TAE Instance Lifecycle & Programmable State Control](03-03-06-tae-instance-lifecycle-spec.md) — `LifecycleState`, Gate 0, automation schema.
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Input contract.
 - [Systemic Data Flow — Sequence B](../../conceptual-foundations/01-03-systemic-data-flow.md) — Entry loop.
 - [PME Layer 3 — Capital](../portfolio-management-engine/03-04-04-pme-layer3-capital.md) — Equity source.

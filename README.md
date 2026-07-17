@@ -59,15 +59,15 @@ The complete institutional documentation set lives under [`docs/`](docs/), organ
 
 | Document | Audience | Description |
 |---|---|---|
-| **[Global Architecture](docs/conceptual-foundations/global-architecture.md)** | Developers | Two-dimensional framework: 5 engines x sequenced analytical layers |
-| **[Ontology](docs/conceptual-foundations/ontology.md)** | Developers | Formal ontology: engines, layers, matrices, 12 evaluation axes |
-| **[Systemic Data Flow](docs/conceptual-foundations/systemic-data-flow.md)** | Developers | Chronological data-flow sequences across all engines |
-| **[Timeframe Model](docs/conceptual-foundations/timeframe-model.md)** | Developers | Configurable 4-tier timeframe model (micro/fast/slow/macro) |
-| **[Matrices](docs/matrices/)** | Developers | Physical schemas and JSON contracts for all 11 matrices (MME + DIE) |
-| **[Market Monitoring Engine](docs/engines/market-monitoring-engine/)** | Developers | 7 layer specs, indicator guide, signal guide, per-indicator specs |
-| **[Trade Automation Engine](docs/engines/trade-automation-engine/)** | Developers | Policy + Execution layer specs, paper trading, execution policy spec |
-| **[Portfolio Management Engine](docs/engines/portfolio-management-engine/)** | Developers | Position + Exposure + Capital + Portfolio layer specs |
-| **[Performance Analytics Engine](docs/engines/performance-analytics-engine/)** | Developers | Trade + Strategy + Risk + Performance layer specs |
-| **[Integration & API](docs/integration-and-api/api-gateway-contract.md)** | Developers | REST/WebSocket/JSON-RPC contracts and database schema |
-| **[UI/UX](docs/ui-ux/ui-overview-spec.md)** | Frontend | Svelte 5 state management and dashboard layout specifications |
+| **[Global Architecture](docs/conceptual-foundations/01-02-global-architecture.md)** | Developers | Two-dimensional framework: 5 engines x sequenced analytical layers |
+| **[Ontology](docs/conceptual-foundations/01-01-ontology.md)** | Developers | Formal ontology: engines, layers, matrices, 12 evaluation axes |
+| **[Systemic Data Flow](docs/conceptual-foundations/01-03-systemic-data-flow.md)** | Developers | Chronological data-flow sequences across all engines |
+| **[Timeframe Model](docs/conceptual-foundations/01-04-timeframe-model.md)** | Developers | Configurable 4-tier timeframe model (micro/fast/slow/macro) |
+| **[Matrices](docs/matrices/02-00-matrix-field-ownership.md)** | Developers | Physical schemas and JSON contracts for all 11 matrices (MME + DIE) |
+| **[Market Monitoring Engine](docs/engines/market-monitoring-engine/03-02-01-mme-overview-spec.md)** | Developers | 7 layer specs, indicator guide, signal guide, per-indicator specs |
+| **[Trade Automation Engine](docs/engines/trade-automation-engine/03-03-01-tae-overview-spec.md)** | Developers | Policy + Execution layer specs, paper trading, execution policy spec |
+| **[Portfolio Management Engine](docs/engines/portfolio-management-engine/03-04-01-pme-overview-spec.md)** | Developers | Position + Exposure + Capital + Portfolio layer specs |
+| **[Performance Analytics Engine](docs/engines/performance-analytics-engine/03-05-01-pae-overview-spec.md)** | Developers | Trade + Strategy + Risk + Performance layer specs |
+| **[Integration & API](docs/integration-and-api/06-01-api-gateway-contract.md)** | Developers | REST/WebSocket/JSON-RPC contracts and database schema |
+| **[UI/UX](docs/ui-ux/07-01-ui-overview-spec.md)** | Frontend | Svelte 5 state management and dashboard layout specifications |
 | **[AGENTS.md](AGENTS.md)** | Maintainers | Build instructions, runtime details, testing conventions |

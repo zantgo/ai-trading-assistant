@@ -36,6 +36,7 @@ show_help() {
     echo "  test-engine-full   Engine suite including load/stress test"
     echo "  test-ui            Svelte 5 visual state & component tests"
     echo "  test-property      Generative property tests across indicators"
+    echo "  test-doc           Documentation corpus consistency checks (Phases 8/9/10 gate)"
     echo "  clean              Delete build targets, node_modules, and temporary locks"
     echo "  destroy            Stop the engine, run clean, and permanently delete telemetry.db"
     echo "  help               Show this helper documentation"
@@ -245,6 +246,11 @@ destroy_all() {
     echo "✨ Absolutely everything has been purged and destroyed."
 }
 
+test_doc() {
+    echo "📋 TEST-DOC: Running documentation corpus consistency checks..."
+    python3 scripts/check_docs.py
+}
+
 # Main routing logic
 if [ $# -eq 0 ]; then
     show_help
@@ -287,6 +293,9 @@ case "$1" in
         ;;
     test-ui)
         test_ui
+        ;;
+    test-doc)
+        test_doc
         ;;
     clean)
         clean_workspace

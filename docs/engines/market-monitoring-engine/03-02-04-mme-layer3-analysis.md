@@ -1,6 +1,6 @@
 # MME Layer 3 — Analysis Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 3 of 7
@@ -40,7 +40,7 @@ The headline `market_bias_score` is the alignment `mtf_overall_score` (range `[-
 | `≥ -40 AND < -20` | `BEARISH` |
 | `< -40` | `STRONG_BEARISH` |
 
-> **Boundary precision.** The bands use strict half-open intervals so integer endpoints (`score = 20.0`, `40.0`, etc.) map to exactly one band; the canonical derivation rule is in [02-02-analysis-matrix.md §3.1](../matrices/02-02-analysis-matrix.md).
+> **Boundary precision.** The bands use strict half-open intervals so integer endpoints (`score = 20.0`, `40.0`, etc.) map to exactly one band; the canonical derivation rule is in [02-02-analysis-matrix.md §3.1](../../matrices/02-02-analysis-matrix.md).
 
 ### 2.1 Confidence Model
 

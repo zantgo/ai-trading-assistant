@@ -1,6 +1,6 @@
 # UI Overview Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the Svelte 5 frontend architecture — state management, rune patterns, WebSocket consumption, store layer, inline shell architecture, and performance targets. Companion to the [UI Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -120,7 +120,7 @@ The store uses `$state` for mutable fields and `$derived` for computed views. To
 
 - `fetchConfigFromServer()` — GET `/api/config` with cache busting.
 - `applyConfigToStore()` — Parses config, initializes `instancesMap`, applies ~50 indicator parameters per `*Term`.
-- `fetchHistory(symbol, timeframe_secs, limit=100)` — GET `/api/history` with cache busting. Called on chart mount before subscribing to WebSocket to seed the historical series; the response shape is `{ symbol, prices[], candles[], indicator_histories }` (see [06-01-api-gateway-contract.md §2.3](../../integration-and-api/06-01-api-gateway-contract.md)).
+- `fetchHistory(symbol, timeframe_secs, limit=100)` — GET `/api/history` with cache busting. Called on chart mount before subscribing to WebSocket to seed the historical series; the response shape is `{ symbol, prices[], candles[], indicator_histories }` (see [06-01-api-gateway-contract.md §2.3](../integration-and-api/06-01-api-gateway-contract.md)).
 - `fetchMonitor(symbol)` — GET `/api/monitor` for per-TF regime, MTF agreement, MarketContext.
 - `fetchConnectionQuality(window='one_hour')` — GET `/api/connection-quality?window=…` for the Connection Quality panel.
 - `createInstance(base, quote)` — POST to create a new pair workspace.

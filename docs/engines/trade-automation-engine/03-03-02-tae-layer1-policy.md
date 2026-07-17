@@ -1,6 +1,6 @@
 # TAE Layer 1 — Policy Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 1 of 2
@@ -95,6 +95,8 @@ Stances may be changed manually by the operator or automatically by the **PME Ve
    { policy_id, symbol, direction, trigger_timestamp, decision_context }
 ```
 
+> **Gate 0 (lifecycle, v6.2).** Before step 2, the per-instance `LifecycleState` is read at [08-02-pre-trade-risk-controls.md Gate 0](../../operations-and-compliance/08-02-pre-trade-risk-controls.md) — entry orders are admitted only when the instance is `RUNNING`. A `STOP` command (manual or automation-fired) moves the instance through `STOPPING` (flatten reuses Step 2a Hard Exit below) before any subsequent trigger can reach the Execution Layer. See [03-03-06-tae-instance-lifecycle-spec.md IL-03/IL-05](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
+
 ---
 
 ## 6. Output: Policy Matrix
@@ -118,7 +120,7 @@ The Policy Matrix is the set of all validated directives:
 Per [Systemic Data Flow — Sequence D](../../conceptual-foundations/01-03-systemic-data-flow.md#sequence-d-systemic-safety-veto-the-circuit-breaker-loop), if the PME asserts Ontological Priority:
 
 1. PME publishes a high-priority override message to TAE.
-2. **Step 2a — Hard Exit Path (only for `AVOID` triggers).** For any active positions on the affected symbol, the Policy Layer dispatches a **liquidation directive** (not a cancellation) to the Execution Layer **before** the stance change commits (Step 2c). The Execution Layer converts this directive into a `market order` whose `size` is sourced from the **Position Matrix** (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md)). The order carries `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)). The Execution Layer awaits exchange acknowledgement with bounded timeout `hard_exit_ack_timeout_ms` (default `2000 ms`). For `CLOSE_ONLY` triggers, **Step 2a is skipped entirely** — existing positions are managed by their protective stops and policy exits; no forced liquidation.
+2. **Step 2a — Hard Exit Path (only for `AVOID` triggers).** For any active positions on the affected symbol, the Policy Layer dispatches a **liquidation directive** (not a cancellation) to the Execution Layer **before** the stance change commits (Step 2c). The Execution Layer converts this directive into a `market order` whose `size` is sourced from the **Position Matrix** (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md)). The order carries `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check per [08-02-pre-trade-risk-controls.md §3](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)). The Execution Layer awaits exchange acknowledgement with bounded timeout `hard_exit_ack_timeout_ms` (default `2000 ms`). For `CLOSE_ONLY` triggers, **Step 2a is skipped entirely** — existing positions are managed by their protective stops and policy exits; no forced liquidation.
 3. **Step 2b — Discard pending triggers.** Any pending trigger payloads for the affected symbol are discarded.
 4. **Step 2c — Commit stance change.** Policy Layer changes affected symbol stances to `AVOID` or `CLOSE_ONLY`. **For `AVOID` triggers, this step fires only after Step 2a's Hard Exit acknowledgement (or timeout)** — if the stance is committed before the Hard Exit dispatches, Gate 1 in the Pre-Trade Risk Controls would block the liquidation order, leaving the platform's own emergency exit silently rejected.
 5. **Step 2d — Cancel remaining orders.** After Hard Exit acknowledgement (or timeout), the Execution Layer issues batch cancellation orders for any remaining outstanding limit/stop orders on the exchange. If acknowledgement exceeds the timeout, the cancellation batch still proceeds — protective stops are cancelled unconditionally to prevent zombie orders, and the liquidation is flagged as `unconfirmed_exit` in the audit trail.
@@ -134,6 +136,7 @@ Per [Systemic Data Flow — Sequence D](../../conceptual-foundations/01-03-syste
 - [TAE Overview](../trade-automation-engine/03-03-01-tae-overview-spec.md) — Engine boundaries and trigger modes.
 - [TAE Layer 2 — Execution](03-03-03-tae-layer2-execution.md) — Order construction and routing.
 - [TAE Execution Policy Specification](../trade-automation-engine/03-03-04-tae-execution-policy-spec.md) — Formal policy syntax and examples.
+- [TAE Instance Lifecycle & Programmable State Control](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) — `LifecycleState`, Gate 0, STOP flatten dispatch.
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Primary input contract.
 - [PME Layer 4 — Portfolio](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — Veto authority.
 - [Ontology — Execution Policy](../../conceptual-foundations/01-01-ontology.md) — Conceptual definitions.

@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — Overview Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document specifies the boundaries, responsibilities, layer structure, exchange adapters, performance targets, and connection-monitoring model of the Data Infrastructure Engine — the first engine in the platform's unidirectional cascade. The DIE ingests, normalizes, validates, and distributes exchange telemetry.
@@ -11,11 +11,19 @@
 
 The DIE is the **sole ingress point** for external market data. It owns everything from raw network frames to the clean, uniform Market Data Matrix that the Market Monitoring Engine consumes. It performs **no market interpretation** — it does not compute indicators, bias, or risk.
 
-> **Target Architecture (Not Yet Implemented).** The DIE is intended to be a **strict Data-Oriented Design (DOD)** engine sustaining continuous ingestion of ≥ 50,000 events/sec, processing data in hardware-native `f64` primitive slices rather than heap-allocated structures. *Current implementation:* events flow as `NormalizedEvent` / `NormalizedCandle` structs (with `Decimal` price fields) over Tokio channels.
-
 ```
 [Exchange APIs] ──► DIE ──► [Market Data Matrix] ──► [MME]
 ```
+
+### 1.0 Canonical glossary (DIE terminology)
+
+| Term | Definition | Source |
+|------|------------|--------|
+| **Micro** | The tier name for the smallest timeframe (default 60s). One of four tiers in the ladder. | [01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md) |
+| **Sub-minute** | The duration class for any timeframe shorter than 60s, including user-configured micro<60s. | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
+| **<1m** | Shorthand for the sub-minute class. Identical meaning. | [08-04-candle-reconstruction.md](../../operations-and-compliance/08-04-candle-reconstruction.md) |
+
+The three terms refer to the same reconstruction ladder in different contexts: "micro" identifies the tier; "sub-minute" / "<1m" describes the duration class for triggering `ExponentialMovingAverage` or `LinearExtrapolation` reconstruction (see [08-04 §Two Strategies](../../operations-and-compliance/08-04-candle-reconstruction.md)). The micro tier is one minute by default; configurable below 60 s for sub-minute operation but can be configured ≥ 60s (e.g. micro300); in that case, the micro tier is **not** sub-minute and reconstruction is unnecessary.
 
 ### 1.1 Responsibilities
 
@@ -27,6 +35,23 @@ The DIE is the **sole ingress point** for external market data. It owns everythi
 | OHLCV candle aggregation | Portfolio state |
 | Data quality validation | Strategy logic |
 | Broadcast distribution | Persistence beyond the telemetry store |
+
+### 1.3 Operational Acceptance Criteria
+
+The DIE meets these acceptance criteria when run with default configuration under nominal load (1 active symbol, 4-tier ladder, 1 venue):
+
+| ID | Criterion | Verification |
+|----|-----------|--------------|
+| `AC-DIE-1` | Raw WS frame → `NormalizedEvent` p95 < 1 ms | `crates/network-adapters/tests/perf_ingest.rs` (Phase 1) |
+| `AC-DIE-2` | Trade tick → live candle update p95 < 2 ms | `crates/market-analyzer/tests/perf_candle.rs` (Phase 1) |
+| `AC-DIE-3` | End-to-end observation loop (raw frame → completed snapshot broadcast) p95 < 25 ms | `crates/api-gateway/tests/observation_loop.rs` (Phase 1) |
+| `AC-DIE-4` | Sustained ingestion: ≥ 1,000 trades/sec without event-channel saturation (channel capacity 10,000) | `crates/network-adapters/tests/load_ingest.rs` (Phase 1) |
+| `AC-DIE-5` | Reconnect after forced disconnect completes within 1–30 s ± 20 % jitter (3 trial average) | `crates/network-adapters/tests/orchestrator_reconnect.rs` (Phase 1) |
+| `AC-DIE-6` | Permanent disable after 5 consecutive failed cycles | `crates/network-adapters/tests/orchestrator_reconnect.rs` (Phase 1) |
+| `AC-DIE-7` | Drift breach detected within 3 NTP polls (≤ 90 s default) | `crates/network-adapters/tests/clock_monitor_breach.rs` (Phase 1) |
+| `AC-DIE-8` | L2 candle close instant aligns to integer UTC epoch multiple to within the ≤ 50 µs drift budget | `crates/network-adapters/tests/candle_alignment.rs` (Phase 1) |
+| `AC-DIE-9` | EMA reconstruction (sub-minute, ≥ 50 history) converges within `ema_window` ticks of first synthesis | `crates/network-adapters/tests/reconstruction_ema.rs` (existing) |
+| `AC-DIE-10` | Composite score formula returns 100 for a perfect session and 0 for a worst-case session (no uptime, 10+ disconnects, 5 s+ reconnect, 600 s+ data loss, 100+ reconstructed candles) | `crates/network-adapters/tests/connection_quality_score.rs` (Phase 1) |
 
 ### 1.2 Layer Structure
 
@@ -88,10 +113,10 @@ Each adapter emits a `NormalizedEvent` enum:
 | Trade → live candle update | < 2 ms |
 | Observation loop (Raw → Market Data Matrix) | < 25 ms |
 | Event channel capacity | 10,000 buffered events |
-| Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) |
-| Permanent disable threshold | 5 consecutive failures |
+| Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) — **supervisor budget**; see [08-03 §Retry Budgets](../../operations-and-compliance/08-03-connection-resilience.md) for the three-layer retry model |
+| Permanent disable threshold | 5 consecutive cycles (supervisor) — see 08-03 for the adapter-layer `max_attempts: None` semantics |
 
-> **Target Architecture (Not Yet Implemented).** The ≥ 50,000 events/sec sustained-ingestion target above assumes the DOD hot-path model: raw frames parsed into pre-allocated flat buffers and processed as contiguous `f64` slices, avoiding per-event heap allocation. The current millisecond targets are met by the struct-based pipeline.
+> **Target Architecture (Not Yet Implemented).** The ≥ 50,000 events/sec sustained-ingestion target above assumes the DOD hot-path model: raw frames parsed into pre-allocated flat buffers and processed as contiguous `f64` slices, avoiding per-event heap allocation. The current millisecond targets are met by the struct-based pipeline. See [01-07 §1 Target architecture inventory](../../conceptual-foundations/01-07-target-architecture-roadmap.md) for status.
 
 ---
 
@@ -121,16 +146,38 @@ The `MarketDataOrchestrator` (`crates/network-adapters/src/orchestrator.rs`) sup
 
 ### 4.1 Fault-Tolerance Rules
 
-- **Exponential backoff:** `retry_cooldown = min(retry_cooldown × 2, max_backoff)`, with `max_backoff = 30s`, starting at 1 s, with ±20 % jitter applied **before** the cap (so the effective delay range is `[delay × 0.8, min(delay × 1.2, max_backoff)]`). See [08-03-connection-resilience.md](../operations-and-compliance/08-03-connection-resilience.md).
-- **Failure window reset:** If > 300 s elapse since the last failure, the consecutive-failure counter resets to 0.
-- **Permanent disable:** After 5 consecutive failures, the adapter emits a terminal `Disconnected` status and the supervisor loop breaks.
+These are the **supervisor-level** retry rules. The adapter-level rules (governed by `ReconnectPolicy` and `run_with_reconnect`) are documented in [08-03-connection-resilience.md](../../operations-and-compliance/08-03-connection-resilience.md) §Retry Budgets.
+
+- **Exponential backoff:** `backoff = min(backoff × 2, max_backoff)`, with `max_backoff = 30s`, starting at 1 s, with ±20 % jitter applied **before** the cap (so the effective delay range is `[delay × 0.8, min(delay × 1.2, max_backoff)]`). See [08-03-connection-resilience.md](../../operations-and-compliance/08-03-connection-resilience.md).
+- **Failure window reset:** If > 300 s elapse since the last failure, the consecutive-cycle counter resets to 0.
+- **Permanent disable:** After 5 consecutive failed **cycles** (each cycle = one full `max_attempts` retry sequence in the adapter loop), the adapter emits a terminal `Disconnected` status and the supervisor loop breaks.
 - **Dormant state:** With no configured symbols, the adapter idles (polling every 2 s) rather than failing.
 
 ### 4.2 ConnectionStatus Lifecycle
 
+The `ConnectionStatus` enum (`crates/core-domain/src/normalized/mod.rs`) has five variants. State transitions:
+
 ```
-Connecting ──► Connected ──► (stream) ──► Disconnected ──► Reconnecting ──► Connecting
+              transport error
+   ┌─────────────────────────────────────┐
+   │                                     │
+   ▼                                     │
+Connecting ──► Connected ◄────────► Disconnected
+                  │  resume                │
+                  │                        │ backoff elapsed
+                  ▼                        ▼
+              (stream)                 Reconnecting ──► Failed (after max_attempts or cancel)
+                                            │
+                                            │ resume (on_resume callback)
+                                            ▼
+                                        Connected
 ```
+
+- `Connecting` — adapter is establishing the WS handshake.
+- `Connected` — handshake succeeded; frames are flowing.
+- `Disconnected` — transport error detected; supervisor begins the backoff loop.
+- `Reconnecting` — supervisor is sleeping before the next `adapter.start()` attempt.
+- `Failed` — terminal; reached only on `max_attempts` exhaustion (08-03 §Retry Budgets) or cancellation.
 
 ---
 
@@ -147,7 +194,7 @@ The `SymbolMapper` (`crates/core-domain/src/normalized/symbol_mapper.rs`) maps e
 | `symbols` | Target instruments (`Exchange:Symbol` form). |
 | `candles.duration_seconds` | Base (micro) candle duration. |
 | `candles.analysis_limit` | Warm-up lookback depth. |
-| `fast_timeframe` | Fast tier object: `{ duration_seconds: 180, enabled: true }` (default; see [01-04-timeframe-model.md §1](../conceptual-foundations/01-04-timeframe-model.md)). |
+| `fast_timeframe` | Fast tier object: `{ duration_seconds: 180, enabled: true }` (default; see [01-04-timeframe-model.md §1](../../conceptual-foundations/01-04-timeframe-model.md)). |
 | `slow_timeframe` | Slow tier object: `{ duration_seconds: 300, enabled: true }` (default). |
 | `macro_timeframe` | Macro tier object: `{ duration_seconds: 900, enabled: true }` (default). |
 | `hyperliquid.ws_url` / `bitget.ws_url` | Venue WebSocket endpoints. |

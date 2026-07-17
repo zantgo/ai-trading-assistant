@@ -1,9 +1,9 @@
 # MME Signals Guide — Readable Technical Signal Rulebook
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
-**Purpose:** This is the human-readable rulebook for the platform's discrete technical signals. It defines the 12 canonical `SignalKind`s, their detection semantics, and their confirmation lifecycle. Each SignalKind has a detailed specification under [signals/](signals/).
+**Purpose:** This is the human-readable rulebook for the platform's discrete technical signals. It defines the 12 canonical `SignalKind`s, their detection semantics, and their confirmation lifecycle. Each SignalKind has a detailed specification under [signals/](signals/05-02-00-signals-index.md).
 
 ---
 
@@ -94,7 +94,7 @@ Several SignalKinds require structural confirmation before upgrading `Potential 
 
 ## 7. Cross-References
 
-- [Signal specifications](signals/) — One file per SignalKind.
+- [Signal specifications](signals/05-02-00-signals-index.md) — One file per SignalKind.
 - [Indicators Guide](03-02-09-mme-indicators-guide.md) — Indicator rulebook.
 - [Metrics Matrix §4](../../matrices/02-07-metrics-matrix.md) — Signal serialization + axes.
 - [Ontology — Signal & Evaluation Axis](../../conceptual-foundations/01-01-ontology.md)

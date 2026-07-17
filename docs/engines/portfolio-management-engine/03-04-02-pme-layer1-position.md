@@ -1,6 +1,6 @@
 # PME Layer 1 — Position Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 1 of 4
@@ -69,7 +69,7 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 |-------|------|-------------|
 | `stop_loss_price` | `Decimal` | Current stop-loss trigger level. |
 | `take_profit_price` | `Decimal` | Current take-profit target level. |
-| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior names — `invalid_level` and `final_invalidation_level` — were both retired; the migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
+| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior names — `invalidation_level` and `final_invalidation` — were both retired; the migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
 | `target_profit_ratio` | `Decimal` | Desired reward-to-risk ratio for this position. |
 
 ### 3.4 Scaled Entry Fields
@@ -98,7 +98,7 @@ The Position Layer reads updated invalidation levels from the MME [Decision Matr
 A close at or beyond `invalidation_level` on the active timeframe is treated as a **thesis-failure event**. The PME Position Layer issues a high-priority `LiquidateCommand` to the TAE Policy Layer (Hard Exit path, see [PME Layer 4 §4.2](./03-04-05-pme-layer4-portfolio.md)). The liquidation:
 
 - Bypasses the Position Sizing Protocol (size is copied verbatim from the Position Matrix).
-- Forces `reduce_only = true` and `emergency_liquidation = true` (bypasses Gate 1 stance check).
+- Forces `reduce_only = true` and `is_emergency_liquidation = true` (bypasses Gate 1 stance check).
 - Dispatches as a `Market` order to the exchange.
 
 The breach is detected on candle close at the active timeframe (i.e. intrabar wicks through the level do not trigger the liquidation).

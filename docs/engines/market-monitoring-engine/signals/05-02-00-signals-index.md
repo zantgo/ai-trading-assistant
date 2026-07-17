@@ -1,6 +1,6 @@
 # Signal Specification Index
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 > Index of 12 canonical `SignalKind` types. Each has a dedicated specification file documenting detection semantics, confirmation lifecycle, and contributing indicators.
 >
@@ -13,7 +13,7 @@
 | Metric | Count | Notes |
 |---|---|---|
 | Parent indicators | **50** | Across 8 functional groups |
-| `(indicator, SignalKind)` declarations | **100** | Sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100 (registry-verified `2026-07-16`) |
+| `(indicator, SignalKind)` declarations | **100** | Sum-check: 9+9+26+9+4+11+4+14+8+2+1+3 = 100 (registry-verified `2026-07-16`) |
 | Distinct `SignalKind` types | **12** | (see table below) |
 | Divergence declarations | **9** | 8 nested on parent (with `supports_divergence: true`) + 1 standalone (`oi_price_divergence`, own registry entry) |
 | `×N` per-indicator multiplicities | internal event multiplicity | Counts internal event subtypes per declaration, **not** declaration count |

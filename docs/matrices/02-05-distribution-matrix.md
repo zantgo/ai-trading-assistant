@@ -1,6 +1,6 @@
 # Distribution Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 4 — Data Distribution Layer
@@ -24,7 +24,7 @@ The Distribution Matrix itself is not a single data structure but a **multiplexe
 
 | Component | Description |
 |-----------|-------------|
-| **Channel per symbol** | Each symbol's validated candles are published on a dedicated bounded MPSC channel. |
+| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated broadcast channel. A 4-tier ladder with one symbol thus yields four channels; a workspace of `N` symbols yields `4 × N`. |
 | **MME subscriber** | The Market Monitoring Engine subscribes to the candle channel for indicator computation. |
 | **DB subscriber** | The telemetry logger subscribes to persist candles to `market_snapshots`. |
 | **WS subscriber** | The WebSocket broadcaster subscribes to emit real-time updates to the frontend. |
@@ -42,6 +42,8 @@ The Distribution Matrix itself is not a single data structure but a **multiplexe
 | Event channel capacity | 10,000 buffered events |
 | Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) |
 | Permanent disable threshold | 5 consecutive failures |
+
+The observation-loop latency budget decomposes as: **DIE contribution ≤ 10 ms; MME contribution ≤ 15 ms**.
 
 ---
 
@@ -64,7 +66,7 @@ Each distributed frame is an envelope containing the validated candle and its qu
   },
   "quality": {
     "is_gap_filled": false,
-    "quality_score": 98.0,
+    "quality_score": 100.0,
     "sequence_integrity": "VALID"
   }
 }

@@ -1,6 +1,6 @@
 # Chande Momentum Oscillator (12)
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction — Trading Function

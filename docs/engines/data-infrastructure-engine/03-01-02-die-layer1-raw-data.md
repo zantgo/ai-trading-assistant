@@ -1,6 +1,6 @@
 # DIE Layer 1 — Raw Data Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 1 of 4
@@ -38,7 +38,7 @@ The Raw Data Matrix is the `NormalizedEvent` enum (`crates/core-domain/src/norma
 | Variant | Fields | Description |
 |---------|--------|-------------|
 | `Trade(NormalizedTrade)` | exchange, symbol, price, size, side, timestamp_ms, trade_id | A single executed trade. |
-| `OrderBook(NormalizedOrderBook)` | exchange, symbol, bids[], asks[], timestamp_ms | L2 depth snapshot. |
+| `OrderBook(NormalizedOrderBook)` | exchange, symbol, `bids: Vec<[Decimal; 2]>`, `asks: Vec<[Decimal; 2]>`, timestamp_ms | L2 depth snapshot. Each ladder entry is a `[price, size]` tuple. |
 | `AssetContext(AssetContext)` | symbol, prev_day_px | Reference context. |
 | `OpenInterest(OpenInterestEvent)` | symbol, oi | Derivatives open interest. |
 | `FundingRate(FundingRateEvent)` | symbol, rate | Perpetual funding rate. |
@@ -46,7 +46,7 @@ The Raw Data Matrix is the `NormalizedEvent` enum (`crates/core-domain/src/norma
 
 All numeric fields use `Decimal` to preserve exchange precision. `timestamp_ms` is Unix epoch in milliseconds.
 
-> **Target Architecture (Not Yet Implemented).** The target hot-path ingress parses raw WebSocket JSON directly into **pre-allocated, flat arena memory buffers**, reclaiming memory via object pools to avoid heap fragmentation and allocator stalls, and streams the Raw Data Matrix downstream as a **zero-copy `f64` primitive array** rather than an enum of `Decimal`-bearing structs. *Current implementation:* raw frames are parsed into the `NormalizedEvent` enum (numeric fields as `Decimal`) and delivered over a bounded `mpsc` channel.
+> **Target Architecture.** See [01-07 §1 Target architecture inventory](../../conceptual-foundations/01-07-target-architecture-roadmap.md) — "DOD hot-path (≥ 50,000 events/sec)" and "Zero-copy MME distribution". The current implementation parses raw frames into the `NormalizedEvent` enum and delivers over a bounded `mpsc` channel.
 
 ---
 
@@ -95,7 +95,7 @@ The Raw Data Layer respects venue rate limits through:
 
 - **Request pacing:** REST historical fetches are chunked and spaced to stay within venue quotas.
 - **Subscription batching:** WebSocket subscriptions for multiple symbols are batched into minimal frames.
-- **Backoff coupling:** The supervisor's exponential backoff (1 s → 30 s, ±20 % jitter — see [08-03-connection-resilience.md §3](../operations-and-compliance/08-03-connection-resilience.md)) doubles as a rate-limit relief valve after `429`/rejection responses.
+- **Backoff coupling:** The supervisor's exponential backoff (1 s → 30 s, ±20 % jitter — see [08-03-connection-resilience.md §3](../../operations-and-compliance/08-03-connection-resilience.md)) doubles as a rate-limit relief valve after `429`/rejection responses.
 
 ---
 
@@ -107,7 +107,7 @@ Reconnection is owned by the `MarketDataOrchestrator` supervisor loop (see [Over
 2. Supervisor emits a `Status` event describing the outcome.
 3. On error: increment consecutive-failure counter (reset if > 300 s since last failure).
 4. If failures ≥ 5 → permanent disable.
-5. Otherwise sleep `retry_cooldown`, then loop; `retry_cooldown = min(retry_cooldown × 2, 30)` — **canonical cap is `30 s`** (matches [08-03-connection-resilience.md §3](../operations-and-compliance/08-03-connection-resilience.md), the canonical resilience contract, and the runtime `ReconnectPolicy::default` in `crates/network-adapters/src/adapters/resilience.rs`). A previous version of this section used a `60` cap; that value was an editorial mistake during the v1.0 contract stabilisation and is superseded by the canonical `30` cap.
+5. Otherwise sleep `backoff`, then loop; `backoff = min(backoff × 2, 30)` — **canonical cap is `30 s`** (matches [08-03-connection-resilience.md §3](../../operations-and-compliance/08-03-connection-resilience.md), the canonical resilience contract, and the runtime `ReconnectPolicy::default` in `crates/network-adapters/src/adapters/resilience.rs`).
 
 ---
 

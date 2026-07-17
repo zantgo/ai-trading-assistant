@@ -1,6 +1,6 @@
 # PME Layer 4 — Portfolio Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 4 of 4
@@ -59,6 +59,8 @@ NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
        ──(current_equity / peak_equity < 1 − drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
 
+> **Lifecycle ↔ safety orthogonality (v6.2).** `DRAWDOWN_STOP` (PME safety) and `LifecycleState` (instance lifecycle, [03-03-06-tae-instance-lifecycle-spec.md](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)) are **independent axes** (IL-06). A `STOP` during `DRAWDOWN_STOP` proceeds — flatten is the emergency path. A `START` during `DRAWDOWN_STOP` transitions the instance to `RUNNING`, but Gates 1/7 still block entries until `/safety/release-veto`. See [03-03-06 §6 Interaction matrix](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) for the full interaction table.
+
 | State | Trigger | Effect | Scope |
 |-------|---------|--------|-------|
 | `NORMAL` | Default | Full trading permitted. | — |
@@ -106,7 +108,7 @@ The veto execution sequence is **time-critical** and must follow the steps below
 2. **For `AVOID` triggers: dispatch Hard Exit (Step 2a) BEFORE stance transition (Step 3).** The TAE Policy Layer dispatches a **liquidation directive** (not a cancellation) to the Execution Layer. The Execution Layer:
    - Reads the current `size` for the position from the Position Matrix (bypassing the Position Sizing Protocol — see [03-03-03-tae-layer2-execution.md §3.5](../trade-automation-engine/03-03-03-tae-layer2-execution.md) for the canonical "Exit and Reduce-Only Order Bypass" rules),
    - Constructs a `Market` order with `reduce_only = true` (forced by the [§3.3 invariant](../trade-automation-engine/03-03-03-tae-layer2-execution.md), not by a §3.5 rule — §3.3 defines the `CLOSE_ONLY` stance → `reduce_only = true` mapping),
-   - Tags the order `emergency_liquidation = true` so it bypasses Gate 1 (stance) and other pre-trade gates per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md),
+   - Tags the order `is_emergency_liquidation = true` so it bypasses Gate 1 (stance) and other pre-trade gates per [08-02-pre-trade-risk-controls.md §3](../../operations-and-compliance/08-02-pre-trade-risk-controls.md),
    - Dispatches it to the exchange,
    - Waits for exchange acknowledgement (filled or terminal reject) with a bounded timeout `hard_exit_ack_timeout_ms` (default 2000 ms).
 3. **TAE Policy Layer sets the target stance** to `AVOID` (for drawdown / systemic risk triggers) or `CLOSE_ONLY` (for margin / loss-streak triggers). For `CLOSE_ONLY` triggers, **no Hard Exit is dispatched** — Step 2a is skipped entirely and existing positions are managed by their protective stops and policy exits.
@@ -130,7 +132,7 @@ When the condition clears (e.g., equity recovers above drawdown limit):
      - First winning trade resets `consecutive_losses[sym]`; safety state transitions to `NORMAL` (or `CAUTIOUS` if recent losses).
      - Otherwise, 8-hour cooldown from the SUSPENDED entry time.
    - All relevant conditions must hold simultaneously for the release to be eligible.
-2. The operator calls **`POST /api/instances/:id/safety/release-veto`**. The endpoint returns `400` if the veto condition is still active, `200` on success. The `/safety/reset` endpoint (`POST /api/instances/:id/safety/reset`) is **not** the right call for releasing a drawdown- or systemic-risk-based veto — it only clears the `consecutive_losses` counter. For an `AVOID` stance caused by drawdown or systemic risk, **use `/safety/release-veto`** (see [08-01-user-manual.md §8](../operations-and-compliance/08-01-user-manual.md)).
+2. The operator calls **`POST /api/instances/:id/safety/release-veto`**. The endpoint returns `422 Unprocessable Entity` if the veto condition is still active, `200` on success. The `/safety/reset` endpoint (`POST /api/instances/:id/safety/reset`) is **not** the right call for releasing a drawdown- or systemic-risk-based veto — it only clears the `consecutive_losses` counter. For an `AVOID` stance caused by drawdown or systemic risk, **use `/safety/release-veto`** (see [08-01-user-manual.md §8](../../operations-and-compliance/08-01-user-manual.md)).
 3. On success, safety state transitions back to `NORMAL` (or `CAUTIOUS` if recent losses).
 4. Stances are restored to per-symbol `default_stances` (the operator-configured defaults; see the [Database Schema](../../integration-and-api/06-02-database-schema-spec.md) `paper_balances.default_stance` column).
 5. Operator's one-time acknowledge flag is cleared.
@@ -141,7 +143,7 @@ When the condition clears (e.g., equity recovers above drawdown limit):
 
 - **Session reset:** On the operator-defined `session_reset_cron` (default `00:00 UTC`), `peak_equity = current_equity` (re-baseline).
 - **Session reset disabled:** If `session_reset_cron` is disabled, the high-water mark persists indefinitely across sessions.
-- **Operator reset:** A `POST /api/instances/:id/safety/release-veto` call with `reset_peak: true` re-basins `peak_equity = current_equity`.
+- **Operator reset:** A `POST /api/instances/:id/safety/release-veto` call with `reset_peak: true` re-bases `peak_equity = current_equity`.
 - **Persistence:** `peak_equity` is persisted to SQLite on each update (see [Database Schema](../../integration-and-api/06-02-database-schema-spec.md)).
 
 Without an explicit reset rule, a high-profit session could permanently trip the drawdown veto — the trailing high-water mark captures the best-ever equity, which a later losing session must then breach.
@@ -178,5 +180,6 @@ The Portfolio Layer reads the MME [Overview Matrix](../../matrices/02-09-overvie
 - [PME Layer 3 — Capital](03-04-04-pme-layer3-capital.md) — Equity and margin data.
 - [Overview Matrix](../../matrices/02-09-overview-matrix.md) — Systemic Risk Score source.
 - [TAE Layer 1 — Policy](../trade-automation-engine/03-03-02-tae-layer1-policy.md) — Veto consumer.
+- [TAE Instance Lifecycle & Programmable State Control](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) — Lifecycle × safety orthogonality (IL-14).
 - [Systemic Data Flow — Sequence D](../../conceptual-foundations/01-03-systemic-data-flow.md) — Veto loop sequence.
 - [Ontology — Portfolio Management](../../conceptual-foundations/01-01-ontology.md) — Conceptual definitions.

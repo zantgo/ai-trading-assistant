@@ -1,6 +1,6 @@
 # TAE Layer 2 — Execution Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 2 of 2
@@ -98,6 +98,8 @@ The size is then converted to base-asset units using the current mid-price and r
 | `Stop` | Triggers a market order when a price threshold is breached; used for stop-loss exits. |
 
 > **`reduce_only` is an order *attribute*, not an order type.** Any of the three order types above may carry the `reduce_only = true` flag (§3.2), which guarantees the order can only decrease net exposure. This is distinct from the `CLOSE_ONLY` policy **stance** (L1) — see §3.3 for the stance→flag handoff.
+>
+> **Lifecycle gate (Gate 0, v6.2).** Order packets are constructed only when the per-instance `lifecycle_state = RUNNING`. Exits (`reduce_only = true` or `is_emergency_liquidation = true`) are constructed regardless of lifecycle state, in conformance with [08-02-pre-trade-risk-controls.md Gate 0](../../operations-and-compliance/08-02-pre-trade-risk-controls.md) and [03-03-06 IL-05](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). The STOP flatten dispatch (`RUNNING/lifecycle PAUSED → STOPPING → STOPPED`) reuses Step 2a Hard Exit from §7 below: orders tagged `is_emergency_liquidation = true` and `reduce_only = true`, size copied verbatim from the Position Matrix.
 
 ### 3.2 Order Packet Fields
 
@@ -110,7 +112,7 @@ The size is then converted to base-asset units using the current mid-price and r
 | `price` | `Decimal` | Limit/stop trigger price (null for market). |
 | `size` | `Decimal` | Base-asset quantity. |
 | `reduce_only` | `bool` | Whether the order carries the reduce-only flag (a per-order attribute, NOT an order type). Mirrors the exchange-native concept (Hyperliquid `reduceOnly`, Bitget/Binance `reduceOnly`). Independent of — but deterministically populated by — the Policy Layer's `CLOSE_ONLY` stance; see §3.3. |
-| `is_emergency_liquidation` | `bool` | **Hard Exit path flag.** When `true`, the order bypasses pre-trade Gates 1, 2, 4, 5, 6, 7 (per [08-02-pre-trade-risk-controls.md §3](../operations-and-compliance/08-02-pre-trade-risk-controls.md)) so the liquidation is dispatched even when the symbol stance is `AVOID`. Forced by the PME Veto path in [PME Layer 4 §4.2](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — only `true` for orders originated by the Hard Exit directive. Set to `false` (default) for every other order. Persisted to `open_orders.is_emergency_liquidation` (see [06-02-database-schema-spec.md §3.2](../integration-and-api/06-02-database-schema-spec.md)) for audit and replay. |
+| `is_emergency_liquidation` | `bool` | **Hard Exit path flag.** When `true`, the order bypasses pre-trade Gates 1, 2, 4, 5, 6, 7 (per [08-02-pre-trade-risk-controls.md §3](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)) so the liquidation is dispatched even when the symbol stance is `AVOID`. Forced by the PME Veto path in [PME Layer 4 §4.2](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — only `true` for orders originated by the Hard Exit directive. Set to `false` (default) for every other order. Persisted to `open_orders.is_emergency_liquidation` (see [06-02-database-schema-spec.md §3.2](../../integration-and-api/06-02-database-schema-spec.md)) for audit and replay. |
 | `associated_position_id` | `u64` | Position this order relates to (for exits/modifications). |
 
 ### 3.3 CLOSE_ONLY Stance → `reduce_only` Flag Handoff
@@ -155,13 +157,13 @@ A naive alternative would be to derive the flag inside the Policy Layer when con
 - [03-03-02-tae-layer1-policy.md §4 Stances](../trade-automation-engine/03-03-02-tae-layer1-policy.md) — stance definitions at the policy side.
 - [03-03-04-tae-execution-policy-spec.md §2.1](../trade-automation-engine/03-03-04-tae-execution-policy-spec.md) — deprecation note for `reduce_only_on_close_only`.
 - [03-04-05-pme-layer4-portfolio.md §4.2 Veto Execution](../portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — the PME veto path that asserts `CLOSE_ONLY`/`AVOID` stances and requires the Hard Exit path.
-- [06-02-database-schema-spec.md §3.2 `open_orders.is_reduce_only`](../integration-and-api/06-02-database-schema-spec.md) — persistence contract.
+- [06-02-database-schema-spec.md §3.2 `open_orders.is_reduce_only`](../../integration-and-api/06-02-database-schema-spec.md) — persistence contract.
 
 ---
 
 ## 4. Transaction State Machine
 
-Every order transitions through a logged lifecycle. `PRE_DISPATCH` is a transient state introduced for orders held in manual review by Gate 5 (slippage ceiling) of the pre-trade risk controls:
+Every order transitions through a logged lifecycle. `PRE_DISPATCH` is entered at the Gate-5/manual-review hold, before `PENDING`. Approval transitions it to `PENDING`; discard or timeout transitions it to `REJECTED`:
 
 ```
                   ┌──────────────┐  approve   ┌──────────┐  size+route  ┌──────────┐   ack    ┌──────────┐
@@ -180,7 +182,7 @@ Every order transitions through a logged lifecycle. `PRE_DISPATCH` is a transien
                                                                                                        └──────────┘  └──────────┘
 ```
 
-`PRE_DISPATCH` orders are held in process memory only; they are **never** persisted to the `open_orders` table. An engine restart, crash, or process termination during the slippage-review window loses the held order — no audit trail. The state is reachable only from `PENDING` (Gate 5 hold) and exits either to `SUBMITTED` on operator approval or to `REJECTED` on operator discard / timeout. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery (see [08-02-pre-trade-risk-controls.md §3.2](../operations-and-compliance/08-02-pre-trade-risk-controls.md)).
+`PRE_DISPATCH` orders are held in process memory only; they are **never** persisted to the `open_orders` table. An engine restart, crash, or process termination during the slippage-review window loses the held order — no audit trail. The state is entered at the Gate-5/manual-review hold before `PENDING` and exits either to `PENDING` on operator approval or to `REJECTED` on operator discard / timeout. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery (see [08-02-pre-trade-risk-controls.md §3.2](../../operations-and-compliance/08-02-pre-trade-risk-controls.md)).
 
 Every persistent transition (`PENDING` onwards) is written to the Execution Matrix with a high-resolution timestamp, guaranteeing full auditability. Partial fills are tracked against the associated position.
 
@@ -261,6 +263,7 @@ When operating in paper/simulated mode (see [TAE Paper Trading](03-03-05-tae-pap
 - [TAE Overview](../trade-automation-engine/03-03-01-tae-overview-spec.md) — Engine boundaries and operational modes.
 - [TAE Layer 1 — Policy](03-03-02-tae-layer1-policy.md) — Upstream trigger source.
 - [TAE Paper Trading](03-03-05-tae-paper-trading-spec.md) — Simulated execution engine.
+- [TAE Instance Lifecycle & Programmable State Control](../trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) — Gate 0 entry admission; STOPPING flatten dispatch reuses §7 Hard Exit.
 - [Decision Matrix](../../matrices/02-04-decision-matrix.md) — Stop-loss distance source.
 - [PME Layer 3 — Capital](../portfolio-management-engine/03-04-04-pme-layer3-capital.md) — Equity source.
 - [Ontology — Trade Execution](../../conceptual-foundations/01-01-ontology.md) — Conceptual definition.

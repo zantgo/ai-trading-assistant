@@ -1,6 +1,6 @@
 # PAE Layer 4 — Performance Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 4 of 4
@@ -12,7 +12,7 @@
 
 ## 1. Purpose
 
-The Performance Layer is the PAE's **final synthesis stage**. It combines trade-level analytics, strategy-level significance, and risk-adjusted metrics with the market regime conditions active during each trade to produce the **Regime Compatibility Matrix** — the definitive map of where the strategy excels and where it degrades.
+The Performance Layer is the PAE's **final synthesis stage**. It combines trade-level analytics, strategy-level significance, and risk-adjusted metrics with the market regime conditions active during each trade to produce the **the Performance Matrix's regime_compatibility section** — the definitive map of where the strategy excels and where it degrades.
 
 ```
 [Trade Analytics (L1)   ] ─┐
@@ -42,7 +42,7 @@ The Performance Layer is the PAE's **final synthesis stage**. It combines trade-
 
 ---
 
-## 3. Regime Compatibility Matrix
+## 3. the Performance Matrix's regime_compatibility section
 
 The `RegimeCompatibility` grid maps each MME market regime to the strategy's performance within that regime. *Illustrative example below — `ACCUMULATION`, `DISTRIBUTION`, and `TRANSITION` rows follow the same schema.*
 

@@ -1,6 +1,6 @@
 # Risk Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 5 — Risk Layer
@@ -139,7 +139,7 @@ Evidence strings record both the cascade state (when active) and any significant
 
 ### 4.9 Overall Risk (weighted aggregate)
 
-The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `reward_risk` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/core-domain/src/risk.rs::compute_risk`.
+The overall risk score is a weighted aggregate of the **eight sub-dimensions** (no `expected_rr` — reward synthesis lives at the [Decision Layer](02-04-decision-matrix.md) as `entry_danger`). Final normalized weights are defined in [MME Layer 5 §3](../engines/market-monitoring-engine/03-02-06-mme-layer5-risk.md) and applied by `crates/core-domain/src/risk.rs::compute_risk`.
 
 > **Self-consistency check (v2.1 — correction).** The JSON example below uses the eight sub-dimension scores `(M=35, V=45, L_ex=15, S=25, Mo=20, Sig=30, E=25, C=30)`. Plugging these into the canonical weighted formula `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C`:
 >

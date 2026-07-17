@@ -66,12 +66,13 @@ docs/
 │   │       ├── 05-02-01-divergence.md
 │   │       ├── … (12 SignalKinds)
 │   │       └── 05-02-12-pattern-forming.md
-│   ├── trade-automation-engine/                      (03-03 — 5 files)
+│   ├── trade-automation-engine/                      (03-03 — 6 files)
 │   │   ├── 03-03-01-tae-overview-spec.md             ← TAE boundaries, order lifecycle
 │   │   ├── 03-03-02-tae-layer1-policy.md
 │   │   ├── 03-03-03-tae-layer2-execution.md          ← f64→Decimal type-boundary cast + §3.3 stance→flag
 │   │   ├── 03-03-04-tae-execution-policy-spec.md     ← policy syntax and semantics
-│   │   └── 03-03-05-tae-paper-trading-spec.md        ← simulated matching engine
+│   │   ├── 03-03-05-tae-paper-trading-spec.md        ← simulated matching engine
+│   │   └── 03-03-06-tae-instance-lifecycle-spec.md   ← LifecycleState, Gate 0, automation schema (v6.2)
 │   ├── portfolio-management-engine/                  (03-04 — 5 files)
 │   │   ├── 03-04-01-pme-overview-spec.md             ← PME boundaries, safety veto
 │   │   ├── 03-04-02-pme-layer1-position.md
@@ -101,7 +102,7 @@ docs/
     └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
 ```
 
-Total: **132 markdown files** at v5.0 (1 README + 7 conceptual + 15 matrix + **31 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 `CHANGELOG.md` + 1 `DOCS-CONSISTENCY-MANIFEST.md` = **131** numbered docs + README). 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **31** engine files = 5 DIE + 11 MME + 5 TAE + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The v5.0 additions vs v4.0 are: (a) new `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` documenting the 9-crate workspace split, and (b) new `docs/DOCS-CONSISTENCY-MANIFEST.md` promoted from a v4.0 audit artefact to a v5.0 standing doc per its own §12.13 closure.
+Total: **138 markdown files** at v6.2 (1 README + 7 conceptual + 15 matrix + **32 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 `CHANGELOG.md` + 1 `DOCS-CONSISTENCY-MANIFEST.md` = **137** numbered docs + README). 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **32** engine files = 5 DIE + 11 MME + **6 TAE** + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The v6.2 additions vs v5.0 are: new `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` documenting the per-instance `LifecycleState` enum (RUNNING / instance `PAUSED` / `STOPPING` / `STOPPED`), Gate 0 in the pre-trade chain, the automation schema (`start`/`pause`/`stop` conditions), and the scoped-enum orthogonality rule. Active table count grows 24 → 26 (`instance_lifecycle`, `instance_lifecycle_events`); `DELETE /api/instances/:id` returns `409` for non-STOPPED instances. The v5.0 additions vs v4.0 are: (a) new `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` documenting the 9-crate workspace split, and (b) new `docs/DOCS-CONSISTENCY-MANIFEST.md` promoted from a v4.0 audit artefact to a v5.0 standing doc per its own §12.13 closure.
 
 ## The Five Engines
 
@@ -147,7 +148,7 @@ Total: **132 markdown files** at v5.0 (1 README + 7 conceptual + 15 matrix + **3
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
 - All configuration is stored in **`config.toml`** at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()`).
-- Engine communication is **unidirectional** — no backward dependencies.
+- Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.
 - Every engine **layer** produces exactly one immutable **Matrix** as its output contract.
 - The platform is **strategy-agnostic** — engines interpret markets; execution policies are user-defined.
 - MME Layers 4 (Opportunity) and 5 (Risk) execute **in parallel** from L3 (Analysis) and converge at L6 (Decision Support).
@@ -160,4 +161,4 @@ Total: **132 markdown files** at v5.0 (1 README + 7 conceptual + 15 matrix + **3
   - `max_daily_drawdown_pct` — cumulative PnL decline within the trading session; default 5 %; used as an early-warning threshold.
   - `drawdown_limit_pct` — equity peak-to-trough ratio; default 30 %; this is the **hard veto** threshold.
   See `03-04-05-pme-layer4-portfolio.md §3–§4` and `03-04-01-pme-overview-spec.md §3`.
-- The registry contains **50 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) and **100 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). The 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](../conceptual-foundations/01-01-ontology.md) and is the canonical source of truth for the count. See also Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.
+- The registry contains **50 indicators** in 8 functional groups (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives) and **100 signal-kind declarations** across 12 SignalKind types (one declaration per `(indicator, SignalKind)` pair; the `×N` notation in the index counts multiplicity *within* a single declaration, e.g. 5 RSI threshold zones). The 101 → 100 transition is documented in [`01-01-ontology.md` Appendix B §B.3 editor's note](conceptual-foundations/01-01-ontology.md) and is the canonical source of truth for the count. See also Appendix B of `01-01-ontology.md` and `04-02-00-indicator-index.md`.

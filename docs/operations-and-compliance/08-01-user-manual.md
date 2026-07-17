@@ -1,6 +1,6 @@
 # User Manual
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -61,7 +61,7 @@ Headless cloud operation is supported by running the same binary without `--web`
 The Svelte 5 dashboard is organized around three levels of navigation:
 
 1. **Sidebar** — Engine selector (Home / Portfolio / Market / Trading / Analysis) + per-pair workspace list with live price, 24 h change, and pause/delete controls.
-2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Connection Quality / Analysis / Decision / Liquidity` (the **Liquidity** tab carries the Phase 4 LiquidityPanel — see [`07-04-ui-liquidity-panel-spec.md`](../ui-ux/07-04-ui-liquidity-panel-spec.md)). The **Connection Quality** tab is instance-scoped (see [`08-05-connection-quality.md §REST API`](../operations-and-compliance/08-05-connection-quality.md)).
+2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Connection Quality / Analysis / Decision / Liquidity` (the **Liquidity** tab carries the Liquidity Phase 4 LiquidityPanel — see [`07-04-ui-liquidity-panel-spec.md`](../ui-ux/07-04-ui-liquidity-panel-spec.md)). The **Connection Quality** tab is instance-scoped (see [`08-05-connection-quality.md §REST API`](../operations-and-compliance/08-05-connection-quality.md)).
 3. **Main Viewport** — Renders the active tab. Each panel is a thin Svelte component with a companion CSS module per the project's CSS conventions.
 
 For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) and [Dashboard Layout](../ui-ux/07-02-ui-dashboard-layout.md).
@@ -81,7 +81,7 @@ The single source of configuration truth is `config.toml` at the workspace root 
 
 For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 
-The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3.0](../../integration-and-api/06-02-database-schema-spec.md).
+The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3.0](../integration-and-api/06-02-database-schema-spec.md).
 
 ---
 
@@ -90,6 +90,8 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 **Paper vs Live.** The default mode is paper trading — orders are routed to the internal matching engine described in [Paper Trading Spec](../engines/trade-automation-engine/03-03-05-tae-paper-trading-spec.md). **Live credentials must be entered into the encrypted `exchange_keys` SQLite table, not into `config.toml`.** `config.toml` holds no secret material. The encrypted-key management flow uses `POST /api/keys` (encrypt with `EXCHANGE_SECRET_KEY`) and the master key is loaded from the same-named environment variable at engine start. See [Database Schema §3.5](../integration-and-api/06-02-database-schema-spec.md) for the column schema and encryption contract.
 
 **Reading the Decision Matrix.** The Decision Matrix is delivered per Market Instance on the WebSocket envelope (`/ws`) — there is no per-matrix REST endpoint. Open a Market Instance, switch to the "Decision" tab, and you will see `directional_guidance`, `market_stance`, `trade_readiness`, `confidence_assessment`, and the recommended `entry/exit/protection/target` strategies.
+
+**Programming an instance (start/pause/stop automation).** Each instance supports optional automation via a `[instances.<id>.automation]` block in `config.toml` (or the equivalent inline edit affordance in the Workspaces Sidebar). You can arm independent `start`, `pause`, and `stop` conditions using `at_price_above`, `at_price_below`, `at_time` (RFC3339 UTC), or `after_duration_secs` (pause/stop only, measured from the most recent transition into RUNNING). Multiple keys inside one condition are OR — first to fire wins. Editing any key re-arms that condition; saving a past `at_time` returns `422`. Manual `/start`/`/pause`/`/stop` commands are always available regardless of automation configuration (operator supremacy), and `DELETE` on a non-STOPPED instance returns `409`. See [03-03-06-tae-instance-lifecycle-spec.md §3/§4](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
 **Reading the Portfolio.** Active positions, margin usage, and the safety veto status are visible in the "Portfolio" sidebar entry. The PME's Ontological Priority Veto overrides the TAE's active stances when systemic thresholds are breached — see [PME Layer 4](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) for the trigger conditions.
 
@@ -100,14 +102,29 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 ## 7. Telemetry & Logs
 
 | Channel | Location | Contents |
-|---------|----------|---------|
+|---------|----------|----------|
 | Live log | `engine.log` | Engine stdout/stderr when running via `./manage.sh run-silent`. |
-| Snapshot history | `./telemetry.db` (SQLite) | One row per completed candle; retention 7 days. |
+| Snapshot history | `./telemetry.db` (SQLite) | One row per completed candle; retention configurable (default 7 days). |
 | Equity history | `./telemetry.db` `portfolio_equity_history` | 60-s cadence snapshots; retention 30 days. |
 | Trade archive | `./telemetry.db` `paper_trades`, `trade_telemetry_history` | Closed-trade ledger. |
-| Connection quality | `./telemetry.db` `connection_quality_samples` | Rolling 1h / 6h / 24h windows; retention 7 days; served by `GET /api/connection-quality`. |
+| Connection quality | `./telemetry.db` `connection_quality_samples` | Rolling 1h / 6h / 24h windows; retention configurable (default 7 days); served by `GET /api/connection-quality`. |
 | Decision observability | `GET /api/system/observability` | Recent triggered policies and completed trades. |
-| Engine heartbeat | `GET /api/system/status` | Connection state, latency_ms, active_pairs_count. |
+| Engine heartbeat | `GET /api/system/status` | Connection state, observation_loop_latency_ms, ingest_skew_ms, system_heartbeat_latency_ms, active_pairs_count. |
+
+### 7.1 Retention configuration (Ops Phase 1)
+
+v6.0 ships with hard-coded retention windows; Ops Phase 1 makes them configurable via a `[retention]` block in `config.toml`:
+
+```toml
+[retention]
+market_snapshots_days = 7        # default
+connection_quality_samples_days = 7  # default
+portfolio_equity_history_days = 30   # default
+```
+
+A value of `0` disables the cleanup loop for that table (rows accumulate indefinitely; operator is responsible for `VACUUM` and disk usage). Negative values are rejected at startup.
+
+**Until Ops Phase 1 ships:** the hard-coded defaults (7/7/30) are documented above; editing them requires modifying `crates/database-storage/src/logger.rs`.
 
 ---
 
@@ -130,6 +147,7 @@ The full configuration can be inspected via `GET /api/config` (returns the parse
 
 - [Global Architecture](../conceptual-foundations/01-02-global-architecture.md) — Engine blueprint.
 - [Pre-Trade Risk Controls](08-02-pre-trade-risk-controls.md) — Mandatory gates between policy trigger and order dispatch.
+- [TAE Instance Lifecycle](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) — Programming start/pause/stop automation, scoped-enum rule.
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — REST + WebSocket surface.
 - [Database Schema](../integration-and-api/06-02-database-schema-spec.md) — Persistent state.
 - [AGENTS.md](../../AGENTS.md) — Build & test commands.

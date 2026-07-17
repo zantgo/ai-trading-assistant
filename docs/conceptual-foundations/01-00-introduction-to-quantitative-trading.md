@@ -1,6 +1,6 @@
 # 01-00 — Introduction to Quantitative Trading
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 > **Audience.** This document is the formal theoretical foundation of the platform. It states, in standard institutional-quant terminology, the concepts that underpin every engine, layer, and matrix in this codebase. It is the first document a senior quant reviewer should read.
 >
@@ -206,7 +206,7 @@ The TAE trigger engine (`03-03-01-tae-overview-spec.md`, `03-03-02-tae-layer1-po
 | Platform mode | Textbook classification | Trigger condition |
 |---|---|---|
 | `Interval { seconds: N }` | Time-Based (Interval) | Every N seconds, evaluate policy |
-| `CandleClose { timeframe }` | Time-Based (Candle Close) | On every completed candle of the named timeframe, evaluate policy |
+| `CandleClose { timeframe, count }` | Time-Based (Candle Close) | On every completed candle of the named timeframe, evaluate policy |
 | `EventDriven { events: [...] }` | Predicate-Based (Event-Driven) | On any matching confirmed signal, evaluate policy |
 
 The wire format retains the canonical names (`Interval`, `CandleClose`, `EventDriven`) for backward compatibility. The taxonomy labels above are the institutional terms used throughout the documentation.
@@ -426,12 +426,3 @@ Every concept in this document maps to a concrete implementation file:
 | 10 | 50 indicators | `04-02-00-indicator-index.md` Summary (50 entries; per-indicator specs under `04-02-NN-*.md`) |
 | 10 | MTF consensus | `02-01-alignment-matrix.md` §3 The 10 Alignment Dimensions |
 | 11 | Systematic Rule-Based Trading | `01-01-ontology.md` Ch 2 Design Philosophy + `03-02-01-mme-overview-spec.md` §1 |
-
----
-
-## §14. Revision History
-
-| Version | Date | Author | Change |
-|---|---|---|---|
-| 1.0 | 2026-07-15 | Platform architect | Initial formal introduction to quantitative trading — establishes EV, returns, Sharpe, microstructure, strategy taxonomy, timing taxonomy, sizing curves, and explicit non-goals as the theoretical foundation of the platform. |
-| 2.0 | 2026-07-15 | Platform architect | Integrated comprehensive Feature Taxonomy, defining Single-Feature vs. Multi-Feature paradigms, and mapping the platform's hierarchical multi-feature pipeline architecture. |

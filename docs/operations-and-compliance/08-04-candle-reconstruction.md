@@ -1,6 +1,18 @@
 # Candle Reconstruction
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+
+## Glossary (canonical)
+
+Three related-but-distinct terms appear throughout the corpus. This glossary is the single source of truth:
+
+| Term | Definition | Examples |
+|------|------------|----------|
+| **Fill** | Any candle produced by any non-live method (i.e. any method other than direct tick → candle). | A candle returned by exchange REST; a candle synthesised from EMA; a candle synthesised by linear extrapolation. |
+| **Reconstruction** | The whole process of detecting a gap and producing the missing candles. Includes the `GapDetector` call, the strategy selection (`ExchangeHistorical` vs synthesis), and the per-candle emission with `ReconstructionMethod` provenance. | "Reconstruction runs synchronously inside the reconnect handler." |
+| **Synthesis** | A subset of *Fill*: candle production without exchange data, using recent history. | EMA synthesis (`α = 2/(N+1)`), linear extrapolation of the last two closes. |
+
+In the `ReconstructionMethod` enum (below), `ExchangeHistorical` is a **fill** (REST-derived) but not a **synthesis** (uses exchange data); `ExponentialMovingAverage` and `LinearExtrapolation` are both **fills** and **syntheses**; `Unavailable` is neither.
 **Status:** Implemented
 
 ## Purpose
@@ -53,7 +65,7 @@ Volume = 0
 
 The flat-candle assumption is explicit: with no trade tape to reconstruct from, the EMA value is the only deterministic, re-playable estimate (alternative estimators — last-close, mid-point, linear projection — produce values that diverge as the gap widens, and would corrupt any backtest whose gap falls inside a measured window). Downstream consumers can detect this via the `reconstructed: Some(ExponentialMovingAverage)` flag on the `NormalizedCandle`.
 
-> **EMA warm-up with fewer than 200 bars.** EMA operates with `N = ema_window (default 200)` regardless of available buffer size. With only 50 closes, the smoothing factor `α = 2/(200+1) ≈ 0.00995` is applied over those 50 closes; the reconstructed candle reflects the slower EMA output (heavily weighted toward the most recent close but with substantial inertia from earlier values). Operators may lower `ema_window` via `config.toml` (`[adapters.ema_window]`) for faster adaptation at the cost of noise sensitivity.
+> **EMA warm-up with fewer than 200 bars.** EMA operates with `N = ema_window (default 200)` regardless of available buffer size. With only 50 closes, the smoothing factor `α = 2/(200+1) ≈ 0.00995` is applied over those 50 closes; the reconstructed candle reflects the slower EMA output (heavily weighted toward the most recent close but with substantial inertia from earlier values). The series is effectively **seeded at the first close**: until the buffer reaches `ema_window` size, the EMA value is dominated by its initial seed (which is set to the first observed close per the canonical warm-up convention in `crates/network-adapters/src/adapters/reconstruction.rs::reconstruct_ema`). Operators may lower `ema_window` via `config.toml` (`[adapters.ema_window]`) for faster adaptation at the cost of noise sensitivity.
 >
 > **Volume rollup rule.** Sub-minute reconstructed candles have `volume = 0` (no trade tape) by design. When rolled up to a higher timeframe (e.g. 15s → 1m), the aggregate macro volume is the **sum** of the constituent micro volumes: `aggregated_volume = Σ sub_candle.volume`. A reconstructed sub-candle contributes `0` to the sum (no trade tape), but non-reconstructed constituents retain their original volume. A contamination rule (`aggregated_volume = 0` if *any* constituent was reconstructed) would destroy the volume from non-reconstructed constituents in the same rolled-up interval — the sum rule is the canonical aggregator. Operators should treat volume from intervals containing reconstructed sub-minute candles as informational only when the macro-level volume is entirely from reconstructed constituents; mixed intervals retain the legitimate non-reconstructed portion.
 >
@@ -120,4 +132,4 @@ Returns `Some((gap_start, gap_end))` when the elapsed time since the last persis
 
 - [Connection Resilience](08-03-connection-resilience.md) — source of `ReconnectState` events that trigger reconstruction
 - [Connection Quality](08-05-connection-quality.md) — counts reconstructed candles in the `reconstructed_candles` field
-- [Risk Matrix §4.8](02-11-risk-matrix.md) — `cascade_risk` reads reconstructed candle provenance
+- [Risk Matrix §4.8](../matrices/02-11-risk-matrix.md) — `cascade_risk` reads reconstructed candle provenance

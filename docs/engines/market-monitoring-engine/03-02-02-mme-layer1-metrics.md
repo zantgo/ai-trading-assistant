@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -101,7 +101,7 @@ The mapping from struct fields to axes is defined in [Metrics Matrix §3.2 / §4
 
 `MarketContext::synthesize()` aggregates the indicator map into per-timeframe dimensions (trend, momentum, volatility, volume, liquidity), classifies the regime, and computes an `overall_score ∈ [-100, 100]`. This is **local confluence** — single-timeframe consensus — distinct from cross-timeframe alignment (Layer 2).
 
-Regime rule (local 4-state `MarketContext.regime` vocabulary; see [Metrics Matrix §5.0](../matrices/02-07-metrics-matrix.md) for the cross-layer mapping to the canonical 8-state L3 `MarketRegime`):
+Regime rule (local 4-state `MarketContext.regime` vocabulary; see [Metrics Matrix §5.0](../../matrices/02-07-metrics-matrix.md) for the cross-layer mapping to the canonical 8-state L3 `MarketRegime`):
 ```
 bbwp ≤ 15 OR chop ≥ 61.8 → COMPRESSION
 bbwp ≥ 85                → EXPANSION
@@ -109,9 +109,9 @@ adx ≥ 25 OR chop ≤ 38.2  → TRENDING
 else                     → RANGE
 ```
 
-> **Cross-layer vocabulary.** Note that `MarketContext.regime` is the **local 4-state** vocabulary (`COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE`). The cross-TF canonical `MarketRegime` at L3 uses the **8-state** vocabulary (`TRENDING_BULL` / `TRENDING_BEAR` / `RANGE` / `ACCUMULATION` / `DISTRIBUTION` / `EXPANSION` / `CONTRACTION` / `TRANSITION`). The two are linked by the mapping table in [02-07-metrics-matrix.md §5.0](../matrices/02-07-metrics-matrix.md); comparisons across layers must go through the L3 Analysis Matrix.
+> **Cross-layer vocabulary.** Note that `MarketContext.regime` is the **local 4-state** vocabulary (`COMPRESSION` / `EXPANSION` / `TRENDING` / `RANGE`). The cross-TF canonical `MarketRegime` at L3 uses the **8-state** vocabulary (`TRENDING_BULL` / `TRENDING_BEAR` / `RANGE` / `ACCUMULATION` / `DISTRIBUTION` / `EXPANSION` / `CONTRACTION` / `TRANSITION`). The two are linked by the mapping table in [02-07-metrics-matrix.md §5.0](../../matrices/02-07-metrics-matrix.md); comparisons across layers must go through the L3 Analysis Matrix.
 >
-> **Layer-specific BBWP thresholds (intentional divergence).** The Layer 1 local 4-state regime uses a slightly looser compression threshold (`bbwp ≤ 15`) and expansion threshold (`bbwp ≥ 85`) than the L3 Analysis Matrix (`bbwp ≤ 10` for `CONTRACTION`, `bbwp ≥ 85` for `EXPANSION` — see [02-02-analysis-matrix.md §3.2](../matrices/02-02-analysis-matrix.md)). The two thresholds serve different purposes: Layer 1's local `MarketContext.regime` is a coarse 4-state approximation for the chart-side composite that should flag borderline conditions early, while the L3 regime is the cross-symbol classifier that feeds the Decision Layer. A value in `[10, 15]` is therefore classified as `COMPRESSION` at Layer 1 but as `RANGE` (not `CONTRACTION`) at Layer 3 — both states are valid for their respective layers. Operators who rely on the local 4-state should treat `[10, 15]` as 'borderline compression' rather than canonical `CONTRACTION`.
+> **Layer-specific BBWP thresholds (intentional divergence).** The Layer 1 local 4-state regime uses a slightly looser compression threshold (`bbwp ≤ 15`) and expansion threshold (`bbwp ≥ 85`) than the L3 Analysis Matrix (`bbwp ≤ 10` for `CONTRACTION`, `bbwp ≥ 85` for `EXPANSION` — see [02-02-analysis-matrix.md §3.2](../../matrices/02-02-analysis-matrix.md)). The two thresholds serve different purposes: Layer 1's local `MarketContext.regime` is a coarse 4-state approximation for the chart-side composite that should flag borderline conditions early, while the L3 regime is the cross-symbol classifier that feeds the Decision Layer. A value in `[10, 15]` is therefore classified as `COMPRESSION` at Layer 1 but as `RANGE` (not `CONTRACTION`) at Layer 3 — both states are valid for their respective layers. Operators who rely on the local 4-state should treat `[10, 15]` as 'borderline compression' rather than canonical `CONTRACTION`.
 
 ---
 
@@ -131,6 +131,10 @@ else                     → RANGE
 | **Determinism** | Identical buffers + prior-bar state → identical Metrics Matrix. |
 | **Regime awareness** | Normalization thresholds adapt to the active regime. |
 | **Explainability** | Every signal carries its label, status, and strength. |
+
+### 8.1 Configurable activation (Active Set)
+
+The layer's indicator/signal computation is driven by a config-derived **Active Set**: registry defaults minus the union of the global `[activation]` denylist and the per-instance `[instances.*.activation]` denylist. Disabled indicators/signals are **absent** from the produced `MarketSnapshot` — never null, never tombstoned — and downstream layers reuse the existing NO_DATA/empty-state machinery with no new special cases. The active set is *recorded* on the snapshot via the optional `metrics_config` block (omitted when the active set equals the registry default, so default-path frames remain byte-identical to pre-feature frames). The 50-indicator / 12-SignalKind / 100-declaration **registry** describes capability and never changes with config; activation is a runtime config concern. Canonical spec, wire contract, downstream degradation rules, and the registry-invariance requirement are in [03-02-12-mme-configurable-activation.md](../../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md).
 
 ---
 

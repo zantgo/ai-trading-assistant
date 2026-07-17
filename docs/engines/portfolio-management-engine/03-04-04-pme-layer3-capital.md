@@ -1,6 +1,6 @@
 # PME Layer 3 — Capital Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 3 of 4
@@ -37,7 +37,7 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 | `realized_pnl` | `Decimal` | Cumulative PnL from closed trades. **Net of fees and funding** — fees and funding costs are deducted at the fill level, never separately. |
 | `unrealized_pnl` | `Decimal` | Aggregate unrealized PnL from all active positions. |
 
-> **Persistence mapping (v2.1).** The in-memory Capital Matrix fields above map to the persistent `paper_balances` table ([06-02-database-schema-spec.md §3.2](../integration-and-api/06-02-database-schema-spec.md)) as follows:
+> **Persistence mapping (v2.1).** The in-memory Capital Matrix fields above map to the persistent `paper_balances` table ([06-02-database-schema-spec.md §3.2](../../integration-and-api/06-02-database-schema-spec.md)) as follows:
 >
 > | Capital Matrix field | `paper_balances` column |
 > |----------------------|-------------------------|

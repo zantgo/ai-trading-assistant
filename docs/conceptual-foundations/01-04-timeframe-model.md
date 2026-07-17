@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -87,7 +87,7 @@ Each candle closes at the next exact UTC epoch-duration multiple:
 
 The aggregator formula — `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` — deterministically produces the **start of the candle interval** as the integer epoch multiple. The **closing instant** of the candle is `interval_start + duration_ms` (i.e. the start of the next interval). Candles close on the integer epoch multiple (e.g. a `micro60` candle closing at the start of the next minute), never at `:59.999`.
 
-- **Late-Trade Recovery:** Any late-arriving trade whose exchange-server timestamp belongs to a prior time boundary is processed as a retroactive update to the historical buffer. It must never cause the active candle boundary to shift or delay its close.
+- **Late-Trade Handling:** A trade whose exchange-server timestamp falls inside an already-closed candle window is **dropped and counted in `out_of_order_dropped`** (see 03-01-04-die-layer3-data-quality.md §3). Closed historical buffers are immutable; retroactive reordering is forbidden. Late trades arriving while the candle is still open are merged normally.
 - **Clock Drift:** Local server system clocks execute continuous NTP polling to keep local system time drift under $\le 50 \text{ microseconds}$ of UTC, ensuring local indicator values align exactly with exchange historical benchmarks. Drift is enforced at runtime by `crates/network-adapters/src/clock_monitor.rs` (spawned from `main.rs`, configured via the `"clock_monitor"` block of `config.toml`). See [Global Architecture §2.1](01-02-global-architecture.md).
 
 ---
@@ -121,7 +121,7 @@ With default durations (macro = 900 s, all enabled) this yields:
 | slow | 300 s | 0.33 |
 | macro | 900 s | 1.00 |
 
-This rule is shared by [Alignment Matrix §4.1](../matrices/02-01-alignment-matrix.md) and [MME Layer 2 §3](../../engines/market-monitoring-engine/03-02-03-mme-layer2-alignment.md) — the formula and divisor rule are identical at all three locations.
+This rule is shared by [Alignment Matrix §4.1](../matrices/02-01-alignment-matrix.md) and [MME Layer 2 §3](../engines/market-monitoring-engine/03-02-03-mme-layer2-alignment.md) — the formula and divisor rule are identical at all three locations.
 
 ---
 
@@ -138,6 +138,8 @@ Each timeframe pipeline bootstraps from historical candle data before subscribin
 | Per-pipeline indicator computation (50 indicators) | < 10 ms |
 | Cross-TF synthesis (L2–L6) | < 5 ms |
 | Full 7-layer cascade per candle | < 25 ms |
+
+The full-cascade latency budget decomposes as: **DIE Raw→Distribution ≤ 10 ms; MME cascade ≤ 15 ms; end-to-end Raw→Overview ≤ 25 ms**.
 
 ---
 

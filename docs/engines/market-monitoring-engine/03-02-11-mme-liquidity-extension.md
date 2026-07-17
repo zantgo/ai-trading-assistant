@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented (Phases 0-4)
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -80,7 +80,7 @@ L3   Analysis
 L4   Opportunity (parallel to L5)
 L5   Risk     (parallel to L4)       ← gains cascade_risk
 L6   Decision                        ← gains LiquiditySqueeze opportunity
-L7   Overview                        ← gains cascade_risk_index field on envelope (see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../conceptual-foundations/01-05-liquidity-domain.md) for status)
+L7   Overview                        ← gains cascade_risk_index field on envelope (see [01-05-liquidity-domain.md §Open questions — Canonical deferred-work tracker](../../conceptual-foundations/01-05-liquidity-domain.md) for status)
 ```
 
 ## Cross-engine flow
@@ -103,7 +103,7 @@ The integration with the rest of the platform is:
 |---|---|---|---|
 | L4 LiquiditySqueeze precondition | Continuous forecast eligibility | `|asymmetry| > 0.3` | Forward-looking pressure into setup viability (continuous weighting). |
 | L5 `cascade_risk.score` incremental | Continuous risk score contribution | `|asymmetry| > 0.3 → up to +30 risk points` | Linear contribution into the weighted aggregate. |
-| L3 Phase 3 `LIQUIDITY_CLUSTER_PRESSURE_HIGH` signal | Discrete event | `|asymmetry| > 0.5` | Stricter event gate so that the signal only fires on meaningful cluster pressure, while the continuous scoring still weights asymmetry at 0.3+ into the Risk aggregate. |
+| Phase 3, snapshot-level `LIQUIDITY_CLUSTER_PRESSURE_HIGH` signal | Discrete event | `|asymmetry| > 0.5` | Stricter event gate so that the signal only fires on meaningful cluster pressure, while the continuous scoring still weights asymmetry at 0.3+ into the Risk aggregate. |
 
 ## Phase 3 LiquiditySignalKind Registry
 
@@ -119,21 +119,21 @@ The Phase 3 `LiquiditySignalKind` enum defines **7** signals derived per snapsho
 | 6 | `LIQUIDITY_FUNDING_FLIP` | `funding_rate` changes sign (long → short funding) |
 | 7 | `LIQUIDITY_OI_DIVERGENCE` | `oi_delta` disagrees with price direction (liquidity-focused divergence) |
 
-All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See [01-05-liquidity-domain.md §Phase 3](../conceptual-foundations/01-05-liquidity-domain.md).
+All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See [01-05-liquidity-domain.md §Phase 3](../../conceptual-foundations/01-05-liquidity-domain.md).
 
 > **Field-naming note.** A previous version of this section referred to the
-> Advisory Matrix's `opportunity_classification` field. That field was removed
+> Advisory Matrix's `opportunity_type` field. That field was removed
 > in the institutional redesign; the canonical opportunity classifier now
 > lives on the L4 Opportunity Matrix as `primary_opportunity` (see
-> [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md)).
+> [02-00-matrix-field-ownership.md §3](../../matrices/02-00-matrix-field-ownership.md)).
 
 ## Configuration surface
 
-The `[liquidity]` block in **`config.toml`** (the platform's single source of configuration truth) is the only new configuration surface. All fields have safe defaults. See [02-12-liquidity-matrix.md](../matrices/02-12-liquidity-matrix.md) for the field reference, and [01-05-liquidity-domain.md §Configuration](../conceptual-foundations/01-05-liquidity-domain.md) for the canonical TOML shape.
+The `[liquidity]` block in **`config.toml`** (the platform's single source of configuration truth) is the only new configuration surface. All fields have safe defaults. See [02-12-liquidity-matrix.md](../../matrices/02-12-liquidity-matrix.md) for the field reference, and [01-05-liquidity-domain.md §Configuration](../../conceptual-foundations/01-05-liquidity-domain.md) for the canonical TOML shape.
 
 ## Test coverage
 
-The full Liquidity Intelligence test inventory (55 unit + 1 integration = 56 tests) is the **canonical source of truth** in [`01-05-liquidity-domain.md §Test Coverage`](../conceptual-foundations/01-05-liquidity-domain.md). This table mirrors it. **Nested functions** (`assess_cascade_risk` under Phase 3, `compute_cluster_matrix` under Phase 2) are already contained within their parent phase's totals — they are not counted twice here.
+The full Liquidity Intelligence test inventory (55 unit + 1 integration = 56 tests) is the **canonical source of truth** in [`01-05-liquidity-domain.md §Test Coverage`](../../conceptual-foundations/01-05-liquidity-domain.md). This table mirrors it. **Nested functions** (`assess_cascade_risk` under Phase 3, `compute_cluster_matrix` under Phase 2) are already contained within their parent phase's totals — they are not counted twice here.
 
 | Component | Unit | Integration |
 |---|---|---|

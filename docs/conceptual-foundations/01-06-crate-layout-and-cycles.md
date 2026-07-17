@@ -1,6 +1,6 @@
 # Crate Layout & Cycle-Breaking Design
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 9 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.
@@ -28,6 +28,8 @@ Frontend:
 | Folder | Responsibility |
 |---|---|
 | `ui` | Svelte 5 dashboard with interactive charting, real-time data, and market analysis tools. Reads config via `GET /api/config`; never reads `config.toml` directly. |
+
+> **Logical layer → physical crate.** DIE L2–L4 logic (candle generation, quality validation, distribution) executes inside `market-analyzer` for latency reasons, but logical ownership, contracts, and matrices remain DIE's. The `MarketSnapshot` is logically and physically MME L1 — it is built by the MME analyzer pipeline, not by DIE code. See [01-02-global-architecture.md §2.1](01-02-global-architecture.md) for the DIE/MME boundary and [03-01-00-die-end-to-end-flow.md](../engines/data-infrastructure-engine/03-01-00-die-end-to-end-flow.md) for the end-to-end flow.
 
 ## 2. Dependency Graph
 

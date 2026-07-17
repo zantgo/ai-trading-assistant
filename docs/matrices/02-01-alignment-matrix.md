@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -41,7 +41,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 | `mtf_overall_score` | `f64` | Blended MTF score in `[-100, 100]`. |
 | `mtf_overall_label` | `string` | `STRONG_BULL_MTF` / `WEAK_BULL_MTF` / `NEUTRAL_MTF` / `WEAK_BEAR_MTF` / `STRONG_BEAR_MTF` / `NO_DATA`. |
 | `timeframe_alignments` | `TfAlignmentInfo[]` | Per-timeframe breakdown (see §4). |
-| `signal_cross_tf_count` | `u32` | Count of signals appearing across ≥2 timeframes. |
+| `signal_cross_tf_count` | `u32` | Number of distinct signal keys (indicator × SignalKind) with an active signal on ≥2 timeframes in the current snapshot. |
 | `trend_agreement_pct` | `f64` | Percentage of timeframes agreeing on direction `[0, 100]`. |
 
 ### 2.2 AlignmentDimension
@@ -49,7 +49,7 @@ The Alignment Matrix is implemented as `AlignmentMatrix` (`crates/core-domain/sr
 | Field | Type | Range | Description |
 |-------|------|-------|-------------|
 | `score` | `f64` | `[0, 100]` | Alignment strength (higher = stronger agreement). |
-| `state` | `AlignState` | — | `BULLISH` / `BEARISH` / `NEUTRAL` / `MIXED`. |
+| `state` | `AlignState` | — | `BULLISH` / `BEARISH` / `NEUTRAL` / `MIXED` / `ALIGNED` / `PARTIAL` / `DIVERGENT`. |
 | `confidence` | `f64` | `[0, 100]` | Measurement confidence. |
 
 ### 2.3 TfAlignmentInfo (per-timeframe breakdown)
@@ -86,16 +86,21 @@ The `dimensions` array is ordered. Each index maps to a specific agreement axis:
 
 ### 3.1 AlignState Derivation
 
-```
-# Priority order (first match wins):
-1. score ≥ 60                  → Bullish
-2. 20 < score ≤ 40              → Bearish
-3. 0  < score ≤ 20              → Bearish
-4. score == 0 OR 40<score<60    → Neutral
-5. otherwise                    → Mixed
-```
+The `AlignState` enum grows from four to seven values: `BULLISH` | `BEARISH` | `NEUTRAL` | `MIXED` | `ALIGNED` | `PARTIAL` | `DIVERGENT`.
 
-For signed dimensions (Trend/Momentum/Volume/Volatility), the score is derived from a mean in `[-1,1]` via `score = (mean + 1) / 2 × 100`, with state `BULLISH` if `mean > 0.3`, `BEARISH` if `mean < -0.3`, else `NEUTRAL`.
+**Signed dimensions** (Trend, Momentum, Volume, Volatility, Confidence):
+
+- Inputs: signed mean `m ∈ [-1, 1]`; sign-agreement `a` = fraction of timeframes sharing the majority sign.
+- If `a < 0.6` → `MIXED`.
+- Else if `m > +0.3` → `BULLISH`.
+- Else if `m < -0.3` → `BEARISH`.
+- Else → `NEUTRAL`.
+
+**Unsigned dimensions** (Structure, Signal, Regime, Liquidity, Tradability):
+
+- `score ≥ 60` → `ALIGNED`.
+- `30 ≤ score < 60` → `PARTIAL`.
+- `score < 30` → `DIVERGENT`.
 
 ---
 
@@ -131,7 +136,7 @@ $$\text{trend\_agreement\_pct} = \frac{\max(\text{positive\_tf\_count}, \text{ne
 
 When ≥2 timeframes are present:
 
-$$\text{signal\_cross\_tf\_count} = \text{round}(\text{total\_signals} \times 0.3)$$
+`signal_cross_tf_count` = number of distinct signal keys (indicator × SignalKind) with an active signal on ≥2 timeframes in the current snapshot.
 
 ### 4.5 Overall Label
 
@@ -166,12 +171,12 @@ otherwise   → NEUTRAL_MTF
     { "score": 65.0, "state": "BULLISH", "confidence": 65.0 },
     { "score": 55.0, "state": "NEUTRAL", "confidence": 55.0 },
     { "score": 60.0, "state": "BULLISH", "confidence": 60.0 },
-    { "score": 75.0, "state": "BULLISH", "confidence": 75.0 },
-    { "score": 33.3, "state": "BEARISH", "confidence": 33.3 },
-    { "score": 100.0, "state": "BULLISH", "confidence": 100.0 },
+    { "score": 33.3, "state": "DIVERGENT", "confidence": 33.3 },
+    { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
+    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
     { "score": 88.0, "state": "BULLISH", "confidence": 88.0 },
-    { "score": 70.0, "state": "BULLISH", "confidence": 70.0 },
-    { "score": 100.0, "state": "BULLISH", "confidence": 100.0 }
+    { "score": 70.0, "state": "ALIGNED", "confidence": 70.0 },
+    { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 }
   ],
   "mtf_trend_alignment": 0.56,
   "mtf_momentum_alignment": 0.30,

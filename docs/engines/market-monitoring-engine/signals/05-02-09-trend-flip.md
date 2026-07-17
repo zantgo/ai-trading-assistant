@@ -1,6 +1,6 @@
 # SignalKind: TrendFlip
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Category:** Trend / Regime
@@ -23,7 +23,7 @@ A **TrendFlip** fires when a stateful directional indicator switches its regime 
 
 ## 2. Producing Indicators
 
-Declared by 8 registry entries (canonical alignment with [04-02-00-indicator-index.md](../../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) §Summary):
+Declared by 8 registry entries (canonical alignment with [04-02-00-indicator-index.md](../indicators/04-02-00-indicator-index.md) §Summary):
 
 | Indicator | `TrendFlip` multiplicity |
 |-----------|--------------------------|
@@ -36,7 +36,7 @@ Declared by 8 registry entries (canonical alignment with [04-02-00-indicator-ind
 | `smc_structure` | 1 (CHoCH) |
 | `smc_order_blocks` | 2 (`SMC_OB_BULLISH_MITIGATED`, `SMC_OB_BEARISH_MITIGATED`) |
 
-> **Editorial correction.** A previous revision of this section listed ten producers (`supertrend`, `adx`, `ichimoku`, `macd`, `volume_profile`, `obv`, `psar`, `aroon`, `smc_structure`, `smc_order_blocks`). The `support_resistance` registry entry was mistakenly added — `support_resistance` emits `Breakout` signals (see [04-02-32-support-resistance.md §6](../../engines/market-monitoring-engine/indicators/04-02-32-support-resistance.md) and [05-02-04-breakout.md §2](../signals/05-02-04-breakout.md)), not `TrendFlip`. Likewise `macd` and `volume_profile` do not emit `TrendFlip` per the registry. The canonical 8 above are authoritative.
+> **Editorial correction.** A previous revision of this section listed ten producers (`supertrend`, `adx`, `ichimoku`, `macd`, `volume_profile`, `obv`, `psar`, `aroon`, `smc_structure`, `smc_order_blocks`). The `support_resistance` registry entry was mistakenly added — `support_resistance` emits `Breakout` signals (see [04-02-32-support-resistance.md §6](../indicators/04-02-32-support-resistance.md) and [05-02-04-breakout.md §2](../signals/05-02-04-breakout.md)), not `TrendFlip`. Likewise `macd` and `volume_profile` do not emit `TrendFlip` per the registry. The canonical 8 above are authoritative.
 
 ## 3. Detection Semantics
 

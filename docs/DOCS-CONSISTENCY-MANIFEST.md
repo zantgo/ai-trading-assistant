@@ -1,16 +1,17 @@
-# Documentation Consistency Manifest — v5.0
+# Documentation Consistency Manifest — v6.2
 
-**Generated:** 2026-07-16
-**Audit run:** v5.0 workspace-restructure doc pass (3 commits, all complete)
-**Scope:** `docs/` — 131 markdown files at v5.0 (1 README + 1 CHANGELOG + 129 numbered docs)
-**Source code:** **Inspected.** v5.0 is the first manifest version where the doc audit verified against the actual workspace layout (`crates/` directory tree and `Cargo.toml` workspace members). v4.0 only inspected the corpus itself.
+**Generated:** 2026-07-17
+**Audit run:** v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete)
+**Scope:** `docs/` — 138 markdown files at v6.2 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 135 numbered docs)
+**Source code:** **Inspected.** v6.2 is the first manifest version where the doc audit covers the per-instance `LifecycleState` axis (RUNNING / PAUSED / STOPPING / STOPPED) and the new Gate 0 (lifecycle) in the pre-trade chain.
+**v6.2 source-of-truth:** `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` (introduced in v6.2). All lifecycle-table and Gate-0 ordering claims in this manifest are verified against that document.
 **v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
 
 ---
 
 ## 1. Verdict
 
-The corpus is **internally consistent and free of HIGH-severity issues** as of v4.0. The v2.x audit register (18 HIGH-severity inconsistencies surfaced in the pre-v4.0 audit) is closed; the canonical deferred-work tracker is in `docs/CHANGELOG.md §Open Items`. The v4.0 closure pattern was: edit the corpus first, then record each issue under `AUDIT-V4-NN` in the changelog, never the reverse. The "AI-correction notes stapled over stale cells" pattern documented in the pre-v4.0 audit is fully eliminated from normative sections; the only remaining audit-marker identifiers (`AUDIT-V4-NN`, `MAT-NN`, `SIG-NN`, `Issue NN`) live in `docs/CHANGELOG.md` and the historical-narrative footnotes that document what was wrong and why the current text is correct.
+The corpus is **internally consistent and free of HIGH-severity issues** as of v5.0. The v2.x audit register (18 HIGH-severity inconsistencies surfaced in the pre-v4.0 audit) is closed; the canonical deferred-work tracker is in `docs/CHANGELOG.md §Open Items`. The v4.0 closure pattern was: edit the corpus first, then record each issue under `AUDIT-V4-NN` in the changelog, never the reverse. The "AI-correction notes stapled over stale cells" pattern documented in the pre-v4.0 audit is fully eliminated from normative sections; the only remaining audit-marker identifiers (`AUDIT-V4-NN`, `MAT-NN`, `SIG-NN`, `Issue NN`) live in `docs/CHANGELOG.md` and the historical-narrative footnotes that document what was wrong and why the current text is correct. v6.2's v5.0-→v6.2 additions (instance-lifecycle spec + Gate 0 + scoped-enum rule) are verified by §12.11.
 
 ---
 
@@ -27,7 +28,7 @@ docs/
 │   ├── market-monitoring-engine/                   (11)
 │   │   ├── indicators/                             (51)   ← 1 master index + 50 indicator specs
 │   │   └── signals/                                (13)   ← 1 master index + 12 SignalKinds
-│   ├── trade-automation-engine/                    (5)
+│   ├── trade-automation-engine/                    (6)
 │   ├── portfolio-management-engine/                (5)
 │   └── performance-analytics-engine/               (5)
 ├── integration-and-api/                           (2)
@@ -35,9 +36,9 @@ docs/
 └── operations-and-compliance/                      (6)
 ```
 
-**Total: 130 markdown files.** v3 → v4 added 1 file (`docs/CHANGELOG.md`); all other file paths are unchanged.
+**Total: 138 markdown files.** v5 → v6.2 added 1 file (`docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md`); all other file paths are unchanged.
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 5.0 (2026-07-16) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep against the corpus; zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep against the corpus; zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
 
 ---
 
@@ -70,7 +71,7 @@ docs/
 
 ### 12.2 Numerical counts (registry-verified, `crates/market-analyzer/src/indicators/registry.rs` at `2026-07-16`)
 - [x] **50 indicators / 8 groups** (10 Trend + 7 Momentum + 7 Volume + 6 Volatility + 5 Structure + 4 Regime + 4 Institutional + 7 Derivatives)
-- [x] **100 signal-kind declarations** (sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100)
+- [x] **100 signal-kind declarations** (sum-check: 9+9+26+9+4+11+4+14+8+2+1+3 = 100)
 - [x] **12 distinct SignalKinds** (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming)
 - [x] **9 Divergence declarations** (8 nested `supports_divergence: true` + 1 standalone `oi_price_divergence`)
 - [x] **8 Risk sub-dimensions + `overall_risk`** = 9 fields (Weights: `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C` = `0.70 + 0.30 = 1.00`)
@@ -141,13 +142,15 @@ docs/
 - [x] Zero literal source-line citations (`crates/...rs:N` or `crates/...rs::func(...)`). Module-path cross-references (e.g. `crates/market-analyzer/src/indicators/registry.rs`) are retained as cross-doc identifiers (these are module paths, not line numbers).
 - [x] Subjective adjectives in algorithmic specs are limited to "default" (e.g. "the default ladder is micro 60 s / fast 180 s / slow 300 s / macro 900 s"), "deterministic", and "canonical" — none of the "most defensible" / "best forward-looking" / "robust" / "comprehensive" filler.
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
-
 ### 12.11 File-count invariant
-- [x] `docs/` contains **131** files at v5.0 (130 + new `01-06-crate-layout-and-cycles.md`).
-- [x] `docs/README.md` total-count line updated to **131** and the directory map carries the new file entry.
 
+- [x] `docs/` contains **138** files at v6.2 (137 + new `03-03-06-tae-instance-lifecycle-spec.md`).
+- [x] `docs/README.md` total-count line updated to **138** and the directory map carries the new file entry.
+- [x] **Scoped-enum rule (v6.2, new).** Enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (stance and safety — pre-existing) never co-refer. The canonical rule is documented in [03-03-06 §6](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). On first use in any document section, the axis is qualified (`instance PAUSED`, `policy AUTO_PAUSED`). Verified by `grep -rE "(PAUSED|AUTO_PAUSED|SUSPENDED)" docs/`; no bare `PAUSED` outside a qualified context.
+- [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
-- [x] Every numbered doc carries `**Version:** 5.0 (2026-07-16) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep (the v4.0 stamps have all been rolled forward to v5.0; the v4.0 entry in `CHANGELOG.md` is historical).
+
+- [x] Every numbered doc carries `**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep (the v5.0 stamps have all been rolled forward to v6.2; the v5.0 entry in `CHANGELOG.md` is historical).
 - [x] `docs/README.md` and `docs/CHANGELOG.md` are the only two files permitted to use a "version" stamp outside this convention (`README.md` is the entry point and carries "v2 platform-summary" wording in the historical reference; `CHANGELOG.md` is the canonical single version history).
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 

@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -29,7 +29,7 @@ The Decision Matrix is realized by two complementary structures:
 
 > **Type-Boundary Note.** The `protection_strategy` (§3.6) resolves to a concrete **`stop_loss_distance_pct`**, which is represented as an **`f64`** (a raw percentage float, e.g. `1.5` = 1.5%). This `f64` is the canonical **type-boundary handoff variable** between the MME (hot path, `f64`) and the TAE (cold path, `Decimal`): the TAE casts it to `Decimal` at the execution boundary before sizing (see [Global Architecture §6.3](../conceptual-foundations/01-02-global-architecture.md) and [TAE Layer 2 §2.1](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 >
-> **Removed in the institutional redesign.** The previous `opportunity_classification` field has been **removed** from the Decision Matrix. The Decision Layer reads `Opportunity.primary_opportunity` directly from the L4 Opportunity Matrix. The `OpportunityClass` enum that the removed field used is now sourced from L4; see [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md).
+> **Removed in the institutional redesign.** The previous `opportunity_type` field has been **removed** from the Decision Matrix. The Decision Layer reads `Opportunity.primary_opportunity` directly from the L4 Opportunity Matrix. The `OpportunityClass` enum that the removed field used is now sourced from L4; see [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md).
 
 ### 2.1 AdvisoryMatrix Fields
 
@@ -46,7 +46,7 @@ The Decision Matrix is realized by two complementary structures:
 | `stop_loss_distance_pct` | `f64` | Concrete stop-loss distance as a raw percentage float (e.g. `1.5` = 1.5%). Type-boundary handoff from MME (f64) to TAE (Decimal cast at the execution boundary). Computed from the active `protection_strategy` (§3.6) and the current volatility/structure inputs. |
 | `confidence_assessment` | `f64` | Guidance confidence in `[0, 100]`. |
 | `trade_readiness` | `TradeReadiness` | Headline readiness state (§4). `READY` / `FORMING` / `WATCH` / `STAND_ASIDE`. *(Added to the schema in the institutional redesign; previously documented in §4 but missing from §2.1.)* |
-| `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `environment_favorability` in v2.1; semantic successor of `Risk.reward_risk`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `environment_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
+| `entry_danger` | `RiskDimension` | Synoptic measure of how dangerous the current interpretive state is for entering a new position. High score = dangerous (do not enter); low score = safe to enter. Synthesized from L3 `market_quality` and L4 `opportunity_score` — see §3.8 for the derivation rule. *(Renamed from `risk_favorability` in v2.1; semantic successor of `Risk.expected_rr`. The semantic inversion reflects the RiskDimension convention: high score = danger, low score = safe. The previous name `risk_favorability` was misleading — high favorability would suggest low score, but the actual formula produces a danger measure where high score = danger.)* |
 | `expected_reward_risk_ratio` | `f64` | Synthesized from `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0)`. `L4.expected_rr_internal` is the L4 Opportunity Matrix's internal score (renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`). *(Added in the institutional redesign.)* |
 
 > **`expected_reward_risk_ratio` formula — unit normalization.** `overall_risk` is on the canonical `[0, 100]` scale; the formula divides by `100.0` before the subtraction: `L4.expected_rr_internal × (1 − L5.overall_risk / 100.0) = 2.5 × (1 − 0.283) = 1.79`. Without the `/100.0` normalization the formula produces nonsensical values for any non-trivial risk score (e.g. with `overall_risk = 28.3`, the unnormalized form gives `2.5 × (1 − 28.3) = −68.25`). The same formula appears in the canonical ownership map at [02-00-matrix-field-ownership.md §2.6](../matrices/02-00-matrix-field-ownership.md).
@@ -110,7 +110,7 @@ Derived from `market_quality × overall_risk`:
 1. market_quality ∈ {POOR}                  OR overall_risk ≥ 80           → AVOID
 2. market_quality ∈ {POOR, WEAK}            OR overall_risk ≥ 60           → CAUTIOUS
 3. market_quality ∈ {AVERAGE}               AND overall_risk <  40         → NEUTRAL
-4. market_quality ∈ {GOOD}                  AND overall_risk <  30         → CONSTRUCTIVE
+4. market_quality ∈ {GOOD, EXCELLENT}      AND overall_risk <  30         → CONSTRUCTIVE
 5. market_quality ∈ {EXCELLENT}             AND overall_risk <  20         → AGGRESSIVE
 6. otherwise                                                              → CAUTIOUS  (default)
 ```
@@ -158,7 +158,7 @@ All five `TargetStrategy` values are reachable from the documented rules. `RESIS
 
 ### 3.8 `entry_danger` (Synoptic Danger)
 
-`entry_danger` is a `RiskDimension` (score, level, state, confidence, evidence) — renamed from `environment_favorability` in v2.1 to disambiguate the semantic convention. The RiskDimension convention is that **high score = danger, low score = safe** (consistent with all other Risk Matrix dimensions). The previous name `environment_favorability` was semantically misleading: a high `environment_favorability` would intuitively mean "favorable conditions", but the actual formula produces a danger measure (high = dangerous).
+`entry_danger` is a `RiskDimension` (score, level, state, confidence, evidence) — renamed from `risk_favorability` in v2.1 to disambiguate the semantic convention. The RiskDimension convention is that **high score = danger, low score = safe** (consistent with all other Risk Matrix dimensions). The previous name `risk_favorability` was semantically misleading: a high `risk_favorability` would intuitively mean "favorable conditions", but the actual formula produces a danger measure (high = dangerous).
 
 `entry_danger` synthesizes the **danger of entering a new position in the current interpretive state** by combining L3 `market_quality` and L4 `opportunity_score` — the two forward-looking signals most relevant to "is the environment dangerous for a new trade?".
 
@@ -179,7 +179,7 @@ score = mean(quality_penalty, 100 − opportunity_score)  // ∈ [0, 100]
 
 > **`entry_danger` band boundaries.** Bands are strict half-open intervals aligned with the canonical [Risk Matrix §2.3](../matrices/02-11-risk-matrix.md) `RiskLevel` enum (`EXTREME / HIGH / MODERATE / LOW / VERY_LOW`, thresholds `80 / 60 / 40 / 20`). Boundary values map to exactly one band. This unifies the cross-engine vocabulary so `entry_danger.level` and `risk.<dim>.level` share the same enum and the same numeric bands.
 
-**Why this derivation:** `quality_penalty` reflects "how *poor* is the environment" (low = excellent conditions, high = dangerous conditions). `100 − opportunity_score` reflects "how *poor* is the absence of a setup" (low = great setup, high = no viable setup). Averaging the two gives a synoptic "how dangerous is it to enter here?" measure. This is the natural successor of the old `Risk.reward_risk` formula, with the addition of `opportunity_score` as an L4 input (legitimate L6 synthesis of state + forecast + danger).
+**Why this derivation:** `quality_penalty` reflects "how *poor* is the environment" (low = excellent conditions, high = dangerous conditions). `100 − opportunity_score` reflects "how *poor* is the absence of a setup" (low = great setup, high = no viable setup). Averaging the two gives a synoptic "how dangerous is it to enter here?" measure. This is the natural successor of the old `Risk.expected_rr` formula, with the addition of `opportunity_score` as an L4 input (legitimate L6 synthesis of state + forecast + danger).
 
 ---
 
@@ -244,7 +244,7 @@ The Decision Matrix carries the structural invalidation and target context used 
 }
 ```
 
-**Self-consistency check** (the example values satisfy the §2.3 / §3.1 / §3.6 / §3.7 / §3.8 / §4 formulas):
+**Self-consistency check** — Scenario B — perfect alignment (independent of the ontology §A-series) (the example values satisfy the §2.3 / §3.1 / §3.6 / §3.7 / §3.8 / §4 formulas):
 - Analysis Matrix `state_confidence` = 1.0; Risk Matrix `overall_risk.score = 28.3` (matches the canonical Risk Matrix JSON example; expressed as a fraction, `0.283`).
 - `confidence_assessment = clamp(1.0 × (1 − 0.283) × 100, 0, 100) = clamp(71.7, 0, 100) = 71.7` ✓
 - `bias = STRONG_BULLISH` with `overall_risk = 28.3 < 50` ⇒ `directional_guidance = STRONG_LONG` per the §3.1 rule ✓
@@ -252,6 +252,8 @@ The Decision Matrix carries the structural invalidation and target context used 
 - `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.79` (using `L4.expected_rr_internal = 2.5` from the Opportunity Matrix example and `L5.overall_risk.score = 28.3` on the canonical `[0, 100]` scale) ✓
 - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(10, 100 − 85) = mean(10, 15) = 12.5` (with `market_quality = EXCELLENT` → `quality_penalty = 10` and `opportunity_score = 85`). Score `12.5` falls in the `VERY_LOW` band (`< 20` per the §3.8 half-open intervals) ✓
 - `stop_loss_distance_pct = 1.5` is the f64 type-boundary handoff to TAE (see §5 Scenario Pathways / `01-02-global-architecture.md §6.3`); TAE casts to Decimal at the execution boundary.
+
+> Scenario A (alignment score 40) is worked end-to-end in 01-01-ontology.md §A.2–A.6.
 
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 

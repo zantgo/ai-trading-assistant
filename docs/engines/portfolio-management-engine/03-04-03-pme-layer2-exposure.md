@@ -1,6 +1,6 @@
 # PME Layer 2 — Exposure Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Layer:** 2 of 4
@@ -72,7 +72,7 @@ Assets are grouped into correlation sectors based on historical price co-movemen
 
 | Sector | Example Assets |
 |--------|---------------|
-| Layer 1 | BTC, ETH |
+| Base Chain |
 | Layer 2 | SOL, AVAX, MATIC |
 | DeFi | UNI, AAVE, MKR |
 | Meme | DOGE, SHIB, PEPE |

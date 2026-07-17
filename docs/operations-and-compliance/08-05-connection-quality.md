@@ -1,6 +1,6 @@
 # Connection Quality
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Spec version:** 1.0
 
@@ -16,7 +16,7 @@ Aggregates raw WebSocket events (connect, disconnect, reconnect, heartbeat) into
 | `SIX_HOUR` | 6 × 3600 s | Trading session quality review |
 | `TWENTY_FOUR_HOUR` | 24 × 3600 s | Daily SLO / uptime reporting |
 
-All three windows are computed and persisted in parallel. The dashboard can switch between them via tabs in the `ConnectionQualityPanel` component.
+All three windows are computed **within a single 60-second tick** and persisted as three independent rows per tick (one per window, sharing the same `timestamp_ms`). The dashboard switches between them via tabs in the `ConnectionQualityPanel` component; each tab switch triggers a fresh REST request for the chosen window. The REST API returns a single `ConnectionQualityReport` per request, not an aggregate of all three.
 
 ## Data Model
 
@@ -38,28 +38,38 @@ pub struct ConnectionQualityReport {
 
 ```
 score = clamp(0..100,
-    0.5  × uptime_pct
-  + 30   × (1 − min(disconnect_count / 10, 1))
-  + 20   × (1 − min(avg_reconnect_ms / 5000, 1))
+  50 × (uptime_pct / 100)
+  + 30 × (1 − min(disconnect_count / 10, 1))
+  + 20 × (1 − min(avg_reconnect_ms / 5000, 1))
+  − 5 × min(total_data_loss_s / 600, 1)
+  − 5 × min(reconstructed_candles_pct / 100, 1)
 )
 ```
 
-Interpretation:
-- **uptime_pct** contributes 0..50 points (the dominant signal)
-- **disconnect_count** contributes 0..30 points (penalized linearly up to 10 disconnects)
-- **avg_reconnect_ms** contributes 0..20 points (saturates at 5s reconnect time)
+The five terms span `[−0.10, +1.00]` raw after normalisation, then multiplied by 100 to the `[0, 100]` scale, then `clamp(0..100, …)` finalises. Interpretation:
 
-A perfect session (100% uptime, 0 disconnects, 0ms reconnect) scores 100. A session with 5% downtime (`uptime_pct = 95`), 8 disconnects, and 2s avg reconnect time scores ~65.5.
+| Term | Weight | Saturates at | Notes |
+|------|--------|--------------|-------|
+| `uptime_pct` | 0..50 points | 100% uptime | The dominant signal. |
+| `disconnect_count` | 0..30 points | 10 disconnects | Penalised linearly up to 10, then floor. |
+| `avg_reconnect_ms` | 0..20 points | 5000 ms | Saturates at 5s reconnect time. |
+| `total_data_loss_secs` | 0..5 points subtracted | 600 s of data loss | Reflects sustained outage beyond what `uptime_pct` alone captures. |
+| `reconstructed_candles` | 0..5 points subtracted | 100 reconstructed candles | Penalises reconstruction-heavy windows (a proxy for venue instability). |
 
-**Worked example.** With `uptime_pct = 95`, `disconnect_count = 8`, `avg_reconnect_ms = 2000`:
-
+**Worked example** (uptime=95, dc=8, rc_ms=2000, data_loss=300s, reconstructed=50%):
 ```
-0.5  × 95 = 47.5
-30   × (1 − min(8 / 10, 1)) = 30 × (1 − 0.8) = 6
-20   × (1 − min(2000 / 5000, 1)) = 20 × (1 − 0.4) = 12
+50 × (95 / 100)     = 47.50
+30 × (1 − min(8 / 10, 1)) = 6.00
+20 × (1 − min(2000 / 5000, 1)) = 12.00
+− 5 × min(300 / 600, 1) = −5 × 0.5 = −2.50
+− 5 × min(50 / 100, 1)  = −5 × 0.5 = −2.50
 
-total = 47.5 + 6 + 12 = 65.5
+total = 47.5 + 6 + 12 − 2.5 − 2.5 = 60.5
 ```
+
+A perfect session (100% uptime, 0 disconnects, 0 ms reconnect, 0 data loss, 0 reconstructed candles) scores 100.
+
+**Saturation rationale.** The 5 s reconnect ceiling and 10-disconnect ceiling match the [08-03-connection-resilience.md §State Transitions](../operations-and-compliance/08-03-connection-resilience.md) "anything worse than this is the supervisor's problem, not the tracker's" boundary. The 600 s data-loss ceiling matches the 5-minute operational SLO in [`08-01-user-manual.md §9`](../operations-and-compliance/08-01-user-manual.md). The 100-reconstructed-candle ceiling reflects one full micro-tier recovery window.
 
 ## Event Sources
 
@@ -73,27 +83,13 @@ total = 47.5 + 6 + 12 = 65.5
 
 ## Persistence
 
-Samples are written to the `connection_quality_samples` SQLite table every 60 seconds by a background task:
+Samples are written to the `connection_quality_samples` SQLite table every 60 seconds by a background task. The table is **per-`(pair_key, timeframe_secs)`** (one Market Instance × timeframe pipeline owns one series); a process-wide aggregate is not retained.
 
 ```sql
 CREATE TABLE IF NOT EXISTS connection_quality_samples (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp_ms INTEGER NOT NULL,
-    window TEXT NOT NULL,
-    uptime_pct REAL NOT NULL,
-    disconnect_count INTEGER NOT NULL,
-    avg_reconnect_ms REAL NOT NULL,
-    total_data_loss_secs INTEGER NOT NULL,
-    reconstructed_candles INTEGER NOT NULL,
-    score REAL NOT NULL
-);
--- Instance-scoped: each Market Instance has its own connection-quality series.
--- Replaces the previous process-wide single-series design. The pair_key column
--- was added in v4.0 to support the Connection Quality dashboard panel
--- surfacing per-instance results (see `06-01-api-gateway-contract.md` §2.3).
-CREATE TABLE IF NOT EXISTS connection_quality_samples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     pair_key TEXT NOT NULL,
+    timeframe_secs INTEGER NOT NULL,
     timestamp_ms INTEGER NOT NULL,
     window TEXT NOT NULL,
     uptime_pct REAL NOT NULL,
@@ -103,8 +99,11 @@ CREATE TABLE IF NOT EXISTS connection_quality_samples (
     reconstructed_candles INTEGER NOT NULL,
     score REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_cq_pair_window_time ON connection_quality_samples(pair_key, window, timestamp_ms);
+CREATE INDEX IF NOT EXISTS idx_cq_pair_tf_window_time
+    ON connection_quality_samples(pair_key, timeframe_secs, window, timestamp_ms DESC);
 ```
+
+The `pair_key` and `timeframe_secs` columns scope every sample to its owning `(instance, pipeline)`. v4.0 introduced this per-instance shape to back the per-instance dashboard panel; the earlier process-wide eight-column form is no longer used. See [`06-02-database-schema-spec.md §3.9`](../integration-and-api/06-02-database-schema-spec.md) for the authoritative DDL.
 
 ## REST API
 
@@ -133,7 +132,7 @@ Example:
 
 ## Frontend Panel
 
-`ConnectionQualityPanel.svelte` (with companion `.module.css` and `.test.ts`) is wired into the dashboard between the Risks and Analysis workspace tabs. It:
+`ConnectionQualityPanel.svelte` (with companion `.module.css` and `.test.ts`) is wired into the dashboard under the **Data Infrastructure → Overview → Connectivity** sub-tab (see [`07-02-ui-dashboard-layout.md §5.3`](../ui-ux/07-02-ui-dashboard-layout.md)). It:
 - Polls `/api/connection-quality` every 30 seconds
 - Switches between 1h / 6h / 24h tabs
 - Color-codes the score (≥90 green, ≥75 lime, ≥50 amber, <50 red)

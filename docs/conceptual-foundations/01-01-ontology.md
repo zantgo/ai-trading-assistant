@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -18,8 +18,6 @@ The scope of this ontology encompasses the entire lifecycle of quantitative and 
 3. **Execution Policy and Order Management** (Trade Automation Engine)
 4. **Active Exposure and Capital Supervision** (Portfolio Management Engine)
 5. **Historical Performance and Strategy Evaluation** (Performance Analytics Engine)
-
-Here is the complete, unabridged content for the missing chapters—**Chapter 2 (Design Philosophy)**, **Chapter 3 (Core Concepts)**, and **Chapter 4 (Information Flow)**—specifically tailored to match the structural architecture, separate Opportunity and Risk matrices, and formal definitions of the **Trading Platform Ontology v2**.
 
 ---
 
@@ -149,10 +147,11 @@ A Matrix is the formal, immutable output produced by a layer. It represents the 
 An Entity represents the object being analyzed. Within the Trading Platform, the primary entity is a financial instrument (e.g., `BTCUSDT`, `ETHUSDT`, `EURUSD`, `AAPL`). An entity provides the baseline context for every analytical process.
 
 ### 3.6 Market Instance
-A Market Instance represents one monitored entity at one specific timeframe.
-$$\text{Market Instance} = \text{Symbol} \times \text{Timeframe}$$
+A Market Instance represents one monitored entity at one specific venue.
 
-Examples: `(BTCUSDT × 1 Minute)`, `(ETHUSDT × 1 Hour)`. Each Market Instance owns its own independent analytical pipeline, representing the smallest operational unit of the Market Monitoring Engine.
+$$\text{Market Instance} = \text{(symbol, exchange)}$$
+
+A Market Instance is a container owning up to four TimeframePipelines (micro/fast/slow/macro), trading state, safety manager, and config. The per-(symbol, timeframe) analytical unit is the TimeframePipeline, the smallest operational unit of the MME.
 
 ### 3.7 Timeframe
 A Timeframe defines the temporal resolution used to analyze an entity. Timeframes are structured sequentially (e.g., micro, fast, slow, macro) to produce multi-timeframe intelligence.
@@ -322,7 +321,7 @@ As information moves through the platform, its **granularity** decreases (becomi
 | **Performance Analytics**| Statistically stable, long-term ratios | Multi-regime, historical system-wide evaluation |
 
 ### 4.10 Direction of Dependencies
-To maintain system stability, dependencies must always point forward (upstream to downstream). Downstream engines depend on the outputs of upstream engines. Bidirectional dependencies or backward loops are strictly prohibited:
+To maintain system stability, dependencies must always point forward (upstream to downstream). Downstream engines depend on the outputs of upstream engines. The data plane is unidirectional: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback. The following constraints are direct consequences of the unidirectional data plane:
 *   The MME must never depend on active position sizes or execution states to calculate indicator alignment.
 *   The TAE must never query the exchange directly to recalculate market regimes.
 *   The PME must never compute indicators to manage active stops.
@@ -447,7 +446,7 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 ### 6.1 Metrics Layer (Layer 1)
 *   **Concept:** Multidimensional observation.
 *   **Responsibility:** Compute mathematical indicators and extract technical signals, projecting each asset metrics stream onto its respective **Evaluation Axes** to generate structured `IndicatorEvaluation` and `SignalEvaluation` objects. It also compiles localized timeframe attributes and standardized analytical features.
-*   **Output (Metrics Matrix):** Contains structured multidimensional indicator and signal evaluation objects, alongside localized timeframe attributes.
+*   **Output (Metrics Matrix):** Contains structured multidimensional indicator and signal evaluation objects, alongside localized timeframe attributes. The matrix records **exactly the enabled data** — disabled indicators and signals are absent (never null, never tombstoned) so the cascade faithfully represents what downstream layers considered (see [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md) for the config-driven **Active Set** that determines presence).
 *   **Primary Structural Objects:**
     *   *IndicatorEvaluation:* Evaluates an indicator across the axes of **Value**, **State**, **Direction**, **Strength**, **Market Regime**, **Confidence**, **Freshness**, and **Quality**.
     *   *SignalEvaluation:* Evaluates a signal across the axes of **Signal Type**, **Direction**, **Strength**, **Confidence**, **Freshness**, **Confirmation**, **Market Regime**, **Multi-Timeframe Agreement**, **Risk**, and **Priority**.
@@ -492,7 +491,7 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
     *   *Strategy Environment:* Categorical classification of which strategy class is currently favored — `TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` (six-state enum; see [Decision Matrix §3.3](../matrices/02-04-decision-matrix.md)).
     *   *Protection Strategy:* `STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION` (five-variant enum; see [Decision Matrix §3.6](../matrices/02-04-decision-matrix.md)). `NO_RECOMMENDATION` is reached on the empty-state fallback (no indicators available; see §A.6).
     *   *Target Strategy:* `RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION` (five-variant enum; see [Decision Matrix §3.7](../matrices/02-04-decision-matrix.md)). `NO_RECOMMENDATION` is reached on the empty-state fallback.
-    *   *Risk-Adjusted Reward:* `entry_danger` (renamed from `environment_favorability`) and `expected_reward_risk_ratio` — see [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md).
+    *   *Risk-Adjusted Reward:* `entry_danger` (renamed from `risk_favorability`) and `expected_reward_risk_ratio` — see [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md).
     *   *Confidence Assessment:* `confidence_assessment = clamp(state_confidence × (1 − overall_risk / 100) × 100, 0, 100)` — the risk-attenuated terminal output (see [Decision Matrix §6](../matrices/02-04-decision-matrix.md)).
     *   *Scenario Analysis:*
         *   `Primary Scenario:` Most probable path (e.g., `BULLISH_CONTINUATION`).
@@ -536,7 +535,7 @@ $$S = \frac{E \times R}{D_{sl} / 100}$$
 *   **Key Components:**
     *   *Order Routing Strategy:* Logic determining whether to deploy `Limit Orders`, `Market Orders`, `Stop Orders`, or `TWAP/VWAP Execution Schemes`.
     *   *Slippage Control:* Algorithms adjusting limit offsets based on immediate order book depth.
-    *   *Transaction State:* Lifecycles tracking orders from `Pending Ingest` -> `Sent` -> `Acknowledged` -> `Partially Filled` -> `Filled` / `Rejected` / `Expired`.
+    *   *Transaction State:* `PENDING → SUBMITTED → OPEN → PARTIALLY_FILLED → CLOSED`, with terminal `REJECTED` / `CANCELLED`; a Gate-5 or manual-review hold parks the order in `PRE_DISPATCH` (`HELD_FOR_REVIEW`) before `PENDING`.
 
 ---
 
@@ -658,7 +657,7 @@ The Performance Analytics Engine operates on historical transaction logs, portfo
 *   **Responsibility:** Synthesize trade, strategy, and risk matrices to map strategy performance against historical market regimes. It identifies structural compatibility, helping developers and optimization systems determine which configurations excel in specific environments.
 *   **Output (Performance Matrix):** The definitive performance profile of the trading platform.
 *   **Key Components:**
-    *   *Regime Compatibility Matrix:* Grid mapping execution policies to the market regimes (from the Analysis Matrix) in which they were active, isolating where alpha was generated versus where capital was degraded.
+    *   *the Performance Matrix's regime_compatibility section:* Grid mapping execution policies to the market regimes (from the Analysis Matrix) in which they were active, isolating where alpha was generated versus where capital was degraded.
     *   *System Optimization Guidance:* Metric-driven feedback indicating necessary threshold adjustments for active execution policies.
 
 ---
@@ -721,7 +720,7 @@ The Trading Platform views a trade not as a single action, but as a sequential p
 
 ### 10.7 Phase 7: Reconstruction / Analytics
 *   **Description:** The completed transaction is handed over to the Performance Analytics Engine. 
-*   **Milestone:** The execution fills, entry/exit coordinates, and environmental market states are analyzed to update the **Trade Analytics Matrix** and refine the **Regime Compatibility Matrix**.
+*   **Milestone:** The execution fills, entry/exit coordinates, and environmental market states are analyzed to update the **Trade Analytics Matrix** and refine the **the Performance Matrix's regime_compatibility section**.
 
 ---
 
@@ -874,7 +873,7 @@ Abstraction is the primary mechanism by which raw physical market states are sim
 
 ## Chapter 14 — Separation of Responsibilities
 
-> **Canonical per-engine boundary contract.** Where **Chapter 5 — Trading Platform Ontology** of this file is a brief per-engine overview, this chapter is the **canonical authoritative reference** for the per-engine permitted-actions, prohibited-actions, and delivered matrices. Documentation that needs to assert "engine X may do Y" or "engine X may not do Z" must cite this chapter (or its sub-section for a specific engine: §14.1, §14.2, §14.3, §14.4). The DIE-boundary contract is stated in Chapter 5.1 above for readability.
+> **Canonical per-engine boundary contract.** Where **Chapter 5 — Trading Platform Ontology** of this file is a brief per-engine overview, this chapter is the **canonical authoritative reference** for the per-engine permitted-actions, prohibited-actions, and delivered matrices. Documentation that needs to assert "engine X may do Y" or "engine X may not do Z" must cite this chapter (or its sub-section for a specific engine: §14.0 DIE, §14.1 MME, §14.2 TAE, §14.3 PME, §14.4 PAE). The DIE boundary contract is fully stated in §14.0 below.
 
 To maintain modularity and prevent coupling, the platform enforces strict boundaries of responsibility between its core engines. No engine may assume, calculate, or manipulate data belonging to another engine's business domain.
 
@@ -911,6 +910,24 @@ To maintain modularity and prevent coupling, the platform enforces strict bounda
 | NO indicator recalculations  |            | NO live market data access   |
 +------------------------------+            +------------------------------+
 ```
+
+### 14.0 Data Infrastructure Engine (DIE) Boundaries
+*   **Permitted Actions:**
+    *   Establish and maintain low-level WebSocket and REST connections to external venues.
+    *   Parse exchange-specific frames into the venue-agnostic `NormalizedEvent` envelope.
+    *   Apply rate-limit accounting, heartbeat / keep-alive scheduling, and the documented reconnect/backoff policy.
+    *   Aggregate trade events into OHLCV candles (Market Data Layer).
+    *   Audit candle sequences for gaps, duplicates, and out-of-order ticks; record `out_of_order_dropped` and related reliability metrics.
+    *   Publish the Distribution Matrix and per-instance `PipelineReliabilityMetrics`.
+    *   Track per-instance connection-quality telemetry (uptime, disconnect count, reconnect latency, data loss, reconstructed candles) for operator awareness.
+*   **Prohibited Actions:**
+    *   Compute any technical indicator, signal, alignment score, opportunity score, risk score, or decision-support output.
+    *   Read account balances, margin details, position sizes, or any PME/TAE/PAE state.
+    *   Execute orders, dispatch transactions, or interact with exchange order-routing endpoints beyond data ingestion and account-status reads.
+    *   Hold cross-instance shared mutable state (decoupled producer/consumer only).
+    *   Apply market interpretation (no regime, bias, or trend classification).
+*   **Owns:** Raw Data Matrix (`NormalizedEvent` stream), Market Data Matrix (OHLCV candles), Data Quality Matrix (`CandleQualityEnvelope`), Distribution Matrix (per-instance `(symbol, timeframe)` channels), per-instance `PipelineReliabilityMetrics`, `connection_quality_samples` rows.
+*   **Reads:** Exchange WS frames, exchange REST responses, NTP clock samples, historical DB candles (warm-up), persisted `connection_quality_samples` (replay). No upstream engine matrices.
 
 ### 14.1 Market Monitoring Engine (MME) Boundaries
 *   **Permitted Actions:**
@@ -1224,7 +1241,7 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 {
   "symbol": "BTC-USDT",
   "bias": "BULLISH",
-  "state_confidence": 0.82,
+  "state_confidence": 0.65,
   "market_regime": "TRENDING_BULL",
   "trend_assessment": "HEALTHY",
   "momentum_assessment": "STABLE",
@@ -1308,7 +1325,7 @@ See [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md) f
 
 ### A.5 Risk Matrix Schema (MME — Layer 5)
 
-Produced by the Risk Layer. Consumes the Analysis Matrix and underlying indicator signals, quantifying environmental danger on a `[0, 100]` scale, **independent of directional bias**. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total**. `cascade_risk` is the 8th of the eight sub-dimensions (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `reward_risk`/`correlation_risk`). `reward_risk` was removed and moved to the Decision Layer as `entry_danger`.
+Produced by the Risk Layer. Consumes the Analysis Matrix and underlying indicator signals, quantifying environmental danger on a `[0, 100]` scale, **independent of directional bias**. The Risk Matrix contains **eight unipolar danger sub-dimensions** plus `overall_risk` (the weighted aggregate of those eight) — **nine fields total**. `cascade_risk` is the 8th of the eight sub-dimensions (added in the Phase 0-4 Liquidity Intelligence extension, replacing the retired `expected_rr`/`sync_risk`). `expected_rr` was removed and moved to the Decision Layer as `entry_danger`.
 
 Full specification: [Risk Matrix](../matrices/02-11-risk-matrix.md).
 
@@ -1364,7 +1381,7 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
     "trade_readiness": "READY",
     "entry_danger": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
     "expected_reward_risk_ratio": 1.79,
-    "confidence_assessment": 59.07,
+    "confidence_assessment": 46.61,
     "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 58% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
   },
   "decision_context": {
@@ -1376,17 +1393,17 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 }
 ```
 
-> **Removed field.** The previous `opportunity_classification` field is **not serialized**. The canonical setup classifier lives in the L4 Opportunity Matrix as `primary_opportunity` (see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md)).
+> **Removed field.** The previous `opportunity_type` field is **not serialized**. The canonical setup classifier lives in the L4 Opportunity Matrix as `primary_opportunity` (see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md)).
 >
 > The JSON key for confidence in `decision_context` is **`score_confidence`** (not `confidence`). The `confidence_assessment` field on `advisory` is a separate terminal field (the risk-attenuated output, not part of the four-level pipeline confidence flow).
 >
-> **Institutional redesign fields.** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` were added to `advisory` in the institutional redesign. `opportunity_classification` is gone (read from L4 instead).
+> **Institutional redesign fields.** `trade_readiness`, `entry_danger`, and `expected_reward_risk_ratio` were added to `advisory` in the institutional redesign. `opportunity_type` is gone (read from L4 instead).
 
-> **Worked example for the JSON above (matches Risk Matrix §A.5).** With `analysis.state_confidence = 0.82`, `L5.overall_risk.score = 28.3`, `L4.expected_rr_internal = 2.5`, and `L4.opportunity_score = 85.0`:
+> **Worked example for the JSON above (matches Risk Matrix §A.5).** With `analysis.state_confidence = 0.65`, `L5.overall_risk.score = 28.3`, `L4.expected_rr_internal = 2.5`, and `L4.opportunity_score = 85.0`:
 >
 > - `entry_danger.score = mean(quality_penalty, 100 − opportunity_score) = mean(25, 15) = 20.0` (GOOD quality ⇒ `quality_penalty = 25`)
 > - `expected_reward_risk_ratio = L4.expected_rr_internal × (1 − L5.overall_risk / 100) = 2.5 × (1 − 0.283) = 1.79`
-> - `confidence_assessment = state_confidence × (1 − overall_risk / 100) × 100 = 0.82 × 0.717 × 100 = 59.07`
+> - `confidence_assessment = state_confidence × (1 − overall_risk / 100) × 100 = 0.65 × 0.717 × 100 = 46.61`
 >
 > See [Decision Matrix §6](../matrices/02-04-decision-matrix.md) for the corresponding worked calculation.
 
@@ -1416,11 +1433,11 @@ Full specification: [Overview Matrix](../matrices/02-09-overview-matrix.md).
   },
   "cascade_risk_index": { "score": "<placeholder>", "level": "<placeholder>", "state": "STABLE", "confidence": 0.0, "evidence": ["Field is part of the canonical schema but the value is a placeholder (not yet wired into systemic_risk_score). See 01-05-liquidity-domain.md §Open questions."] },
   "asset_ranking": [
-    { "symbol": "BTC-USDT", "score": 87.0, "bias": "LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
+    { "symbol": "BTC-USDT", "score": 87.5, "bias": "LONG", "confidence": 75.0, "regime": "TREND_FOLLOWING", "risk_level": "MODERATE" }
   ],
   "market_synchronization": "SYNCHRONIZED",
   "market_health": "HEALTHY",
-  "global_summary": "5 active instances across 5 symbols. Global bias: BULLISH with positive market breadth.",
+  "global_summary": "5 active instances across 5 symbols. Global bias: BULLISH with positive market breadth. (ranking abridged to 1 of 5 instances)",
   "instance_count": 5,
   "active_symbols": ["BTC-USDT", "ETH-USDT", "SOL-USDT", "AVAX-USDT", "MATIC-USDT"],
   "systemic_risk_score": 36.0
@@ -1561,18 +1578,18 @@ Canonical counts — registry-verified against `crates/market-analyzer/src/indic
 | # | SignalKind | Declarations | Description |
 |---|-----------|-------------|-------------|
 | 1 | `Divergence` | **9** | 8 nested on parent (`supports_divergence: true`: `rsi`, `stochastic`, `chandemo`, `macd`, `obv`, `cmf`, `mfi`, `squeeze`) + 1 standalone (`oi_price_divergence`, own registry entry). Price/indicator directional disagreement. |
-| 2 | `Crossover` | **10** | Two series cross (e.g., MACD line × signal). |
-| 3 | `Threshold` | **21** | Value enters a named zone (e.g., RSI ≥ 70). |
+| 2 | `Crossover` | **9** | Two series cross (e.g., MACD line × signal). |
+| 3 | `Threshold` | **26** | Value enters a named zone (e.g., RSI ≥ 70). |
 | 4 | `Breakout` | **9** | Price breaks a structural boundary. Includes `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` from `support_resistance` (see `04-02-32-support-resistance.md §6`). |
 | 5 | `BandTouch` | **4** | Price contacts a channel/band edge. Producers: `donchian`, `keltner`, `bollinger`, `stddev_channel`. |
-| 6 | `ZeroLineCross` | **13** | Oscillator crosses its zero/mid line. Producers: `rsi`, `chandemo`, `williams_r`, `awesome_oscillator`, `cci`, `macd`, `cmf`, `force_index`, `linreg_slope`, `zscore`, `oi_delta`, `linreg_slope` (separate entry), `aroon`. |
+| 6 | `ZeroLineCross` | **11** | Oscillator crosses its zero/mid line. Producers: `rsi`, `chandemo`, `williams_r`, `awesome_oscillator`, `cci`, `macd`, `cmf`, `force_index`, `linreg_slope`, `zscore`, `oi_delta`. |
 | 7 | `CompressionRelease` | **4** | Volatility cycle phase transition (compression/coiling + release/expansion). Producers: `atr`, `bbwp`, `squeeze`. *(The v2.1 docs-only rename to `VolatilityCycle` never propagated to the registry; v4.0 reverts to the canonical registry name `CompressionRelease`.)* |
 | 8 | `LevelTest` | **14** | Price tests a horizontal level. Producers: `donchian`, `keltner`, `vwap`, `anchored_vwap`, `ichimoku`, `stddev_channel`, `volume_profile`, `bollinger`, `fibonacci`, `support_resistance`, `pivot_points`, `smc_fvg`, `smc_order_blocks`, `supertrend`. |
-| 9 | `TrendFlip` | **10** | Directional regime reverses. Producers: `supertrend`, `psar`, `adx`, `ichimoku`, `obv`, `aroon`, `smc_structure`, `smc_order_blocks`, `force_index` (one pair), `cmf` (one pair). |
+| 9 | `TrendFlip` | **8** | Directional regime reverses. Producers: `supertrend`, `psar`, `adx`, `ichimoku`, `obv`, `aroon`, `smc_structure`, `smc_order_blocks`. |
 | 10 | `VolumeClimax` | **2** | Abnormal volume surge. Producers: `volume`, `rvol`. |
 | 11 | `StackChange` | **1** | EMA ribbon reorders. Producer: `ema_stack`. |
 | 12 | `PatternForming` | **3** | Chart/candlestick pattern detected. Producers: `patterns`, `candlestick`, `smc_liquidity`. |
-| | **TOTAL** | **100** | Sum-check: 9+10+21+9+4+13+4+14+10+2+1+3 = 100. |
+| | **TOTAL** | **100** | Sum-check: 9+9+26+9+4+11+4+14+8+2+1+3 = 100. |
 
 > The registry is the authoritative source of truth (`crates/market-analyzer/src/indicators/registry.rs`). Any disagreement between this table and the registry is resolved in favor of the registry.
 

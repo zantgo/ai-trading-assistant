@@ -1,6 +1,6 @@
-# Phase 0-4 Liquidity Intelligence — Architecture Spec
+# Liquidity Phase 0-4 — Architecture Spec
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented (Phases 0-4)
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
@@ -45,9 +45,9 @@ Exchange WS
                 └─ On candle close: attach to MarketSnapshot
 
 MarketSnapshot (per candle)
-    ├─ liquidity:            Option<LiquidityFlow>                  (Phase 1, top-level field)
-    ├─ cluster:              Option<LiquidationClusterMatrix>      (Phase 2, top-level field)
-    ├─ liquidity_signals:    Vec<LiquiditySignal>                  (Phase 3, top-level field — derived from liquidity + cluster)
+    ├─ liquidity:            Option<LiquidityFlow>                  (Liquidity Phase 1, top-level field)
+    ├─ cluster:              Option<LiquidationClusterMatrix>      (Liquidity Phase 2, top-level field)
+    ├─ liquidity_signals:    Vec<LiquiditySignal>                  (Liquidity Phase 3, top-level field — derived from liquidity + cluster)
     └─ statistical_context:  StatisticalContext                     (Monte Carlo + z-scores)
 
 WS broadcast payload
@@ -71,21 +71,20 @@ preserves the unidirectional cascade: MME L1.5 → MME L2.5 → MME L5
 
 The unidirectional invariant is preserved because:
 
-- Phase 1 reads only from the WS event stream (DIE → MME L1.5).
-- Phase 2 reads from Phase 0 fields (OI, funding, mark) and
-  computes a derived value. It does NOT read from Phase 1 (avoids
+- Liquidity Phase 1 reads only from the WS event stream (DIE → MME L1.5).
+- Liquidity Phase 2 reads from Liquidity Phase 0 fields (OI, funding, mark) and
+  computes a derived value. It does NOT read from Liquidity Phase 1 (avoids
   feedback).
-- Phase 3 reads from Phase 1 + Phase 2 and produces indicators that
-  ride the existing `IndicatorMap` channel — no new architectural
-  surface is exposed downstream.
+- Liquidity Phase 3 reads from Liquidity Phase 1 + Liquidity Phase 2 and produces indicators that
+  ride the existing `IndicatorMap` channel. Phase 3 emits `liquidity_signals: Vec<LiquiditySignal>` as a sibling field of `indicators` on the MarketSnapshot frame — an additive new wire surface.
 
 ## Risk integration
 
 `RiskMatrix` contains an **8th** sub-dimension: `cascade_risk`. It is computed
 from `LiquidityFlow.cascade_intensity` and `LiquidationClusterMatrix.
-cascade_asymmetry`. The legacy 8th sub-dimension `reward_risk` was removed and
+cascade_asymmetry`. The legacy 8th sub-dimension `expected_rr` was removed and
 moved to the Decision Matrix as `entry_danger` (synthesis belongs
-at L6, not pure danger L5). The new `cascade_risk` slot **replaces** `reward_risk`
+at L6, not pure danger L5). The new `cascade_risk` slot **replaces** `expected_rr`
 in count: the matrix still has 8 unipolar danger sub-dimensions + `overall_risk`,
 not 9. Weights were re-normalized so the overall score is still 0..100. See
 [02-11-risk-matrix.md §2.1](../matrices/02-11-risk-matrix.md) for the
@@ -98,7 +97,7 @@ The legacy `liquidity_risk` field was renamed to
 
 ## Decision integration
 
-A 7th `OpportunityType::LiquiditySqueeze` variant was added in L4 ([02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). The L4 Opportunity Matrix now publishes `primary_opportunity = LIQUIDITY_SQUEEZE` when its preconditions are satisfied (cascade_state in `Detected`/`Sustained` plus `|cascade_asymmetry| > 0.3` plus `EXPANSION`/`TRANSITION` regime). The Decision Layer reads the value from L4's `primary_opportunity` directly — there is no separate `opportunity_classification` field on the Advisory Matrix (that field was removed in the institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) and [02-04-decision-matrix.md §2](../matrices/02-04-decision-matrix.md)). The TAE Policy Layer can therefore match on `opportunity.primary_opportunity` to dispatch `CLOSE_ONLY`-stance reduce-only orders (see [03-03-03-tae-layer2-execution.md §3.3](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
+A 7th `OpportunityType::LiquiditySqueeze` variant was added in L4 ([02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). The L4 Opportunity Matrix now publishes `primary_opportunity = LIQUIDITY_SQUEEZE` when its preconditions are satisfied (cascade_state in `Detected`/`Sustained` plus `|cascade_asymmetry| > 0.3` plus `EXPANSION`/`TRANSITION` regime). The Decision Layer reads the value from L4's `primary_opportunity` directly — there is no separate `opportunity_type` field on the Advisory Matrix (that field was removed in the institutional redesign; see [02-00-matrix-field-ownership.md §3](../matrices/02-00-matrix-field-ownership.md) and [02-04-decision-matrix.md §2](../matrices/02-04-decision-matrix.md)). The TAE Policy Layer can therefore match on `opportunity.primary_opportunity` to dispatch `CLOSE_ONLY`-stance reduce-only orders (see [03-03-03-tae-layer2-execution.md §3.3](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 
 ## Backward compatibility
 
@@ -133,17 +132,17 @@ The platform uses **`config.toml`** as the single source of configuration truth 
 }
 ```
 
-> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.toml` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform previously used `config.json`; the TOML form became canonical at v5.0 with the workspace restructure (see `docs/CHANGELOG.md`). `config.json` is still recognized as a legacy alias by `load_config()` for backward compatibility.. **Config format note (v5.0).** The canonical config format is `config.toml`. `config.json` is still recognized by `config-models/src/lib.rs::load_config()` as a legacy fallback (the legacy reader code path is preserved for backward compatibility with existing user installations but is not documented for new deploys)..
+> **Single source of truth.** Every operator-tunable parameter, including the Liquidity Intelligence knobs, lives in `config.toml` (the user-editable configuration file served via `GET /api/config` and `POST /api/config`). The platform previously used `config.json`; the TOML form became canonical at v5.0 with the workspace restructure (see `docs/CHANGELOG.md`). `config.json` is still recognized as a legacy alias by `load_config()` for backward compatibility. **Config format note (v5.0).** The canonical config format is `config.toml`. `config.json` is still recognized by `config-models/src/lib.rs::load_config()` as a legacy fallback (the legacy reader code path is preserved for backward compatibility with existing user installations but is not documented for new deploys).
 
 ## Performance
 
-- Phase 0 (HL polling): 60s REST round-trip per pair, ~few KB.
-- Phase 1 (event ingestion): O(1) per event, ~1µs.
-- Phase 1 (per-candle flow): O(events in bar) ≈ O(50) typical.
-- Phase 2 (cluster estimation): O(P × L) per refresh ≈ O(3,500) ops.
+- Liquidity Phase 0 (HL polling): 60s REST round-trip per pair, ~few KB.
+- Liquidity Phase 1 (event ingestion): O(1) per event, ~1µs.
+- Liquidity Phase 1 (per-candle flow): O(events in bar) ≈ O(50) typical.
+- Liquidity Phase 2 (cluster estimation): O(P × L) per refresh ≈ O(3,500) ops.
   Refresh every 5 min, <1ms compute.
-- Phase 3 (signal derivation): O(1) per snapshot.
-- Phase 4 (frontend): no measurable overhead — fields ride existing
+- Liquidity Phase 3 (signal derivation): O(1) per snapshot.
+- Liquidity Phase 4 (frontend): no measurable overhead — fields ride existing
   WS frame.
 
 Total per-candle overhead: <5ms. Total memory: <300KB per pair per TF.
@@ -162,17 +161,12 @@ Total per-candle overhead: <5ms. Total memory: <300KB per pair per TF.
 All 56 new tests pass. No existing tests were broken by the
 implementation.
 
-> **Sub-test nesting clarification.** The nested test functions `assess_cascade_risk` (under Phase 3) and `compute_cluster_matrix` (under Phase 2) are already contained within their parent phase's totals (`Phase 3 = 10`, `Phase 2 = 14`); they must not be summed twice when computing the platform-wide test count. The authoritative totals are `55 unit + 1 integration = 56`. The table above sum-checks: `11 + 15 + 14 + 10 + 5 = 55` unit; `1` integration (`phase1_liquidation_e2e.rs` end-to-end pipeline test).
+> **Sub-test nesting clarification.** The nested test functions `assess_cascade_risk` (under Liquidity Phase 3) and `compute_cluster_matrix` (under Liquidity Phase 2) are already contained within their parent phase's totals (`Liquidity Phase 3 = 10`, `Liquidity Phase 2 = 14`); they must not be summed twice when computing the platform-wide test count. The authoritative totals are `55 unit + 1 integration = 56`. The table above sum-checks: `11 + 15 + 14 + 10 + 5 = 55` unit; `1` integration (`phase1_liquidation_e2e.rs` end-to-end pipeline test).
 
-## Open questions / future work — Canonical deferred-work tracker
+## Open questions / future work
 
-This section is the **canonical tracking point** for every deferred feature, placeholder field, or scheduled-for-future-version capability in the Liquidity Intelligence subsystem (and adjacent extensions that cross-reference this doc). Any downstream document that needs to refer to a field's *current* implementation status must link here rather than restating the status — the goal is **exactly one canonical statement per deferred item** so the corpus cannot drift on "is this wired or not?" questions.
+All deferred-work items in this document are tracked exclusively in [docs/CHANGELOG.md §Open Items](../CHANGELOG.md#open-items-forwarded-to-future-versions). The trackers below were previously re-stated here and have been moved to the single canonical home to prevent multi-doc drift.
 
-**Tracker items:**
-
-- **`cascade_risk_index` aggregation** (open). The Overview Matrix carries `cascade_risk_index` as a placeholder field on the L7 envelope (declared in [02-09-overview-matrix.md §2.1](../matrices/02-09-overview-matrix.md) and serialized in [01-01 §A.7](../conceptual-foundations/01-01-ontology.md)) but it is **not yet aggregated into `systemic_risk_score`**. The field is serialized with placeholder values (the canonical example uses a constant illustrative `score` — not a real value) so downstream consumers (UI, REST, PAE) have a stable contract to read; the aggregation formula is scheduled for a future Phase 3 follow-up.
-- **PriceChart marker overlay** for cluster positions (deferred from Phase 4 to keep the initial render simple).
-- **`liquidation_events` → PAE backtest ingestion** (deferred). The PAE could later consume the `liquidation_events` table for cascade-conditioned strategy backtesting; today the table is read-only from the cluster estimator's per-candle aggregation path.
-- **Additional tracker items** (add here, not in any other doc, when opening new deferred work).
-
-**How downstream docs must reference this section.** Any matrix, engine layer spec, schema doc, or operator doc that mentions a deferred item from this tracker should link here (e.g. "see [01-05 §Open questions](../conceptual-foundations/01-05-liquidity-domain.md) — canonical deferred-work tracker") and otherwise *not* restate the implementation status. This prevents the multi-doc drift the `cascade_risk_index` placeholder previously exhibited.
+- **`cascade_risk_index` aggregation** — see [docs/CHANGELOG.md §Open Items](../CHANGELOG.md#open-items-forwarded-to-future-versions) (`AUDIT-V4-005`).
+- **PriceChart marker overlay for cluster positions** — see [docs/CHANGELOG.md §Open Items](../CHANGELOG.md#open-items-forwarded-to-future-versions) (`AUDIT-V4-079`).
+- **`liquidation_events` → PAE backtest ingestion** — see [docs/CHANGELOG.md §Open Items](../CHANGELOG.md#open-items-forwarded-to-future-versions) (`AUDIT-V4-080`).

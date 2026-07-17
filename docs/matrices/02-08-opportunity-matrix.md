@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -40,7 +40,7 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 | `invalidation_note` | `string` | Condition that would nullify the opportunity. |
 | `entry_zone` | `PriceRange` | Recommended entry band. *(Added in the institutional redesign — institutional quant field.)* |
 | `target_zone` | `PriceRange` | Expected target band. *(Added in the institutional redesign.)* |
-| `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; renamed from `invalid_level` in v2.1 to align with the canonical `invalidation_level` name used by the Decision Matrix and Position Matrix.)* |
+| `invalidation_level` | `Decimal` | Structural invalidation price (the price level whose breach nullifies the thesis). *(Added in the institutional redesign; renamed from `invalidation_level` in v2.1 to align with the canonical `invalidation_level` name used by the Decision Matrix and Position Matrix.)* |
 | `expected_rr_internal` | `f64` | Expected reward/risk ratio for this setup. Internal L4 value used by the L6 Decision Matrix's `expected_reward_risk_ratio` synthesis. *(Renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`.)* |
 | `time_horizon` | `TimeHorizon` | Expected holding period: `SCALP` / `INTRADAY` / `SWING` / `POSITION`. The `TimeHorizon` enum is the **canonical four-variant** holding-period classifier; every value is reachable from at least one `OpportunityType` (see §3 precondition table). *(Added in the institutional redesign; `SCALP` reachability added in v2.1)* |
 
@@ -78,7 +78,7 @@ The cadence is implemented as a debounced scheduler on the L6 Decision Layer (se
 
 ## 3. Opportunity Types & Preconditions
 
-The `OpportunityType` enum is the **canonical home** of the setup selector (in the institutional redesign, this enum was removed from the Analysis Matrix and moved here, where it belongs as a forecast field). **Eight** values — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension ([01-05-liquidity-domain.md §Decision integration](../conceptual-foundations/01-05-liquidity-domain.md), [03-02-11-mme-liquidity-extension.md §Decision integration](../../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md)) and `Scalp` added in the v2.1 institutional completeness sweep to make all four `TimeHorizon` values reachable from the setup selector:
+The `OpportunityType` enum is the **canonical home** of the setup selector (in the institutional redesign, this enum was removed from the Analysis Matrix and moved here, where it belongs as a forecast field). **Eight** values — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension ([01-05-liquidity-domain.md §Decision integration](../conceptual-foundations/01-05-liquidity-domain.md), [03-02-11-mme-liquidity-extension.md §Decision integration](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md)) and `Scalp` added in the v2.1 institutional completeness sweep to make all four `TimeHorizon` values reachable from the setup selector:
 
 | OpportunityType | Precondition Signature | Default `time_horizon` |
 |-----------------|------------------------|------------------------|
@@ -113,7 +113,7 @@ The Opportunity Layer applies the following decision tree (priority 1 → 7, fir
 
 Where `confirmed_divergence` is true when at least one `Divergence` indicator signal has reached `status = CONFIRMED` ([Metrics Matrix §4.2](02-07-metrics-matrix.md)), `structure_broken` is true when Alignment Matrix dimension 4 (`Structure`) score is below 40, `momentum_exhausted` is true when Alignment Matrix dimension 1 (`Momentum`) score is below 25, and `structure_align` is the same dimension 4 score interpreted as "tight structural context favorable for a sub-minute scalp". `BBWP` is sourced from `MarketContext.volatility.score` (the layer-1 local 4-state volatility dimension). All **eight** values of `OpportunityType` (including `LiquiditySqueeze` and `Scalp`) are reachable via the explicit branches; the `ELSE` (priority 7) is a defensive default that may also resolve to `TREND_CONTINUATION`.
 
-> **Direction-neutrality (v2.1).** Rule 1 previously read `trend ≥ 75 AND bias bullish` which violated the direction-neutral contract of the Opportunity Matrix (a strong bearish trend would not match and would fall through to the default). The corrected rule is symmetric: it accepts both `BULLISH`/`STRONG_BULLISH` and `BEARISH`/`STRONG_BEARISH` bias and produces a directional `TREND_CONTINUATION` either way. The Direction Matrix owns the actual long/short decision.
+> **Direction-neutrality (v2.1).** Rule 1 previously read `trend ≥ 75 AND bias bullish` which violated the direction-neutral contract of the Opportunity Matrix (a strong bearish trend would not match and would fall through to the default). The corrected rule is symmetric: it accepts both `BULLISH`/`STRONG_BULLISH` and `BEARISH`/`STRONG_BEARISH` bias and produces a directional `TREND_CONTINUATION` either way. The Decision Matrix owns the actual long/short decision.
 >
 > **`tradability_dim` (v2.1).** Rule 6 was previously `opportunity_dim < 30`. The Alignment Matrix dimension 9 was renamed from `opportunity_dim` to `tradability_dim` in the institutional redesign to disambiguate from the L4 Opportunity Matrix (L4 owns opportunity concepts; dimension 9 measures TFs agreeing on tradability).
 
@@ -169,7 +169,7 @@ A representative Opportunity Matrix frame. The example illustrates the JSON shap
   "symbol": "BTC-USDT",
   "primary_opportunity": "BREAKOUT",
   "opportunity_score": 85.0,
-  "setup_quality": "PRIME",
+  "setup_quality": "STRONG",
   "forecast_confidence": 0.81,
   "profiles": [
     { "opportunity_type": "BREAKOUT", "score": 85.0,
@@ -192,7 +192,7 @@ A representative Opportunity Matrix frame. The example illustrates the JSON shap
 Enum values serialize as `SCREAMING_SNAKE_CASE`.
 
 > **Serialization note.** Across the platform, two surface forms appear:
-> - **Wire JSON** and **policy conditions** (e.g. `opportunity.primary_opportunity IN ["TREND_CONTINUATION", "BREAKOUT"]` per [03-03-04-tae-execution-policy-spec.md §3.1](../../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md)): the variant is the SCREAMING_SNAKE_CASE string (`"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, …).
+> - **Wire JSON** and **policy conditions** (e.g. `opportunity.primary_opportunity IN ["TREND_CONTINUATION", "BREAKOUT"]` per [03-03-04-tae-execution-policy-spec.md §3.1](../engines/trade-automation-engine/03-03-04-tae-execution-policy-spec.md)): the variant is the SCREAMING_SNAKE_CASE string (`"BREAKOUT"`, `"TREND_CONTINUATION"`, `"LIQUIDITY_SQUEEZE"`, …).
 > - **Rust internals** (enum variants in Rust code; the prose passages that document producer logic): the variant is PascalCase (`Breakout`, `TrendContinuation`, `LiquiditySqueeze`, …).
 >
 > The two forms refer to the same set of values; the policy author always types the SCREAMING_SNAKE_CASE string on the wire, and the Rust code translates between the two at the serde boundary. `TimeHorizon` follows the same rule (`INTRADAY`/`SWING`/`POSITION` on the wire, `Intraday`/`Swing`/`Position` in Rust).

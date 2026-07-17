@@ -1,6 +1,6 @@
 # MME Layer 5 — Risk Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 5 of 7
@@ -53,7 +53,7 @@ All scores are **unipolar** in `[0, 100]` (higher = riskier). Per-dimension addi
 
 ## 3. Overall Aggregation
 
-The overall risk score is a weighted aggregate of the **eight unipolar sub-dimensions** (no `reward_risk` — reward synthesis is a Decision-Layer concern). Final normalized weights summing to 1.0 are defined in the producing code at `crates/core-domain/src/risk.rs::compute_risk` and reflected here:
+The overall risk score is a weighted aggregate of the **eight unipolar sub-dimensions** (no `expected_rr` — reward synthesis is a Decision-Layer concern). Final normalized weights summing to 1.0 are defined in the producing code at `crates/core-domain/src/risk.rs::compute_risk` and reflected here:
 
 $$\text{overall} = 0.14\,M + 0.14\,V + 0.14\,L_{ex} + 0.10\,S_{tr} + 0.14\,M_{om} + 0.10\,S_{ig} + 0.10\,E + 0.14\,C$$
 
@@ -87,7 +87,7 @@ The convergence of the L4 and L5 branches happens at [Layer 6 (Decision Support)
 | **Unipolar bounding** | Every score ∈ `[0, 100]`. |
 | **Explainability** | Every dimension exposes contributing evidence. |
 | **Empty safety** | Zero timeframes → all dimensions default to 50 (Moderate). |
-| **Orthogonality** | L5 reads L3 only — never L4. L5 does not influence opportunity scoring. |
+| **Orthogonality** | L5 reads L3, the L1 indicator map, and L2.5 — never L4 (orthogonality preserved). L5 does not influence opportunity scoring. |
 
 ---
 

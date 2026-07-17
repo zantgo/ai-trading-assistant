@@ -1,6 +1,6 @@
 # 02-12: LiquidityMatrix — Real Liquidation Flow (Phase 1)
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 **Producer:** DIE L2 (WS liquidation events) → MME L1.5 (per-candle aggregation)
 **Consumer:** MME L5 (Risk) — `cascade_risk` dimension; MME L6 (Decision) — Advisory rationale; Overview — cross-symbol aggregate
@@ -66,20 +66,16 @@ pub enum LiquidationSide { Long, Short }
 
 ## Cascade state machine
 
-The accumulator runs a rolling window of recent events. For each event,
-it computes a "z-score" relative to the running mean per-bar intensity.
-A single event crossing the threshold → `Detected`. Three or more
-events crossing the threshold within the window → `Sustained`.
-Declining intensity after `Sustained` → `Exhausted`.
+The accumulator runs a rolling window of recent events for event-rate context. For each completed bar, it computes a z-score from that bar's per-bar notional relative to the running mean and standard deviation of per-bar notional. A single event crossing the threshold → `Detected`. Three or more events crossing the threshold within the window → `Sustained`. Declining intensity after `Sustained` → `Exhausted`.
 
 ## Cascade Intensity Computation (`LiquidityFlow.cascade_intensity`)
 
-The `cascade_intensity` field is the **canonical risk-feed value** consumed by `RiskMatrix.cascade_risk` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)) and surfaced on the Frontend's `LiquidityPanel` (§[07-04-ui-liquidity-panel-spec.md Flow tab](../../ui-ux/07-04-ui-liquidity-panel-spec.md)). This section is the **single canonical specification** of how the value is computed. The implementation lives in `crates/core-domain/src/liquidity.rs::LiquidityEventAccumulator::update`; the equations below mirror that implementation 1:1.
+The `cascade_intensity` field is the **canonical risk-feed value** consumed by `RiskMatrix.cascade_risk` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)) and surfaced on the Frontend's `LiquidityPanel` (§[07-04-ui-liquidity-panel-spec.md Flow tab](../ui-ux/07-04-ui-liquidity-panel-spec.md)). This section is the **single canonical specification** of how the value is computed. The implementation lives in `crates/core-domain/src/liquidity.rs::LiquidityEventAccumulator::update`; the equations below mirror that implementation 1:1.
 
 ### Windowing
 
 - **Rolling baseline window** — `W = 200` completed micro candles (configurable via `config.toml` `[liquidity.cascade_baseline_window_bars]`, default 200). The baseline statistics are computed over the last `W` completed bars' per-bar notional volume: mean `μ` (micro-window) and standard deviation `σ` (micro-window). On engine start (zero history) and when fewer than `min(window_bars, 30)` completed bars are available, the baseline is treated as `μ = 0, σ = 0` and the z-score is defined as `0` (no abnormal intensity claim is made until the warm-up threshold is reached — see "Warm-up reset behavior" below).
-- **Recent-event window** — `K = 20` most recent liquidation events (the recent-events rolling buffer used for the state-machine classification in the next section). The intensity signal is computed from this window, not from the baseline window, so the value is responsive to recent events rather than slow-moving.
+- **Recent-event window** — `K = 20` most recent liquidation events (the recent-events rolling buffer used for event-rate context and the state-machine classification in the next section). This window does not supply the notional units for `cascade_intensity`; intensity is computed from the most recent completed bar's aggregate notional.
 
 ### Per-bar notional definition
 
@@ -91,17 +87,18 @@ n_b = sum of long_liquidations_usd(b) + sum of short_liquidations_usd(b)
 
 (where the per-side sums are themselves the per-bar aggregate published in `LiquidityFlow`.)
 
-### Recent-event intensity formula
+### Per-bar intensity formula
 
-For the most recent completed bar:
+For the most recent completed bar, all notional values remain in per-bar units. The `K = 20` recent-event window supplies event-rate context only; it does not convert the intensity calculation to per-event units.
 
 ```
-recent_notional = sum of liquidation-event notionals in the K=20 rolling-event window
-mean_recent     = recent_notional / K
-sigma_recent    = sample standard deviation of per-event notionals in K
+bar_notional       = long_liquidations_usd(current_bar) + short_liquidations_usd(current_bar)
+baseline_mean      = mean(per-bar notionals in the W-bar baseline window)
+baseline_std       = sample standard deviation of per-bar notionals in W
+recent_event_count = count of liquidation events in the K=20 rolling-event window
 
-if sigma_recent > 0:
-    z_score = (mean_recent - baseline_mean) / baseline_std
+if baseline_std > 0:
+    z_score = (bar_notional - baseline_mean) / baseline_std
 else:
     z_score = 0
 
@@ -119,12 +116,12 @@ The constants in the linear map (`+50` midpoint, `12.5` scaling) are fixed at th
 
 ### Relationship to `cascade_state`
 
-`cascade_state` is a discrete classification over the same recent-event window (`K = 20`) using the **z-score** computed above; see the "Cascade state machine" section above. `cascade_intensity` (continuous 0..100) is published on every candle; `cascade_state` advances only when the discrete thresholds (`cascade_detected_zscore` for `Detected`, `cascade_sustained_events` for `Sustained`) are crossed.
+`cascade_state` is a discrete classification over the recent-event window (`K = 20`) using event-rate context together with the per-bar z-score computed above; see the "Cascade state machine" section above. `cascade_intensity` (continuous 0..100) is published on every candle; `cascade_state` advances only when the discrete thresholds (`cascade_detected_zscore` for `Detected`, `cascade_sustained_events` for `Sustained`) are crossed.
 
 ### Consumer contract
 
 - **`RiskMatrix.cascade_risk` (L5)** consumes `cascade_intensity` directly as `score = max(score, flow.cascade_intensity)` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)). The discrete `cascade_state` adds a risk premium on top of the intensity (`+15` for `Detected`, `+30` for `Sustained`, `+0` for `Exhausted`).
-- **`LiquidityPanel`** displays `cascade_intensity` numerically (0..100) and color-codes it relative to the per-bar thresholds (green ≤ 30, amber ≤ 60, red > 60) for the operator's situational awareness (see [07-04-ui-liquidity-panel-spec.md Flow tab](../../ui-ux/07-04-ui-liquidity-panel-spec.md)).
+- **`LiquidityPanel`** displays `cascade_intensity` numerically (0..100) and color-codes it relative to the per-bar thresholds (green ≤ 30, amber ≤ 60, red > 60) for the operator's situational awareness (see [07-04-ui-liquidity-panel-spec.md Flow tab](../ui-ux/07-04-ui-liquidity-panel-spec.md)).
 
 ## Frontend exposure
 

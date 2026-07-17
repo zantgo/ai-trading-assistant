@@ -1,6 +1,6 @@
 # DIE Layer 2 — Market Data Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 2 of 4
@@ -25,7 +25,8 @@ The Market Data Layer converts irregular, event-based ticks into regular, time-b
 
 ```rust
 struct NormalizedCandle {
-    symbol: String,
+    exchange: String,          // originating venue (e.g. "Hyperliquid", "Bitget")
+    symbol: String,            // unified internal symbol (e.g. "BTC-USDT")
     timestamp: u64,            // candle close time, Unix epoch milliseconds (matches JSON `timestamp`)
     timeframe_secs: u64,       // candle duration, seconds (matches JSON `timeframe_secs`)
     open: Decimal, high: Decimal, low: Decimal, close: Decimal,
@@ -35,9 +36,11 @@ struct NormalizedCandle {
 }
 ```
 
+**`average_volume` is NOT a field of `NormalizedCandle`.** `average_volume` is the MME-side rolling average volume baseline (see [02-07-metrics-matrix.md §2.1](../../matrices/02-07-metrics-matrix.md)). L2 never emits it. The distinct per-candle quantity `volume / trades_count` is named `avg_trade_size` and is not part of the candle contract.
+
 Every candle carries `assert_validity()` invariants (enforced downstream): `high ≥ low`, `open`/`close ∈ [low, high]`, `volume ≥ 0`.
 
-> **Target Architecture (Not Yet Implemented).** The current candle history is an **Array of Structures (AoS)** — a collection of `NormalizedCandle` structs with `Decimal` OHLCV fields. The target hot-path model replaces this with a **Structure of Arrays (SoA)** so that all historical values of a field reside contiguously in the CPU cache for downstream indicator loops:
+> **Target Architecture.** See [01-07 §1](../../conceptual-foundations/01-07-target-architecture-roadmap.md) — "AoS → SoA candle history". The current candle history is an **Array of Structures (AoS)** — a collection of `NormalizedCandle` structs with `Decimal` OHLCV fields. The target hot-path model replaces this with a **Structure of Arrays (SoA)** so that all historical values of a field reside contiguously in the CPU cache for downstream indicator loops:
 >
 > ```rust
 > pub struct ContiguousCandleHistory {
@@ -50,19 +53,27 @@ Every candle carries `assert_validity()` invariants (enforced downstream): `high
 > }
 > ```
 >
-> This lets the compiler load each column into vector registers and auto-vectorize (SIMD) the indicator math. It is a target design; the AoS `NormalizedCandle` contract above remains authoritative for the current implementation.
+> The AoS `NormalizedCandle` contract above remains authoritative for the current implementation.
 
 ---
 
 ## 3. Real-Time Candle Generation
 
-The `CandleGenerator` (`crates/market-analyzer/src/candle_generator.rs`) builds candles tick-by-tick. On each trade it returns a tuple `(Option<completed>, live)`:
+The `CandleGenerator` (`crates/market-analyzer/src/candle_generator.rs`) builds candles tick-by-tick from a single ordered `Trade` stream. It assumes ordered input from the L1 channel (the L1 mpsc preserves the order in which the adapter emitted events) and does **not** perform sequence auditing: no chronological reorder, no late-tick detection, no dedup. The single-stream generator emits one candle at a time, but if a trade arrives out-of-order it produces a candle whose `open/high/low/close` may not match the global truth.
+
+L3 (Data Quality Layer, [03-01-04-die-layer3-data-quality.md](./03-01-04-die-layer3-data-quality.md)) owns sequence auditing across the candle stream and runtime gap detection. L2 owns single-stream candle generation; L3 owns cross-stream integrity. The boundary is:
+
+- L2 receives a single ordered `Trade` stream and produces a single ordered `NormalizedCandle` stream. Any per-candle invariant (OHLCV validity, shadow/completed distinction, UTC alignment) is L2's responsibility.
+- L3 receives the L2 candle stream plus the local DB and exchange REST history. Any cross-stream operation (dedup against REST, late-tick drop, missing-bar detection, source-mix classification) is L3's responsibility.
+
+On each trade the L2 generator returns a tuple `(Option<completed>, live)`:
 
 | Situation | Behaviour |
 |-----------|-----------|
 | First trade | Initializes the candle; returns `(None, live)`. |
 | Trade within current interval | Updates high/low/close/volume/count; returns `(None, live)`. |
 | Trade crosses interval boundary | Emits the completed candle; opens a new one; returns `(Some(completed), live)`. |
+| Trade whose `timestamp_ms` is earlier than the current candle's open | L2 emits a candle update based on the out-of-order tick. L3 drops it on the audit pass (§3 of L3). |
 
 ### 3.1 Interval Alignment
 
@@ -114,13 +125,13 @@ Aggregation preserves OHLCV integrity: `high = max(highs)`, `low = min(lows)`, `
 
 Because venues timestamp differently and network jitter varies, the Market Data Layer tracks:
 
-| Audit | Purpose |
-|-------|---------|
-| Ingest-vs-event skew | Difference between local receipt time and `timestamp_ms`. |
-| Interval boundary drift | Ensures candles close on aligned epoch boundaries regardless of tick arrival jitter. |
-| Cross-venue offset | When a symbol can be sourced from multiple venues, timestamp offsets are reconciled to the unified clock. |
+| Audit | Surface name | Purpose |
+|-------|--------------|---------|
+| Ingest-vs-event skew | `ingest_skew_ms` | Difference between local receipt time and `timestamp_ms`. |
+| Interval boundary drift | `observation_loop_latency_ms` (per-candle) | Ensures candles close on aligned epoch boundaries regardless of tick arrival jitter; reported per completed candle. |
+| Cross-venue offset | (internal; not yet surfaced) | When a symbol can be sourced from multiple venues, timestamp offsets are reconciled to the unified clock. |
 
-Latency measurements surface through the system status endpoint (`latency_ms`).
+Latency measurements surface through the `/api/system/status` endpoint under three distinct fields: `observation_loop_latency_ms` (end-to-end raw-frame-to-broadcast, per [03-01-01 §3](./03-01-01-die-overview-spec.md)), `ingest_skew_ms` (per-trade receipt skew), and `system_heartbeat_latency_ms` (most recent WS control frame round-trip). The single ambiguous `latency_ms` field used in earlier versions is deprecated in v6.0; see [06-01 §2.8](../../integration-and-api/06-01-api-gateway-contract.md).
 
 ---
 
@@ -132,6 +143,17 @@ Latency measurements surface through the system status endpoint (`latency_ms`).
 | **OHLCV integrity** | Aggregation and generation preserve open/high/low/close/volume semantics. |
 | **Shadow separation** | Live shadow candles never contaminate the completed-candle analytical path. |
 | **Determinism** | Identical trade sequences yield identical candle sets. |
+
+### 6.1 Operational Acceptance Criteria
+
+The L2 (Market Data Layer) layer meets these criteria when run with default configuration under nominal load:
+
+| ID | Criterion | Verification |
+|----|-----------|--------------|
+| `AC-L2-1` | Candle close instant is exactly `interval_start + duration_ms` for every completed candle. | `crates/market-analyzer/tests/candle_alignment.rs` (existing) |
+| `AC-L2-2` | Multi-timeframe rollup preserves OHLCV invariants: `high = max(highs)`, `low = min(lows)`, `close = last close`, `volume = Σ volumes`, `trades_count = Σ counts`. | `crates/market-analyzer/tests/candle_aggregator.rs` (existing) |
+| `AC-L2-3` | Shadow candles never appear in the MME pipeline (verified by absence in `MarketSnapshot.is_completed = true` filter). | `crates/market-analyzer/tests/shadow_separation.rs` (Phase 1) |
+| `AC-L2-4` | `average_volume` is derived from `volume / trades_count` on the MME side; the L2 layer never emits it. | `crates/market-analyzer/tests/average_volume_derivation.rs` (Phase 1) |
 
 ---
 

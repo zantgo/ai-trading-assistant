@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), and the internal sub-sidebar pattern. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -266,6 +266,8 @@ Cancel  Delete     ← delete variant (danger)
 ```
 
 This keeps the action reversible with one click and prevents accidental terminations. Confirming the action calls `POST /api/instances/{id}/{action}` (pause/resume) or `DELETE /api/instances/{id}` (delete). On delete, if the deleted pair was `selectedInstance`, the store calls `app.exitInstance()` to drop back to the empty Market view.
+
+> **Lifecycle controls (v6.2).** The inline-confirm pattern extends to **Start** and **Stop** actions. Each instance row carries a lifecycle badge (RUNNING / instance PAUSED / STOPPING-flashing / STOPPED) and three lifecycle action icons: `▶ Start` (visible on PAUSED/STOPPED), `⏸ Pause` (visible on RUNNING), `■ Stop` (danger-styled like Delete, visible on RUNNING/PAUSED). An **automation summary line** lists active `start`/`pause`/`stop` conditions with an inline edit affordance that re-arms any edited condition per [03-03-06 IL-12](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). STOPPED instances remain fully navigable across every analytics page; deleted instances vanish from the list. See [03-03-06 §3/§6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
 ---
 

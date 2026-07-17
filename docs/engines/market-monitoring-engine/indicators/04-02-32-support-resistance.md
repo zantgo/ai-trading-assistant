@@ -1,6 +1,6 @@
 # 🧭 Support & Resistance (S/R) & Role-Reversal Protocol
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 
 ## 1. Introduction
@@ -113,5 +113,5 @@ As of the deferred-indicator build-out (Phase 1), the Role-Reversal Engine is fu
 * **Scoring:** As a `directional` registry indicator, `support_resistance` contributes to the registry-driven confluence score (previously it reported `INACTIVE` because no levels were wired).
 * **Telemetry:** The `support_resistance` row in the Telemetry Monitor renders its live state, normalized value, confidence, and signal badges automatically.
 
-> **SignalKind classification.** `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` are **structurally `Breakout` events** — they fire when a candle closes decisively through an existing horizontal level, which is the canonical Breakout pattern in [05-02-04-breakout.md](../signals/05-02-04-breakout.md) and [04-02-00-indicator-index.md §STRUCTURE](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md). The indicator registry lists `Breakout×2` for `support_resistance`; the §6 Signals table classifies them as `Breakout`; and [05-02-09-trend-flip.md §2](../signals/05-02-09-trend-flip.md) does **not** list `support_resistance` as a TrendFlip producer.
+> **SignalKind classification.** `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` are **structurally `Breakout` events** — they fire when a candle closes decisively through an existing horizontal level, which is the canonical Breakout pattern in [05-02-04-breakout.md](../signals/05-02-04-breakout.md) and [04-02-00-indicator-index.md §STRUCTURE](./04-02-00-indicator-index.md). The indicator registry lists `Breakout×2` for `support_resistance`; the §6 Signals table classifies them as `Breakout`; and [05-02-09-trend-flip.md §2](../signals/05-02-09-trend-flip.md) does **not** list `support_resistance` as a TrendFlip producer.
 

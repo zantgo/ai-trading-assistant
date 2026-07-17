@@ -4,11 +4,46 @@
 
 ---
 
+## v6.2 (2026-07-17) — Remediation, Activation, Lifecycle
+
+### Remediation bundle (Phases 1–7 + 8)
+
+- **Canonical numbers corrected.** `state_confidence = 0.65` (formula-driven), `confidence_assessment = 46.61` (from `0.65 × 0.717 × 100`), AssetRank `87.5`, candle-quality example `100.0`, opportunity example `STRONG` (score 85.0), connection-quality score `60.5` under point-scale formula `score = 50·(uptime/100) + 30·(1 − dc_rate) + 20·(1 − rc_rate) − 5·min(loss/600, 1) − 5·min(reconstructed/100, 1)`.
+- **Opportunity Matrix on the wire.** `MarketSnapshot.opportunity` field added; `market_snapshots.opportunity_json` column added; documented in `02-07 §2.1`, `06-01 §3.2`, `06-00 §3.1`, `06-02 §3.1`.
+- **Signal registry counts corrected.** 9/9/26/9/4/11/4/14/8/2/1/3 = 100, in `04-02-00 §Summary`, `05-02-00 §Summary`, `01-01 §B.3`, `MANIFEST §12.2`. Mechanism: per-indicator tally verified by `scripts/check_docs.py`.
+- **AlignState enum extended.** 4 → 7 values; unsigned dimensions use ALIGNED/PARTIAL/DIVERGENT; MIXED redefined for signed dims with low sign-agreement. Wire-compatible (additive).
+- **Architecture boundary rewrites.** DIE does NOT build the MarketSnapshot (MME does); DIE transports candles. Single canonical input-edge table in `02-00 §5`. LifecycleState enum redefined (Market Instance = (symbol, exchange) container). Order lifecycle standardized. Gate 2 moved from hard-stop to hold-for-review.
+- **Terminology unification.** `emergency_liquidation` → `is_emergency_liquidation`; `reward_risk` → `expected_rr`; `invalid_level` → `invalidation_level`; "Direction Matrix" → "Decision Matrix"; "Regime Compatibility Matrix" → "Performance Matrix's regime_compatibility section"; "Portfolio Matrix (PME)" → "Capital Matrix (PME)"; `QualityMatrix` envelope → `CandleQualityEnvelope`; `retry_cooldown` → `backoff`; phase namespacing enforced; enum disambiguation between MarketRegime vs MarketPhase ACCUMULATION/DISTRIBUTION.
+- **Mechanics.** 27 broken relative links fixed; all 138 docs re-stamped `Version: 6.2 (2026-07-17)`; `scripts/check_docs.py` with 10 mechanical checks; `./manage.sh test-doc` is the acceptance gate; 28 docs edited under Phases 1–7.
+
+### Configurable Data Activation (Phase 9, ADDITIVE)
+
+- Users may disable indicators, per-(indicator, SignalKind), per-SignalKind globally, and liquidity subsystems via `[activation]` and `[liquidity]` config tables. **DEFAULT = everything enabled** (current behavior).
+- Gating occurs at MME L1 computation; disabled content is absent from the Metrics Matrix and from all downstream inference (treated as NO_DATA). The 50/12/100 registry is a **capability manifest and is UNCHANGED** by config (CA-14).
+- `MarketSnapshot.metrics_config` block added (omitted at defaults ⇒ wire-compatible). `market_snapshots.metrics_config_json` column added. `GET /api/instances/:id/activation` endpoint added. Policies referencing disabled inputs are rejected at save time (409) or auto-paused on config change.
+- `config_version` is a **new AppConfig field** (`config-models`), NOT the SQLite `user_version` PRAGMA (which remains the migration counter). Incremented exactly once per successful POST /api/config.
+- Policy guardrail state named `AUTO_PAUSED` (NOT `PAUSED`) to avoid collision with instance lifecycle `PAUSED`.
+- Canonical spec: [`03-02-12-mme-configurable-activation.md`](engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). 26 docs edited.
+
+### Instance Lifecycle & Programmable State Control (Phase 10, ADDITIVE)
+
+- New `LifecycleState` enum: `RUNNING` / `PAUSED` / `STOPPING` / `STOPPED`. A third operational axis alongside `OperationalMode` × `TriggerMode`, orthogonal to `active_stance` and `safety_state`.
+- **STOP = immediate flatten**: cancel all open orders, market-close all positions via transitional `STOPPING`; analytics remain fully readable; restart and manual-only deletion from STOPPED.
+- **PAUSE closes the entry gate only**; the event loop and policy-driven exits continue. (Redefines previous "Pause event loop" description.)
+- **New Gate 0 (lifecycle)** in pre-trade chain; exits always bypass; existing Gates 1–7 keep their numbers.
+- **Programmable per-instance start/pause/stop conditions** (price / time / duration), editable while running; **creation and deletion remain manual-only**.
+- New endpoint `POST /api/instances/:id/start`; `/pause` and `/stop` semantics redefined; DELETE requires STOPPED and tombstones.
+- New tables `instance_lifecycle` + `instance_lifecycle_events` (active tables 24 → 26).
+- **Scoped-enum rule** added to conventions: `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (stance and safety) never co-refer.
+- Canonical spec: [`03-03-06-tae-instance-lifecycle-spec.md`](engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). 13 docs edited. Inventory: 137 → 138 markdown files.
+
+---
+
 ## v5.0 (2026-07-16) — Workspace restructure
 
 ### What changed
 
-**The two monolithic crates (`crates/engine` + `crates/shared`) are split into 9 specialized crates.** This is the physical-workspace refactor that the user's plan described. The five logical engines (DIE, MME, TAE, PME, PAE) and the three cross-cutting concerns (domain types, config models, HTTP gateway, headless daemon) are now mapped one-to-one to the crates below. The full crate table, the dependency graph, and the four cycle-breaking design decisions are in [`01-06-crate-layout-and-cycles.md`](../conceptual-foundations/01-06-crate-layout-and-cycles.md).
+**The two monolithic crates (`crates/engine` + `crates/shared`) are split into 9 specialized crates.** This is the physical-workspace refactor that the user's plan described. The five logical engines (DIE, MME, TAE, PME, PAE) and the three cross-cutting concerns (domain types, config models, HTTP gateway, headless daemon) are now mapped one-to-one to the crates below. The full crate table, the dependency graph, and the four cycle-breaking design decisions are in [`01-06-crate-layout-and-cycles.md`](conceptual-foundations/01-06-crate-layout-and-cycles.md).
 
 | Old (v4.0) | New (v5.0) | Purpose |
 |---|---|---|
@@ -27,7 +62,7 @@ Rust Cargo forbids cyclic crate deps. Four of the natural edges between the new 
 3. **`ConnectionQualityTracker`** event-emitter in `network-adapters` (no `sqlx`); persistence loop in `database-storage::connection_quality_persistence`. (Avoids `network-adapters → database-storage`.)
 4. **`paper_trading::invalidate_position`** stub removed from the analyzer pipeline. (Avoids `market-analyzer → portfolio-supervisor`.)
 
-Full rationale in [`01-06 §3`](../conceptual-foundations/01-06-crate-layout-and-cycles.md).
+Full rationale in [`01-06 §3`](./conceptual-foundations/01-06-crate-layout-and-cycles.md).
 
 ### Configuration format change
 
@@ -303,7 +338,7 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
    - L5 Risk: 8 sub-dims (`market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk`) + `overall_risk`
    - L6 Decision: `confidence_assessment`, `trade_readiness`, `entry_danger`, `expected_reward_risk_ratio`, `stop_loss_distance_pct`, `protection_strategy`, `target_strategy`, `directional_guidance`, `market_stance`, `strategy_environment`, `entry_guidance`, `exit_guidance`, `final_recommendation`
    - L7 Overview: `systemic_risk_score`, `market_breadth`, `breadth_pct`, `regime_distribution`, `opportunity_distribution`, `risk_distribution`, `cascade_risk_index`, `asset_ranking`, `market_synchronization`, `market_health`, `instance_count`, `active_symbols`
-4. **Engine communication is unidirectional** — no backward dependencies. Information flows `Data Infrastructure → Market Monitoring → Trade Automation → Portfolio Management → Performance Analytics`.
+4. **The data plane is unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback. Information flows `Data Infrastructure → Market Monitoring → Trade Automation → Portfolio Management → Performance Analytics`.
 5. **Every engine layer produces exactly one immutable matrix** as its output contract.
 6. **Engine bifurcation** (MME L4 ∥ L5, converging at L6) is preserved everywhere it is referenced.
 7. **Sizing formula** `S = (E × R) / (D_sl / 100)` with `E = available_margin` (Decimal from PME Capital Matrix), `R = risk_per_trade_pct / 100`, `D_sl = stop_loss_distance_pct` (raw percent float from Decision Matrix) — cast to Decimal at the type-boundary handoff (`03-03-03-tae-layer2-execution.md §2`).
@@ -313,3 +348,101 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 11. **Systemic risk score**: `SystemicRisk = 0.6 × high_pct + 0.4 × sync_penalty`.
 12. **Operator identity** is `local_operator` (fixed identity for single-user deployments); multi-user identity is on the v5.0 roadmap.
 13. **All cross-doc audit-issue identifiers** (`MAT-##`, `SIG-##`, `EXE-##`, `OPS-##`, `UI-##`, `DB-##`, `API-##`, `AUDIT-##`, `Issue NN`) live **only** in this CHANGELOG. They are not in normative text.
+
+---
+
+## v6.0 (2026-07-16) — DIE closure (Phase 0)
+
+### What changed
+
+Phase 0 of the v6.0 DIE closure plan resolves **20 DIE-surface documentation issues** identified in the pre-implementation audit (10 doc-internal contradictions, 10 logical/spec gaps). This release is **docs-only** — no source code changes. Subsequent phases (`Phase 1` through `Phase 6`) will align the code with the now-consistent docs.
+
+### Doc-internal contradictions resolved
+
+| ID | Doc | Issue | Resolution |
+|---|---|---|---|
+| `AUDIT-V6-001` | `08-05-connection-quality.md` | Two conflicting `CREATE TABLE connection_quality_samples` blocks in the same file (8-column process-wide + 10-column per-instance). | Merged into a single 11-column per-instance DDL (`id, pair_key, timeframe_secs, timestamp_ms, window, uptime_pct, disconnect_count, avg_reconnect_ms, total_data_loss_secs, reconstructed_candles, score`) with the unified index `idx_cq_pair_timeframe_window_time`. |
+| `AUDIT-V6-002` | `02-06-market-data-matrix.md` | `LinearInterpolation` variant still listed in the field table despite `AUDIT-V4-024` rename. | Renamed to `LinearExtrapolation` to match `08-04` and `06-02`. |
+| `AUDIT-V6-003` | `08-06-clock-monitor.md` | "*no* `config.toml` exists" wording inside a `config.toml` spec. | Replaced with positive "single source of configuration truth" wording; JSON example rewritten in TOML. |
+| `AUDIT-V6-004` | `02-10-raw-data-matrix.md` | `Status` payload field `state` (mismatched `03-01-02` `status`). | Field renamed `state → status` to match the Rust enum and the layer doc. |
+| `AUDIT-V6-005` | `02-05-distribution-matrix.md` | "Channel per symbol" granularity (4× coarser than `03-01-05` claim). | Reworded to "Channel per `(symbol, timeframe)` pipeline" matching `03-01-05 §2`. |
+| `AUDIT-V6-006` | `03-01-03-die-layer2-market-data.md` | `NormalizedCandle` struct missing `exchange` field (present in `02-06`). | Added `exchange: String` to the struct block; aligned with the matrix spec. |
+| `AUDIT-V6-007` | `08-05-connection-quality.md` | Frontend placement described as "between Risks and Analysis workspace tabs" (stale post-`bbfd184`). | Replaced with "Data Infrastructure → Overview → Connectivity" sub-tab reference. |
+| `AUDIT-V6-008` | `08-06-clock-monitor.md` | JSON-key ↔ Rust-struct unit mapping (secs, micros, Duration) undocumented. | Added mapping table covering `poll_interval_secs`, `threshold_micros`, `breach_action`, `jitter_window_size`, `query_timeout`. |
+| `AUDIT-V6-009` | `08-06-clock-monitor.md` | "The TODO comment … has been replaced" claim with no verification. | Reworded to a verifiable cross-reference: "see `crates/market-analyzer/src/candle_aggregator.rs` (verify post-Phase 1)". |
+| `AUDIT-V6-010` | `02-06-market-data-matrix.md` | Field-name registry explained only `reconstructed`/`reconstruction_method`, silent on `timestamp` ↔ `start_time_ms` and `timeframe_secs` ↔ `duration_ms`. | Expanded the registry to all three field-name surfaces (provenance, timestamp, duration). |
+
+### Logical / spec gaps resolved
+
+| ID | Doc | Issue | Resolution |
+|---|---|---|---|
+| `AUDIT-V6-011` | `03-01-04-die-layer3-data-quality.md` | "Out-of-order arrival → reorder into interval bucket" vs L4 immutability invariant — undocumented conflict. | Late ticks are **dropped** at L3 and counted in the new `out_of_order_dropped` reliability metric. L4 immutability wins. |
+| `AUDIT-V6-012` | `03-01-04-die-layer3-data-quality.md` | §6 said "feeds through all indicator calculators" (contradicts DIE "no market interpretation" boundary). | Reworded: DIE feeds sanitized candle histories to the MME warm-up pipeline; indicator computation is MME's responsibility. |
+| `AUDIT-V6-013` | `08-04-candle-reconstruction.md` | EMA N=200 with only 50 closes is conceptually misleading. | Added "EMA seeded at first close" note explaining the warm-up behaviour. |
+| `AUDIT-V6-014` | `03-01-05-die-layer4-data-distribution.md` | "Shadow throttling" wording implied undocumented rate-limiting. | Removed "throttling"; replaced with "Shadow frames stream at tick cadence; any local rate-limiting is the consumer's responsibility". |
+| `AUDIT-V6-015` | `03-01-04-die-layer3-data-quality.md` | §2.1 conflated startup bootstrap with live gap-fill. | Split into §2.1.1 (startup bootstrap: DB → REST 200-cap → live) and §2.1.2 (live gap-fill: `GapDetector` → EMA/linear). |
+| `AUDIT-V6-016` | `08-05-connection-quality.md` | `total_data_loss_secs` and `reconstructed_candles` not in the composite score formula; role undefined. | Added "Informational-only fields" note: surfaced for operator awareness; not direct inputs to the score; sustained data loss is reflected indirectly via `uptime_pct`. |
+| `AUDIT-V6-017` | `08-05-connection-quality.md` | "All three windows computed and persisted in parallel" ambiguous about API shape. | Reworded: three independent rows per tick; REST API returns one report per request; tab switch re-fetches. |
+| `AUDIT-V6-018` | `03-01-05-die-layer4-data-distribution.md` | Two broadcast topologies (`NormalizedCandle` vs `MarketSnapshot`) implicit but undocumented. | Added paragraph explicitly distinguishing the two channels and their consumers. |
+| `AUDIT-V6-019` | `03-01-04-die-layer3-data-quality.md` | `WarmedPipelineState` referenced but undefined anywhere. | Defined inline in §6.1 with a 4-field shape (`per_tf_indicator_buffer`, `per_tf_last_bar_ms`, `warmup_complete`, `source_history_len`). |
+| `AUDIT-V6-020` | `06-02-database-schema-spec.md` + `08-05-connection-quality.md` | `connection_quality_events` table referenced in code (`connection_quality_persistence/mod.rs`) is not in the active schema catalog. | Confirmed single canonical home: `connection_quality_samples` with the 11-column shape. The `connection_quality_events` path is removed in a future phase. |
+
+### Bumped to v6.0
+
+- `02-05-distribution-matrix.md`, `02-06-market-data-matrix.md`, `02-10-raw-data-matrix.md`
+- `03-01-03-die-layer2-market-data.md`, `03-01-04-die-layer3-data-quality.md`, `03-01-05-die-layer4-data-distribution.md`
+- `06-02-database-schema-spec.md`
+- `08-04-candle-reconstruction.md`, `08-05-connection-quality.md`, `08-06-clock-monitor.md`
+
+---
+
+## v6.1 (2026-07-16) — DIE second-tier closure
+
+### What changed
+
+This revision closes the second-tier documentation issues identified after the v6.0 DIE closure. It adds 4 new docs (canonical glossary, end-to-end flow, target-architecture roadmap, consumer onboarding, exchange-key rotation procedure), extends the connection-quality composite score formula to use all 5 quantitative report fields, disambiguates overlapping terminology, and adds operational acceptance criteria to every DIE layer.
+
+### Doc-internal / logical issues resolved
+
+| ID | Doc | Issue | Resolution |
+|---|---|---|---|
+| `AUDIT-V6-021` | `02-10-raw-data-matrix.md` | JSON example used a fictional `event_type` discriminator field that the actual wire format does not emit. | Replaced with per-variant flat-object examples matching the real `NormalizedEvent` JSON shape. |
+| `AUDIT-V6-022` | `02-10-raw-data-matrix.md`, `03-01-02-die-layer1-raw-data.md` | `bids`/`asks` notation inconsistent (map vs array). | Standardized on `Vec<[Decimal; 2]>` with `[price, size]` tuples; both docs updated. |
+| `AUDIT-V6-023` | `06-01-api-gateway-contract.md` | Three names (`instance_id` / `pair_key` / "Active pair") for the same identifier; no canonical glossary. | Added §1.0 "Canonical glossary (Market Instance identifier)" as the single source of truth. |
+| `AUDIT-V6-024` | `08-04-candle-reconstruction.md` | "Reconstruction" / "Synthesis" / "Fill" used interchangeably without distinction. | Added glossary at the top of the doc: synthesis ⊂ fill; reconstruction is the whole process. |
+| `AUDIT-V6-025` | `02-03-data-quality-matrix.md`, `03-01-04-die-layer3-data-quality.md` | "Data Quality Matrix" (per-candle) and "Reliability Metrics" (per-instance) share the word "Quality" with divergent schemas. | Renamed: per-candle envelope is `CandleQualityEnvelope`; per-instance rollup is `PipelineReliabilityMetrics`. Both terms now disambiguated in each doc. |
+| `AUDIT-V6-026` | `08-05-connection-quality.md` | Composite score formula used 3 of 5 report fields; `total_data_loss_secs` and `reconstructed_candles` were "informational only" with no defined role. | Extended formula to use all 5 fields with documented saturation points (5 s reconnect, 10 disconnects, 600 s data loss, 100 reconstructed candles). New worked example recomputes to `65.45` (clamped to `65.5`). |
+| `AUDIT-V6-027` | `03-01-01-die-overview-spec.md` | `ConnectionStatus` lifecycle diagram (`Reconnecting → Connecting` arrow) implied a cyclic state machine not present in the enum. | Replaced with `Connecting → Connected ↔ Disconnected ↔ Reconnecting → Connected (on resume) | Failed` matching the enum and 08-03 §State Transitions. |
+| `AUDIT-V6-028` | `03-01-03-die-layer2-market-data.md` | `average_volume` field is consumed by the MME but its provenance was undocumented. | Added note in §2: `average_volume` is derived from `volume / trades_count` on the MME side; the L2 layer never emits it. |
+| `AUDIT-V6-029` | `03-01-01-die-overview-spec.md` | Retry budget described only the supervisor layer; the adapter-layer `ReconnectPolicy` was implicit. | §3 Performance Targets now points to 08-03 §Retry Budgets for the three-layer model. §4.1 distinguishes "supervisor cycles" from "adapter max_attempts". |
+| `AUDIT-V6-030` | `08-06-clock-monitor.md` | Drift-breach consequence on candle alignment was undocumented — `warn` mode silently violates the alignment invariant. | Added §Drift-breach consequence paragraph explaining the silent violation and the recommended operational pattern (`panic` for fail-fast, or `warn` + active monitoring via `/api/system/clock`). |
+| `AUDIT-V6-031` | `03-01-01-die-overview-spec.md` | "Micro" (tier name), "sub-minute" (duration class), "<1m" (shorthand) — three terms for the same concept without a glossary. | Added §1.0 glossary: micro is the tier; sub-minute/<1m describe the duration class. |
+| `AUDIT-V6-032` | `03-01-04-die-layer3-data-quality.md` | `out_of_order_dropped` counter had no persistence path. | Added to §5 `PipelineReliabilityMetrics`; documented as in-memory only, surfaced through `/api/data-quality`. |
+| `AUDIT-V6-033` | `03-01-04-die-layer3-data-quality.md` | `outlier_tolerance` parameter default and config key were undefined. | Added canonical defaults table: `median_window_size = 20`, `outlier_tolerance = 0.05`, `bypass_on_zero_median = true`. |
+| `AUDIT-V6-034` | `03-01-01..05` | Operational acceptance criteria were missing (only unit-test names listed). | Added §1.3 (DIE), §6.1 (L2), §7.1 (L3), §5.1 (L4) with concrete AC-DIE-NN / AC-LN-NN criteria and verification pointers. |
+| `AUDIT-V6-035` | `03-01-01..05`, `02-03`, `02-06`, `02-07`, `02-10`, `06-01`, `06-02`, `08-03..06` | No integrated end-to-end DIE flow document. | Created `03-01-00-die-end-to-end-flow.md` as the single integrated narrative. |
+| `AUDIT-V6-036` | `06-02 §3.8`, `06-01 §2.10` | Exchange-key rotation procedure was undocumented. | Created `08-07-exchange-key-rotation.md` with pre-rotation checklist, rotation procedure, emergency rotation, and future-work list. |
+| `AUDIT-V6-037` | `03-01-01`, `03-01-02`, `03-01-03`, `03-01-04`, `03-01-05` | "Target Architecture (Not Yet Implemented)" callouts scattered across 4 layer docs without a roadmap. | Created `01-07-target-architecture-roadmap.md` as the single source of truth; updated each callout to point to the roadmap. |
+| `AUDIT-V6-038` | `06-01`, `06-02` | No consumer onboarding summary; new integrators had to assemble the contract from 3+ docs. | Created `06-00-consumer-onboarding.md` as the single-page orientation. |
+| `AUDIT-V6-039` | `03-01-01 §4.1` | `retry_cooldown` term used inconsistently with 08-03's `backoff`. | Renamed `retry_cooldown` → `backoff` throughout §4.1; matches `ReconnectPolicy` field names. |
+| `AUDIT-V6-040` | `02-07-metrics-matrix.md` | "Aggregate envelope" claim implied portfolio-wide aggregates ride a single WS frame. | Reworded: composite envelope is per-instance only; portfolio-wide Overview Matrix L7 lives on a separate path. |
+| `AUDIT-V6-041` | `03-01-03`, `03-01-04` | L2 vs L3 boundary on sequence auditing was unclear (both docs mentioned chronological order / dedup). | L2 owns single-stream candle generation; L3 owns cross-stream integrity. Boundary table added. |
+| `AUDIT-V6-042` | `03-01-05 §2.1` | "Zero Shared State" claim was aspirational; `Arc<…>` state is shared via `RegistryContext`. | Reworded to "Decoupled Producer/Consumer"; shared-state caveat paragraph added. |
+| `AUDIT-V6-043` | `06-01 §2.8`, `03-01-03 §5` | `latency_ms` field ambiguous (observation loop vs ingest skew vs heartbeat). | Renamed to `observation_loop_latency_ms`, `ingest_skew_ms`, `system_heartbeat_latency_ms`; `/api/system/status` updated. |
+| `AUDIT-V6-044` | `08-01-user-manual.md §7` | 7-day retention hard-coded without config surface. | Documented `config.toml [retention]` block (Phase 1 surfaces it); manual updated. |
+
+### New files added
+
+- `docs/engines/data-infrastructure-engine/03-01-00-die-end-to-end-flow.md` — single integrated DIE flow doc.
+- `docs/operations-and-compliance/08-07-exchange-key-rotation.md` — operator procedure.
+- `docs/conceptual-foundations/01-07-target-architecture-roadmap.md` — single home for target-architecture callouts.
+- `docs/integration-and-api/06-00-consumer-onboarding.md` — single-page integrator orientation.
+
+### Deferred to subsequent phases
+
+- Phase 1 (`AUDIT-V6-101`): wire `MarketDataOrchestrator` and `run_with_reconnect` into the production adapters.
+- Phase 2 (`AUDIT-V6-201`): drop `connection_quality_persistence/mod.rs`, add `pair_key` + `timeframe_secs` columns migration, per-instance tracker.
+- Phase 3 (`AUDIT-V6-301`): new REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers.
+- Phase 4 (`AUDIT-V6-401`): DataInfraDashboard full UI (5 sub-panels, CSS Modules cleanup).
+- Phase 5 (`AUDIT-V6-501`): test closure (AC-DIE/LN tests).
+- Phase 6 (`AUDIT-V6-601`): full-suite verification + DOCS-CONSISTENCY-MANIFEST v6.0 re-run.

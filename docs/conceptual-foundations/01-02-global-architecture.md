@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 ---
@@ -54,7 +54,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 
 #### Layer 3: Data Quality Layer
 *   **Purpose:** Enforce data integrity and detect stream anomalies.
-*   **Processing:** Audit historical sequences for missing bars, parse for stale tick values, filter spikes, and flag out-of-order execution sequence IDs.
+*   **Processing:** Audit historical sequences for missing bars, parse for stale tick values, filter spikes, and drop out-of-order ticks and count them in `out_of_order_dropped` (late trades on closed candles are never merged retroactively — see 03-01-04-die-layer3-data-quality.md §3).
 *   **Output (Data Quality Matrix):** Sanitized, gap-filled market datasets paired with reliability metrics.
 
 #### Layer 4: Data Distribution Layer
@@ -80,8 +80,8 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 
 #### Layer 1: Metrics Layer
 *   **Purpose:** Compute single-timeframe technical metrics and project them across standardized multidimensional context dimensions.
-*   **Processing:** Compute technical indicators (EMA, RSI, ATR) and detect single-timeframe technical signals (including price-to-indicator divergences, candlestick patterns, and structural breaks). Project each indicator across its standard Indicator Evaluation Axes (Value, State, Direction, Strength, Market Regime, Confidence, Freshness, Quality) and each signal across its standard Signal Evaluation Axes (Signal Type, Direction, Strength, Confidence, Freshness, Confirmation, Market Regime, Multi-Timeframe Agreement, Risk, Priority).
-*   **Output (Metrics Matrix):** Structured `IndicatorEvaluation` and `SignalEvaluation` telemetry objects, along with compiled localized analytical features.
+*   **Processing:** Compute technical indicators (EMA, RSI, ATR) and detect single-timeframe technical signals (including price-to-indicator divergences, candlestick patterns, and structural breaks). Project each indicator across its standard Indicator Evaluation Axes (Value, State, Direction, Strength, Market Regime, Confidence, Freshness, Quality) and each signal across its standard Signal Evaluation Axes (Signal Type, Direction, Strength, Confidence, Freshness, Confirmation, Market Regime, Multi-Timeframe Agreement, Risk, Priority). The set of indicators and signals actually evaluated is the **Active Set**, derived from config (registry defaults − global `[activation]` denylist − per-instance `[instances.*.activation]` denylist) — see [03-02-12-mme-configurable-activation.md](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md).
+*   **Output (Metrics Matrix):** Structured `IndicatorEvaluation` and `SignalEvaluation` telemetry objects, along with compiled localized analytical features. Records exactly the enabled data (Active Set); disabled items are absent, never null.
 
 #### Layer 2: Alignment Layer
 *   **Purpose:** Evaluate spatial-temporal consensus across multiple time horizons.
@@ -101,7 +101,7 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 #### Layer 5: Risk Layer
 *   **Purpose:** Quantify environmental danger and exposure conditions, independent of direction.
 *   **Processing:** Compute localized volatility parameters, measure book liquidity depth, evaluate proximity to major invalidation barriers, and assess signal divergence.
-*   **Output (Risk Matrix):** Comprehensive risk indices across **eight unipolar danger sub-dimensions** (`market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk`) plus `overall_risk`. *The previously-listed 8th sub-dimension was historically referred to as both "correlation risk" and "reward risk" — both terms are stale references to the same retired concept. The dimension was removed in the institutional redesign; its semantic successor is `entry_danger` (renamed from `environment_favorability`) in the Decision Matrix, and correlated-downside danger is now captured by the cross-symbol `systemic_risk_score` at L7 (see [Overview Matrix §4](../matrices/02-09-overview-matrix.md)).*
+*   **Output (Risk Matrix):** Comprehensive risk indices across **eight unipolar danger sub-dimensions** (`market_risk`, `volatility_risk`, `execution_liquidity_risk`, `structure_risk`, `momentum_risk`, `signal_risk`, `execution_risk`, `cascade_risk`) plus `overall_risk`. *The previously-listed 8th sub-dimension was historically referred to as both "correlation risk" and "reward risk" — both terms are stale references to the same retired concept. The dimension was removed in the institutional redesign; its semantic successor is `entry_danger` (renamed from `risk_favorability`) in the Decision Matrix, and correlated-downside danger is now captured by the cross-symbol `systemic_risk_score` at L7 (see [Overview Matrix §4](../matrices/02-09-overview-matrix.md)).*
 
 #### Layer 6: Decision Layer
 *   **Purpose:** Synthesize bias, opportunity, and risk into strategic decision support.
@@ -243,7 +243,7 @@ Engines must run in separate memory structures or isolated processes. No engine 
 
 ### 3.4 Documented Exception: MME L5 Multi-Source Input
 
-MME Layer 5 (Risk) consumes the L3 Analysis Matrix **and** the L2.5 LiquidationClusterMatrix (Phase 0-4 Liquidity Intelligence extension). The unidirectional invariant is preserved: L2.5 does not read from L5; L5 → L6 remains unidirectional. This is the only multi-source MME input. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the cascade invariant.
+MME Layer 5 (Risk) consumes the L3 Analysis Matrix **and** the L2.5 LiquidationClusterMatrix (Liquidity Phase 0-4 Liquidity Intelligence extension). The unidirectional invariant is preserved: L2.5 does not read from L5; L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the cascade invariant.
 
 ---
 
@@ -265,7 +265,7 @@ The platform enforces absolute system portability and reproducibility. Any strat
       |   (Low-Overhead Execution, live/paper trades)    |
       +--------------------------------------------------+
                                |
-                   [STREADS METRIC TELEMETRY]
+                   [STREAMS METRIC TELEMETRY]
                                v
                      Shared SQL/Time-Series DB
                                ^
@@ -307,7 +307,7 @@ To illustrate the complete pipeline in practice, below is the sequence of events
 
 1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and broadcasts the updated **Market Data Matrix**.
 2.  **Telemetry:** The Market Monitoring Engine (MME) receives the update. The *Metrics Layer* recalculates indicators and detects signals, immediately projecting them onto their respective multi-dimensional Evaluation Axes (e.g., extracting State, Direction, Strength, and Quality) and updating the **Metrics Matrix**.
-3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, and slow time horizons, updating the **Alignment Matrix**.
+3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, slow, and macro time horizons, updating the **Alignment Matrix**.
 4.  **Diagnosis:** The *Analysis Layer* confirms a transition to a `TRENDING_BULL` regime under a `STRONG_BULLISH` bias (with a `Market Bias Score: +0.82`), updating the **Analysis Matrix**.
 5.  **Opportunity:** The *Opportunity Layer* detects a high-probability breakout setup and logs an `Opportunity Score: 85` in the **Opportunity Matrix**.
 6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` (L3) but does *not* consume the L4 Opportunity Matrix itself.

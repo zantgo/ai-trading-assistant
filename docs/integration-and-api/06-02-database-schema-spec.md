@@ -1,11 +1,11 @@
 # Database Schema Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 **Status:** Approved
 **Purpose:** This document specifies the SQLite database schema — all persistent tables, indexes, WAL configuration, and migration strategy for the Trading Platform's shared telemetry store.
 
-**Active tables (24):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0).
+**Active tables (26):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)).
 
 **Deferred (forward-compatibility only):** none.
 
@@ -59,7 +59,7 @@ Indexes are created on each table for the query patterns the engine actually use
 | `idx_risk_control_events_operator` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local_operator"`) |
 | `idx_order_fills_trade` | `(trade_id)` | Per-fill PAE reconstruction |
 | `idx_order_fills_order` | `(order_id)` | Per-order fill chain |
-| `idx_connection_quality_samples_pair_window_time` | `(pair_key, window, timestamp_ms DESC)` | Connection-quality queries |
+| `idx_cq_pair_timeframe_window_time` | `(pair_key, timeframe_secs, window, timestamp_ms DESC)` | Connection-quality queries (per-instance × per-timeframe window filter) |
 
 ---
 
@@ -67,7 +67,7 @@ Indexes are created on each table for the query patterns the engine actually use
 
 Tables are grouped by ownership. Each entry shows the canonical schema (DDL-style), invariants, and migration notes. The `id` column is `INTEGER PRIMARY KEY AUTOINCREMENT` unless explicitly noted.
 
-### 3.1 `market_snapshots` — MME telemetry persistence (DIE ownership)
+### 3.1 `market_snapshots` — MME telemetry persistence (storage owned by DIE; content produced by MME)
 
 The primary time-series table — one row per completed candle, paired with the rolled-up MME matrix outputs that ride the WS `MarketSnapshot`.
 
@@ -104,6 +104,8 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     analysis_json TEXT CHECK (analysis_json IS NULL OR json_valid(analysis_json)),
     risk_json TEXT CHECK (risk_json IS NULL OR json_valid(risk_json)),
     advisory_json TEXT CHECK (advisory_json IS NULL OR json_valid(advisory_json)),
+    opportunity_json TEXT CHECK (opportunity_json IS NULL OR json_valid(opportunity_json)),
+    metrics_config_json TEXT CHECK (metrics_config_json IS NULL OR json_valid(metrics_config_json)),
     decision_context_json TEXT CHECK (decision_context_json IS NULL OR json_valid(decision_context_json)),
     context_json TEXT CHECK (context_json IS NULL OR json_valid(context_json)),
     statistical_context_json TEXT CHECK (statistical_context_json IS NULL OR json_valid(statistical_context_json)),
@@ -210,7 +212,7 @@ CREATE TABLE IF NOT EXISTS active_positions (
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy `roi_percentage` is deprecated and removed at v5.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy `roi_pct` is deprecated and removed at v5.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -298,7 +300,7 @@ CREATE INDEX IF NOT EXISTS idx_exchange_keys_exchange ON exchange_keys(exchange)
 
 ### 3.9 `connection_quality_samples` — per-instance uptime telemetry
 
-Instance-scoped in v4.0. See the §3.10 audit-v4 migration for the column-pair-key:
+Instance- and timeframe-scoped (one row per `(pair_key, timeframe_secs, window, timestamp_ms)`). v6.0 makes this table the **single canonical home** for connection-quality persistence. The `connection_quality_events` table that appeared in earlier code (referenced from `crates/database-storage/src/connection_quality_persistence/mod.rs`) is **not** part of the active schema and that module is removed in v6.0; see `08-05-connection-quality.md` for the unified per-instance model.
 
 ```sql
 CREATE TABLE IF NOT EXISTS connection_quality_samples (
@@ -317,9 +319,11 @@ CREATE TABLE IF NOT EXISTS connection_quality_samples (
 CREATE INDEX IF NOT EXISTS idx_cq_pair_timeframe_window_time ON connection_quality_samples(pair_key, timeframe_secs, window, timestamp_ms DESC);
 ```
 
+The persistence loop in `crates/network-adapters/src/connection_quality_tracker.rs::run_persistence_loop` writes one row per (tracker × window) every 60 seconds; there is one tracker per `(pair_key, timeframe_secs)` pair, so a workspace with `N` symbols and a 4-tier ladder yields up to `4 × N` trackers, each producing 3 rows per 60s tick (one per window).
+
 ### 3.10 `risk_control_events` — gate-rejection and override audit (new in v4.0)
 
-Every pre-trade gate failure (Gates 1–7) and every operator override is logged with the local-operator identity, gate id, decision, prior state, resulting state, and a retention timestamp:
+Every pre-trade gate failure (Gates 0–7; Gate 0 is the lifecycle gate added in v6.2 per [03-03-06 IL-05](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)) and every operator override is logged with the local-operator identity, gate id, decision, prior state, resulting state, and a retention timestamp:
 
 ```sql
 CREATE TABLE IF NOT EXISTS risk_control_events (
@@ -344,9 +348,9 @@ CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator
 
 `operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` is reserved for cases where the API layer forwards without an explicit identity (not currently surfaced). Caller-supplied identity via `X-Operator-Id` is on the v5.0 roadmap.
 
-### 3.11 — 3.24 Remaining tables
+### 3.11 — 3.26 Remaining tables
 
-The remaining 14 tables retain their pre-v4.0 schemas with two v4.0 updates that apply consistently across the corpus:
+The remaining 16 tables retain their pre-v4.0 schemas with two v4.0 updates that apply consistently across the corpus:
 
 - `decimal_value` columns use the same `CHECK (value GLOB ...)` constraint pattern as the canonical schema.
 - Foreign keys are added only where the relationship is genuinely relational (most references are denormalized config identifiers like `policy_id`/`instance_id` strings and are not FKs).
@@ -361,6 +365,40 @@ The unchanged tables:
 - `support_resistance_levels` — cached S/R levels from the `support_resistance` indicator.
 - `liquidation_events` — raw liquidation event log (Phase 1 input).
 - `performance_matrix_snapshots`, `strategy_analytics_history` — PAE snapshot history.
+
+### 3.25 `instance_lifecycle` — per-instance lifecycle registry (added in v6.2, IL-13)
+
+```sql
+CREATE TABLE IF NOT EXISTS instance_lifecycle (
+  instance_id         TEXT PRIMARY KEY,
+  lifecycle_state     TEXT NOT NULL DEFAULT 'STOPPED'
+                      CHECK (lifecycle_state IN ('RUNNING','PAUSED','STOPPING','STOPPED')),
+  automation_json     TEXT CHECK (automation_json IS NULL OR json_valid(automation_json)),
+  entered_state_at_ms INTEGER NOT NULL,
+  deleted_at_ms       INTEGER,
+  updated_at_ms       INTEGER NOT NULL
+);
+```
+
+The column `lifecycle_state` carries the 4-value enum (RUNNING/lifecycle `PAUSED`/STOPPING/STOPPED). DELETED instances are represented by a non-NULL `deleted_at_ms` tombstone and are excluded from all query views. `entered_state_at_ms` drives `after_duration_secs` automation (IL-12). `entered_state_at_ms` drives `after_duration_secs` automation (IL-12). Full contract: [`03-03-06-tae-instance-lifecycle-spec.md §5`](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
+
+### 3.26 `instance_lifecycle_events` — full transition audit (added in v6.2, IL-13)
+
+```sql
+CREATE TABLE IF NOT EXISTS instance_lifecycle_events (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  instance_id  TEXT NOT NULL,
+  from_state   TEXT CHECK (from_state IS NULL OR from_state IN ('RUNNING','PAUSED','STOPPING','STOPPED')),
+  to_state     TEXT NOT NULL CHECK (to_state IN ('RUNNING','PAUSED','STOPPING','STOPPED','DELETED')),
+  actor        TEXT NOT NULL CHECK (actor IN ('operator','automation','system')),
+  reason_json  TEXT CHECK (reason_json IS NULL OR json_valid(reason_json)),
+  timestamp_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_events_instance_time
+  ON instance_lifecycle_events(instance_id, timestamp_ms DESC);
+```
+
+Every transition from §2 of the lifecycle spec writes one row. `actor` distinguishes operator commands, automation conditions, and system-internal transitions. `to_state` extends the lifecycle CHECK with `DELETED` (the DELETE endpoint produces tombstone transitions; the row is preserved for audit but excluded from active views).
 
 ---
 
@@ -382,7 +420,7 @@ A `market_snapshots` row with `reconstructed = 1` carries a `reconstruction_meth
 
 - `EXCHANGE_HISTORICAL` — restored from the venue's REST historical API.
 - `EXPONENTIAL_MOVING_AVERAGE` — synthesised via the EMA fallback for sub-minute timeframes (≥ 50 history points).
-- `LINEAR_EXTRAPOLATION` — synthesised via the linear extrapolation of the last two closes for sub-minute timeframes (2 ≤ N < 50). *(Renamed from `LinearInterpolation` in v4.0 — the formula projects beyond the last known close, not between two endpoints. See [`08-04-candle-reconstruction.md`](../operations-and-compliance/08-04-candle-reconstruction.md) §Linear Extrapolation.)*
+- `LINEAR_EXTRAPOLATION` — synthesised via the linear extrapolation of the last two closes for sub-minute timeframes (2 ≤ N < 50). *(Renamed from `LinearExtrapolation` in v4.0 — the formula projects beyond the last known close, not between two endpoints. See [`08-04-candle-reconstruction.md`](../operations-and-compliance/08-04-candle-reconstruction.md) §Linear Extrapolation.)*
 - `UNAVAILABLE` — the reconstructor cannot produce a value (insufficient history). The platform emits a `INSUFFICIENT_DATA` `state_label` for downstream consumers.
 
 ---
@@ -434,7 +472,7 @@ The canonical v4.0 migration set adds three changes:
 ## 10. Cross-References
 
 - [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md) — canonical `MarketSnapshot` wire contract; top-level liquidity fields.
-- [`02-08-opportunity-matrix.md §2.1`](../matrices/02-08-opportunity-matrix.md) — `invalidation_level` canonical name; migration from `invalid_level` and `final_invalidation_level`.
+- [`02-08-opportunity-matrix.md §2.1`](../matrices/02-08-opportunity-matrix.md) — `invalidation_level` canonical name; migration from `invalidation_level` and `final_invalidation`.
 - [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) — order-state lifecycle; `PRE_DISPATCH` semantics.
 - [`03-04-05-pme-layer4-portfolio.md §3`](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md) — safety-state machine and reconstruction from persisted columns.
 - [`03-05-02-pae-layer1-trade-analytics.md §3`](../engines/performance-analytics-engine/03-05-02-pae-layer1-trade-analytics.md) — per-fill reconstruction contract.

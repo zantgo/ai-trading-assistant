@@ -1,6 +1,6 @@
 # PAE Layer 1 — Trade Analytics Layer
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Performance Analytics Engine (PAE)
 **Layer:** 1 of 4

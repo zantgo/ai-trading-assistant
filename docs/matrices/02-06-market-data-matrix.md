@@ -1,6 +1,6 @@
 # Market Data Matrix Specification
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 2 — Market Data Layer
@@ -34,14 +34,24 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
 | `close` | `Decimal` | Last trade price in the interval. |
 | `volume` | `Decimal` | Total base-asset volume traded. |
 | `trades_count` | `u64` | Number of trades aggregated. |
-| `reconstructed` | `Option<ReconstructionMethod>` | Provenance flag — `Some(ExchangeHistorical)` / `Some(ExponentialMovingAverage)` / `Some(LinearInterpolation)` for candles filled by the reconstruction engine (see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)); `None` (omitted on the wire) for live candles. The flag is forwarded through aggregation chains so a macro candle is marked `reconstructed` if any constituent sub-candle is reconstructed. |
+| `reconstructed` | `Option<ReconstructionMethod>` | Provenance flag — `Some(ExchangeHistorical)` / `Some(ExponentialMovingAverage)` / `Some(LinearExtrapolation)` for candles filled by the reconstruction engine (see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)); `None` (omitted on the wire) for live candles. The flag is forwarded through aggregation chains so a macro candle is marked `reconstructed` if any constituent sub-candle is reconstructed. |
 
-> **Field-name registry.** The candle provenance field has three names, one per surface:
-> - **Rust struct** (`crates/core-domain/src/normalized.rs::NormalizedCandle`): `reconstructed: Option<ReconstructionMethod>`.
+> **Field-name registry.** Three surfaces share the same conceptual `NormalizedCandle` but use slightly different field names. Downstream docs cite one of the three names with a `(wire | struct | db)` annotation when the surface matters for the reader.
+>
+> **Candle provenance flag** — three names, one concept:
+> - **Rust struct** (`crates/core-domain/src/normalized/mod.rs::NormalizedCandle`): `reconstructed: Option<ReconstructionMethod>`.
 > - **Wire JSON** (this matrix): `reconstructed` — same name, value omitted on live candles via `#[serde(default, skip_serializing_if = "Option::is_none")]`.
 > - **SQLite column** ([06-02-database-schema-spec.md §3.1](../integration-and-api/06-02-database-schema-spec.md)): `reconstruction_method TEXT` — the persistence layer maps the Rust `reconstructed` field to the column on insert/select. The naming difference is intentional (the column belongs to a wider SQLite provenance family of `*_method` columns) and the mapping is enforced at the persistence boundary.
 >
-> The three names refer to the same conceptual field. This registry is the canonical reference; downstream docs cite one of the three names with a `(wire | struct | db)` annotation when the surface matters for the reader.
+> **Candle timestamp** — two names:
+> - **Rust struct** (`NormalizedCandle`): `start_time_ms: u64` (candle open time, Unix epoch milliseconds).
+> - **Wire JSON** (this matrix): `timestamp: u64` (candle close time, Unix epoch milliseconds).
+> - The two are equivalent up to one `duration_ms` offset: `wire.timestamp = struct.start_time_ms + struct.duration_ms`.
+>
+> **Candle duration** — two names:
+> - **Rust struct**: `duration_ms: u64` (milliseconds).
+> - **Wire JSON**: `timeframe_secs: u64` (seconds).
+> - The two are equivalent: `struct.duration_ms = wire.timeframe_secs * 1_000`. v6.0 retains both names because the seconds-vs-milliseconds unit difference carries semantic value: `timeframe_secs` makes the ladder (`60`, `180`, `300`, `900`) human-readable; `duration_ms` makes boundary arithmetic (see [01-04-timeframe-model.md §3.1](../conceptual-foundations/01-04-timeframe-model.md)) direct.
 
 ---
 

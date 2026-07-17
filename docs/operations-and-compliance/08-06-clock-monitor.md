@@ -1,6 +1,6 @@
 # Clock Monitor (NTP Drift Enforcement)
 
-**Version:** 5.0 (2026-07-16) — see `docs/CHANGELOG.md` for the canonical version history.
+**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 
@@ -37,19 +37,31 @@ pub async fn run_until_cancelled(self, cancel: CancellationToken);
 
 ## Configuration
 
-In `config.toml` (the platform's single source of configuration truth — *no* `config.toml` exists):
-```json
-{
-  "clock_monitor": {
-    "enabled": true,
-    "ntp_servers": ["pool.ntp.org", "time.aws.com"],
-    "poll_interval_secs": 30,
-    "threshold_micros": 50,
-    "breach_action": "warn",        // or "panic"
-    "warn_on_breach": true
-  }
-}
+In `config.toml` (the platform's single source of configuration truth):
+```toml
+[clock_monitor]
+enabled = true
+ntp_servers = ["pool.ntp.org", "time.aws.com"]
+poll_interval_secs = 30
+threshold_micros = 50
+breach_action = "warn"        # or "panic"
+warn_on_breach = true
 ```
+
+**JSON-key ↔ Rust-struct mapping.** The TOML reader in `crates/config-models/src/models.rs::ClockMonitorTomlConfig` parses each key into the matching typed field of `ClockMonitorConfig`:
+
+| TOML key | Rust field | Type / unit |
+|----------|-----------|-------------|
+| `enabled` | (read at boot; not stored on struct) | `bool` |
+| `ntp_servers` | `ntp_servers` | `Vec<String>` |
+| `poll_interval_secs` | `poll_interval` | `Duration` (multiplied by `1_000 ms`) |
+| `threshold_micros` | `threshold` | `Duration` (constructed from microsecond count) |
+| `breach_action` | `breach_action` | `BreachAction` enum |
+| `warn_on_breach` | `warn_on_breach` | `bool` |
+| (no key; runtime default) | `jitter_window_size` | `usize` (default `20`) |
+| (no key; runtime default) | `query_timeout` | `Duration` (default `5 s`) |
+
+The last two fields are not exposed via `config.toml`; they are runtime defaults applied by `ClockMonitor::new(config)`. They are documented here for completeness; see `crates/network-adapters/src/clock_monitor.rs`.
 
 > **Single source of truth.** All clock-monitor fields live in `[clock_monitor]` in `config.toml` and can be edited via `POST /api/config` or directly in the file at the workspace root. `config.json` is still recognized by `config-models::load_config()` as a legacy fallback (the JSON reader path is preserved for backward compatibility with existing user installations but is not documented for new deploys).
 
@@ -116,9 +128,13 @@ The user controls what happens on breach via `breach_action`:
 
 The system is **resilient to network crashes**: if NTP servers are unreachable, the monitor logs a warning, retries with backoff (exponential, capped at the poll interval), and never panics on transport errors. Only an actual clock drift breach triggers a panic when configured.
 
+### Drift-breach consequence on candle alignment
+
+If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 candle-alignment invariant ([03-01-03-die-layer2-market-data.md §3.1](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — "candles close at integer epoch multiples of UTC") **may be silently violated**. The boundary formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` uses `SystemTime::now()`, which is the local clock; a drifted local clock produces boundaries that are offset by the drift from the true UTC epoch. The violation is invisible to the platform (no boundary check) and to the indicator pipeline (which assumes UTC alignment). Operators relying on millisecond-accurate cross-exchange reconciliation must either (a) set `breach_action = panic` for fail-fast behaviour, or (b) run `warn` mode and actively monitor the drift via the `/api/system/clock` endpoint (Phase 3). The `ClockMonitor` records a `DriftVerdict::BreachThreshold` for every observed breach; the breach counter is exposed alongside the current offset for operator dashboards.
+
 ## Integration
 
-`main.rs` spawns `ClockMonitor::run_until_cancelled(clock_cancel)` after engine initialization and before live ingestion. The cancel token is shared with the rest of the engine, so clean shutdown stops the monitor too. The TODO comment that previously marked this as unimplemented in `candle_aggregator.rs` has been replaced with a 3-line cross-reference to this module.
+`main.rs` spawns `ClockMonitor::run_until_cancelled(clock_cancel)` after engine initialization and before live ingestion. The cancel token is shared with the rest of the engine, so clean shutdown stops the monitor too. The historical TODO marker previously noted in `candle_aggregator.rs` has been replaced with a 3-line cross-reference to this module; see `crates/market-analyzer/src/candle_aggregator.rs` (verify post-Phase 1 of the v6.0 closure plan that the cross-reference is still present).
 
 ## Testing
 
