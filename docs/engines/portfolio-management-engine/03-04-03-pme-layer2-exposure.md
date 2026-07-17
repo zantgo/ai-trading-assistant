@@ -72,8 +72,8 @@ Assets are grouped into correlation sectors based on historical price co-movemen
 
 | Sector | Example Assets |
 |--------|---------------|
-| Base Chain |
-| Layer 2 | SOL, AVAX, MATIC |
+| Base Chain | BTC, SOL, AVAX |
+| Layer 2 | ARB, OP, MATIC |
 | DeFi | UNI, AAVE, MKR |
 | Meme | DOGE, SHIB, PEPE |
 

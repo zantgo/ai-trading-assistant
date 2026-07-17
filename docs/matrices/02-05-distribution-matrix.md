@@ -38,7 +38,7 @@ The Distribution Matrix itself is not a single data structure but a **multiplexe
 |--------|--------|
 | Raw frame → `NormalizedEvent` | < 1 ms |
 | Trade → live candle update | < 2 ms |
-| Observation loop (Raw → Distribution) | < 25 ms |
+| Observation loop (Raw → Overview) | < 25 ms |
 | Event channel capacity | 10,000 buffered events |
 | Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) |
 | Permanent disable threshold | 5 consecutive failures |

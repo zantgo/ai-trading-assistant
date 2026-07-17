@@ -30,7 +30,7 @@ If every pivot point were plotted, the charts would become cluttered with minor 
 
 ---
 
-## 3. The Role-Reversal Engine (`crates/<see crate mapping above>/src/sr_engine.rs`)
+## 3. The Role-Reversal Engine (`crates/market-analyzer/src/sr_engine.rs`)
 
 The core of this system is the real-time Role-Reversal Engine. It operates on the principle that once a key horizontal barrier is broken, its structural role flips: broken resistance becomes support, and broken support becomes resistance.
 
@@ -47,7 +47,7 @@ For each level, the engine tracks:
 *   The timestamp of the most recent flip.
 
 ### 3.2 Role-Reversal Rules
-On the close of every 5-minute execution candle, the engine evaluates the close price against the tracked levels:
+On the close of every micro-tier candle, the engine evaluates the close price against the tracked levels:
 
 #### Rule A: Resistance-to-Support Upgrade (Bullish Breakout)
 If a level is currently classified as `Resistance` and the candle close price breaches the level from below:

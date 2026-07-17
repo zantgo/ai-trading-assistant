@@ -110,8 +110,8 @@ Derived from `market_quality × overall_risk`:
 1. market_quality ∈ {POOR}                  OR overall_risk ≥ 80           → AVOID
 2. market_quality ∈ {POOR, WEAK}            OR overall_risk ≥ 60           → CAUTIOUS
 3. market_quality ∈ {AVERAGE}               AND overall_risk <  40         → NEUTRAL
-4. market_quality ∈ {GOOD, EXCELLENT}      AND overall_risk <  30         → CONSTRUCTIVE
-5. market_quality ∈ {EXCELLENT}             AND overall_risk <  20         → AGGRESSIVE
+4. market_quality ∈ {EXCELLENT}             AND overall_risk <  20         → AGGRESSIVE
+5. market_quality ∈ {GOOD, EXCELLENT}      AND overall_risk <  30         → CONSTRUCTIVE
 6. otherwise                                                              → CAUTIOUS  (default)
 ```
 
@@ -194,11 +194,11 @@ Trade readiness is a function of this confidence and the directional guidance:
 | Readiness | Condition |
 |-----------|-----------|
 | `READY` | Non-neutral guidance + `confidence_assessment ≥ 60` + `market_stance` ∈ {AGGRESSIVE, CONSTRUCTIVE}. |
-| `FORMING` | Directional guidance present but confidence `40–60` or entry = WAIT_FOR_CONFIRMATION. |
-| `WATCH` | Neutral guidance or `confidence_assessment 20–40`. |
+| `FORMING` | Directional guidance present but confidence `[40, 60)` or entry = WAIT_FOR_CONFIRMATION. |
+| `WATCH` | Neutral guidance or `confidence_assessment [20, 40)`. |
 | `STAND_ASIDE` | `market_stance = AVOID` or `confidence_assessment < 20`. |
 
-> **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID`, derived from L3 `market_quality` × L5 `overall_risk`). They do **not** reference the symbol **stance** (L1 `Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID`, managed by PME Veto). Although both enums share a `CLOSE_ONLY` / `AVOID` semantic neighborhood, they are independent and serve different purposes — `market_stance` is the *environmental aggressiveness assessment* of the L6 Decision Layer, while symbol `stance` is the *execution-authorization state* enforced by the PME safety veto. The pre-trade gate in [08-02-pre-trade-risk-controls.md Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by symbol stance before the readiness check.
+> **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID`, derived from L3 `market_quality` × L5 `overall_risk`). They do **not** reference the symbol **stance** (L1 `Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID`, managed by PME Veto). Although both enums share an `AVOID` variant, they are independent and serve different purposes — `market_stance` is the *environmental aggressiveness assessment* of the L6 Decision Layer, while symbol `stance` is the *execution-authorization state* enforced by the PME safety veto. The pre-trade gate in [08-02-pre-trade-risk-controls.md Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by symbol stance before the readiness check.
 
 ---
 

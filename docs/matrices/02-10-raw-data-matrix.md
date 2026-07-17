@@ -33,7 +33,7 @@ The Raw Data Matrix is the DIE's first transformation: converting raw WebSocket 
 
 ## 3. JSON Wire Examples (per variant)
 
-The `NormalizedEvent` enum serializes as a flat JSON object (no `event_type` discriminator field — variant identity is preserved by serde-tagging at the `NormalizedEvent` enum boundary, not on the wire). Each variant produces a flat object with the fields listed in §2.
+The `NormalizedEvent` enum serializes as a flattened payload with an `event_type` discriminator field on the wire. Each variant produces a flat object with the fields listed in §2.
 
 ### 3.1 `Trade`
 ```json

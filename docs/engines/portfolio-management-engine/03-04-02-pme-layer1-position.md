@@ -69,7 +69,7 @@ The Position Layer is the PME's **active position tracker**. It receives executi
 |-------|------|-------------|
 | `stop_loss_price` | `Decimal` | Current stop-loss trigger level. |
 | `take_profit_price` | `Decimal` | Current take-profit target level. |
-| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior names — `invalidation_level` and `final_invalidation` — were both retired; the migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
+| `invalidation_level` | `Decimal` | Structural level whose breach nullifies the thesis (see §4.3). Canonical across L4 Opportunity Matrix, Decision Matrix, and this Position Matrix. *(Prior names: `invalid_level` (L4/Decision) and `final_invalidation_level` (Position Matrix); unified to `invalidation_level` in v2.1. The migration map is in [`02-00-matrix-field-ownership.md §2.4`](../../matrices/02-00-matrix-field-ownership.md).)* |
 | `target_profit_ratio` | `Decimal` | Desired reward-to-risk ratio for this position. |
 
 ### 3.4 Scaled Entry Fields

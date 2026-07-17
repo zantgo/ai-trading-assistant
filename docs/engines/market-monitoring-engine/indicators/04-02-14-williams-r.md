@@ -17,7 +17,7 @@ The normalized score in [-1, 1] is computed from the %R value:
 ```
 %R ≥ -20 (overbought):  norm = -((%R + 20) / 80)        → [-1.0, 0]
 %R ≤ -80 (oversold):    norm = (-(%R + 80) / 20)         → [0, 1.0]
--80 < %R < -20:         norm = -%R / 100 × 1.2           → [-0.96, 0.96]
+-80 < %R < -20:         norm = -%R / 100 × 1.2
 ```
 Labels: `WILLIAMS_R_OVERBOUGHT`, `WILLIAMS_R_OVERSOLD`, `WILLIAMS_R_BULLISH_BIAS` (%R > -50), `WILLIAMS_R_BEARISH_BIAS` (%R ≤ -50).
 

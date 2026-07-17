@@ -158,7 +158,7 @@ indicators:
 These are not "indicators" in the strict sense (they are not
 normalised f64 signals in the indicator map) — they are
 *telemetry matrices* that ride the MarketSnapshot as optional
-fields and are consumed by L1.5, L2.5, L5, and the UI.
+fields and are consumed by extension layers L1.5/L2.5 (fractional layers of MME), L5, and the UI.
 
 ## 10. Cross-References
 

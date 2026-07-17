@@ -67,7 +67,7 @@ The `SafetyManager` (`crates/portfolio-supervisor/src/safety.rs`) tracks **five*
 NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
        ──(consecutive_losses ≥ caution_threshold)──► CAUTIOUS
        ──(consecutive_losses ≥ dropout_threshold)──► SUSPENDED (timed)
-       ──(equity drawdown ≥ drawdown_limit_pct)──► DRAWDOWN_STOP
+       ──(current_equity / peak_equity < 1 − drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
 
 Defaults (`config.toml` `safety`): WARN at 5 % daily drawdown (no stance change — pre-veto alert), caution at 3 consecutive losses, dropout at 5 (8 h suspension), capital drawdown stop at 30 % (`drawdown_limit_pct`). A win resets the consecutive-loss counter. See README "Key Conventions" for the distinction between `max_daily_drawdown_pct` (5 % early-warning, session PnL) and `drawdown_limit_pct` (30 % equity peak-to-trough, hard veto).

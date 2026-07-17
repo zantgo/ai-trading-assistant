@@ -128,7 +128,7 @@ The DIE does not compute indicators, bias, or risk. Those happen in the MME (con
 
 - `NormalizedEvent` stream (L1 → L2)
 - `NormalizedCandle` stream (L2 → L3)
-- `MarketSnapshot` with `CandleQualityEnvelope` (L3 → L4)
+- `MarketSnapshot` transport (L4) — the snapshot is **built by the MME analyzer pipeline** (MME L1; see `01-06` §1); DIE attaches its `CandleQualityEnvelope` to the frame and routes it. DIE emits `NormalizedCandle` upstream (L2 → MME); it does not construct the snapshot.
 - `PipelineReliabilityMetrics` (per-instance, exposed via `/api/data-quality`)
 - `ConnectionQualityReport` (per-`(pair_key, timeframe_secs)`, exposed via `/api/connection-quality`)
 

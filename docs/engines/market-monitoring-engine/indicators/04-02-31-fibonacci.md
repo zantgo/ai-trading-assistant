@@ -15,7 +15,7 @@ This strategy uses a dynamic pivot-scanning algorithm to isolate the most recent
 Before any Fibonacci ratios can be calculated, the engine must identify the boundaries of the active trading range. This is done through a sequential chronological scan of price pivots.
 
 ### 2.1 The Scan Range & Pivot Filters
-The engine evaluates the price history over a configured structural lookback window (typically the last 100 to 120 candles on the 5-minute execution chart):
+The engine evaluates the price history over a configured structural lookback window (typically the last 100 to 120 candles on the micro-tier candle):
 
 1.  **Pivot Detection:** The engine identifies local pivot highs and pivot lows using a strict strength parameter (e.g., $10$ candles of clear headroom on either side).
 2.  **Chronological Sorting:** The identified pivots are sorted chronologically to establish the most recent valid market structure.

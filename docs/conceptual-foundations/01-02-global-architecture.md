@@ -243,7 +243,7 @@ Engines must run in separate memory structures or isolated processes. No engine 
 
 ### 3.4 Documented Exception: MME L5 Multi-Source Input
 
-MME Layer 5 (Risk) consumes the L3 Analysis Matrix **and** the L2.5 LiquidationClusterMatrix (Liquidity Phase 0-4 Liquidity Intelligence extension). The unidirectional invariant is preserved: L2.5 does not read from L5; L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the cascade invariant.
+MME Layer 5 (Risk) consumes the L3 Analysis Matrix **and** the extension layers L1.5/L2.5 (fractional layers of MME) — specifically, the L1.5 `LiquidityFlow` and L2.5 `LiquidationClusterMatrix` (Liquidity Phase 0-4 Liquidity Intelligence extension). The unidirectional invariant is preserved: L2.5 does not read from L5; L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the cascade invariant.
 
 ---
 
@@ -276,10 +276,13 @@ The platform enforces absolute system portability and reproducibility. Any strat
 ```
 
 ### 4.1 Configuration Portability Principle
-To ensure that an execution profile developed on a local setup runs identically in a remote headless environment, all system configurations are exported into a single, unified JSON file. This serialization contract captures:
-*   **The Global Configuration:** API thresholds, database targets, network rates, and DIE adapters.
-*   **Symbol Instances:** The exact list of target trading pairs (e.g., `BTCUSDT`, `ETHUSDT`) and their mapped timeframes.
-*   **The Strategy Profile:** Standardized metrics configs, indicator evaluation criteria, opportunity and risk evaluation targets, stop/target parameters, and active TAE execution policies.
+To ensure that an execution profile developed on a local setup runs identically in a remote headless environment, all system configurations are serializable. The platform surfaces configuration through three distinct contracts:
+
+* **Runtime TOML** — `config.toml` at the workspace root, read by `config-models::load_config()`. This is the operator-facing configuration file: all engine knobs, indicator periods, liquidity thresholds, and execution policies live here. Served to the frontend via `GET /api/config`.
+* **Export JSON** — The legacy wire format for configuration portability between engine instances. Superseded by TOML at v5.0; the `load_config()` function still recognizes `config.json` as a fallback for backward compatibility, **scheduled for removal at v7.0**.
+* **DB-stored profiles** — Named decision/risk profiles stored in the `decision_profiles` table, applied per-instance via the `[instances.*.profile]` key. These are the operational overrides that sit on top of the global config.
+
+The legacy `config.json` reader path in `config-models/src/lib.rs::load_config()` is preserved for backward compatibility with existing user installations but is **not documented for new deploys**. New installations must use `config.toml`. The legacy reader will emit a deprecation warning on every read starting at v6.3 and will be removed entirely at v7.0.
 
 ### 4.2 GUI Mode (Exploration and Research)
 *   **Purpose:** The main interface for interactive development, validation, and optimization of trading setups.

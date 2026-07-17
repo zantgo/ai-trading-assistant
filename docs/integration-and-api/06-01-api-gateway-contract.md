@@ -12,7 +12,7 @@
 |----------|-------|
 | Framework | Axum (Rust) on a Tokio runtime |
 | Base URL | `http://127.0.0.1:3000` (localhost only) |
-| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is on the v5.0 roadmap. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
+| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is see README §Feature Status. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
 | Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
 
 ### 1.0 Canonical glossary (Market Instance identifier)
@@ -84,7 +84,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
 | `GET` | `/api/config` | — | Full `AppConfig` (symbols, candles, indicators, instances, indicator_registry). |
-| `POST` | `/api/config` | `AppConfig` JSON | `200 OK` with the persisted payload. Returns `400 Bad Request` on parse failure, `409 Conflict` on schema-version mismatch. |
+| `POST` | `/api/config` | `AppConfig` JSON | `200 OK` with the persisted payload. Returns `200 OK` with `warnings: [...]` for high-impact indicator/SignalKind disables; `200 OK` with `auto_paused_policies: [...]` when active policies reference newly disabled inputs (CA-10). `400 Bad Request` on parse failure or unknown indicator/SignalKind keys. `409 Conflict` on `config_version` mismatch. Failed validations (400/409) do not increment `config_version`. |
 | `GET` | `/api/rules` | — | `{ content: string }` (reads `docs/engines/market-monitoring-engine/03-02-09-mme-indicators-guide.md`). |
 | `POST` | `/api/rules` | `{ content: string }` | Writes indicator guide. |
 
@@ -206,7 +206,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/trade-ledger?limit=` | Telemetry history. |
 | `GET` | `/api/trade-journal?limit=` | Journal entries (JOINed). |
 | `POST` | `/api/trade-journal/:id/notes` | Update journal (`{ human_notes, execution_score }`). |
-| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical name; `roi_pct` is a deprecated alias scheduled for removal at v5.0). |
+| `GET` | `/api/trade-journal/export/csv` | CSV export (1000 records). All per-trade metrics use `roi_pct` (the canonical field; the pre-v2.1 legacy alias `roi_percentage` was removed at v5.0). |
 | `GET` | `/api/trade-journal/export/json` | JSON export (1000 records). Same canonical `roi_pct` field. |
 | `POST` | `/api/trades/telemetry` | Create telemetry history entry. |
 
@@ -225,10 +225,10 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
 | `GET` | `/api/pre-dispatch?instance_id=` | — | `{ items: PreDispatchOrder[] }` — every `PRE_DISPATCH` order matching the instance scope (or all instances if `instance_id` is omitted). `PreDispatchOrder { order_id, instance_id, pair_key, side, requested_size, estimated_slippage_pct, gate_reasons, held_since_ms }`. |
-| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local_operator"`; caller-supplied identity is on the v5.0 roadmap. |
+| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local_operator"`; caller-supplied identity is see README §Feature Status. |
 | `DELETE` | `/api/pre-dispatch/:id` | — | `204 No Content` (the held order is discarded without dispatch; the associated `risk_control_events` row is preserved). |
 
-`Pre-dispatch` orders are not persisted to the `open_orders` table (per [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)); they live only in process memory. An engine restart, crash, or process termination during the slippage-review window **loses the held order with no audit trail**. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery. The future `pre_dispatch_orders` table for crash-recoverable persistence is on the v4.1 roadmap (see `docs/CHANGELOG.md`).
+`Pre-dispatch` orders are not persisted to the `open_orders` table (per [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)); They live only in process memory. An engine restart, crash, or process termination during the slippage-review window means the held order is lost on restart; only its gate decision survives in `risk_control_events`. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery. The future `pre_dispatch_orders` table for crash-recoverable persistence is on the v4.1 roadmap (see `docs/CHANGELOG.md`).
 
 ### 2.10 Exchange Keys (encrypted credentials)
 

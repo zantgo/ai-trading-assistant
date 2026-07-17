@@ -96,7 +96,7 @@ For intraday strategies that do not hold positions long enough to earn a risk-fr
 
 ### 4.1 Annualization
 
-When the strategy produces `N` returns per year (e.g. 365 for daily crypto, 86 400 for hourly, 365 · 24 for minute), the annual Sharpe is:
+When the strategy produces `N` returns per year (e.g. 365 for daily crypto, 8,760 for hourly, 525,600 for minute), the annual Sharpe is:
 
 ```
 Sharpe_annual  =  Sharpe_period · √N

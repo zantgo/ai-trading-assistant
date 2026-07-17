@@ -60,8 +60,8 @@ Headless cloud operation is supported by running the same binary without `--web`
 
 The Svelte 5 dashboard is organized around three levels of navigation:
 
-1. **Sidebar** — Engine selector (Home / Portfolio / Market / Trading / Analysis) + per-pair workspace list with live price, 24 h change, and pause/delete controls.
-2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Connection Quality / Analysis / Decision / Liquidity` (the **Liquidity** tab carries the Liquidity Phase 4 LiquidityPanel — see [`07-04-ui-liquidity-panel-spec.md`](../ui-ux/07-04-ui-liquidity-panel-spec.md)). The **Connection Quality** tab is instance-scoped (see [`08-05-connection-quality.md §REST API`](../operations-and-compliance/08-05-connection-quality.md)).
+1. **Sidebar** — Engine selector (Home / Data Infrastructure / Market Monitoring / Trade Automation / Portfolio Management / Performance Analytics) + per-pair workspace list with live price, 24 h change, and pause/delete controls.
+2. **Tab Header** — Contextual tabs per active engine: Workspace / Overview / Settings for the Market engine; for an open Market Instance the tabs are `Charts / Metrics / Alignment / Opportunities / Risks / Analysis / Decision`. Liquidation-cluster heatmap and cascade-risk data render **inline on the Charts tab** (the standalone Liquidity tab was removed in v6.0; `07-04` is retained for history only). Connection Quality lives under the **Data Infrastructure** engine's Connectivity panel (see [`08-05-connection-quality.md`](../operations-and-compliance/08-05-connection-quality.md)).
 3. **Main Viewport** — Renders the active tab. Each panel is a thin Svelte component with a companion CSS module per the project's CSS conventions.
 
 For architectural details see [UI Overview](../ui-ux/07-01-ui-overview-spec.md) and [Dashboard Layout](../ui-ux/07-02-ui-dashboard-layout.md).

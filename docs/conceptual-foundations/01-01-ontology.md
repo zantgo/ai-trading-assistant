@@ -213,7 +213,7 @@ Decision Support transforms market intelligence into actionable tactical guidanc
 Market Overview represents the aggregated state of the entire monitored market universe. Rather than describing one asset, it summarizes cross-market dynamics, such as market breadth, risk distributions, and systemic risk indices.
 
 ### 3.18 Execution Policy
-An Execution Policy is a user-defined, conditional rule managed by the Trade Automation Engine. Execution policies evaluate incoming decision-support parameters against programmatic constraints to determine whether to trigger an automated order (e.g., `IF Bias == Bullish AND Opportunity > 75 AND Risk < 30 AND Stance == Active THEN Trigger Long`).
+An Execution Policy is a user-defined, conditional rule managed by the Trade Automation Engine. Execution policies evaluate incoming decision-support parameters against programmatic constraints to determine whether to trigger an automated order (e.g., `IF analysis.bias == BULLISH AND L4.opportunity_score > 75 AND L5.overall_risk.score < 30 AND stance == ACTIVE THEN Trigger Long`).
 
 ### 3.19 Trade Execution
 Trade Execution represents the physical interaction with an exchange interface or simulated execution environments. It manages order types, routes, transactional states, slippage controls, and exchange acknowledgments.
@@ -520,7 +520,7 @@ The Trade Automation Engine bridges the gap between passive intelligence (MME) a
 *   **Output (Policy Matrix):** List of triggered policies, containing exact entry/exit/management directives.
 *   **Key Components:**
     *   *Execution Policy:* A deterministic programmatic rule.
-        *   *Example Structure:* `IF (Decision.Bias == "BULLISH") AND (Decision.OpportunityScore > 75) AND (Decision.RiskScore < 40) THEN Trigger LONG`.
+        *   *Example Structure:* `IF (analysis.bias == BULLISH) AND (L4.opportunity_score > 75) AND (L5.overall_risk.score < 40) THEN Trigger LONG`.
     *   *Stance Definition:* Automated execution states per symbol:
         *   `Active:` Full automated trading permitted.
         *   `Close Only:` Only exit or protection-tightening operations allowed.
@@ -535,7 +535,7 @@ $$S = \frac{E \times R}{D_{sl} / 100}$$
 *   **Key Components:**
     *   *Order Routing Strategy:* Logic determining whether to deploy `Limit Orders`, `Market Orders`, `Stop Orders`, or `TWAP/VWAP Execution Schemes`.
     *   *Slippage Control:* Algorithms adjusting limit offsets based on immediate order book depth.
-    *   *Transaction State:* `PENDING → SUBMITTED → OPEN → PARTIALLY_FILLED → CLOSED`, with terminal `REJECTED` / `CANCELLED`; a Gate-5 or manual-review hold parks the order in `PRE_DISPATCH` (`HELD_FOR_REVIEW`) before `PENDING`.
+    *   *Transaction State:* `PENDING → SUBMITTED → OPEN → PARTIALLY_FILLED → CLOSED`, with terminal `REJECTED` / `CANCELLED`; a Gate 2 (readiness), Gate 5, or manual-review hold parks the order in `PRE_DISPATCH` (`HELD_FOR_REVIEW`) before `PENDING`.
 
 ---
 
@@ -987,9 +987,11 @@ The platform uses a contract-based, decoupled communication architecture. Engine
 ### 15.1 Flow Directionality
 *   **Unidirectional Information Flow:** Information always cascades forward from raw observations to meta-intelligence.
     $$\text{Data Infrastructure} \longrightarrow \text{Market Monitoring} \longrightarrow \text{Trade Automation} \longrightarrow \text{Portfolio Management} \longrightarrow \text{Performance Analytics}$$
-*   **Feedback Loops:** Back-propagation of information is highly restricted and occurs only through specific state contracts:
-    *   *Sizing Feedback:* PME provides Capital Matrix to TAE to guide size calculation during execution.
-    *   *Analytical Feedback:* PAE provides historical performance analysis to configuration databases for off-line policy optimization.
+*   **Backward Channels (restricted):** The data plane is strictly unidirectional, but four controlled backward channels exist:
+    *   **(1) Sizing Feedback:** PME provides Capital Matrix to TAE to guide size calculation during execution.
+    *   **(2) PME→TAE VetoMessage:** PME Portfolio Layer asserts ontological priority to override TAE stance.
+    *   **(3) PME→TAE LiquidateCommand:** PME orders emergency liquidation during Hard Exit.
+    *   **(4) PAE→config Analytical Feedback:** PAE provides historical performance analysis to configuration databases for off-line policy optimization.
 
 ### 15.2 Communication Paradigms
 1.  **Publish / Subscribe (Pub/Sub):**
@@ -1279,7 +1281,7 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
   "symbol": "BTC-USDT",
   "primary_opportunity": "BREAKOUT",
   "opportunity_score": 85.0,
-  "setup_quality": "PRIME",
+  "setup_quality": "STRONG",
   "forecast_confidence": 0.81,
   "profiles": [
     {
@@ -1371,23 +1373,23 @@ Full specification: [Decision Matrix](../matrices/02-04-decision-matrix.md).
 {
   "advisory": {
     "symbol": "BTC-USDT",
-    "directional_guidance": "STRONG_LONG",
+    "directional_guidance": "LONG",
     "market_stance": "CONSTRUCTIVE",
     "strategy_environment": "TREND_FOLLOWING",
     "entry_guidance": "IMMEDIATE",
     "exit_guidance": "NO_WARNING",
     "protection_strategy": "ATR_BASED",
     "target_strategy": "RESISTANCE_BASED",
-    "trade_readiness": "READY",
+    "trade_readiness": "FORMING",
     "entry_danger": { "score": 20.0, "level": "LOW", "state": "STABLE", "confidence": 50.0, "evidence": ["Strong trend", "Volatility moderate", "Opportunity score 85"] },
     "expected_reward_risk_ratio": 1.79,
     "confidence_assessment": 46.61,
-    "final_recommendation": "Strong long bias: STRONG_BULLISH bias with 58% confidence, constructive stance in a trend-following environment. Breakout opportunity. Entry: immediate. Stop: ATR-based."
+    "final_recommendation": "Long bias forming: BULLISH with 46.6% confidence; STRONG setup; await confirmation before full sizing."
   },
   "decision_context": {
-    "score": 100.0,
-    "bias": "STRONG_BULLISH",
-    "score_confidence": 1.0,
+    "score": 88.8,
+    "bias": "BULLISH",
+    "score_confidence": 0.89,
     "contributing_indicators": ["ema_stack", "macd", "adx", "squeeze"]
   }
 }
@@ -1531,7 +1533,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 |
 | `zscore` | Z-Score | Leading | Y | Threshold, ZeroLineCross |
 
-> **Aroon Crossover removed.** Aroon's `Crossover` signals were reclassified to `TrendFlip`. The `TrendFlip` multiplicity is unchanged at `×2` (the existing bullish/bearish flip pair absorbs the dropped crossover events). See `04-02-36-aroon.md §4` and `05-02-02-crossover.md §2`. The registry verifies `Crossover = 10` and `TrendFlip = 10` in the current count.
+> **Aroon Crossover removed.** Aroon's `Crossover` signals were reclassified to `TrendFlip`. The `TrendFlip` multiplicity is unchanged at `×2` (the existing bullish/bearish flip pair absorbs the dropped crossover events). See `04-02-36-aroon.md §4` and `05-02-02-crossover.md §2`. The registry verifies `Crossover = 9` and `TrendFlip = 8` in the current count.
 
 #### INSTITUTIONAL (4)
 
@@ -1613,9 +1615,9 @@ Divergence is handled as a **signal on the parent indicator**, not as a separate
     "normalized": 1.0,
     "state_label": "OVERSOLD_ACCUMULATION",
     "signals": [
-      { "kind": "Divergence", "direction": "Bullish", "status": "Confirmed",
+      { "kind": "DIVERGENCE", "direction": "BULLISH", "status": "CONFIRMED",
         "label": "CONFIRMED_BULLISH_DIVERGENCE", "strength": 1.0, "age_bars": 0 },
-      { "kind": "Threshold", "direction": "Bullish", "status": "Active",
+      { "kind": "THRESHOLD", "direction": "BULLISH", "status": "ACTIVE",
         "label": "OVERSOLD", "strength": 0.0, "age_bars": 0 }
     ]
   }

@@ -80,7 +80,7 @@ Every transition is written to the Execution Matrix with a high-resolution times
 
 | Concern | Design |
 |---------|--------|
-| Order types | Market, Limit, Stop, Reduce-Only. |
+| Order types | Market, Limit, Stop, Reduce-Only. `reduce_only` is an order attribute, not an order type (see [03-03-03 §3.1](03-03-03-tae-layer2-execution.md)). |
 | Order registry | `open_orders` table tracks outstanding orders (`order_type`, `direction`, `price`, `trigger_price`, `size`, `is_reduce_only`, `associated_position_id`). |
 | Partial fills | Tracked against the associated position. |
 | Reduce-only | Enforced during veto / de-risking. |

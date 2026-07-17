@@ -68,6 +68,9 @@ The Metrics Matrix is materialized as the `MarketSnapshot` structure (`crates/co
 | `open_interest` | `Decimal` | Yes | Open interest at snapshot time. |
 | `oi_delta_1h` | `Decimal` | Yes | 1-hour rolling open-interest change. |
 | `prev_day_px` | `Decimal` | Yes | Prior-day reference price (from asset context). |
+| `mark_price` | `Decimal` | Yes | Mark price at snapshot time. `null` until writers land in Phase 3 (AUDIT-V6-301). |
+| `index_price` | `Decimal` | Yes | Index price at snapshot time. `null` until Phase 3. |
+| `mark_index_spread_pct` | `f64` | Yes | Mark/index spread as percentage. Writers land in Phase 3 (AUDIT-V6-301); `null` until then. |
 | `liquidity` | `Option<LiquidityFlow>` | Yes | Phase 1 LiquidityFlow (real liquidation events aggregated per candle). `None` when liquidity extension disabled. |
 | `cluster` | `Option<LiquidationClusterMatrix>` | Yes | Phase 2 LiquidationClusterMatrix (estimated heatmap, 5-min refresh). `None` when liquidity extension disabled. |
 | `liquidity_signals` | `Vec<LiquiditySignal>` | Yes | Phase 3 derived signals (per-snapshot, computed from `liquidity` + `cluster`). **Always serialized** as an empty array (`[]`) when liquidity extension is disabled or no signals fired in this snapshot. Never omitted via `skip_serializing_if`. |

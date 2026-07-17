@@ -8,6 +8,8 @@
 
 The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤50 µs drift budget** of true UTC.
 
+**Why 50 µs.** NTPv4 over a LAN achieves typical offset of 10–100 µs. The 50 µs threshold is the midpoint of that band and is chosen so that the maximum candle-boundary error stays below 0.01 % of the shortest supported candle duration (0.5 s at 60 s micro-tier). A 50 µs drift produces a 0.000083 % boundary error, which is well within the indicator pipeline's numerical tolerance. Operators running direct-exchange colocation may tighten this via config; operators running cloud VPS with >100 µs typical jitter should widen it.
+
 The `ClockMonitor` enforces this budget by polling NTP servers at a configurable interval and reacting to threshold breaches.
 
 ## Public API

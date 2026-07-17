@@ -41,7 +41,7 @@ Implemented as `AnalysisMatrix` (`crates/core-domain/src/analysis.rs`), produced
 | `structure_assessment` | `StructureAssessment` | Structural-integrity classification (§3.5). |
 | `volatility_assessment` | `VolatilityAssessment` | Volatility-state classification (§3.6). |
 | `volume_assessment` | `VolumeAssessment` | Participation classification (§3.7). |
-| `market_quality` | `QualityLevel` | Aggregate environment quality (§3.8 / §3.9). Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
+| `market_quality` | `QualityLevel` | Aggregate environment quality. Categorical enum (`POOR / WEAK / AVERAGE / GOOD / EXCELLENT`) used by Decision Matrix `MarketStance` derivation and the GUI. |
 | `market_quality_score` | `f64` | Raw numeric mean of the per-dimension scores (trend, momentum, structure, volume) in `[0, 100]`. The numeric companion to `market_quality`, consumed by the Layer 6 `confluence_score` formula and other downstream numeric aggregations. When unavailable at the L3 boundary, callers must map `QualityLevel → f64` via the §3.8 numeric bands. |
 | `market_phase` | `MarketPhase` | Wyckoff-style market-cycle phase: `ACCUMULATION` / `MARKUP` / `DISTRIBUTION` / `MARKDOWN` / `UNKNOWN` (§3.10). |
 | `market_interpretation` | `string` | Human-readable natural-language summary. |
@@ -76,7 +76,7 @@ The `market_bias_score ∈ [-1.0, 1.0]` referenced throughout the platform is th
 
 > **Enum disambiguation.** `MarketRegime.ACCUMULATION/DISTRIBUTION` and `MarketPhase.ACCUMULATION/DISTRIBUTION` (§3.10) are different enums with different derivations; context determines which is meant. `MarketRegime` is a structural-regime classifier derived from ADX, BBWP, and score direction; `MarketPhase` is a Wyckoff-style market-cycle phase derived from volume trend, price trend, and structure slope.
 
-**Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx = Alignment Matrix dimension 0 score ∈ [0, 100]`, `bbwp = Context.volatility-derived BBWP score ∈ [0, 100]`, and `regime_one_bar_ago = prior Assessment Layer regime`.
+**Canonical decision tree** (priority 1 → 6; first match wins). Uses `score = mtf_overall_score ∈ [-100, 100]`, `adx` = the ADX indicator value on the instance's **macro timeframe** (L1 Metrics, `[0, 100]`), `bbwp` = the BBWP indicator's raw percentile output on the macro timeframe (L1 Metrics, `[0, 100]`), and `regime_one_bar_ago = prior Assessment Layer regime`.
 
 | Priority | Condition | Regime |
 |----------|-----------|--------|
@@ -178,7 +178,7 @@ The `rationale` and `market_interpretation` strings are generated deterministica
   "trend_assessment": "HEALTHY",
   "momentum_assessment": "STABLE",
   "structure_assessment": "HEALTHY",
-  "volatility_assessment": "NORMAL",
+  "volatility_assessment": "EXPANDING",
   "volume_assessment": "STRONG",
   "market_quality": "GOOD",
   "market_interpretation": "Bullish trending market with healthy trend, stable momentum, healthy structure, normal volatility, and strong volume participation. Favors trend continuation.",

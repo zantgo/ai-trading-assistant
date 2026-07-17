@@ -36,7 +36,7 @@ The active anchor is the one closest to the current price (minimum distance). Di
 | Ratio < 0.999 (slightly below) | +0.3 | `AVWAP_BELOW_ACTIVE` |
 | Within 0.1% of anchor | 0.0 | `AVWAP_AT_ACTIVE` |
 
-The `values` sub-map carries: `weekly`, `monthly`, `swing` (each anchor's VWAP value).
+The `values` sub-map carries: `daily`, `weekly`, `monthly`, `swing` (each anchor's VWAP value).
 
 ## 4. Signals
 

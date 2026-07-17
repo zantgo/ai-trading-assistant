@@ -79,8 +79,8 @@ $$|b_{\text{high}} - b_{\text{low}}| \le \text{Tolerance}$$
 
 A pattern breakout is triggered when price decisively violates the calculated linear regression boundaries.
 
-*   **Bullish Breakout:** A 5-minute execution candle closes completely above the Upper Resistance Line ($y_{\text{high}}$).
-*   **Bearish Breakout:** A 5-minute execution candle closes completely below the Lower Support Line ($y_{\text{low}}$).
+*   **Bullish Breakout:** A micro-tier candle closes completely above the Upper Resistance Line ($y_{\text{high}}$).
+*   **Bearish Breakout:** A micro-tier candle closes completely below the Lower Support Line ($y_{\text{low}}$).
 *   **The Volume Requirement:** To prevent entering "fakeouts," any pattern breakout must be confirmed by the Relative Volume indicator ($RVOL \ge 1.5$), verifying institutional support behind the structural break.
 
 ## Signals

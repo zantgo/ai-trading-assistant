@@ -27,7 +27,7 @@ The `fast_timeframe`, `slow_timeframe`, and `macro_timeframe` objects each have 
 
 All four tiers are configured in `config.toml`:
 
-```json
+```toml
 {
   "candles": {
     "duration_seconds": 60

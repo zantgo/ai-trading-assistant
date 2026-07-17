@@ -70,7 +70,7 @@ export class AppStore {
   - `priceText`, `volText`, `avgVolText` — formatted display strings.
   - `historyPrices`, `latestSnapshot` — chart seed arrays and the most recent raw snapshot.
   - Per-TF indicator parameter scalars (`emaFastVal`, `rsiPeriodVal`, `macdFastVal`, … — ~50 fields).
-  - **Liquidity Intelligence (Phase 0-4)** fields: `liquidity: LiquidityFlow | null`, `cluster: LiquidationClusterMatrix | null`, `liquiditySignals: LiquiditySignal[]`. These are surfaced by the WS demux in `ui/src/api/ws_client.rs` and live directly on each `TimeframeTelemetry` (e.g. `instance.microTerm.liquidity`).
+  - **Liquidity Intelligence (Phase 0-4)** fields: `liquidity: LiquidityFlow | null`, `cluster: LiquidationClusterMatrix | null`, `liquiditySignals: LiquiditySignal[]`. These are surfaced by the WS demux in `ui/src/lib/websocket.svelte.ts` and live directly on each `TimeframeTelemetry` (e.g. `instance.microTerm.liquidity`).
 
 ```ts
 // state.svelte.ts (excerpt)
@@ -140,7 +140,7 @@ This keeps the navigation hierarchy strictly data-driven: each navbar is conditi
 |--------|-------------|------|--------------|
 | **Top** (Global, always on) | Session is active | Brand trigger · Exchange chip · Workspaces trigger | `app.currentEngine`, `app.sessionExchange`, `app.sessionCurrency`, `app.selectedInstance` |
 | **Middle** (Workspace-level) | `!isHome` (any non-Profile engine) | For Market: `Workspace` (forced first) · `Overview` · `Settings`; for other engines: `Overview` · `Settings` | `app.middleTab` |
-| **Bottom** (Instance-level) | `currentEngine === 'market_monitor' && middleTab === 'workspace' && selectedInstance` | `Charts` · `Metrics` · `Alignment` · `Opportunities` · `Risks` · `Connection` · `Analysis` · `Decision` · `Liquidity` | `app.activeEngineTab === 'instance'` and `pair.currentView` |
+| **Bottom** (Instance-level) | `currentEngine === 'market_monitor' && middleTab === 'workspace' && selectedInstance` | `Charts` · `Metrics` · `Alignment` · `Opportunities` · `Risks` · `Analysis` · `Decision` | `app.activeEngineTab === 'instance'` and `pair.currentView` |
 
 Full wireframes and component placement live in [07-02-ui-dashboard-layout.md](07-02-ui-dashboard-layout.md).
 

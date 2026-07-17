@@ -13,14 +13,15 @@ This directory contains the full specification for the Trading Platform — a co
 ```
 docs/
 ├── README.md                                         ← you are here
-├── conceptual-foundations/                           (01 — 6 files)
+├── conceptual-foundations/                           (01 — 8 files)
 │   ├── 01-00-introduction-to-quantitative-trading.md ← textbook foundations: EV, returns, Sharpe, sizing curves, non-goals
 │   ├── 01-01-ontology.md                             ← formal vocabulary, core concepts, lifecycle
 │   ├── 01-02-global-architecture.md                  ← 5-engine blueprint, 2D framework, hybrid memory/math model
 │   ├── 01-03-systemic-data-flow.md                   ← chronological event sequences across engines
 │   ├── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
 │   ├── 01-05-liquidity-domain.md                     ← Phase 0-4 Liquidity Intelligence architecture
-│   └── 01-06-crate-layout-and-cycles.md              ← 9-crate workspace layout, dependency graph, cycle-breaking design decisions
+│   ├── 01-06-crate-layout-and-cycles.md              ← 9-crate workspace layout, dependency graph, cycle-breaking design decisions
+│   └── 01-07-target-architecture-roadmap.md          ← SoA candle history, Phase-3 book depth, NTP, PD memory
 ├── matrices/                                         (02 — 15 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
@@ -38,13 +39,13 @@ docs/
 │   ├── 02-12-liquidity-matrix.md                     ← Phase 1 LiquidityFlow matrix
 │   └── 02-13-liquidation-cluster-matrix.md            ← Phase 2 LiquidationClusterMatrix
 ├── engines/
-│   ├── data-infrastructure-engine/                   (03-01 — 5 files)
+│   ├── data-infrastructure-engine/                     (03-01 — 6 files)
 │   │   ├── 03-01-01-die-overview-spec.md             ← DIE boundaries, adapters, fault tolerance
 │   │   ├── 03-01-02-die-layer1-raw-data.md
 │   │   ├── 03-01-03-die-layer2-market-data.md
 │   │   ├── 03-01-04-die-layer3-data-quality.md
 │   │   └── 03-01-05-die-layer4-data-distribution.md
-│   ├── market-monitoring-engine/                     (03-02 — 11 files)
+│   ├── market-monitoring-engine/                       (03-02 — 12 files)
 │   │   ├── 03-02-01-mme-overview-spec.md             ← MME boundaries, pipeline, bifurcation model
 │   │   ├── 03-02-02-mme-layer1-metrics.md
 │   │   ├── 03-02-03-mme-layer2-alignment.md
@@ -85,15 +86,15 @@ docs/
 │       ├── 03-05-03-pae-layer2-strategy-analytics.md ← Monte Carlo sign-randomization
 │       ├── 03-05-04-pae-layer3-risk-analytics.md
 │       └── 03-05-05-pae-layer4-performance.md
-├── integration-and-api/                              (06 — 2 files)
+├── integration-and-api/                              (06 — 3 files)
 │   ├── 06-01-api-gateway-contract.md                 ← REST + WebSocket API surface
-│   └── 06-02-database-schema-spec.md                 ← 22-table SQLite schema
+│   └── 06-02-database-schema-spec.md                 ← 26-table SQLite schema (target)
 ├── ui-ux/                                            (07 — 4 files)
 │   ├── 07-01-ui-overview-spec.md                     ← Svelte 5 architecture, stores
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
 │   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 20 dedicated components)
 │   └── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
-└── operations-and-compliance/                        (08 — 6 files)
+└── operations-and-compliance/                        (08 — 7 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
     ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
     ├── 08-03-connection-resilience.md                ← WebSocket reconnect policy + backoff state machine
@@ -102,7 +103,7 @@ docs/
     └── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤50µs UTC budget)
 ```
 
-Total: **138 markdown files** at v6.2 (1 README + 7 conceptual + 15 matrix + **32 engine** layer specs + 51 indicator + 13 signal + 2 integration + 4 UI + 6 ops + 1 `CHANGELOG.md` + 1 `DOCS-CONSISTENCY-MANIFEST.md` = **137** numbered docs + README). 50 indicators yield 51 files in the indicators subdir because the master index file is the 51st; **32** engine files = 5 DIE + 11 MME + **6 TAE** + 5 PME + 5 PAE; MME has **7 layers** (L1–L7) implemented across **11 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension). The v6.2 additions vs v5.0 are: new `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` documenting the per-instance `LifecycleState` enum (RUNNING / instance `PAUSED` / `STOPPING` / `STOPPED`), Gate 0 in the pre-trade chain, the automation schema (`start`/`pause`/`stop` conditions), and the scoped-enum orthogonality rule. Active table count grows 24 → 26 (`instance_lifecycle`, `instance_lifecycle_events`); `DELETE /api/instances/:id` returns `409` for non-STOPPED instances. The v5.0 additions vs v4.0 are: (a) new `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` documenting the 9-crate workspace split, and (b) new `docs/DOCS-CONSISTENCY-MANIFEST.md` promoted from a v4.0 audit artefact to a v5.0 standing doc per its own §12.13 closure.
+Total: **138 markdown files** at v6.3 — 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 15 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 layers (L1–L7) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
 
 ## The Five Engines
 
@@ -142,6 +143,30 @@ Total: **138 markdown files** at v6.2 (1 README + 7 conceptual + 15 matrix + **3
 
 8. **Operations & Compliance (`08-`)** — operator procedures, pre-trade risk gating, and audit
    - `08-01-user-manual.md` → `08-02-pre-trade-risk-controls.md` → `08-03-connection-resilience.md` (followed by `08-04-candle-reconstruction.md` → `08-05-connection-quality.md` → `08-06-clock-monitor.md`)
+
+## Feature Status
+
+This table is the **single source of implementation truth** — every spec in `docs/` describes the **target system**; this register tracks what is built.
+
+| Feature | Status | Spec of record |
+|---------|--------|---------------|
+| Core cascade (DIE → MME → TAE → PME → PAE) | Specified / Implemented | `01-02`, `03-01`…`03-05` |
+| Multi-timeframe indicators (50) | Implemented | `04-02-00` |
+| Signal pipeline (12 SignalKinds, 100 declarations) | Implemented | `05-02-00` |
+| WebSocket ingestion (Hyperliquid, Bitget) | Implemented | `03-01-01`, `03-01-02` |
+| Candle reconstruction | Implemented | `03-01-03`, `08-04` |
+| Connection resilience + backoff | Implemented | `08-03` |
+| Connection quality tracking + persistence | Implemented | `08-05`, `03-01-00` |
+| Clock monitor (NTP) | Implemented | `08-06` |
+| Pre-trade risk gates (1–7) | Implemented | `08-02` |
+| Position sizing + execution | Implemented | `03-03-02`, `03-03-03` |
+| PME safety veto + stance control | Implemented | `03-04-05` |
+| Performance analytics (PAE L1–L4) | Implemented | `03-05-01`…`03-05-05` |
+| Instance lifecycle (Gate 0, lifecycle tables, automation) | Specified | `03-03-06` |
+| Configurable activation (denylists, config_version, AUTO_PAUSED) | Specified | `03-02-12` |
+| Pre-dispatch persistence (pre_dispatch_orders table) | Not started | `06-01` §2.9 |
+| Liquidity Intelligence (Phases 0-4) | Partial (Phase 0-2 implemented) | `01-05`, `03-02-11` |
+| Exchange key rotation | Not started | `08-07` |
 
 ## Key Conventions
 

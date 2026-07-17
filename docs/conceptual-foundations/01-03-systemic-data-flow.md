@@ -26,7 +26,7 @@ The platform enforces a strict **Unidirectional Stream Cascade** model. Informat
 ### 1.1 Core Flow Rules
 *   **Rule 1: Forward Cascade Only:** Upstream matrices are entirely blind to downstream states. The Market Monitoring Engine (MME) cannot query the Portfolio Management Engine (PME) to alter its calculation of market bias or risk scores.
 *   **Rule 2: Decoupled Inter-Engine State:** State updates are exchanged exclusively via stable, typed read-only matrices over high-speed message buses. There is no shared memory, and direct database queries from one engine's private store to another's are prohibited.
-*   **Rule 3: Restricted Read-Only Sizing Feedback:** The only exception to the forward cascade is a controlled, read-only pull request during execution routing, where the Trade Automation Engine (TAE) reads the current capital metrics from the PME to calculate order sizing.
+*   **Rule 3: Restricted Read-Only Sizing Feedback:** The only read-only data exception to the forward cascade is the TAE's synchronous pull of the PME Capital Matrix during position sizing. No other backward read is permitted.
 
 ---
 
@@ -165,7 +165,7 @@ The diagram below shows the **`AVOID`** path (Hard Exit + cancellation). For **`
 ```
  PME (Portfolio Layer)            TAE (Policy Layer)          MME (Overview Matrix)
          |                                |                            |
-         |                                |<====[Systemic Risk Score]--|
+         |==<=====[Systemic Risk Score]==================================|
          |--[Compute Drawdown & Margin]   |                            |
          |                                |                            |
          |====[VETO TRIGGERED]===========>|                            |

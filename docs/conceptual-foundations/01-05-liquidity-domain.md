@@ -75,8 +75,7 @@ The unidirectional invariant is preserved because:
 - Liquidity Phase 2 reads from Liquidity Phase 0 fields (OI, funding, mark) and
   computes a derived value. It does NOT read from Liquidity Phase 1 (avoids
   feedback).
-- Liquidity Phase 3 reads from Liquidity Phase 1 + Liquidity Phase 2 and produces indicators that
-  ride the existing `IndicatorMap` channel. Phase 3 emits `liquidity_signals: Vec<LiquiditySignal>` as a sibling field of `indicators` on the MarketSnapshot frame — an additive new wire surface.
+- Liquidity Phase 3 reads from Liquidity Phase 1 + Liquidity Phase 2 and produces liquidity-derived signals that are emitted onto the existing `MarketSnapshot` wire as top-level fields alongside the `indicators` map.
 
 ## Risk integration
 

@@ -16,7 +16,7 @@ The platform is a Cargo Workspace of 9 specialized, decoupled crates plus the Sv
 | `core-domain` | DTOs shared across all engines | Stateless data shapes: snapshot, matrices, indicator value types, JSON-RPC envelopes. Leaf crate — no deps on other workspace crates. |
 | `config-models` | All `*Config` structs | Configuration loading (`load_config()`, `load_instances()`), TOML/JSON deserialization. Leaf crate. |
 | `market-analyzer` | MME L1–L7 + market-context synthesis | 50 indicators across 4 timeframes, signal detection, multi-TF pipeline orchestrator (`ActivePair`, `TimeframePipeline`), `MarketContext` synthesis, indicator DTO re-exports. |
-| `database-storage` | DIE persistence + PAE persistence | SQLite schema (24 migrations), WAL telemetry logger, all query layer, connection-quality persistence consumer, encryption helpers. |
+| `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 migrations), WAL telemetry logger, all query layer, connection-quality persistence consumer, encryption helpers. |
 | `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid and Bitget, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
 | `portfolio-supervisor` | PME + TAE | Instance lifecycle, `SafetyManager`, sizing, exposure, capital, session state, profile evaluation, risk/commission math, registry orchestrator. |
 | `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator stub. |
@@ -66,6 +66,8 @@ Two leaf crates have **no outgoing edges** inside the workspace:
 - **`core-domain`** — has no field or service in any other workspace crate; if you need to add cross-cutting DTOs, put them here.
 - **`config-models`** — the config structs are consumed via `Arc<RwLock<AppConfig>>` passed from `execution-daemon` at boot; no workspace crate is required to depend on `config-models` because types are accessed by `serde`-deserialized concrete fields on `Arc<RwLock<AppConfig>>`. See `03-01-config-models-is-not-a-dep-of-everyone` below for why.
 
+**Edges not shown:** `api-gateway → config-models` (HTTP handlers deserialize `AppConfig` directly) and `execution-daemon → config-models` (boot sequence reads `config.toml` via `load_config()`). Both edges are valid because `config-models` is a leaf crate with no reverse dependencies; these edges do not create cycles.
+
 ## 3. The Four Cycle-Breaking Design Decisions
 
 The logical 2-D engine architecture makes certain cross-crate touches feel natural — but every one of them, in Rust, would create a Cargo crate-level cycle. The workspace splits are deliberately arranged to avoid each cycle by moving either the **type definition** or the **function body** into the right crate.
@@ -90,15 +92,13 @@ The dependency arrow is: `api-gateway` depends on `portfolio-supervisor` (no cyc
 
 > **Tradeoff.** This is a small bit of glue code (one method on `AppState`). The alternative — making `AppState` live in `portfolio-supervisor` — would force `portfolio-supervisor` to know about Axum types, which is the wrong direction.
 
-### 3.3 ConnectionQualityTracker vs. persistence loop (network-adapters ↔ database-storage)
+### 3.3 ConnectionQualityTracker w/ persistence loop (network-adapters)
 
-**Cycle we avoided:** the connection-quality feature needs both the **state tracker** (in-memory rolling windows, score recomputation) and a **persistence writer** (write rolled-up events to `connection_quality_events` SQLite table). Putting both in `network-adapters` would force `network-adapters → database-storage`. Putting both in `database-storage` would invert the conceptual home of the live state.
+**Cycle we avoided:** the connection-quality feature needs both the **state tracker** (in-memory rolling windows, score recomputation) and a **persistence writer** (write rolled-up entries to `connection_quality_samples` SQLite table). Putting both in `network-adapters` would force `network-adapters → database-storage` (the tracker side is already resolved per §3.3; the write side was solved by giving the tracker its own persistence loop).
 
-**Decision:** the **tracker** lives in `network-adapters::connection_quality_tracker::ConnectionQualityTracker` — pure in-memory, no `sqlx`. The **persistence loop** lives in `database-storage::connection_quality_persistence::spawn_persistence_loop`. The tracker exposes a `subscribe_events()` broadcast receiver; `database-storage` consumes that receiver in its own spawned task.
+**Decision:** the connection-quality tracker and its 60-second persistence loop both live in `network-adapters::connection_quality_tracker.rs` (`run_persistence_loop`). The loop writes one row per `(pair_key, timeframe_secs, window)` into `connection_quality_samples` every 60 s. `database-storage` exposes only the query layer (`list_connection_quality`). There is no `connection_quality_persistence` module and no `connection_quality_events` table (retired concept, see `06-02` §3.9).
 
-This is the **canonical pattern** for any future "network state + SQL persistence" feature: keep the tracker stateless w.r.t. SQL, and consume its events on the storage side.
-
-> **Tradeoff.** The tracker does not flush its own state on shutdown — the persistence loop drains every event before exit. Acceptable for at-most-once delivery semantics; if we ever need exactly-once, we move to a write-through pattern that breaks the cycle differently.
+This is the **canonical pattern**: network-adjacent features that need both live state and periodic persistence keep the write loop colocated with the tracker; the storage crate owns only queries.
 
 ### 3.4 paper_trading::invalidate_position removal (market-analyzer ↔ portfolio-supervisor)
 
@@ -154,8 +154,10 @@ Tests are co-located with the crate they exercise, in that crate's `tests/` dire
 |---|---|---|
 | `test-core` | `core-domain`, `market-analyzer`, `config-models` | Pure math, indicator math, serialization, liquidity module math |
 | `test-engine` | `database-storage`, `api-gateway`, `portfolio-supervisor`, `performance-analytics`, `network-adapters`, `execution-daemon` | DB integration, server routes, orchestration e2e, performance stats, adapter resilience, daemon smoke tests |
+| `test-ui` | `ui` | Svelte 5 runes, components, snapshots, LiquidityPanel |
+| `test-doc` | `docs/` (documentation corpus) | File inventory regeneration, worked-example recomputation, grep-based consistency sweeps (phase-gate semantics, sign conventions, endpoint descriptions, boundary operators, stale version targets, status fields, placeholders, enum casing, reachability) |
 
-The boundary is intentional: a change to indicator math can be unit-tested in milliseconds (TEST-CORE); a change to the API contract requires network + DB integration (TEST-ENGINE). A change that crosses both boundaries moves both buckets.
+The boundary is intentional: a change to indicator math can be unit-tested in milliseconds (TEST-CORE); a change to the API contract requires network + DB integration (TEST-ENGINE). A change that crosses both boundaries moves both buckets. `test-doc` runs at release time to ensure the documentation corpus remains internally consistent; it relies on `./manage.sh test-doc` (regenerate inventory, recompute worked examples, run manifest §12 grep sweeps).
 
 > **Dev-dependency note.** Two test crates need dev-only cross-crate references that the runtime crate does not: `core-domain` and `database-storage` test files need `market-analyzer` as a **dev-dependency** (because they exercise the `NormalizationEngine`). This is the only dev-dep `lift` in the workspace; if you are tempted to add another, raise it for design review first — it usually means a test is in the wrong crate.
 

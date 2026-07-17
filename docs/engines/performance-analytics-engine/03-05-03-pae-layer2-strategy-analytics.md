@@ -99,9 +99,9 @@ A low $p_{mc}$ (< 0.05) confirms the strategy's positive mean return is unlikely
 
 | Criteria | Classification |
 |----------|---------------|
-| `profit_factor > 2.0 AND win_rate > 50% AND p_value < 0.01 AND p_mc < 0.01` | **Strong Edge** |
+| `profit_factor > 1.2 AND win_rate > 50% AND p_value < 0.01 AND p_mc < 0.01` | **Strong Edge** |
 | `profit_factor > 1.5 AND win_rate > 45% AND p_value < 0.05 AND p_mc < 0.05` | **Moderate Edge** |
-| `profit_factor > 1.2 AND p_value < 0.10` | **Weak Edge** |
+| `profit_factor ≥ 1.0 AND p_value ≤ 0.10` | **Weak / Marginal Edge** |
 | `profit_factor < 1.0 OR p_value > 0.10` | **No Edge / Negative** |
 | `total_trades < 30` | **Insufficient Data** |
 

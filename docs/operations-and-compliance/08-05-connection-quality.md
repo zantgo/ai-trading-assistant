@@ -46,7 +46,7 @@ score = clamp(0..100,
 )
 ```
 
-The five terms span `[−0.10, +1.00]` raw after normalisation, then multiplied by 100 to the `[0, 100]` scale, then `clamp(0..100, …)` finalises. Interpretation:
+Interpretation:
 
 | Term | Weight | Saturates at | Notes |
 |------|--------|--------------|-------|

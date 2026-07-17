@@ -1,7 +1,7 @@
 # Instance Lifecycle & Programmable State Control
 
 **Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
-**Status:** Approved
+**Status:** Specified — target of record (implementation status: README §Feature Status)
 **Engine:** Trade Automation Engine (TAE)
 **Owner:** portfolio-supervisor + execution-daemon
 
@@ -153,11 +153,13 @@ Active-table count in `06-02 §3` changes **24 → 26**.
 
 ---
 
-## §7 Runtime TODOs
+## §7 Implementation work items (tracked in CHANGELOG §Open Items)
 
-- `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions).
-- `database-storage`: add migrations `00XX_create_instance_lifecycle.sql` and `00XX_create_instance_lifecycle_events.sql`; bump `user_version`.
-- `api-gateway`: implement `POST /api/instances/:id/start`; rewrite `/pause` handler (entry-gate semantics); rewrite `/stop` handler (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone.
-- `portfolio-supervisor`: implement Gate 0 check in pre-trade chain.
-- `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true`.
-- `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line.
+The following items are implementation work tracked in `CHANGELOG.md` §Open Items (`AUDIT-V6-202` through `AUDIT-V6-207`). This section is a convenience index; the canonical status of each item lives in CHANGELOG §Open Items.
+
+- `AUDIT-V6-202` — `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions).
+- `AUDIT-V6-203` — `database-storage`: add migrations `00XX_create_instance_lifecycle.sql` and `00XX_create_instance_lifecycle_events.sql`; bump `user_version`.
+- `AUDIT-V6-204` — `api-gateway`: implement `POST /api/instances/:id/start`; rewrite `/pause` handler (entry-gate semantics); rewrite `/stop` handler (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone.
+- `AUDIT-V6-205` — `portfolio-supervisor`: implement Gate 0 check in pre-trade chain.
+- `AUDIT-V6-206` — `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true`.
+- `AUDIT-V6-207` — `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line.

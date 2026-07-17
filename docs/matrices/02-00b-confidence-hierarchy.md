@@ -91,7 +91,7 @@ These per-component confidence values are **local reliability measures** for ind
 
 ---
 
-## 5. Cross-References
+## 6. Cross-References
 
 - [02-00-matrix-field-ownership.md](02-00-matrix-field-ownership.md) — Per-field producer mapping.
 - [02-02-analysis-matrix.md](02-02-analysis-matrix.md) · [02-04-decision-matrix.md](02-04-decision-matrix.md) · [02-08-opportunity-matrix.md](02-08-opportunity-matrix.md) — Per-matrix specs.

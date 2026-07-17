@@ -41,9 +41,9 @@ The Capital Layer is the PME's **balance-sheet authority**. It holds the definit
 >
 > | Capital Matrix field | `paper_balances` column |
 > |----------------------|-------------------------|
-> | `initial_balance` | `initial_usd` |
-> | `realized_pnl` | `current_cash` |
-> | `committed_margin`, `unrealized_pnl`, `available_margin` | **derived metrics — not persisted**. Computed on demand from `active_positions` and `open_orders` (see §4.2 and the database spec §3.2 preamble). The startup recovery process recomputes them from the persisted `active_positions` and `open_orders` rows. |
+> | `initial_balance` | `initial_balance` |
+> | `balance` | `balance` (current; the liquid cash balance tracked by the capital ledger) |
+> | `committed_margin`, `unrealized_pnl`, `available_margin` | **derived metrics — not persisted**. Computed on demand from `active_positions` and `open_orders` (see §4.2 and the database spec §3.4 preamble). The startup recovery process recomputes them from the persisted `active_positions` and `open_orders` rows. |
 
 ### 2.2 Risk Metrics
 
@@ -124,8 +124,8 @@ The Capital Layer continuously monitors `margin_usage_ratio` (fraction in `[0, 1
 
 | Threshold | Action |
 |-----------|--------|
-| `margin_usage_ratio > 0.80` | Warning published to Portfolio Layer (L4). |
-| `margin_usage_ratio > 0.95` | Alert: automatic `CLOSE_ONLY` stance for all symbols (see PME Layer 4 §4.1 for trigger-to-stance mapping). |
+| `margin_usage_ratio ≥ 0.80` | Warning published to Portfolio Layer (L4). |
+| `margin_usage_ratio ≥ 0.95` | Alert: automatic `CLOSE_ONLY` stance for all symbols (see PME Layer 4 §4.1 for trigger-to-stance mapping). |
 | `margin_usage_ratio ≥ 1.00` | Potential liquidation — emergency position reduction (PME Veto triggers `AVOID` stance + Hard Exit path). |
 
 ---
@@ -135,7 +135,7 @@ The Capital Layer continuously monitors `margin_usage_ratio` (fraction in `[0, 1
 The Capital Layer is the **single source of truth** for the TAE Position Sizing Protocol. On every sizing event:
 
 1. TAE Execution Layer sends a synchronous request: `query_available_margin(symbol)`.
-2. Capital Layer responds with `available_margin` (after reserving margin for the pending order).
+2. Capital Layer responds with `available_margin`. The query is **read-only** — no reservation is taken at query time. Margin is committed only when the order passes Gate 3 at dispatch.
 3. TAE computes $S = \frac{E \times R}{D_{sl} / 100}$ and dispatches the order. *(Units: `E` = available margin (Decimal, quote currency); `R = risk_per_trade_pct / 100` (unitless fraction in `[0, 1]`); `D_sl` = raw percent float in `[0, 100]` (divided by 100 in the formula).)*
 4. On fill confirmation, Capital Layer updates `committed_margin` and `available_margin`.
 

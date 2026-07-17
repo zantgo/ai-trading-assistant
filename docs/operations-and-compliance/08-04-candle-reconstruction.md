@@ -132,4 +132,4 @@ Returns `Some((gap_start, gap_end))` when the elapsed time since the last persis
 
 - [Connection Resilience](08-03-connection-resilience.md) — source of `ReconnectState` events that trigger reconstruction
 - [Connection Quality](08-05-connection-quality.md) — counts reconstructed candles in the `reconstructed_candles` field
-- [Risk Matrix §4.8](../matrices/02-11-risk-matrix.md) — `cascade_risk` reads reconstructed candle provenance
+- [Risk Matrix §4.8](../matrices/02-11-risk-matrix.md) — `cascade_risk` dimension

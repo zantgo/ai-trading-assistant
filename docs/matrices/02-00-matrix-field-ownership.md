@@ -126,7 +126,7 @@ Owns: forecast / setup identification. The **canonical source** of the `Opportun
 | `invalidation_note` | L4 | Condition that nullifies the opportunity |
 | `entry_zone` (`PriceRange`) | L4 | Recommended entry band *(institutional redesign)* |
 | `target_zone` (`PriceRange`) | L4 | Expected target band *(institutional redesign)* |
-| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior name: `invalidation_level`; renamed to `invalidation_level` so L4, Decision Matrix, and Position Matrix share one naming convention. The `invalidation_level` legacy alias is **not** serialized.)* |
+| `invalidation_level` (`Decimal`) | L4 | Structural level whose breach nullifies the thesis. Canonical across L4, Decision Matrix, and Position Matrix. *(Prior names: `invalid_level` (L4/Decision) and `final_invalidation_level` (Position Matrix); unified to `invalidation_level` in v2.1.)* |
 | `expected_rr_internal` (`f64`) | L4 | Expected reward/risk ratio for this setup *(renamed from `expected_rr` in v2.1 to disambiguate from the Decision-Layer `expected_reward_risk_ratio`)* |
 | `time_horizon` (`TimeHorizon`) | L4 | `SCALP` / `INTRADAY` / `SWING` / `POSITION` — all four variants are reachable from at least one `OpportunityType` (see [02-08-opportunity-matrix.md §3](../matrices/02-08-opportunity-matrix.md)). |
 

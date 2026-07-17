@@ -88,15 +88,16 @@ The `dimensions` array is ordered. Each index maps to a specific agreement axis:
 
 The `AlignState` enum grows from four to seven values: `BULLISH` | `BEARISH` | `NEUTRAL` | `MIXED` | `ALIGNED` | `PARTIAL` | `DIVERGENT`.
 
-**Signed dimensions** (Trend, Momentum, Volume, Volatility, Confidence):
+**Signed dimensions** (Trend, Momentum, Volume, Volatility):
 
 - Inputs: signed mean `m ∈ [-1, 1]`; sign-agreement `a` = fraction of timeframes sharing the majority sign.
+- `score = a × 100` (magnitude of sign-agreement, independent of direction); `state` is derived from the signed mean `m` (direction). A dimension can show strong agreement on magnitude (high score) with a weak net direction (NEUTRAL state), or vice versa.
 - If `a < 0.6` → `MIXED`.
 - Else if `m > +0.3` → `BULLISH`.
 - Else if `m < -0.3` → `BEARISH`.
 - Else → `NEUTRAL`.
 
-**Unsigned dimensions** (Structure, Signal, Regime, Liquidity, Tradability):
+**Unsigned dimensions** (Structure, Signal, Regime, Confidence, Liquidity, Tradability):
 
 - `score ≥ 60` → `ALIGNED`.
 - `30 ≤ score < 60` → `PARTIAL`.
@@ -155,7 +156,7 @@ otherwise   → NEUTRAL_MTF
 | Condition | Result |
 |-----------|--------|
 | No timeframes supplied | `AlignmentMatrix::empty()` → `timeframes_present = 0`, `mtf_overall_label = "NO_DATA"`, 10 zero-score dimensions. |
-| Single timeframe | Dimensions still computed but agreement percentages reflect a single data point; confidence dimensions default to 50. |
+| Single timeframe | Dimensions still computed but agreement percentages reflect a single data point; confidence dimensions default to the single timeframe's per-TF confidence score (§3.2 per-dimension basis). |
 | Missing indicator (e.g. no S/R) | The affected dimension degrades to score `0` rather than failing. |
 
 ---
@@ -168,13 +169,13 @@ otherwise   → NEUTRAL_MTF
   "timeframes_present": 4,
   "dimensions": [
     { "score": 78.0, "state": "BULLISH", "confidence": 78.0 },
-    { "score": 65.0, "state": "BULLISH", "confidence": 65.0 },
+    { "score": 65.0, "state": "NEUTRAL", "confidence": 65.0 },
     { "score": 55.0, "state": "NEUTRAL", "confidence": 55.0 },
-    { "score": 60.0, "state": "BULLISH", "confidence": 60.0 },
-    { "score": 33.3, "state": "DIVERGENT", "confidence": 33.3 },
+    { "score": 60.0, "state": "NEUTRAL", "confidence": 60.0 },
+    { "score": 33.3, "state": "PARTIAL", "confidence": 33.3 },
     { "score": 75.0, "state": "ALIGNED", "confidence": 75.0 },
     { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 },
-    { "score": 88.0, "state": "BULLISH", "confidence": 88.0 },
+    { "score": 88.0, "state": "ALIGNED", "confidence": 88.0 },
     { "score": 70.0, "state": "ALIGNED", "confidence": 70.0 },
     { "score": 100.0, "state": "ALIGNED", "confidence": 100.0 }
   ],

@@ -54,5 +54,5 @@ confidence = |OFI|
 ## Cross-References
 
 - [Depth Bias](04-02-50-depth-bias.md) — Full depth ratio (not just top N).
-- [Spread](04-02-49-spread.md) · [order_book.rs](https://github.com/source) — Order book analysis.
+- [Spread](04-02-49-spread.md) · `order_book.rs` — Order book analysis.
 - [Signals Guide — Threshold](../signals/05-02-03-threshold.md)

@@ -19,7 +19,7 @@ The viewport is composed of **three independently-mounted navbars** stacked abov
 │  [Workspace] [Overview] [Settings]                                       │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ NAVBAR 3 — Bottom (Instance-level) ··· mounts when Market+Workspace+Sel ·│
-│  [Charts][Metrics][Alignment][Opps][Risks][Conn][Analysis][Dec][Liquid]  │
+│  [Charts][Metrics][Alignment][Opps][Risks][Analysis][Decision]          │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │                       MAIN CONTENT AREA                                  │
@@ -51,7 +51,7 @@ The Top Navbar is always rendered while the session is active. It uses a 4-colum
 
 | Cell | Content | Behavior |
 |------|---------|----------|
-| **Brand trigger** | `TRADING PLATFORM` (when on Home) or the active engine label (`MARKET`, `PORTFOLIO`, `TRADING`, `ANALYSIS`) | Click toggles the Engines Sidebar (left drawer). Shows a downward chevron on Home, the engine icon elsewhere. |
+| **Brand trigger** | `TRADING PLATFORM` (when on Home) or the active engine label (`DATA INFRA`, `MARKET`, `PORTFOLIO`, `TRADING`, `ANALYSIS`) | Click toggles the Engines Sidebar (left drawer). Shows a downward chevron on Home, the engine icon elsewhere. |
 | **Exchange chip** | `{app.sessionExchange} · {app.sessionCurrency}` (e.g. `Hyperliquid · USDC`) | Read-only. Monospace font, dim text. |
 | **Spacer** | empty | flex-grow column. |
 | **Workspaces trigger** | When no instance is selected: `Workspaces` label + 2x2 grid icon. When an instance is selected: pair label + live price + 24 h change % | Click toggles the Workspaces Sidebar (right drawer). |
@@ -187,7 +187,6 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 | Trade Automation | `trade_automation` | `EngineOverview` card describing the execution policy engine, paper/live trading path, and sizing protocol. Settings tab for strategy config. |
 | Portfolio Management | `portfolio` | `EngineOverview` card describing position tracking, margin utilization, exposure, and safety veto. Settings tab for safety/fees config. |
 | Performance Analytics | `performance` | `EngineOverview` card describing dashboard stats, strategy optimizer, Monte Carlo significance testing. Settings tab for analytics cadences. |
-| Analysis | `performance` | Placeholder ("Coming soon"). |
 
 ### 5.4 Quit Session Flow
 

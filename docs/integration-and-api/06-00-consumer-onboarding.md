@@ -69,7 +69,7 @@ The full per-instance envelope described in [02-07-metrics-matrix.md](../matrice
 | `trades_count` | `u64` | Number of trades aggregated. |
 | `mid_price` / `bid_price` / `ask_price` / `bid_size` / `ask_size` | `string?` (Decimal) | Latest book state at candle close. |
 | `funding_rate` / `open_interest` / `oi_delta_1h` / `prev_day_px` | `string?` (Decimal) | Derivatives context. |
-| `mark_price` / `index_price` / `mark_index_spread_pct` | `string?` / `number?` | Mark/index context (Phase 3 will populate `mark_index_spread_pct`; v6.0 reads the columns but no writer exists yet — see [AUDIT-V6-301](../CHANGELOG.md)). |
+| `mark_price` / `index_price` / `mark_index_spread_pct` | `string?` / `string?` / `number?` | Mark/index context. Columns exist and are read as NULL until the Phase-3 writer ships (see [AUDIT-V6-301](../CHANGELOG.md)). |
 | `indicators` | `object` | Per-indicator values keyed by indicator name (50 indicators, 8 groups). |
 | `alignment` | `object` | Multi-TF alignment matrix (10 dimensions). |
 | `analysis` | `object` | L3 Analysis: state_confidence, market_quality, market_regime, market_phase, bias, 5 `*_assessment` fields. |

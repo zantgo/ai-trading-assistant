@@ -2,7 +2,9 @@
 
 **Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
-**Status:** Approved
+**Status:** Specified — target of record
+
+**This catalog is the v6.3 target schema.** Per-table implementation status is tracked in README §Feature Status.
 **Purpose:** This document specifies the SQLite database schema — all persistent tables, indexes, WAL configuration, and migration strategy for the Trading Platform's shared telemetry store.
 
 **Active tables (26):** `market_snapshots`, `open_orders`, `user_trades`, `paper_balances`, `active_positions`, `position_slots`, `position_equity_snapshots`, `paper_trades`, `exchange_keys`, `decision_profiles`, `profile_indicators`, `risk_profiles`, `portfolio_equity_history`, `trade_telemetry_history`, `trade_learning_journal`, `saved_edges`, `edge_analytics_cache`, `support_resistance_levels`, `connection_quality_samples`, `liquidation_events`, `performance_matrix_snapshots`, `strategy_analytics_history`, **`order_fills`** (B-6 — activated in v4.0), **`risk_control_events`** (B-5 — added in v4.0), **`instance_lifecycle`** + **`instance_lifecycle_events`** (IL-13 — added in v6.2; see [03-03-06 §5](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)).
@@ -27,8 +29,8 @@
 | Auto-increment ID | `INTEGER PRIMARY KEY AUTOINCREMENT` |
 | Timestamp (epoch ms) | `INTEGER NOT NULL` |
 | Timestamp (epoch sec) | `INTEGER NOT NULL` |
-| `Decimal` (price, size, capital) | `TEXT NOT NULL CHECK (value GLOB '[+-]?[0-9]*([.][0-9]*)?')` — serializes via `rust_decimal::Decimal::to_string()` |
-| Nullable value (optional Decimal) | `TEXT CHECK (value IS NULL OR value GLOB '[+-]?[0-9]*([.][0-9]*)?')` — distinguishes `NULL` (inherit global) from the canonical pattern (e.g. `"0"` = disable) |
+| `Decimal` (price, size, capital) | `TEXT NOT NULL` — serialized via `rust_decimal::Decimal::to_string()`. Per-column `GLOB` CHECKs have been removed from all DDL blocks; validation is enforced at the Rust `Decimal::from_str()` type boundary. |
+| Nullable value (optional Decimal) | `TEXT` — distinguishes `NULL` (inherit global) from the canonical pattern (e.g. `"0"` = disable). Per-column `GLOB` CHECKs removed; validation at the Rust type boundary. |
 | Boolean | `INTEGER NOT NULL CHECK (value IN (0, 1))` |
 | JSON value | `TEXT NOT NULL CHECK (json_valid(value))` |
 | JSON array | `TEXT NOT NULL CHECK (json_valid(value))` (always JSON, even for empty — the platform distinguishes JSON-empty from key-omitted via `json_valid` + presence) |
@@ -52,7 +54,7 @@ Indexes are created on each table for the query patterns the engine actually use
 |---|---|---|
 | `idx_market_snapshots_pair_time` | `(pair_key, timeframe_secs, timestamp DESC)` | Replay history fetch |
 | `idx_market_snapshots_completed` | `(pair_key, timeframe_secs, timestamp DESC) WHERE is_completed = 1` | MME pipeline (only completed snapshots) |
-| `idx_open_orders_state` | `(state, instance_id, timestamp)` | Live order lifecycle queries |
+| `idx_open_orders_state` | `(state, instance_id, created_at)` | Live order lifecycle queries |
 | `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
 | `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
 | `idx_risk_control_events_pair_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
@@ -79,21 +81,24 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     timestamp INTEGER NOT NULL,
     is_completed INTEGER NOT NULL DEFAULT 1,
     exchange TEXT NOT NULL,
-    mid_price TEXT NOT NULL CHECK (mid_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    bid_price TEXT NOT NULL CHECK (bid_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    ask_price TEXT NOT NULL CHECK (ask_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    bid_size TEXT NOT NULL CHECK (bid_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    ask_size TEXT NOT NULL CHECK (ask_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    funding_rate TEXT CHECK (funding_rate GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    open TEXT NOT NULL CHECK (open GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    high TEXT NOT NULL CHECK (high GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    low TEXT NOT NULL CHECK (low GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    close TEXT NOT NULL CHECK (close GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    volume TEXT NOT NULL CHECK (volume GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    average_volume TEXT CHECK (average_volume GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    open_interest TEXT CHECK (open_interest GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    oi_delta_1h TEXT CHECK (oi_delta_1h GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    prev_day_px TEXT CHECK (prev_day_px GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    mid_price TEXT NOT NULL,
+    bid_price TEXT NOT NULL,
+    ask_price TEXT NOT NULL,
+    bid_size TEXT NOT NULL,
+    ask_size TEXT NOT NULL,
+    funding_rate TEXT,
+    open TEXT NOT NULL,
+    high TEXT NOT NULL,
+    low TEXT NOT NULL,
+    close TEXT NOT NULL,
+    volume TEXT NOT NULL,
+    average_volume TEXT,
+    open_interest TEXT,
+    oi_delta_1h TEXT,
+    prev_day_px TEXT,
+    mark_price TEXT,
+    index_price TEXT,
+    mark_index_spread_pct REAL,
     reconstructed INTEGER NOT NULL DEFAULT 0,
     reconstruction_method TEXT CHECK (reconstruction_method IS NULL OR reconstruction_method IN ('EXCHANGE_HISTORICAL','EXPONENTIAL_MOVING_AVERAGE','LINEAR_EXTRAPOLATION','UNAVAILABLE')),
     indicators_json TEXT NOT NULL CHECK (json_valid(indicators_json)),
@@ -132,12 +137,12 @@ CREATE TABLE IF NOT EXISTS open_orders (
     pair_key TEXT NOT NULL,
     side TEXT NOT NULL CHECK (side IN ('LONG', 'SHORT')),
     state TEXT NOT NULL CHECK (state IN ('PENDING','SUBMITTED','OPEN','PARTIALLY_FILLED','CLOSED','REJECTED','CANCELLED')),
-    requested_size TEXT NOT NULL CHECK (requested_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    filled_size TEXT NOT NULL DEFAULT '0' CHECK (filled_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    entry_price TEXT CHECK (entry_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    stop_loss_price TEXT CHECK (stop_loss_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    take_profit_price TEXT CHECK (take_profit_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    invalidation_level TEXT CHECK (invalidation_level GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    requested_size TEXT NOT NULL,
+    filled_size TEXT NOT NULL DEFAULT '0',
+    entry_price TEXT,
+    stop_loss_price TEXT,
+    take_profit_price TEXT,
+    invalidation_level TEXT,
     is_reduce_only INTEGER NOT NULL DEFAULT 0,
     slippage_bps INTEGER,
     created_at INTEGER NOT NULL,
@@ -146,7 +151,7 @@ CREATE TABLE IF NOT EXISTS open_orders (
     filled_at INTEGER,
     close_reason TEXT CHECK (close_reason IS NULL OR close_reason IN ('STOP_LOSS','TAKE_PROFIT','SIGNAL_EXIT','MANUAL','VETO','TIMEOUT','EMERGENCY_LIQUIDATION'))
 );
-CREATE INDEX IF NOT EXISTS idx_open_orders_state ON open_orders(state, instance_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_open_orders_state ON open_orders(state, instance_id, created_at);
 ```
 
 **Per `03-03-03-tae-layer2-execution.md §4`:** `PRE_DISPATCH` orders are held in process memory only and are **never** persisted to `open_orders`. The `risk_control_events` table (§3.10) is the persistent audit trail for every held order; the `/api/pre-dispatch/*` resource ([`06-01 §2.9`](06-01-api-gateway-contract.md)) is the operator surface.
@@ -161,8 +166,8 @@ CREATE TABLE IF NOT EXISTS user_trades (
     symbol TEXT NOT NULL,
     direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
     outcome TEXT NOT NULL CHECK (outcome IN ('WIN', 'LOSS', 'BREAKEVEN', 'OPEN')),
-    risk_multiplier TEXT NOT NULL CHECK (risk_multiplier GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    reward_multiplier TEXT NOT NULL CHECK (reward_multiplier GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    risk_multiplier TEXT NOT NULL,
+    reward_multiplier TEXT NOT NULL,
     opened_at INTEGER NOT NULL,
     closed_at INTEGER,
     notes TEXT
@@ -174,12 +179,12 @@ CREATE TABLE IF NOT EXISTS user_trades (
 ```sql
 CREATE TABLE IF NOT EXISTS paper_balances (
     instance_id TEXT PRIMARY KEY,
-    balance TEXT NOT NULL CHECK (balance GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    initial_balance TEXT NOT NULL CHECK (initial_balance GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    starting_session_equity TEXT NOT NULL CHECK (starting_session_equity GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    peak_equity TEXT NOT NULL CHECK (peak_equity GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    balance TEXT NOT NULL,
+    initial_balance TEXT NOT NULL,
+    starting_session_equity TEXT NOT NULL,
+    peak_equity TEXT NOT NULL,
     cooldown_start_ms INTEGER,
-    active_stance TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (active_stance IN ('ACTIVE','CLOSE_ONLY','AVOID','SUSPENDED')),
+    active_stance TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (active_stance IN ('ACTIVE','CLOSE_ONLY','AVOID')),
     safety_state TEXT NOT NULL DEFAULT 'NORMAL' CHECK (safety_state IN ('NORMAL','WARN','CAUTIOUS','SUSPENDED','DRAWDOWN_STOP')),
     consecutive_losses INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
@@ -198,21 +203,21 @@ CREATE TABLE IF NOT EXISTS active_positions (
     instance_id TEXT NOT NULL,
     pair_key TEXT NOT NULL,
     direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
-    entry_price TEXT NOT NULL CHECK (entry_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    average_entry_price TEXT NOT NULL CHECK (average_entry_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    position_size TEXT NOT NULL CHECK (position_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    invalidation_level TEXT CHECK (invalidation_level GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    stop_loss_price TEXT CHECK (stop_loss_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    take_profit_price TEXT CHECK (take_profit_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    current_price TEXT CHECK (current_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    unrealized_pnl TEXT CHECK (unrealized_pnl GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    roi_pct TEXT NOT NULL CHECK (roi_pct GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    entry_price TEXT NOT NULL,
+    average_entry_price TEXT NOT NULL,
+    position_size TEXT NOT NULL,
+    invalidation_level TEXT,
+    stop_loss_price TEXT,
+    take_profit_price TEXT,
+    current_price TEXT,
+    unrealized_pnl TEXT,
+    roi_pct TEXT NOT NULL,
     opened_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
 ```
 
-The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the legacy `roi_pct` is deprecated and removed at v5.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
+The `invalidation_level` field is canonical across L4 Opportunity Matrix, L6 Decision Matrix, and this Position Matrix. `roi_pct` is the canonical field; the pre-v2.1 legacy alias `roi_percentage` was removed at v5.0 (see [`06-01-api-gateway-contract.md §2.7`](06-01-api-gateway-contract.md)).
 
 ### 3.6 `position_slots` — scaled-entry reconciliation
 
@@ -221,8 +226,8 @@ CREATE TABLE IF NOT EXISTS position_slots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     position_id INTEGER NOT NULL REFERENCES active_positions(id) ON DELETE CASCADE,
     slot_index INTEGER NOT NULL,
-    size TEXT NOT NULL CHECK (size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    price TEXT NOT NULL CHECK (price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    size TEXT NOT NULL,
+    price TEXT NOT NULL,
     filled_at INTEGER NOT NULL,
     UNIQUE (position_id, slot_index)
 );
@@ -241,15 +246,15 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     direction TEXT NOT NULL,
     exit_reason TEXT NOT NULL CHECK (exit_reason IN ('STOP_LOSS','TAKE_PROFIT','SIGNAL_EXIT','MANUAL','VETO','TIMEOUT','EMERGENCY_LIQUIDATION')),
     hold_seconds INTEGER NOT NULL,
-    gross_pnl TEXT NOT NULL CHECK (gross_pnl GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    net_pnl TEXT NOT NULL CHECK (net_pnl GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    roi_pct TEXT NOT NULL CHECK (roi_pct GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    gross_pnl TEXT NOT NULL,
+    net_pnl TEXT NOT NULL,
+    roi_pct TEXT NOT NULL,
     open_time INTEGER NOT NULL,
     close_time INTEGER NOT NULL,
-    MFE TEXT NOT NULL CHECK (MFE GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    MAE TEXT NOT NULL CHECK (MAE GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    entry_vwap TEXT NOT NULL CHECK (entry_vwap GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    exit_vwap TEXT NOT NULL CHECK (exit_vwap GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    MFE TEXT NOT NULL,
+    MAE TEXT NOT NULL,
+    entry_vwap TEXT NOT NULL,
+    exit_vwap TEXT NOT NULL,
     flat_trade INTEGER NOT NULL DEFAULT 0
 );
 ```
@@ -262,13 +267,13 @@ CREATE TABLE IF NOT EXISTS order_fills (
     fill_index INTEGER NOT NULL,
     side TEXT NOT NULL CHECK (side IN ('LONG', 'SHORT')),
     fill_type TEXT NOT NULL CHECK (fill_type IN ('ENTRY', 'EXIT')),
-    filled_size TEXT NOT NULL CHECK (filled_size GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    fill_price TEXT NOT NULL CHECK (fill_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    target_price TEXT CHECK (target_price GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    filled_size TEXT NOT NULL,
+    fill_price TEXT NOT NULL,
+    target_price TEXT,
     fill_slippage_bps INTEGER NOT NULL DEFAULT 0,
     fee_currency TEXT NOT NULL CHECK (fee_currency IN ('MAKER', 'TAKER')),
-    fee_paid TEXT NOT NULL CHECK (fee_paid GLOB '[+-]?[0-9]*([.][0-9]*)?'),
-    funding_accrued TEXT NOT NULL DEFAULT '0' CHECK (funding_accrued GLOB '[+-]?[0-9]*([.][0-9]*)?'),
+    fee_paid TEXT NOT NULL,
+    funding_accrued TEXT NOT NULL DEFAULT '0',
     filled_at INTEGER NOT NULL,
     UNIQUE (trade_id, fill_index)
 );
@@ -346,11 +351,11 @@ CREATE INDEX IF NOT EXISTS idx_rce_instance_gate_time ON risk_control_events(ins
 CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator_id, timestamp_ms DESC);
 ```
 
-`operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` is reserved for cases where the API layer forwards without an explicit identity (not currently surfaced). Caller-supplied identity via `X-Operator-Id` is on the v5.0 roadmap.
+`operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` is reserved for cases where the API layer forwards without an explicit identity (not currently surfaced). Caller-supplied identity via `X-Operator-Id` is see README §Feature Status.
 
 ### 3.11 — 3.26 Remaining tables
 
-The remaining 16 tables retain their pre-v4.0 schemas with two v4.0 updates that apply consistently across the corpus:
+The remaining tables: 14 retain their pre-v4.0 schemas (with the two v4.0 updates below); `instance_lifecycle` and `instance_lifecycle_events` were added in v6.2 and are detailed in §3.25/§3.26.
 
 - `decimal_value` columns use the same `CHECK (value GLOB ...)` constraint pattern as the canonical schema.
 - Foreign keys are added only where the relationship is genuinely relational (most references are denormalized config identifiers like `policy_id`/`instance_id` strings and are not FKs).
@@ -443,7 +448,7 @@ The engine holds a single writer connection per process. Read concurrency is ach
 
 - `exchange_keys.encrypted_*` columns use **AES-256-GCM** with the master key loaded from the `EXCHANGE_SECRET_KEY` environment variable (32 bytes; if absent, the engine panics on startup with a descriptive error).
 - `nonce = random 96-bit per row`. AEAD tag is appended to the ciphertext column.
-- Key rotation: rotate the master key by deploying `crypto_kms_rotate` (or equivalent) — both the `last_rotated_at` column and a fresh `nonce` per row make re-encryption safe.
+- Key rotation: rotate the master key — both the `last_rotated_at` column and a fresh `nonce` per row make re-encryption safe.
 
 ---
 
@@ -457,7 +462,7 @@ The engine holds a single writer connection per process. Read concurrency is ach
 
 Migrations live in `crates/database-storage/migrations/ (sqlx::migrate! consumes at build-time)`. The schema-version compatibility window is `user_version = N` where `N` is the most-recent migration applied. The engine refuses to start if `user_version` is **lower** than the minimum required version (no forward-only compatibility — re-run the migrations). Backward compatibility (newer code reading older `user_version`) is supported up to two minor versions.
 
-The canonical v4.0 migration set adds three changes:
+The canonical v4.0 migration set adds seven changes:
 
 1. **`open_orders` state vocabulary unification** — replaces any prior state literals with the canonical lifecycle from `03-03-03-tae-layer2-execution.md §4`.
 2. **`risk_control_events` new table** — populated retroactively from any prior in-memory audit log; if absent, history before v4.0 is uncovered (operator-visible notice on first launch).

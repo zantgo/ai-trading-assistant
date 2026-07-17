@@ -20,23 +20,26 @@ The corpus is **internally consistent and free of HIGH-severity issues** as of v
 ```
 docs/
 ├── README.md                                       (1)
-├── CHANGELOG.md                                    (1)   ← new in v4.0
-├── conceptual-foundations/                        (6)
-├── matrices/                                       (15)
+├── CHANGELOG.md                                    (1)
+├── DOCS-CONSISTENCY-MANIFEST.md                    (1)
+├── conceptual-foundations/                        (8)   01-00 … 01-07
+├── matrices/                                       (15)  02-00, 02-00b, 02-01 … 02-13
 ├── engines/
-│   ├── data-infrastructure-engine/                 (5)
-│   ├── market-monitoring-engine/                   (11)
+│   ├── data-infrastructure-engine/                 (6)   03-01-00 … 03-01-05
+│   ├── market-monitoring-engine/                   (12)  03-02-01 … 03-02-12
 │   │   ├── indicators/                             (51)   ← 1 master index + 50 indicator specs
 │   │   └── signals/                                (13)   ← 1 master index + 12 SignalKinds
-│   ├── trade-automation-engine/                    (6)
-│   ├── portfolio-management-engine/                (5)
-│   └── performance-analytics-engine/               (5)
-├── integration-and-api/                           (2)
-├── ui-ux/                                          (4)
-└── operations-and-compliance/                      (6)
+│   ├── trade-automation-engine/                    (6)   03-03-01 … 03-03-06
+│   ├── portfolio-management-engine/                (5)   03-04-01 … 03-04-05
+│   └── performance-analytics-engine/               (5)   03-05-01 … 03-05-05
+├── integration-and-api/                           (3)   06-00, 06-01, 06-02
+├── ui-ux/                                          (4)   07-01 … 07-04
+└── operations-and-compliance/                      (7)   08-01 … 08-07
 ```
 
-**Total: 138 markdown files.** v5 → v6.2 added 1 file (`docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md`); all other file paths are unchanged.
+**Total: 138 markdown files** = 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST).
+Engine specs: 34 = 6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE.
+File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06).
 
 **Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.2 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Verified by automated grep against the corpus; zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
 
@@ -84,12 +87,12 @@ docs/
 
 ### 12.3 Worked-example arithmetic
 - [x] `01-01 §A.5` `overall_risk.score = 28.3` (was 28.0; recompute from per-dimension scores `(35, 45, 15, 25, 20, 30, 25, 30)` and weights: `0.14·35 + 0.14·45 + 0.14·15 + 0.10·25 + 0.14·20 + 0.10·30 + 0.10·25 + 0.14·30 = 28.3` ✓)
-- [x] `01-01 §A.6` `confidence_assessment = 59.07` from inputs `(state_confidence = 0.82, overall_risk = 28.3)`: `0.82 × (1 − 0.283) × 100 = 0.82 × 0.717 × 100 = 58.7874` → rounded display value `59.07` (the canonical worked example uses `0.82 × 0.717 × 100 ≈ 58.79`, displayed as `59.07` for display rounding; verified against the formula `0.82 × 0.717 × 100 = 58.7874`).
-  *(Note: `58.79` vs `59.07` is a rounding artefact; the recomputed v4.0 worked example uses `59.07` as published, and the §6 worked example uses `71.7` for `state_confidence = 1.0, overall_risk = 28.3`: `1.0 × 0.717 × 100 = 71.7` ✓. Both values are consistent with the formula.)*
-- [x] `01-01 §A.6` `expected_reward_risk_ratio = 1.79` from `(expected_rr_internal=2.5, overall_risk=28.3)`: `2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.7925` ✓
-- [x] `02-04 §6` worked example — recomputed under `confluence_score = 0.50·100 + 0.30·100 + 0.20·85 = 97.0` (max feasible) and the L6 `confidence_assessment = 71.7` ✓
+- [x] `01-01 §A.6` `confidence_assessment = 46.61` from inputs `(state_confidence = 0.65, overall_risk = 28.3)`: `0.65 × (1 − 0.283) × 100 = 0.65 × 0.717 × 100 = 46.605 → 46.61` ✓. *Verified: 2026-07-17.*
+  *(Historical note: prior versions used `state_confidence = 0.82` → `59.07`; the v6.3 chain unifies on `0.65` → `46.61`. The `58.79` number was a transposition artefact, now closed.)*
+- [x] `01-01 §A.6` `expected_reward_risk_ratio = 1.79` from `(expected_rr_internal=2.5, overall_risk=28.3)`: `2.5 × (1 − 0.283) = 2.5 × 0.717 = 1.7925` ✓. *Verified: 2026-07-17.*
+- [x] `02-04 §6` worked example (Scenario B) — recomputed under `confluence_score = 0.50·100 + 0.30·100 + 0.20·85 = 97.0` (max feasible) and the L6 `confidence_assessment = 71.7` ✓. *Verified: 2026-07-17.*
 - [x] `02-04-decision-matrix.md §3.6/§3.7` `NO_RECOMMENDATION` is reached on the empty-state fallback (full coverage of all 5 variants per enum) ✓
-- [x] `08-05 §Composite Score` worked example: `0.5·95 + 30·(1 − 0.8) + 20·(1 − 0.4) = 47.5 + 6 + 12 = 65.5` ✓
+- [x] `08-05 §Composite Score` worked example: `50×0.95 + 30×(1−0.8) + 20×(1−0.4) − 5×min(120/600,1) − 5×min(40/100,1) = 47.5 + 6 + 12 − 1.0 − 2.0 = 62.5` ✓. *Verified: 2026-07-17.*
 - [x] `01-02 §6.3` `expected_reward_risk_ratio = 2.5 × (1 − 0.283) = 1.79` ✓
 - [x] `01-02 §2.2` clock-drift boundary: `:00.000`, `:15:00.000`, `:30:00.000`, `:45:00.000` — all integer epoch multiples ✓
 
@@ -118,7 +121,7 @@ docs/
 - [x] SPA fallback scoped to non-`/api/*` paths (§5 in `06-01`).
 
 ### 12.8 DB schema
-- [x] Header inventory reconciles with §3 catalog (24 active tables; `individual_indicator_logs` removed from header; `open_orders` added; `risk_control_events` and `order_fills` activated as live in v4.0).
+- [x] Header inventory reconciles with §3 catalog (26 active tables; `individual_indicator_logs` removed from header; `open_orders` added; `risk_control_events` and `order_fills` activated as live in v4.0).
 - [x] All `id` PKs use `INTEGER PRIMARY KEY AUTOINCREMENT` per the canonical SQLite notation.
 - [x] `open_orders` state vocabulary matches Execution Matrix lifecycle (`PENDING/SUBMITTED/OPEN/PARTIALLY_FILLED/CLOSED/REJECTED/CANCELLED`).
 - [x] `risk_control_events` table present with required columns (`event_id`, `gate_id`, `decision`, `operator_id`, `prior_state`, `resulting_state`, `timestamp_ms`, `retention_until_ms`).
@@ -193,7 +196,7 @@ Grep counts for the canonical renames (post-v4.0 corpus):
 
 A re-audit (this manifest §4 confirms the closed v4.0 state) finds zero surviving HIGH-severity issues. The smallest observable drift is:
 
-- The `58.79` vs `59.07` rounding artefact in the `01-01 §A.6` `confidence_assessment` worked example. The formula is correct (`0.82 × 0.717 × 100 ≈ 58.79`); the canonical worked example displays the value as `59.07` which is a doc-side rounding choice (the canonical worked example for `state_confidence = 1.0` shows `71.7`, the formula's exact result). Both values are consistent with the formula; no action needed — the values are "as printed" and the formula is annotated.
+- The `58.79` vs `59.07` rounding artefact in the `01-01 §A.6` `confidence_assessment` worked example (closed in v6.3: the canonical chain now uses `state_confidence = 0.65 → 46.61` consistently across all examples). The earlier `58.79` value was a transposition, not a rounding artefact — the `59.07` display was an attempt to reconcile two different scenarios layered by v4.0 repair passes.
 
 The "AI-correction notes stapled over stale cells" pattern is eliminated. The remaining audit markers (e.g. the `AUDIT-V4-NN` table in `CHANGELOG.md` and the historical narrative footnotes that explain what was wrong and why the current text is correct) are the explicit documented audit trail, not the AI-tell pattern.
 
@@ -214,4 +217,19 @@ Per the Phase-12 checklist above, v4.0 is declared **internally consistent**:
 - **UI:** the LiquidityPanel sign convention matches canonical; the CSS Modules pattern has a normative example block; the dashboard Composition panel and Analysis panel match the schema.
 - **Authoring:** zero inline audit markers in normative sections; zero literal source-line citations; subjective adjectives in algorithmic specs are reduced to mechanical defaults.
 
-This manifest is the v4.0 closure record. Future revisions (v4.1, v5.0, …) must append to `docs/CHANGELOG.md` and re-run the Phase-12 checklist; §Open Items in the changelog tracks forward work.
+### 12.13 v6.3 verification rows
+
+The following rows are verified at every release (first verified 2026-07-17 for v6.3):
+
+1. **Canonical worked example recomputes end-to-end** ✓ (Appendix-1 chain: 02-01 §6 → 02-02 §5 → 02-08 §7 → 02-04 §6 → 01-01 §A.1–A.7; all values recomputed against section formulas)
+2. **File inventory regenerated from filesystem** ✓ (138 files; counts by directory match; totals arithmetic verified)
+3. **Sign conventions** ✓ (`cascade_asymmetry` mapping identical in all docs; grep `SQUEEZE_RISK` — all non-deprecated mappings match 02-13)
+4. **Endpoint semantics** ✓ (each endpoint string appears with exactly one semantic description; grep `DELETE /api/instances/by-pair`, `POST /api/instances/:id/manual/close`, `DELETE /api/pre-dispatch/:id`)
+5. **Boundary operators** ✓ (every numeric threshold uses identical `>`/`≥`/`<`/`≤` in every doc citing it; drawdown strict `<`, margin `≥`)
+6. **No stale version targets** ✓ (no "target: vX" with X < 6.3; no "on the vY roadmap" with Y ≤ 6.3; single exception: v4.0 CHANGELOG entries marked superseded)
+7. **Status fields** ✓ (every spec's Status ∈ {Specified, Implemented, Deprecated}; no "Runtime TODOs" sections inside specs — all moved to CHANGELOG §Open Items)
+8. **Placeholders** ✓ (grep `<see `, `github.com/source`, `TODO`, `TBD`, `XXX` → zero hits outside CHANGELOG)
+9. **Enum casing** ✓ (all JSON examples serialize enums SCREAMING_SNAKE_CASE; PascalCase limited to Rust-internal prose)
+10. **Reachability** ✓ (for every derivation rule table — MarketStance, DirectionalGuidance, TradeReadiness, SetupQuality, PerformanceClassification — witness inputs exist for every enum value; bands tile the domain with no gaps/overlaps)
+
+This manifest is the v4.0 closure record refined through v6.3. The Phase-12 checklist above was re-verified at v6.3; §12.13 items were added. Future revisions (v6.4, v7.0, …) must append to `docs/CHANGELOG.md` and re-run the Phase-12 checklist + §12.13 rows; §Open Items in the changelog tracks forward work.

@@ -66,7 +66,7 @@ If `EXCHANGE_SECRET_KEY` is suspected to have been exposed:
 
 ---
 
-## 5. Future work (deferred to v6.1+)
+## 5. Future work (open; target: next minor)
 
 - `POST /api/keys/rotate` — in-process re-encryption under a new master key without a daemon restart.
 - Hot key rotation via SIGHUP — daemon re-reads `EXCHANGE_SECRET_KEY` on signal.

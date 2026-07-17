@@ -27,14 +27,16 @@ The Market Data Layer converts irregular, event-based ticks into regular, time-b
 struct NormalizedCandle {
     exchange: String,          // originating venue (e.g. "Hyperliquid", "Bitget")
     symbol: String,            // unified internal symbol (e.g. "BTC-USDT")
-    timestamp: u64,            // candle close time, Unix epoch milliseconds (matches JSON `timestamp`)
-    timeframe_secs: u64,       // candle duration, seconds (matches JSON `timeframe_secs`)
+    start_time_ms: u64,        // candle open time, Unix epoch milliseconds
+    timeframe_secs: u64,       // candle duration, seconds
     open: Decimal, high: Decimal, low: Decimal, close: Decimal,
     volume: Decimal,
     trades_count: u64,
     reconstructed: Option<ReconstructionMethod>,  // provenance flag (see 08-04-candle-reconstruction.md)
 }
 ```
+
+> **Wire/struct mapping.** The canonical `MarketSnapshot` JSON uses `timestamp` (close time, epoch ms). The struct field `start_time_ms` is the **open** time. The equivalence is: `wire.timestamp = start_time_ms + timeframe_secs × 1000` (close time). The struct carries `timeframe_secs` where `02-06-market-data-matrix.md`'s canonical formula writes `duration_ms` — same value, different field name. All consumers derive close time from `(start_time_ms, timeframe_secs)` rather than storing it redundantly.
 
 **`average_volume` is NOT a field of `NormalizedCandle`.** `average_volume` is the MME-side rolling average volume baseline (see [02-07-metrics-matrix.md §2.1](../../matrices/02-07-metrics-matrix.md)). L2 never emits it. The distinct per-candle quantity `volume / trades_count` is named `avg_trade_size` and is not part of the candle contract.
 

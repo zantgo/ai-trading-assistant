@@ -35,22 +35,12 @@ pub async fn run_with_reconnect<F, R, S>(
 
 ## Backoff Formula
 
-Jitter is applied **before** capping so the effective delay range at attempt `n` is `[delay_n × (1 − jitter_pct), min(delay_n × (1 + jitter_pct), max_backoff)]`. The hard maximum actual delay is `max_backoff × (1 + jitter_pct)` only briefly during the geometric ramp-up; once `delay_n ≥ max_backoff`, the cap dominates and the actual delay range is `[max_backoff × 0.8, max_backoff × 1.2]` regardless of `n`:
-
 ```
-base_delay_n = min(initial × 2^n, max_backoff)
-delay_n      = base_delay_n × (1 + uniform(-jitter_pct, +jitter_pct))
-             = min(base_delay_n × (1 + jitter_pct), max_backoff × (1 + jitter_pct))
+base_n       = min(initial_backoff × 2^n, max_backoff)
+effective    = base_n × (1 + U(−0.2, +0.2)), then clamped to ≤ max_backoff
+range(n)     = [base_n × 0.8, min(base_n × 1.2, max_backoff)]
+attempts ≥ 6: base_n = 30 → effective ∈ [24 s, 30 s]
 ```
-
-Sequence with default policy (1s initial, 30s max, ±20% jitter):
-- Attempt 1 → ~1s (range `[0.8s, 1.2s]`)
-- Attempt 2 → ~2s (range `[1.6s, 2.4s]`)
-- Attempt 3 → ~4s (range `[3.2s, 4.8s]`)
-- Attempt 4 → ~8s (range `[6.4s, 9.6s]`)
-- Attempt 5 → ~16s (range `[12.8s, 19.2s]`)
-- Attempt 6 → cap range `[24s, 30s]` (jitter bounded by `max_backoff`)
-- Attempt 7+ → `[24s, 30s]`
 
 ## Retry Budgets
 

@@ -159,7 +159,7 @@ Style: `rgba(255, 255, 255, 0.4)` italic text, 0.85 rem.
 │ Modulation: on  Confidence: 85%                             │
 │                                                              │
 │ CASCADE ASYMMETRY                                            │
-│ Sign: -0.400  Direction: SHORT_SQUEEZE_RISK                 │
+│ Sign: -0.400  Direction: LONG_SQUEEZE_RISK                  │
 │                                                              │
 │ Short Clusters (above mid)                                   │
 │ ┌─────────┐ ┌──────────────┐ ┌─────┐ ┌─────┐ ┌────────┐ ┌──┐│
@@ -192,8 +192,8 @@ A horizontal `flex` of `<span>label</span><code>value</code>` pairs. Values are 
 
 | `cascade_asymmetry` range | Direction label | Why |
 |---|---|---|
-| `> +0.3` | `LONG_SQUEEZE_RISK` | More long-side notional below the mid → longs are vulnerable to forced sell-to-liquidate as price falls. |
-| `< -0.3` | `SHORT_SQUEEZE_RISK` | More short-side notional above the mid → shorts are vulnerable to forced buy-to-cover as price rises. |
+| `> +0.3` | `SHORT_SQUEEZE_RISK` | More short-side notional above the mid → shorts are vulnerable to forced buy-to-cover as price rises. |
+| `< -0.3` | `LONG_SQUEEZE_RISK` | More long-side notional below the mid → longs are vulnerable to forced sell-to-liquidate as price falls. |
 | `-0.3 ≤ x ≤ +0.3` | `NEUTRAL` | No dominant cluster pressure. |
 
 The threshold magnitude is `0.3` — values with smaller absolute sign are not actionable. The sign value is also rendered in `.bearish` / `.bullish` colors at `±0.3` thresholds so the color reinforces the directional label, but the numeric sign and the text label are always shown.

@@ -105,7 +105,7 @@ disabled_signals    = ["macd:Divergence"]
 | L4 Opportunity | Preconditions referencing disabled indicators fail closed; `LiquiditySqueeze` unavailable when liquidity chain off. |
 | L5 Risk | `signal_risk` uses available signal evidence; `cascade_risk` NO_DATA + confidence 0 when liquidity off. |
 | L6 Decision | Strategy-tree skip; confluence components that are NO_DATA contribute per existing null rules; `confidence_assessment` already degrades via `state_confidence`. |
-| L7 Overview | Breadth over enabled subset; if fewer than 4 of 12 enabled → `market_breadth` publishes with `low_coverage: true` (additive field). |
+| L7 Overview | Breadth over enabled subset; if fewer than 4 of 12 SignalKinds enabled → `market_breadth` publishes with `low_coverage: true` (additive field). |
 | TAE | CA-10 rejection/AUTO_PAUSED guardrail. |
 | PAE | Attribution join on `config_version`; disabled-set changes visible in strategy-analytics slices. |
 
@@ -117,7 +117,7 @@ disabled_signals    = ["macd:Divergence"]
 
 **API (06-01):** `GET /api/config` documents new fields; `POST /api/config` validation: `400` unknown keys, `409` schema-version, `200 + warnings + auto_paused_policies`. New endpoint `GET /api/instances/:id/activation`.
 
-**DB (06-02):** `market_snapshots` += `metrics_config_json JSONB NULL`. Existing `decision_profiles` / `profile_indicators` tables documented as named activation profiles (named denylist applied to an instance).
+**DB (06-02):** `market_snapshots` += `metrics_config_json TEXT CHECK (json_valid(metrics_config_json)) NULL`. Existing `decision_profiles` / `profile_indicators` tables documented as named activation profiles (named denylist applied to an instance).
 
 ---
 
@@ -133,7 +133,7 @@ Effect: Every indicator's `Divergence` signal absent from `MarketSnapshot.signal
 
 ### Example 3: Liquidity master off
 Config: `[liquidity].enabled = false`
-Effect: `liquidity`/`cluster`/`liquidity_signals` fields absent from snapshot. `cascade_risk` publishes with `confidence: 0` and label NO_DATA. `OpportunityType::LiquiditySqueeze` unavailable (precondition fails). `liquidation_feed`/REST polling halted (DIE continues to ingest the feed but MME L1.5 drops). Sub-toggle interactions: setting `liquidation_feed = false` alone keeps cluster_estimation running but cluster is built without liquidation data; setting `signals = false` keeps `liquidity`/`cluster` present but suppresses LiquiditySignal emission.
+Effect: `liquidity`/`cluster`/`liquidity_signals` fields absent from snapshot. `cascade_risk` publishes with `confidence: 0` and label NO_DATA. `OpportunityType::LiquiditySqueeze` unavailable (precondition fails). MME L1.5 drops the feed; DIE ingestion continues unchanged. Sub-toggle interactions: setting `liquidation_feed = false` alone keeps cluster_estimation running but cluster is built without liquidation data; setting `signals = false` keeps `liquidity`/`cluster` present but suppresses LiquiditySignal emission.
 
 ---
 
@@ -155,12 +155,14 @@ Hot-path CPU savings: disabling N indicators reduces L1 evaluations by approxima
 
 ---
 
-## §9 Runtime TODOs (tracked in CHANGELOG §Open Items)
+## §9 Implementation work items (tracked in CHANGELOG §Open Items)
 
-- `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables.
-- `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set.
-- `core-domain`: add `metrics_config` field with `#[serde(skip_serializing_if = "Option::is_none")]` to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status`.
-- `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version`.
-- `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200.
-- `portfolio-supervisor`: implement AUTO_PAUSED policy state and transition.
-- `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling.
+The following items are implementation work tracked in `CHANGELOG.md` §Open Items (`AUDIT-V6-208` through `AUDIT-V6-214`). This section is a convenience index; the canonical status of each item lives in CHANGELOG §Open Items.
+
+- `AUDIT-V6-208` — `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables.
+- `AUDIT-V6-209` — `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set.
+- `AUDIT-V6-210` — `core-domain`: add `metrics_config` field with `#[serde(skip_serializing_if = "Option::is_none")]` to `MarketSnapshot`; auto-pause serialization for `decision_profiles.status`.
+- `AUDIT-V6-211` — `database-storage`: add migration for `market_snapshots.metrics_config_json` column; bump `user_version`.
+- `AUDIT-V6-212` — `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200.
+- `AUDIT-V6-213` — `portfolio-supervisor`: implement AUTO_PAUSED policy state and transition.
+- `AUDIT-V6-214` — `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling.

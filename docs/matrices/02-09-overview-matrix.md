@@ -44,7 +44,7 @@ Implemented as `OverviewMatrix` (`crates/core-domain/src/overview.rs`), produced
 | `instance_count` | `u32` | Active monitoring instances. |
 | `active_symbols` | `string[]` | Sorted list of active symbols. |
 
-**Invariant.** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. UI consumers and pre-trade consumers rely on this equality; multi-instance mode (multiple `MarketSnapshot` per symbol) is not supported in v4.0.
+**Invariant.** `instance_count == active_symbols.length`. Each monitored symbol produces exactly one Overview instance. UI consumers and pre-trade consumers rely on this equality; multi-instance mode (multiple `MarketSnapshot` per symbol) is not currently supported.
 
 ### 2.2 AssetRank
 
@@ -176,6 +176,7 @@ Rankings sort descending, producing a leaderboard of relative strength/weakness 
 {
   "global_market_bias": "BULLISH",
   "market_breadth": "POSITIVE",
+  "breadth_pct": 60.0,
   "regime_distribution": { "TRENDING_BULL": 0.6, "RANGE": 0.4 },
   "opportunity_distribution": { "BREAKOUT": 2, "TREND_CONTINUATION": 1 },
   "risk_distribution": { "low_pct": 60.0, "moderate_pct": 40.0, "high_pct": 0.0, "risk_environment": "LOW_RISK" },

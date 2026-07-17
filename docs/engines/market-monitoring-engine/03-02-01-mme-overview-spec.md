@@ -116,9 +116,10 @@ The MME computes **50 technical indicators** across 8 functional groups, with **
 
 | Metric | Target |
 |--------|--------|
-| Full 7-layer cascade per candle | < 25 ms |
-| Indicator computation (50) | < 10 ms |
-| Cross-TF synthesis (L2–L6) | < 5 ms |
+| Full 7-layer cascade per candle | ≤ 15 ms (MME share of the 25 ms end-to-end observation loop: DIE Raw→Distribution ≤ 10 ms + MME cascade ≤ 15 ms; see [01-03 §4](../../conceptual-foundations/01-03-systemic-data-flow.md)) |
+| Indicator computation (50) | ≤ 8 ms |
+| Cross-TF synthesis (L2–L6) | ≤ 4 ms |
+| Shadow / pipeline overhead (L3 quality stamp, L7 rollup) | ≤ 3 ms |
 | Live shadow update | < 5 ms |
 
 ---

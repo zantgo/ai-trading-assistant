@@ -14,10 +14,12 @@ SMC Liquidity detection identifies when price has targeted and swept through are
 Swing pivots detected from rolling OHLC window.
 For each new completed candle:
   - If the candle's high > most recent swing high AND its close < that swing high
-    → Sell-side liquidity swept (longs hunted above resistance, price rejected)
+    → Sell-side liquidity swept (shorts' buy stops hunted above a swing high; price rejected)
   - If the candle's low < most recent swing low AND its close > that swing low
-    → Buy-side liquidity swept (shorts hunted below support, price rejected)
+    → Buy-side liquidity swept (longs' sell stops hunted below a swing low; price rejected)
 ```
+
+> **Non-standard buy/sell-side convention.** This platform inverts the conventional SMC naming: "buy-side" means taking liquidity from resting buy orders (stops below lows), "sell-side" means taking liquidity from resting sell orders (stops above highs). Most SMC materials use the opposite convention.
 
 ## 3. Normalization
 
