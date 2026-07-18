@@ -15,6 +15,7 @@
 
 mod all;
 mod context;
+pub mod derivatives;
 mod extended;
 mod signals;
 
@@ -76,6 +77,10 @@ pub struct PreviousBarState {
     pub williams_r: Option<f64>,
     pub cci: Option<f64>,
     pub psar_sar: Option<f64>,
+    /// Previous bar funding rate for flip detection.
+    pub funding_rate: Option<f64>,
+    /// Previous bar cascade state for transition detection.
+    pub cascade_state: Option<core_domain::liquidity::CascadeState>,
 }
 
 /// Stateful context bridging the pure calculators to signed normalization.

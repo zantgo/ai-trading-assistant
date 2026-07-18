@@ -50,43 +50,52 @@ pub enum TelemetryMsg {
     },
 }
 
+/// Delete aged rows: `market_snapshots` older than 7 days (timestamp in
+/// seconds) and `liquidation_events` older than `liq_retention_days`
+/// (timestamp in milliseconds; 90-day default per 02-12-liquidity-matrix.md).
+async fn run_retention_cleanup(pool: &SqlitePool, liq_retention_days: u32) {
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let snapshot_cutoff = now_secs.saturating_sub(7 * 86400) as i64;
+    if let Err(e) = sqlx::query("DELETE FROM market_snapshots WHERE timestamp < ?1")
+        .bind(snapshot_cutoff)
+        .execute(pool)
+        .await
+    {
+        eprintln!("DB cleanup error (market_snapshots): {}", e);
+    }
+
+    let liq_cutoff_ms =
+        now_secs.saturating_sub(liq_retention_days as u64 * 86400).saturating_mul(1000) as i64;
+    if let Err(e) = sqlx::query("DELETE FROM liquidation_events WHERE timestamp < ?1")
+        .bind(liq_cutoff_ms)
+        .execute(pool)
+        .await
+    {
+        eprintln!("DB cleanup error (liquidation_events): {}", e);
+    }
+}
+
 pub async fn run_telemetry_logger(
     pool: SqlitePool,
     mut rx: tokio::sync::mpsc::Receiver<TelemetryMsg>,
+    liquidation_retention_days: u32,
 ) {
     println!("Telemetry & Logging Worker: Background log thread running.");
 
-    // Initial cleanup on startup — delete snapshots older than 7 days.
-    let cutoff = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .saturating_sub(7 * 86400) as i64;
-    if let Err(e) = sqlx::query("DELETE FROM market_snapshots WHERE timestamp < ?1")
-        .bind(cutoff)
-        .execute(&pool)
-        .await
-    {
-        eprintln!("DB cleanup error on startup: {}", e);
-    }
+    // Initial cleanup on startup — snapshots older than 7 days and
+    // liquidation events past their retention window.
+    run_retention_cleanup(&pool, liquidation_retention_days).await;
 
     let mut last_cleanup = tokio::time::Instant::now();
 
     while let Some(msg) = rx.recv().await {
-        // Periodic cleanup every hour — delete snapshots older than 7 days.
+        // Periodic cleanup every hour.
         if last_cleanup.elapsed() >= tokio::time::Duration::from_secs(3600) {
-            let cutoff = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                .saturating_sub(7 * 86400) as i64;
-            if let Err(e) = sqlx::query("DELETE FROM market_snapshots WHERE timestamp < ?1")
-                .bind(cutoff)
-                .execute(&pool)
-                .await
-            {
-                eprintln!("DB cleanup error: {}", e);
-            }
+            run_retention_cleanup(&pool, liquidation_retention_days).await;
             last_cleanup = tokio::time::Instant::now();
         }
         match msg {

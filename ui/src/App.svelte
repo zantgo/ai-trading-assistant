@@ -17,6 +17,7 @@
     import WorkspaceSettings from './components/WorkspaceSettings.svelte';
     import DataInfraDashboard from './components/DataInfraDashboard.svelte';
     import EngineOverview from './components/EngineOverview.svelte';
+    import PerformanceDashboard from './components/PerformanceDashboard.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
 
@@ -330,6 +331,15 @@
                     <GeneralDashboard />
                 {:else}
                     <WorkspaceSettings pair={activePair} tabKey={app.activeTab} />
+                {/if}
+            {:else if app.currentEngine === 'performance'}
+                {#if app.middleTab === 'overview'}
+                    <PerformanceDashboard />
+                {:else}
+                    <div class={styles.profileCard} style="padding:2rem">
+                        <h3>{engineLabel(app.currentEngine)} Settings</h3>
+                        <p class={styles.cardSub}>Configure analytics execution cadences and optimizer intervals in <code>config.toml</code> → <code>[workspace]</code> → <code>eval_interval_secs</code> and <code>optimizer_interval_secs</code>.</p>
+                    </div>
                 {/if}
             {:else}
                 {#if app.middleTab === 'overview'}

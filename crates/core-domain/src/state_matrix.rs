@@ -175,7 +175,7 @@ pub fn compute_state(
         per_symbol_summary.push(SymbolSummary {
             symbol: d.symbol.clone(),
             bias: d.bias,
-            confidence: d.confidence,
+            confidence: d.state_confidence,
             mtf_overall_score: 0.0, // score is not directly available here; populated by engine
             timeframes_present: d.timeframes_considered,
             regime: regime.to_string(),
@@ -225,7 +225,8 @@ mod tests {
         AnalysisMatrix {
             symbol: symbol.to_string(),
             bias,
-            confidence,
+            state_confidence: confidence,
+            market_quality_score: 50.0,
             market_regime: MarketRegime::TrendingBull,
             trend_assessment: TrendAssessment::Strong,
             momentum_assessment: MomentumAssessment::Increasing,

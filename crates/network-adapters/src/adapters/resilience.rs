@@ -58,7 +58,10 @@ pub fn compute_backoff(attempt: u32, policy: &ReconnectPolicy) -> Duration {
     apply_jitter(delay, policy.jitter_pct)
 }
 
-fn apply_jitter(delay: Duration, jitter_pct: f64) -> Duration {
+/// Apply symmetric percentage jitter to a delay: the result is uniformly
+/// distributed in `[delay × (1 − pct), delay × (1 + pct)]`. Used by both the
+/// adapter-level `ReconnectPolicy` and the per-symbol WS supervisor loop.
+pub fn apply_jitter(delay: Duration, jitter_pct: f64) -> Duration {
     if delay.is_zero() || !jitter_pct.is_finite() || jitter_pct <= 0.0 {
         return delay;
     }

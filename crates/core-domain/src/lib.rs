@@ -11,14 +11,18 @@ pub mod decision_context;
 pub mod indicator_dtos;
 pub mod jsonrpc;
 pub mod jsonrpc_methods;
+pub mod latency;
 pub mod liquidity;
 pub mod market_context;
 pub mod models;
 pub mod normalized;
 pub mod opportunity;
 pub mod overview;
+pub mod performance;
+pub mod portfolio;
 pub mod risk;
 pub mod state_matrix;
 pub mod statistics;
 
+pub use latency::{LatencyTracker, LatencySnapshot, SharedLatencyTracker};
 pub use normalized::TriggerType;

@@ -30,11 +30,13 @@ struct BookItem {
     ts: String,
 }
 
+/// Open Interest item from the `open-interest` WS channel.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct TickerItem {
-    #[serde(rename = "open24h")]
-    open_24h: Option<String>,
+#[allow(non_snake_case)]
+struct OpenInterestItem {
+    instId: Option<String>,
+    openInterest: Option<String>,
+    ts: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +48,11 @@ struct FullBitgetMessage {
     event: Option<String>,
     data: Option<serde_json::Value>,
 }
+
+/// Client keep-alive cadence (Bitget V2 requires a ping at least every 30 s).
+const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+/// Consecutive unanswered pings before the stream is declared stalled.
+const MAX_MISSED_PONGS: u32 = 2;
 
 pub async fn run_for_symbol(
     symbol: String,
@@ -91,13 +98,14 @@ pub async fn run_for_symbol(
             {"instType": &product_type, "channel": "books5", "instId": &symbol},
             {"instType": &product_type, "channel": "ticker", "instId": &symbol},
             {"instType": &product_type, "channel": "funding-rate", "instId": &symbol},
+            {"instType": &product_type, "channel": "open-interest", "instId": &symbol},
             // Phase 1: `fill` channel exposes real liquidation events.
             // execType == "L" marks a forced-close liquidation fill.
             {"instType": &product_type, "channel": "fill", "instId": &symbol}
         ]
     });
     println!(
-        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker + funding-rate + fill streams ({})",
+        "📡 Bitget [{}]: Subscribing to trade + books5 + ticker + funding-rate + open-interest + fill streams ({})",
         symbol, product_type
     );
     if let Err(e) = write
@@ -112,12 +120,38 @@ pub async fn run_for_symbol(
     // subscription. `internal_symbol` is the unified workspace symbol (e.g.
     // "BTC-USDT" / "BTC-USDC") emitted on every normalized event.
 
+    // Bitget keep-alive (03-01-02 §4): client sends a literal "ping" text
+    // frame every 30 s; the server answers "pong". Two consecutive missed
+    // pongs (= a stalled stream) are treated as a disconnect so the caller's
+    // reconnect loop takes over.
+    let mut ping_interval = tokio::time::interval_at(
+        tokio::time::Instant::now() + HEARTBEAT_INTERVAL,
+        HEARTBEAT_INTERVAL,
+    );
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut awaiting_pongs: u32 = 0;
+
     loop {
         let msg = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
                 println!("🛑 Bitget [{}]: Cancellation triggered, closing WS connection.", symbol);
                 break;
+            }
+            _ = ping_interval.tick() => {
+                if awaiting_pongs >= MAX_MISSED_PONGS {
+                    eprintln!(
+                        "💔 Bitget [{}]: {} consecutive pings unanswered — treating stalled stream as disconnect.",
+                        symbol, awaiting_pongs
+                    );
+                    break;
+                }
+                if let Err(e) = write.send(Message::Text("ping".into())).await {
+                    eprintln!("⚠️ Bitget [{}]: Failed to send keep-alive ping: {}", symbol, e);
+                    break;
+                }
+                awaiting_pongs += 1;
+                continue;
             }
             result = read.next() => {
                 match result {
@@ -136,6 +170,12 @@ pub async fn run_for_symbol(
 
         match msg {
             Message::Text(raw_text) => {
+                // Any inbound frame proves liveness; "pong" is the explicit
+                // keep-alive reply and carries no payload.
+                awaiting_pongs = 0;
+                if raw_text.as_str().eq_ignore_ascii_case("pong") {
+                    continue;
+                }
                 let full_msg: FullBitgetMessage = match serde_json::from_str(&raw_text) {
                     Ok(m) => m,
                     Err(_) => continue,
@@ -225,11 +265,13 @@ pub async fn run_for_symbol(
                         }
                     }
                     "ticker" => {
-                        let tickers: Vec<TickerItem> = match serde_json::from_value(data_val) {
-                            Ok(t) => t,
-                            Err(_) => continue,
-                        };
+                        let tickers: Vec<crate::adapters::bitget_derivatives::BitgetTickerData> =
+                            match serde_json::from_value(data_val) {
+                                Ok(t) => t,
+                                Err(_) => continue,
+                            };
                         for tk in tickers {
+                            // Emit AssetContext (prev-day price)
                             if let Some(px) = tk
                                 .open_24h
                                 .as_deref()
@@ -243,6 +285,15 @@ pub async fn run_for_symbol(
                                         }))
                                         .await;
                                 }
+                            }
+                            // Emit MarkPrice when mark/index data is present
+                            if let Some(mp_ev) =
+                                crate::adapters::bitget_derivatives::ticker_to_mark_price(
+                                    &internal_symbol,
+                                    &tk,
+                                )
+                            {
+                                let _ = event_tx.send(mp_ev).await;
                             }
                         }
                     }
@@ -262,6 +313,28 @@ pub async fn run_for_symbol(
                             }
                         }
                     }
+                    "open-interest" => {
+                        let items: Vec<OpenInterestItem> =
+                            match serde_json::from_value(data_val) {
+                                Ok(i) => i,
+                                Err(_) => continue,
+                            };
+                        for item in items {
+                            if let Some(oi_str) = item.openInterest.as_deref() {
+                                if let Ok(oi) = Decimal::from_str(oi_str) {
+                                    let _ = event_tx
+                                        .send(NormalizedEvent::OpenInterest(
+                                            core_domain::normalized::OpenInterestEvent {
+                                                symbol: internal_symbol.clone(),
+                                                oi,
+                                                prev_oi: None,
+                                            },
+                                        ))
+                                        .await;
+                                }
+                            }
+                        }
+                    }
                     "fill" => {
                         // Bitget `fill` channel payload: array of fills. Each fill
                         // includes an `execType` field — "L" is a forced-close
@@ -272,7 +345,11 @@ pub async fn run_for_symbol(
                 }
             }
             Message::Ping(ping) => {
+                awaiting_pongs = 0;
                 let _ = write.send(Message::Pong(ping)).await;
+            }
+            Message::Pong(_) => {
+                awaiting_pongs = 0;
             }
             Message::Close(_) => {
                 println!("🔌 Bitget [{}]: Connection closed by server.", symbol);

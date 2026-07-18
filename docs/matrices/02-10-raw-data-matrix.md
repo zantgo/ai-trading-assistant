@@ -1,6 +1,6 @@
 # Raw Data Matrix Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 1 — Raw Data Layer
@@ -43,8 +43,8 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
   "event_type": "TRADE",
   "symbol": "BTC-USDT",
   "timestamp_ms": 1752192000000,
-  "price": "64012.5",
-  "size": "0.15",
+  "price": 64012.5,
+  "size": 0.15,
   "side": "BUY",
   "trade_id": "123456"
 }
@@ -68,7 +68,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
   "exchange": "Hyperliquid",
   "event_type": "ASSET_CONTEXT",
   "symbol": "BTC-USDT",
-  "prev_day_px": "63500.0"
+  "prev_day_px": 63500.0
 }
 ```
 
@@ -78,7 +78,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
   "exchange": "Hyperliquid",
   "event_type": "OPEN_INTEREST",
   "symbol": "BTC-USDT",
-  "oi_value": "125000.0",
+  "oi_value": 125000.0,
   "timestamp_ms": 1752192000000
 }
 ```
@@ -89,7 +89,7 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
   "exchange": "Hyperliquid",
   "event_type": "FUNDING_RATE",
   "symbol": "BTC-USDT",
-  "rate": "0.000125",
+  "rate": 0.000125,
   "timestamp_ms": 1752192000000
 }
 ```
@@ -111,8 +111,8 @@ The `NormalizedEvent` enum serializes as a flattened payload with an `event_type
   "event_type": "LIQUIDATION",
   "symbol": "BTC-USDT",
   "side": "LONG",
-  "price": "64012.5",
-  "size": "0.15",
+  "price": 64012.5,
+  "size": 0.15,
   "timestamp_ms": 1752192000000
 }
 ```

@@ -131,6 +131,15 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             OrderBookConfig::default(),
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(None)),
+            Arc::new(core_domain::LatencyTracker::default()),
+            market_analyzer::active_set::ActiveSet::default(),
+            None,
+            Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
+            None,
+            None,
         )
     });
 

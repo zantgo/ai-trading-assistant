@@ -180,9 +180,13 @@ mod tests {
             risk: None,
             analysis: None,
             advisory: None,
+            opportunity: None,
+            liquidity_signals: vec![],
+            metrics_config: None,
             risk_profile: None,
             liquidity: None,
             cluster: None,
+            quality_envelope: None,
         }
     }
 
@@ -236,6 +240,7 @@ mod tests {
             for i in 0..50 {
                 let price = Decimal::from(50_000) + Decimal::from(i * 10);
                 hist.push_back(core_domain::normalized::NormalizedCandle {
+                    exchange: core_domain::normalized::Exchange::Hyperliquid,
                     symbol: "BTC-USDT".to_string(),
                     start_time_ms: i * 60_000,
                     duration_ms: 60_000,

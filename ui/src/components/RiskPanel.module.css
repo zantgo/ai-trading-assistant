@@ -1,4 +1,32 @@
-.panel { height: 100%; display: flex; background: #000; color: #fff; }
-.featurePlaceholder { height: 100%; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 40px; text-align: center; color: rgba(255, 255, 255, 0.3); }
-.featurePlaceholderTitle { font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.6); margin: 0; }
-.featurePlaceholderMsg { font-size: 12px; font-weight: 400; letter-spacing: 0.03em; line-height: 1.5; max-width: 360px; color: rgba(255, 255, 255, 0.25); margin: 0; }
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: #0a0a0f; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+.title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0 0 14px 0; text-transform: uppercase; }
+.section { margin-bottom: 16px; }
+.sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
+.overallRow { display: flex; align-items: center; gap: 12px; }
+.overallMeter { width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+.overallRing { position: absolute; inset: 0; border-radius: 50%; border: 5px solid transparent; }
+.riskVeryLow { border-color: #22c55e; }
+.riskLow { border-color: #4ade80; }
+.riskModerate { border-color: #f59e0b; }
+.riskHigh { border-color: #f87171; }
+.riskExtreme { border-color: #ef4444; }
+.overallScore { font-size: 22px; font-weight: 800; z-index: 1; font-variant-numeric: tabular-nums; }
+.overallLabel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 4px; }
+.labelVeryLow { background: rgba(34,197,94,0.15); color: #22c55e; }
+.labelLow { background: rgba(74,222,128,0.15); color: #4ade80; }
+.labelModerate { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.labelHigh { background: rgba(248,113,113,0.15); color: #f87171; }
+.labelExtreme { background: rgba(239,68,68,0.15); color: #ef4444; }
+.infoRow { display: flex; align-items: center; gap: 10px; }
+.infoItem { font-size: 10px; color: #64748b; }
+.infoValue { font-size: 11px; font-weight: 600; color: #e2e8f0; }
+.dimList { display: flex; flex-direction: column; gap: 6px; }
+.dimRow { display: flex; align-items: center; gap: 8px; }
+.dimName { font-size: 10px; color: #cbd5e1; width: 120px; flex-shrink: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dimBar { flex: 1; height: 8px; background: rgba(255,255,255,0.04); border-radius: 4px; overflow: hidden; }
+.dimFill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.dimScore { font-size: 10px; font-weight: 700; width: 30px; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.dimLevel { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; width: 56px; text-align: center; }
+.evidence { font-size: 9px; color: #64748b; margin-left: 128px; line-height: 1.4; }
+.weights { font-size: 9px; color: #475569; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

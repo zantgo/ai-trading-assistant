@@ -1,6 +1,6 @@
 #[cfg(test)]
-use core_domain::normalized::{Exchange, TradeSide};
-use core_domain::normalized::{NormalizedCandle, NormalizedTrade};
+use core_domain::normalized::TradeSide;
+use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedTrade};
 use rust_decimal::Decimal;
 
 pub struct CandleGenerator {
@@ -14,10 +14,11 @@ pub struct CandleGenerator {
     pub current_trades: u64,
     pub current_start_ms: u64,
     pub current_open: Decimal,
+    pub exchange: Exchange,
 }
 
 impl CandleGenerator {
-    pub fn new(symbol: &str, duration_seconds: u64) -> Self {
+    pub fn new(symbol: &str, duration_seconds: u64, exchange: Exchange) -> Self {
         Self {
             symbol: symbol.to_string(),
             duration_ms: duration_seconds * 1000,
@@ -29,7 +30,20 @@ impl CandleGenerator {
             current_trades: 0,
             current_start_ms: 0,
             current_open: Decimal::ZERO,
+            exchange,
         }
+    }
+
+    pub fn set_exchange(&mut self, exchange: Exchange) {
+        self.exchange = exchange;
+    }
+
+    pub fn is_late_tick(&self, timestamp_ms: u64) -> bool {
+        if self.current_candle.is_none() {
+            return false;
+        }
+        let interval_start = (timestamp_ms / self.duration_ms) * self.duration_ms;
+        interval_start < self.current_start_ms
     }
 
     pub fn process_trade(
@@ -79,6 +93,7 @@ impl CandleGenerator {
 
     fn make_live(&self) -> NormalizedCandle {
         NormalizedCandle {
+            exchange: self.exchange,
             symbol: self.symbol.clone(),
             start_time_ms: self.current_start_ms,
             duration_ms: self.duration_ms,
@@ -100,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_candle_boundaries_and_rollover() {
-        let mut generator = CandleGenerator::new("BTC-USD", 60);
+        let mut generator = CandleGenerator::new("BTC-USD", 60, Exchange::Hyperliquid);
 
         let t1 = NormalizedTrade {
             exchange: Exchange::Hyperliquid,
@@ -175,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_first_trade_initializes_candle() {
-        let mut generator = CandleGenerator::new("ETH-USD", 30);
+        let mut generator = CandleGenerator::new("ETH-USD", 30, Exchange::Hyperliquid);
         let trade = NormalizedTrade {
             exchange: Exchange::Hyperliquid,
             symbol: "ETH-USD".to_string(),
@@ -202,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_interval_alignment() {
-        let mut generator = CandleGenerator::new("SOL-USD", 60);
+        let mut generator = CandleGenerator::new("SOL-USD", 60, Exchange::Hyperliquid);
         let trade = NormalizedTrade {
             exchange: Exchange::Hyperliquid,
             symbol: "SOL-USD".to_string(),
@@ -222,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_trade_count_increments_correctly() {
-        let mut generator = CandleGenerator::new("BTC-USD", 60);
+        let mut generator = CandleGenerator::new("BTC-USD", 60, Exchange::Hyperliquid);
 
         for i in 0..5 {
             let trade = NormalizedTrade {

@@ -316,11 +316,11 @@ fn compute_core_stats(trades: &[TradeDetailRow]) -> CoreStats {
         if t.realized_pnl > 0.0 {
             wins_count += 1;
             win_pnl_sum += t.realized_pnl;
-            win_roi_sum += t.roi_percentage.abs();
+            win_roi_sum += t.roi_pct.abs();
         } else if t.realized_pnl < 0.0 {
             losses_count += 1;
             loss_pnl_sum += t.realized_pnl.abs();
-            loss_roi_sum += t.roi_percentage.abs();
+            loss_roi_sum += t.roi_pct.abs();
         }
     }
 
@@ -567,14 +567,14 @@ fn compute_direction_breakdown(trades: &[TradeDetailRow]) -> DirectionBreakdown 
         0.0
     };
     let long_avg_gain = if !long_wins_list.is_empty() {
-        long_wins_list.iter().map(|t| t.roi_percentage).sum::<f64>() / long_wins as f64
+        long_wins_list.iter().map(|t| t.roi_pct).sum::<f64>() / long_wins as f64
     } else {
         0.0
     };
     let long_avg_loss = if !long_losses_list.is_empty() {
         long_losses_list
             .iter()
-            .map(|t| t.roi_percentage.abs())
+            .map(|t| t.roi_pct.abs())
             .sum::<f64>()
             / long_losses as f64
     } else {
@@ -595,7 +595,7 @@ fn compute_direction_breakdown(trades: &[TradeDetailRow]) -> DirectionBreakdown 
     let short_avg_gain = if !short_wins_list.is_empty() {
         short_wins_list
             .iter()
-            .map(|t| t.roi_percentage)
+            .map(|t| t.roi_pct)
             .sum::<f64>()
             / short_wins as f64
     } else {
@@ -604,7 +604,7 @@ fn compute_direction_breakdown(trades: &[TradeDetailRow]) -> DirectionBreakdown 
     let short_avg_loss = if !short_losses_list.is_empty() {
         short_losses_list
             .iter()
-            .map(|t| t.roi_percentage.abs())
+            .map(|t| t.roi_pct.abs())
             .sum::<f64>()
             / short_losses as f64
     } else {
@@ -634,7 +634,7 @@ fn compute_compounded_curve(trades: &[TradeDetailRow], initial_capital: f64) -> 
     trades
         .iter()
         .map(|t| {
-            let roi_multiplier = 1.0 + (t.roi_percentage / 100.0);
+            let roi_multiplier = 1.0 + (t.roi_pct / 100.0);
             balance *= roi_multiplier;
             (t.exit_timestamp, balance)
         })
@@ -646,7 +646,7 @@ fn compute_trader_style(trades: &[TradeDetailRow]) -> TraderStyleBreakdown {
     let mut day_trader = Vec::new();
     let mut swing = Vec::new();
     for t in trades {
-        let dur_min = (t.exit_price - t.entry_price).max(0.0) / 60.0; // duration in minutes
+        let dur_min = ((t.exit_timestamp - t.entry_timestamp).max(0) as f64 / 60_000.0).max(0.0);
         let dur_entry = (dur_min, t.realized_pnl);
         if dur_min <= 30.0 {
             scalper.push(dur_entry);

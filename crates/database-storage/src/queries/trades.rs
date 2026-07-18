@@ -71,7 +71,7 @@ pub struct TradeTelemetryRecord {
     pub commission_fees: f64,
     pub funding_fees: f64,
     pub realized_pnl: f64,
-    pub roi_percentage: f64,
+    pub roi_pct: f64,
     pub trigger_source: String,
 }
 
@@ -88,14 +88,14 @@ pub async fn trade_telemetry_insert(
     commission_fees: f64,
     funding_fees: f64,
     realized_pnl: f64,
-    roi_percentage: f64,
+    roi_pct: f64,
     trigger_source: &str,
 ) -> i64 {
     match sqlx::query(
         "INSERT INTO trade_telemetry_history
          (exchange, symbol, direction, entry_timestamp, exit_timestamp,
           entry_price, exit_price, size, commission_fees, funding_fees,
-          realized_pnl, roi_percentage, trigger_source)
+          realized_pnl, roi_pct, trigger_source)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
     )
     .bind(exchange)
@@ -109,7 +109,7 @@ pub async fn trade_telemetry_insert(
     .bind(commission_fees)
     .bind(funding_fees)
     .bind(realized_pnl)
-    .bind(roi_percentage)
+    .bind(roi_pct)
     .bind(trigger_source)
     .execute(pool)
     .await
@@ -136,7 +136,7 @@ struct TradeTelemetryQueryRow {
     commission_fees: f64,
     funding_fees: f64,
     realized_pnl: f64,
-    roi_percentage: f64,
+    roi_pct: f64,
     trigger_source: String,
 }
 
@@ -144,7 +144,7 @@ pub async fn trade_telemetry_query_all(pool: &SqlitePool, limit: u32) -> Vec<Tra
     let rows = sqlx::query_as::<_, TradeTelemetryQueryRow>(
         "SELECT id, exchange, symbol, direction, entry_timestamp, exit_timestamp,
                 entry_price, exit_price, size, commission_fees, funding_fees,
-                realized_pnl, roi_percentage, trigger_source
+                realized_pnl, roi_pct, trigger_source
          FROM trade_telemetry_history
          ORDER BY id DESC LIMIT ?1",
     )
@@ -167,7 +167,7 @@ pub async fn trade_telemetry_query_all(pool: &SqlitePool, limit: u32) -> Vec<Tra
             commission_fees: r.commission_fees,
             funding_fees: r.funding_fees,
             realized_pnl: r.realized_pnl,
-            roi_percentage: r.roi_percentage,
+            roi_pct: r.roi_pct,
             trigger_source: r.trigger_source,
         })
         .collect()

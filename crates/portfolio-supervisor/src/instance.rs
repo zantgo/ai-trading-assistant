@@ -1,12 +1,13 @@
 use sqlx::SqlitePool;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use market_analyzer::analyzer;
-use config_models::{IntervalsConfig, SafetyConfig};
+use config_models::{IntervalsConfig, LifecycleState, SafetyConfig, Stance};
 use crate::safety::SafetyManager;
+use crate::lifecycle::LifecycleManager;
 use crate::WorkspaceState;
 use core_domain::models::MarketSnapshot;
 use core_domain::normalized::NormalizedCandle;
@@ -101,6 +102,9 @@ pub struct Instance {
     pub fast: TimeframeBuffers,
     pub slow: TimeframeBuffers,
     pub r#macro: TimeframeBuffers,
+
+    pub lifecycle: RwLock<LifecycleManager>,
+    pub stances: RwLock<HashMap<String, Stance>>,
 }
 
 impl Instance {
@@ -122,8 +126,17 @@ impl Instance {
             safe_config.consecutive_loss_caution,
             safe_config.consecutive_loss_dropout,
             safe_config.dropout_duration_hours,
-            safe_config.capital_drawdown_pct,
+            safe_config.drawdown_limit_pct,
+            safe_config.max_daily_drawdown_pct,
+            safe_config.systemic_risk_threshold,
         ));
+
+        let symbol = active_pair.symbol.clone();
+        let mut stances = HashMap::new();
+        stances.insert(symbol.clone(), Stance::Active);
+
+        let mut lifecycle_mgr = LifecycleManager::new(None);
+        lifecycle_mgr.set_db(id.clone(), Arc::new(pool.clone()));
 
         Self {
             id,
@@ -140,6 +153,8 @@ impl Instance {
             fast,
             slow,
             r#macro,
+            lifecycle: RwLock::new(lifecycle_mgr),
+            stances: RwLock::new(stances),
         }
     }
 
@@ -183,10 +198,16 @@ impl Instance {
 
     pub async fn set_initial_capital(&self, capital: f64) {
         self.trading.write().await.initial_capital = capital;
+        self.safety
+            .set_initial_capital(rust_decimal::Decimal::from_f64_retain(capital).unwrap_or_default())
+            .await;
     }
 
     pub async fn set_current_equity(&self, equity: f64) {
         self.trading.write().await.current_equity = equity;
+        self.safety
+            .set_current_equity(rust_decimal::Decimal::from_f64_retain(equity).unwrap_or_default())
+            .await;
     }
 
     /// Test-only constructor. Builds an `Instance` with empty buffers
@@ -223,6 +244,7 @@ impl Instance {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
         };
         let micro_pipe = new_pipeline();
         let fast_pipe = new_pipeline();
@@ -242,12 +264,17 @@ impl Instance {
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             cluster_matrix: Arc::new(RwLock::new(None)),
+            latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         });
         let empty_buffers = TimeframeBuffers::new();
         let workspace = WorkspaceState::empty();
         // Use a no-op sqlite pool for tests. We never hit the DB.
         let pool =
             sqlx::SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite memory pool");
+        let symbol = active_pair.symbol.clone();
+        let mut stances = HashMap::new();
+        stances.insert(symbol, Stance::Active);
+
         Self {
             id,
             pair,
@@ -258,7 +285,7 @@ impl Instance {
                 config_models::OperationalMode::Advisory,
             )),
             safety_config: config_models::SafetyConfig::default(),
-            safety: Arc::new(SafetyManager::new(3, 5, 8, 30.0)),
+            safety: Arc::new(SafetyManager::new(3, 5, 8, 30.0, 5.0, 80.0)),
             active_pair,
             pool,
             workspace,
@@ -266,6 +293,8 @@ impl Instance {
             fast: empty_buffers.clone(),
             slow: empty_buffers.clone(),
             r#macro: empty_buffers,
+            lifecycle: RwLock::new(LifecycleManager::new(None)),
+            stances: RwLock::new(stances),
         }
     }
 }

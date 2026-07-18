@@ -1,7 +1,7 @@
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use core_domain::models::MarketSnapshot;
-use core_domain::normalized::NormalizedCandle;
+use core_domain::normalized::{Exchange, NormalizedCandle};
 use sqlx::SqlitePool;
 
 pub async fn insert_snapshot_internal(pool: &SqlitePool, snapshot: &MarketSnapshot) {
@@ -200,6 +200,7 @@ pub async fn query_recent_candles(
     let rows = sqlx::query_as::<
         _,
         (
+            String,
             i64,
             Option<String>,
             Option<String>,
@@ -208,7 +209,7 @@ pub async fn query_recent_candles(
             Option<String>,
         ),
     >(
-        "SELECT timestamp, open, high, low, close, volume
+        "SELECT exchange, timestamp, open, high, low, close, volume
          FROM market_snapshots
          WHERE symbol = ?1
            AND timeframe_secs = ?2
@@ -233,10 +234,15 @@ pub async fn query_recent_candles(
 
     let mut candles: Vec<NormalizedCandle> = rows
         .into_iter()
-        .map(|(ts, open, high, low, close, volume)| {
+        .map(|(exchange_str, ts, open, high, low, close, volume)| {
+            let exchange = match exchange_str.as_str() {
+                "Bitget" => Exchange::Bitget,
+                _ => Exchange::Hyperliquid,
+            };
             let close_dec = parse(close);
             let non_zero = |d: Decimal| if d.is_zero() { close_dec } else { d };
             NormalizedCandle {
+                exchange,
                 symbol: symbol.to_string(),
                 start_time_ms: (ts.max(0) as u64) * 1000,
                 duration_ms: timeframe_secs * 1000,
@@ -400,6 +406,10 @@ pub async fn query_latest_snapshot(
             risk_profile: None,
             liquidity: None,
             cluster: None,
+            liquidity_signals: vec![],
+            metrics_config: None,
+            opportunity: None,
+            quality_envelope: None,
         }
     })
 }

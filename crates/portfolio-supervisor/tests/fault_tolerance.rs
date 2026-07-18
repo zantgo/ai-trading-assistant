@@ -48,7 +48,11 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             safety: Default::default(),
             intervals: Default::default(),
             liquidity: Default::default(),
+            activation: Default::default(),
+            config_version: 1,
             instances: Vec::new(),
+            execution_policies: Vec::new(),
+            execution: Default::default(),
         };
         let indicators = test_workspace.indicators.clone();
         let tf_cfg = TimeframeConfig::new(60, indicators);
@@ -88,6 +92,15 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 Arc::new(RwLock::new(None)),
                 Arc::new(RwLock::new(None)),
                 config_models::OrderBookConfig::default(),
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
+                Arc::new(RwLock::new(None)),
+                Arc::new(core_domain::LatencyTracker::default()),
+                market_analyzer::active_set::ActiveSet::default(),
+                None,
+                Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
+                None,
+                None,
             )
             .await;
         });

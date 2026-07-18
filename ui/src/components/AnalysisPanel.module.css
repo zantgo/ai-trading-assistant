@@ -1,4 +1,41 @@
-.panel { height: 100%; display: flex; background: #000; color: #fff; }
-.featurePlaceholder { height: 100%; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 40px; text-align: center; color: rgba(255, 255, 255, 0.3); }
-.featurePlaceholderTitle { font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.6); margin: 0; }
-.featurePlaceholderMsg { font-size: 12px; font-weight: 400; letter-spacing: 0.03em; line-height: 1.5; max-width: 360px; color: rgba(255, 255, 255, 0.25); margin: 0; }
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: #0a0a0f; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+.title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0 0 14px 0; text-transform: uppercase; }
+.section { margin-bottom: 16px; }
+.sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
+.biasRow { display: flex; align-items: center; gap: 10px; }
+.biasBadge { font-size: 14px; font-weight: 800; padding: 4px 12px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+.biasStrongBull { background: rgba(34,197,94,0.18); color: #22c55e; }
+.biasBull { background: rgba(34,197,94,0.10); color: #4ade80; }
+.biasNeutral { background: rgba(148,163,184,0.10); color: #94a3b8; }
+.biasBear { background: rgba(239,68,68,0.10); color: #f87171; }
+.biasStrongBear { background: rgba(239,68,68,0.18); color: #ef4444; }
+.confidenceMeter { display: flex; align-items: center; gap: 8px; }
+.confLabel { font-size: 11px; color: #94a3b8; }
+.confBar { flex: 1; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+.confFill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.confHigh { background: #22c55e; }
+.confMid { background: #f59e0b; }
+.confLow { background: #ef4444; }
+.confVal { font-size: 12px; font-weight: 700; width: 36px; text-align: right; color: #e2e8f0; }
+.regimeRow { display: flex; align-items: center; gap: 10px; }
+.regimeBadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.regimeBull { background: rgba(34,197,94,0.15); color: #22c55e; }
+.regimeBear { background: rgba(239,68,68,0.15); color: #ef4444; }
+.regimeNeutral { background: rgba(148,163,184,0.15); color: #94a3b8; }
+.regimeVol { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.assessGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.assessCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
+.assessLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
+.assessValue { font-size: 13px; font-weight: 700; }
+.qualityBadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; }
+.qualityExc { background: rgba(34,197,94,0.18); color: #22c55e; }
+.qualityGood { background: rgba(34,197,94,0.10); color: #4ade80; }
+.qualityAvg { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.qualityWeak { background: rgba(239,68,68,0.10); color: #f87171; }
+.qualityPoor { background: rgba(239,68,68,0.18); color: #ef4444; }
+.interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.5; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
+.rationale { font-size: 10px; color: #64748b; line-height: 1.5; margin-top: 8px; }
+.signalList { display: flex; flex-wrap: wrap; gap: 4px; }
+.sigSupport { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: rgba(34,197,94,0.08); color: #22c55e; }
+.sigContra { font-size: 10px; padding: 2px 7px; border-radius: 4px; background: rgba(239,68,68,0.08); color: #ef4444; }
+.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

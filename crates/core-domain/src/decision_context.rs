@@ -141,7 +141,7 @@ mod tests {
         AnalysisMatrix {
             symbol: "BTC-USD".to_string(),
             bias: MarketBias::Neutral,
-            confidence: 0.82,
+            state_confidence: 0.82,
             market_regime: MarketRegime::Range,
             trend_assessment: TrendAssessment::Healthy,
             momentum_assessment: MomentumAssessment::Stable,
@@ -150,6 +150,7 @@ mod tests {
             volume_assessment: VolumeAssessment::Normal,
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: q,
+            market_quality_score: 0.0,
             market_interpretation: "Test".into(),
             rationale: String::new(),
             supporting_signals: Vec::new(),
@@ -187,12 +188,17 @@ mod tests {
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
             symbol: "BTC-USD".to_string(),
-            opportunity_type: "BREAKOUT".to_string(),
+            primary_opportunity: OpportunityType::Breakout,
             opportunity_score: 85.0,
-            expected_rr_internal: 2.5,
+            setup_quality: crate::analysis::SetupQuality::Prime,
+            profiles: vec![],
+            forecast_confidence: 0.85,
+            contributing_signals: vec![],
+            invalidation_note: String::new(),
+            entry_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
+            target_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
             invalidation_level: 0.0,
-            entry_zone: (0.0, 0.0),
-            target_zone: (0.0, 0.0),
+            expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
         };
         let ctx =
@@ -212,12 +218,17 @@ mod tests {
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
             symbol: "BTC-USD".to_string(),
-            opportunity_type: "BREAKOUT".to_string(),
+            primary_opportunity: OpportunityType::Breakout,
             opportunity_score: 70.0,
-            expected_rr_internal: 2.5,
+            setup_quality: crate::analysis::SetupQuality::Strong,
+            profiles: vec![],
+            forecast_confidence: 0.7,
+            contributing_signals: vec![],
+            invalidation_note: String::new(),
+            entry_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
+            target_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
             invalidation_level: 0.0,
-            entry_zone: (0.0, 0.0),
-            target_zone: (0.0, 0.0),
+            expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
         };
         let ctx =
@@ -235,12 +246,17 @@ mod tests {
         let indicators = HashMap::new();
         let opp = crate::opportunity::OpportunityMatrix {
             symbol: "BTC-USD".to_string(),
-            opportunity_type: "BREAKOUT".to_string(),
+            primary_opportunity: OpportunityType::Breakout,
             opportunity_score: 30.0,
-            expected_rr_internal: 2.5,
+            setup_quality: crate::analysis::SetupQuality::Marginal,
+            profiles: vec![],
+            forecast_confidence: 0.3,
+            contributing_signals: vec![],
+            invalidation_note: String::new(),
+            entry_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
+            target_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
             invalidation_level: 0.0,
-            entry_zone: (0.0, 0.0),
-            target_zone: (0.0, 0.0),
+            expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
         };
         let ctx =

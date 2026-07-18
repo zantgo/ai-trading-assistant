@@ -185,7 +185,7 @@ fn assess_market_risk(
         score += 10.0;
         evidence.push("Poor market quality".into());
     }
-    if analysis.confidence < 0.4 {
+    if analysis.state_confidence < 0.4 {
         score += 10.0;
         evidence.push("Low confidence".into());
     }
@@ -197,7 +197,7 @@ fn assess_market_risk(
     if analysis.trend_assessment == crate::analysis::TrendAssessment::Strong {
         score -= 10.0;
     }
-    if analysis.confidence > 0.7 {
+    if analysis.state_confidence > 0.7 {
         score -= 10.0;
     }
     RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
@@ -333,7 +333,7 @@ fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         score += 10.0;
         evidence.push("No signals active".into());
     }
-    if analysis.confidence < 0.5 {
+    if analysis.state_confidence < 0.5 {
         score += 15.0;
         evidence.push("Low analysis confidence".into());
     }
@@ -465,7 +465,8 @@ mod tests {
         AnalysisMatrix {
             symbol: "BTC-USD".to_string(),
             bias: MarketBias::Neutral,
-            confidence: 0.5,
+            state_confidence: 0.5,
+            market_quality_score: 50.0,
             market_regime: MarketRegime::Range,
             trend_assessment: TrendAssessment::Healthy,
             momentum_assessment: MomentumAssessment::Stable,

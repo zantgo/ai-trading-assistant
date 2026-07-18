@@ -712,8 +712,12 @@ fn build_historical_snapshot(
         risk: None,
         analysis: None,
         advisory: None,
+        opportunity: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        quality_envelope: None,
     }
 }

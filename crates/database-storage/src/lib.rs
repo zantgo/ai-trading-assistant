@@ -15,6 +15,10 @@ pub use logger::{run_telemetry_logger, TelemetryMsg};
 
 // ─── Query re-exports ──────────────────────────────────────────────
 
+pub use queries::analytics::{
+    insert_performance_matrix_snapshot, insert_strategy_analytics,
+    query_performance_matrix_latest, query_strategy_analytics_history,
+};
 pub use queries::journals::{
     insert_trade_journal, query_recent_journal_for_context, query_trade_journal,
     update_journal_notes, TradeJournalRecord,

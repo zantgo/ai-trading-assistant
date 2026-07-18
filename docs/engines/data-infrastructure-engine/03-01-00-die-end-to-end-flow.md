@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — End-to-End Flow
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document is the **single integrated narrative** for the Data Infrastructure Engine. It traces one trade tick from the exchange WebSocket to the dashboard broadcast and SQLite persistence in one diagram + walkthrough. Each layer's detailed contract lives in its dedicated doc; this document only cross-references them.
@@ -19,7 +19,8 @@ Exchange WS (Hyperliquid/Bitget)
     │  parse → NormalizedEvent::Trade
     │  send to bounded mpsc (capacity 10,000)
     ▼
-[L1 → L2 channel]                    crates/network-adapters/src/registry/pipelines.rs::run_event_router
+[L1 → L2 channel]                    crates/market-analyzer/src/analyzer/mod.rs::run_event_router
+    │  (spawned from crates/portfolio-supervisor/src/registry/pipelines.rs)
     │  fan-out to 4× TimeframePipeline receivers
     ▼
 [L2 Market Data Layer]               crates/market-analyzer/src/candle_generator.rs
@@ -118,7 +119,7 @@ ClockMonitor::run_until_cancelled        crates/network-adapters/src/clock_monit
     │  classify: WithinThreshold | BreachThreshold | NetworkError
     ▼
 on breach: log + (optional panic)         see 08-06 §Failure Mode
-    │  breach counter exposed via /api/system/clock (Phase 3)
+    │  breach counter exposed via /api/system/clock
     ▼
 (no direct coupling to candles; see Drift-Breach Consequence)
 ```
@@ -134,7 +135,7 @@ The DIE does not compute indicators, bias, or risk. Those happen in the MME (con
 - `NormalizedEvent` stream (L1 → L2)
 - `NormalizedCandle` stream (L2 → L3)
 - `MarketSnapshot` transport (L4) — the snapshot is **built by the MME analyzer pipeline** (MME L1; see `01-06` §1); DIE attaches its `CandleQualityEnvelope` to the frame and routes it. DIE emits `NormalizedCandle` upstream (L2 → MME); it does not construct the snapshot.
-- `PipelineReliabilityMetrics` (per-instance; to be exposed via `/api/data-quality` — a planned Phase-3 endpoint, not currently served; see [06-01-api-gateway-contract.md](../../integration-and-api/06-01-api-gateway-contract.md) "Planned endpoints", AUDIT-V6-301)
+- `PipelineReliabilityMetrics` (per-instance; served via `GET /api/data-quality` — `crates/api-gateway/src/handlers/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md))
 - `ConnectionQualityReport` (per-`(pair_key, timeframe_secs)`, exposed via `/api/connection-quality`)
 
 Anything that requires interpretation of the data (indicators, signals, regime, risk, opportunity, decision) is MME's responsibility and is documented in the MME spec files under `docs/engines/market-monitoring-engine/`.

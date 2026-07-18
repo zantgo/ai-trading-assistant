@@ -84,9 +84,13 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     prev_day_px: None,
                     statistical_context: None,
                     decision_context: None,
+                    liquidity_signals: vec![],
+                    metrics_config: None,
+                    opportunity: None,
                     risk_profile: None,
                     liquidity: None,
                     cluster: None,
+                    quality_envelope: None,
                 };
 
                 let result = sqlx::query(

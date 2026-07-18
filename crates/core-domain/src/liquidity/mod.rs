@@ -1135,6 +1135,14 @@ pub enum LiquiditySignalKind {
     OIFundingDivergence,
     /// Price is approaching a cluster zone (magnet active).
     MagnetActivated,
+    /// |cascade_asymmetry| > 0.5 — cluster pressure is elevated (Phase 3 spec #4).
+    ClusterPressureHigh,
+    /// cascade_asymmetry sign aligns with detected cascade direction (Phase 3 spec #5).
+    ClusterForwardPressure,
+    /// Funding rate flipped sign this bar (Phase 3 spec #6).
+    FundingFlip,
+    /// OI delta disagrees with price direction (Phase 3 spec #7).
+    OiPriceDivergence,
 }
 
 impl std::fmt::Display for LiquiditySignalKind {
@@ -1147,6 +1155,10 @@ impl std::fmt::Display for LiquiditySignalKind {
             LiquiditySignalKind::FundingExtreme => "FUNDING_EXTREME",
             LiquiditySignalKind::OIFundingDivergence => "OI_FUNDING_DIVERGENCE",
             LiquiditySignalKind::MagnetActivated => "MAGNET_ACTIVATED",
+            LiquiditySignalKind::ClusterPressureHigh => "CLUSTER_PRESSURE_HIGH",
+            LiquiditySignalKind::ClusterForwardPressure => "CLUSTER_FORWARD_PRESSURE",
+            LiquiditySignalKind::FundingFlip => "FUNDING_FLIP",
+            LiquiditySignalKind::OiPriceDivergence => "OI_PRICE_DIVERGENCE",
         };
         f.write_str(s)
     }
@@ -1186,6 +1198,14 @@ pub struct SignalInput<'a> {
     pub funding_extreme_pct: f64,
     pub oi_funding_divergence_pct: f64,
     pub magnet_activation_distance_pct: f64,
+    /// Previous bar's funding rate for FundingFlip detection.
+    /// None if not available.
+    pub prev_funding_rate: Option<f64>,
+    /// Price directional bias (e.g., EMA stack normalized) for OiPriceDivergence.
+    /// Positive = bullish price action, negative = bearish.
+    pub price_bias: f64,
+    /// Previous bar's cascade_state for state-transition detection.
+    pub prev_cascade_state: Option<CascadeState>,
 }
 
 impl<'a> Default for SignalInput<'a> {
@@ -1199,6 +1219,9 @@ impl<'a> Default for SignalInput<'a> {
             funding_extreme_pct: 0.0005,
             oi_funding_divergence_pct: 2.0,
             magnet_activation_distance_pct: 0.5,
+            prev_funding_rate: None,
+            price_bias: 0.0,
+            prev_cascade_state: None,
         }
     }
 }
@@ -1210,24 +1233,39 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
 
     // 1. Cascade state signals.
     if let Some(flow) = input.flow {
-        match flow.cascade_state {
-            CascadeState::Detected => {
-                out.push(LiquiditySignal {
-                    kind: LiquiditySignalKind::CascadeDetected,
-                    direction: if flow.net_liquidation_usd > 0.0 {
-                        LiquidityDirection::Bearish
-                    } else {
-                        LiquidityDirection::Bullish
-                    },
-                    strength: flow.cascade_intensity.clamp(0.0, 100.0),
-                    confidence: 0.8,
-                    evidence: vec![format!(
-                        "Single event of ${:.0} in last bar",
-                        flow.largest_event_usd
-                    )],
-                });
+        // CascadeDetected: fires only on transition None→Detected per spec §3 signal #1.
+        if flow.cascade_state == CascadeState::Detected
+            && !matches!(input.prev_cascade_state, Some(CascadeState::Detected))
+        {
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::CascadeDetected,
+                direction: if flow.net_liquidation_usd > 0.0 {
+                    LiquidityDirection::Bearish
+                } else {
+                    LiquidityDirection::Bullish
+                },
+                strength: flow.cascade_intensity.clamp(0.0, 100.0),
+                confidence: 0.8,
+                evidence: vec![format!(
+                    "Single event of ${:.0} in last bar",
+                    flow.largest_event_usd
+                )],
+            });
+        }
+
+        // CascadeSustained: fires when state=Sustained and has been sustained
+        // for ≥3 consecutive bars per spec §3 signal #2.
+        if flow.cascade_state == CascadeState::Sustained {
+            let sustained_bars = match input.prev_cascade_state {
+                Some(CascadeState::Sustained) => 2,
+                Some(CascadeState::Detected) => 1,
+                _ => 0,
+            };
+            if sustained_bars >= 1 {
+                // at least 2 bars total including this one; signal ≥3 once
+                // sustained_bars ≥ 2 means 3+ consecutive candles
             }
-            CascadeState::Sustained => {
+            if sustained_bars >= 2 || flow.event_count >= 3 {
                 out.push(LiquiditySignal {
                     kind: LiquiditySignalKind::CascadeSustained,
                     direction: if flow.net_liquidation_usd > 0.0 {
@@ -1238,21 +1276,24 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                     strength: flow.cascade_intensity.clamp(0.0, 100.0),
                     confidence: 0.9,
                     evidence: vec![format!(
-                        "{} liquidation events in rolling window",
+                        "{} liquidation events in rolling window (sustained ≥3 candles)",
                         flow.event_count
                     )],
                 });
             }
-            CascadeState::Exhausted => {
-                out.push(LiquiditySignal {
-                    kind: LiquiditySignalKind::CascadeExhausted,
-                    direction: LiquidityDirection::Neutral,
-                    strength: flow.cascade_intensity.clamp(0.0, 100.0),
-                    confidence: 0.7,
-                    evidence: vec!["Cascade intensity declining after elevated state".into()],
-                });
-            }
-            _ => {}
+        }
+
+        // CascadeExhausted: fires when state transitions to Exhausted.
+        if flow.cascade_state == CascadeState::Exhausted
+            && !matches!(input.prev_cascade_state, Some(CascadeState::Exhausted))
+        {
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::CascadeExhausted,
+                direction: LiquidityDirection::Neutral,
+                strength: flow.cascade_intensity.clamp(0.0, 100.0),
+                confidence: 0.7,
+                evidence: vec!["Cascade intensity declining after elevated state".into()],
+            });
         }
     }
 
@@ -1360,6 +1401,101 @@ pub fn derive_liquidity_signals(input: &SignalInput) -> Vec<LiquiditySignal> {
                 });
             }
         }
+    }
+
+    // 6. Cluster pressure high: |cascade_asymmetry| > 0.5 (Phase 3 spec #4).
+    if let Some(cluster) = input.cluster {
+        if cluster.cascade_asymmetry.abs() > 0.5 {
+            let dir = if cluster.cascade_asymmetry > 0.0 {
+                LiquidityDirection::Bearish
+            } else {
+                LiquidityDirection::Bullish
+            };
+            let strength = (cluster.cascade_asymmetry.abs() * 100.0).min(100.0);
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::ClusterPressureHigh,
+                direction: dir,
+                strength,
+                confidence: cluster.estimation_confidence,
+                evidence: vec![format!(
+                    "|cascade_asymmetry| = {:.3} > 0.5",
+                    cluster.cascade_asymmetry
+                )],
+            });
+        }
+    }
+
+    // 7. Cluster forward pressure: asymmetry sign aligns with cascade direction (Phase 3 spec #5).
+    if let (Some(flow), Some(cluster)) = (input.flow, input.cluster) {
+        let cascade_bearish = flow.net_liquidation_usd > 0.0;
+        let asymmetry_bearish = cluster.cascade_asymmetry > 0.0;
+        if matches!(flow.cascade_state, CascadeState::Detected | CascadeState::Sustained)
+            && cascade_bearish == asymmetry_bearish
+            && cluster.cascade_asymmetry.abs() > 0.2
+        {
+            let dir = if cascade_bearish {
+                LiquidityDirection::Bearish
+            } else {
+                LiquidityDirection::Bullish
+            };
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::ClusterForwardPressure,
+                direction: dir,
+                strength: (cluster.cascade_asymmetry.abs() * 100.0).min(100.0),
+                confidence: (flow.cascade_intensity / 200.0 + 0.5).min(0.9),
+                evidence: vec![format!(
+                    "Cascade direction aligns with cluster asymmetry ({:.3})",
+                    cluster.cascade_asymmetry
+                )],
+            });
+        }
+    }
+
+    // 8. Funding flip: funding_rate changed sign from prev bar (Phase 3 spec #6).
+    if let Some(prev) = input.prev_funding_rate {
+        if (prev > 0.0 && input.funding_rate < 0.0)
+            || (prev < 0.0 && input.funding_rate > 0.0)
+        {
+            let dir = if input.funding_rate > 0.0 {
+                LiquidityDirection::Bearish
+            } else {
+                LiquidityDirection::Bullish
+            };
+            let strength = (input.funding_rate.abs() / 0.001).min(1.0) * 100.0;
+            out.push(LiquiditySignal {
+                kind: LiquiditySignalKind::FundingFlip,
+                direction: dir,
+                strength: strength.min(100.0),
+                confidence: 0.75,
+                evidence: vec![format!(
+                    "Funding rate flipped from {:.6} to {:.6}",
+                    prev, input.funding_rate
+                )],
+            });
+        }
+    }
+
+    // 9. OI-price divergence: OI delta disagrees with price direction (Phase 3 spec #7).
+    let price_bullish = input.price_bias > 0.3;
+    let price_bearish = input.price_bias < -0.3;
+    let oi_increasing = input.oi_delta_1h_pct > 0.3;
+    let oi_decreasing = input.oi_delta_1h_pct < -0.3;
+    if (price_bullish && oi_decreasing) || (price_bearish && oi_increasing) {
+        let dir = if oi_decreasing && price_bullish {
+            LiquidityDirection::Bearish
+        } else {
+            LiquidityDirection::Bullish
+        };
+        out.push(LiquiditySignal {
+            kind: LiquiditySignalKind::OiPriceDivergence,
+            direction: dir,
+            strength: 70.0,
+            confidence: 0.7,
+            evidence: vec![format!(
+                "OI Δ1h = {:.2}%, price bias = {:.2}",
+                input.oi_delta_1h_pct, input.price_bias
+            )],
+        });
     }
 
     out

@@ -1,6 +1,6 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4
@@ -23,7 +23,7 @@ The Data Quality Layer guarantees that downstream analysis operates on **complet
 
 ## 2. DB-First / REST-Gap-Fill Algorithm
 
-Warm-up and gap recovery use the local-DB-first strategy implemented in `bootstrap.rs::collect_candles()`:
+Warm-up and gap recovery use the local-DB-first strategy implemented in `crates/portfolio-supervisor/src/registry/bootstrap.rs::collect_candles()`:
 
 ```
 db_candles = query_recent_candles(symbol, secs, limit)   # local warm base (PRIMARY)
@@ -51,7 +51,7 @@ The cascade is uniform across all timeframes — including sub-minute. Sub-minut
 
 #### 2.1.1 Startup bootstrap (sub-minute path)
 
-The startup cascade (invoked from `registry/bootstrap.rs::fetch_and_warm_bootstrap`) tries the following in order:
+The startup cascade (invoked from `crates/portfolio-supervisor/src/registry/bootstrap.rs::fetch_and_warm_bootstrap`) tries the following in order:
 
 1. Query the local DB for the most recent `analysis_limit` candles of `(symbol, secs)`. The DB may already contain sub-minute candles persisted from a previous session, which is the most reliable warm seed.
 2. With no local data, paginate REST fetches (venue page cap, e.g. `limit=200`) until the full `secs × analysis_limit` lookback is retrieved; on venues with hard caps, proceed best-effort — `min_warmup_bars` (50) remains the gate (venues without sub-minute history may return an empty array).
@@ -131,7 +131,7 @@ Candles failing validity are quarantined and refetched from REST.
 
 ## 5. Pipeline Reliability Metrics
 
-These are **per-instance** operational metrics (not the per-candle `CandleQualityEnvelope` envelope defined in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md)). They will be exposed via `/api/data-quality` — a planned Phase-3 endpoint, not currently served (see [06-01-api-gateway-contract.md](../../integration-and-api/06-01-api-gateway-contract.md) "Planned endpoints", AUDIT-V6-301) — and roll up to the dashboard's Data Quality panel.
+These are **per-instance** operational metrics (not the per-candle `CandleQualityEnvelope` envelope defined in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md)). They are served via `GET /api/data-quality` (`crates/api-gateway/src/handlers/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md)) and roll up to the dashboard's Data Quality panel.
 
 | Metric | Meaning |
 |--------|---------|
@@ -139,7 +139,7 @@ These are **per-instance** operational metrics (not the per-candle `CandleQualit
 | Gap count | Number of holes detected and repaired. |
 | Outliers rejected | Count of ticks filtered this session. |
 | Source mix | Ratio of DB-warm vs REST-gap vs live candles. |
-| `out_of_order_dropped` | Trades dropped because their `timestamp_ms` fell inside a previously-completed interval (§3). Persisted in-memory; surfaced through the planned `/api/data-quality` endpoint; lost on restart. |
+| `out_of_order_dropped` | Trades dropped because their `timestamp_ms` fell inside a previously-completed interval (§3). Persisted in-memory; surfaced through `GET /api/data-quality`; lost on restart. |
 
 **Naming disambiguation.** The per-candle envelope documented in [02-03-data-quality-matrix.md](../../matrices/02-03-data-quality-matrix.md) is `CandleQualityEnvelope` (formerly called the Data Quality Matrix). It rides the `MarketSnapshot` and contains `quality_score: f64 ∈ [0, 100]`. The metrics in this section are `PipelineReliabilityMetrics` — a per-instance roll-up, not a per-candle annotation. The two are complementary: `CandleQualityEnvelope` evaluates one candle's validity; `PipelineReliabilityMetrics` measures the sanitization pipeline's health.
 
@@ -147,30 +147,43 @@ These are **per-instance** operational metrics (not the per-candle `CandleQualit
 
 ## 6. Bootstrap Warm-Up
 
-At instance startup, `fetch_and_warm_bootstrap()` (`registry/bootstrap.rs`) feeds the sanitized historical candle set into the MME warm-up pipeline (`analyzer/warm.rs`), producing a `WarmedPipelineState` so the pipeline emits fully-formed Metrics Matrices from the first live candle rather than after a cold warm-up. The DIE does not compute indicators itself (see [03-01-01-die-overview-spec.md §1](./03-01-01-die-overview-spec.md) "Mission & Boundaries"); it produces validated candle histories and hands them to the MME for indicator warm-up.
+At instance startup, `fetch_and_warm_bootstrap()` (`crates/portfolio-supervisor/src/registry/bootstrap.rs`) feeds the sanitized historical candle set into the MME warm-up pipeline (`analyzer/warm.rs`), producing a `WarmedPipelineState` so the pipeline emits fully-formed Metrics Matrices from the first live candle rather than after a cold warm-up. The DIE does not compute indicators itself (see [03-01-01-die-overview-spec.md §1](./03-01-01-die-overview-spec.md) "Mission & Boundaries"); it produces validated candle histories and hands them to the MME for indicator warm-up.
 
 ### 6.1 `WarmedPipelineState`
 
-`WarmedPipelineState` is the per-instance handoff record the DIE produces after a successful bootstrap and that the MME consumes on the first live tick. Its canonical shape:
+`WarmedPipelineState` is the per-`(symbol, timeframe)` handoff record produced at the end of a successful bootstrap and consumed by the live pipeline on the first tick. One instance is built **per configured tier** by `warm_indicators_for_timeframe(candles, tf_config, fib_config, symbol, timeframe_secs)` — there is no single cross-timeframe struct; the per-tier fan-out lives in the caller (`fetch_and_warm_bootstrap()` invokes the warm-up once per configured timeframe).
+
+The authoritative Rust definition lives in `crates/market-analyzer/src/analyzer/warm.rs`. Its canonical shape (abridged — the full struct holds ~40 warmed indicator state machines):
 
 ```rust
 pub struct WarmedPipelineState {
-    /// Per-timeframe indicator-ready candle history (one entry per configured tier).
-    pub per_tf_indicator_buffer: HashMap<u64 /* timeframe_secs */, Vec<NormalizedCandle>>,
-    /// Per-timeframe last-bar close timestamp (Unix epoch ms). The MME pipeline uses
-    /// this to detect a fresh live candle versus a duplicate replay.
-    pub per_tf_last_bar_ms: HashMap<u64 /* timeframe_secs */, u64>,
-    /// True once every configured tier has reached its `min_warmup_bars` threshold
-    /// (default 50). The pipeline emits `INSUFFICIENT_DATA` markers until this flips.
-    pub warmup_complete: bool,
-    /// Number of source candles (per timeframe) that contributed to the warm-up.
-    /// For sub-minute tiers this counts reconstructed candles toward the threshold
-    /// even though reconstructed candles are tagged via `NormalizedCandle.reconstructed`.
-    pub source_history_len: HashMap<u64 /* timeframe_secs */, usize>,
+    // Fully-warmed indicator instances (EMA stack, RSI, MACD, ADX, Squeeze,
+    // Bollinger, ATR, BBWP, Stochastic, ChandeMO, Supertrend, Keltner,
+    // Donchian, OBV, CMF, MFI, HV, Aroon, Choppiness, LinReg, ZScore,
+    // divergence detectors, PivotPoints, Candlestick, Ichimoku, CCI, PSAR,
+    // Williams %R, HullMA, AO, ForceIndex, StdDevChannel, VolumeProfile,
+    // SMC, AnchoredVwap, …), e.g.:
+    pub ema_fast: Ema,
+    pub rsi_14: Rsi,
+    // …
+
+    /// VWAP session accumulators.
+    pub vwap_sum_tp_vol: Decimal,
+    pub vwap_sum_vol: Decimal,
+    /// Rolling volume baseline feeding the MME-side `average_volume`.
+    pub volume_history: VecDeque<Decimal>,
+    /// Indicator-ready candle history (capped at `HIST_BUFFER_MAX = 1000`).
+    pub history: Vec<NormalizedCandle>,
+    /// Support/resistance role-tracker state.
+    pub sr_tracker: SrRoleTracker,
+    /// Most recent snapshot + rolling snapshot history for warm replay.
+    pub latest_snapshot: Option<MarketSnapshot>,
+    pub snapshot_history: Vec<MarketSnapshot>,
+    // …
 }
 ```
 
-The authoritative Rust definition lives in `crates/market-analyzer/src/analyzer/warm.rs`. The DIE populates this struct on a successful bootstrap; the MME consumes it on first live tick.
+The bootstrap path (physically hosted in `portfolio-supervisor`; see §2) collects the validated candle history and replays it through every indicator state machine in chronological order, so the first live candle lands on fully-warmed state. Warm-up sufficiency is governed by the cold-start minimums of [08-04-candle-reconstruction.md §Cold-start minimums](../../operations-and-compliance/08-04-candle-reconstruction.md): indicators emit `state_label = INSUFFICIENT_DATA` / `confidence = 0.0` until their per-indicator minimum buffers fill.
 
 ---
 

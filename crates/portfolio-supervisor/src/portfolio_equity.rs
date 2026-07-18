@@ -63,7 +63,6 @@ async fn write_snapshot(pool: &SqlitePool) {
         .unwrap()
         .as_millis() as i64;
 
-    // No paper trading — equity snapshot tracks zero values for historical continuity
     let total_cash: f64 =
         sqlx::query("SELECT COALESCE(SUM(current_cash), 0.0) FROM paper_balances")
             .fetch_one(pool)
@@ -71,8 +70,16 @@ async fn write_snapshot(pool: &SqlitePool) {
             .map(|r| r.get(0))
             .unwrap_or(0.0);
 
-    let total_value = total_cash;
-    insert_equity_snapshot(pool, now_ms, total_value, total_cash, 0.0).await;
+    let unrealized: f64 = sqlx::query(
+        "SELECT COALESCE(SUM(CAST(unrealized_pnl AS REAL)), 0.0) FROM active_positions",
+    )
+    .fetch_one(pool)
+    .await
+    .map(|r| r.get(0))
+    .unwrap_or(0.0);
+
+    let total_value = total_cash + unrealized;
+    insert_equity_snapshot(pool, now_ms, total_value, total_cash, unrealized).await;
     purge_equity_history(pool, now_ms - PURGE_OLDER_THAN_MS).await;
 }
 

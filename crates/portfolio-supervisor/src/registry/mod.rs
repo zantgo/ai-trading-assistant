@@ -2,10 +2,12 @@ mod bootstrap;
 mod pipelines;
 
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use config_models::TimeframeConfig;
+use config_models::{LifecycleState, Stance, TimeframeConfig};
 use crate::instance::{ConfigState, Instance, InstanceStatus};
+use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
 use core_domain::normalized::Exchange;
@@ -19,7 +21,7 @@ pub struct InstanceSummary {
     pub initial_capital: f64,
     pub current_equity: f64,
     pub consecutive_losses: u32,
-    pub caution_level: String,
+    pub safety_state: String,
 }
 
 /// Add a new instance to the state, starting all pipeline tasks.
@@ -211,6 +213,7 @@ pub async fn add_instance(
         fast_limit,
         slow_limit,
         macro_limit,
+        reliability: Some(state.reliability.clone()),
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
@@ -282,10 +285,11 @@ pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Resul
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
-    let mut config_state = instance.config_state.write().await;
-    if config_state.status == InstanceStatus::Stopped {
-        return Err("Cannot pause a stopped instance".to_string());
+    {
+        let mut lifecycle = instance.lifecycle.write().await;
+        lifecycle.pause("operator", Some("Manual pause".into())).await?;
     }
+    let mut config_state = instance.config_state.write().await;
     config_state.status = InstanceStatus::Paused;
     println!(
         "⏸️  Instance paused: {} ({})",
@@ -295,16 +299,51 @@ pub async fn pause_instance(state: &RegistryContext, instance_id: &str) -> Resul
     Ok(())
 }
 
-/// Stop an instance (close all positions immediately).
+/// Start an instance (from STOPPED or lifecycle PAUSED).
+pub async fn start_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
+    let instance = state.workspace.list().await
+        .into_iter()
+        .find(|i| i.id == instance_id)
+        .ok_or_else(|| format!("Instance {} not found", instance_id))?;
+    {
+        let mut lifecycle = instance.lifecycle.write().await;
+        lifecycle.start("operator", Some("Manual start".into())).await?;
+    }
+    let mut config_state = instance.config_state.write().await;
+    config_state.status = InstanceStatus::Running;
+    println!(
+        "▶️  Instance started: {} ({})",
+        instance.pair_display(),
+        instance_id
+    );
+    Ok(())
+}
+
+/// Stop an instance (close all positions immediately, transition STOPPING -> STOPPED).
 pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
     let instance = state.workspace.list().await
         .into_iter()
         .find(|i| i.id == instance_id)
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
-    instance.config_state.write().await.status = InstanceStatus::Stopped;
+    {
+        let mut lifecycle = instance.lifecycle.write().await;
+        lifecycle.stop("operator", Some("Manual stop".into())).await?;
+    }
     instance.cancel.cancel();
+
+    tokio::spawn({
+        let inst = Arc::clone(&instance);
+        async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let mut lifecycle = inst.lifecycle.write().await;
+            let _ = lifecycle.complete_stop().await;
+            let mut config_state = inst.config_state.write().await;
+            config_state.status = InstanceStatus::Stopped;
+        }
+    });
+
     println!(
-        "🛑 Instance stopped: {} ({})",
+        "🛑 Instance stopping: {} ({})",
         instance.pair_display(),
         instance_id
     );
@@ -323,10 +362,8 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
         .ok_or_else(|| format!("Instance {} not found", instance_id))?;
 
     {
-        let is_stopped = instance.config_state.read().await.status == InstanceStatus::Stopped;
-        if !is_stopped {
-            stop_instance(state, instance_id).await?;
-        }
+        let lifecycle = instance.lifecycle.read().await;
+        lifecycle.can_delete().map_err(|e| format!("Cannot delete: {}", e))?;
     }
 
     state.workspace.remove(&pair_key).await;
@@ -461,6 +498,7 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         fast_limit,
         slow_limit,
         macro_limit,
+        reliability: Some(state.reliability.clone()),
     };
 
     let warmed_states = bootstrap::fetch_and_warm_bootstrap(&bootstrap_input).await;
@@ -514,7 +552,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         .await;
     }
 
-    // Construct new instance shell reusing preserved state from old instance
+    let symbol = old_instance.active_pair.symbol.clone();
+    let mut stances = std::collections::HashMap::new();
+    stances.insert(symbol, Stance::Active);
+
     let new_instance = Arc::new(Instance {
         id: old_instance.id.clone(),
         pair: old_instance.pair.clone(),
@@ -536,6 +577,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         fast: artifacts.fast,
         slow: artifacts.slow,
         r#macro: artifacts.r#macro,
+        lifecycle: RwLock::new(LifecycleManager::new(None)),
+        stances: RwLock::new(stances),
     });
 
     // Swap in state map
@@ -568,8 +611,11 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
             consecutive_losses: inst
                 .safety
                 .consecutive_losses
-                .load(std::sync::atomic::Ordering::Relaxed),
-            caution_level: inst.safety.caution_level.read().await.as_str().to_string(),
+                .read()
+                .await
+                .values()
+                .sum(),
+            safety_state: inst.safety.safety_state.read().await.as_str().to_string(),
         });
     }
     summaries

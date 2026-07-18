@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -63,6 +64,7 @@ impl Default for ClockMonitorConfig {
 pub struct ClockMonitor {
     config: ClockMonitorConfig,
     samples: Mutex<Vec<ClockSample>>,
+    breach_count: AtomicU32,
 }
 
 impl ClockMonitor {
@@ -70,6 +72,7 @@ impl ClockMonitor {
         Self {
             config,
             samples: Mutex::new(Vec::new()),
+            breach_count: AtomicU32::new(0),
         }
     }
 
@@ -115,7 +118,7 @@ impl ClockMonitor {
     /// Long-running loop: measure every `poll_interval`. Honours the supplied
     /// `CancellationToken` for graceful shutdown. Network errors are logged and the
     /// loop continues — the monitor never panics on transport errors.
-    pub async fn run_until_cancelled(self, cancel: CancellationToken) {
+    pub async fn run_until_cancelled(&self, cancel: CancellationToken) {
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => {
@@ -148,6 +151,7 @@ impl ClockMonitor {
                 server,
                 threshold_us,
             } => {
+                self.breach_count.fetch_add(1, Ordering::Relaxed);
                 let msg = format!(
                     "CLOCK DRIFT BREACH: |{}µs| > threshold {}µs (rtt={}µs, server={})",
                     offset_us, threshold_us, rtt_us, server
@@ -205,6 +209,10 @@ impl ClockMonitor {
             .lock()
             .expect("ClockMonitor samples lock poisoned")
             .len()
+    }
+
+    pub fn breach_count(&self) -> u32 {
+        self.breach_count.load(Ordering::Relaxed)
     }
 
     /// Record a sample into the rolling window. Public so tests can inject data

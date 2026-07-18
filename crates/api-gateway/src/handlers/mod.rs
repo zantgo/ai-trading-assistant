@@ -1,9 +1,14 @@
+pub mod analytics;
+pub mod clock;
 pub mod config;
 pub mod connection_quality;
 pub mod dashboard;
+pub mod data_quality;
+pub mod exchange_status;
 pub mod history;
 pub mod instances;
 pub mod monitor;
+pub mod overview;
 pub mod profiles;
 pub mod session;
 pub mod system;

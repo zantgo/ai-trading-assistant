@@ -1,0 +1,101 @@
+.container {
+    padding: 1rem;
+    border: 1px solid var(--border-color, #2a2a2a);
+    border-radius: 8px;
+    background: var(--panel-bg, #1a1a1a);
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.exchanges {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.exchange-card {
+    padding: 1rem;
+    background: var(--metric-bg, #222);
+    border-radius: 8px;
+    border: 1px solid var(--border-color, #2a2a2a);
+}
+
+.exchange-name {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+    margin-bottom: 0.5rem;
+}
+
+.exchange-status {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.state-connected {
+    color: #22c55e;
+}
+
+.state-connecting {
+    color: #f59e0b;
+}
+
+.state-reconnecting {
+    color: #f59e0b;
+}
+
+.state-disabled {
+    color: #6b7280;
+}
+
+.state-disconnected {
+    color: #ef4444;
+}
+
+.exchange-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+}
+
+.detail-label {
+    color: var(--text-secondary, #999);
+}
+
+.detail-value {
+    color: var(--text-primary, #e0e0e0);
+    font-weight: 500;
+}
+
+.placeholder {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary, #999);
+}
+
+.error {
+    padding: 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid #ef4444;
+    border-radius: 4px;
+    color: #ef4444;
+}

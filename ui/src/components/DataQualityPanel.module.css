@@ -1,0 +1,88 @@
+.container {
+    padding: 1rem;
+    border: 1px solid var(--border-color, #2a2a2a);
+    border-radius: 8px;
+    background: var(--panel-bg, #1a1a1a);
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+}
+
+.metric {
+    padding: 0.75rem;
+    background: var(--metric-bg, #222);
+    border-radius: 6px;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #999);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.coverage-excellent {
+    color: #22c55e;
+}
+
+.coverage-good {
+    color: #84cc16;
+}
+
+.coverage-moderate {
+    color: #f59e0b;
+}
+
+.coverage-poor {
+    color: #ef4444;
+}
+
+.metric-normal {
+    color: var(--text-primary, #e0e0e0);
+}
+
+.metric-warn {
+    color: #f59e0b;
+}
+
+.metric-bad {
+    color: #ef4444;
+}
+
+.placeholder {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary, #999);
+}
+
+.error {
+    padding: 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid #ef4444;
+    border-radius: 4px;
+    color: #ef4444;
+}

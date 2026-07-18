@@ -4,6 +4,20 @@
 
 ------
 
+## v6.4.1 (2026-07-18) — DIE documentation-reality alignment
+
+Documentation-only correction pass syncing the DIE corpus with the shipped implementation, following the DIE feature-completeness audit (2026-07-18). Only divergences resolved *toward the code* are listed here; all other audit findings remain resolved *toward the docs* (the spec is unchanged) and are tracked as pending code work.
+
+- **Decimal wire format:** the corpus-wide "Decimal-as-string" convention was never shipped — `core-domain` serializes `Decimal` via `rust_decimal`'s `serde-float` feature (plain JSON numbers). Corrected 06-01 §4, 06-00 §3.2, 03-01-05 §4.2; unquoted the numeric literals in the JSON examples of 01-01, 02-03, 02-05, 02-06, 02-07, 02-08, 02-10 (`trade_id` stays a string).
+- **`NormalizedCandle` duration field:** 03-01-03 §2 showed a `timeframe_secs: u64` struct field; the actual struct field is `duration_ms: u64` (milliseconds). The wire name `timeframe_secs` (seconds) is unchanged; the 02-06 §2 field-name registry was already correct and is now cross-referenced.
+- **Phase-3 REST handlers are served:** `/api/system/clock`, `/api/exchange-status`, `/api/data-quality` moved out of 06-01 "Planned endpoints" into the new §2.11 "System diagnostics endpoints" (planned list renumbered to §2.12, now key-rotation only). 03-01-00 §5 and 03-01-04 §5 no longer describe `/api/data-quality` as unserved; 07-02 §5 no longer marks the Exchange Status / NTP Clock Monitor backends as pending. `GET /api/system/clock.breach_count` reports a placeholder `0` until the persistent counter lands (code work).
+- **Stale source paths:** `run_event_router` lives in `crates/market-analyzer/src/analyzer/mod.rs` (spawned from `crates/portfolio-supervisor/src/registry/pipelines.rs`), and `collect_candles()` / `fetch_and_warm_bootstrap()` live in `crates/portfolio-supervisor/src/registry/bootstrap.rs` — not `crates/network-adapters/src/registry/…`. Corrected 03-01-00 §1 and 03-01-04 §2/§6.
+- **`WarmedPipelineState`:** 03-01-04 §6.1 previously showed a per-timeframe-map struct (`per_tf_indicator_buffer`, `per_tf_last_bar_ms`, `warmup_complete`, `source_history_len`) that does not exist; rewritten to the authoritative `warm.rs` shape (one warm state per `(symbol, timeframe)` holding ~40 warmed indicator instances plus a capped candle history).
+- **Clock-monitor config keys:** `query_timeout_secs` and `jitter_window_size` **are** exposed via `[clock_monitor]` in `config.toml` (08-06 previously claimed both were runtime-only). 08-06 §Public API, §Configuration example, and the key-mapping table corrected.
+- Re-stamped only the corrected files to v6.4.1: 01-01, 02-03, 02-05, 02-06, 02-07, 02-08, 02-10, 03-01-00, 03-01-03, 03-01-04, 03-01-05, 06-00, 06-01, 07-02, 08-06 (+ README status row). The remainder of the corpus stays at v6.4.
+
+---
+
 ## v6.4 (2026-07-17) — Documentation consistency release
 
 Documentation-only release applying the corpus-wide architectural consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings). No platform behavior changes beyond the four documented contract adjustments below.
@@ -524,7 +538,7 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V6-212` | `api-gateway`: implement `GET /api/instances/:id/activation`; POST `/api/config` validation responses; increment `config_version` on 200 | Open (specified in `03-02-12` §9) | v6.5 |
 | `AUDIT-V6-213` | `portfolio-supervisor`: implement `AUTO_PAUSED` policy state and transition | Open (specified in `03-02-12` §9) | v6.5 |
 | `AUDIT-V6-214` | `ui`: Svelte 5 IndicatorActivation panel; three-state pane styling | Open (specified in `03-02-12` §9) | v6.5 |
-| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Open | v6.5 |
+| `AUDIT-V6-301` | Phase-3 REST handlers `/api/system/clock`, `/api/exchange-status`, `/api/data-quality`; surface `mark_index_spread_pct` writers | Partially resolved (v6.4.1): the three handlers are served (06-01 §2.11). Remaining open: `mark_index_spread_pct` writers; persistent `/api/system/clock.breach_count` counter (placeholder `0` today) | v6.5 |
 | `AUDIT-V6-302` | WS per-timeframe subscriptions (subscribe/unsubscribe individual timeframes on the `/ws` feed) | Open | v6.5 |
 | `AUDIT-V6-303` | Timeframe editor (operator-editable timeframe set beyond the default 4 tiers) | Open | v6.5 |
 | `AUDIT-V6-304` | PAE→DB feedback (persist PAE analytical feedback to configuration databases for off-line policy optimization) | Open | Unscheduled |

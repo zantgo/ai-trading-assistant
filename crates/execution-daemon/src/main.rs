@@ -44,13 +44,16 @@ use config_models::{load_platform, load_workspace, ClockMonitorBreachAction};
 use database_storage::{init_db, run_telemetry_logger, verify_encryption_or_panic};
 use network_adapters::{
     clock_monitor::{BreachAction, ClockMonitor, ClockMonitorConfig},
-    connection_quality_tracker::ConnectionQualityTracker,
+    connection_quality_tracker::ConnectionQualityRegistry,
+    exchange_status_tracker::ExchangeStatusTracker,
+    pipeline_reliability::ReliabilityTracker,
 };
 use performance_analytics::{performance_evaluator, strategy_optimizer};
 use portfolio_supervisor::{
     portfolio_equity, registry, workspace_state::WorkspaceState,
     session::{Currency, ExchangeChoice},
 };
+use core_domain::portfolio::SafetyState;
 
 // ─── CLI argument parsing ────────────────────────────────────────────
 
@@ -179,15 +182,19 @@ async fn main() {
     verify_encryption_or_panic(&db_pool).await;
 
     let (telemetry_tx, telemetry_rx) = mpsc::channel::<database_storage::TelemetryMsg>(10000);
+    let liq_retention_days = 7u32;
     let logger_handle = tokio::spawn({
         let pool = db_pool.clone();
         async move {
-            run_telemetry_logger(pool, telemetry_rx).await;
+            run_telemetry_logger(pool, telemetry_rx, liq_retention_days).await;
         }
     });
 
     let symbol_mapper = Arc::new(core_domain::normalized::SymbolMapper::new());
-    let connection_quality = Arc::new(ConnectionQualityTracker::new());
+    let connection_quality = Arc::new(ConnectionQualityRegistry::new());
+    let reliability = Arc::new(ReliabilityTracker::new());
+    let exchange_status = Arc::new(ExchangeStatusTracker::new());
+    let latency_tracker = Arc::new(core_domain::LatencyTracker::default());
 
     let platform_arc = Arc::new(RwLock::new(platform));
     let workspace_state = WorkspaceState::new(workspace.clone());
@@ -198,7 +205,7 @@ async fn main() {
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
-    let app_state = Arc::new(AppState {
+    let mut app_state = Arc::new(AppState {
         workspace: workspace_state.clone(),
         session: session.clone(),
         platform: platform_arc.clone(),
@@ -206,8 +213,13 @@ async fn main() {
         symbol_mapper: symbol_mapper.clone(),
         telemetry_tx: telemetry_tx.clone(),
         connection_quality: connection_quality.clone(),
+        clock_monitor: None,
+        reliability: reliability.clone(),
+        exchange_status: exchange_status.clone(),
+        latency_tracker: latency_tracker.clone(),
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
+        overview: Arc::new(RwLock::new(None)),
     });
 
     // ── Session auto-init (headless and web mode) ──────────────────
@@ -258,35 +270,65 @@ async fn main() {
         }
     }
 
-    let app = build_router(app_state.clone());
+    // ── Safety pool initialization ─────────────────────────────────
+    {
+        let instances = workspace_state.list().await;
+        let pool_arc = Arc::new(db_pool.clone());
+        for inst in &instances {
+            inst.safety.set_db_pool(Arc::clone(&pool_arc)).await;
+        }
+    }
 
-    let mut handles = Vec::new();
-    handles.push(logger_handle);
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .expect("❌ Web Server Setup: Failed to bind port 3000");
-
-    println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
-
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+    // ── TAE: Policy & Execution Engines ─────────────────────────────
+    let policy_engine = Arc::new(RwLock::new(
+        portfolio_supervisor::policy::engine::PolicyEngine::new(
+            workspace.execution_policies.clone(),
+        ),
+    ));
+    let execution_engine = Arc::new({
+        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new();
+        engine.set_db(Arc::new(db_pool.clone()));
+        engine
     });
-    handles.push(server_handle);
+    *execution_engine.slippage_ceiling_pct.write().await = workspace.execution.slippage_ceiling_pct;
+    execution_engine.set_fee_config(
+        workspace.fees.maker_fee_pct,
+        workspace.fees.taker_fee_pct,
+        workspace.leverage.cross_leverage,
+    ).await;
+    let paper_engine = Arc::new({
+        let mut engine =
+            portfolio_supervisor::paper_trading::PaperTradingEngine::new(
+                portfolio_supervisor::paper_trading::FeesConfig {
+                    maker_fee_pct: workspace.fees.maker_fee_pct,
+                    taker_fee_pct: workspace.fees.taker_fee_pct,
+                    funding_rate_8h: workspace.fees.funding_rate_8h,
+                    simulated_spread_pct: 0.01,
+                },
+            );
+        engine.set_db(Arc::new(db_pool.clone()));
+        engine
+    });
+    {
+        let total_capital: f64 = workspace
+            .instances
+            .iter()
+            .map(|e| e.initial_capital_usd)
+            .sum();
+        if total_capital > 0.0 {
+            *paper_engine.equity.write().await = total_capital;
+        }
+    }
 
-    let eval_cancel = CancellationToken::new();
-    let eval_cancel1 = eval_cancel.clone();
-    handles.push(tokio::spawn(async move {
-        performance_evaluator::run_performance_evaluator(performance_evaluator::EvaluatorConfig {
-            cancel: eval_cancel1,
-            eval_interval_secs: 300,
-        })
-        .await;
-    }));
+    if !workspace.execution_policies.is_empty() {
+        println!(
+            "⚡ TAE: Initialized with {} execution policies",
+            workspace.execution_policies.len()
+        );
+    }
 
-    // Clock-drift monitor (NTP-based)
+    // ── Clock-drift monitor (NTP-based) — must run BEFORE build_router
+    //    so the Arc is stored in AppState before the router clones it.
     if let Some(clock_cfg) = platform_arc.read().await.clock_monitor.clone() {
         if clock_cfg.is_active() {
             let monitor_cfg = ClockMonitorConfig {
@@ -303,16 +345,13 @@ async fn main() {
                 jitter_window_size: clock_cfg.jitter_window_size,
                 query_timeout: std::time::Duration::from_secs(clock_cfg.query_timeout_secs),
             };
-            let monitor = ClockMonitor::new(monitor_cfg);
-            let clock_cancel = CancellationToken::new();
+            let monitor = Arc::new(ClockMonitor::new(monitor_cfg));
+            Arc::get_mut(&mut app_state).unwrap().clock_monitor = Some(monitor.clone());
             println!(
                 "🕒 Clock Monitor: starting NTP polling ({} servers, threshold={}µs)",
                 clock_cfg.ntp_servers.len(),
                 clock_cfg.threshold_micros
             );
-            handles.push(tokio::spawn(async move {
-                monitor.run_until_cancelled(clock_cancel).await;
-            }));
         } else {
             println!("🕒 Clock Monitor: disabled by config");
         }
@@ -320,11 +359,319 @@ async fn main() {
         println!("🕒 Clock Monitor: no [clock_monitor] section — drift enforcement disabled");
     }
 
+    let app = build_router(app_state.clone());
+
+    let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    handles.push(logger_handle);
+
+    // ── PME Veto Loop ────────────────────────────────────────────────
+    let (veto_tx, mut veto_rx) = tokio::sync::mpsc::channel::<portfolio_supervisor::veto_loop::VetoEvent>(64);
+    {
+        let veto_workspace = workspace_state.clone();
+        let veto_paper = paper_engine.clone();
+        let veto_overview = app_state.overview.clone();
+        handles.push(portfolio_supervisor::veto_loop::spawn_veto_loop(
+            veto_workspace,
+            veto_paper,
+            veto_overview,
+            veto_tx,
+        ));
+    }
+    println!("🛡️  PME: Veto safety loop started (5s cadence)");
+
+    // ── TAE event loop ──────────────────────────────────────────────
+    if !workspace.execution_policies.is_empty() {
+        let tae_policy = policy_engine.clone();
+        let tae_exec = execution_engine.clone();
+        let tae_paper = paper_engine.clone();
+        let tae_workspace = workspace_state.clone();
+        let tae_cancel = CancellationToken::new();
+        let tae_pool = db_pool.clone();
+        handles.push(tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                tokio::select! {
+                    _ = tae_cancel.cancelled() => break,
+                    _ = interval.tick() => {
+                        let instances = tae_workspace.list().await;
+                        for inst in instances {
+                            let snapshot_guard = inst.micro.latest.read().await;
+                            let mut lifecycle = inst.lifecycle.write().await;
+
+                            // Evaluate automation conditions
+                            let current_price = snapshot_guard.as_ref()
+                                .and_then(|s| s.close.as_ref())
+                                .and_then(|c| c.to_string().parse::<f64>().ok());
+                            let auto_actions = lifecycle.evaluate_automation(current_price);
+                            for action in auto_actions {
+                                match action {
+                                    portfolio_supervisor::lifecycle::AutomationAction::Start => {
+                                        let _ = lifecycle.start("automation", Some("Auto start condition".into()));
+                                    }
+                                    portfolio_supervisor::lifecycle::AutomationAction::Pause => {
+                                        let _ = lifecycle.pause("automation", Some("Auto pause condition".into()));
+                                    }
+                                    portfolio_supervisor::lifecycle::AutomationAction::Stop => {
+                                        let _ = lifecycle.stop("automation", Some("Auto stop condition".into()));
+                                    }
+                                }
+                            }
+
+                            let lifecycle_state = lifecycle.state;
+                            drop(lifecycle);
+
+                            // Skip if STOPPED or STOPPING (no new triggers; existing positions already handled)
+                            if lifecycle_state == config_models::LifecycleState::Stopped
+                                || lifecycle_state == config_models::LifecycleState::Stopping
+                            {
+                                continue;
+                            }
+
+                            // ── Process PME veto events (VetoHandler-driven) ──
+                            let mut veto_handlers: Vec<portfolio_supervisor::policy::veto::VetoHandler> = Vec::new();
+                            while let Ok(veto) = veto_rx.try_recv() {
+                                if veto.instance_id != inst.id {
+                                    continue;
+                                }
+                                eprintln!(
+                                    "⚡ TAE: Processing veto for {} — stance={:?} hard_exit={}",
+                                    veto.symbol, veto.target_stance, veto.hard_exit
+                                );
+
+                                let prev_stance = inst.stances.read().await
+                                    .get(&veto.symbol).copied().unwrap_or(config_models::Stance::Active);
+
+                                let mut handler = portfolio_supervisor::policy::veto::VetoHandler::new(2000);
+                                handler.initiate(portfolio_supervisor::policy::veto::VetoEvent {
+                                    symbol: veto.symbol.clone(),
+                                    target_stance: veto.target_stance,
+                                    reason: veto.reason.clone(),
+                                    timestamp_ms: veto.timestamp_ms,
+                                });
+
+                                // Step 2a: Hard Exit (AVOID only) — BEFORE stance change
+                                if handler.needs_hard_exit() {
+                                    tae_exec.hard_exit_for_symbol(&veto.symbol).await;
+                                    eprintln!("🔥 VETO: Hard Exit dispatched for {}", veto.symbol);
+                                }
+                                handler.advance_phase(); // → DiscardPending
+
+                                // Step 2b: Discard pending triggers for affected symbol
+                                handler.advance_phase(); // → CommitStance
+
+                                // Step 2c: Commit stance change
+                                let mut stances = inst.stances.write().await;
+                                stances.insert(veto.symbol.clone(), veto.target_stance);
+                                drop(stances);
+                                handler.advance_phase(); // → CancelRemaining
+
+                                // Step 2d: Cancel remaining orders
+                                tae_exec.cancel_all_orders(&veto.symbol).await;
+                                handler.advance_phase(); // → NullifyEntry
+
+                                // Step 2e: Nullify entry triggers (discard pending entries)
+                                handler.advance_phase(); // → Audit
+
+                                // Step 2f: Audit log
+                                let log = portfolio_supervisor::policy::veto::VetoLog::new(
+                                    &portfolio_supervisor::policy::veto::VetoEvent {
+                                        symbol: veto.symbol.clone(),
+                                        target_stance: veto.target_stance,
+                                        reason: veto.reason.clone(),
+                                        timestamp_ms: veto.timestamp_ms,
+                                    },
+                                    prev_stance,
+                                    veto.hard_exit,
+                                );
+                                eprintln!(
+                                    "📋 VETO LOG: symbol={} from={:?} to={:?} reason={} hard_exit={}",
+                                    log.symbol, log.from_stance, log.to_stance, log.reason, log.hard_exit_dispatched
+                                );
+
+                                // Persist veto audit event to risk_control_events
+                                let _ = sqlx::query(
+                                    "INSERT INTO risk_control_events (instance_id, symbol, gate_id, decision, reason, timestamp_ms) VALUES (?, ?, ?, ?, ?, ?)"
+                                )
+                                .bind(&inst.id)
+                                .bind(&veto.symbol)
+                                .bind(7i64)
+                                .bind("VETO_BLOCK")
+                                .bind(&veto.reason)
+                                .bind(veto.timestamp_ms as i64)
+                                .execute(&tae_pool)
+                                .await;
+
+                                veto_handlers.push(handler);
+                            }
+
+                            if let Some(ref snap) = *snapshot_guard {
+                                if snap.is_completed != Some(true) {
+                                    continue;
+                                }
+                                let stances = inst.stances.read().await;
+                                let symbol = snap.symbol.clone();
+                                let stance = stances.get(&symbol).copied()
+                                    .unwrap_or(config_models::Stance::Active);
+
+                                // Auto-pause policies for symbols in Cautious/Suspended safety states
+                                {
+                                    let safety_state = *inst.safety.safety_state.read().await;
+                                    let should_auto_pause = matches!(
+                                        safety_state,
+                                        SafetyState::Cautious
+                                            | SafetyState::Suspended
+                                    );
+                                    let policy_ids: Vec<String> = {
+                                        let policy = tae_policy.read().await;
+                                        policy.get_active_stance_policies()
+                                            .iter()
+                                            .filter(|p| p.symbol == symbol)
+                                            .map(|p| p.policy_id.clone())
+                                            .collect()
+                                    };
+                                    if !policy_ids.is_empty() {
+                                        let mut policy = tae_policy.write().await;
+                                        for pid in &policy_ids {
+                                            policy.set_policy_auto_paused(pid, should_auto_pause);
+                                            if should_auto_pause {
+                                                eprintln!("⏸️  POLICY AUTO_PAUSED: policy={} symbol={} safety={:?}", pid, symbol, safety_state);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs();
+
+                                let mut policy = tae_policy.write().await;
+                                let triggers = policy.evaluate_policies(snap, now);
+                                drop(policy);
+
+                                for trigger in &triggers {
+                                    match tae_exec.process_trigger(
+                                        trigger, snap,
+                                        lifecycle_state, stance,
+                                    ).await {
+                                        Ok(Some(order_id)) => {
+                                            let lifecycle = tae_exec.orders.read().await
+                                                .get(&order_id)
+                                                .map(|o| o.status);
+                                            let is_pre_dispatch = lifecycle == Some(config_models::OrderStatus::PreDispatch);
+                                            if !is_pre_dispatch {
+                                                let packet = tae_exec.orders.read().await
+                                                    .get(&order_id)
+                                                    .map(|o| o.packet.clone());
+                                                if let Some(pkt) = packet {
+                                                    let _ = tae_paper.submit_order(
+                                                        pkt,
+                                                        snap.mid_price,
+                                                    ).await;
+                                                }
+                                            }
+                                        }
+                                        Ok(None) => {}
+                                        Err(e) => {
+                                            eprintln!("TAE: trigger error: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Evaluate pending paper order fills
+                            if let Some(ref snap) = *snapshot_guard {
+                                let _fills = tae_paper.evaluate_order_fills(snap.mid_price).await;
+                            }
+
+                            // Sync paper engine equity back to instance trading state
+                            let current_equity = tae_paper.get_equity().await;
+                            inst.set_current_equity(current_equity).await;
+                            inst.safety.set_current_equity(
+                                rust_decimal::Decimal::from_f64_retain(current_equity)
+                                    .unwrap_or_default(),
+                            ).await;
+                        }
+                    }
+                }
+            }
+        }));
+    }
+
+    // ── L7 Overview aggregation task ──────────────────────────
+    {
+        let overview_ref = app_state.overview.clone();
+        let workspace = workspace_state.clone();
+        let overview_cancel = CancellationToken::new();
+        handles.push(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = overview_cancel.cancelled() => break,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+                }
+                let instances = workspace.list().await;
+                let mut advisories: Vec<core_domain::advisory::AdvisoryMatrix> = Vec::new();
+                let mut metas: Vec<core_domain::overview::InstanceMeta> = Vec::new();
+                for inst in &instances {
+                    let snapshots = inst.active_pair.latest_snapshots_all_tf().await;
+                    let slow_advisory = snapshots.2.as_ref().and_then(|s| s.advisory.clone());
+                    let is_active = !inst.cancel.is_cancelled();
+                    if let Some(adv) = slow_advisory {
+                        advisories.push(adv);
+                    }
+                    metas.push(core_domain::overview::InstanceMeta {
+                        symbol: inst.pair.1.clone(),
+                        timeframe_secs: 300,
+                        timeframe_label: "slow300".into(),
+                        is_active,
+                    });
+                }
+                let overview = core_domain::overview::compute_overview(&advisories, &metas);
+                *overview_ref.write().await = Some(overview);
+            }
+        }));
+    }
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .expect("❌ Web Server Setup: Failed to bind port 3000");
+
+    println!("🌐 Web Server Setup: Dashboard live at http://127.0.0.1:3000");
+
+    let server_handle = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("❌ Web Server Setup: Fatal crash running Axum HTTP server");
+    });
+    handles.push(server_handle);
+
+    let eval_cancel = CancellationToken::new();
+    let eval_cancel1 = eval_cancel.clone();
+    let pae_pool = db_pool.clone();
+    handles.push(tokio::spawn(async move {
+        performance_evaluator::run_performance_evaluator(performance_evaluator::EvaluatorConfig {
+            pool: pae_pool,
+            cancel: eval_cancel1,
+            eval_interval_secs: 300,
+        })
+        .await;
+    }));
+
+    // Spawn clock monitor background task NOW (after storing its Arc).
+    if let Some(clock_mon) = &app_state.clock_monitor {
+        let monitor_clone = clock_mon.clone();
+        let clock_cancel = CancellationToken::new();
+        handles.push(tokio::spawn(async move {
+            monitor_clone.run_until_cancelled(clock_cancel).await;
+        }));
+    }
+
     let quality_pool = db_pool.clone();
-    let quality_tracker = connection_quality;
+    let quality_registry = (*connection_quality).clone();
     let quality_cancel = eval_cancel.clone();
     handles.push(tokio::spawn(async move {
-        quality_tracker
+        quality_registry
             .run_persistence_loop(quality_pool, quality_cancel)
             .await;
     }));

@@ -9,6 +9,8 @@ use std::sync::Arc;
 #[derive(Debug, Deserialize)]
 pub struct QualityParams {
     pub window: Option<String>,
+    pub instance_id: Option<String>,
+    pub timeframe_secs: Option<u64>,
 }
 
 pub async fn get_connection_quality(
@@ -21,6 +23,16 @@ pub async fn get_connection_quality(
         _ => QualityWindow::OneHour,
     };
     let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
-    let report = state.connection_quality.report(window, now_ms).await;
+
+    // Scoped report when the caller filters by (instance_id, timeframe_secs);
+    // cross-scope aggregate otherwise (08-05).
+    let report = match (params.instance_id.as_deref(), params.timeframe_secs) {
+        (Some(pair_key), Some(tf_secs)) => state
+            .connection_quality
+            .scoped_report(pair_key, tf_secs, window, now_ms)
+            .await
+            .ok_or(StatusCode::NOT_FOUND)?,
+        _ => state.connection_quality.aggregate_report(window, now_ms).await,
+    };
     Ok(Json(report))
 }

@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), and the internal sub-sidebar pattern. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -182,7 +182,7 @@ The Engines Sidebar slides out from the **left edge** when `isSidebarOpen` is `t
 
 | Display label | Internal key | Active content when selected |
 |---------------|--------------|-------------------------------|
-| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (pending backend endpoint — Phase 3, AUDIT-V6-301), NTP Clock Monitor (pending backend endpoint — Phase 3, AUDIT-V6-301). Overview + Settings tabs. |
+| Data Infrastructure | `data_infra` | `DataInfraDashboard` — lateral panel with Connectivity (moved from Market Monitor), Exchange Status (backend `GET /api/exchange-status` served — see 06-01 §2.11), NTP Clock Monitor (backend `GET /api/system/clock` served — see 06-01 §2.11). Overview + Settings tabs. |
 | Market Monitoring | `market_monitor` | Full Market cockpit — Workspace / Overview / Settings middle tabs + per-instance sub-tabs (Charts, Metrics, Alignment, Opportunities, Risks, Analysis, Decision). |
 | Trade Automation | `trade_automation` | `EngineOverview` card describing the execution policy engine, paper/live trading path, and sizing protocol. Settings tab for strategy config. |
 | Portfolio Management | `portfolio` | `EngineOverview` card describing position tracking, margin utilization, exposure, and safety veto. Settings tab for safety/fees config. |

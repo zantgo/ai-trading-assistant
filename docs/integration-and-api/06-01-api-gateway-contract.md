@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -242,15 +242,22 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `GET` | `/api/keys?exchange=` | — | `{ items: [{ exchange, key_id, created_at, last_rotated_at }] }` (the encrypted credentials are **not** in the response). |
 | `DELETE` | `/api/keys/:key_id` | — | `204 No Content` |
 
-### 2.11 Planned endpoints (not yet served)
+### 2.11 System diagnostics endpoints
 
-The following routes are **specified but not yet served** — the Phase-3 REST handlers are tracked as AUDIT-V6-301 (target v6.5) and the key-rotation routes as AUDIT-V6-077 (Unscheduled). They are listed here for forward planning only and are not part of the served surface above: today they return `404 Not Found` per §5. Do not build clients against them.
+Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-301; see `docs/CHANGELOG.md`):
+
+| Method | Path | Response |
+|--------|------|----------|
+| `GET` | `/api/system/clock` | `ClockStatusResponse` — `{ within_threshold, drift_us?, jitter_rms_us?, last_poll_ms?, breach_count, breach_action, ntp_servers, sample_count, threshold_micros }` (`crates/api-gateway/src/handlers/clock.rs`). Returns `503 Service Unavailable` when the clock monitor is disabled. `breach_count` currently reports a placeholder `0`; the persistent counter is tracked code work (see [08-06 §Drift-breach consequence](../operations-and-compliance/08-06-clock-monitor.md)). |
+| `GET` | `/api/exchange-status` | Per-exchange connectivity status (`crates/api-gateway/src/handlers/exchange_status.rs`). |
+| `GET` | `/api/data-quality` | `PipelineReliabilityMetrics` — `{ coverage, gap_count, outliers_rejected, out_of_order_dropped, total_candles_processed, reconstructed_candles }` (`crates/api-gateway/src/handlers/data_quality.rs`; contract in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md)). |
+
+### 2.12 Planned endpoints (not yet served)
+
+The key-rotation routes are **specified but not yet served** — tracked as AUDIT-V6-077 (Unscheduled). They are listed here for forward planning only and are not part of the served surface above: today they return `404 Not Found` per §5. Do not build clients against them.
 
 | Method | Path | Planned purpose |
 |--------|------|-----------------|
-| `GET` | `/api/system/clock` | NTP clock-monitor state (drift budget, last poll, breach action). |
-| `GET` | `/api/exchange-status` | Per-exchange connectivity status. |
-| `GET` | `/api/data-quality` | Ingestion data-quality summary (gaps, reconstructed candles). |
 | `POST` | `/api/keys/rotate` | In-process re-encryption of stored exchange credentials under a new master key (no daemon restart). |
 | `GET` | `/api/keys/backup` | Encrypted-backup export of stored credentials, keyed by a passphrase. |
 
@@ -303,7 +310,7 @@ The `operator_id` field on internal `execution.*` and `safety.*` control frames 
 
 | Rule | Effect |
 |------|--------|
-| Decimal-as-string | All price/size `Decimal` fields serialize as strings (no float precision loss). |
+| Decimal-as-number | All price/size `Decimal` fields serialize as plain JSON numbers via `rust_decimal`'s `serde-float` feature (`crates/core-domain/Cargo.toml`). Standard JSON parsers materialize them as IEEE-754 doubles; consumers requiring exact decimal semantics must re-parse the raw number literal with a decimal type (see [06-00 §3.2](06-00-consumer-onboarding.md)). |
 | Nullable omission | `Option::None` fields omitted via `skip_serializing_if`. |
 | Liquidity `Vec<LiquiditySignal>` | **Always serialized** as `[]` when no signals fired (never omitted via `skip_serializing_if`). |
 | Empty collection omission | Other empty arrays/maps omitted (non-liquidity). |

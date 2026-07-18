@@ -1,6 +1,6 @@
 # DIE Layer 2 — Market Data Layer
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 2 of 4
@@ -28,7 +28,7 @@ struct NormalizedCandle {
     exchange: String,          // originating venue (e.g. "Hyperliquid", "Bitget")
     symbol: String,            // unified internal symbol (e.g. "BTC-USDT")
     start_time_ms: u64,        // candle open time, Unix epoch milliseconds
-    timeframe_secs: u64,       // candle duration, seconds
+    duration_ms: u64,          // candle duration, milliseconds
     open: Decimal, high: Decimal, low: Decimal, close: Decimal,
     volume: Decimal,
     trades_count: u64,
@@ -36,7 +36,7 @@ struct NormalizedCandle {
 }
 ```
 
-> **Wire/struct mapping.** The canonical `MarketSnapshot` JSON uses `timestamp` (close time, epoch ms). The struct field `start_time_ms` is the **open** time. The equivalence is: `wire.timestamp = start_time_ms + timeframe_secs × 1000` (close time). The struct carries `timeframe_secs` where `02-06-market-data-matrix.md`'s canonical formula writes `duration_ms` — same value, different field name. All consumers derive close time from `(start_time_ms, timeframe_secs)` rather than storing it redundantly.
+> **Wire/struct mapping.** The canonical `MarketSnapshot` JSON uses `timestamp` (close time, epoch ms) and `timeframe_secs` (duration, seconds). The struct field `start_time_ms` is the **open** time and the struct carries the duration as `duration_ms` (milliseconds). The equivalence is: `wire.timestamp = start_time_ms + duration_ms` (close time) and `wire.timeframe_secs = duration_ms / 1000` — see the field-name registry in [02-06-market-data-matrix.md §2](../../matrices/02-06-market-data-matrix.md). All consumers derive close time from `(start_time_ms, duration_ms)` rather than storing it redundantly.
 
 **`average_volume` is NOT a field of `NormalizedCandle`.** `average_volume` is the MME-side rolling average volume baseline (see [02-07-metrics-matrix.md §2.1](../../matrices/02-07-metrics-matrix.md)). L2 never emits it. The distinct per-candle quantity `volume / trades_count` is named `avg_trade_size` and is not part of the candle contract.
 

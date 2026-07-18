@@ -171,7 +171,7 @@ This table is the **single source of implementation truth** — every spec in `d
 | Pre-dispatch persistence (pre_dispatch_orders table) | Not started | `06-01` §2.9 |
 | Liquidity Intelligence (Phases 0-4) | Partial (Phase 0-2 implemented) | `01-05`, `03-02-11` |
 | Exchange key rotation | Manual rotation procedure documented (08-07); in-process rotation tool unscheduled (AUDIT-V6-077) | `08-07` |
-| Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | Pending — v6.5 (AUDIT-V6-301) | `06-01` |
+| Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | Implemented — served surface documented in `06-01` §2.11 (v6.4.1); `clock.breach_count` placeholder pending (AUDIT-V6-301) | `06-01` |
 
 ## Key Conventions
 

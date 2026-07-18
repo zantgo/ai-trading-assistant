@@ -1,6 +1,6 @@
 # Consumer Onboarding Summary
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Single-page orientation for engineers integrating with the trading platform's data plane. Read this first; drill into the linked docs as needed.
 
@@ -84,7 +84,7 @@ The full per-instance envelope described in [02-07-metrics-matrix.md](../matrice
 
 ### 3.2 Wire-level conventions
 
-- **Decimal-as-string.** All price/size fields are strings. Parse with `decimal.js` (JS), `BigDecimal` (JVM), or your platform's equivalent. **Do not** use `f64`/`number`.
+- **Decimal-as-number.** All price/size fields are plain JSON numbers (engine-side `rust_decimal` with the `serde-float` feature). A standard JSON parser gives you IEEE-754 doubles — sufficient for display, but lossy at extreme precision. If you need exact decimal semantics, parse the raw number literal with a lossless parser (e.g. `lossless-json` (JS), Jackson's `USE_BIG_DECIMAL_FOR_FLOATS` (JVM)) instead of the default float path.
 - **`Option::None` omitted.** Absent optional fields are absent from the JSON, not `null`. Use `"field" in obj` to check.
 - **Enum casing.** SCREAMING_SNAKE_CASE (`BULLISH`, `OVERBOUGHT`, `STRONG_BULL_MTF`).
 - **Timestamps.** `u64` Unix epoch **milliseconds**.

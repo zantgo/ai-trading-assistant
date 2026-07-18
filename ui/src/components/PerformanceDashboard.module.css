@@ -1,0 +1,236 @@
+.dashboard {
+    display: flex;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: monospace;
+}
+
+.sidebar {
+    width: 200px;
+    border-right: 1px solid #2a2e39;
+    padding: 1rem 0;
+    flex-shrink: 0;
+}
+
+.sidebarTitle {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #5a5f6e;
+    padding: 0 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.sidebarBtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-family: monospace;
+    transition: background 0.15s;
+}
+
+.sidebarBtn:hover {
+    background: #111;
+}
+
+.sidebarBtnActive {
+    background: #1a1d26;
+    color: #fff;
+}
+
+.content {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.sectionTitle {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.sectionDesc {
+    color: #888;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+/* ─── Stats grid ─── */
+.statsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.statCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.statLabel {
+    font-size: 0.7rem;
+    color: #5a5f6e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.35rem;
+}
+
+.statValue {
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.statPositive { color: #4caf50; }
+.statNegative { color: #ef5350; }
+.statNeutral { color: #ffb74d; }
+
+.statSub {
+    font-size: 0.7rem;
+    color: #5a5f6e;
+    margin-top: 0.2rem;
+}
+
+/* ─── Table ─── */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #2a2e39;
+    color: #5a5f6e;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.table td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid #1a1d26;
+    color: #ccc;
+}
+
+.table tr:hover {
+    background: #0a0a0f;
+}
+
+/* ─── Regime heatmap ─── */
+.regimeGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.regimeCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+}
+
+.regimeName {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.regimeStats {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: #aaa;
+    margin-bottom: 0.4rem;
+}
+
+.regimeLabel {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.labelStrong { background: #1b5e20; color: #4caf50; }
+.labelFavorable { background: #1565c0; color: #42a5f5; }
+.labelMarginal { background: #e65100; color: #ffb74d; }
+.labelAvoid { background: #b71c1c; color: #ef5350; }
+
+/* ─── Classification badge ─── */
+.badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badgeStrong { background: #1b5e20; color: #4caf50; }
+.badgeModerate { background: #1565c0; color: #42a5f5; }
+.badgeWeak { background: #e65100; color: #ffb74d; }
+.badgeNone { background: #b71c1c; color: #ef5350; }
+.badgeInsufficient { background: #424242; color: #9e9e9e; }
+
+/* ─── Gauge bars ─── */
+.gaugeBar {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: #1a1d26;
+    overflow: hidden;
+    margin-top: 0.35rem;
+}
+
+.gaugeFill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+.gaugeGreen { background: #4caf50; }
+.gaugeBlue { background: #42a5f5; }
+.gaugeOrange { background: #ffb74d; }
+.gaugeRed { background: #ef5350; }
+
+/* ─── Equity curve placeholder ─── */
+.equityPlaceholder {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 2rem;
+    text-align: center;
+    color: #5a5f6e;
+    font-size: 0.85rem;
+}
+
+/* ─── Recommendations ─── */
+.recommendation {
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid #ffb74d;
+    margin-bottom: 0.5rem;
+    font-size: 0.78rem;
+    color: #ccc;
+    background: #1a1d26;
+    border-radius: 0 4px 4px 0;
+}
+
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: #5a5f6e;
+    font-size: 0.85rem;
+}

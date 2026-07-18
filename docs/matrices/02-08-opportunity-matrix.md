@@ -1,6 +1,6 @@
 # Opportunity Matrix Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 4 — Opportunity Layer
@@ -177,9 +177,9 @@ A representative Opportunity Matrix frame. The values derive from the canonical 
   ],
   "contributing_signals": ["ema_stack:BULLISH_STACK", "macd:BULLISH_CROSSOVER"],
   "invalidation_note": "A close below 63440.0 — under the most recent higher-low structure — invalidates the trend-continuation thesis.",
-  "entry_zone":  { "low": "64000.0", "high": "64200.0" },
-  "target_zone": { "low": "65500.0", "high": "66000.0" },
-  "invalidation_level": "63440.0",
+  "entry_zone":  { "low": 64000.0, "high": 64200.0 },
+  "target_zone": { "low": 65500.0, "high": 66000.0 },
+  "invalidation_level": 63440.0,
   "expected_rr_internal": 2.5,
   "time_horizon": "SWING"
 }

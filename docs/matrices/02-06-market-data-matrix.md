@@ -1,6 +1,6 @@
 # Market Data Matrix Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 2 — Market Data Layer
@@ -63,11 +63,11 @@ A single `NormalizedCandle` represents one completed candle for one symbol at on
   "symbol": "BTC-USDT",
   "timeframe_secs": 60,
   "timestamp": 1752192000000,
-  "open": "63890.0",
-  "high": "64120.0",
-  "low": "63850.0",
-  "close": "64012.5",
-  "volume": "182.4",
+  "open": 63890.0,
+  "high": 64120.0,
+  "low": 63850.0,
+  "close": 64012.5,
+  "volume": 182.4,
   "trades_count": 345
 }
 ```

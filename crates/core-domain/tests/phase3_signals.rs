@@ -93,6 +93,7 @@ fn multiple_signals_can_coexist() {
         cascade_state: CascadeState::Sustained,
         net_liquidation_usd: 1_000_000.0,
         cascade_intensity: 80.0,
+        event_count: 3,
         ..empty_flow(CascadeState::Sustained)
     };
     // OI up + funding down (shorts loading) is a divergence.

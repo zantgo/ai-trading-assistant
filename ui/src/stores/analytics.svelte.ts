@@ -2,6 +2,10 @@ import type {
     DashboardStats, TradeLedgerRecord, TradeJournalRecord,
     SystemHeartbeat, DecisionMemoryRow, CompletedTradesRow, UserTrade,
 } from '../types';
+import type {
+    StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow,
+    OptimizationReport, TradeAnalyticsRecord,
+} from '../types/analytics';
 
 export class AnalyticsStore {
     dashboardStats = $state<DashboardStats | null>(null);
@@ -19,6 +23,13 @@ export class AnalyticsStore {
     systemHeartbeat = $state<SystemHeartbeat | null>(null);
     recentDecisions = $state<DecisionMemoryRow[]>([]);
     completedTrades = $state<CompletedTradesRow[]>([]);
+
+    strategyAnalytics = $state<StrategyAnalyticsRow[]>([]);
+    riskAnalytics = $state<RiskAnalyticsRow | null>(null);
+    performanceMatrix = $state<PerformanceMatrixRow[]>([]);
+    optimizationReport = $state<OptimizationReport | null>(null);
+    tradeAnalyticsRecords = $state<TradeAnalyticsRecord[]>([]);
+    statsLoading = $state(false);
 
     async fetchDashboardStats(sessionCapital: number) {
         try { const res = await fetch(`/api/dashboard/stats?initial_capital=${sessionCapital}&period=${encodeURIComponent(this.dashboardPeriod)}&origin=${encodeURIComponent(this.dashboardOrigin)}`); if (res.ok) { this.dashboardStats = await res.json(); } } catch (_) {}
@@ -56,6 +67,26 @@ export class AnalyticsStore {
 
     async fetchObservabilityBuffers(symbol: string) {
         try { const res = await fetch(`/api/system/observability?symbol=${encodeURIComponent(symbol)}`); if (res.ok) { const data = await res.json(); this.recentDecisions = data.recent_decisions || []; this.completedTrades = data.completed_trades || []; } } catch (e) { console.error("Failed to fetch observability buffers:", e); }
+    }
+
+    async fetchAllAnalytics(sessionCapital: number) {
+        this.statsLoading = true;
+        await this.fetchDashboardStats(sessionCapital);
+        try {
+            const [strategyRes, riskRes, perfRes, optRes, tradesRes] = await Promise.all([
+                fetch('/api/analytics/strategy'),
+                fetch('/api/analytics/risk'),
+                fetch('/api/analytics/performance'),
+                fetch('/api/analytics/optimization'),
+                fetch('/api/analytics/trades?limit=200'),
+            ]);
+            if (strategyRes.ok) this.strategyAnalytics = await strategyRes.json();
+            if (riskRes.ok) this.riskAnalytics = await riskRes.json();
+            if (perfRes.ok) this.performanceMatrix = await perfRes.json();
+            if (optRes.ok) this.optimizationReport = await optRes.json();
+            if (tradesRes.ok) this.tradeAnalyticsRecords = await tradesRes.json();
+        } catch (e) { console.error("Failed to fetch analytics:", e); }
+        finally { this.statsLoading = false; }
     }
 
     exportJournalCSV() { window.open('/api/trade-journal/export/csv', '_blank'); }

@@ -152,6 +152,15 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     Arc::new(RwLock::new(None)),
                     Arc::new(RwLock::new(None)),
                     OrderBookConfig::default(),
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(RwLock::new(None)),
+                    Arc::new(core_domain::LatencyTracker::default()),
+                    market_analyzer::active_set::ActiveSet::default(),
+                    None,
+                    Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
+                    None,
+                    None,
                 )
                 .await;
             })

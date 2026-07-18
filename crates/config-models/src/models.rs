@@ -820,8 +820,14 @@ pub struct SafetyConfig {
     pub consecutive_loss_dropout: u32,
     #[serde(default = "default_dropout_duration_hours")]
     pub dropout_duration_hours: u64,
-    #[serde(default = "default_capital_drawdown_pct")]
-    pub capital_drawdown_pct: f64,
+    #[serde(default = "default_drawdown_limit_pct")]
+    pub drawdown_limit_pct: f64,
+    #[serde(default = "default_max_daily_drawdown_pct")]
+    pub max_daily_drawdown_pct: f64,
+    #[serde(default = "default_systemic_risk_threshold")]
+    pub systemic_risk_threshold: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_reset_cron: Option<String>,
 }
 
 fn default_consecutive_loss_caution() -> u32 {
@@ -833,8 +839,14 @@ fn default_consecutive_loss_dropout() -> u32 {
 fn default_dropout_duration_hours() -> u64 {
     8
 }
-fn default_capital_drawdown_pct() -> f64 {
+fn default_drawdown_limit_pct() -> f64 {
     30.0
+}
+fn default_max_daily_drawdown_pct() -> f64 {
+    5.0
+}
+fn default_systemic_risk_threshold() -> f64 {
+    80.0
 }
 
 impl Default for SafetyConfig {
@@ -843,7 +855,10 @@ impl Default for SafetyConfig {
             consecutive_loss_caution: default_consecutive_loss_caution(),
             consecutive_loss_dropout: default_consecutive_loss_dropout(),
             dropout_duration_hours: default_dropout_duration_hours(),
-            capital_drawdown_pct: default_capital_drawdown_pct(),
+            drawdown_limit_pct: default_drawdown_limit_pct(),
+            max_daily_drawdown_pct: default_max_daily_drawdown_pct(),
+            systemic_risk_threshold: default_systemic_risk_threshold(),
+            session_reset_cron: None,
         }
     }
 }
@@ -868,6 +883,28 @@ fn default_fast_seconds() -> u64 {
     300
 }
 
+/// Configurable activation: per-indicator, per-signal, and per-SignalKind
+/// denylists. Omitting this section defaults to all-enabled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivationConfig {
+    #[serde(default)]
+    pub disabled_indicators: Vec<String>,
+    #[serde(default)]
+    pub disabled_signals: Vec<String>,
+    #[serde(default)]
+    pub disabled_signal_kinds: Vec<String>,
+}
+
+impl Default for ActivationConfig {
+    fn default() -> Self {
+        Self {
+            disabled_indicators: Vec::new(),
+            disabled_signals: Vec::new(),
+            disabled_signal_kinds: Vec::new(),
+        }
+    }
+}
+
 /// Liquidity Intelligence configuration.
 ///
 /// Controls derivatives telemetry activation, mark-price polling cadence,
@@ -878,6 +915,12 @@ fn default_fast_seconds() -> u64 {
 pub struct LiquidityConfig {
     #[serde(default = "default_liquidity_enabled")]
     pub enabled: bool,
+    #[serde(default = "default_true_bool")]
+    pub liquidation_feed: bool,
+    #[serde(default = "default_true_bool")]
+    pub cluster_estimation: bool,
+    #[serde(default = "default_true_bool")]
+    pub signals: bool,
     #[serde(default = "default_mark_poll_ms")]
     pub mark_price_poll_ms: u64,
     #[serde(default = "default_funding_refresh_ms")]
@@ -908,6 +951,9 @@ impl Default for LiquidityConfig {
     fn default() -> Self {
         Self {
             enabled: default_liquidity_enabled(),
+            liquidation_feed: true,
+            cluster_estimation: true,
+            signals: true,
             mark_price_poll_ms: default_mark_poll_ms(),
             funding_refresh_ms: default_funding_refresh_ms(),
             event_retention_days: default_liquidation_retention_days(),
@@ -972,6 +1018,56 @@ impl Default for IntervalsConfig {
             fast_seconds: default_fast_seconds(),
         }
     }
+}
+
+// ─── Data Quality Configuration (DIE L3 median filter + outlier rejection) ────
+
+/// Configuration block for the DIE L3 Data Quality Layer's median price filter
+/// and outlier rejection. Maps to the TOML `[quality]` section.
+///
+/// All fields are optional and fall back to the spec-defined defaults.
+/// When this section is absent, the median filter is disabled.
+///
+/// See `docs/engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md` §4.1.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QualityConfig {
+    /// Size of the rolling window for the median price filter. Ticks are
+    /// accepted unfiltered (warm-up) until this many ticks have been observed.
+    #[serde(default = "default_median_window_size")]
+    pub median_window_size: usize,
+
+    /// Maximum allowed deviation from the rolling median (as a decimal fraction).
+    /// A tick is rejected when `|p − median| / median > outlier_tolerance`.
+    /// Default: 0.05 (5% deviation).
+    #[serde(default = "default_outlier_tolerance")]
+    pub outlier_tolerance: f64,
+
+    /// When true, bypass the filter for a tick whose rolling median is exactly
+    /// zero (rare venue reset edge case). Logged at debug level.
+    #[serde(default = "default_bypass_on_zero_median")]
+    pub bypass_on_zero_median: bool,
+}
+
+impl Default for QualityConfig {
+    fn default() -> Self {
+        Self {
+            median_window_size: default_median_window_size(),
+            outlier_tolerance: default_outlier_tolerance(),
+            bypass_on_zero_median: default_bypass_on_zero_median(),
+        }
+    }
+}
+
+fn default_median_window_size() -> usize {
+    20
+}
+
+fn default_outlier_tolerance() -> f64 {
+    0.05
+}
+
+fn default_bypass_on_zero_median() -> bool {
+    true
 }
 
 // ─── Clock Drift Monitor (NTP-based UTC alignment enforcement) ────
@@ -1093,3 +1189,290 @@ mod tests {
 /// identical to `SlowTimeframeConfig` (enabled flag + duration + analysis
 /// limit) — the two are differentiated only by convention.
 pub type FastTimeframeConfig = SlowTimeframeConfig;
+
+// ─── TAE: Lifecycle State ─────────────────────────────────────────
+
+/// Per-instance lifecycle state. Four live values per
+/// `03-03-06-tae-instance-lifecycle-spec.md §IL-01`.
+///
+/// Scoped-enum rule: `instance PAUSED` (lifecycle), not to be confused with
+/// `AUTO_PAUSED` (policy) or `SUSPENDED` (safety). The serde names carry the
+/// `lifecycle_` prefix to make the axis explicit in persisted TOML/JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LifecycleState {
+    Running,
+    #[serde(rename = "lifecycle_paused")]
+    LifecyclePaused,
+    Stopping,
+    Stopped,
+}
+
+impl Default for LifecycleState {
+    fn default() -> Self {
+        LifecycleState::Stopped
+    }
+}
+
+impl LifecycleState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LifecycleState::Running => "RUNNING",
+            LifecycleState::LifecyclePaused => "PAUSED",
+            LifecycleState::Stopping => "STOPPING",
+            LifecycleState::Stopped => "STOPPED",
+        }
+    }
+}
+
+// ─── TAE: Symbol Stance ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Stance {
+    Active,
+    CloseOnly,
+    Avoid,
+}
+
+impl Default for Stance {
+    fn default() -> Self {
+        Stance::Active
+    }
+}
+
+impl Stance {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Stance::Active => "ACTIVE",
+            Stance::CloseOnly => "CLOSE_ONLY",
+            Stance::Avoid => "AVOID",
+        }
+    }
+}
+
+// ─── TAE: Trade Direction ─────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    Long,
+    Short,
+}
+
+impl Direction {
+    pub fn sign(&self) -> rust_decimal::Decimal {
+        use rust_decimal::Decimal;
+        match self {
+            Direction::Long => Decimal::ONE,
+            Direction::Short => Decimal::NEGATIVE_ONE,
+        }
+    }
+}
+
+// ─── TAE: Execution Policy Conditions ─────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op")]
+pub enum ConditionGroup {
+    #[serde(rename = "AND")]
+    And(Vec<Condition>),
+    #[serde(rename = "OR")]
+    Or(Vec<Condition>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Condition {
+    pub field: String,
+    pub operator: Operator,
+    pub value: ConditionValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Operator {
+    Eq,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
+    In,
+    Between,
+    NotEq,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConditionValue {
+    Number(f64),
+    String(String),
+    NumberList(Vec<f64>),
+    StringList(Vec<String>),
+}
+
+// ─── TAE: Risk Parameters ─────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RiskParams {
+    #[serde(default = "default_risk_per_trade_pct")]
+    pub risk_per_trade_pct: f64,
+    #[serde(default)]
+    pub max_position_size_usd: Option<f64>,
+    #[serde(default = "default_max_leverage")]
+    pub max_leverage: u32,
+    #[serde(default = "default_true_bool")]
+    pub use_dynamic_stops: bool,
+    #[serde(default)]
+    pub fixed_stop_loss_pct: Option<f64>,
+    #[serde(default = "default_target_rr_ratio")]
+    pub target_rr_ratio: f64,
+}
+
+impl Default for RiskParams {
+    fn default() -> Self {
+        Self {
+            risk_per_trade_pct: default_risk_per_trade_pct(),
+            max_position_size_usd: None,
+            max_leverage: default_max_leverage(),
+            use_dynamic_stops: default_true_bool(),
+            fixed_stop_loss_pct: None,
+            target_rr_ratio: default_target_rr_ratio(),
+        }
+    }
+}
+
+fn default_risk_per_trade_pct() -> f64 {
+    1.0
+}
+
+fn default_max_leverage() -> u32 {
+    20
+}
+
+fn default_target_rr_ratio() -> f64 {
+    2.5
+}
+
+fn default_true_bool() -> bool {
+    true
+}
+
+// ─── TAE: Execution Policy ────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionPolicy {
+    pub policy_id: String,
+    pub policy_name: String,
+    #[serde(default)]
+    pub description: String,
+    pub symbol: String,
+    pub direction: Direction,
+    pub conditions: ConditionGroup,
+    #[serde(default)]
+    pub trigger_mode: TriggerMode,
+    pub risk: RiskParams,
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub cooldown_seconds: u64,
+    #[serde(default = "default_true_bool")]
+    pub reduce_only_on_close_only: bool,
+}
+
+// ─── TAE: Order Types ─────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OrderType {
+    Market,
+    Limit,
+    Stop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OrderSide {
+    Buy,
+    Sell,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OrderStatus {
+    PreDispatch,
+    Pending,
+    Submitted,
+    Open,
+    PartiallyFilled,
+    Closed,
+    Cancelled,
+    Rejected,
+}
+
+impl OrderStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OrderStatus::PreDispatch => "PRE_DISPATCH",
+            OrderStatus::Pending => "PENDING",
+            OrderStatus::Submitted => "SUBMITTED",
+            OrderStatus::Open => "OPEN",
+            OrderStatus::PartiallyFilled => "PARTIALLY_FILLED",
+            OrderStatus::Closed => "CLOSED",
+            OrderStatus::Cancelled => "CANCELLED",
+            OrderStatus::Rejected => "REJECTED",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrderPacket {
+    pub client_order_id: String,
+    pub symbol: String,
+    pub side: OrderSide,
+    pub order_type: OrderType,
+    pub price: Option<rust_decimal::Decimal>,
+    pub size: rust_decimal::Decimal,
+    pub reduce_only: bool,
+    pub is_emergency_liquidation: bool,
+    pub associated_position_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionMatrixRow {
+    pub order_id: String,
+    pub client_order_id: String,
+    pub symbol: String,
+    pub order_type: String,
+    pub direction: String,
+    pub price: Option<rust_decimal::Decimal>,
+    pub trigger_price: Option<rust_decimal::Decimal>,
+    pub size: rust_decimal::Decimal,
+    pub filled_size: rust_decimal::Decimal,
+    pub status: String,
+    pub is_reduce_only: bool,
+    pub is_emergency_liquidation: bool,
+    pub associated_position_id: Option<i64>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub slippage_bps: Option<f64>,
+}
+
+// ─── TAE: Execution Config ────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionConfig {
+    #[serde(default = "default_slippage_ceiling_pct")]
+    pub slippage_ceiling_pct: f64,
+}
+
+impl Default for ExecutionConfig {
+    fn default() -> Self {
+        Self {
+            slippage_ceiling_pct: default_slippage_ceiling_pct(),
+        }
+    }
+}
+
+fn default_slippage_ceiling_pct() -> f64 {
+    0.5
+}

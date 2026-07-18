@@ -5,11 +5,43 @@
 //! dual-representation normalized indicator map (v2.0).
 
 use crate::indicator_dtos::NormalizedIndicatorValue;
-use crate::liquidity::{LiquidationClusterMatrix, LiquidityFlow};
+use crate::liquidity::{LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal};
 use crate::normalized::Exchange;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MetricsConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled_indicators: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled_signals: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled_signal_kinds: Vec<String>,
+    #[serde(default)]
+    pub liquidity: LiquidityActivation,
+    pub config_version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquidityActivation {
+    pub enabled: bool,
+    pub liquidation_feed: bool,
+    pub cluster_estimation: bool,
+    pub signals: bool,
+}
+
+impl Default for LiquidityActivation {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            liquidation_feed: true,
+            cluster_estimation: true,
+            signals: true,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketSnapshot {
@@ -96,6 +128,19 @@ pub struct MarketSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_context: Option<crate::decision_context::DecisionContext>,
 
+    /// Opportunity matrix (L4). Populated for completed snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opportunity: Option<crate::opportunity::OpportunityMatrix>,
+
+    /// Liquidity signals (Phase 3). Per-snapshot derived from L1.5 + L2.5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub liquidity_signals: Vec<LiquiditySignal>,
+
+    /// Metrics config block — present only when the active indicator/signal
+    /// set differs from the registry default (all enabled). Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics_config: Option<MetricsConfig>,
+
     /// Risk profile ID (if applicable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub risk_profile: Option<i32>,
@@ -111,6 +156,32 @@ pub struct MarketSnapshot {
     /// before the first refresh.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cluster: Option<LiquidationClusterMatrix>,
+
+    /// Per-candle data-quality envelope (from DIE L3). Attached to completed
+    /// snapshots after validity, outlier, and gap-fill checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_envelope: Option<CandleQualityEnvelope>,
+}
+
+/// Per-candle data-quality envelope.
+///
+/// Attached to every `MarketSnapshot` by the DIE L3 Data Quality Layer.
+/// Evaluates one candle's validity. Complementary to `PipelineReliabilityMetrics`
+/// which measures the sanitization pipeline's health across a session.
+///
+/// See `docs/engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md` §5
+/// and `docs/matrices/02-03-data-quality-matrix.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandleQualityEnvelope {
+    /// 0.0–100.0 composite quality score.
+    /// 100.0 = fully valid (no gap, no spike, no staleness, valid integrity).
+    pub quality_score: f64,
+    /// Whether the candle passed all structural validity checks.
+    pub is_valid: bool,
+    /// Whether this candle was gap-filled (reconstructed or REST backfill).
+    pub is_gap_filled: bool,
+    /// Whether any outlier tick was rejected during this candle's construction.
+    pub had_outliers_rejected: bool,
 }
 
 /// Placeholder for statistical intelligence context.

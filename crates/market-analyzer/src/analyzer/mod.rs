@@ -8,8 +8,10 @@ use tokio_util::sync::CancellationToken;
 
 use config_models::FibonacciConfig;
 use config_models::OrderBookConfig;
+use config_models::QualityConfig;
 use config_models::TimeframeConfig;
 use database_storage::TelemetryMsg;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
 
 use crate::sr_engine::SrRoleTracker;
 use crate::indicators::normalized::NormalizedIndicatorValue;
@@ -23,9 +25,7 @@ use crate::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use core_domain::liquidity::LiquidationClusterMatrix;
-use core_domain::analysis::AnalysisMatrix;
-use core_domain::risk::RiskMatrix;
-use core_domain::models::MarketSnapshot;
+use core_domain::models::{CandleQualityEnvelope, MarketSnapshot};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use crate::candle_generator::CandleGenerator;
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
@@ -52,6 +52,8 @@ pub struct TimeframePipeline {
     pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     /// Latest Index Price (shared across timeframes).
     pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
+    /// Active indicator/signal activation set (from config).
+    pub active_set: crate::active_set::ActiveSet,
 }
 
 pub struct ActivePair {
@@ -74,6 +76,9 @@ pub struct ActivePair {
     /// `cluster_refresh` task every 5 minutes. The analyzer reads this
     /// when building each completed snapshot.
     pub cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    /// Cross-cutting latency telemetry (ingest skew, observation loop,
+    /// heartbeat) for the DIE observation path.
+    pub latency_tracker: core_domain::SharedLatencyTracker,
 }
 
 impl ActivePair {
@@ -172,6 +177,134 @@ pub async fn run_event_router(
     }
 }
 
+// DIE L3 median price filter (03-01-04 §4.1), owned by `network-adapters`
+// (the DIE crate). See `crates/network-adapters/src/median_filter.rs`.
+use network_adapters::median_filter::{FilterVerdict, MedianPriceFilter};
+
+/// Venue REST coordinates for DIE L3 quarantine-refetch and runtime
+/// gap-filling (03-01-04 §2.1.2 / §4.2). Built once per pipeline by the
+/// registry from the active exchange choice.
+#[derive(Clone)]
+pub struct RestRefetchSpec {
+    pub is_bitget: bool,
+    /// Exchange-native symbol (e.g. Hyperliquid "BTC", Bitget "BTCUSDT").
+    pub exchange_raw: String,
+    /// Bitget product type ("" on other venues).
+    pub product_type: String,
+    pub rest_url: String,
+}
+
+/// Timeout for the rare quarantine/gap REST refetch so a venue stall can
+/// never wedge the analysis loop.
+const REFETCH_TIMEOUT_SECS: u64 = 5;
+
+/// Fetch `[start_ms, end_ms)` candles of `duration_secs` from the venue REST
+/// history. Returns an empty vector on error/timeout (callers treat that as
+/// "gap remains open").
+async fn fetch_interval_candles(
+    spec: &RestRefetchSpec,
+    internal_symbol: &str,
+    start_ms: u64,
+    end_ms: u64,
+    duration_secs: u64,
+) -> Vec<NormalizedCandle> {
+    let fut = async {
+        if spec.is_bitget {
+            let interval =
+                network_adapters::adapters::bitget_rest::timeframe_secs_to_interval(duration_secs);
+            network_adapters::adapters::bitget_rest::fetch_historical_candles(
+                &spec.exchange_raw,
+                internal_symbol,
+                &spec.product_type,
+                interval,
+                start_ms,
+                end_ms,
+                &spec.rest_url,
+            )
+            .await
+        } else {
+            let interval = network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(
+                duration_secs,
+            );
+            network_adapters::adapters::hyperliquid_rest::fetch_historical_candles(
+                &spec.exchange_raw,
+                internal_symbol,
+                interval,
+                start_ms,
+                end_ms,
+                &spec.rest_url,
+            )
+            .await
+        }
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(REFETCH_TIMEOUT_SECS), fut).await {
+        Ok(Ok(candles)) => candles,
+        Ok(Err(e)) => {
+            eprintln!("⚠️  DIE L3: REST refetch failed for {}: {}", internal_symbol, e);
+            Vec::new()
+        }
+        Err(_) => {
+            eprintln!(
+                "⚠️  DIE L3: REST refetch timed out after {}s for {}",
+                REFETCH_TIMEOUT_SECS, internal_symbol
+            );
+            Vec::new()
+        }
+    }
+}
+
+/// Build the minimal completed `MarketSnapshot` used to transport a
+/// gap-filled candle (08-04 §Forwarding). Reconstructed candles carry no
+/// indicator payload — they exist so charts, persistence, and rollups see a
+/// continuous candle series; indicator state resumes on the next live candle.
+fn build_gapfill_snapshot(candle: &NormalizedCandle, symbol: &str, timeframe_secs: u64) -> MarketSnapshot {
+    MarketSnapshot {
+        exchange: Some(candle.exchange),
+        timeframe_secs,
+        timestamp: candle.start_time_ms / 1000,
+        symbol: symbol.to_string(),
+        is_completed: Some(true),
+        mid_price: candle.close,
+        bid_price: candle.close,
+        ask_price: candle.close,
+        bid_size: None,
+        ask_size: None,
+        funding_rate: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
+        prev_day_px: None,
+        open: Some(candle.open),
+        high: Some(candle.high),
+        low: Some(candle.low),
+        close: Some(candle.close),
+        volume: Some(candle.volume),
+        average_volume: None,
+        context: None,
+        decision_context: None,
+        statistical_context: None,
+        indicators: HashMap::new(),
+        alignment: None,
+        risk: None,
+        analysis: None,
+        advisory: None,
+        opportunity: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
+        risk_profile: None,
+        liquidity: None,
+        cluster: None,
+        quality_envelope: Some(CandleQualityEnvelope {
+            quality_score: 100.0,
+            is_valid: true,
+            is_gap_filled: true,
+            had_outliers_rejected: false,
+        }),
+    }
+}
+
 pub async fn run_single(
     mut rx: Receiver<NormalizedEvent>,
     telemetry_tx: tokio::sync::mpsc::Sender<database_storage::TelemetryMsg>,
@@ -197,6 +330,15 @@ pub async fn run_single(
     latest_index_px: Arc<RwLock<Option<Decimal>>>,
     cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>,
     ob_config: OrderBookConfig,
+    cross_tf_snapshot_a: Arc<RwLock<Option<MarketSnapshot>>>,
+    cross_tf_snapshot_b: Arc<RwLock<Option<MarketSnapshot>>>,
+    cross_tf_snapshot_c: Arc<RwLock<Option<MarketSnapshot>>>,
+    latency_tracker: core_domain::SharedLatencyTracker,
+    active_set: crate::active_set::ActiveSet,
+    quality_config: Option<QualityConfig>,
+    reliability: Arc<ReliabilityTracker>,
+    refetch: Option<RestRefetchSpec>,
+    quality_scope: Option<network_adapters::connection_quality_tracker::ConnectionQualityTracker>,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -450,6 +592,10 @@ pub async fn run_single(
     let mut live_bar: u32 = 0;
     let mut prev_bar_state = PreviousBarState::default();
     let mut last_pivot_count: usize = 0;
+    let mut last_cascade_state: core_domain::liquidity::CascadeState =
+        core_domain::liquidity::CascadeState::None;
+    let mut prev_mtf_score: Option<f64> = None;
+    let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
 
     // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
     let mut oi_history: VecDeque<f64> = VecDeque::with_capacity(60);
@@ -458,7 +604,18 @@ pub async fn run_single(
     // produces a `LiquidityFlow` on every completed bar.
     let mut liquidity_acc = core_domain::liquidity::LiquidityEventAccumulator::new(&symbol);
 
-    let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds);
+    let mut candle_gen = CandleGenerator::new(&symbol, tf_config.candles.duration_seconds, Exchange::Hyperliquid);
+
+    let mut median_filter = quality_config.as_ref().map(MedianPriceFilter::new);
+
+    // DIE L3 runtime sequence audit + gap-fill state (03-01-04 §3 / §2.1.2).
+    let duration_ms = tf_config.candles.duration_seconds * 1000;
+    let mut last_completed_start_ms: Option<u64> = (t_last_hist > 0).then_some(t_last_hist);
+    let mut outliers_at_prev_candle: u32 = 0;
+    let reconstructor = network_adapters::adapters::reconstruction::CandleReconstructor::new();
+    // Cap the number of bars filled per detected hole so a multi-hour outage
+    // cannot flood the pipeline (larger recoveries belong to the bootstrap path).
+    const MAX_GAP_FILL_BARS: u64 = 60;
 
     let mut order_book_analysis =
         OrderBookAnalysis::new(ob_config.depth_levels, ob_config.wall_threshold);
@@ -498,9 +655,216 @@ pub async fn run_single(
         match event {
             NormalizedEvent::Trade(ref trade) => {
                 shadow_exchange = Some(trade.exchange);
+                candle_gen.set_exchange(trade.exchange);
+
+                latency_tracker.record_ingest_skew(
+                    core_domain::LatencyTracker::now_ms(),
+                    trade.timestamp_ms,
+                );
+
+                if candle_gen.is_late_tick(trade.timestamp_ms) {
+                    reliability.increment_out_of_order(1).await;
+                    continue;
+                }
+
+                let trade_price_f = trade.price.to_f64().unwrap_or(0.0);
+                let verdict = if let Some(ref mut filter) = median_filter {
+                    filter.evaluate(trade_price_f)
+                } else {
+                    FilterVerdict::Accepted
+                };
+                match verdict {
+                    FilterVerdict::Rejected => {
+                        reliability.increment_outliers(1).await;
+                        continue;
+                    }
+                    FilterVerdict::Bypassed => {
+                        reliability.increment_bypassed(1).await;
+                        eprintln!(
+                            "🔍 DIE L3 [{} {}]: median = 0 (venue reset) — filter bypassed for tick at price {}",
+                            symbol, timeframe_label, trade_price_f
+                        );
+                    }
+                    FilterVerdict::Accepted => {}
+                }
 
                 let (completed_opt, live_candle) = candle_gen.process_trade(trade);
-                if let Some(completed) = completed_opt.filter(|c| c.start_time_ms > t_last_hist) {
+                let mut completed_opt = completed_opt.filter(|c| c.start_time_ms > t_last_hist);
+
+                // ── DIE L3 §4.2: quarantine + REST refetch on validity failure.
+                // An invalid candle never reaches L4; a REST replacement is
+                // attempted for its interval, and if none validates the slot
+                // stays open and is counted as a gap.
+                if let Some(ref candidate) = completed_opt {
+                    if let Err(reason) = candidate.assert_validity() {
+                        let _ = telemetry_tx
+                            .send(database_storage::TelemetryMsg::ConsoleLog(format!(
+                                "DIE L3: validity check failed for {}/{} candle at {} — quarantined ({})",
+                                symbol, timeframe_label, candidate.start_time_ms, reason
+                            )))
+                            .await;
+                        let mut replacement: Option<NormalizedCandle> = None;
+                        if tf_config.candles.duration_seconds >= 60 {
+                            if let Some(ref spec) = refetch {
+                                let refetched = fetch_interval_candles(
+                                    spec,
+                                    &symbol,
+                                    candidate.start_time_ms,
+                                    candidate.start_time_ms + duration_ms,
+                                    tf_config.candles.duration_seconds,
+                                )
+                                .await;
+                                replacement = refetched
+                                    .into_iter()
+                                    .find(|c| {
+                                        c.start_time_ms == candidate.start_time_ms
+                                            && c.assert_validity().is_ok()
+                                    })
+                                    .map(|mut c| {
+                                        c.reconstructed = Some(
+                                            core_domain::normalized::ReconstructionMethod::ExchangeHistorical,
+                                        );
+                                        c
+                                    });
+                            }
+                        }
+                        match replacement {
+                            Some(good) => {
+                                reliability.increment_reconstructed(1).await;
+                                if let Some(ref cq) = quality_scope {
+                                    cq.record_reconstructed_candle().await;
+                                }
+                                completed_opt = Some(good);
+                            }
+                            None => {
+                                reliability.increment_gaps(1).await;
+                                completed_opt = None;
+                            }
+                        }
+                    }
+                }
+
+                // ── DIE L3 §3: runtime missing-bar sequence audit. A hole
+                // between consecutive completed candles flags a gap and
+                // triggers recovery: REST for ≥1m tiers, EMA/linear synthesis
+                // for sub-minute tiers (03-01-04 §2.1.2). Ticks arriving while
+                // recovery runs queue in the pipeline channel, so indicator
+                // state is not touched until reconstruction completes.
+                if let Some(ref completed) = completed_opt {
+                    if let Some(prev_start) = last_completed_start_ms {
+                        let expected_start = prev_start + duration_ms;
+                        if completed.start_time_ms > expected_start {
+                            let missing =
+                                (completed.start_time_ms - expected_start) / duration_ms;
+                            let fill_n = missing.min(MAX_GAP_FILL_BARS);
+                            reliability.increment_gaps(missing as u32).await;
+                            eprintln!(
+                                "🕳️  DIE L3 [{} {}]: {} missing bar(s) detected before {} — recovering {}",
+                                symbol, timeframe_label, missing, completed.start_time_ms, fill_n
+                            );
+
+                            let mut filled: Vec<NormalizedCandle> = Vec::new();
+                            if tf_config.candles.duration_seconds >= 60 {
+                                if let Some(ref spec) = refetch {
+                                    let fetched = fetch_interval_candles(
+                                        spec,
+                                        &symbol,
+                                        completed.start_time_ms
+                                            .saturating_sub(fill_n * duration_ms),
+                                        completed.start_time_ms,
+                                        tf_config.candles.duration_seconds,
+                                    )
+                                    .await;
+                                    filled = fetched
+                                        .into_iter()
+                                        .filter(|c| {
+                                            c.start_time_ms >= expected_start
+                                                && c.start_time_ms < completed.start_time_ms
+                                                && c.assert_validity().is_ok()
+                                        })
+                                        .map(|mut c| {
+                                            c.reconstructed = Some(
+                                                core_domain::normalized::ReconstructionMethod::ExchangeHistorical,
+                                            );
+                                            c
+                                        })
+                                        .collect();
+                                }
+                            } else {
+                                let recent_closes: Vec<f64> = {
+                                    let hist = history.read().await;
+                                    hist.iter()
+                                        .filter_map(|c| c.close.to_f64())
+                                        .collect()
+                                };
+                                let fill_start =
+                                    completed.start_time_ms - fill_n * duration_ms;
+                                for i in 0..fill_n {
+                                    let s = fill_start + i * duration_ms;
+                                    if s < expected_start {
+                                        continue;
+                                    }
+                                    if let Some(rc) = reconstructor.reconstruct(
+                                        completed.exchange,
+                                        s,
+                                        s + duration_ms,
+                                        duration_ms,
+                                        &recent_closes,
+                                    ) {
+                                        let mut c = rc.candle;
+                                        c.symbol = symbol.clone();
+                                        filled.push(c);
+                                    }
+                                }
+                            }
+
+                            for gap_candle in filled {
+                                reliability.increment_reconstructed(1).await;
+                                if let Some(ref cq) = quality_scope {
+                                    cq.record_reconstructed_candle().await;
+                                }
+                                {
+                                    let mut hist = history.write().await;
+                                    hist.push_back(gap_candle.clone());
+                                }
+                                if let Some(ref fwd) = candle_forward {
+                                    let _ = fwd.send(gap_candle.clone()).await;
+                                }
+                                let gap_snapshot = build_gapfill_snapshot(
+                                    &gap_candle,
+                                    &symbol,
+                                    timeframe_secs,
+                                );
+                                let _ = telemetry_tx
+                                    .send(database_storage::TelemetryMsg::InsertSnapshot(
+                                        gap_snapshot.clone(),
+                                    ))
+                                    .await;
+                                let _ = broadcast_tx.send(gap_snapshot);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(completed) = completed_opt {
+                    last_completed_start_ms = Some(completed.start_time_ms);
+                    reliability.increment_candles(1).await;
+
+                    let is_valid = completed.assert_validity().is_ok();
+
+                    let is_reconstructed = completed.reconstructed.is_some();
+                    let rejected_total = median_filter
+                        .as_ref()
+                        .map(|f| f.outliers_rejected())
+                        .unwrap_or(0);
+                    let had_outliers_this_candle = rejected_total > outliers_at_prev_candle;
+                    outliers_at_prev_candle = rejected_total;
+                    let quality_envelope = CandleQualityEnvelope {
+                        quality_score: if is_valid { 100.0 } else { 0.0 },
+                        is_valid,
+                        is_gap_filled: is_reconstructed,
+                        had_outliers_rejected: had_outliers_this_candle,
+                    };
                     let candle_close_sec = completed.start_time_ms / 1000;
                     let day_index = candle_close_sec / 86400;
                     if let Some(prev_day) = last_day_index {
@@ -920,6 +1284,9 @@ pub async fn run_single(
                         prev: prev_bar_state,
                     });
 
+                    // Read derivative state for prev_bar_state snapshot.
+                    let prev_fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
+
                     // ── Save current bar's indicator values for next bar's cross-over detection ──
                     prev_bar_state = PreviousBarState {
                         rsi: final_rsi.map(|d| d.to_f64().unwrap_or(0.0)),
@@ -993,6 +1360,8 @@ pub async fn run_single(
                         williams_r: wr_reading.map(|d| d.to_f64().unwrap_or(0.0)),
                         cci: cci_reading.map(|d| d.to_f64().unwrap_or(0.0)),
                         psar_sar: psar_reading.map(|d| d.sar.to_f64().unwrap_or(0.0)),
+                        funding_rate: prev_fund_f,
+                        cascade_state: Some(last_cascade_state),
                     };
 
                     // Stamp signal freshness (age in completed bars).
@@ -1042,30 +1411,6 @@ pub async fn run_single(
 
                     // Compute quantitative decision-support context.
                     let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
-                    // Equal-weighted mean confluence from the indicator map.
-                    let confluence_score = {
-                        let mut sum = 0.0f64;
-                        let mut n = 0u32;
-                        for meta in crate::indicators::registry::INDICATORS {
-                            if meta.directional {
-                                if let Some(v) = indicators.get(meta.key) {
-                                    sum += v.normalized;
-                                    n += 1;
-                                }
-                            }
-                        }
-                        if n > 0 {
-                            (sum / n as f64 * 100.0).clamp(-100.0, 100.0)
-                        } else {
-                            0.0
-                        }
-                    };
-                    // (Historical 4-arg stub replaced below by the 7-arg
-                    // canonical contract; DecisionContext is now computed
-                    // once further down using the L3/L4/L5 triad. The
-                    // `dec_ctx` variable at line 1167 reads the result of
-                    // the canonical call below.)
-                    let _ = confluence_score; // silence unused warning only if not later read
 
                     // Compute Statistical Intelligence Layer enrichment.
                     let close_f = completed.close.to_f64().unwrap_or(0.0);
@@ -1083,25 +1428,137 @@ pub async fn run_single(
                     let vol_f = completed.volume.to_f64().unwrap_or(0.0);
                     let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
                     let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
-                    // The full L3/L4/L5 synthesis pipeline is not yet wired
-                    // into the analyzer hot-path (each layer in [01-02-global-architecture.md §3]
-                    // is computed separately). For L6 DecisionContext the
-                    // canonical triad is consumed as empty/default matrices
-                    // here, yielding a deterministic DecisionContext whose
-                    // `entry_danger` is dominated by the conservative defaults
-                    // (`market_quality = Poor → 80`) and `expected_reward_risk_ratio`
-                    // is informed by `L5.overall_risk.score = 50.0` (the
-                    // empty RiskMatrix default) ⇒ `2.5 × 0.50 = 1.25`.
-                    let analysis_for_l6 = AnalysisMatrix::empty(&completed.symbol);
-                    let risk_for_l6 = RiskMatrix::empty(&completed.symbol);
+
+                    let current_context =
+                        crate::market_context_synth::synthesize_market_context(&indicators);
+
+                    let this_snapshot_for_synth = MarketSnapshot {
+                        exchange: shadow_exchange,
+                        timeframe_secs,
+                        timestamp: candle_close_sec,
+                        symbol: symbol.clone(),
+                        is_completed: Some(true),
+                        mid_price: completed.close,
+                        bid_price: shadow_bid,
+                        ask_price: shadow_ask,
+                        bid_size: Some(completed.volume),
+                        ask_size: Some(completed.volume),
+                        funding_rate: fund_f
+                            .map(|f| Decimal::from_f64_retain(f))
+                            .flatten(),
+                        open_interest: oi_f
+                            .map(|o| Decimal::from_f64_retain(o))
+                            .flatten(),
+                        oi_delta_1h: oi_delta_f
+                            .map(|d| Decimal::from_f64_retain(d))
+                            .flatten(),
+                        mark_price: latest_mark_px.read().await.clone(),
+                        index_price: latest_index_px.read().await.clone(),
+                        mark_index_spread_pct: spread_pct,
+                        prev_day_px: shadow_prev_day_px,
+                        open: Some(completed.open),
+                        high: Some(completed.high),
+                        low: Some(completed.low),
+                        close: Some(completed.close),
+                        volume: Some(completed.volume),
+                        average_volume: avg_vol,
+                        context: Some(current_context.clone()),
+                        decision_context: None,
+                        statistical_context: None,
+                        indicators: indicators.clone(),
+                        alignment: None,
+                        risk: None,
+                        analysis: None,
+                        advisory: None,
+                        opportunity: None,
+                        liquidity_signals: vec![],
+                        metrics_config: None,
+                        risk_profile: None,
+                        liquidity: None,
+                        cluster: None,
+                        quality_envelope: Some(quality_envelope.clone()),
+                    };
+
+                    let mut cross_tf_snaps: Vec<(u64, MarketSnapshot)> =
+                        Vec::with_capacity(4);
+                    cross_tf_snaps.push((
+                        timeframe_secs,
+                        this_snapshot_for_synth,
+                    ));
+                    for arc in [
+                        &cross_tf_snapshot_a,
+                        &cross_tf_snapshot_b,
+                        &cross_tf_snapshot_c,
+                    ] {
+                        if let Some(s) = arc.read().await.clone() {
+                            if !cross_tf_snaps
+                                .iter()
+                                .any(|(_, existing)| {
+                                    existing.timeframe_secs == s.timeframe_secs
+                                })
+                            {
+                                cross_tf_snaps
+                                    .push((s.timeframe_secs, s));
+                            }
+                        }
+                    }
+
+                    let cross_refs: Vec<(u64, &MarketSnapshot)> = cross_tf_snaps
+                        .iter()
+                        .map(|(secs, s)| (*secs, s))
+                        .collect();
+
+                    let cluster_guard = cluster_matrix.read().await.clone();
+                    let liquidity_flow = liquidity_acc.flush_to_flow();
+                    last_cascade_state = liquidity_flow.cascade_state;
+                    let liquidity_signals = core_domain::liquidity::derive_liquidity_signals(
+                        &core_domain::liquidity::SignalInput {
+                            flow: Some(&liquidity_flow),
+                            cluster: cluster_guard.as_ref(),
+                            funding_rate: fund_f.unwrap_or(0.0),
+                            oi_delta_1h_pct: oi_delta_f.map(|d| if oi_f.unwrap_or(1.0).max(1.0).abs() > 1e-9 { d / oi_f.unwrap_or(1.0).max(1.0) * 100.0 } else { 0.0 }).unwrap_or(0.0),
+                            price_bias: indicators.get("ema_stack").map(|v| v.normalized).unwrap_or(0.0),
+                            prev_funding_rate: prev_bar_state.funding_rate,
+                            prev_cascade_state: prev_bar_state.cascade_state,
+                            ..Default::default()
+                        },
+                    );
+
+                    let synthesis = crate::synthesis::synthesize_cross_tf(
+                        &symbol,
+                        &cross_refs,
+                        Some(&liquidity_flow),
+                        cluster_guard.as_ref(),
+                        prev_mtf_score,
+                        prev_regime,
+                    );
+
+                    prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
+                    prev_regime = Some(synthesis.analysis.market_regime);
+
+                    let confluence_score = {
+                        let tradability_dim =
+                            synthesis.alignment.dimensions.get(9).map(|d| d.score).unwrap_or(0.0);
+                        let market_quality_score = synthesis.analysis.market_quality_score;
+                        let opp_score = synthesis
+                            .opportunity
+                            .as_ref()
+                            .map(|o| o.opportunity_score)
+                            .unwrap_or(0.0);
+                        (0.50 * tradability_dim + 0.30 * market_quality_score + 0.20 * opp_score)
+                            .clamp(0.0, 100.0)
+                    };
+
+                    let l4_opportunity = synthesis.opportunity.clone();
+
                     let dec_ctx = core_domain::decision_context::DecisionContext::compute(
                         &indicators,
                         completed.close.to_f64().unwrap_or(0.0),
                         atr_val,
                         confluence_score,
-                        &analysis_for_l6,
-                        None,
-                        &risk_for_l6,
+                        &synthesis.analysis,
+                        l4_opportunity.as_ref(),
+                        &synthesis.risk,
                     );
                     let sil_ctx = sil_engine.advance_ext(
                         close_f,
@@ -1162,24 +1619,32 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
-                        context: Some(crate::market_context_synth::synthesize_market_context(
-                            &indicators,
-                        )),
+                        context: Some(current_context),
                         decision_context: Some(dec_ctx),
                         statistical_context: Some(sil_ctx),
                         indicators,
-                        alignment: None,
-                        risk: None,
-                        analysis: None,
-                        advisory: None,
+                        alignment: Some(synthesis.alignment),
+                        risk: Some(synthesis.risk),
+                        analysis: Some(synthesis.analysis),
+                        advisory: Some(synthesis.advisory),
+                        opportunity: synthesis.opportunity,
                         risk_profile: None,
-                        liquidity: Some(liquidity_acc.flush_to_flow()),
+                        liquidity: Some(liquidity_flow),
                         cluster: cluster_matrix.read().await.clone(),
+                        liquidity_signals,
+                        metrics_config: active_set.to_metrics_config(),
+                        quality_envelope: Some(quality_envelope),
                     };
 
                     let _ = telemetry_tx
                         .send(database_storage::TelemetryMsg::InsertSnapshot(completed_snapshot.clone()))
                         .await;
+
+                    latency_tracker.record_observation_latency(
+                        core_domain::LatencyTracker::now_ms().saturating_sub(completed.start_time_ms),
+                    );
+
+                    let _ = broadcast_tx.send(completed_snapshot.clone());
 
                     // Publish the completed snapshot as the latest for this TF.
                     {
@@ -1294,6 +1759,7 @@ pub async fn run_single(
                 if candle_gen.current_candle.is_some() {
                     let mid = (shadow_bid + shadow_ask) / Decimal::from(2);
                     let shadow_candle = NormalizedCandle {
+                        exchange: candle_gen.exchange,
                         symbol: symbol.clone(),
                         start_time_ms: candle_gen.current_start_ms,
                         duration_ms: candle_gen.duration_ms,
@@ -1419,138 +1885,21 @@ fn inject_derivatives_indicators(
     mark_px: Option<f64>,
     spread_pct: Option<f64>,
 ) {
-    use crate::indicators::normalized::{
-        IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
-    };
+    use crate::indicators::normalized::derivatives;
 
     // Open Interest
     if let Some(o) = oi {
-        let signals = if o > 1_000_000_000.0 {
-            vec![IndicatorSignal {
-                kind: SignalKind::Threshold,
-                direction: SignalDirection::Neutral,
-                status: SignalStatus::Active,
-                label: "OI_ELEVATED".to_string(),
-                strength: 0.5,
-                age_bars: 0,
-                points: None,
-            }]
-        } else {
-            vec![]
-        };
-        indicators.insert(
-            "open_interest".into(),
-            NormalizedIndicatorValue {
-                raw_value: o,
-                normalized: 0.0,
-                state_label: format!("OI_{:.0}", o),
-                values: None,
-                signals,
-                confidence: 0.5,
-            },
-        );
+        indicators.insert("open_interest".into(), derivatives::normalize_open_interest(o));
     }
 
     // OI Delta (1h change)
     if let Some(delta) = oi_delta {
-        let normalized = (delta / 1000.0).clamp(-1.0, 1.0);
-        let dir = if normalized > 0.1 {
-            SignalDirection::Bullish
-        } else if normalized < -0.1 {
-            SignalDirection::Bearish
-        } else {
-            SignalDirection::Neutral
-        };
-        let has_signal = delta.abs() > 500.0;
-        indicators.insert(
-            "oi_delta".into(),
-            NormalizedIndicatorValue {
-                raw_value: delta,
-                normalized,
-                state_label: if delta > 0.0 {
-                    "OI_RISING".to_string()
-                } else if delta < 0.0 {
-                    "OI_FALLING".to_string()
-                } else {
-                    "OI_STABLE".to_string()
-                },
-                values: None,
-                signals: {
-                    let mut sigs = Vec::new();
-                    if has_signal {
-                        sigs.push(IndicatorSignal {
-                            kind: SignalKind::Threshold,
-                            direction: dir,
-                            status: SignalStatus::Active,
-                            label: if delta > 500.0 {
-                                "OI_SURGE".to_string()
-                            } else {
-                                "OI_DRAIN".to_string()
-                            },
-                            strength: (delta.abs() / 1000.0).min(1.0),
-                            age_bars: 0,
-                            points: None,
-                        });
-                    }
-                    if delta.abs() < 100.0 && delta != 0.0 {
-                        sigs.push(IndicatorSignal {
-                            kind: SignalKind::ZeroLineCross,
-                            direction: if delta > 0.0 {
-                                SignalDirection::Bullish
-                            } else {
-                                SignalDirection::Bearish
-                            },
-                            status: SignalStatus::Active,
-                            label: "OI_DELTA_ZERO_CROSS".to_string(),
-                            strength: 0.3,
-                            age_bars: 0,
-                            points: None,
-                        });
-                    }
-                    sigs
-                },
-                confidence: 0.5,
-            },
-        );
+        indicators.insert("oi_delta".into(), derivatives::normalize_oi_delta(delta));
     }
 
     // Funding Rate (non-directional gate)
     if let Some(f) = funding {
-        let extreme = f.abs() > 0.001;
-        let ann_pct = f * 1095.0 * 100.0; // annualized %
-        indicators.insert(
-            "funding_rate".into(),
-            NormalizedIndicatorValue {
-                raw_value: f,
-                normalized: 0.0,
-                state_label: if f > 0.001 {
-                    "FUNDING_HIGH_POSITIVE".to_string()
-                } else if f < -0.001 {
-                    "FUNDING_HIGH_NEGATIVE".to_string()
-                } else {
-                    format!("FUNDING_{:.1}PCT", ann_pct.abs())
-                },
-                values: None,
-                signals: if extreme {
-                    vec![IndicatorSignal {
-                        kind: SignalKind::Threshold,
-                        direction: if f > 0.0 {
-                            SignalDirection::Bearish
-                        } else {
-                            SignalDirection::Bullish
-                        },
-                        status: SignalStatus::Active,
-                        label: "FUNDING_EXTREME".to_string(),
-                        strength: 0.7,
-                        age_bars: 0,
-                        points: None,
-                    }]
-                } else {
-                    vec![]
-                },
-                confidence: 0.5,
-            },
-        );
+        indicators.insert("funding_rate".into(), derivatives::normalize_funding_rate(f));
     }
 
     // OI-Price Divergence
@@ -1559,45 +1908,9 @@ fn inject_derivatives_indicators(
             .get("ema_stack")
             .map(|v| v.normalized)
             .unwrap_or(0.0);
-        let div = if delta > 0.0 && ema_bias < -0.3 {
-            -0.7
-        } else if delta < 0.0 && ema_bias > 0.3 {
-            0.7
-        } else {
-            0.0
-        };
         indicators.insert(
             "oi_price_divergence".into(),
-            NormalizedIndicatorValue {
-                raw_value: div,
-                normalized: div,
-                state_label: if div > 0.3 {
-                    "OI_BULLISH_DIV".to_string()
-                } else if div < -0.3 {
-                    "OI_BEARISH_DIV".to_string()
-                } else {
-                    "OI_PRICE_ALIGNED".to_string()
-                },
-                values: None,
-                signals: if div.abs() > 0.3 {
-                    vec![IndicatorSignal {
-                        kind: SignalKind::Divergence,
-                        direction: if div > 0.0 {
-                            SignalDirection::Bullish
-                        } else {
-                            SignalDirection::Bearish
-                        },
-                        status: SignalStatus::Active,
-                        label: "OI_PRICE_DIVERGENCE".to_string(),
-                        strength: div.abs(),
-                        age_bars: 0,
-                        points: None,
-                    }]
-                } else {
-                    vec![]
-                },
-                confidence: 0.5,
-            },
+            derivatives::normalize_oi_price_divergence(delta, ema_bias),
         );
     }
 
@@ -1606,55 +1919,9 @@ fn inject_derivatives_indicators(
     // Negative spread = perp discount (bearish bias). Wide spread signals
     // market stress and is a leading indicator of forced liquidations.
     if let Some(spread) = spread_pct {
-        let abs_spread = spread.abs();
-        let wide = abs_spread > 0.3;
-        let extreme = abs_spread > 1.0;
-        let norm = (spread / 1.0).clamp(-1.0, 1.0);
-        let dir = if norm > 0.1 {
-            SignalDirection::Bullish
-        } else if norm < -0.1 {
-            SignalDirection::Bearish
-        } else {
-            SignalDirection::Neutral
-        };
-        let label = if extreme {
-            "SPREAD_EXTREME"
-        } else if wide {
-            "SPREAD_WIDE"
-        } else if norm > 0.0 {
-            "PREMIUM"
-        } else if norm < 0.0 {
-            "DISCOUNT"
-        } else {
-            "ALIGNED"
-        };
-        let signals = if wide {
-            vec![IndicatorSignal {
-                kind: SignalKind::Threshold,
-                direction: dir,
-                status: SignalStatus::Active,
-                label: format!("MARK_INDEX_{}", label),
-                strength: norm.abs(),
-                age_bars: 0,
-                points: None,
-            }]
-        } else {
-            vec![]
-        };
-        let mut vals = std::collections::HashMap::new();
-        if let Some(mark) = mark_px {
-            vals.insert("mark_px".to_string(), mark);
-        }
         indicators.insert(
             "mark_index_spread".into(),
-            NormalizedIndicatorValue {
-                raw_value: spread,
-                normalized: norm,
-                state_label: label.to_string(),
-                values: Some(vals),
-                signals,
-                confidence: 0.5,
-            },
+            derivatives::normalize_mark_index_spread(spread, mark_px),
         );
     }
 }
@@ -1666,132 +1933,37 @@ fn inject_orderbook_indicators(
     ob: &OrderBookAnalysis,
     spread_wide_threshold_pct: f64,
 ) {
-    use crate::indicators::normalized::{
-        IndicatorSignal, SignalDirection, SignalKind, SignalStatus,
-    };
+    use crate::indicators::normalized::derivatives;
 
     // Order Flow Imbalance
     if let Some(ofi) = ob.order_flow_imbalance() {
-        let (dir, sig_label) = if ofi > 0.7 {
-            (SignalDirection::Bullish, "BULLISH_IMBALANCE")
-        } else if ofi < -0.7 {
-            (SignalDirection::Bearish, "BEARISH_IMBALANCE")
-        } else if ofi > 0.0 {
-            (SignalDirection::Bullish, "BUY_PRESSURE")
-        } else if ofi < 0.0 {
-            (SignalDirection::Bearish, "SELL_PRESSURE")
-        } else {
-            (SignalDirection::Neutral, "BALANCED")
-        };
-        let has_signal = ofi.abs() > 0.7;
         indicators.insert(
             "order_flow_imbalance".into(),
-            NormalizedIndicatorValue {
-                raw_value: ofi,
-                normalized: ofi,
-                state_label: sig_label.to_string(),
-                values: None,
-                signals: if has_signal {
-                    vec![IndicatorSignal {
-                        kind: SignalKind::Threshold,
-                        direction: dir,
-                        status: SignalStatus::Active,
-                        label: sig_label.to_string(),
-                        strength: ofi.abs(),
-                        age_bars: 0,
-                        points: None,
-                    }]
-                } else {
-                    vec![]
-                },
-                confidence: ofi.abs(),
-            },
+            derivatives::normalize_order_flow_imbalance(ofi),
         );
     }
 
     // Spread (non-directional gate)
     if let Some(spread) = ob.spread_pct() {
-        let wide = spread > spread_wide_threshold_pct;
         indicators.insert(
             "spread".into(),
-            NormalizedIndicatorValue {
-                raw_value: spread,
-                normalized: 0.0,
-                state_label: if wide {
-                    "SPREAD_WIDENING".to_string()
-                } else {
-                    "TIGHT".to_string()
-                },
-                values: None,
-                signals: if wide {
-                    vec![IndicatorSignal {
-                        kind: SignalKind::Threshold,
-                        direction: SignalDirection::Neutral,
-                        status: SignalStatus::Active,
-                        label: "SPREAD_WIDENING".to_string(),
-                        strength: (spread / 5.0).min(1.0),
-                        age_bars: 0,
-                        points: None,
-                    }]
-                } else {
-                    vec![]
-                },
-                confidence: 0.5,
-            },
+            derivatives::normalize_spread(spread * 100.0, spread_wide_threshold_pct),
         );
     }
 
     // Depth Bias (bid depth / ask depth ratio)
     if let Some(ratio) = ob.depth_imbalance_ratio(1.0) {
         if ratio.is_finite() {
-            let norm = ((ratio - 1.0) / (ratio + 1.0)).clamp(-1.0, 1.0);
-            let label = if ratio > 1.5 {
-                "DEEP_BIDS"
-            } else if ratio < 0.67 {
-                "DEEP_ASKS"
-            } else {
-                "BALANCED_DEPTH"
-            };
-            let has_signal = ratio > 2.0 || ratio < 0.5;
-            let dir = if norm > 0.0 {
-                SignalDirection::Bullish
-            } else if norm < 0.0 {
-                SignalDirection::Bearish
-            } else {
-                SignalDirection::Neutral
-            };
             indicators.insert(
                 "depth_bias".into(),
-                NormalizedIndicatorValue {
-                    raw_value: ratio,
-                    normalized: norm,
-                    state_label: label.to_string(),
-                    values: None,
-                    signals: if has_signal {
-                        vec![IndicatorSignal {
-                            kind: SignalKind::Threshold,
-                            direction: dir,
-                            status: SignalStatus::Active,
-                            label: if ratio > 2.0 {
-                                "BID_DEPTH_SURGE".to_string()
-                            } else {
-                                "ASK_DEPTH_SURGE".to_string()
-                            },
-                            strength: norm.abs(),
-                            age_bars: 0,
-                            points: None,
-                        }]
-                    } else {
-                        vec![]
-                    },
-                    confidence: norm.abs(),
-                },
+                derivatives::normalize_depth_bias(ratio),
             );
         }
     }
 
     // Wall signals: attach to order_flow_imbalance entry if it exists
     if let Some(ref wall) = ob.wall_detected() {
+        use crate::indicators::normalized::{IndicatorSignal, SignalDirection, SignalKind, SignalStatus};
         match wall.as_str() {
             "BID_WALL" => {
                 if let Some(ofier) = indicators.get_mut("order_flow_imbalance") {
@@ -2094,9 +2266,13 @@ fn broadcast_live_snapshot(
         risk: None,
         analysis: None,
         advisory: None,
+        opportunity: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        quality_envelope: None,
     };
 
     let _ = broadcast_tx.send(snapshot);

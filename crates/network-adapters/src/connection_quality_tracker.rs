@@ -214,6 +214,158 @@ impl ConnectionQualityTracker {
         db_pool: sqlx::SqlitePool,
         cancel: tokio_util::sync::CancellationToken,
     ) {
+        let registry = ConnectionQualityRegistry::default();
+        registry
+            .insert_existing("GLOBAL", 0, (*self).clone())
+            .await;
+        registry.run_persistence_loop(db_pool, cancel).await;
+    }
+}
+
+/// Registry of per-`(pair_key, timeframe_secs)` quality scopes
+/// (08-05-connection-quality.md). Each scope is an independent
+/// `ConnectionQualityTracker`; the persistence loop collapses every scope
+/// into per-window rows every 60 s.
+#[derive(Clone, Default)]
+pub struct ConnectionQualityRegistry {
+    scopes: Arc<RwLock<std::collections::HashMap<(String, u64), ConnectionQualityTracker>>>,
+}
+
+impl ConnectionQualityRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get-or-create the tracker scope for `(pair_key, timeframe_secs)`.
+    pub async fn scope(&self, pair_key: &str, timeframe_secs: u64) -> ConnectionQualityTracker {
+        let mut scopes = self.scopes.write().await;
+        scopes
+            .entry((pair_key.to_string(), timeframe_secs))
+            .or_insert_with(ConnectionQualityTracker::new)
+            .clone()
+    }
+
+    /// Register a pre-built tracker under a scope key (used for legacy
+    /// process-wide tracking and in tests).
+    pub async fn insert_existing(
+        &self,
+        pair_key: &str,
+        timeframe_secs: u64,
+        tracker: ConnectionQualityTracker,
+    ) {
+        let mut scopes = self.scopes.write().await;
+        scopes.insert((pair_key.to_string(), timeframe_secs), tracker);
+    }
+
+    /// Report for one scope, or `None` when the scope has never been seen.
+    pub async fn scoped_report(
+        &self,
+        pair_key: &str,
+        timeframe_secs: u64,
+        window: QualityWindow,
+        now_ms: u64,
+    ) -> Option<ConnectionQualityReport> {
+        let tracker = {
+            let scopes = self.scopes.read().await;
+            scopes
+                .get(&(pair_key.to_string(), timeframe_secs))
+                .cloned()
+        };
+        match tracker {
+            Some(t) => Some(t.report(window, now_ms).await),
+            None => None,
+        }
+    }
+
+    /// All per-scope reports, keyed by `(pair_key, timeframe_secs)`.
+    pub async fn all_reports(
+        &self,
+        window: QualityWindow,
+        now_ms: u64,
+    ) -> Vec<(String, u64, ConnectionQualityReport)> {
+        let snapshot: Vec<((String, u64), ConnectionQualityTracker)> = {
+            let scopes = self.scopes.read().await;
+            scopes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        };
+        let mut out = Vec::with_capacity(snapshot.len());
+        for ((pair_key, tf), tracker) in snapshot {
+            out.push((pair_key, tf, tracker.report(window, now_ms).await));
+        }
+        out
+    }
+
+    /// Cross-scope aggregate (the process-wide view served when the API
+    /// caller does not filter by instance/timeframe). Recomputes the
+    /// composite score from the aggregated components using the canonical
+    /// formula so a perfect empty session still scores 100.
+    pub async fn aggregate_report(
+        &self,
+        window: QualityWindow,
+        now_ms: u64,
+    ) -> ConnectionQualityReport {
+        let reports = self.all_reports(window, now_ms).await;
+        let window_start_ms = now_ms.saturating_sub(window.duration().as_millis() as u64);
+        if reports.is_empty() {
+            return ConnectionQualityReport {
+                window,
+                window_start_ms,
+                window_end_ms: now_ms,
+                uptime_pct: 100.0,
+                disconnect_count: 0,
+                avg_reconnect_ms: 0.0,
+                total_data_loss_secs: 0,
+                reconstructed_candles: 0,
+                score: 100.0,
+            };
+        }
+        let n = reports.len() as f64;
+        let uptime_pct = reports.iter().map(|(_, _, r)| r.uptime_pct).sum::<f64>() / n;
+        let disconnect_count: u32 = reports.iter().map(|(_, _, r)| r.disconnect_count).sum();
+        let reconnects: Vec<f64> = reports
+            .iter()
+            .map(|(_, _, r)| r.avg_reconnect_ms)
+            .filter(|v| *v > 0.0)
+            .collect();
+        let avg_reconnect_ms = if reconnects.is_empty() {
+            0.0
+        } else {
+            reconnects.iter().sum::<f64>() / reconnects.len() as f64
+        };
+        let total_data_loss_secs = reports
+            .iter()
+            .map(|(_, _, r)| r.total_data_loss_secs)
+            .max()
+            .unwrap_or(0);
+        let reconstructed_candles: u32 =
+            reports.iter().map(|(_, _, r)| r.reconstructed_candles).sum();
+        let disconnect_factor = 1.0 - (disconnect_count as f64 / 10.0).min(1.0);
+        let reconnect_factor = 1.0 - (avg_reconnect_ms / 5000.0).min(1.0);
+        let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor)
+            .clamp(0.0, 100.0);
+        ConnectionQualityReport {
+            window,
+            window_start_ms,
+            window_end_ms: now_ms,
+            uptime_pct,
+            disconnect_count,
+            avg_reconnect_ms,
+            total_data_loss_secs,
+            reconstructed_candles,
+            score,
+        }
+    }
+
+    /// Persist every scope × window as one row in
+    /// `connection_quality_samples` every 60 s (03-01-00 §3). Rows carry the
+    /// `(pair_key, timeframe_secs)` scope columns per 08-05.
+    pub async fn run_persistence_loop(
+        self,
+        db_pool: sqlx::SqlitePool,
+        cancel: tokio_util::sync::CancellationToken,
+    ) {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             tokio::select! {
@@ -226,22 +378,27 @@ impl ConnectionQualityTracker {
                         QualityWindow::SixHour,
                         QualityWindow::TwentyFourHour,
                     ] {
-                        let report = self.report(window, now_ms).await;
-                        if let Err(error) = sqlx::query(
-                            "INSERT INTO connection_quality_samples (timestamp_ms, window, uptime_pct, disconnect_count, avg_reconnect_ms, total_data_loss_secs, reconstructed_candles, score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        )
-                        .bind(now_ms as i64)
-                        .bind(window.database_name())
-                        .bind(report.uptime_pct)
-                        .bind(report.disconnect_count as i64)
-                        .bind(report.avg_reconnect_ms)
-                        .bind(report.total_data_loss_secs as i64)
-                        .bind(report.reconstructed_candles as i64)
-                        .bind(report.score)
-                        .execute(&db_pool)
-                        .await
+                        for (pair_key, timeframe_secs, report) in
+                            self.all_reports(window, now_ms).await
                         {
-                            eprintln!("Connection quality persistence failed: {error}");
+                            if let Err(error) = sqlx::query(
+                                "INSERT INTO connection_quality_samples (timestamp_ms, window, uptime_pct, disconnect_count, avg_reconnect_ms, total_data_loss_secs, reconstructed_candles, score, pair_key, timeframe_secs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            )
+                            .bind(now_ms as i64)
+                            .bind(window.database_name())
+                            .bind(report.uptime_pct)
+                            .bind(report.disconnect_count as i64)
+                            .bind(report.avg_reconnect_ms)
+                            .bind(report.total_data_loss_secs as i64)
+                            .bind(report.reconstructed_candles as i64)
+                            .bind(report.score)
+                            .bind(&pair_key)
+                            .bind(timeframe_secs as i64)
+                            .execute(&db_pool)
+                            .await
+                            {
+                                eprintln!("Connection quality persistence failed: {error}");
+                            }
                         }
                     }
                 }

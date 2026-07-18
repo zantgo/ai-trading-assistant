@@ -8,8 +8,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use config_models::PlatformConfig;
+use core_domain::latency::SharedLatencyTracker;
 use core_domain::normalized::SymbolMapper;
 use database_storage::TelemetryMsg;
+use network_adapters::connection_quality_tracker::ConnectionQualityRegistry;
+use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
 use tokio::sync::mpsc;
 
 use crate::session::SessionState;
@@ -26,6 +30,11 @@ pub struct RegistryContext {
     pub pool: sqlx::SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<TelemetryMsg>,
+    pub latency_tracker: SharedLatencyTracker,
     pub ws_url: String,
     pub bitget_ws_url: String,
+    pub exchange_status: Arc<ExchangeStatusTracker>,
+    pub reliability: Arc<ReliabilityTracker>,
+    /// Per-(pair_key, timeframe_secs) connection-quality scopes (08-05).
+    pub connection_quality: Arc<ConnectionQualityRegistry>,
 }

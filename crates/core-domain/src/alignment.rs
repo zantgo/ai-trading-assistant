@@ -15,19 +15,25 @@ use std::collections::HashMap;
 /// Alignment state classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AlignState {
+    StrongBullish,
     Bullish,
     Bearish,
+    StrongBearish,
     Neutral,
     Mixed,
+    NoData,
 }
 
 impl std::fmt::Display for AlignState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AlignState::StrongBullish => write!(f, "STRONG_BULLISH"),
             AlignState::Bullish => write!(f, "BULLISH"),
             AlignState::Bearish => write!(f, "BEARISH"),
+            AlignState::StrongBearish => write!(f, "STRONG_BEARISH"),
             AlignState::Neutral => write!(f, "NEUTRAL"),
             AlignState::Mixed => write!(f, "MIXED"),
+            AlignState::NoData => write!(f, "NO_DATA"),
         }
     }
 }
@@ -45,13 +51,17 @@ pub struct AlignmentDimension {
 
 impl AlignmentDimension {
     fn new(score: f64) -> Self {
-        let state = if score >= 60.0 {
+        let state = if score == 0.0 {
+            AlignState::NoData
+        } else if score >= 80.0 {
+            AlignState::StrongBullish
+        } else if score >= 60.0 {
             AlignState::Bullish
-        } else if score <= 40.0 && score > 20.0 {
+        } else if score <= 20.0 {
+            AlignState::StrongBearish
+        } else if score <= 40.0 {
             AlignState::Bearish
-        } else if score <= 20.0 && score > 0.0 {
-            AlignState::Bearish
-        } else if score == 0.0 || (score > 40.0 && score < 60.0) {
+        } else if score < 60.0 {
             AlignState::Neutral
         } else {
             AlignState::Mixed
@@ -66,8 +76,12 @@ impl AlignmentDimension {
 
     fn from_signed(mean: f64) -> Self {
         let score = ((mean + 1.0) / 2.0 * 100.0).max(0.0).min(100.0);
-        let state = if mean > 0.3 {
+        let state = if mean > 0.6 {
+            AlignState::StrongBullish
+        } else if mean > 0.3 {
             AlignState::Bullish
+        } else if mean < -0.6 {
+            AlignState::StrongBearish
         } else if mean < -0.3 {
             AlignState::Bearish
         } else {
@@ -273,11 +287,17 @@ pub fn compute_alignment(
     let mut confidences: Vec<f64> = Vec::new();
     let mut ctxs: Vec<MarketContext> = Vec::new();
 
+    let divisor = tf_data
+        .iter()
+        .map(|d| d.1)
+        .max()
+        .unwrap_or(900) as f64;
+
     for &(label, secs, price, map, ctx) in tf_data {
         let tf_signals: u32 = map.values().map(|v| v.signals.len() as u32).sum();
         total_signals += tf_signals;
 
-        let weight = (secs as f64 / 900.0).max(0.2).min(1.0);
+        let weight = (secs as f64 / divisor).max(0.2).min(1.0);
         total_weight += weight;
 
         trend_sum += ctx.trend.score * weight;

@@ -1,11 +1,7 @@
 use core_domain::normalized::NormalizedCandle;
 use tokio::sync::{broadcast, mpsc};
 
-// Clock drift enforcement is handled by crates/network-adapters/src/clock_monitor.rs.
-// On startup, main.rs spawns ClockMonitor::run_until_cancelled which polls NTP
-// every 30s and warns/panics if drift exceeds the configured threshold.
-
-/// Aggregated macro candle event from 1-minute source candles.
+/// Aggregated candle built from source (micro) candles via multi-timeframe rollup.
 #[derive(Debug, Clone)]
 pub struct AggregatedCandle {
     pub symbol: String,
@@ -14,163 +10,143 @@ pub struct AggregatedCandle {
     pub source_count: u64,
 }
 
-/// Candle aggregator that builds 4h and 1d candles from 1-minute candle closes.
+/// Per-target pending state for a single aggregation timeframe.
+struct TargetAggregator {
+    duration_secs: u64,
+    duration_ms: u64,
+    pending: Option<AggregatedCandle>,
+}
+
+impl TargetAggregator {
+    fn new(duration_secs: u64) -> Self {
+        Self {
+            duration_secs,
+            duration_ms: duration_secs * 1000,
+            pending: None,
+        }
+    }
+
+    /// Process one source candle. Returns a completed `AggregatedCandle`
+    /// when the interval rolls over, or `None` otherwise.
+    fn process(&mut self, symbol: &str, candle: &NormalizedCandle) -> Option<AggregatedCandle> {
+        let interval_start =
+            (candle.start_time_ms / self.duration_ms) * self.duration_ms;
+
+        let mut completed = None;
+
+        if let Some(ref pending) = self.pending {
+            if interval_start > pending.candle.start_time_ms {
+                completed = self.pending.take();
+            }
+        }
+
+        if let Some(ref mut pending) = self.pending {
+            pending.candle.high = pending.candle.high.max(candle.high);
+            pending.candle.low = pending.candle.low.min(candle.low);
+            pending.candle.close = candle.close;
+            pending.candle.volume += candle.volume;
+            pending.candle.trades_count += candle.trades_count;
+            pending.source_count += 1;
+            if candle.reconstructed.is_some() && pending.candle.reconstructed.is_none() {
+                pending.candle.reconstructed = candle.reconstructed;
+            }
+        } else {
+            self.pending = Some(AggregatedCandle {
+                symbol: symbol.to_string(),
+                timeframe_secs: self.duration_secs,
+                candle: NormalizedCandle {
+                    exchange: candle.exchange,
+                    symbol: symbol.to_string(),
+                    start_time_ms: interval_start,
+                    duration_ms: self.duration_ms,
+                    open: candle.open,
+                    high: candle.high,
+                    low: candle.low,
+                    close: candle.close,
+                    volume: candle.volume,
+                    trades_count: candle.trades_count,
+                    reconstructed: candle.reconstructed,
+                },
+                source_count: 1,
+            });
+        }
+
+        completed
+    }
+}
+
+/// Multi-timeframe candle aggregator that rolls a source (e.g. micro) candle
+/// stream into one or more higher-timeframe candles.
 ///
-/// Listens to 1-minute candle close events via a broadcast channel and
-/// combines them into macro-scale candles (4h = 240 × 1m, 1d = 1440 × 1m).
+/// Target durations are configured at construction time. The aggregator
+/// maintains independent pending-candle state per target and emits completed
+/// candles when source ticks cross the target's interval boundary.
 pub struct CandleAggregator {
     symbol: String,
-    duration_4h: u64,
-    duration_1d: u64,
-    pending_4h: Option<AggregatedCandle>,
-    pending_1d: Option<AggregatedCandle>,
-    count_4h: u64,
-    count_1d: u64,
+    targets: Vec<TargetAggregator>,
 }
 
 impl CandleAggregator {
-    pub fn new(symbol: &str) -> Self {
+    /// Create an aggregator for `symbol` with the given target durations (seconds).
+    ///
+    /// At least one target must be provided. Duplicate durations are de-duplicated.
+    /// Targets are sorted so the shortest duration is processed first, which
+    /// guarantees that a source candle that crosses multiple target intervals
+    /// produces completed candles in chronological order.
+    pub fn new(symbol: &str, target_durations_secs: &[u64]) -> Self {
+        let mut targets: Vec<u64> = target_durations_secs.to_vec();
+        targets.sort_unstable();
+        targets.dedup();
+        assert!(!targets.is_empty(), "CandleAggregator requires at least one target duration");
         Self {
             symbol: symbol.to_string(),
-            duration_4h: 14400,
-            duration_1d: 86400,
-            pending_4h: None,
-            pending_1d: None,
-            count_4h: 0,
-            count_1d: 0,
+            targets: targets.into_iter().map(TargetAggregator::new).collect(),
         }
     }
 
-    /// Process a 1-minute closed candle. Returns completed macro candles if any.
-    pub fn process_1m_candle(
-        &mut self,
-        candle: &NormalizedCandle,
-    ) -> (Option<AggregatedCandle>, Option<AggregatedCandle>) {
-        let mut completed_4h = None;
-        let mut completed_1d = None;
-
-        // Aggregate 4h candle (240 × 1m)
-        let interval_start_4h =
-            (candle.start_time_ms / (self.duration_4h * 1000)) * (self.duration_4h * 1000);
-
-        if let Some(ref pending) = self.pending_4h {
-            let pending_start = pending.candle.start_time_ms;
-            if interval_start_4h > pending_start {
-                completed_4h = self.pending_4h.take();
-                self.count_4h = 0;
+    /// Process a source candle. Returns zero or more completed
+    /// `AggregatedCandle`s in chronological order (shortest timeframe first).
+    pub fn process_candle(&mut self, candle: &NormalizedCandle) -> Vec<AggregatedCandle> {
+        let mut completed = Vec::with_capacity(self.targets.len());
+        for target in &mut self.targets {
+            if let Some(c) = target.process(&self.symbol, candle) {
+                completed.push(c);
             }
         }
-
-        match self.pending_4h.as_mut() {
-            Some(pending) => {
-                pending.candle.high = pending.candle.high.max(candle.high);
-                pending.candle.low = pending.candle.low.min(candle.low);
-                pending.candle.close = candle.close;
-                pending.candle.volume += candle.volume;
-                pending.candle.trades_count += candle.trades_count;
-                pending.source_count += 1;
-                self.count_4h += 1;
-            }
-            None => {
-                self.pending_4h = Some(AggregatedCandle {
-                    symbol: self.symbol.clone(),
-                    timeframe_secs: self.duration_4h,
-                    candle: NormalizedCandle {
-                        symbol: self.symbol.clone(),
-                        start_time_ms: interval_start_4h,
-                        duration_ms: self.duration_4h * 1000,
-                        open: candle.open,
-                        high: candle.high,
-                        low: candle.low,
-                        close: candle.close,
-                        volume: candle.volume,
-                        trades_count: candle.trades_count,
-                        reconstructed: candle.reconstructed,
-                    },
-                    source_count: 1,
-                });
-                self.count_4h = 1;
-            }
-        }
-
-        // Aggregate 1d candle (1440 × 1m)
-        let interval_start_1d =
-            (candle.start_time_ms / (self.duration_1d * 1000)) * (self.duration_1d * 1000);
-
-        if let Some(ref pending) = self.pending_1d {
-            let pending_start = pending.candle.start_time_ms;
-            if interval_start_1d > pending_start {
-                completed_1d = self.pending_1d.take();
-                self.count_1d = 0;
-            }
-        }
-
-        match self.pending_1d.as_mut() {
-            Some(pending) => {
-                pending.candle.high = pending.candle.high.max(candle.high);
-                pending.candle.low = pending.candle.low.min(candle.low);
-                pending.candle.close = candle.close;
-                pending.candle.volume += candle.volume;
-                pending.candle.trades_count += candle.trades_count;
-                pending.source_count += 1;
-                self.count_1d += 1;
-            }
-            None => {
-                self.pending_1d = Some(AggregatedCandle {
-                    symbol: self.symbol.clone(),
-                    timeframe_secs: self.duration_1d,
-                    candle: NormalizedCandle {
-                        symbol: self.symbol.clone(),
-                        start_time_ms: interval_start_1d,
-                        duration_ms: self.duration_1d * 1000,
-                        open: candle.open,
-                        high: candle.high,
-                        low: candle.low,
-                        close: candle.close,
-                        volume: candle.volume,
-                        trades_count: candle.trades_count,
-                        reconstructed: candle.reconstructed,
-                    },
-                    source_count: 1,
-                });
-                self.count_1d = 1;
-            }
-        }
-
-        (completed_4h, completed_1d)
+        completed
     }
 }
 
-/// Spawn a background task that listens for 1-minute candle closes
-/// and aggregates 4h / 1d macro candles.
+/// Spawn a background task that listens for source candle closes
+/// and aggregates them into the configured higher-timeframe candles.
+///
+/// `target_durations_secs` is the list of aggregation targets
+/// (e.g. `&[14400, 86400]` for 4h and 1d). Completed candles are sent
+/// through `tx`.
 pub fn spawn_candle_aggregator(
     symbol: String,
-    mut rx_1m: broadcast::Receiver<NormalizedCandle>,
-    tx_4h: mpsc::Sender<AggregatedCandle>,
-    tx_1d: mpsc::Sender<AggregatedCandle>,
+    mut rx_candles: broadcast::Receiver<NormalizedCandle>,
+    tx: mpsc::Sender<AggregatedCandle>,
+    target_durations_secs: Vec<u64>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut aggregator = CandleAggregator::new(&symbol);
+        let mut aggregator = CandleAggregator::new(&symbol, &target_durations_secs);
         loop {
-            match rx_1m.recv().await {
+            match rx_candles.recv().await {
                 Ok(candle) => {
-                    let (c4h, c1d) = aggregator.process_1m_candle(&candle);
-                    if let Some(ac) = c4h {
-                        let _ = tx_4h.send(ac).await;
-                    }
-                    if let Some(ac) = c1d {
-                        let _ = tx_1d.send(ac).await;
+                    for completed in aggregator.process_candle(&candle) {
+                        let _ = tx.send(completed).await;
                     }
                 }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     eprintln!(
-                        "⚠️ Candle Aggregator [{}]: Lagged by {} messages, resetting",
+                        "Candle Aggregator [{}]: Lagged by {} messages, resetting",
                         symbol, n
                     );
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     eprintln!(
-                        "📭 Candle Aggregator [{}]: 1m channel closed, shutting down",
+                        "Candle Aggregator [{}]: source channel closed, shutting down",
                         symbol
                     );
                     break;
@@ -187,6 +163,7 @@ mod tests {
 
     fn make_candle(start_ms: u64, open: f64, close: f64, high: f64, low: f64) -> NormalizedCandle {
         NormalizedCandle {
+            exchange: core_domain::normalized::Exchange::Hyperliquid,
             symbol: "TEST".to_string(),
             start_time_ms: start_ms,
             duration_ms: 60000,
@@ -201,22 +178,95 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregation_respects_interval_boundaries() {
-        let mut agg = CandleAggregator::new("TEST");
+    fn test_single_target_aggregation() {
+        let mut agg = CandleAggregator::new("TEST", &[14400]);
 
         let c1 = make_candle(0, 100.0, 101.0, 102.0, 99.0);
         let c2 = make_candle(60000, 101.0, 103.0, 104.0, 100.0);
 
-        let (r4h, r1d) = agg.process_1m_candle(&c1);
-        assert!(r4h.is_none());
-        assert!(r1d.is_none());
+        let completed = agg.process_candle(&c1);
+        assert!(completed.is_empty());
 
-        let (r4h, _r1d) = agg.process_1m_candle(&c2);
-        assert!(r4h.is_none());
+        let completed = agg.process_candle(&c2);
+        assert!(completed.is_empty());
 
-        let pending = agg.pending_4h.as_ref().unwrap();
+        let pending = &agg.targets[0].pending.as_ref().unwrap();
         assert_eq!(pending.candle.high.to_f64().unwrap(), 104.0);
         assert_eq!(pending.candle.low.to_f64().unwrap(), 99.0);
         assert_eq!(pending.source_count, 2);
+    }
+
+    #[test]
+    fn test_multi_target_aggregation() {
+        let mut agg = CandleAggregator::new("TEST", &[180, 300]);
+
+        let c1 = make_candle(0, 100.0, 101.0, 102.0, 99.0);
+        let c2 = make_candle(60000, 101.0, 103.0, 104.0, 100.0);
+        let c3 = make_candle(120000, 103.0, 105.0, 106.0, 102.0);
+        let c4 = make_candle(180000, 105.0, 107.0, 108.0, 104.0);
+
+        let completed = agg.process_candle(&c1);
+        assert!(completed.is_empty());
+        agg.process_candle(&c2);
+        agg.process_candle(&c3);
+        let completed = agg.process_candle(&c4);
+
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].timeframe_secs, 180);
+    }
+
+    #[test]
+    fn test_rolling_interval_boundary() {
+        let mut agg = CandleAggregator::new("TEST", &[300]);
+
+        let c1 = make_candle(0, 100.0, 101.0, 101.0, 100.0);
+        let c2 = make_candle(60000, 101.0, 102.0, 102.0, 100.0);
+        let c3 = make_candle(120000, 102.0, 103.0, 104.0, 101.0);
+        let c4 = make_candle(180000, 103.0, 105.0, 105.0, 100.0);
+        let c5 = make_candle(240000, 105.0, 106.0, 106.0, 104.0);
+        let c6 = make_candle(300000, 106.0, 107.0, 107.0, 105.0);
+
+        for c in [c1, c2, c3, c4, c5] {
+            let completed = agg.process_candle(&c);
+            assert!(completed.is_empty(), "no completion before boundary");
+        }
+
+        let completed = agg.process_candle(&c6);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].timeframe_secs, 300);
+        assert_eq!(completed[0].candle.start_time_ms, 0);
+    }
+
+    #[test]
+    fn test_ohlcv_invariants_preserved() {
+        let mut agg = CandleAggregator::new("TEST", &[180]);
+
+        let c1 = make_candle(0, 100.0, 102.0, 105.0, 98.0);
+        let c2 = make_candle(60000, 102.0, 101.0, 104.0, 99.0);
+        let c3 = make_candle(120000, 101.0, 103.0, 106.0, 97.0);
+        let c4 = make_candle(180000, 103.0, 100.0, 100.0, 96.0);
+
+        agg.process_candle(&c1);
+        agg.process_candle(&c2);
+        agg.process_candle(&c3);
+        let completed = agg.process_candle(&c4);
+
+        assert_eq!(completed.len(), 1);
+        let ac = &completed[0];
+        assert_eq!(ac.candle.open.to_f64().unwrap(), 100.0);
+        assert_eq!(ac.candle.high.to_f64().unwrap(), 106.0);
+        assert_eq!(ac.candle.low.to_f64().unwrap(), 97.0);
+        assert_eq!(ac.candle.close.to_f64().unwrap(), 103.0);
+        assert_eq!(ac.candle.volume.to_f64().unwrap(), 3.0);
+        assert_eq!(ac.candle.trades_count, 30);
+    }
+
+    #[test]
+    fn test_deduplication_sorts_targets() {
+        let agg = CandleAggregator::new("TEST", &[900, 180, 300, 180]);
+        assert_eq!(agg.targets.len(), 3);
+        assert_eq!(agg.targets[0].duration_secs, 180);
+        assert_eq!(agg.targets[1].duration_secs, 300);
+        assert_eq!(agg.targets[2].duration_secs, 900);
     }
 }

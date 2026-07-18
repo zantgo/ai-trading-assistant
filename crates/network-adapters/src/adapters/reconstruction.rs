@@ -26,7 +26,7 @@
 use async_trait::async_trait;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
-use core_domain::normalized::{NormalizedCandle, ReconstructionMethod};
+use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 
 /// A candle that has been synthesized to fill a WebSocket gap.
 ///
@@ -129,6 +129,7 @@ impl CandleReconstructor {
     /// `ema_window` entries are used for the EMA path.
     pub fn reconstruct(
         &self,
+        exchange: Exchange,
         interval_start_ms: u64,
         interval_end_ms: u64,
         duration_ms: u64,
@@ -140,9 +141,9 @@ impl CandleReconstructor {
             return None;
         }
         if recent_closes.len() >= self.min_history_for_ema {
-            Some(self.reconstruct_ema(interval_start_ms, interval_end_ms, recent_closes))
+            Some(self.reconstruct_ema(exchange, interval_start_ms, interval_end_ms, recent_closes))
         } else if recent_closes.len() >= 2 {
-            Some(self.reconstruct_interpolation(interval_start_ms, interval_end_ms, recent_closes))
+            Some(self.reconstruct_interpolation(exchange, interval_start_ms, interval_end_ms, recent_closes))
         } else {
             None
         }
@@ -164,6 +165,7 @@ impl CandleReconstructor {
     /// flag telling downstream consumers this is an estimate.
     fn reconstruct_ema(
         &self,
+        exchange: Exchange,
         interval_start_ms: u64,
         interval_end_ms: u64,
         recent_closes: &[f64],
@@ -184,6 +186,7 @@ impl CandleReconstructor {
         let duration_ms = interval_end_ms.saturating_sub(interval_start_ms);
         let volume = self.estimated_volume(duration_ms);
         let candle = NormalizedCandle {
+            exchange,
             symbol: String::new(),
             start_time_ms: interval_start_ms,
             duration_ms,
@@ -223,6 +226,7 @@ impl CandleReconstructor {
     /// we cannot recover intra-candle volatility from two close prices.
     fn reconstruct_interpolation(
         &self,
+        exchange: Exchange,
         interval_start_ms: u64,
         interval_end_ms: u64,
         recent_closes: &[f64],
@@ -239,6 +243,7 @@ impl CandleReconstructor {
         let duration_ms = interval_end_ms.saturating_sub(interval_start_ms);
         let volume = self.estimated_volume(duration_ms);
         let candle = NormalizedCandle {
+            exchange,
             symbol: String::new(),
             start_time_ms: interval_start_ms,
             duration_ms,
@@ -341,7 +346,7 @@ mod tests {
     fn reconstruct_1m_returns_none_caller_uses_exchange() {
         let r = CandleReconstructor::new();
         let closes: Vec<f64> = (0..200).map(|i| 100.0 + i as f64).collect();
-        let result = r.reconstruct(1_000, 61_000, 60_000, &closes);
+        let result = r.reconstruct(Exchange::Hyperliquid, 1_000, 61_000, 60_000, &closes);
         assert!(
             result.is_none(),
             "1m candle must defer to ExchangeHistoricalFetcher"
@@ -354,7 +359,7 @@ mod tests {
         // 200 closes (well above min_history_for_ema = 50)
         let closes: Vec<f64> = (0..200).map(|i| 100.0 + i as f64 * 0.1).collect();
         let result = r
-            .reconstruct(2_000, 3_000, 1_000, &closes)
+            .reconstruct(Exchange::Hyperliquid, 2_000, 3_000, 1_000, &closes)
             .expect("expected reconstruction");
         assert_eq!(
             result.method,
@@ -379,7 +384,7 @@ mod tests {
         // Only 2 closes (below min_history_for_ema = 50)
         let closes = vec![100.0, 110.0];
         let result = r
-            .reconstruct(5_000, 6_000, 1_000, &closes)
+            .reconstruct(Exchange::Hyperliquid, 5_000, 6_000, 1_000, &closes)
             .expect("expected interpolation");
         assert_eq!(result.method, ReconstructionMethod::LinearInterpolation);
         assert_eq!(
@@ -394,10 +399,10 @@ mod tests {
     fn reconstruct_returns_none_with_no_history() {
         let r = CandleReconstructor::new();
         let closes: Vec<f64> = vec![];
-        assert!(r.reconstruct(0, 1_000, 500, &closes).is_none());
+        assert!(r.reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &closes).is_none());
 
         let one = vec![100.0];
-        assert!(r.reconstruct(0, 1_000, 500, &one).is_none());
+        assert!(r.reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &one).is_none());
     }
 
     // ---- EMA math -----------------------------------------------------------
@@ -412,7 +417,7 @@ mod tests {
         // ramp is strictly increasing.
         let closes: Vec<f64> = (0..200).map(|i| i as f64).collect();
         let result = r
-            .reconstruct(0, 1_000, 500, &closes)
+            .reconstruct(Exchange::Hyperliquid, 0, 1_000, 500, &closes)
             .expect("expected ema reconstruction");
         let ema = result.candle.close.to_f64().unwrap();
 
@@ -446,7 +451,7 @@ mod tests {
         let r = CandleReconstructor::new();
         let closes = vec![prev, last];
         let result = r
-            .reconstruct(0, 1_000, 1_000, &closes)
+            .reconstruct(Exchange::Hyperliquid, 0, 1_000, 1_000, &closes)
             .expect("expected interpolation");
         assert_eq!(result.candle.close, Decimal::from(90));
         // The candlestick is flat because we only know two close points.

@@ -91,7 +91,7 @@ pub enum StructureAssessment {
     Healthy,
     Weak,
     Broken,
-    Unclear,
+    Unknown,
 }
 
 /// Volatility state.
@@ -115,7 +115,9 @@ pub enum VolumeAssessment {
     Exceptional,
 }
 
-/// Opportunity type classification.
+/// Opportunity type classification — canonical 8-variant enum.
+/// This is the authoritative home of the setup selector in the institutional
+/// redesign; the Opportunity Matrix (L4) is its sole producer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OpportunityType {
@@ -124,9 +126,31 @@ pub enum OpportunityType {
     Pullback,
     MeanReversion,
     Reversal,
-    /// Phase 3: a cascade or cluster setup signals a likely squeeze.
     LiquiditySqueeze,
+    /// v6.4: sub-minute-to-seconds scalp setup (BBWP ∈ [70,95) + tight structure).
+    Scalp,
     NoClearOpportunity,
+}
+
+/// Setup quality band classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SetupQuality {
+    Prime,
+    Strong,
+    Moderate,
+    Marginal,
+    None,
+}
+
+/// Per-setup-type scored profile.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpportunityProfile {
+    pub opportunity_type: OpportunityType,
+    pub score: f64,
+    pub preconditions_met: u32,
+    pub preconditions_total: u32,
+    pub notes: String,
 }
 
 /// Market quality level.
@@ -140,12 +164,18 @@ pub enum QualityLevel {
     Excellent,
 }
 
+impl std::fmt::Display for QualityLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 /// Analysis Matrix — complete market interpretation per symbol.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisMatrix {
     pub symbol: String,
     pub bias: MarketBias,
-    pub confidence: f64,
+    pub state_confidence: f64,
     pub market_regime: MarketRegime,
     pub trend_assessment: TrendAssessment,
     pub momentum_assessment: MomentumAssessment,
@@ -154,6 +184,7 @@ pub struct AnalysisMatrix {
     pub volume_assessment: VolumeAssessment,
     pub opportunity_analysis: OpportunityType,
     pub market_quality: QualityLevel,
+    pub market_quality_score: f64,
     pub market_interpretation: String,
     pub rationale: String,
     pub supporting_signals: Vec<String>,
@@ -166,15 +197,16 @@ impl AnalysisMatrix {
         Self {
             symbol: symbol.to_string(),
             bias: MarketBias::Neutral,
-            confidence: 0.0,
+            state_confidence: 0.0,
             market_regime: MarketRegime::Transition,
             trend_assessment: TrendAssessment::Weak,
             momentum_assessment: MomentumAssessment::Stable,
-            structure_assessment: StructureAssessment::Unclear,
+            structure_assessment: StructureAssessment::Unknown,
             volatility_assessment: VolatilityAssessment::Normal,
             volume_assessment: VolumeAssessment::Normal,
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Poor,
+            market_quality_score: 0.0,
             market_interpretation: "No data available — no candles have been completed.".into(),
             rationale: String::new(),
             supporting_signals: Vec::new(),
@@ -184,8 +216,21 @@ impl AnalysisMatrix {
     }
 }
 
-/// Derive an Analysis Matrix from the Alignment Matrix.
-pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
+/// Derive an Analysis Matrix from the Alignment Matrix, optionally enriched with
+/// per-timeframe indicator data (BBWP, ADX) and prior-bar state for the full
+/// 8-state regime decision tree.
+///
+/// - `bbwp`: Bollinger Band Width Percentile from the representative indicator map.
+/// - `adx`: ADX raw value from the representative indicator map.
+/// - `previous_score`: the prior bar's `mtf_overall_score` for slope calculation.
+/// - `previous_regime`: the regime from the previous bar for transition/stickiness detection.
+pub fn derive_analysis(
+    alignment: &AlignmentMatrix,
+    bbwp: Option<f64>,
+    adx: Option<f64>,
+    previous_score: Option<f64>,
+    previous_regime: Option<MarketRegime>,
+) -> AnalysisMatrix {
     if alignment.timeframes_present == 0 {
         return AnalysisMatrix::empty(&alignment.symbol);
     }
@@ -203,25 +248,42 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
         MarketBias::Neutral
     };
 
-    let base_confidence = (score.abs() / 100.0).max(0.0).min(1.0);
-    let mut confidence = base_confidence;
+    let base_state_confidence = (score.abs() / 100.0).max(0.0).min(1.0);
+    let mut state_confidence = base_state_confidence;
     if alignment.trend_agreement_pct >= 75.0 {
-        confidence = (confidence + 0.15).min(1.0);
+        state_confidence = (state_confidence + 0.15).min(1.0);
     } else if alignment.trend_agreement_pct < 50.0 {
-        confidence = confidence.min(0.5);
+        state_confidence = state_confidence.min(0.5);
     }
     if alignment.signal_cross_tf_count >= 3 {
-        confidence = (confidence + 0.1).min(1.0);
+        state_confidence = (state_confidence + 0.1).min(1.0);
     }
     if alignment.timeframes_present <= 1 {
-        confidence = confidence.min(0.5);
+        state_confidence = state_confidence.min(0.5);
     }
 
-    // Market regime from alignment context
-    let regime = if score > 20.0 {
+    let bbwp_val = bbwp.unwrap_or(50.0);
+    let adx_val = adx.unwrap_or(25.0);
+    let score_slope = previous_score.map(|prev| score - prev).unwrap_or(0.0);
+    let regime_shifted = previous_regime.is_some_and(|prev| prev != MarketRegime::Range);
+
+    // ── 8-state regime decision tree (6 priority levels) ──
+    let is_expansion = bbwp_val >= 85.0;
+
+    let regime = if bbwp_val >= 85.0 {
+        MarketRegime::Expansion
+    } else if bbwp_val <= 10.0 {
+        MarketRegime::Contraction
+    } else if adx_val >= 25.0 && score > 20.0 {
         MarketRegime::TrendingBull
-    } else if score < -20.0 {
+    } else if adx_val >= 25.0 && score < -20.0 {
         MarketRegime::TrendingBear
+    } else if score_slope > 0.0 && score >= 0.0 && !is_expansion {
+        MarketRegime::Accumulation
+    } else if score_slope < 0.0 && score <= 0.0 && !is_expansion {
+        MarketRegime::Distribution
+    } else if adx_val < 25.0 && bbwp_val > 10.0 && bbwp_val < 85.0 && regime_shifted {
+        MarketRegime::Transition
     } else {
         MarketRegime::Range
     };
@@ -263,7 +325,7 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
     } else if struct_dim >= 20.0 {
         StructureAssessment::Broken
     } else {
-        StructureAssessment::Unclear
+        StructureAssessment::Unknown
     };
 
     // Volatility from alignment volatility dimension
@@ -292,9 +354,10 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
         VolumeAssessment::Weak
     };
 
-    // Opportunity from alignment opportunity dimension
+    // Opportunity from alignment dimensions (deprecated — L4 owns the canonical tree).
+    // Kept for backward compat on `analysis.opportunity_analysis` field.
     let opp_dim = alignment.dimensions.get(9).map(|d| d.score).unwrap_or(50.0);
-    let opportunity = if trend_dim >= 75.0 && bias as i32 > 0 {
+    let opportunity = if trend_dim >= 75.0 && (matches!(bias, MarketBias::Bullish | MarketBias::StrongBullish | MarketBias::Bearish | MarketBias::StrongBearish)) {
         OpportunityType::TrendContinuation
     } else if vol_dim >= 70.0 && struct_dim >= 60.0 {
         OpportunityType::Breakout
@@ -305,9 +368,6 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
     } else if opp_dim < 30.0 {
         OpportunityType::NoClearOpportunity
     } else if opp_dim >= 90.0 && vol_dim >= 60.0 {
-        // Phase 3: very high opportunity score with elevated volatility
-        // can indicate a squeeze setup. Detailed cascade/squeeze logic
-        // lives in the Decision layer (which can override this).
         OpportunityType::LiquiditySqueeze
     } else {
         OpportunityType::TrendContinuation
@@ -329,7 +389,7 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
 
     let mut rationale_parts: Vec<String> = Vec::new();
     rationale_parts.push(format!(
-        "MTF overall score {:.0}/100 → {}. {} of {} timeframes agree ({:.0}%).",
+        "MTF overall score {:.0}/100 → {}. {} of {} timeframes agree ({:.0}%). BBWP={:.0} ADX={:.0}.",
         score,
         bias,
         if alignment.trend_agreement_pct >= 50.0 {
@@ -338,8 +398,11 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
             "Minority"
         },
         alignment.timeframes_present,
-        alignment.trend_agreement_pct
+        alignment.trend_agreement_pct,
+        bbwp_val,
+        adx_val,
     ));
+    rationale_parts.push(format!("Regime: {}", regime));
     if alignment.signal_cross_tf_count > 0 {
         rationale_parts.push(format!(
             "{} signals across multiple timeframes.",
@@ -382,7 +445,11 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
             MarketRegime::TrendingBull => "Bullish trending",
             MarketRegime::TrendingBear => "Bearish trending",
             MarketRegime::Range => "Ranging",
-            _ => "Transitional",
+            MarketRegime::Accumulation => "Accumulating",
+            MarketRegime::Distribution => "Distributing",
+            MarketRegime::Expansion => "Expanding",
+            MarketRegime::Contraction => "Contracting",
+            MarketRegime::Transition => "Transitional",
         },
         format!("{:?}", trend_assessment).to_lowercase(),
         format!("{:?}", momentum_assessment).to_lowercase(),
@@ -396,6 +463,7 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
             OpportunityType::MeanReversion => "Mean reversion conditions detected.",
             OpportunityType::Reversal => "Reversal signals emerging.",
             OpportunityType::LiquiditySqueeze => "Liquidity squeeze setup (Phase 3).",
+            OpportunityType::Scalp => "High-frequency scalp setup active.",
             OpportunityType::NoClearOpportunity => "No clear opportunity identified.",
         }
     );
@@ -403,7 +471,7 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
     AnalysisMatrix {
         symbol: alignment.symbol.clone(),
         bias,
-        confidence,
+        state_confidence,
         market_regime: regime,
         trend_assessment,
         momentum_assessment,
@@ -412,6 +480,7 @@ pub fn derive_analysis(alignment: &AlignmentMatrix) -> AnalysisMatrix {
         volume_assessment,
         opportunity_analysis: opportunity,
         market_quality,
+        market_quality_score: quality_score,
         market_interpretation: interpretation,
         rationale: rationale_parts.join(" "),
         supporting_signals: supporting,
@@ -468,26 +537,82 @@ mod tests {
     #[test]
     fn strong_bullish_mtf_produces_bullish() {
         let c = simple_alignment(4, 75.0, 100.0, 4);
-        let d = derive_analysis(&c);
+        let d = derive_analysis(&c, Some(60.0), Some(28.0), None, None);
         assert!(matches!(
             d.bias,
             MarketBias::Bullish | MarketBias::StrongBullish
         ));
-        assert!(d.confidence > 0.7);
+        assert!(d.state_confidence > 0.7);
     }
 
     #[test]
     fn neutral_score_neutral() {
         let c = simple_alignment(4, 10.0, 40.0, 0);
-        let d = derive_analysis(&c);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None);
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn empty_returns_empty() {
         let c = AlignmentMatrix::empty("BTC-USD");
-        let d = derive_analysis(&c);
+        let d = derive_analysis(&c, None, None, None, None);
         assert_eq!(d.bias, MarketBias::Neutral);
         assert_eq!(d.timeframes_considered, 0);
+    }
+
+    #[test]
+    fn expansion_regime_from_high_bbwp() {
+        let c = simple_alignment(4, 50.0, 60.0, 2);
+        let d = derive_analysis(&c, Some(90.0), Some(22.0), None, None);
+        assert_eq!(d.market_regime, MarketRegime::Expansion);
+    }
+
+    #[test]
+    fn contraction_regime_from_low_bbwp() {
+        let c = simple_alignment(4, 0.0, 50.0, 1);
+        let d = derive_analysis(&c, Some(5.0), Some(20.0), None, None);
+        assert_eq!(d.market_regime, MarketRegime::Contraction);
+    }
+
+    #[test]
+    fn trending_bull_from_adx_and_score() {
+        let c = simple_alignment(4, 55.0, 70.0, 3);
+        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None);
+        assert_eq!(d.market_regime, MarketRegime::TrendingBull);
+    }
+
+    #[test]
+    fn trending_bear_from_adx_and_negative_score() {
+        let c = simple_alignment(4, -55.0, 70.0, 3);
+        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None);
+        assert_eq!(d.market_regime, MarketRegime::TrendingBear);
+    }
+
+    #[test]
+    fn accumulation_from_rising_score() {
+        let c = simple_alignment(4, 15.0, 55.0, 2);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), None);
+        assert_eq!(d.market_regime, MarketRegime::Accumulation);
+    }
+
+    #[test]
+    fn distribution_from_falling_score() {
+        let c = simple_alignment(4, -15.0, 55.0, 2);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(-5.0), None);
+        assert_eq!(d.market_regime, MarketRegime::Distribution);
+    }
+
+    #[test]
+    fn transition_from_regime_shift_with_low_adx() {
+        let c = simple_alignment(4, 5.0, 45.0, 1);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), Some(MarketRegime::TrendingBull));
+        assert_eq!(d.market_regime, MarketRegime::Transition);
+    }
+
+    #[test]
+    fn range_fallback_when_nothing_matches() {
+        let c = simple_alignment(4, 5.0, 55.0, 2);
+        let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None);
+        assert_eq!(d.market_regime, MarketRegime::Range);
     }
 }

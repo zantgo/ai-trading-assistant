@@ -9,14 +9,14 @@ pub struct TradeJournalRecord {
     pub asset: String,
     pub direction: String,
     pub entry_reason: String,
-    pub roe_percentage: f64,
+    pub roi_pct: f64,
     pub final_analysis: String,
     pub execution_score: f64,
     pub human_notes: String,
     pub created_at: String,
     pub symbol: String,
     pub realized_pnl: f64,
-    pub roi_percentage: f64,
+    pub t_roi_pct: f64,
 }
 
 pub async fn insert_trade_journal(
@@ -32,7 +32,7 @@ pub async fn insert_trade_journal(
     execution_score: f64,
 ) -> i64 {
     match sqlx::query(
-        "INSERT INTO trade_learning_journal (trade_id, entry_date, exit_date, asset, direction, entry_reason, roe_percentage, final_analysis, execution_score)
+        "INSERT INTO trade_learning_journal (trade_id, entry_date, exit_date, asset, direction, entry_reason, roi_pct, final_analysis, execution_score)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
     )
     .bind(trade_id).bind(entry_date).bind(exit_date)
@@ -52,11 +52,11 @@ pub async fn insert_trade_journal(
 pub async fn query_trade_journal(pool: &SqlitePool, limit: u32) -> Vec<TradeJournalRecord> {
     sqlx::query_as::<_, TradeJournalRecord>(
         "SELECT j.id, j.trade_id, j.entry_date, j.exit_date, j.asset, j.direction,
-                j.entry_reason, j.roe_percentage, j.final_analysis, j.execution_score,
+                j.entry_reason, j.roi_pct, j.final_analysis, j.execution_score,
                 j.human_notes, j.created_at,
                 COALESCE(t.symbol, '') AS symbol,
                 COALESCE(t.realized_pnl, 0.0) AS realized_pnl,
-                COALESCE(t.roi_percentage, 0.0) AS roi_percentage
+                COALESCE(t.roi_pct, 0.0) AS t_roi_pct
          FROM trade_learning_journal j
          LEFT JOIN trade_telemetry_history t ON j.trade_id = t.id
          ORDER BY j.id DESC
@@ -122,7 +122,7 @@ pub async fn query_recent_journal_for_context(
         };
         table.push_str(&format!(
             "| {} | {} | {:.1}% | {:.1} | {} |\n",
-            r.asset, r.direction, r.roe_percentage, r.execution_score, mistakes
+            r.asset, r.direction, r.roi_pct, r.execution_score, mistakes
         ));
     }
 

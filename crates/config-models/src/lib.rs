@@ -56,6 +56,8 @@ struct OnDiskConfig {
     bitget: BitgetConfig,
     #[serde(default)]
     clock_monitor: Option<ClockMonitorTomlConfig>,
+    #[serde(default)]
+    quality: Option<QualityConfig>,
     workspace: WorkspaceConfig,
 }
 
@@ -67,6 +69,7 @@ impl OnDiskConfig {
                 hyperliquid: self.hyperliquid,
                 bitget: self.bitget,
                 clock_monitor: self.clock_monitor,
+                quality: self.quality,
             },
             self.workspace,
         )
@@ -86,6 +89,11 @@ pub struct PlatformConfig {
     /// spawns the NTP-based monitor alongside the other background tasks.
     #[serde(default)]
     pub clock_monitor: Option<ClockMonitorTomlConfig>,
+
+    /// Optional data-quality configuration (median filter, outlier tolerance).
+    /// When `None`, the median filter is disabled and all ticks are accepted.
+    #[serde(default)]
+    pub quality: Option<QualityConfig>,
 }
 
 impl Default for PlatformConfig {
@@ -94,6 +102,7 @@ impl Default for PlatformConfig {
             hyperliquid: HyperliquidConfig::default(),
             bitget: BitgetConfig::default(),
             clock_monitor: None,
+            quality: None,
         }
     }
 }
@@ -157,6 +166,11 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub liquidity: LiquidityConfig,
     #[serde(default)]
+    pub activation: ActivationConfig,
+    /// Schema version counter — incremented on every successful POST /api/config.
+    #[serde(default)]
+    pub config_version: u64,
+    #[serde(default)]
     pub scoring: ScoringConfig,
     #[serde(default)]
     pub leverage: LeverageConfig,
@@ -166,6 +180,14 @@ pub struct WorkspaceConfig {
     /// Zero or more trading-pair instances.
     #[serde(default)]
     pub instances: Vec<InstanceEntry>,
+
+    /// Execution policies for the Trade Automation Engine.
+    #[serde(default)]
+    pub execution_policies: Vec<ExecutionPolicy>,
+
+    /// Execution-layer configuration (slippage ceiling, etc.).
+    #[serde(default)]
+    pub execution: ExecutionConfig,
 }
 
 impl Default for WorkspaceConfig {
@@ -186,10 +208,14 @@ impl Default for WorkspaceConfig {
             fees: FeesConfig::default(),
             intervals: IntervalsConfig::default(),
             liquidity: LiquidityConfig::default(),
+            activation: ActivationConfig::default(),
+            config_version: 1,
             scoring: ScoringConfig::default(),
             leverage: LeverageConfig::default(),
             defaults: DefaultsConfig::default(),
             instances: Vec::new(),
+            execution_policies: Vec::new(),
+            execution: ExecutionConfig::default(),
         }
     }
 }
@@ -235,6 +261,9 @@ pub struct InstanceEntry {
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
     #[serde(default)]
     pub position_scaling: Option<PositionScalingConfig>,
+    /// Per-instance activation overrides (union with global [activation]).
+    #[serde(default)]
+    pub activation: Option<ActivationConfig>,
 }
 
 fn default_initial_capital() -> f64 {
@@ -341,6 +370,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         hyperliquid: on_disk.hyperliquid,
         bitget: on_disk.bitget,
         clock_monitor: on_disk.clock_monitor,
+        quality: on_disk.quality,
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;
@@ -421,6 +451,7 @@ candles = { duration_seconds = 180, analysis_limit = 500 }
             operational_mode: OperationalMode::Advisory,
             weight_overrides: None,
             position_scaling: None,
+            activation: None,
         });
         ws.instances.push(InstanceEntry {
             id: "eth".into(),
@@ -436,6 +467,7 @@ candles = { duration_seconds = 180, analysis_limit = 500 }
             operational_mode: OperationalMode::Advisory,
             weight_overrides: None,
             position_scaling: None,
+            activation: None,
         });
         let syms = ws.declared_symbols();
         assert_eq!(syms, vec!["BTC-USDT", "ETH-USDT"]);

@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -1081,21 +1081,21 @@ Full specification: [Metrics Matrix](../matrices/02-07-metrics-matrix.md).
   "timeframe_secs": 180,
   "timestamp": 1752192000000,
   "is_completed": true,
-  "mid_price": "64012.5",
-  "bid_price": "64012.0",
-  "ask_price": "64013.0",
-  "bid_size": "1.5",
-  "ask_size": "0.8",
-  "funding_rate": "0.0001",
-  "open": "63890.0",
-  "high": "64120.0",
-  "low": "63850.0",
-  "close": "64012.5",
-  "volume": "182.4",
-  "average_volume": "150.1",
-  "open_interest": "1250000.0",
-  "oi_delta_1h": "5000.0",
-  "prev_day_px": "63500.0",
+  "mid_price": 64012.5,
+  "bid_price": 64012.0,
+  "ask_price": 64013.0,
+  "bid_size": 1.5,
+  "ask_size": 0.8,
+  "funding_rate": 0.0001,
+  "open": 63890.0,
+  "high": 64120.0,
+  "low": 63850.0,
+  "close": 64012.5,
+  "volume": 182.4,
+  "average_volume": 150.1,
+  "open_interest": 1250000.0,
+  "oi_delta_1h": 5000.0,
+  "prev_day_px": 63500.0,
   "mark_price": null,
   "index_price": null,
   "mark_index_spread_pct": null,
@@ -1319,9 +1319,9 @@ Full specification: [Opportunity Matrix](../matrices/02-08-opportunity-matrix.md
   ],
   "contributing_signals": ["squeeze:COMPRESSION_RELEASE", "donchian:BREAKOUT_UP"],
   "invalidation_note": "A close below 63440.0 invalidates the trend-continuation setup.",
-  "entry_zone":  { "low": "64000.0", "high": "64200.0" },
-  "target_zone": { "low": "65500.0", "high": "66000.0" },
-  "invalidation_level": "63440.0",
+  "entry_zone":  { "low": 64000.0, "high": 64200.0 },
+  "target_zone": { "low": 65500.0, "high": 66000.0 },
+  "invalidation_level": 63440.0,
   "expected_rr_internal": 2.5,
   "time_horizon": "SWING"
 }

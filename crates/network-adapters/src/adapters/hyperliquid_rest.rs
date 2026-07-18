@@ -1,8 +1,8 @@
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use core_domain::normalized::{
-    FundingRateEvent, MarkPriceEvent, NormalizedCandle, NormalizedEvent, OpenInterestEvent,
-    ReconstructionMethod,
+    Exchange, FundingRateEvent, MarkPriceEvent, NormalizedCandle, NormalizedEvent,
+    OpenInterestEvent, ReconstructionMethod,
 };
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +95,7 @@ pub async fn fetch_historical_candles(
             let start = cs.start_time_ms;
             let duration = cs.end_time_ms.saturating_sub(cs.start_time_ms);
             Ok(NormalizedCandle {
+                exchange: Exchange::Hyperliquid,
                 symbol: internal_symbol.to_string(),
                 start_time_ms: start,
                 duration_ms: duration,

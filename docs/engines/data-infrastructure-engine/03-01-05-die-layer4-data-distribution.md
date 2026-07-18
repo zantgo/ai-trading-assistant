@@ -1,6 +1,6 @@
 # DIE Layer 4 — Data Distribution Layer
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 4 of 4
@@ -97,7 +97,7 @@ Notifications carry no `id` (no response expected). See the [API Gateway Contrac
 |------|--------|
 | `skip_serializing_if = "Option::is_none"` | Absent optional fields are omitted, shrinking frames. |
 | Empty collections omitted | Empty `signals` / null `values` maps dropped. |
-| Decimal-as-string | Prices serialize as strings — no float precision loss. |
+| Decimal-as-number | `Decimal` fields serialize as plain JSON numbers (`rust_decimal` `serde-float` feature, `crates/core-domain/Cargo.toml`). See [06-01 §4](../../integration-and-api/06-01-api-gateway-contract.md) for the platform-wide convention and consumer parsing guidance. |
 | Shadow streaming | Live shadow frames (`is_completed = false`) stream at tick cadence; completed frames (`is_completed = true`) on candle close. The platform does not rate-limit shadow frames at the L4 layer — any local throttling is the consumer's responsibility (the WebSocket handler, the MME analyzer, etc.). |
 
 ---

@@ -14,6 +14,9 @@ use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tower::ServiceExt;
+use network_adapters::clock_monitor::ClockMonitor;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
+use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 
 async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -33,9 +36,14 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityTracker::new()),
+        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
         ws_url: ws_url.clone(),
         bitget_ws_url: ws_url,
+        clock_monitor: None,
+        reliability: Arc::new(ReliabilityTracker::new()),
+        exchange_status: Arc::new(ExchangeStatusTracker::new()),
+        latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+        overview: Arc::new(RwLock::new(None)),
     });
 
     (state, pool)
@@ -155,6 +163,7 @@ async fn test_websocket_stream_with_active_pair() {
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
         cluster_matrix: Arc::new(RwLock::new(None)),
+        latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         micro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
@@ -169,6 +178,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
         },
         fast: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -184,6 +194,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
         },
         slow: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -199,6 +210,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
         },
         r#macro: TimeframePipeline {
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
@@ -214,6 +226,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
+            active_set: Default::default(),
         },
         snapshot_tx,
         cancel,
@@ -259,9 +272,14 @@ async fn test_websocket_stream_with_active_pair() {
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityTracker::new()),
+        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: "".to_string(),
+        clock_monitor: None,
+        reliability: Arc::new(ReliabilityTracker::new()),
+        exchange_status: Arc::new(ExchangeStatusTracker::new()),
+        latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+        overview: Arc::new(RwLock::new(None)),
     });
 
     let router = api_gateway::build_router(state.clone());

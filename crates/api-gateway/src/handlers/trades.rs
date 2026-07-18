@@ -85,7 +85,7 @@ pub async fn serve_update_journal_notes(
 
 pub async fn serve_export_journal_csv(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let records = database_storage::query_trade_journal(&state.pool, 1000).await;
-    let mut csv = String::from("id,trade_id,entry_date,exit_date,asset,direction,entry_reason,roe_percentage,final_analysis,execution_score,human_notes,symbol,realized_pnl,roi_percentage\n");
+    let mut csv = String::from("id,trade_id,entry_date,exit_date,asset,direction,entry_reason,roi_pct,final_analysis,execution_score,human_notes,symbol,realized_pnl,t_roi_pct\n");
     for r in &records {
         let escaped_analysis = r.final_analysis.replace('"', "\"\"");
         let escaped_reason = r.entry_reason.replace('"', "\"\"");
@@ -99,13 +99,13 @@ pub async fn serve_export_journal_csv(State(state): State<Arc<AppState>>) -> imp
             r.asset,
             r.direction,
             escaped_reason,
-            r.roe_percentage,
+            r.roi_pct,
             escaped_analysis,
             r.execution_score,
             escaped_notes,
             r.symbol,
             r.realized_pnl,
-            r.roi_percentage,
+            r.t_roi_pct,
         ));
     }
     ([(header::CONTENT_TYPE, "text/csv; charset=utf-8")], csv)
@@ -145,7 +145,7 @@ pub async fn serve_trade_telemetry_add(
         payload.commission_fees,
         payload.funding_fees,
         payload.realized_pnl,
-        payload.roi_percentage,
+        payload.roi_pct,
         &payload.trigger_source,
     )
     .await;

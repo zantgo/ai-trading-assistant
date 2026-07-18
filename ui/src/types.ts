@@ -245,7 +245,7 @@ export type MarketBias = 'StrongBullish' | 'Bullish' | 'Neutral' | 'Bearish' | '
 export type MarketRegime = 'TRENDING_BULL' | 'TRENDING_BEAR' | 'RANGE' | 'ACCUMULATION' | 'DISTRIBUTION' | 'EXPANSION' | 'CONTRACTION' | 'TRANSITION';
 export type TrendAssessment = 'Weak' | 'Developing' | 'Healthy' | 'Strong' | 'Exhausted';
 export type MomentumAssessment = 'Increasing' | 'Stable' | 'Weakening' | 'Exhausted' | 'Reversing';
-export type StructureAssessment = 'Strong' | 'Healthy' | 'Weak' | 'Broken' | 'Unclear';
+export type StructureAssessment = 'Strong' | 'Healthy' | 'Weak' | 'Broken' | 'UNKNOWN';
 export type VolatilityAssessment = 'Compressed' | 'Normal' | 'Expanding' | 'Extreme' | 'Unstable';
 export type VolumeAssessment = 'Weak' | 'Normal' | 'Strong' | 'Exceptional';
 export type OpportunityType = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'NoClearOpportunity';
@@ -535,7 +535,7 @@ export interface TimeframeOption {
     seconds: number;
 }
 
-export type MarketBias = "StrongBullish" | "Bullish" | "Neutral" | "Bearish" | "StrongBearish"; export type MarketRegime = "TRENDING_BULL" | "TRENDING_BEAR" | "RANGE" | "ACCUMULATION" | "DISTRIBUTION" | "EXPANSION" | "CONTRACTION" | "TRANSITION"; export type TrendAssessment = "Weak" | "Developing" | "Healthy" | "Strong" | "Exhausted"; export type MomentumAssessment = "Increasing" | "Stable" | "Weakening" | "Exhausted" | "Reversing"; export type StructureAssessment = "Strong" | "Healthy" | "Weak" | "Broken" | "Unclear"; export type VolatilityAssessment = "Compressed" | "Normal" | "Expanding" | "Extreme" | "Unstable"; export type VolumeAssessment = "Weak" | "Normal" | "Strong" | "Exceptional"; export type OpportunityType = "TrendContinuation" | "Breakout" | "Pullback" | "MeanReversion" | "Reversal" | "NoClearOpportunity"; export type QualityLevel = "Poor" | "Weak" | "Average" | "Good" | "Excellent"; export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
+export type MarketBias = "StrongBullish" | "Bullish" | "Neutral" | "Bearish" | "StrongBearish"; export type MarketRegime = "TRENDING_BULL" | "TRENDING_BEAR" | "RANGE" | "ACCUMULATION" | "DISTRIBUTION" | "EXPANSION" | "CONTRACTION" | "TRANSITION"; export type TrendAssessment = "Weak" | "Developing" | "Healthy" | "Strong" | "Exhausted"; export type MomentumAssessment = "Increasing" | "Stable" | "Weakening" | "Exhausted" | "Reversing"; export type StructureAssessment = "Strong" | "Healthy" | "Weak" | "Broken" | "UNKNOWN"; export type VolatilityAssessment = "Compressed" | "Normal" | "Expanding" | "Extreme" | "Unstable"; export type VolumeAssessment = "Weak" | "Normal" | "Strong" | "Exceptional"; export type OpportunityType = "TrendContinuation" | "Breakout" | "Pullback" | "MeanReversion" | "Reversal" | "NoClearOpportunity"; export type QualityLevel = "Poor" | "Weak" | "Average" | "Good" | "Excellent"; export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
     { label: '1 sec', seconds: 1 },
     { label: '3 sec', seconds: 3 },
     { label: '5 sec', seconds: 5 },
@@ -637,4 +637,40 @@ export interface ConnectionQualityReport {
     total_data_loss_secs: number;
     reconstructed_candles: number;
     score: number;
+}
+
+export interface ClockStatusResponse {
+    within_threshold: boolean;
+    drift_us: number | null;
+    jitter_rms_us: number | null;
+    last_poll_ms: number | null;
+    breach_count: number;
+    breach_action: string;
+    ntp_servers: string[];
+    sample_count: number;
+    threshold_micros: number;
+}
+
+export type ExchangeConnectionState = 'Connecting' | 'Connected' | 'Disconnected' | 'Reconnecting' | 'Disabled';
+
+export interface ExchangeStatus {
+    name: string;
+    state: ExchangeConnectionState;
+    active_pairs: number;
+    last_heartbeat_ms: number;
+    total_reconnects: number;
+    ws_url: string;
+}
+
+export interface ExchangeStatusReport {
+    exchanges: ExchangeStatus[];
+}
+
+export interface PipelineReliabilityMetrics {
+    coverage: number;
+    gap_count: number;
+    outliers_rejected: number;
+    out_of_order_dropped: number;
+    total_candles_processed: number;
+    reconstructed_candles: number;
 }

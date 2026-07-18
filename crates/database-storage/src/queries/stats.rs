@@ -13,6 +13,7 @@ pub async fn dash_trade_timestamps(pool: &SqlitePool) -> Vec<(i64, f64, f64, Str
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TradeDetailRow {
     pub exit_timestamp: i64,
+    pub entry_timestamp: i64,
     pub symbol: String,
     pub direction: String,
     pub entry_price: f64,
@@ -20,13 +21,13 @@ pub struct TradeDetailRow {
     pub size: f64,
     pub realized_pnl: f64,
     pub commission_fees: f64,
-    pub roi_percentage: f64,
+    pub roi_pct: f64,
     pub trigger_source: String,
 }
 
 pub async fn dash_trade_detail(pool: &SqlitePool) -> Vec<TradeDetailRow> {
     sqlx::query_as::<_, TradeDetailRow>(
-        "SELECT exit_timestamp, symbol, direction, entry_price, exit_price, size, realized_pnl, commission_fees, roi_percentage, trigger_source
+        "SELECT exit_timestamp, entry_timestamp, symbol, direction, entry_price, exit_price, size, realized_pnl, commission_fees, roi_pct, trigger_source
          FROM trade_telemetry_history ORDER BY exit_timestamp ASC",
     )
     .fetch_all(pool)

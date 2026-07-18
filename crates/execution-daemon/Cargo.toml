@@ -23,3 +23,6 @@ tokio-util = { version = "0.7", features = ["rt"] }
 futures-util = "0.3"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 axum = { version = "0.7", features = ["ws", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+rust_decimal = "1"
+rust_decimal_macros = "1"

@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use core_domain::normalized::{NormalizedCandle, ReconstructionMethod};
+use core_domain::normalized::{Exchange, NormalizedCandle, ReconstructionMethod};
 
 #[derive(Debug, Deserialize)]
 struct BitgetCandleResponse {
@@ -111,6 +111,7 @@ pub async fn fetch_historical_candles(
             };
 
             Ok(NormalizedCandle {
+                exchange: Exchange::Bitget,
                 symbol: internal_symbol.to_string(),
                 start_time_ms,
                 duration_ms,

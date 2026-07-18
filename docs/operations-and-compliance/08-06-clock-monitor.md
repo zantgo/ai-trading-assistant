@@ -1,6 +1,6 @@
 # Clock Monitor (NTP Drift Enforcement)
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Implemented
 **Module path:** the clock-monitor task is spawned by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion. The drift enforcement is the `clock_monitor` background task; configuration is the `[clock_monitor]` section of `config.toml`.
 
@@ -24,6 +24,7 @@ pub struct ClockMonitorConfig {
     pub breach_action: BreachAction,      // Warn (default) | Panic
     pub warn_on_breach: bool,            // default: true
     pub jitter_window_size: usize,       // default: 20
+    pub query_timeout: Duration,         // default: 5s
 }
 
 pub enum BreachAction { Warn, Panic }
@@ -46,6 +47,8 @@ enabled = true
 ntp_servers = ["pool.ntp.org", "time.aws.com"]
 poll_interval_secs = 30
 threshold_micros = 50
+query_timeout_secs = 5
+jitter_window_size = 20
 breach_action = "warn"        # or "panic"
 warn_on_breach = true
 ```
@@ -58,12 +61,12 @@ warn_on_breach = true
 | `ntp_servers` | `ntp_servers` | `Vec<String>` |
 | `poll_interval_secs` | `poll_interval` | `Duration` (multiplied by `1_000 ms`) |
 | `threshold_micros` | `threshold` | `Duration` (constructed from microsecond count) |
+| `query_timeout_secs` | `query_timeout` | `Duration` (constructed from second count; default `5 s`) |
+| `jitter_window_size` | `jitter_window_size` | `usize` (default `20`) |
 | `breach_action` | `breach_action` | `BreachAction` enum |
 | `warn_on_breach` | `warn_on_breach` | `bool` |
-| (no key; runtime default) | `jitter_window_size` | `usize` (default `20`) |
-| (no key; runtime default) | `query_timeout` | `Duration` (default `5 s`) |
 
-The last two fields are not exposed via `config.toml`; they are runtime defaults applied by `ClockMonitor::new(config)`. They are documented here for completeness; see `crates/network-adapters/src/clock_monitor.rs`.
+All fields are exposed via `config.toml`; keys omitted from the `[clock_monitor]` section fall back to the runtime defaults applied by `ClockMonitorConfig::default()` — see `crates/network-adapters/src/clock_monitor.rs`.
 
 > **Single source of truth.** All clock-monitor fields live in `[clock_monitor]` in `config.toml` and can be edited via `POST /api/config` or directly in the file at the workspace root. `config.json` is still recognized by `config-models::load_config()` as a legacy fallback (the JSON reader path is preserved for backward compatibility with existing user installations but is not documented for new deploys).
 
@@ -141,7 +144,7 @@ The system is **resilient to network crashes**: if NTP servers are unreachable, 
 
 ### Drift-breach consequence on candle alignment
 
-If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 candle-alignment invariant ([03-01-03-die-layer2-market-data.md §3.1](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — "candles close at integer epoch multiples of UTC") **may be silently violated**. The boundary formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` uses `SystemTime::now()`, which is the local clock; a drifted local clock produces boundaries that are offset by the drift from the true UTC epoch. The violation is invisible to the platform (no boundary check) and to the indicator pipeline (which assumes UTC alignment). Operators relying on millisecond-accurate cross-exchange reconciliation must either (a) set `breach_action = panic` for fail-fast behaviour, or (b) run `warn` mode and actively monitor the drift via the `/api/system/clock` endpoint (Phase 3). The `ClockMonitor` records a `DriftVerdict::BreachThreshold` for every observed breach; the breach counter is exposed alongside the current offset for operator dashboards.
+If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 candle-alignment invariant ([03-01-03-die-layer2-market-data.md §3.1](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — "candles close at integer epoch multiples of UTC") **may be silently violated**. The boundary formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` uses `SystemTime::now()`, which is the local clock; a drifted local clock produces boundaries that are offset by the drift from the true UTC epoch. The violation is invisible to the platform (no boundary check) and to the indicator pipeline (which assumes UTC alignment). Operators relying on millisecond-accurate cross-exchange reconciliation must either (a) set `breach_action = panic` for fail-fast behaviour, or (b) run `warn` mode and actively monitor the drift via the `GET /api/system/clock` endpoint ([06-01 §2.11](../integration-and-api/06-01-api-gateway-contract.md)). The `ClockMonitor` records a `DriftVerdict::BreachThreshold` for every observed breach; the breach counter is exposed alongside the current offset for operator dashboards (the endpoint's `breach_count` field currently reports a placeholder `0` — the persistent counter is tracked code work; see `docs/CHANGELOG.md` v6.4.1).
 
 ## Integration
 

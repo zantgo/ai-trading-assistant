@@ -47,7 +47,7 @@ async fn test_symbol_mapper_missing_returns_none() {
 
 #[test]
 fn test_candle_generator_first_trade_seeds_open() {
-    let mut gen = CandleGenerator::new("BTC-USD", 60);
+    let mut gen = CandleGenerator::new("BTC-USD", 60, Exchange::Hyperliquid);
     let trade = NormalizedTrade {
         exchange: Exchange::Hyperliquid,
         symbol: "BTC-USD".to_string(),
@@ -73,7 +73,7 @@ fn test_candle_generator_first_trade_seeds_open() {
 
 #[test]
 fn test_candle_generator_multi_trade_aggregation() {
-    let mut gen = CandleGenerator::new("ETH-USD", 60);
+    let mut gen = CandleGenerator::new("ETH-USD", 60, Exchange::Hyperliquid);
     let t1 = NormalizedTrade {
         exchange: Exchange::Hyperliquid,
         symbol: "ETH-USD".to_string(),
@@ -109,7 +109,7 @@ fn test_candle_generator_multi_trade_aggregation() {
 
 #[test]
 fn test_candle_generator_crosses_boundary_emits_closed() {
-    let mut gen = CandleGenerator::new("SOL-USD", 60);
+    let mut gen = CandleGenerator::new("SOL-USD", 60, Exchange::Hyperliquid);
     let t1 = NormalizedTrade {
         exchange: Exchange::Hyperliquid,
         symbol: "SOL-USD".to_string(),

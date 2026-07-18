@@ -65,9 +65,13 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         prev_day_px: None,
         statistical_context: None,
         decision_context: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
+        opportunity: None,
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        quality_envelope: None,
     };
 
     database_storage::insert_snapshot_internal(&pool, &snap).await;

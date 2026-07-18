@@ -32,10 +32,15 @@ pub struct BootstrapInput {
     pub fast_limit: u64,
     pub slow_limit: u64,
     pub macro_limit: u64,
+    /// When present, bootstrap candle provenance (DB-warm vs REST-gap) is
+    /// recorded into the pipeline reliability source mix (03-01-04 §5).
+    pub reliability: Option<Arc<network_adapters::pipeline_reliability::ReliabilityTracker>>,
 }
 
 /// Fetch candles for a single timeframe via the local-DB-first, REST-gap
-/// strategy, returning a chronologically ordered (oldest-first) candle vector.
+/// strategy, returning a chronologically ordered (oldest-first) candle vector
+/// plus provenance counts `(candles, db_warm, rest_gap)` for the source-mix
+/// metric (03-01-04 §5).
 ///
 /// - Sub-minute intervals (`secs < 60`) bypass both DB and REST entirely,
 ///   returning an empty vector so the pipeline starts cleanly from live ticks.
@@ -53,7 +58,7 @@ async fn collect_candles(
     secs: u64,
     limit: u64,
     now_ms: u64,
-) -> Result<Vec<NormalizedCandle>, String> {
+) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
     // Sub-minute timeframes still consult the local DB first — sub-minute REST
     // history is rarely available from venue APIs, so the local warm base is
     // often the only usable seed. The cascade is:
@@ -119,20 +124,36 @@ async fn collect_candles(
         Vec::new()
     };
 
-    // 3. Merge DB + REST deduped by start_time_ms (REST wins on overlap).
+    // 3. Merge DB + REST deduped by start_time_ms. Per 03-01-04 §3, the local
+    //    store is authoritative for already-seen candles: REST is inserted
+    //    first, then DB overwrites on overlap (local preferred over REST).
+    let db_keys: std::collections::HashSet<u64> =
+        db_candles.iter().map(|c| c.start_time_ms).collect();
     let mut map: BTreeMap<u64, NormalizedCandle> = BTreeMap::new();
-    for c in db_candles {
+    for c in rest_candles {
         map.insert(c.start_time_ms, c);
     }
-    for c in rest_candles {
+    for c in db_candles {
         map.insert(c.start_time_ms, c);
     }
     let mut out: Vec<NormalizedCandle> = map.into_values().collect();
     if out.len() > limit as usize {
         out = out.split_off(out.len() - limit as usize);
     }
-    Ok(out)
+    let db_warm = out
+        .iter()
+        .filter(|c| db_keys.contains(&c.start_time_ms))
+        .count() as u64;
+    let rest_gap = out.len() as u64 - db_warm;
+    Ok((out, db_warm, rest_gap))
 }
+
+/// Minimum completed-bar count for a tier's warm-up to be considered
+/// sufficient (03-01-04 §2.1.1). Below this gate the tier still warms
+/// best-effort with whatever history exists, but the shortfall is logged and
+/// indicators emit `INSUFFICIENT_DATA` / `confidence = 0.0` until their
+/// per-indicator minimum buffers fill.
+pub const MIN_WARMUP_BARS: usize = 50;
 
 pub async fn fetch_and_warm_bootstrap(
     input: &BootstrapInput,
@@ -205,10 +226,19 @@ pub async fn fetch_and_warm_bootstrap(
         ),
     );
 
-    let micro_candles = micro_res?;
-    let fast_candles = fast_res?;
-    let slow_candles = slow_res?;
-    let macro_candles = macro_res?;
+    let (micro_candles, micro_db, micro_rest) = micro_res?;
+    let (fast_candles, fast_db, fast_rest) = fast_res?;
+    let (slow_candles, slow_db, slow_rest) = slow_res?;
+    let (macro_candles, macro_db, macro_rest) = macro_res?;
+
+    if let Some(ref reliability) = input.reliability {
+        reliability
+            .record_bootstrap_sources(
+                micro_db + fast_db + slow_db + macro_db,
+                micro_rest + fast_rest + slow_rest + macro_rest,
+            )
+            .await;
+    }
 
     let label = |s: u64| -> String {
         if s >= 86400 {
@@ -254,6 +284,24 @@ pub async fn fetch_and_warm_bootstrap(
     warn_empty(&fast_candles, input.fast_secs);
     warn_empty(&slow_candles, input.slow_secs);
     warn_empty(&macro_candles, input.macro_secs);
+
+    // min_warmup_bars gate (03-01-04 §2.1.1): warm-up proceeds best-effort,
+    // but a tier seeded below the gate is flagged as partially warmed.
+    let gate_warn = |candles: &[NormalizedCandle], secs: u64| {
+        if !candles.is_empty() && candles.len() < MIN_WARMUP_BARS {
+            eprintln!(
+                "⚠️  Historical Bootstrap [{}]: {} seeded with {} bars (< min_warmup_bars = {}) — indicators start partially warmed (INSUFFICIENT_DATA until buffers fill).",
+                input.internal_symbol,
+                label(secs),
+                candles.len(),
+                MIN_WARMUP_BARS
+            );
+        }
+    };
+    gate_warn(&micro_candles, input.micro_secs);
+    gate_warn(&fast_candles, input.fast_secs);
+    gate_warn(&slow_candles, input.slow_secs);
+    gate_warn(&macro_candles, input.macro_secs);
 
     let w_micro = analyzer::warm_indicators_for_timeframe(
         micro_candles,

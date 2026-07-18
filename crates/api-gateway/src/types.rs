@@ -564,6 +564,9 @@ pub struct AddTradeRequest {
 pub struct SystemStatusResponse {
     pub connected: bool,
     pub latency_ms: u64,
+    pub ingest_skew_ms: u64,
+    pub observation_loop_latency_ms: u64,
+    pub system_heartbeat_latency_ms: u64,
     pub journal_mode: String,
     pub total_allocated_margin: f64,
     pub active_pairs_count: usize,
@@ -860,7 +863,7 @@ pub struct TradeTelemetryRequest {
     pub commission_fees: f64,
     pub funding_fees: f64,
     pub realized_pnl: f64,
-    pub roi_percentage: f64,
+    pub roi_pct: f64,
     #[serde(default = "default_trigger")]
     pub trigger_source: String,
 }

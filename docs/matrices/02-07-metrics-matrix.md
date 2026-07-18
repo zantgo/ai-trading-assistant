@@ -1,6 +1,6 @@
 # Metrics Matrix Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 1 — Metrics Layer
@@ -282,11 +282,11 @@ A representative completed Metrics Matrix frame (abridged). The example illustra
   "timeframe_secs": 180,
   "timestamp": 1752192000000,
   "is_completed": true,
-  "mid_price": "64012.5",
-  "bid_price": "64012.0",
-  "ask_price": "64013.0",
-  "open": "63890.0", "high": "64120.0", "low": "63850.0", "close": "64012.5",
-  "volume": "182.4", "average_volume": "150.1",
+  "mid_price": 64012.5,
+  "bid_price": 64012.0,
+  "ask_price": 64013.0,
+  "open": 63890.0, "high": 64120.0, "low": 63850.0, "close": 64012.5,
+  "volume": 182.4, "average_volume": 150.1,
   "indicators": {
     "rsi": {
       "raw_value": 68.4,

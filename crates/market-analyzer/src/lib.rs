@@ -7,11 +7,13 @@
 
 #![allow(clippy::too_many_arguments)]
 
+pub mod active_set;
 pub mod analyzer;
 pub mod candle_aggregator;
 pub mod candle_builder;
 pub mod candle_generator;
-pub mod event_detector;
+// event_detector module removed (v6.4 — dormant, superseded by signal system)
 pub mod indicators;
 pub mod market_context_synth;
 pub mod sr_engine;
+pub mod synthesis;

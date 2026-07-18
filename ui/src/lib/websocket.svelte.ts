@@ -80,7 +80,7 @@ function num(v: unknown): number | null {
  * truth; only genuine non-indicator market data (price/volume) is stored as
  * flat text alongside it.
  */
-export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageEvent): void {
+export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, event: MessageEvent): void {
     try {
         const raw = JSON.parse(event.data);
         const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
@@ -101,17 +101,30 @@ export function applySnapshotToTimeframe(tf: TimeframeTelemetry, event: MessageE
         const avgVol = num(snapshot.average_volume);
         if (avgVol != null) tf.avgVolText = avgVol.toFixed(2);
 
-        // Phase 1: per-candle liquidity flow.
         if (snapshot.liquidity && typeof snapshot.liquidity === 'object') {
             tf.liquidity = snapshot.liquidity;
         }
-        // Phase 2: estimated liquidation cluster matrix.
         if (snapshot.cluster && typeof snapshot.cluster === 'object') {
             tf.cluster = snapshot.cluster;
         }
-        // Phase 3: liquidity signals (computed server-side per snapshot).
         if (Array.isArray(snapshot.liquidity_signals)) {
             tf.liquiditySignals = snapshot.liquidity_signals;
+        }
+        if (snapshot.alignment && typeof snapshot.alignment === 'object') {
+            const pair = app.instancesMap[app.activeTab];
+            if (pair) pair.alignment = snapshot.alignment;
+        }
+        if (snapshot.analysis && typeof snapshot.analysis === 'object') {
+            const pair = app.instancesMap[app.activeTab];
+            if (pair) pair.analysis = snapshot.analysis;
+        }
+        if (snapshot.risk && typeof snapshot.risk === 'object') {
+            const pair = app.instancesMap[app.activeTab];
+            if (pair) pair.risk = snapshot.risk;
+        }
+        if (snapshot.advisory && typeof snapshot.advisory === 'object') {
+            const pair = app.instancesMap[app.activeTab];
+            if (pair) pair.advisory = snapshot.advisory;
         }
     } catch (_) {}
 }
@@ -135,7 +148,7 @@ export function connectWebsocketForTimeframe(
         app.isConnected = true;
         state.backoff[wsKey] = freshBackoff();
     };
-    newWs.onmessage = (event) => applySnapshotToTimeframe(tf, event);
+    newWs.onmessage = (event) => applySnapshotToTimeframe(app, tf, event);
     newWs.onclose = () => {
         app.isConnected = false;
         if (state[wsKey] === newWs) {

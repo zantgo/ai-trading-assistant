@@ -354,12 +354,41 @@ pub async fn run_for_symbol(
         }
     }
 
+    // Hyperliquid keep-alive (03-01-02 §4): the client sends a JSON
+    // `{"method":"ping"}` every 30 s; the server answers on the "pong"
+    // channel. Two consecutive unanswered pings mark the stream as stalled
+    // and force a disconnect so the caller's reconnect loop takes over.
+    const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+    const MAX_MISSED_PONGS: u32 = 2;
+    let mut ping_interval = tokio::time::interval_at(
+        tokio::time::Instant::now() + HEARTBEAT_INTERVAL,
+        HEARTBEAT_INTERVAL,
+    );
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut awaiting_pongs: u32 = 0;
+
     loop {
         let msg = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
                 println!("🛑 Hyperliquid [{}]: Cancellation triggered, closing WS connection.", symbol);
                 break;
+            }
+            _ = ping_interval.tick() => {
+                if awaiting_pongs >= MAX_MISSED_PONGS {
+                    eprintln!(
+                        "💔 Hyperliquid [{}]: {} consecutive pings unanswered — treating stalled stream as disconnect.",
+                        symbol, awaiting_pongs
+                    );
+                    break;
+                }
+                let ping_frame = serde_json::json!({"method": "ping"}).to_string();
+                if let Err(e) = write.send(Message::Text(ping_frame.into())).await {
+                    eprintln!("⚠️ Hyperliquid [{}]: Failed to send keep-alive ping: {}", symbol, e);
+                    break;
+                }
+                awaiting_pongs += 1;
+                continue;
             }
             result = read.next() => {
                 match result {
@@ -378,6 +407,12 @@ pub async fn run_for_symbol(
 
         match msg {
             Message::Text(raw_text) => {
+                // Any inbound frame proves liveness; the "pong" channel is
+                // the explicit keep-alive reply and carries no payload.
+                awaiting_pongs = 0;
+                if raw_text.contains("\"channel\":\"pong\"") {
+                    continue;
+                }
                 if raw_text.contains("\"channel\":\"l2Book\"") {
                     if let Ok(envelope) = serde_json::from_str::<L2BookEnvelope>(&raw_text) {
                         if let Some(payload) = envelope.data {
@@ -463,7 +498,11 @@ pub async fn run_for_symbol(
                 }
             }
             Message::Ping(ping) => {
+                awaiting_pongs = 0;
                 let _ = write.send(Message::Pong(ping)).await;
+            }
+            Message::Pong(_) => {
+                awaiting_pongs = 0;
             }
             Message::Close(_) => {
                 println!("🔌 Hyperliquid [{}]: Connection closed by server.", symbol);

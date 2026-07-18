@@ -11,7 +11,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use config_models::PlatformConfig;
-use network_adapters::connection_quality_tracker::ConnectionQualityTracker;
+use network_adapters::connection_quality_tracker::ConnectionQualityRegistry;
+use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
+use network_adapters::clock_monitor::ClockMonitor;
 use portfolio_supervisor::session::{Currency, ExchangeChoice, SessionState};
 use portfolio_supervisor::instance::Instance;
 use portfolio_supervisor::workspace_state::WorkspaceState;
@@ -43,9 +46,16 @@ pub struct AppState {
     pub pool: SqlitePool,
     pub symbol_mapper: Arc<SymbolMapper>,
     pub telemetry_tx: mpsc::Sender<database_storage::TelemetryMsg>,
-    pub connection_quality: Arc<ConnectionQualityTracker>,
+    /// Per-(pair_key, timeframe_secs) connection-quality scopes (08-05).
+    pub connection_quality: Arc<ConnectionQualityRegistry>,
+    pub clock_monitor: Option<Arc<ClockMonitor>>,
+    pub reliability: Arc<ReliabilityTracker>,
+    pub exchange_status: Arc<ExchangeStatusTracker>,
+    pub latency_tracker: core_domain::SharedLatencyTracker,
     pub ws_url: String,
     pub bitget_ws_url: String,
+    /// L7 cross-symbol market overview, refreshed periodically.
+    pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
 }
 
 impl AppState {
@@ -60,8 +70,12 @@ impl AppState {
             pool: self.pool.clone(),
             symbol_mapper: self.symbol_mapper.clone(),
             telemetry_tx: self.telemetry_tx.clone(),
+            latency_tracker: self.latency_tracker.clone(),
             ws_url: self.ws_url.clone(),
             bitget_ws_url: self.bitget_ws_url.clone(),
+            exchange_status: self.exchange_status.clone(),
+            reliability: self.reliability.clone(),
+            connection_quality: self.connection_quality.clone(),
         }
     }
 
@@ -221,6 +235,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/connection-quality",
             get(handlers::connection_quality::get_connection_quality),
         )
+        .route("/api/overview", get(handlers::overview::serve_overview))
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
         .route(
             "/api/trades",
@@ -273,12 +288,28 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handlers::instances::serve_pause_instance),
         )
         .route(
+            "/api/instances/:instance_id/start",
+            post(handlers::instances::serve_start_instance),
+        )
+        .route(
             "/api/instances/:instance_id/stop",
             post(handlers::instances::serve_stop_instance),
         )
         .route(
             "/api/instances/:instance_id/safety/reset",
             post(handlers::instances::serve_reset_safety),
+        )
+        .route(
+            "/api/instances/:instance_id/safety/release-veto",
+            post(handlers::instances::serve_release_veto),
+        )
+        .route(
+            "/api/instances/:instance_id/safety",
+            get(handlers::instances::serve_get_safety),
+        )
+        .route(
+            "/api/instances/:instance_id/portfolio",
+            get(handlers::instances::serve_get_portfolio),
         )
         .route(
             "/api/instances/:instance_id/manual/open",
@@ -342,12 +373,48 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handlers::dashboard::serve_dashboard_stats),
         )
         .route(
+            "/api/analytics/strategy",
+            get(handlers::analytics::serve_strategy_analytics),
+        )
+        .route(
+            "/api/analytics/strategy/history",
+            get(handlers::analytics::serve_strategy_analytics_history),
+        )
+        .route(
+            "/api/analytics/risk",
+            get(handlers::analytics::serve_risk_analytics),
+        )
+        .route(
+            "/api/analytics/performance",
+            get(handlers::analytics::serve_performance_matrix),
+        )
+        .route(
+            "/api/analytics/optimization",
+            get(handlers::analytics::serve_optimization_report),
+        )
+        .route(
+            "/api/analytics/trades",
+            get(handlers::analytics::serve_trade_analytics),
+        )
+        .route(
             "/api/system/status",
             get(handlers::system::serve_system_status),
         )
         .route(
             "/api/system/observability",
             get(handlers::system::serve_observability_buffers),
+        )
+        .route(
+            "/api/system/clock",
+            get(handlers::clock::serve_clock_status),
+        )
+        .route(
+            "/api/exchange-status",
+            get(handlers::exchange_status::serve_exchange_status),
+        )
+        .route(
+            "/api/data-quality",
+            get(handlers::data_quality::serve_data_quality),
         )
         .route("/ws", get(ws::ws_handler))
         .route(

@@ -15,6 +15,9 @@ use std::sync::Arc;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, RwLock};
+use network_adapters::clock_monitor::ClockMonitor;
+use network_adapters::pipeline_reliability::ReliabilityTracker;
+use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
 
 async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, String) {
     let pool = SqlitePool::connect("sqlite::memory:")
@@ -34,7 +37,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
 
     let logger_pool = pool.clone();
     tokio::spawn(async move {
-        database_storage::run_telemetry_logger(logger_pool, telemetry_rx).await;
+        database_storage::run_telemetry_logger(logger_pool, telemetry_rx, 90).await;
     });
 
     database_storage::risk_profile_insert(
@@ -56,9 +59,14 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         pool: pool.clone(),
         symbol_mapper,
         telemetry_tx,
-        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityTracker::new()),
+        connection_quality: Arc::new(network_adapters::connection_quality_tracker::ConnectionQualityRegistry::new()),
         ws_url: "ws://127.0.0.1:1".to_string(),
         bitget_ws_url: "".to_string(),
+        clock_monitor: None,
+        reliability: Arc::new(ReliabilityTracker::new()),
+        exchange_status: Arc::new(ExchangeStatusTracker::new()),
+        latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
+        overview: Arc::new(RwLock::new(None)),
     });
 
     let router = api_gateway::build_router(state.clone());

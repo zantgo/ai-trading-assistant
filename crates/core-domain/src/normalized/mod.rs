@@ -59,10 +59,16 @@ pub struct NormalizedOrderBook {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionStatus {
+    /// Adapter is establishing the WS handshake.
     Connecting,
+    /// Handshake succeeded; frames are flowing.
     Connected,
+    /// Transport error detected; supervisor begins the backoff loop.
     Disconnected,
+    /// Supervisor is sleeping before the next `adapter.start()` attempt.
     Reconnecting,
+    /// Terminal; reached only on retry-budget exhaustion or cancellation.
+    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +176,11 @@ pub enum ReconstructionMethod {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedCandle {
+    /// Originating venue (e.g. "Hyperliquid", "Bitget").
+    /// Populated from trade events at L2 candle generation; may be absent
+    /// in legacy payloads or synthetic candles synthesized before the
+    /// exchange source was recorded.
+    pub exchange: Exchange,
     pub symbol: String,
     pub start_time_ms: u64,
     pub duration_ms: u64,
@@ -230,6 +241,7 @@ mod consistency_tests {
     #[test]
     fn test_candle_validity_passes_for_valid_data() {
         let candle = NormalizedCandle {
+            exchange: Exchange::Hyperliquid,
             symbol: "BTC-USD".to_string(),
             start_time_ms: 1000,
             duration_ms: 60000,
@@ -247,6 +259,7 @@ mod consistency_tests {
     #[test]
     fn test_candle_validity_catches_inverted_high_low() {
         let candle = NormalizedCandle {
+            exchange: Exchange::Hyperliquid,
             symbol: "BTC-USD".to_string(),
             start_time_ms: 1000,
             duration_ms: 60000,
@@ -264,6 +277,7 @@ mod consistency_tests {
     #[test]
     fn test_candle_validity_catches_negative_volume() {
         let candle = NormalizedCandle {
+            exchange: Exchange::Hyperliquid,
             symbol: "BTC-USD".to_string(),
             start_time_ms: 1000,
             duration_ms: 60000,
@@ -281,6 +295,7 @@ mod consistency_tests {
     #[test]
     fn test_candle_validity_catches_open_outside_bounds() {
         let candle = NormalizedCandle {
+            exchange: Exchange::Hyperliquid,
             symbol: "BTC-USD".to_string(),
             start_time_ms: 1000,
             duration_ms: 60000,

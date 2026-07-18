@@ -7,7 +7,8 @@
 //!
 //! Layer: L4.75 in the architecture (Decision Guidance).
 
-use crate::analysis::AnalysisMatrix;
+use crate::analysis::{AnalysisMatrix, OpportunityType};
+use crate::opportunity::OpportunityMatrix;
 use crate::risk::{RiskDimension, RiskMatrix};
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +35,12 @@ pub enum MarketStance {
     Avoid,
 }
 
+impl std::fmt::Display for MarketStance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 /// Opportunity classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -44,6 +51,7 @@ pub enum OpportunityClass {
     MeanReversion,
     Reversal,
     LiquiditySqueeze,
+    Scalp,
     NoClearOpportunity,
 }
 
@@ -116,6 +124,10 @@ pub struct AdvisoryMatrix {
     pub protection_strategy: ProtectionStrategy,
     pub target_strategy: TargetStrategy,
     pub confidence_assessment: f64,
+    pub stop_loss_distance_pct: f64,
+    /// Cross-symbol cascade risk index — per-symbol cascade risk score
+    /// from the L5 Risk Matrix, carried through to L7 Overview aggregation.
+    pub cascade_risk_score: f64,
     /// Synoptic favorability of entering a position — semantic successor
     /// of the old `Risk.reward_risk` (removed in the institutional redesign).
     /// Synthesized from L3 `market_quality` and the L4 opportunity type —
@@ -137,6 +149,8 @@ impl AdvisoryMatrix {
             protection_strategy: ProtectionStrategy::NoRecommendation,
             target_strategy: TargetStrategy::NoRecommendation,
             confidence_assessment: 0.0,
+            stop_loss_distance_pct: 0.0,
+            cascade_risk_score: 30.0,
             environment_favorability: RiskDimension::default(),
             final_recommendation: "Insufficient data to provide guidance.".into(),
         }
@@ -167,8 +181,14 @@ fn compute_environment_favorability(analysis: &AnalysisMatrix) -> RiskDimension 
     }
 }
 
-/// Compute Advisory Matrix from Analysis + Risk.
-pub fn compute_advisory(analysis: &AnalysisMatrix, risk: &RiskMatrix) -> AdvisoryMatrix {
+/// Compute Advisory Matrix from Analysis + Risk + Opportunity + Cluster.
+/// `opportunity` may be `None` during early warm-up.
+pub fn compute_advisory(
+    analysis: &AnalysisMatrix,
+    risk: &RiskMatrix,
+    opportunity: Option<&OpportunityMatrix>,
+    cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
+) -> AdvisoryMatrix {
     if analysis.timeframes_considered == 0 {
         return AdvisoryMatrix::empty(&analysis.symbol);
     }
@@ -233,90 +253,143 @@ pub fn compute_advisory(analysis: &AnalysisMatrix, risk: &RiskMatrix) -> Advisor
         crate::analysis::QualityLevel::Poor => MarketStance::Avoid,
     };
 
-    // Opportunity from analysis
-    let opportunity = match analysis.opportunity_analysis {
-        crate::analysis::OpportunityType::TrendContinuation => OpportunityClass::TrendContinuation,
-        crate::analysis::OpportunityType::Breakout => OpportunityClass::Breakout,
-        crate::analysis::OpportunityType::Pullback => OpportunityClass::Pullback,
-        crate::analysis::OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
-        crate::analysis::OpportunityType::Reversal => OpportunityClass::Reversal,
-        crate::analysis::OpportunityType::LiquiditySqueeze => OpportunityClass::LiquiditySqueeze,
-        crate::analysis::OpportunityType::NoClearOpportunity => {
-            OpportunityClass::NoClearOpportunity
+    // Opportunity from L4 OpportunityMatrix (fallback to analysis.opportunity_analysis)
+    let opportunity = if let Some(opp) = opportunity {
+        match opp.primary_opportunity {
+            OpportunityType::TrendContinuation => OpportunityClass::TrendContinuation,
+            OpportunityType::Breakout => OpportunityClass::Breakout,
+            OpportunityType::Pullback => OpportunityClass::Pullback,
+            OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
+            OpportunityType::Reversal => OpportunityClass::Reversal,
+            OpportunityType::LiquiditySqueeze => OpportunityClass::LiquiditySqueeze,
+            OpportunityType::Scalp => OpportunityClass::Scalp,
+            OpportunityType::NoClearOpportunity => OpportunityClass::NoClearOpportunity,
+        }
+    } else {
+        match analysis.opportunity_analysis {
+            crate::analysis::OpportunityType::TrendContinuation => OpportunityClass::TrendContinuation,
+            crate::analysis::OpportunityType::Breakout => OpportunityClass::Breakout,
+            crate::analysis::OpportunityType::Pullback => OpportunityClass::Pullback,
+            crate::analysis::OpportunityType::MeanReversion => OpportunityClass::MeanReversion,
+            crate::analysis::OpportunityType::Reversal => OpportunityClass::Reversal,
+            crate::analysis::OpportunityType::LiquiditySqueeze => OpportunityClass::LiquiditySqueeze,
+            crate::analysis::OpportunityType::Scalp => OpportunityClass::Scalp,
+            crate::analysis::OpportunityType::NoClearOpportunity => {
+                OpportunityClass::NoClearOpportunity
+            }
         }
     };
 
-    // Strategy environment from regime + volatility
+    // Strategy environment from regime (canonical mapping over all 8 MarketRegime values)
     let strategy_env = match analysis.market_regime {
         crate::analysis::MarketRegime::TrendingBull
         | crate::analysis::MarketRegime::TrendingBear => StrategyEnvironment::TrendFollowing,
-        crate::analysis::MarketRegime::Expansion => StrategyEnvironment::Breakout,
-        crate::analysis::MarketRegime::Range | crate::analysis::MarketRegime::Contraction => {
-            StrategyEnvironment::MeanReversion
-        }
+        crate::analysis::MarketRegime::Accumulation
+        | crate::analysis::MarketRegime::Distribution => StrategyEnvironment::Breakout,
+        crate::analysis::MarketRegime::Range => StrategyEnvironment::MeanReversion,
+        crate::analysis::MarketRegime::Expansion => StrategyEnvironment::HighVolatility,
+        crate::analysis::MarketRegime::Contraction => StrategyEnvironment::LowActivity,
         _ => StrategyEnvironment::Unfavorable,
     };
 
-    // Entry guidance from trend quality + risk
-    let entry = match analysis.trend_assessment {
-        crate::analysis::TrendAssessment::Strong | crate::analysis::TrendAssessment::Healthy => {
-            if risk.volatility_risk.score < 50.0 {
-                EntryGuidance::Immediate
-            } else {
-                EntryGuidance::WaitForConfirmation
-            }
-        }
-        crate::analysis::TrendAssessment::Developing => {
-            if risk.overall_risk.score < 50.0 {
-                EntryGuidance::Pullback
-            } else {
-                EntryGuidance::WaitForConfirmation
-            }
-        }
-        _ => EntryGuidance::NoEntryContext,
+    // Entry guidance: ordered first-match rules (spec §3.4)
+    let entry = if risk.volatility_risk.score >= 60.0 {
+        EntryGuidance::NoEntryContext
+    } else if matches!(
+        analysis.trend_assessment,
+        crate::analysis::TrendAssessment::Strong | crate::analysis::TrendAssessment::Healthy
+    ) && risk.volatility_risk.score < 40.0 {
+        EntryGuidance::Immediate
+    } else if matches!(
+        analysis.trend_assessment,
+        crate::analysis::TrendAssessment::Strong | crate::analysis::TrendAssessment::Healthy
+    ) {
+        EntryGuidance::Pullback
+    } else if analysis.trend_assessment == crate::analysis::TrendAssessment::Developing
+        && risk.volatility_risk.score < 20.0
+    {
+        EntryGuidance::Breakout
+    } else if analysis.trend_assessment == crate::analysis::TrendAssessment::Developing {
+        EntryGuidance::WaitForConfirmation
+    } else {
+        EntryGuidance::NoEntryContext
     };
 
-    // Exit guidance from momentum + risk
-    let exit = match analysis.momentum_assessment {
-        crate::analysis::MomentumAssessment::Exhausted => ExitGuidance::MomentumExhaustion,
-        crate::analysis::MomentumAssessment::Reversing => ExitGuidance::MomentumExhaustion,
-        crate::analysis::MomentumAssessment::Weakening => {
-            if risk.overall_risk.score > 50.0 {
-                ExitGuidance::RiskIncreasing
-            } else {
-                ExitGuidance::TrendWeakening
-            }
-        }
-        _ => ExitGuidance::NoWarning,
+    // Exit guidance: ordered first-match rules (spec §3.5)
+    let exit = if risk.overall_risk.score >= 80.0 {
+        ExitGuidance::RiskIncreasing
+    } else if matches!(
+        analysis.structure_assessment,
+        crate::analysis::StructureAssessment::Broken | crate::analysis::StructureAssessment::Unknown
+    ) {
+        ExitGuidance::StructureBreakdown
+    } else if analysis.momentum_assessment == crate::analysis::MomentumAssessment::Reversing {
+        ExitGuidance::MomentumExhaustion
+    } else if analysis.momentum_assessment == crate::analysis::MomentumAssessment::Weakening
+        || risk.overall_risk.score >= 60.0
+    {
+        ExitGuidance::TrendWeakening
+    } else {
+        ExitGuidance::NoWarning
     };
 
-    // Stop loss from volatility + structure
+    // Protection strategy: ordered first-match rules (spec §3.6)
     let protection =
         if analysis.volatility_assessment == crate::analysis::VolatilityAssessment::Compressed {
             ProtectionStrategy::StructureBased
-        } else if risk.volatility_risk.score > 60.0 {
+        } else if risk.volatility_risk.score > 60.0
+            && matches!(
+                analysis.volatility_assessment,
+                crate::analysis::VolatilityAssessment::Expanding
+                    | crate::analysis::VolatilityAssessment::Extreme
+            )
+        {
             ProtectionStrategy::VolatilityBased
+        } else if analysis.market_regime == crate::analysis::MarketRegime::Range
+            && matches!(
+                analysis.structure_assessment,
+                crate::analysis::StructureAssessment::Strong
+                    | crate::analysis::StructureAssessment::Healthy
+            )
+        {
+            ProtectionStrategy::SRBased
         } else {
             ProtectionStrategy::ATRBased
         };
 
-    // Environment favorability (synoptic L3+L4 favorability for entering)
-    let environment_favorability = compute_environment_favorability(analysis);
-
-    // Take profit from structure + environment favorability
-    let target = if analysis.structure_assessment == crate::analysis::StructureAssessment::Strong
-        || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy
-    {
+    // Target strategy: ordered first-match rules (spec §3.7)
+    let target = if matches!(
+        analysis.structure_assessment,
+        crate::analysis::StructureAssessment::Strong | crate::analysis::StructureAssessment::Healthy
+    ) {
         TargetStrategy::ResistanceBased
-    } else if environment_favorability.score < 40.0 {
+    } else if risk.overall_risk.score < 40.0 {
         TargetStrategy::RRBased
+    } else if risk.overall_risk.score < 60.0 {
+        TargetStrategy::TrailingMethod
     } else {
         TargetStrategy::VolatilityBased
     };
 
-    // Confidence: analysis.confidence × (1 - risk.overall/100)
+    // Environment favorability (synoptic L3+L4 favorability for entering)
+    let environment_favorability = compute_environment_favorability(analysis);
+
+    // Confidence: analysis.state_confidence × (1 - risk.overall/100)
     let confidence =
-        (analysis.confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0).clamp(0.0, 100.0);
+        (analysis.state_confidence * (1.0 - risk.overall_risk.score / 100.0) * 100.0).clamp(0.0, 100.0);
+
+    // Stop-loss distance: ATR-based structural boundary for the TAE type-boundary handoff.
+    // Uses 1.5× ATR as default, tightened to 1.0× when structure is Strong.
+    let stop_loss_distance_pct = {
+        let base_multiplier = if analysis.structure_assessment == crate::analysis::StructureAssessment::Strong
+            || analysis.structure_assessment == crate::analysis::StructureAssessment::Healthy
+        {
+            1.0
+        } else {
+            1.5
+        };
+        (base_multiplier * risk.volatility_risk.score.max(1.0) / 100.0).clamp(0.005, 0.15)
+    };
 
     let recommendation = format!(
         "{}: {} bias with {} confidence, {} stance in a {} environment. {} opportunity. Entry: {}. Stop: {}.",
@@ -352,6 +425,7 @@ pub fn compute_advisory(analysis: &AnalysisMatrix, risk: &RiskMatrix) -> Advisor
             OpportunityClass::MeanReversion => "Mean reversion",
             OpportunityClass::Reversal => "Reversal",
             OpportunityClass::LiquiditySqueeze => "Liquidity squeeze",
+            OpportunityClass::Scalp => "Scalp",
             OpportunityClass::NoClearOpportunity => "No clear",
         },
         match entry {
@@ -381,6 +455,8 @@ pub fn compute_advisory(analysis: &AnalysisMatrix, risk: &RiskMatrix) -> Advisor
         protection_strategy: protection,
         target_strategy: target,
         confidence_assessment: confidence,
+        stop_loss_distance_pct,
+        cascade_risk_score: risk.cascade_risk.score,
         environment_favorability,
         final_recommendation: recommendation,
     }
@@ -394,7 +470,7 @@ mod tests {
     fn empty_analysis_returns_empty_advisory() {
         let analysis = AnalysisMatrix::empty("BTC-USD");
         let risk = RiskMatrix::empty("BTC-USD");
-        let adv = compute_advisory(&analysis, &risk);
+        let adv = compute_advisory(&analysis, &risk, None, None);
         assert!(matches!(
             adv.directional_guidance,
             DirectionalGuidance::Neutral

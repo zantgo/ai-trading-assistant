@@ -9,10 +9,14 @@ use std::sync::Arc;
 
 pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let active_pairs_count = state.instance_count().await;
+    let lat = state.latency_tracker.snapshot();
 
     let response = SystemStatusResponse {
         connected: true,
-        latency_ms: 12,
+        latency_ms: lat.observation_loop_latency_ms,
+        ingest_skew_ms: lat.ingest_skew_ms,
+        observation_loop_latency_ms: lat.observation_loop_latency_ms,
+        system_heartbeat_latency_ms: lat.system_heartbeat_latency_ms,
         journal_mode: "WAL".to_string(),
         total_allocated_margin: 0.0,
         active_pairs_count,
@@ -42,7 +46,7 @@ pub async fn serve_observability_buffers(
     let completed_trades: Vec<crate::types::CompletedTradesBufferRow> = sqlx::query_as(
         "SELECT \
             t.id, t.symbol, t.direction, t.entry_price, t.exit_price, \
-            t.realized_pnl, t.roi_percentage as roi_pct, \
+            t.realized_pnl, t.roi_pct, \
             COALESCE(j.execution_score, 0.0) as execution_score, \
             COALESCE(j.final_analysis, '') as primary_mistake, \
             t.exit_timestamp as closed_at \

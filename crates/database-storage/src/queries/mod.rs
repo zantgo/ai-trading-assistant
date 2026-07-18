@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod journals;
 
 pub mod profiles;

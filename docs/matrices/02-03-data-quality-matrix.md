@@ -1,6 +1,6 @@
 # Candle Quality Envelope Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Produced by DIE Layer 3 validation logic (executed inline in market-analyzer) and attached to the MME MarketSnapshot envelope.
 **Producing Layer:** Layer 3 — Data Quality Layer (DIE); layer name in code: `CandleQualityEnvelope`
@@ -42,11 +42,11 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
     "symbol": "BTC-USDT",
     "timeframe_secs": 60,
     "timestamp": 1752192000000,
-    "open": "63890.0",
-    "high": "64120.0",
-    "low": "63850.0",
-    "close": "64012.5",
-    "volume": "182.4",
+    "open": 63890.0,
+    "high": 64120.0,
+    "low": 63850.0,
+    "close": 64012.5,
+    "volume": 182.4,
     "trades_count": 345
   },
   "is_gap_filled": false,

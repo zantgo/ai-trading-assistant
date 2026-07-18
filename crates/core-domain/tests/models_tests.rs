@@ -56,9 +56,13 @@ fn test_market_snapshot_json_roundtrip() {
         index_price: None,
         mark_index_spread_pct: None,
         prev_day_px: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
+        opportunity: None,
         liquidity: None,
         cluster: None,
         risk_profile: None,
+        quality_envelope: None,
     };
 
     let json = serde_json::to_string(&snap).expect("serialization should succeed");
@@ -116,9 +120,13 @@ fn test_market_snapshot_empty_indicators() {
         index_price: None,
         mark_index_spread_pct: None,
         prev_day_px: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
+        opportunity: None,
         liquidity: None,
         cluster: None,
         risk_profile: None,
+        quality_envelope: None,
     };
 
     let json = serde_json::to_string(&snap).expect("serialization of empty snap should succeed");
