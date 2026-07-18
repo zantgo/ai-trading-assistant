@@ -23,9 +23,11 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
 | Field | Type | Description |
 |-------|------|-------------|
 | `candle` | `NormalizedCandle` | The validated candle (from Market Data Matrix). |
+| `is_valid` | `bool` | Whether the candle passed all structural validity checks (`high ≥ low`, etc.). |
 | `is_gap_filled` | `bool` | `true` if this candle was synthetically filled (no data for this interval). |
 | `is_stale` | `bool` | `true` if the candle's last trade timestamp exceeds the staleness threshold. |
-| `spike_detected` | `bool` | `true` if a price spike was filtered from this candle. |
+| `spike_detected` | `bool` | `true` if a price spike (outlier tick) was rejected during this candle. |
+| `had_outliers_rejected` | `bool` | Deprecated alias for `spike_detected`; retained for backward compatibility. |
 | `sequence_integrity` | `SequenceIntegrity` | `VALID` / `OUT_OF_ORDER` / `DUPLICATE`. |
 | `quality_score` | `f64` | Overall reliability metric in `[0, 100]`. |
 | `gap_since_last` | `u64` | Seconds since the last valid candle (≤ timeframe_secs = continuous). |
@@ -65,9 +67,11 @@ The Data Quality Layer audits the Market Data Matrix output for integrity before
 
 The `quality_score` is derived from:
 
-$$\text{quality\_score} = 100 - 20 \cdot (\text{is\_gap\_filled} ? 1 : 0) - 10 \cdot (\text{is\_stale} ? 1 : 0) - 30 \cdot (\text{spike\_detected} ? 1 : 0) - 15 \cdot (\text{sequence\_integrity} \neq \text{Valid} ? 1 : 0)$$
+$$\text{quality\_score} = 100 - 20 \cdot (\text{is\_gap\_filled} ? 1 : 0) - 30 \cdot (\text{is\_stale} ? 1 : 0) - 10 \cdot (\text{spike\_detected} ? 1 : 0)$$
 
-A score below 50 triggers a warning. Scores below 30 may cause the candle to be suppressed from downstream consumers.
+The score is clamped to $[0, 100]$. An invalid candle (failing `assert_validity()`) is scored at 0 regardless of other factors. A score below 50 triggers a warning. Scores below 30 may cause the candle to be suppressed from downstream consumers.
+
+**Weight rationale:** Gap-filled (reconstructed/REST-backfilled) candles are less reliable than live data (-20). Staleness (no recent trades) is the strongest negative signal (-30) as it indicates the price may be outdated. Spike detection (outlier rejection) has the smallest penalty (-10) since it reflects successful quality filtering rather than data degradation.
 
 ---
 

@@ -14,13 +14,16 @@
 The Opportunity Layer identifies **positive** market configurations and scores their viability, independent of direction of exposure or execution parameters. It consumes the [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) and the underlying Metrics Matrix signals, producing the [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md).
 
 ```
-[Analysis Matrix (L3)] ─┐
-                         ├──► OPPORTUNITY LAYER (L4) ──► [Opportunity Matrix]
-[Metrics signals (L1)]  ┘        profile + score
-                                                │
-                                                ▼
-                                          L6 (Decision)
+[Analysis Matrix (L3)]      ─┐
+[Metrics signals (L1)]       ─┤
+                              ├──► OPPORTUNITY LAYER (L4) ──► [Opportunity Matrix]
+[LiquidityFlow (L1.5)]       ─┤      profile + score
+[LiquidationClusterMatrix    ─┘              │
+  (L2.5)]                                    ▼
+                                       L6 (Decision)
 ```
+
+> **L1.5/L2.5 feeds only the `LiquiditySqueeze` precondition path; all other opportunity types read only L3 + L1.**
 
 **Dependency edges:** L4 reads L3, L1 metrics signals, and L1.5/L2.5 liquidity products (see 02-00-matrix-field-ownership.md §5). L4 does **not** read L5. L4 outputs to L6 only. See [02-00-matrix-field-ownership.md](../../matrices/02-00-matrix-field-ownership.md).
 
@@ -28,7 +31,7 @@ The Opportunity Layer identifies **positive** market configurations and scores t
 
 ## 2. Candidate Setup Types
 
-The layer profiles each candidate `OpportunityType`. The canonical enum is **eight-valued** — the original six, plus `LiquiditySqueeze` added in the Phase 0-4 Liquidity Intelligence extension, plus `Scalp` added in the v2.1 institutional completeness sweep (see [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical precondition table and §4 for the decision tree):
+The layer profiles each candidate `OpportunityType`. The canonical enum is **eight-valued**: the original five directional setups (`TrendContinuation`, `Breakout`, `Pullback`, `MeanReversion`, `Reversal`) plus the sentinel `NoClearOpportunity`, extended by `LiquiditySqueeze` (Phase 0-4 Liquidity Intelligence) and `Scalp` (v2.1 institutional completeness sweep). See [02-08-opportunity-matrix.md §3](../../matrices/02-08-opportunity-matrix.md) for the canonical precondition table and §4 for the decision tree:
 
 | Setup | Precondition Signature |
 |-------|------------------------|

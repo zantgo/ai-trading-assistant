@@ -414,6 +414,168 @@ impl PaperTradingEngine {
 
         let _ = self.submit_order(packet, current_mid_price).await;
     }
+
+    pub async fn settle_funding(&self) {
+        let positions = self.positions.read().await;
+        if positions.is_empty() {
+            return;
+        }
+
+        let rate = self.fee_config.funding_rate_8h / 100.0;
+        let mut total_settlement: f64 = 0.0;
+
+        let settlement_details: Vec<(String, Decimal, f64)> = positions
+            .iter()
+            .map(|(sym, pos)| {
+                let notional = pos.size * pos.entry_price;
+                let notional_f64 = notional.to_string().parse::<f64>().unwrap_or(0.0);
+                let payment = notional_f64 * rate;
+                (sym.clone(), pos.size, payment)
+            })
+            .collect();
+
+        drop(positions);
+
+        for (_sym, _size, payment) in &settlement_details {
+            total_settlement -= *payment;
+        }
+
+        let mut equity = self.equity.write().await;
+        *equity += total_settlement;
+
+        if total_settlement.abs() > 0.0001 {
+            eprintln!(
+                "💰 PAPER: Funding settlement applied — {:.4} (rate={:.4}%)",
+                total_settlement, self.fee_config.funding_rate_8h
+            );
+        }
+
+        self.persist_equity_snapshot(*equity).await;
+    }
+
+    pub async fn replay(
+        &self,
+        price_sequence: &[(u64, Decimal)],
+        policies: &[ExecutionPolicy],
+    ) -> Vec<ReplayTrade> {
+        let mut trades = Vec::new();
+
+        for &(timestamp, mid_price) in price_sequence {
+            let _fills = self.evaluate_order_fills(mid_price).await;
+
+            for policy in policies {
+                if !policy.enabled {
+                    continue;
+                }
+
+                let mock_snapshot = build_mock_snapshot(&policy.symbol, mid_price);
+                let mock_trigger = PolicyTrigger {
+                    policy_id: policy.policy_id.clone(),
+                    symbol: policy.symbol.clone(),
+                    direction: policy.direction,
+                    trigger_timestamp: timestamp,
+                    decision_context_snapshot: serde_json::json!({
+                        "score": 80.0,
+                        "bias": "BULLISH",
+                        "confidence": 0.80,
+                        "trade_readiness": "READY",
+                    }),
+                    stance: config_models::Stance::Active,
+                    risk_parameters: policy.risk.clone(),
+                };
+
+                let order = OrderPacket {
+                    client_order_id: format!("replay_{}_{}", policy.policy_id, timestamp),
+                    symbol: policy.symbol.clone(),
+                    side: match policy.direction {
+                        config_models::Direction::Long => OrderSide::Buy,
+                        config_models::Direction::Short => OrderSide::Sell,
+                    },
+                    order_type: OrderType::Market,
+                    price: Some(mid_price),
+                    size: Decimal::from(1),
+                    reduce_only: false,
+                    is_emergency_liquidation: false,
+                    associated_position_id: None,
+                };
+
+                let order_id = match self.submit_order(order.clone(), mid_price).await {
+                    Ok(id) => id,
+                    Err(_) => continue,
+                };
+
+                let orders = self.orders.read().await;
+                if let Some(lifecycle) = orders.get(&order_id) {
+                    if lifecycle.status == OrderStatus::Closed {
+                        trades.push(ReplayTrade {
+                            timestamp,
+                            symbol: policy.symbol.clone(),
+                            direction: format!("{:?}", policy.direction),
+                            size: order.size,
+                            fill_price: lifecycle.fill_price.unwrap_or(mid_price),
+                            order_id,
+                        });
+                    }
+                }
+            }
+        }
+
+        trades
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplayTrade {
+    pub timestamp: u64,
+    pub symbol: String,
+    pub direction: String,
+    pub size: Decimal,
+    pub fill_price: Decimal,
+    pub order_id: String,
+}
+
+fn build_mock_snapshot(symbol: &str, mid_price: Decimal) -> core_domain::models::MarketSnapshot {
+    use std::collections::HashMap;
+    core_domain::models::MarketSnapshot {
+        exchange: None,
+        timeframe_secs: 60,
+        timestamp: 0,
+        symbol: symbol.to_string(),
+        is_completed: Some(true),
+        mid_price,
+        bid_price: mid_price - Decimal::from(1),
+        ask_price: mid_price + Decimal::from(1),
+        bid_size: None,
+        ask_size: None,
+        funding_rate: None,
+        open: None,
+        high: None,
+        low: None,
+        close: None,
+        volume: None,
+        average_volume: None,
+        indicators: HashMap::new(),
+        context: None,
+        alignment: None,
+        analysis: None,
+        risk: None,
+        advisory: None,
+        open_interest: None,
+        oi_delta_1h: None,
+        mark_price: None,
+        index_price: None,
+        mark_index_spread_pct: None,
+        prev_day_px: None,
+        statistical_context: None,
+        decision_context: None,
+        risk_profile: None,
+        liquidity: None,
+        cluster: None,
+        liquidity_signals: vec![],
+        metrics_config: None,
+        opportunity: None,
+        quality_envelope: None,
+    }
 }
 
 #[cfg(test)]

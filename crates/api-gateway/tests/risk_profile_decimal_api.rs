@@ -67,6 +67,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         exchange_status: Arc::new(ExchangeStatusTracker::new()),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
+        execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
     });
 
     let router = api_gateway::build_router(state.clone());

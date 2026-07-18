@@ -34,7 +34,7 @@ The three terms refer to the same reconstruction ladder in different contexts: "
 | Symbol normalization across venues | Order execution |
 | OHLCV candle aggregation | Portfolio state |
 | Data quality validation | Strategy logic |
-| Broadcast distribution | Persistence beyond the telemetry store |
+| Broadcast distribution (NormalizedCandle channel; MarketSnapshot broadcast is MME L1) | Persistence beyond the telemetry store |
 
 ### 1.3 Operational Acceptance Criteria
 
@@ -101,6 +101,7 @@ Each adapter emits a `NormalizedEvent` enum:
 | `AssetContext` | previous-day price | Asset context feed |
 | `OpenInterest` | current OI | Derivatives feed |
 | `FundingRate` | current funding rate | Derivatives feed |
+| `MarkPrice` | mark_px, index_px | Ticker/mark price stream |
 | `Liquidation` | symbol, side, price, size, timestamp_ms | Liquidation event stream |
 | `Status` | connection lifecycle message | Adapter supervisor |
 
@@ -208,5 +209,7 @@ The `SymbolMapper` (`crates/core-domain/src/normalized/symbol_mapper.rs`) maps e
 - [DIE Layer 2 — Market Data](03-01-03-die-layer2-market-data.md)
 - [DIE Layer 3 — Data Quality](03-01-04-die-layer3-data-quality.md)
 - [DIE Layer 4 — Data Distribution](03-01-05-die-layer4-data-distribution.md)
+- [Market Data Matrix](../../matrices/02-06-market-data-matrix.md) — DIE's primary inter-engine output contract.
+- [Distribution Matrix](../../matrices/02-05-distribution-matrix.md) — L4 broadcast channel schema.
 - [Global Architecture](../../conceptual-foundations/01-02-global-architecture.md) — Engine positioning.
 - [Systemic Data Flow](../../conceptual-foundations/01-03-systemic-data-flow.md) — Observation loop.

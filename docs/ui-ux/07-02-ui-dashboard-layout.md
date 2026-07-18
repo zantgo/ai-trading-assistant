@@ -440,8 +440,8 @@ The shell uses the **Premium Dark Cockpit** aesthetic (see `brutalist-grid.modul
 |-------|---------|
 | `RiskCalculator.svelte` | Interactive risk sizing form: capital, risk %, entry/stop/target, dynamic ATR toggle → live `RiskCalculation` output. |
 | `CommissionCalculator.svelte` | Fee projection: dual-entry breakdown, viability check, break-even profit %. |
-| `WelcomeGate.svelte` | Session init screen — exchange + currency selection, disabled before session is active. |
-| `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). |
+| `WelcomeGate.svelte` | Session init screen — exchange + currency selection, disabled before session is active. Lives at `ui/src/WelcomeGate.svelte` (top-level, not under `components/`). |
+| `QuitDialog.svelte` | Session termination confirmation modal (triggered from Engines Sidebar footer). Lives at `ui/src/QuitDialog.svelte` (top-level, not under `components/`). |
 
 ---
 
@@ -473,7 +473,7 @@ The `instancesMap` pattern means every panel mounted by the Bottom Navbar is **s
 
 - [UI Overview](07-01-ui-overview-spec.md) — State, runes, CSS contract, inline-shell rationale.
 - [Chart Component Map](07-03-ui-chart-component-map.md) — Per-indicator rendering destinations for the Charts tab.
-- [Liquidity Panel Spec](07-04-ui-liquidity-panel-spec.md) — Phase 4 Liquidity Intelligence tabs.
+- [Liquidity Panel Spec](07-04-ui-liquidity-panel-spec.md) — Phase 4 Liquidity Intelligence tabs (deprecated; retained for history).
 - [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — Data sources for the WS demux.
 - [MME Layer 7 — Overview](../engines/market-monitoring-engine/03-02-08-mme-layer7-overview.md) — OverviewPanel data source.
 - [Decision Matrix](../matrices/02-04-decision-matrix.md) — Decision Matrix panel data.

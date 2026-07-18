@@ -7,6 +7,7 @@ import type {
     ScaleInPortion, TakeProfitTarget, UserTrade,
     CurrentView,
     AlignmentMatrix, AnalysisMatrix, OverviewMatrix,
+    ExchangeAccount,
 } from './types';
 import { SettingsStore } from './stores/settings.svelte';
 import { AnalyticsStore } from './stores/analytics.svelte';
@@ -25,6 +26,7 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
         showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
         showStochastic: true, showChandeMo: true,
         showSupertrend: true, showKeltner: true, showDonchian: true,
+        showIchimoku: true, showHullMa: true, showPsar: true, showStddevChan: true,
         showObv: true, showCmf: true, showMfi: true, showHv: true,
         showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
@@ -58,6 +60,18 @@ function createInstanceState(symbol: string): InstanceState {
         analysis: null,
         risk: null,
         advisory: null,
+        automationEnabled: false,
+        automationIntervalMode: 'interval',
+        automationIntervalValue: 900,
+        automationIntervalUnit: 'seconds',
+        priceLineMode: false,
+        slowIntervalSecs: 900,
+        normalIntervalSecs: 300,
+        fastIntervalSecs: 60,
+        showEmaFast: false,
+        showEmaMedium: false,
+        showEmaSlow: false,
+        showEmaLong: false,
     };
 }
 
@@ -104,6 +118,48 @@ export class AppStore {
         this.selectedInstance = null;
         this.activeEngineTab = 'overview';
     }
+
+    // ─── Paper Trading State ──────────────────────────────────────────
+    paperLoading = $state(false);
+    paperCashBalance = $state(0);
+    paperMarginUsed = $state(0);
+    paperTotalAccountValue = $state(0);
+    paperDirection = $state('');
+    paperLeverage = $state(1);
+    paperUnrealizedPnl = $state(0);
+    paperUnrealizedRoi = $state(0);
+    paperInitialUSD = $state(10000);
+    paperAllocationPct = $state(20);
+    paperAutoExecute = $state(false);
+    paperBreakEvenTrailEnabled = $state(false);
+    activePaperPosition = $state<Record<string, unknown> | null>(null);
+    paperHistory = $state<Record<string, unknown>[]>([]);
+    openOrders = $state<Record<string, unknown>[]>([]);
+    activeSlots = $state<Record<string, unknown>[]>([]);
+    activeEntryOrders = $state<Record<string, unknown>[]>([]);
+    positionBrackets = $state<Record<string, unknown>[]>([]);
+    paper = {
+        openOrders: [] as Record<string, unknown>[],
+    };
+
+    async fetchPaperStatus() { /***/ }
+    async fetchOpenOrders() { /***/ }
+    async cancelOrder(_orderId: unknown) { /***/ }
+    async setTpTargets(_targets: unknown[]) { /***/ }
+    async setSlLevels(_levels: unknown[]) { /***/ }
+    async closePositionPct(_pct: number) { return { success: false, message: '' }; }
+    async savePaperConfig(_initialUSD: number, _allocPct: number, _autoExec: boolean) { /***/ }
+
+    exchangeAccounts = $state<ExchangeAccount[]>([]);
+    exchangeActiveCount = $state(0);
+    exchangeMaxAccounts = $state(5);
+    exchangeFormDraft = $state({
+        exchange: 'Hyperliquid', account_name: '', api_key: '',
+        api_secret: '', passphrase: '', referred_uid: '', is_active: true,
+    });
+    async fetchExchangeKeys() { /***/ }
+    async addExchangeKey() { /***/ }
+    async deleteExchangeKey(_id: number) { /***/ }
 
     // ─── Legacy State ─────────────────────────────────────────────────
     _currentPosition = $state<string>('None');

@@ -59,7 +59,7 @@ Indexes are created on each table for the query patterns the engine actually use
 | `idx_position_slots_position_slot` | `(position_id, slot_index)` | Scaled Entry reconstruction |
 | `idx_exchange_keys_exchange` | `(exchange)` | Key lookup by venue |
 | `idx_rce_instance_gate_time` | `(instance_id, gate_id, timestamp_ms DESC)` | Gate-rejection audit dashboards |
-| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local_operator"`) |
+| `idx_rce_operator_time` | `(operator_id, timestamp_ms DESC)` | Override-history audit (`operator_id = "local"`) |
 | `idx_order_fills_trade` | `(trade_id)` | Per-fill PAE reconstruction |
 | `idx_order_fills_order` | `(order_id)` | Per-order fill chain |
 | `idx_cq_pair_timeframe_window_time` | `(pair_key, timeframe_secs, window, timestamp_ms DESC)` | Connection-quality queries (per-instance × per-timeframe window filter) |
@@ -347,7 +347,7 @@ CREATE TABLE IF NOT EXISTS risk_control_events (
     decision TEXT NOT NULL CHECK (decision IN ('BLOCK', 'HELD_FOR_REVIEW', 'CLIP_AND_CONTINUE', 'OVERRIDE')),
     reason TEXT NOT NULL,
     requested_disposition TEXT NOT NULL,
-    operator_id TEXT NOT NULL DEFAULT 'local_operator',
+    operator_id TEXT NOT NULL DEFAULT 'local',
     prior_state TEXT,
     resulting_state TEXT,
     pre_dispatch_order_id TEXT,
@@ -358,7 +358,7 @@ CREATE INDEX IF NOT EXISTS idx_rce_instance_gate_time ON risk_control_events(ins
 CREATE INDEX IF NOT EXISTS idx_rce_operator_time ON risk_control_events(operator_id, timestamp_ms DESC);
 ```
 
-`operator_id = 'local_operator'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` remains available by convention for cases where the API layer forwards without an explicit identity (not currently surfaced). The column carries no CHECK — plain `TEXT NOT NULL DEFAULT 'local_operator'` — forward-compatible with caller-supplied identity (AUDIT-V4-076). Caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = local_operator`.
+`operator_id = 'local'` is the fixed identity in v4.0 (per the local-only authentication model in [`06-01 §1`](06-01-api-gateway-contract.md)); `'anonymous'` remains available by convention for cases where the API layer forwards without an explicit identity (not currently surfaced). The column carries no CHECK — plain `TEXT NOT NULL DEFAULT 'local'` — forward-compatible with caller-supplied identity (AUDIT-V4-076). Caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled).
 
 ### 3.11 — 3.26 Remaining tables
 
@@ -447,7 +447,7 @@ PRAGMA busy_timeout = 5000;
 PRAGMA temp_store = MEMORY;
 ```
 
-The engine holds a single writer connection per process. Read concurrency is achieved via `SQLITE_OPEN_FULLMUTEX`. The telemetry DB is **single-node, single-process**; horizontal scaling is not a v4.0 feature (see `docs/CHANGELOG.md`).
+The engine holds a single writer connection per process. Read concurrency is achieved via `SQLITE_OPEN_FULLMUTEX`. The telemetry DB is **single-node, single-process**; horizontal scaling is not a current feature (see `docs/CHANGELOG.md`).
 
 ---
 

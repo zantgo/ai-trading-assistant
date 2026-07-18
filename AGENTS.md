@@ -8,11 +8,11 @@ The platform is organized around a **Two-Dimensional Architecture** — 5 specia
 
 | Logical Engine | Physical Crate(s) | Responsibility |
 |---------------|-------------------|----------------|
-| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries |
+| Data Infrastructure Engine (DIE) | `network-adapters` + `database-storage` + `market-analyzer` (L2–L4) | WebSocket / REST ingestion, candle reconstruction, NTP clock monitor, connection-quality tracker; SQLite schema, WAL telemetry logger, queries; candle generation, quality validation, distribution (executes in `market-analyzer` for latency — logical ownership remains DIE's) |
 | Market Monitoring Engine (MME) | `market-analyzer` | 50 indicators across 4 timeframes, signals, multi-TF alignment, opportunity/risk scoring, decision support, market context synthesis |
 | Trade Automation Engine (TAE) | `portfolio-supervisor` | Policy evaluation, position sizing, profile evaluation, trigger engine |
-| Portfolio Management Engine (PME) | `portfolio-supervisor` + `api-gateway` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto |
-| Performance Analytics Engine (PAE) | `performance-analytics` | Dashboard stats compilation, strategy optimizer, performance evaluator |
+| Portfolio Management Engine (PME) | `portfolio-supervisor` | Instance lifecycle, session state, safety vetoes, capital/margin ledger, capital matrix veto |
+| Performance Analytics Engine (PAE) | `performance-analytics` + `database-storage` | Dashboard stats compilation, strategy optimizer, performance evaluator; SQLite persistence for analytics tables |
 | (cross-cutting) | `core-domain` | Stateless DTOs (`MarketSnapshot`, `AnalysisMatrix`, etc.), JSON-RPC 2.0 transport, normalized value maps |
 | (cross-cutting) | `config-models` | All `*Config` structs + `load_config()` / `load_instances()` readers |
 | (cross-cutting) | `api-gateway` | Axum HTTP router, Axum `AppState`, WebSocket broadcast server, static asset serving |
@@ -24,8 +24,8 @@ crates/
 ├── config-models/          # All *Config structs + load_config() / load_instances()
 ├── market-analyzer/        # 50 indicators, multi-TF pipeline, decision support
 ├── database-storage/       # SQLite schema, migrations, WAL telemetry logger, queries
-├── network-adapters/       # WS/REST clients, NTP clock monitor, candle reconstruction
-├── portfolio-supervisor/   # Instances, sizing, safety vetoes, session, profile eval
+├── network-adapters/       # WS/REST clients, NTP clock monitor, candle reconstruction, connection-quality tracker
+├── portfolio-supervisor/   # PME+TAE: instances, sizing, exposure, capital, session, safety vetoes, profile eval
 ├── performance-analytics/  # Stats compiler, strategy optimizer, perf evaluator
 ├── api-gateway/            # Axum router, WS broadcast, HTTP handlers, types
 └── execution-daemon/       # main.rs: parses CLI, loads config, boots tasks, starts Axum
@@ -37,7 +37,7 @@ Frontend:
 ui/           # Svelte 5 + Vite dashboard (served as static assets)
 ```
 
-The unidirectional dependency graph and the four cycle-breaking design decisions (MarketContext split, RegistryContext extraction, ConnectionQualityTracker split, paper_trading stub removal) live in **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md`** — the canonical single source of truth for "where does X live?" and "why don't these two crates import each other?". That document also covers the test-suite topology and the dev-dependency exceptions.
+The unidirectional dependency graph and the four cycle-breaking design decisions (MarketContext split, RegistryContext extraction, ConnectionQualityTracker split, paper_trading call-site removal) live in **`docs/conceptual-foundations/01-06-crate-layout-and-cycles.md`** — the canonical single source of truth for "where does X live?" and "why don't these two crates import each other?". That document also covers the test-suite topology and the dev-dependency exceptions.
 
 ## Build & run
 
@@ -80,8 +80,8 @@ npm run check        # svelte-check + tsc typecheck
 - Server: `http://127.0.0.1:3000` (localhost only, not 0.0.0.0)
 - WebSocket endpoint: `/ws` (serves `MarketSnapshot` JSON)
 - Config API: `GET /api/config` (returns parsed `config.toml` (with `config.json` legacy fallback))
-- History API: `GET /api/history` (returns last 100 close prices)
-- Connection Quality API: `GET /api/connection-quality?window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100)
+- History API: `GET /api/history?symbol=&timeframe_secs=&limit=` (default `100`, max `1000`; returns `{ symbol, prices[], candles[], indicator_histories }`)
+- Connection Quality API: `GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour` (uptime, disconnect count, reconnect latency, score 0..100; when both `instance_id` and `timeframe_secs` are supplied returns per-scope; absent params return process-wide aggregate)
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`) and Bitget WebSocket (`wss://ws.bitget.com/v2/ws/public`)
 - Static assets served from `ui/dist`
@@ -91,7 +91,7 @@ npm run check        # svelte-check + tsc typecheck
 - **Reconnect policy**: `crates/network-adapters/src/adapters/resilience.rs` — exponential backoff (1s→30s, ±20% jitter) on WS disconnect; resilient to network crashes with auto-reconnect.
 - **Candle reconstruction**: `crates/network-adapters/src/adapters/reconstruction.rs` — detects ingestion gaps on reconnect; ≥1m candles fetched from exchange REST historical, <1m candles synthesized via EMA/last-N closes. Reconstructed candles carry a `reconstructed: Some(ReconstructionMethod)` flag.
 - **Clock drift**: `crates/network-adapters/src/clock_monitor.rs` — NTP polling enforces ≤50µs UTC drift budget; default warn loudly on breach, configurable to panic via `[clock_monitor].breach_action`.
-- **Quality tracking**: `crates/network-adapters/src/connection_quality_tracker.rs` (in-memory) + `crates/database-storage/src/connection_quality_persistence/mod.rs` (DB writer) — rolling 1h/6h/24h windows with composite score formula: `0.5×uptime_pct + 30×(1 - min(disconnects/10, 1)) + 20×(1 - min(avg_reconnect_ms/5000, 1))`, clamped to 0..100.
+- **Quality tracking**: `crates/network-adapters/src/connection_quality_tracker.rs` (in-memory windows + 60s persistence loop) — rolling 1h/6h/24h windows with composite score formula: `50×(uptime_pct/100) + 30×(1 - min(disconnects/10, 1)) + 20×(1 - min(avg_reconnect_ms/5000, 1)) - 5×min(data_loss_s/600, 1) - 5×min(reconstructed_candles/100, 1)`, clamped to 0..100. `database-storage` exposes only the query layer (`list_connection_quality`).
 
 ## Configuration
 
@@ -112,14 +112,15 @@ Full specification documents under `docs/`:
 
 Start at `docs/README.md` for a guided reading order.
 
-## Testing (481 tests across 3 boundaries)
+## Testing (481 tests across 4 boundaries)
 
 | Suite | Command | Boundary | Tests | Runtime |
 |-------|---------|----------|-------|---------|
 | TEST-CORE | `./manage.sh test-core` | Pure math, indicators, serialization, liquidity module (`core-domain`, `market-analyzer`, `config-models`) | ~280 | <3s |
 | TEST-ENGINE | `./manage.sh test-engine` | DB, server, failover, liquidation e2e, performance analytics, network adapters, daemon (`database-storage`, `api-gateway`, `portfolio-supervisor`, `performance-analytics`, `network-adapters`, `execution-daemon`) | ~177 | <10s |
+| TEST-DOC | `./manage.sh test-doc` | Documentation corpus: file inventory, worked-example recomputation, grep-based consistency sweeps (`docs/`) | — | <5s |
 | TEST-UI | `./manage.sh test-ui` | Svelte 5 runes, components, snapshots, LiquidityPanel | 24 | <10s |
-| All | `./manage.sh test` | Core → Engine → UI sequentially | 481 | <20s |
+| All | `./manage.sh test` | Core → Engine → UI sequentially; `test-doc` runs at release time | 481 | <20s |
 
 ### Liquidity Intelligence (Phases 0-4) test coverage
 
@@ -142,7 +143,7 @@ Start at `docs/README.md` for a guided reading order.
 ### Developer guidelines
 
 - **Modifying indicators, Fibonacci, models** → `./manage.sh test-core` (fast, <3s)
-- **Modifying DB schemas, server APIs** → `./manage.sh test-engine` (<5s)
+- **Modifying DB schemas, server APIs** → `./manage.sh test-engine` (<10s)
 - **Modifying Svelte 5 runes, components, charts** → `./manage.sh test-ui` (<10s)
 - **Pre-commit / PR validation** → `./manage.sh test` (full sequential run)
 

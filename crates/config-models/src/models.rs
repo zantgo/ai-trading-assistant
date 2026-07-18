@@ -893,6 +893,12 @@ pub struct ActivationConfig {
     pub disabled_signals: Vec<String>,
     #[serde(default)]
     pub disabled_signal_kinds: Vec<String>,
+    #[serde(default = "default_true_bool")]
+    pub liquidation_feed: bool,
+    #[serde(default = "default_true_bool")]
+    pub cluster_estimation: bool,
+    #[serde(default = "default_true_bool")]
+    pub liquidity_signals_enabled: bool,
 }
 
 impl Default for ActivationConfig {
@@ -901,6 +907,9 @@ impl Default for ActivationConfig {
             disabled_indicators: Vec::new(),
             disabled_signals: Vec::new(),
             disabled_signal_kinds: Vec::new(),
+            liquidation_feed: true,
+            cluster_estimation: true,
+            liquidity_signals_enabled: true,
         }
     }
 }
@@ -1046,6 +1055,13 @@ pub struct QualityConfig {
     /// zero (rare venue reset edge case). Logged at debug level.
     #[serde(default = "default_bypass_on_zero_median")]
     pub bypass_on_zero_median: bool,
+
+    /// Maximum age of the last trade (in seconds) before a completed candle is
+    /// considered stale. A candle whose last observed trade occurred more than
+    /// this many seconds before the candle close is flagged with `is_stale = true`.
+    /// Default: 600 (10 minutes).
+    #[serde(default = "default_staleness_threshold_secs")]
+    pub staleness_threshold_secs: u64,
 }
 
 impl Default for QualityConfig {
@@ -1054,6 +1070,7 @@ impl Default for QualityConfig {
             median_window_size: default_median_window_size(),
             outlier_tolerance: default_outlier_tolerance(),
             bypass_on_zero_median: default_bypass_on_zero_median(),
+            staleness_threshold_secs: default_staleness_threshold_secs(),
         }
     }
 }
@@ -1068,6 +1085,10 @@ fn default_outlier_tolerance() -> f64 {
 
 fn default_bypass_on_zero_median() -> bool {
     true
+}
+
+fn default_staleness_threshold_secs() -> u64 {
+    600
 }
 
 // ─── Clock Drift Monitor (NTP-based UTC alignment enforcement) ────
@@ -1150,6 +1171,30 @@ fn default_clock_monitor_breach_action() -> ClockMonitorBreachAction {
 }
 fn default_clock_monitor_warn_on_breach() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ReconnectConfig {
+    #[serde(default = "default_reconnect_initial_ms")]
+    pub initial_backoff_ms: u64,
+    #[serde(default = "default_reconnect_max_ms")]
+    pub max_backoff_ms: u64,
+    #[serde(default = "default_reconnect_jitter")]
+    pub jitter_pct: f64,
+}
+
+fn default_reconnect_initial_ms() -> u64 { 1000 }
+fn default_reconnect_max_ms() -> u64 { 30000 }
+fn default_reconnect_jitter() -> f64 { 0.2 }
+
+impl Default for ReconnectConfig {
+    fn default() -> Self {
+        Self {
+            initial_backoff_ms: 1000,
+            max_backoff_ms: 30000,
+            jitter_pct: 0.2,
+        }
+    }
 }
 
 #[cfg(test)]

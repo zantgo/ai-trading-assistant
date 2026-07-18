@@ -175,6 +175,7 @@ impl std::fmt::Display for QualityLevel {
 pub struct AnalysisMatrix {
     pub symbol: String,
     pub bias: MarketBias,
+    pub market_bias_score: f64,
     pub state_confidence: f64,
     pub market_regime: MarketRegime,
     pub trend_assessment: TrendAssessment,
@@ -197,6 +198,7 @@ impl AnalysisMatrix {
         Self {
             symbol: symbol.to_string(),
             bias: MarketBias::Neutral,
+            market_bias_score: 0.0,
             state_confidence: 0.0,
             market_regime: MarketRegime::Transition,
             trend_assessment: TrendAssessment::Weak,
@@ -471,6 +473,7 @@ pub fn derive_analysis(
     AnalysisMatrix {
         symbol: alignment.symbol.clone(),
         bias,
+        market_bias_score: alignment.mtf_overall_score * 100.0,
         state_confidence,
         market_regime: regime,
         trend_assessment,

@@ -42,6 +42,8 @@ The Raw Data Matrix is the `NormalizedEvent` enum (`crates/core-domain/src/norma
 | `AssetContext(AssetContext)` | symbol, prev_day_px | Reference context. |
 | `OpenInterest(OpenInterestEvent)` | symbol, oi | Derivatives open interest. |
 | `FundingRate(FundingRateEvent)` | symbol, rate | Perpetual funding rate. |
+| `MarkPrice(MarkPriceEvent)` | symbol, mark_px, index_px | Exchange-computed mark price and index price. |
+| `Liquidation(LiquidationEvent)` | symbol, side, price, size, timestamp_ms | Real forced position close published by exchange. |
 | `Status { .. }` | exchange, status, message | Connection lifecycle. |
 
 All numeric fields use `Decimal` to preserve exchange precision. `timestamp_ms` is Unix epoch in milliseconds.

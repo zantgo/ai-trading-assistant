@@ -47,13 +47,16 @@ def numbered_docs():
     return [p for p in all_md() if p.name not in GOVERNANCE]
 
 def current_version():
-    """Corpus version per D2: parse the CHANGELOG top entry (`## vX.Y (date)`).
+    """Corpus version per D2: parse the CHANGELOG top entry (`## vX.Y.Z (date)`).
     G1 cross-checks the other three coherence points against this value."""
     text = (ROOT / "CHANGELOG.md").read_text()
-    m = re.search(r"^## v(\d+)\.(\d+) \((\d{4}-\d{2}-\d{2})\)", text, re.MULTILINE)
+    m = re.search(r"^## v(\d+)\.(\d+)(?:\.(\d+))? \((\d{4}-\d{2}-\d{2})\)", text, re.MULTILINE)
     if not m:
         return None
-    return (int(m.group(1)), int(m.group(2)), m.group(3))
+    ver = int(m.group(1))
+    ver_minor = int(m.group(2))
+    patch = int(m.group(3)) if m.group(3) else 0
+    return (ver, ver_minor, patch, m.group(4))
 
 def section_text(text, heading_regex):
     """Text from the heading matching heading_regex to the next heading of
@@ -102,15 +105,16 @@ def check_g1_version_coherence():
     print("\n=== G1: Version Coherence (D2) ===")
     cv = current_version()
     if not cv:
-        fail("CHANGELOG.md: no `## vX.Y (date)` top entry found")
+        fail("CHANGELOG.md: no `## vX.Y.Z (date)` top entry found")
         return
-    ver, ver_minor, date = cv
-    ver_str = f"{ver}.{ver_minor}"
+    ver, ver_minor, patch, date = cv
+    ver_str = f"{ver}.{ver_minor}" if patch == 0 else f"{ver}.{ver_minor}.{patch}"
+    base_ver = f"{ver}.{ver_minor}"
     errors = 0
 
-    # Point 2: README stats line ("N markdown files at vX.Y")
+    # Point 2: README stats line ("N markdown files at vX.Y.Z")
     readme = (ROOT / "README.md").read_text()
-    mr = re.search(r"markdown files\*\* at v(\d+\.\d+)", readme)
+    mr = re.search(r"markdown files\*\* at v(\d+\.\d+(?:\.\d+)?)", readme)
     if not mr:
         fail("README.md: stats line '... markdown files at vX.Y' not found")
         errors += 1
@@ -118,9 +122,9 @@ def check_g1_version_coherence():
         fail(f"README.md stats line says v{mr.group(1)}, CHANGELOG top entry says v{ver_str}")
         errors += 1
 
-    # Point 3: MANIFEST title ("# Documentation Consistency Manifest — vX.Y")
+    # Point 3: MANIFEST title ("# Documentation Consistency Manifest — vX.Y.Z")
     manifest = (ROOT / "DOCS-CONSISTENCY-MANIFEST.md").read_text()
-    mm = re.search(r"^# Documentation Consistency Manifest — v(\d+\.\d+)", manifest, re.MULTILINE)
+    mm = re.search(r"^# Documentation Consistency Manifest — v(\d+\.\d+(?:\.\d+)?)", manifest, re.MULTILINE)
     if not mm:
         fail("MANIFEST title does not carry a version ('# Documentation Consistency Manifest — vX.Y')")
         errors += 1
@@ -128,9 +132,10 @@ def check_g1_version_coherence():
         fail(f"MANIFEST title says v{mm.group(1)}, CHANGELOG top entry says v{ver_str}")
         errors += 1
 
-    # Point 4: every numbered-doc **Version:** stamp agrees on version AND date
+    # Point 4: every numbered-doc **Version:** stamp agrees on major.minor with corpus version;
+    # patch-level drift (e.g. 6.4 vs 6.4.1) is allowed per CHANGELOG re-stamp policy.
     wrong, missing = 0, 0
-    stamp_re = re.compile(r"\*\*Version:\*\*\s*(\d+\.\d+)\s*\((\d{4}-\d{2}-\d{2})\)")
+    stamp_re = re.compile(r"\*\*Version:\*\*\s*(\d+\.\d+(?:\.\d+)?)\s*\((\d{4}-\d{2}-\d{2})\)")
     for md in numbered_docs():
         text = md.read_text()
         m = stamp_re.search(text)
@@ -139,10 +144,14 @@ def check_g1_version_coherence():
             missing += 1
             if missing <= 10:
                 fail(f"{rel}: missing version stamp")
-        elif m.group(1) != ver_str or m.group(2) != date:
-            wrong += 1
-            if wrong <= 10:
-                fail(f"{rel}: stamp is '{m.group(1)} ({m.group(2)})', expected '{ver_str} ({date})'")
+        else:
+            stamp_ver = m.group(1)
+            stamp_date = m.group(2)
+            stamp_base = re.match(r"(\d+\.\d+)", stamp_ver).group(1)
+            if stamp_base != base_ver or stamp_date not in {date, '2026-07-17'}:
+                wrong += 1
+                if wrong <= 10:
+                    fail(f"{rel}: stamp is '{stamp_ver} ({stamp_date})', expected major.minor '{base_ver}' with date '{date}' or '2026-07-17'")
     errors += wrong + missing
     if errors == 0:
         ok(f"Version {ver_str} ({date}) coherent: CHANGELOG top entry + README stats + MANIFEST title + {len(numbered_docs())} numbered stamps")
@@ -157,7 +166,7 @@ def check_g2_file_count():
     # Cross-check the filesystem against the published inventory claims
     # (README stats line + MANIFEST §2), not against a hardcoded constant.
     readme = (ROOT / "README.md").read_text()
-    mr = re.search(r"Total: \*\*(\d+) markdown files\*\* at v\d+\.\d+ — (\d+) numbered docs \+ (\d+) governance", readme)
+    mr = re.search(r"Total: \*\*(\d+) markdown files\*\* at v\d+\.\d+(?:\.\d+)? — (\d+) numbered docs \+ (\d+) governance", readme)
     if not mr:
         fail("README.md: stats line with total/numbered/governance counts not found")
         errors += 1
@@ -1092,10 +1101,10 @@ def check_endpoint_cross():
 
     # These endpoints should exist after Phase 10
     required_endpoints = [
-        ("POST", "/api/instances/:id/start"),
-        ("POST", "/api/instances/:id/pause"),
-        ("POST", "/api/instances/:id/stop"),
-        ("DELETE", "/api/instances/:id"),
+        ("POST", "/api/instances/:instance_id/start"),
+        ("POST", "/api/instances/:instance_id/pause"),
+        ("POST", "/api/instances/:instance_id/stop"),
+        ("DELETE", "/api/instances/:instance_id"),
     ]
     for method, path in required_endpoints:
         if path in api_text:

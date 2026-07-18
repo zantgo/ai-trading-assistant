@@ -55,9 +55,12 @@ fn resolve_field_string(field: &str, snapshot: &MarketSnapshot) -> Option<String
         "decision.directional_guidance" => ad.map(|a| format!("{:?}", a.directional_guidance)),
         "decision.strategy_environment" => ad.map(|a| format!("{:?}", a.strategy_environment)),
         "decision.entry_guidance" => ad.map(|a| format!("{:?}", a.entry_guidance)),
+        "decision.trade_readiness" => dc.map(|d| d.trade_readiness.clone()),
         "analysis.market_regime" => analysis.map(|a| a.market_regime.to_string()),
         "analysis.market_quality" => analysis.map(|a| format!("{:?}", a.market_quality)),
+        "analysis.market_interpretation" => analysis.map(|a| a.market_interpretation.clone()),
         "opportunity.primary_opportunity" => opp.map(|o| format!("{:?}", o.primary_opportunity)),
+        "opportunity.setup_quality" => opp.map(|o| format!("{:?}", o.setup_quality)),
         _ => None,
     }
 }
@@ -67,19 +70,26 @@ fn resolve_field_numeric(field: &str, snapshot: &MarketSnapshot) -> Option<f64> 
     let ad = snapshot.advisory.as_ref();
     let risk = snapshot.risk.as_ref();
     let opp = snapshot.opportunity.as_ref();
+    let analysis = snapshot.analysis.as_ref();
 
     match field {
         "decision.bias" => dc.and_then(|d| bias_numeric(&d.bias)),
         "decision.confidence_assessment" => dc.map(|d| d.confidence * 100.0),
+        "decision.score" => dc.map(|d| d.score),
+        "decision.expected_reward_risk_ratio" => dc.map(|d| d.expected_reward_risk_ratio),
+        "decision.entry_danger.score" => dc.map(|d| d.entry_danger),
         "decision.market_stance" => ad.and_then(|a| stance_numeric(a.market_stance)),
         "decision.directional_guidance" => ad.and_then(|a| dir_guidance_numeric(a.directional_guidance)),
         "decision.strategy_environment" => ad.and_then(|a| strategy_env_numeric(a.strategy_environment)),
         "decision.entry_guidance" => ad.and_then(|a| entry_guidance_numeric(a.entry_guidance)),
         "analysis.market_regime" => ad.and_then(|_| regime_numeric(snapshot)),
         "analysis.market_quality" => ad.and_then(|_| quality_numeric(snapshot)),
+        "analysis.market_bias_score" => analysis.map(|a| a.market_bias_score),
+        "analysis.state_confidence" => analysis.map(|a| a.state_confidence * 100.0),
         "opportunity.primary_opportunity" => opp.map(|o| opportunity_type_numeric(o.primary_opportunity)),
         "opportunity.opportunity_score" => opp.map(|o| o.opportunity_score),
         "risk.market_risk.score" => risk.map(|r| r.market_risk.score),
+        "risk.market_risk.level" => risk.map(|r| risk_level_numeric(&r.market_risk.level)),
         "risk.volatility_risk.score" => risk.map(|r| r.volatility_risk.score),
         "risk.execution_liquidity_risk.score" => risk.map(|r| r.execution_liquidity_risk.score),
         "risk.structure_risk.score" => risk.map(|r| r.structure_risk.score),
@@ -88,7 +98,18 @@ fn resolve_field_numeric(field: &str, snapshot: &MarketSnapshot) -> Option<f64> 
         "risk.execution_risk.score" => risk.map(|r| r.execution_risk.score),
         "risk.cascade_risk.score" => risk.map(|r| r.cascade_risk.score),
         "risk.overall_risk.score" => risk.map(|r| r.overall_risk.score),
+        "risk.overall_risk.confidence" => risk.map(|r| r.overall_risk.confidence),
         _ => None,
+    }
+}
+
+fn risk_level_numeric(level: &core_domain::risk::RiskLevel) -> f64 {
+    match level {
+        core_domain::risk::RiskLevel::Extreme => 100.0,
+        core_domain::risk::RiskLevel::High => 75.0,
+        core_domain::risk::RiskLevel::Moderate => 50.0,
+        core_domain::risk::RiskLevel::Low => 25.0,
+        core_domain::risk::RiskLevel::VeryLow => 0.0,
     }
 }
 
@@ -395,6 +416,7 @@ mod tests {
             analysis: Some(AnalysisMatrix {
                 symbol: "BTC-USDT".into(),
                 bias: MarketBias::StrongBullish,
+                market_bias_score: 85.0,
                 state_confidence: 0.85,
                 market_regime: MarketRegime::TrendingBull,
                 trend_assessment: TrendAssessment::Healthy,

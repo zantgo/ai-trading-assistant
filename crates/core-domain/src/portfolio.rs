@@ -6,6 +6,20 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PositionState {
+    Opening,
+    Managing,
+    Closing,
+}
+
+impl Default for PositionState {
+    fn default() -> Self {
+        PositionState::Opening
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SafetyState {
     Normal,
     Warn,
@@ -73,6 +87,8 @@ pub struct PositionMatrix {
     pub target_profit_ratio: Option<Decimal>,
 
     pub current_portions: u32,
+    pub max_portions: u32,
+    pub position_state: PositionState,
     pub initial_allocated_margin: Decimal,
     pub realized_pnl_accumulator: Decimal,
 }

@@ -48,6 +48,31 @@
         const v = !pair.microTerm.showDonchian;
         syncAll(tf => { tf.showDonchian = v; });
     }
+    function toggleIchimoku() {
+        if (!pair) return;
+        const v = !pair.microTerm.showIchimoku;
+        syncAll(tf => { tf.showIchimoku = v; });
+    }
+    function toggleHullMa() {
+        if (!pair) return;
+        const v = !pair.microTerm.showHullMa;
+        syncAll(tf => { tf.showHullMa = v; });
+    }
+    function togglePsar() {
+        if (!pair) return;
+        const v = !pair.microTerm.showPsar;
+        syncAll(tf => { tf.showPsar = v; });
+    }
+    function toggleStddevChan() {
+        if (!pair) return;
+        const v = !pair.microTerm.showStddevChan;
+        syncAll(tf => { tf.showStddevChan = v; });
+    }
+    function toggleFib() {
+        if (!pair) return;
+        const v = !pair.microTerm.showFib;
+        syncAll(tf => { tf.showFib = v; });
+    }
 
     function toggleEma(label: 'Fast' | 'Medium' | 'Slow' | 'Long') {
         if (!pair) return;
@@ -93,6 +118,19 @@
             onclick={toggleKeltner}>KELTNER</button>
         <button class="{styles.togglePill} {styles.donchianPill} {pair.microTerm.showDonchian ? styles.active : ''}"
             onclick={toggleDonchian}>DONCHIAN</button>
+    </div>
+    <div class={styles.togglesSeparator}></div>
+    <div class={styles.togglesGroup}>
+        <button class="{styles.togglePill} {pair.microTerm.showIchimoku ? styles.active : ''}"
+            onclick={toggleIchimoku}>ICHIMOKU</button>
+        <button class="{styles.togglePill} {pair.microTerm.showHullMa ? styles.active : ''}"
+            onclick={toggleHullMa}>HULL MA</button>
+        <button class="{styles.togglePill} {pair.microTerm.showPsar ? styles.active : ''}"
+            onclick={togglePsar}>PSAR</button>
+        <button class="{styles.togglePill} {pair.microTerm.showStddevChan ? styles.active : ''}"
+            onclick={toggleStddevChan}>STDDEV</button>
+        <button class="{styles.togglePill} {pair.microTerm.showFib ? styles.active : ''}"
+            onclick={toggleFib}>FIB</button>
     </div>
 </div>
 {/if}

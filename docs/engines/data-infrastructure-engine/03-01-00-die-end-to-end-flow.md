@@ -33,24 +33,31 @@ Exchange WS (Hyperliquid/Bitget)
     │  late-tick drop counter
     │  CandleQualityEnvelope attached to the snapshot
     ▼
-[L4 Data Distribution Layer]         crates/market-analyzer/src/analyzer/mod.rs broadcast channels
-    │  broadcast_tx.send(snapshot) on the (symbol, timeframe) channel
-    ▼
-┌─────────────────┬─────────────────┬─────────────────┐
-│ WS broadcast    │ Telemetry       │ MME analyzer    │
-│ /ws clients     │ logger          │ (per-tier)      │
-│                 │                 │                 │
-│ crates/api-     │ crates/database-│ crates/market-  │
-│ gateway/src/    │ storage/src/    │ analyzer/src/   │
-│ ws.rs           │ logger.rs       │ analyzer/mod.rs │
-└────────┬────────┴────────┬────────┴────────┬────────┘
-         │                 │                 │
-         ▼                 ▼                 ▼
-   Svelte 5          SQLite WAL         build MarketSnapshot
-   runes store       market_snapshots   │
-                     + liquidation_     ▼
-                     events           Indicator pipeline
-                                      (50 indicators)
+[L4 Data Distribution Layer]         crates/market-analyzer/src/analyzer/mod.rs
+    │  Two independent broadcast channels per (symbol, timeframe) pipeline
+    │  (see 03-01-05 §3):
+    │
+    ├── NormalizedCandle channel (DIE L4 transport)
+    │       │  consumed by Candle Aggregator for higher-TF rollup
+    │
+    └── MarketSnapshot channel (MME L1 artifact — not produced by DIE L4)
+            │
+    ┌───────┼─────────────────┬─────────────────┐
+    │       ▼                 ▼                 ▼
+    │  WS broadcast      Telemetry          MME analyzer
+    │  /ws clients       logger             (per-tier)
+    │                    │                  │
+    │  crates/api-       crates/database-   crates/market-
+    │  gateway/src/      storage/src/       analyzer/src/
+    │  ws.rs             logger.rs          analyzer/mod.rs
+    │                    │                  │
+    │       ┌────────────┘                  │
+    │       ▼                               ▼
+    │  Svelte 5                        build MarketSnapshot
+    │  runes store                     │
+    │                                  ▼
+    │                            Indicator pipeline
+    │                            (50 indicators)
 
 Connection-quality samples are persisted outside the telemetry logger (see §3):
 
@@ -73,11 +80,12 @@ SQLite connection_quality_samples
 | 5 | L2 | `CandleGenerator::process_trade` (per-tier) | Update or close the in-progress candle. Return `(Option<completed>, live)`. |
 | 6 | L2 | MME analyzer pipeline | On `Some(completed)`, the MME analyzer pipeline builds the `MarketSnapshot` (candle, indicator buffers, alignment, etc.); DIE L2 emits only the `NormalizedCandle`. |
 | 7 | L3 | (inline) | Run `assert_validity` on the candle. Attach `CandleQualityEnvelope` with `quality_score`. Increment `out_of_order_dropped` if applicable. |
-| 8 | L4 | `broadcast_tx.send(snapshot)` | Publish on the `(symbol, timeframe)` channel. |
-| 9 | L4 | Telemetry logger | On `is_completed = true`, send `TelemetryMsg::InsertSnapshot` to the DB-write task. |
-| 10 | L4 | WS handler | Forward the snapshot to all subscribers on `/ws?symbol=…&timeframe_secs=…`. |
-| 11 | L4 | MME analyzer | Subscribe via in-process broadcast; run indicators; produce Alignment/Analysis/Opportunity/Risk/Decision. |
-| 12 | DB | `logger.rs::run_telemetry_logger` | INSERT into `market_snapshots` (WAL mode). |
+| 8 | L4 | `NormalizedCandle` broadcast | Publish completed candle on the DIE L4 `NormalizedCandle` channel; consumed by higher-TF Candle Aggregator. |
+| 9 | MME L1 | `MarketSnapshot` broadcast | MME builds `MarketSnapshot` (candle, indicator buffers, alignment, etc.) and publishes on the independent `MarketSnapshot` broadcast channel. |
+| 10 | — | Telemetry logger | Subscribe to `MarketSnapshot` channel; on `is_completed = true`, write `TelemetryMsg::InsertSnapshot`. |
+| 11 | — | WS handler | Subscribe to `MarketSnapshot` channel; forward to `/ws?symbol=…&timeframe_secs=…` subscribers. |
+| 12 | — | MME analyzer | Subscribe to `MarketSnapshot` channel; run indicators; produce Alignment/Analysis/Opportunity/Risk/Decision. |
+| 13 | DB | `logger.rs::run_telemetry_logger` | INSERT into `market_snapshots` (WAL mode). |
 
 Latency budget (per `AC-DIE-3`): p95 < 25 ms end-to-end.
 

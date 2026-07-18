@@ -41,7 +41,7 @@ score = clamp(0..100,
   + 30 × (1 − min(disconnect_count / 10, 1))
   + 20 × (1 − min(avg_reconnect_ms / 5000, 1))
   − 5 × min(total_data_loss_s / 600, 1)
-  − 5 × min(reconstructed_candles_pct / 100, 1)
+  − 5 × min(reconstructed_candles / 100, 1)
 )
 ```
 
@@ -55,7 +55,7 @@ Interpretation:
 | `total_data_loss_secs` | 0..5 points subtracted | 600 s of data loss | Reflects sustained outage beyond what `uptime_pct` alone captures. |
 | `reconstructed_candles` | 0..5 points subtracted | 100 reconstructed candles | Penalises reconstruction-heavy windows (a proxy for venue instability). |
 
-**Worked example** (uptime=95, dc=8, rc_ms=2000, data_loss=300s, reconstructed=50%):
+**Worked example** (uptime=95, dc=8, rc_ms=2000, data_loss=300s, reconstructed=50 candles):
 ```
 50 × (95 / 100)     = 47.50
 30 × (1 − min(8 / 10, 1)) = 6.00
@@ -82,7 +82,7 @@ A perfect session (100% uptime, 0 disconnects, 0 ms reconnect, 0 data loss, 0 re
 
 ## Persistence
 
-Samples are written to the `connection_quality_samples` SQLite table every 60 seconds by a background task. The table is **per-`(pair_key, timeframe_secs)`** (one Market Instance × timeframe pipeline owns one series); a process-wide aggregate is not retained.
+Samples are written to the `connection_quality_samples` SQLite table every 60 seconds by a background task. The table is **per-`(pair_key, timeframe_secs)`** (one Market Instance × timeframe pipeline owns one series). A cross-scope process-wide aggregate is computed on demand at query time when the API receives no scope filters.
 
 The `pair_key` and `timeframe_secs` columns scope every sample to its owning `(instance, pipeline)`. This per-instance shape was merged at v6.0 (see `docs/CHANGELOG.md`) to back the per-instance dashboard panel; the earlier process-wide eight-column form is no longer used. See [`06-02-database-schema-spec.md §3.9`](../integration-and-api/06-02-database-schema-spec.md) for the authoritative DDL.
 
@@ -90,9 +90,9 @@ The `pair_key` and `timeframe_secs` columns scope every sample to its owning `(i
 
 ```
 GET /api/connection-quality?instance_id=…&timeframe_secs=…&window=one_hour|six_hour|twenty_four_hour
-
-The `instance_id` and `timeframe_secs` query parameters are **required** by the instance-scoped API at v6.0 (see `docs/CHANGELOG.md`). Connection-quality is reported per Market Instance × timeframe (one WebSocket connection per `TimeframePipeline`); the API does not return a process-wide aggregate. See `06-01-api-gateway-contract.md §2.3`.
 ```
+
+Both `instance_id` and `timeframe_secs` are **optional**. When both are supplied, the response is scoped to that `(instance_id, timeframe_secs)` pair. When either parameter is absent, the API returns a cross-scope process-wide aggregate (composite of all tracked scopes). See `06-01-api-gateway-contract.md §2.3`.
 
 Default window: `one_hour`. Response: `ConnectionQualityReport` JSON.
 

@@ -1,6 +1,9 @@
 use sqlx::SqlitePool;
 
-use core_domain::performance::{PerformanceMatrixRow, StrategyAnalyticsRow};
+use core_domain::performance::{
+    OptimizationReport, PerformanceMatrixRow, PerformanceMatrixSummary, RiskAnalyticsRow,
+    StrategyAnalyticsRow,
+};
 
 pub async fn insert_strategy_analytics(
     pool: &SqlitePool,
@@ -220,6 +223,172 @@ fn parse_compatibility(s: &str) -> core_domain::performance::RegimeCompatibility
     }
 }
 
+pub async fn insert_risk_analytics(
+    pool: &SqlitePool,
+    row: &RiskAnalyticsRow,
+) -> i64 {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    match sqlx::query(
+        "INSERT INTO risk_analytics_history
+         (timestamp, maximum_drawdown_pct, max_drawdown_duration_days,
+          average_drawdown_pct, drawdown_count, sharpe_ratio, sortino_ratio,
+          ulcer_index, calmar_ratio, daily_volatility, downside_deviation,
+          value_at_risk_95, expected_shortfall_95)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+    )
+    .bind(ts)
+    .bind(row.maximum_drawdown_pct)
+    .bind(row.max_drawdown_duration_days)
+    .bind(row.average_drawdown_pct)
+    .bind(row.drawdown_count as i64)
+    .bind(row.sharpe_ratio)
+    .bind(row.sortino_ratio)
+    .bind(row.ulcer_index)
+    .bind(row.calmar_ratio)
+    .bind(row.daily_volatility)
+    .bind(row.downside_deviation)
+    .bind(row.value_at_risk_95)
+    .bind(row.expected_shortfall_95)
+    .execute(pool)
+    .await
+    {
+        Ok(r) => r.last_insert_rowid(),
+        Err(e) => {
+            eprintln!("DB: Failed to insert risk analytics: {}", e);
+            0
+        }
+    }
+}
+
+pub async fn query_risk_analytics_latest(pool: &SqlitePool) -> Option<RiskAnalyticsRow> {
+    let row = sqlx::query_as::<_, RiskAnalyticsQueryRow>(
+        "SELECT maximum_drawdown_pct, max_drawdown_duration_days, average_drawdown_pct,
+                drawdown_count, sharpe_ratio, sortino_ratio, ulcer_index, calmar_ratio,
+                daily_volatility, downside_deviation, value_at_risk_95, expected_shortfall_95
+         FROM risk_analytics_history
+         ORDER BY timestamp DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await;
+
+    match row {
+        Ok(Some(r)) => Some(RiskAnalyticsRow {
+            maximum_drawdown_pct: r.maximum_drawdown_pct,
+            max_drawdown_duration_days: r.max_drawdown_duration_days,
+            average_drawdown_pct: r.average_drawdown_pct,
+            drawdown_count: r.drawdown_count as u32,
+            sharpe_ratio: r.sharpe_ratio,
+            sortino_ratio: r.sortino_ratio,
+            ulcer_index: r.ulcer_index,
+            calmar_ratio: r.calmar_ratio,
+            daily_volatility: r.daily_volatility,
+            downside_deviation: r.downside_deviation,
+            value_at_risk_95: r.value_at_risk_95,
+            expected_shortfall_95: r.expected_shortfall_95,
+        }),
+        _ => None,
+    }
+}
+
+pub async fn insert_performance_summary(
+    pool: &SqlitePool,
+    summary: &PerformanceMatrixSummary,
+) -> i64 {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    match sqlx::query(
+        "INSERT INTO performance_matrix_summaries
+         (timestamp, policy_id, total_trades, overall_profit_factor,
+          overall_expectancy, overall_sharpe, overall_sortino,
+          max_drawdown_pct, regime_strength_json, recommendations_json,
+          overall_rating, last_evaluated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+    )
+    .bind(ts)
+    .bind(&summary.policy_id)
+    .bind(summary.total_trades as i64)
+    .bind(summary.overall_profit_factor)
+    .bind(summary.overall_expectancy)
+    .bind(summary.overall_sharpe)
+    .bind(summary.overall_sortino)
+    .bind(summary.max_drawdown_pct)
+    .bind(serde_json::to_string(&summary.regime_strength_summary).unwrap_or_default())
+    .bind(serde_json::to_string(&summary.optimization_recommendations).unwrap_or_default())
+    .bind(format!("{:?}", summary.overall_rating))
+    .bind(summary.last_evaluated_at)
+    .execute(pool)
+    .await
+    {
+        Ok(r) => r.last_insert_rowid(),
+        Err(e) => {
+            eprintln!("DB: Failed to insert performance summary: {}", e);
+            0
+        }
+    }
+}
+
+pub async fn insert_optimization_report(
+    pool: &SqlitePool,
+    report: &OptimizationReport,
+) -> i64 {
+    match sqlx::query(
+        "INSERT INTO optimization_reports
+         (timestamp, total_trades, regime_reports_json, recommendations_json)
+         VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(report.timestamp)
+    .bind(report.total_trades)
+    .bind(serde_json::to_string(&report.regime_reports).unwrap_or_default())
+    .bind(serde_json::to_string(&report.recommendations).unwrap_or_default())
+    .execute(pool)
+    .await
+    {
+        Ok(r) => r.last_insert_rowid(),
+        Err(e) => {
+            eprintln!("DB: Failed to insert optimization report: {}", e);
+            0
+        }
+    }
+}
+
+pub async fn query_optimization_reports(
+    pool: &SqlitePool,
+    limit: u32,
+) -> Vec<OptimizationReport> {
+    let rows: Result<Vec<OptimizationReportQueryRow>, _> = sqlx::query_as(
+        "SELECT timestamp, total_trades, regime_reports_json, recommendations_json
+         FROM optimization_reports
+         ORDER BY timestamp DESC
+         LIMIT ?1",
+    )
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await;
+
+    match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|r| OptimizationReport {
+                timestamp: r.timestamp,
+                total_trades: r.total_trades,
+                regime_reports: serde_json::from_str(&r.regime_reports_json).unwrap_or_default(),
+                recommendations: serde_json::from_str(&r.recommendations_json).unwrap_or_default(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("DB: Failed to query optimization reports: {}", e);
+            vec![]
+        }
+    }
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct StrategyAnalyticsQueryRow {
     policy_id: String,
@@ -253,4 +422,28 @@ struct PerformanceMatrixQueryRow {
     avg_r_multiple: f64,
     total_pnl: f64,
     compatibility_label: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RiskAnalyticsQueryRow {
+    maximum_drawdown_pct: f64,
+    max_drawdown_duration_days: f64,
+    average_drawdown_pct: f64,
+    drawdown_count: i64,
+    sharpe_ratio: Option<f64>,
+    sortino_ratio: Option<f64>,
+    ulcer_index: f64,
+    calmar_ratio: Option<f64>,
+    daily_volatility: f64,
+    downside_deviation: f64,
+    value_at_risk_95: f64,
+    expected_shortfall_95: f64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct OptimizationReportQueryRow {
+    timestamp: i64,
+    total_trades: i64,
+    regime_reports_json: String,
+    recommendations_json: String,
 }

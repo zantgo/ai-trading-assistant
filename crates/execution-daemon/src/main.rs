@@ -196,6 +196,18 @@ async fn main() {
     let exchange_status = Arc::new(ExchangeStatusTracker::new());
     let latency_tracker = Arc::new(core_domain::LatencyTracker::default());
 
+    let execution_engine = Arc::new({
+        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new();
+        engine.set_db(Arc::new(db_pool.clone()));
+        engine
+    });
+    *execution_engine.slippage_ceiling_pct.write().await = workspace.execution.slippage_ceiling_pct;
+    execution_engine.set_fee_config(
+        workspace.fees.maker_fee_pct,
+        workspace.fees.taker_fee_pct,
+        workspace.leverage.cross_leverage,
+    ).await;
+
     let platform_arc = Arc::new(RwLock::new(platform));
     let workspace_state = WorkspaceState::new(workspace.clone());
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
@@ -220,6 +232,7 @@ async fn main() {
         ws_url: hl_ws_url.clone(),
         bitget_ws_url: bg_ws_url.clone(),
         overview: Arc::new(RwLock::new(None)),
+        execution_engine: execution_engine.clone(),
     });
 
     // ── Session auto-init (headless and web mode) ──────────────────
@@ -285,17 +298,6 @@ async fn main() {
             workspace.execution_policies.clone(),
         ),
     ));
-    let execution_engine = Arc::new({
-        let mut engine = portfolio_supervisor::execution::engine::ExecutionEngine::new();
-        engine.set_db(Arc::new(db_pool.clone()));
-        engine
-    });
-    *execution_engine.slippage_ceiling_pct.write().await = workspace.execution.slippage_ceiling_pct;
-    execution_engine.set_fee_config(
-        workspace.fees.maker_fee_pct,
-        workspace.fees.taker_fee_pct,
-        workspace.leverage.cross_leverage,
-    ).await;
     let paper_engine = Arc::new({
         let mut engine =
             portfolio_supervisor::paper_trading::PaperTradingEngine::new(
@@ -389,11 +391,37 @@ async fn main() {
         let tae_pool = db_pool.clone();
         handles.push(tokio::spawn(async move {
             let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(60));
+                tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut funding_tick: u64 = 0;
+            let funding_interval_secs: u64 = 8 * 3600; // 8h funding settlement
+
+            // Trigger engine: track candle completions per timeframe
+            let candle_counters: std::sync::Arc<tokio::sync::RwLock<
+                std::collections::HashMap<String, u32>,
+            >> = std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            ));
+
+            // Per-timeframe last-candle counters for CandleClose triggers
+            let mut last_seen_candles: std::collections::HashMap<String, u32> =
+                std::collections::HashMap::new();
+
             loop {
                 tokio::select! {
                     _ = tae_cancel.cancelled() => break,
                     _ = interval.tick() => {
+                        let now_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+
+                        // Periodic funding rate settlement
+                        funding_tick += 5;
+                        if funding_tick >= funding_interval_secs {
+                            tae_paper.settle_funding().await;
+                            funding_tick = 0;
+                        }
+
                         let instances = tae_workspace.list().await;
                         for inst in instances {
                             let snapshot_guard = inst.micro.latest.read().await;
@@ -408,23 +436,48 @@ async fn main() {
                                 match action {
                                     portfolio_supervisor::lifecycle::AutomationAction::Start => {
                                         let _ = lifecycle.start("automation", Some("Auto start condition".into()));
+                                        eprintln!("🤖 LIFECYCLE: Auto-started instance {}", inst.id);
                                     }
                                     portfolio_supervisor::lifecycle::AutomationAction::Pause => {
                                         let _ = lifecycle.pause("automation", Some("Auto pause condition".into()));
+                                        eprintln!("🤖 LIFECYCLE: Auto-paused instance {}", inst.id);
                                     }
                                     portfolio_supervisor::lifecycle::AutomationAction::Stop => {
                                         let _ = lifecycle.stop("automation", Some("Auto stop condition".into()));
+                                        eprintln!("🤖 LIFECYCLE: Auto-stopped instance {}", inst.id);
                                     }
                                 }
                             }
 
                             let lifecycle_state = lifecycle.state;
+
+                            // ── STOPPING → STOPPED auto-transition ──
+                            if lifecycle_state == config_models::LifecycleState::Stopping {
+                                let paper_positions = tae_paper.positions.read().await;
+                                let has_positions = paper_positions.contains_key(&inst.symbol());
+                                drop(paper_positions);
+                                let orders = tae_exec.orders.read().await;
+                                let has_open_orders = orders.iter().any(
+                                    |(_, o)| o.packet.symbol == inst.symbol()
+                                        && o.status != config_models::OrderStatus::Closed
+                                        && o.status != config_models::OrderStatus::Cancelled
+                                        && o.status != config_models::OrderStatus::Rejected
+                                );
+                                drop(orders);
+                                if !has_positions && !has_open_orders {
+                                    let _ = lifecycle.complete_stop().await;
+                                    eprintln!("🛑 LIFECYCLE: Instance {} → STOPPED (flatten confirmed)", inst.id);
+                                    drop(lifecycle);
+                                    continue;
+                                }
+                                drop(lifecycle);
+                                continue;
+                            }
+
                             drop(lifecycle);
 
-                            // Skip if STOPPED or STOPPING (no new triggers; existing positions already handled)
-                            if lifecycle_state == config_models::LifecycleState::Stopped
-                                || lifecycle_state == config_models::LifecycleState::Stopping
-                            {
+                            // Skip if STOPPED (no new triggers)
+                            if lifecycle_state == config_models::LifecycleState::Stopped {
                                 continue;
                             }
 
@@ -456,8 +509,6 @@ async fn main() {
                                     eprintln!("🔥 VETO: Hard Exit dispatched for {}", veto.symbol);
                                 }
                                 handler.advance_phase(); // → DiscardPending
-
-                                // Step 2b: Discard pending triggers for affected symbol
                                 handler.advance_phase(); // → CommitStance
 
                                 // Step 2c: Commit stance change
@@ -469,8 +520,6 @@ async fn main() {
                                 // Step 2d: Cancel remaining orders
                                 tae_exec.cancel_all_orders(&veto.symbol).await;
                                 handler.advance_phase(); // → NullifyEntry
-
-                                // Step 2e: Nullify entry triggers (discard pending entries)
                                 handler.advance_phase(); // → Audit
 
                                 // Step 2f: Audit log
@@ -489,7 +538,6 @@ async fn main() {
                                     log.symbol, log.from_stance, log.to_stance, log.reason, log.hard_exit_dispatched
                                 );
 
-                                // Persist veto audit event to risk_control_events
                                 let _ = sqlx::query(
                                     "INSERT INTO risk_control_events (instance_id, symbol, gate_id, decision, reason, timestamp_ms) VALUES (?, ?, ?, ?, ?, ?)"
                                 )
@@ -509,10 +557,28 @@ async fn main() {
                                 if snap.is_completed != Some(true) {
                                     continue;
                                 }
+
+                                // Track candle completions for CandleClose triggers
+                                let timeframe_label = &snap.symbol;
+                                {
+                                    let mut counters = candle_counters.write().await;
+                                    let count = counters.entry(timeframe_label.clone())
+                                        .and_modify(|c| *c += 1)
+                                        .or_insert(1);
+                                    last_seen_candles.insert(timeframe_label.clone(), *count);
+                                }
+
                                 let stances = inst.stances.read().await;
                                 let symbol = snap.symbol.clone();
                                 let stance = stances.get(&symbol).copied()
                                     .unwrap_or(config_models::Stance::Active);
+
+                                // Sync safety state from instance to execution engine
+                                {
+                                    let safety_state = *inst.safety.safety_state.read().await;
+                                    let safety_str = format!("{:?}", safety_state);
+                                    tae_exec.set_safety_state(&safety_str).await;
+                                }
 
                                 // Auto-pause policies for symbols in Cautious/Suspended safety states
                                 {
@@ -541,40 +607,66 @@ async fn main() {
                                     }
                                 }
 
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs();
+                                // Check which policies are due per their TriggerMode
+                                let candles_completed = last_seen_candles
+                                    .get(timeframe_label).copied().unwrap_or(0);
+                                let pending_events: Vec<String> = vec![]; // EventDriven events would come from MME
 
-                                let mut policy = tae_policy.write().await;
-                                let triggers = policy.evaluate_policies(snap, now);
-                                drop(policy);
+                                let policies_due: Vec<config_models::ExecutionPolicy> = {
+                                    let policy = tae_policy.read().await;
+                                    policy.get_active_stance_policies()
+                                        .iter()
+                                        .filter(|p| {
+                                            policy.is_policy_due(
+                                                &p.policy_id,
+                                                &p.trigger_mode,
+                                                now_secs,
+                                                candles_completed,
+                                                &pending_events,
+                                            )
+                                        })
+                                        .map(|&p| p.clone())
+                                        .collect()
+                                };
 
-                                for trigger in &triggers {
-                                    match tae_exec.process_trigger(
-                                        trigger, snap,
-                                        lifecycle_state, stance,
-                                    ).await {
-                                        Ok(Some(order_id)) => {
-                                            let lifecycle = tae_exec.orders.read().await
-                                                .get(&order_id)
-                                                .map(|o| o.status);
-                                            let is_pre_dispatch = lifecycle == Some(config_models::OrderStatus::PreDispatch);
-                                            if !is_pre_dispatch {
-                                                let packet = tae_exec.orders.read().await
-                                                    .get(&order_id)
-                                                    .map(|o| o.packet.clone());
-                                                if let Some(pkt) = packet {
-                                                    let _ = tae_paper.submit_order(
-                                                        pkt,
-                                                        snap.mid_price,
-                                                    ).await;
-                                                }
+                                if !policies_due.is_empty() {
+                                    let triggers = {
+                                        let mut policy = tae_policy.write().await;
+                                        let triggers = policy.evaluate_policies(snap, now_secs);
+                                        for due_policy in &policies_due {
+                                            if matches!(due_policy.trigger_mode, config_models::TriggerMode::Interval { .. }) {
+                                                policy.mark_interval_evaluated(&due_policy.policy_id, now_secs);
                                             }
                                         }
-                                        Ok(None) => {}
-                                        Err(e) => {
-                                            eprintln!("TAE: trigger error: {}", e);
+                                        triggers
+                                    };
+
+                                    for trigger in &triggers {
+                                        match tae_exec.process_trigger(
+                                            trigger, snap,
+                                            lifecycle_state, stance,
+                                        ).await {
+                                            Ok(Some(order_id)) => {
+                                                let lifecycle = tae_exec.orders.read().await
+                                                    .get(&order_id)
+                                                    .map(|o| o.status);
+                                                let is_pre_dispatch = lifecycle == Some(config_models::OrderStatus::PreDispatch);
+                                                if !is_pre_dispatch {
+                                                    let packet = tae_exec.orders.read().await
+                                                        .get(&order_id)
+                                                        .map(|o| o.packet.clone());
+                                                    if let Some(pkt) = packet {
+                                                        let _ = tae_paper.submit_order(
+                                                            pkt,
+                                                            snap.mid_price,
+                                                        ).await;
+                                                    }
+                                                }
+                                            }
+                                            Ok(None) => {}
+                                            Err(e) => {
+                                                eprintln!("TAE: trigger error: {}", e);
+                                            }
                                         }
                                     }
                                 }

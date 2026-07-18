@@ -81,25 +81,49 @@ pub async fn compute_risk_analytics(pool: &SqlitePool) -> RiskAnalyticsRow {
 fn compute_drawdowns(values: &[f64], equity: &[(i64, f64)]) -> (f64, f64, f64, u32) {
     let mut peak = values[0];
     let mut max_dd_pct = 0.0;
+    let mut max_dd_duration_ms: i64 = 0;
     let mut dd_events: Vec<f64> = vec![];
     let mut in_drawdown = false;
+    let mut dd_start_ts: i64 = 0;
+    let mut current_dd_pct: f64 = 0.0;
 
     for i in 0..values.len() {
         let v = values[i];
+        let ts = equity[i].0;
+
         if v > peak {
+            if in_drawdown {
+                let duration_ms = ts - dd_start_ts;
+                if duration_ms > max_dd_duration_ms {
+                    max_dd_duration_ms = duration_ms;
+                }
+                dd_events.push(current_dd_pct);
+                in_drawdown = false;
+            }
             peak = v;
-            in_drawdown = false;
         }
+
         let dd_pct = (peak - v) / peak * 100.0;
         if dd_pct > max_dd_pct {
             max_dd_pct = dd_pct;
         }
+
         if dd_pct > 0.0 && !in_drawdown {
             in_drawdown = true;
-            dd_events.push(dd_pct);
-        } else if dd_pct == 0.0 {
-            in_drawdown = false;
+            dd_start_ts = ts;
+            current_dd_pct = dd_pct;
+        } else if dd_pct > 0.0 && in_drawdown {
+            current_dd_pct = current_dd_pct.max(dd_pct);
         }
+    }
+
+    if in_drawdown {
+        let last_ts = equity[equity.len() - 1].0;
+        let duration_ms = last_ts - dd_start_ts;
+        if duration_ms > max_dd_duration_ms {
+            max_dd_duration_ms = duration_ms;
+        }
+        dd_events.push(current_dd_pct);
     }
 
     let dd_count = dd_events.len() as u32;
@@ -109,13 +133,7 @@ fn compute_drawdowns(values: &[f64], equity: &[(i64, f64)]) -> (f64, f64, f64, u
         0.0
     };
 
-    let max_dd_days = if !equity.is_empty() {
-        let first_ts = equity[0].0;
-        let last_ts = equity[equity.len() - 1].0;
-        ((last_ts - first_ts) as f64 / (1000.0 * 60.0 * 60.0 * 24.0)).max(0.0)
-    } else {
-        0.0
-    };
+    let max_dd_days = max_dd_duration_ms as f64 / (1000.0 * 60.0 * 60.0 * 24.0);
 
     (max_dd_pct, max_dd_days, avg_dd_pct, dd_count)
 }
@@ -210,8 +228,33 @@ mod tests {
             .enumerate()
             .map(|(i, &v)| (i as i64 * 86_400_000, v))
             .collect();
-        let (max_dd, _, _avg_dd, _count) = compute_drawdowns(&values, &equity);
+        let (max_dd, dd_days, _avg_dd, _count) = compute_drawdowns(&values, &equity);
         assert!((max_dd - 20.0).abs() < 0.1);
+        assert!(dd_days > 0.0);
+    }
+
+    #[test]
+    fn test_drawdown_duration_recovery() {
+        let values = vec![100.0, 90.0, 85.0, 88.0, 92.0, 100.0, 110.0];
+        let equity: Vec<(i64, f64)> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as i64 * 86_400_000, v))
+            .collect();
+        let (_max_dd, dd_days, _avg_dd, _count) = compute_drawdowns(&values, &equity);
+        assert!((dd_days - 5.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_drawdown_unrecovered() {
+        let values = vec![100.0, 90.0, 85.0, 80.0];
+        let equity: Vec<(i64, f64)> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as i64 * 86_400_000, v))
+            .collect();
+        let (_max_dd, dd_days, _avg_dd, _count) = compute_drawdowns(&values, &equity);
+        assert!(dd_days > 0.0);
     }
 
     #[test]

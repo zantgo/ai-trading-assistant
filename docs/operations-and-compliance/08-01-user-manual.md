@@ -49,7 +49,7 @@ The project ships a convenience wrapper (`./manage.sh`):
 | `./manage.sh status` | — | Print process uptime. |
 | `./manage.sh test` | All tests | Run TEST-CORE → TEST-ENGINE → TEST-UI sequentially (~18 s). |
 | `./manage.sh test-core` | Pure math / indicators | Run only TEST-CORE (<3 s). |
-| `./manage.sh test-engine` | DB, server, failover | Run only TEST-ENGINE (<5 s). |
+| `./manage.sh test-engine` | DB, server, failover | Run only TEST-ENGINE (<10 s). |
 | `./manage.sh test-ui` | Svelte 5 runes / components | Run only TEST-UI (<10 s). |
 
 Headless cloud operation is supported by running the same binary without `--web` and applying a pre-validated `config.toml` (see [Global Architecture §4](../conceptual-foundations/01-02-global-architecture.md)).
@@ -81,7 +81,7 @@ The single source of configuration truth is `config.toml` at the workspace root 
 
 For the 4-tier timeframe model and UTC alignment rules see [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md).
 
-The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3.0](../integration-and-api/06-02-database-schema-spec.md).
+The full configuration can be inspected via `GET /api/config` (returns the parsed `AppConfig`) and updated via `POST /api/config` (writes back to `config.toml` **explicitly**; the API is the only path that mutates `config.toml` on disk). Routine GUI runtime edits (e.g. changing a risk profile or paper balance) do **not** auto-overwrite `config.toml` — those edits are persisted to the `risk_profiles` and `paper_balances` DB tables per the precedence rules in [06-02-database-schema-spec.md §3](../integration-and-api/06-02-database-schema-spec.md).
 
 ---
 

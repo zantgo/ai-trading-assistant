@@ -73,7 +73,7 @@ The layer classifies the structural regime from the alignment score and per-time
 
 The full decision tree with detailed conditions lives in the canonical Analysis Matrix spec; this layer is a thin executor of that tree. Regime detection is continuous — it re-evaluates on every completed candle, enabling downstream layers to adapt (e.g. the Decision Layer's strategy environment).
 
-> **Direct L3 → L6 edge.** The Analysis Matrix is consumed by [Layer 6 (Decision Support)](03-02-07-mme-layer6-decision-support.md) directly — in addition to being an input to Layers 4 and 5. Specifically, the Decision Layer reads `bias`, `state_confidence`, `market_quality`, `market_regime`, and the **six** qualitative assessments directly from L3. See [Sequence A](../../conceptual-foundations/01-03-systemic-data-flow.md#sequence-a-market-telemetry--analysis-cascade-the-observation-loop).
+> **Direct L3 → L6 edge.** The Analysis Matrix is consumed by [Layer 6 (Decision Support)](03-02-07-mme-layer6-decision-support.md) directly — in addition to being an input to Layers 4 and 5. Specifically, the Decision Layer reads `bias`, `state_confidence`, `market_quality`, `market_regime`, and the five `*_assessment` fields (Trend, Momentum, Volume, Volatility, Structure — plus `market_quality` as a separate categorical field, for a total of six qualitative outputs from L3) directly from L3. See [Sequence A](../../conceptual-foundations/01-03-systemic-data-flow.md#sequence-a-market-telemetry--analysis-cascade-the-observation-loop).
 
 ---
 

@@ -134,9 +134,9 @@ Each timeframe pipeline bootstraps from historical candle data before subscribin
 |--------|--------|
 | Per-pipeline indicator computation (50 indicators) | < 10 ms |
 | Cross-TF synthesis (L2–L6) | < 5 ms |
-| Full 7-layer cascade per candle | < 25 ms |
+| End-to-end observation loop (DIE + MME) | < 25 ms |
 
-The full-cascade latency budget decomposes as: **DIE Raw→Distribution ≤ 10 ms; MME cascade ≤ 15 ms; end-to-end Raw→Overview ≤ 25 ms**.
+The end-to-end latency budget decomposes as: **DIE Raw→Distribution ≤ 10 ms; MME cascade ≤ 15 ms; end-to-end Raw→Overview ≤ 25 ms**.
 
 ---
 

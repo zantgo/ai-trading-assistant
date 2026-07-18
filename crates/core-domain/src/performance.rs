@@ -249,6 +249,41 @@ pub struct MonthlySummary {
     pub trade_count: usize,
 }
 
+// ─── L4: Performance Matrix Summary (aggregate) ─────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceMatrixSummary {
+    pub policy_id: String,
+    pub total_trades: u32,
+    pub overall_profit_factor: Option<f64>,
+    pub overall_expectancy: f64,
+    pub overall_sharpe: Option<f64>,
+    pub overall_sortino: Option<f64>,
+    pub max_drawdown_pct: f64,
+    pub regime_compatibility: Vec<PerformanceMatrixRow>,
+    pub regime_strength_summary: Vec<RegimeStrengthEntry>,
+    pub optimization_recommendations: Vec<String>,
+    pub overall_rating: OverallRating,
+    pub last_evaluated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegimeStrengthEntry {
+    pub regime: String,
+    pub rank: u32,
+    pub strength: RegimeCompatibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OverallRating {
+    Excellent,
+    Good,
+    Fair,
+    Poor,
+    Unrated,
+}
+
 // ─── Optimization Report ────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

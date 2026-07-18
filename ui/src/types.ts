@@ -279,6 +279,7 @@ export interface RiskDimension {
     level: RiskLevel;
     state: RiskState;
     confidence: number;
+    evidence: string[];
 }
 
 export interface RiskMatrix {
@@ -424,6 +425,10 @@ export interface TimeframeTelemetry {
     showSupertrend: boolean;
     showKeltner: boolean;
     showDonchian: boolean;
+    showIchimoku: boolean;
+    showHullMa: boolean;
+    showPsar: boolean;
+    showStddevChan: boolean;
     showObv: boolean;
     showCmf: boolean;
     showMfi: boolean;
@@ -499,6 +504,18 @@ export interface InstanceState {
     analysis: AnalysisMatrix | null;
     risk: RiskMatrix | null;
     advisory: AdvisoryMatrix | null;
+    automationEnabled: boolean;
+    automationIntervalMode: string;
+    automationIntervalValue: number;
+    automationIntervalUnit: string;
+    priceLineMode: boolean;
+    slowIntervalSecs: number;
+    normalIntervalSecs: number;
+    fastIntervalSecs: number;
+    showEmaFast: boolean;
+    showEmaMedium: boolean;
+    showEmaSlow: boolean;
+    showEmaLong: boolean;
 }
 
 export interface ScaleInPortion {
@@ -535,7 +552,7 @@ export interface TimeframeOption {
     seconds: number;
 }
 
-export type MarketBias = "StrongBullish" | "Bullish" | "Neutral" | "Bearish" | "StrongBearish"; export type MarketRegime = "TRENDING_BULL" | "TRENDING_BEAR" | "RANGE" | "ACCUMULATION" | "DISTRIBUTION" | "EXPANSION" | "CONTRACTION" | "TRANSITION"; export type TrendAssessment = "Weak" | "Developing" | "Healthy" | "Strong" | "Exhausted"; export type MomentumAssessment = "Increasing" | "Stable" | "Weakening" | "Exhausted" | "Reversing"; export type StructureAssessment = "Strong" | "Healthy" | "Weak" | "Broken" | "UNKNOWN"; export type VolatilityAssessment = "Compressed" | "Normal" | "Expanding" | "Extreme" | "Unstable"; export type VolumeAssessment = "Weak" | "Normal" | "Strong" | "Exceptional"; export type OpportunityType = "TrendContinuation" | "Breakout" | "Pullback" | "MeanReversion" | "Reversal" | "NoClearOpportunity"; export type QualityLevel = "Poor" | "Weak" | "Average" | "Good" | "Excellent"; export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
+export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
     { label: '1 sec', seconds: 1 },
     { label: '3 sec', seconds: 3 },
     { label: '5 sec', seconds: 5 },
@@ -674,3 +691,68 @@ export interface PipelineReliabilityMetrics {
     total_candles_processed: number;
     reconstructed_candles: number;
 }
+
+export interface ExchangeAccount {
+    id: number;
+    exchange: string;
+    label: string;
+    currency: string;
+    testnet: boolean;
+    created_at: string;
+    is_active: boolean;
+    referred_uid: string;
+    last_sync_timestamp: number | null;
+    api_key: string;
+    account_name: string;
+}
+
+export interface SystemHeartbeat {
+    observation_loop_latency_ms: number;
+    ingest_skew_ms: number;
+    system_heartbeat_latency_ms: number;
+    wal_mode: boolean;
+    active_pairs: number;
+}
+
+export interface DecisionMemoryRow {
+    timestamp: number;
+    symbol: string;
+    decision_score: number;
+    direction: string;
+    readiness: string;
+}
+
+export interface CompletedTradesRow {
+    timestamp: number;
+    symbol: string;
+    direction: string;
+    entry_price: number;
+    exit_price: number;
+    pnl: number;
+    roi_pct: number;
+}
+
+export type AllocationCurveModel = 'Stepped' | 'Linear' | 'Exponential';
+
+export interface AllocationCurve {
+    model: AllocationCurveModel;
+    base_allocation_pct: number;
+    max_allocation_pct: number;
+    base_score_threshold: number;
+    micro_score_threshold: number;
+    exponent: number;
+}
+
+export interface PositionScalingConfig {
+    allocation_curve: AllocationCurve;
+    leverage_mode: 'Fixed' | 'VolatilityScaled';
+    leverage_cap: number;
+    target_margin: number;
+}
+
+export type TriggerModeUnion = 'interval' | 'candle_close' | 'event_driven';
+
+export type TriggerModeConfig =
+    | { mode: 'interval'; seconds: number }
+    | { mode: 'candle_close'; timeframe: string; count: number }
+    | { mode: 'event_driven'; events: string[] };

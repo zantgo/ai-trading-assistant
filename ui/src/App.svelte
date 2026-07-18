@@ -173,20 +173,24 @@
 
     function handleCreateKeydown(e: KeyboardEvent) { if (e.key === 'Enter') handleCreateWorkspace(); }
 
-    function requestRowConfirm(id: string, action: 'pause' | 'delete', pair?: string) { rowConfirm = { id, action, pair }; }
+    function requestRowConfirm(id: string, action: 'start' | 'stop' | 'pause' | 'delete', pair?: string) { rowConfirm = { id, action, pair }; }
     function cancelRowConfirm() { rowConfirm = null; }
 
     async function executeRowConfirm() {
         if (!rowConfirm) return;
         const { id, action, pair } = rowConfirm;
         rowConfirm = null;
-        const verb = action === 'delete' ? 'DELETE' : 'POST';
-        const url = action === 'delete' ? `/api/instances/${encodeURIComponent(id)}` : `/api/instances/${encodeURIComponent(id)}/${action}`;
-        try {
-            await fetch(url, { method: verb });
-            if (action === 'delete' && pair) { app.removeInstance(pair); if (app.selectedInstance === pair) app.exitInstance(); }
-            await fetchWorkspaces(); await app.fetchSessionStatus();
-        } catch (_) {}
+        if (action === 'delete') {
+            try {
+                await fetch(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                if (pair) { app.removeInstance(pair); if (app.selectedInstance === pair) app.exitInstance(); }
+            } catch (_) {}
+        } else {
+            try {
+                await fetch(`/api/instances/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+            } catch (_) {}
+        }
+        await fetchWorkspaces(); await app.fetchSessionStatus();
     }
 
     function pairDisplay(pairKey: string): string {
@@ -421,6 +425,22 @@
                                         <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Pause</button>
                                     </div>
                                 {:else}⏸{/if}
+                            </div>
+                            <div class="{styles.wsPanelActionBtn} {styles.start}" title="Start" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'start'); }}>
+                                {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'start'}
+                                    <div class={styles.confirmRow}>
+                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
+                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Start</button>
+                                    </div>
+                                {:else}▶{/if}
+                            </div>
+                            <div class="{styles.wsPanelActionBtn} {styles.stop}" title="Stop" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'stop'); }}>
+                                {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'stop'}
+                                    <div class={styles.confirmRow}>
+                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
+                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Stop</button>
+                                    </div>
+                                {:else}⏹{/if}
                             </div>
                             <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'delete', pk); }}>
                                 {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'delete'}

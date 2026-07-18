@@ -103,6 +103,7 @@ Owns: pure state interpretation. **No forecast, no reward, no danger.**
 | `market_regime` (`MarketRegime` 8-state) | L3 | |
 | `trend_assessment`, `momentum_assessment`, `structure_assessment`, `volatility_assessment`, `volume_assessment` | L3 | Five qualitative assessments |
 | `market_quality` (`QualityLevel` 5-state) | L3 | |
+| `market_quality_score` (`f64`, [0,100]) | L3 | Numeric companion to `market_quality`; consumed by L6 `confluence_score` |
 | `market_interpretation` (string) | L3 | Natural-language summary |
 | `rationale` (string) | L3 | Explainability trace |
 | `supporting_signals`, `contradicting_signals` | L3 | Per-TF evidence |

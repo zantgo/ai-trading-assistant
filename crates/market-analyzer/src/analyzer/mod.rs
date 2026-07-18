@@ -25,7 +25,7 @@ use crate::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use core_domain::liquidity::LiquidationClusterMatrix;
-use core_domain::models::{CandleQualityEnvelope, MarketSnapshot};
+use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use crate::candle_generator::CandleGenerator;
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
@@ -301,6 +301,11 @@ fn build_gapfill_snapshot(candle: &NormalizedCandle, symbol: &str, timeframe_sec
             is_valid: true,
             is_gap_filled: true,
             had_outliers_rejected: false,
+            spike_detected: false,
+            is_stale: false,
+            sequence_integrity: SequenceIntegrity::Valid,
+            gap_since_last: candle.duration_ms / 1000,
+            validated_at: candle.start_time_ms + candle.duration_ms,
         }),
     }
 }
@@ -608,6 +613,13 @@ pub async fn run_single(
 
     let mut median_filter = quality_config.as_ref().map(MedianPriceFilter::new);
 
+    let staleness_threshold_ms = quality_config
+        .as_ref()
+        .map(|q| q.staleness_threshold_secs * 1000)
+        .unwrap_or(600_000);
+
+    let mut last_trade_ts_ms: u64 = 0;
+
     // DIE L3 runtime sequence audit + gap-fill state (03-01-04 §3 / §2.1.2).
     let duration_ms = tf_config.candles.duration_seconds * 1000;
     let mut last_completed_start_ms: Option<u64> = (t_last_hist > 0).then_some(t_last_hist);
@@ -666,6 +678,8 @@ pub async fn run_single(
                     reliability.increment_out_of_order(1).await;
                     continue;
                 }
+
+                last_trade_ts_ms = trade.timestamp_ms;
 
                 let trade_price_f = trade.price.to_f64().unwrap_or(0.0);
                 let verdict = if let Some(ref mut filter) = median_filter {
@@ -859,11 +873,48 @@ pub async fn run_single(
                         .unwrap_or(0);
                     let had_outliers_this_candle = rejected_total > outliers_at_prev_candle;
                     outliers_at_prev_candle = rejected_total;
+
+                    let now_ms = core_domain::LatencyTracker::now_ms();
+                    let candle_close_ms = completed.start_time_ms + duration_ms;
+                    let candle_stale = last_trade_ts_ms > 0
+                        && candle_close_ms.saturating_sub(last_trade_ts_ms) > staleness_threshold_ms;
+
+                    let gap_secs = match last_completed_start_ms {
+                        Some(_prev) => {
+                            let gap_ms = completed.start_time_ms.saturating_sub(
+                                last_completed_start_ms.unwrap_or(completed.start_time_ms),
+                            );
+                            gap_ms / 1000
+                        }
+                        None => duration_ms / 1000,
+                    };
+
+                    let quality_score = if !is_valid {
+                        0.0
+                    } else {
+                        let mut score = 100.0_f64;
+                        if is_reconstructed {
+                            score -= 20.0;
+                        }
+                        if had_outliers_this_candle {
+                            score -= 10.0;
+                        }
+                        if candle_stale {
+                            score -= 30.0;
+                        }
+                        score.clamp(0.0, 100.0)
+                    };
+
                     let quality_envelope = CandleQualityEnvelope {
-                        quality_score: if is_valid { 100.0 } else { 0.0 },
+                        quality_score,
                         is_valid,
                         is_gap_filled: is_reconstructed,
                         had_outliers_rejected: had_outliers_this_candle,
+                        spike_detected: had_outliers_this_candle,
+                        is_stale: candle_stale,
+                        sequence_integrity: SequenceIntegrity::Valid,
+                        gap_since_last: gap_secs,
+                        validated_at: now_ms,
                     };
                     let candle_close_sec = completed.start_time_ms / 1000;
                     let day_index = candle_close_sec / 86400;

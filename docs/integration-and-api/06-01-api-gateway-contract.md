@@ -12,7 +12,7 @@
 |----------|-------|
 | Framework | Axum (Rust) on a Tokio runtime |
 | Base URL | `http://127.0.0.1:3000` (localhost only) |
-| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local_operator"` (fixed identity). Caller-supplied identity via `X-Operator-Id` header is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = local_operator`. There is no per-route authentication in v4.0. The `local_operator` identity is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
+| Authentication | **Local-operator identity model.** Single-user deployments identify every override/audit event as `operator_id = "local"` (the canonical default). Caller-supplied identity via `X-Operator-Id` header is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id` defaults to `"local"`. There is no per-route authentication in the current release. The `operator_id` value is recorded in the `risk_control_events.operator_id` column (see [`06-02-database-schema-spec.md §3.10`](06-02-database-schema-spec.md)), the WebSocket control frame `operator_id` field, and the UI audit display. |
 | Static assets | `ui/dist/` served via `tower_http::services::ServeDir` |
 
 ### 1.0 Canonical glossary (Market Instance identifier)
@@ -38,7 +38,7 @@ Every response uses one of the following status codes:
 | Code | Meaning |
 |---|---|
 | `200 OK` | Successful read or idempotent mutation |
-| `201 Created` | New resource persisted (rare in v4.0) |
+| `201 Created` | New resource persisted (infrequent in current release) |
 | `204 No Content` | Successful mutation, no body |
 | `400 Bad Request` | JSON parse error, missing required field, malformed value |
 | `404 Not Found` | Unknown resource (unknown `instance_id`, unknown pair_key, etc.) |
@@ -96,7 +96,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 |--------|------|--------|----------|
 | `GET` | `/api/history` | `symbol`, `timeframe_secs`, `limit` (default `100`, max `1000`) | `{ symbol, prices[], candles[], indicator_histories }` |
 | `GET` | `/api/monitor` | `symbol` | Multi-TF meta-intelligence (per-TF regime, MTF agreement matrix, MarketContext). |
-| `GET` | `/api/connection-quality` | `instance_id` (required), `timeframe_secs` (required), `window=one_hour\|six_hour\|twenty_four_hour` (default `one_hour`) | `ConnectionQualityReport` JSON (`window`, `window_start_ms`, `window_end_ms`, `uptime_pct`, `disconnect_count`, `avg_reconnect_ms`, `total_data_loss_secs`, `reconstructed_candles`, `score`). The `instance_id` and `timeframe_secs` query parameters are **required** (the scope is `instance_id × timeframe_secs`, one WebSocket connection per `TimeframePipeline`; no process-wide aggregate). Returns `400 Bad Request` if either query parameter is missing. See [`08-05-connection-quality.md §REST API`](../operations-and-compliance/08-05-connection-quality.md) for the full schema and behaviour. |
+| `GET` | `/api/connection-quality` | `instance_id` (optional), `timeframe_secs` (optional), `window=one_hour\|six_hour\|twenty_four_hour` (default `one_hour`) | `ConnectionQualityReport` JSON (`window`, `window_start_ms`, `window_end_ms`, `uptime_pct`, `disconnect_count`, `avg_reconnect_ms`, `total_data_loss_secs`, `reconstructed_candles`, `score`). When both `instance_id` and `timeframe_secs` are supplied, returns the per-scope report for that `(instance_id, timeframe_secs)` pair. When either is absent, falls through to a cross-scope process-wide aggregate. See [`08-05-connection-quality.md §REST API`](../operations-and-compliance/08-05-connection-quality.md) for the full schema and behaviour. |
 
 ### 2.4 Instances (Workspaces)
 
@@ -104,20 +104,20 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 |--------|------|---------|
 | `GET` | `/api/instances?pair_key=` | List running instance summaries. |
 | `POST` | `/api/instances` | Create instance (`{ symbol: string }` — unified internal symbol, e.g. `"BTC-USDT"`). |
-| `GET` | `/api/instances/:id` | Instance detail (equity, caution). |
-| `DELETE` | `/api/instances/:id` | Delete instance. |
+| `GET` | `/api/instances/:instance_id` | Instance detail (equity, caution). |
+| `DELETE` | `/api/instances/:instance_id` | Delete instance. |
 | `DELETE` | `/api/instances/by-pair/:pair_key` | Delete by pair key. |
-| `POST` | `/api/instances/:id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
-| `GET` | `/api/instances/:id/activation` | Returns the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) as applied at the current `config_version`. Response: `{ disabled_indicators: [], disabled_signals: [], disabled_signal_kinds: [], liquidity: {...}, config_version: u64 }`. Absent fields indicate the registry default. See [`03-02-12-mme-configurable-activation.md §2`](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). |
-| `POST` | `/api/instances/:id/start` | Transition STOPPED/lifecycle PAUSED → RUNNING (Gate 0 admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
-| `POST` | `/api/instances/:id/pause` | Close Gate 0 entry path; loop keeps running for policy-driven exits. Lifecycle axis only — distinct from stance `CLOSE_ONLY` and policy `AUTO_PAUSED` (see [03-03-06 §6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
-| `POST` | `/api/instances/:id/stop` | Transition RUNNING/lifecycle PAUSED → STOPPING → STOPPED (flatten: cancel orders + market-close positions with `is_emergency_liquidation = true`, `reduce_only = true`). DELETE on a non-STOPPED instance returns `409` (see [03-03-06 IL-08](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
-| `POST` | `/api/instances/:id/safety/reset` | Reset the per-symbol `consecutive_losses` counter (clears `consecutive_losses[sym]`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
-| `POST` | `/api/instances/:id/safety/release-veto` | **Release a hard drawdown / systemic veto.** The endpoint checks that the underlying veto condition (drawdown below threshold *and* `systemic_risk_score < systemic_risk_threshold`) has cleared, then restores the operator-configured default stances and clears the operator one-time-acknowledge flag. Returns `422 Unprocessable Entity` if the veto condition is still active, `200 OK` on success. Distinct from `/safety/reset` (which only clears the consecutive-loss counter). The `operator_id` from the local-operator model is recorded in the resulting `risk_control_events` row. |
-| `POST` | `/api/instances/:id/manual/open` | Log manual position open. Request: `InstanceManualRequest { action: string (required), direction: Option<string> ("LONG"\|"SHORT"), price: Option<f64>, pre_dispatch_order_id: Option<string> }`. The optional `pre_dispatch_order_id` references a held order in `PRE_DISPATCH` from Gate 5; if present, the manual action approves the held order rather than opening a separate position. |
-| `POST` | `/api/instances/:id/manual/close` | Log manual position close. Same `InstanceManualRequest` shape. |
-| `POST` | `/api/instances/:id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |
-| `POST` | `/api/orders/:id/override-readiness` | **Gate 2 override** — clears a `STAND_ASIDE` decision for a specific held order. The override is logged with `operator_id = "local_operator"`. Returns `422 Unprocessable Entity` if the order is not currently `HELD_FOR_REVIEW`. |
+| `POST` | `/api/instances/:instance_id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
+| `GET` | `/api/instances/:instance_id/activation` | Returns the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) as applied at the current `config_version`. Response: `{ disabled_indicators: [], disabled_signals: [], disabled_signal_kinds: [], liquidity: {...}, config_version: u64 }`. Absent fields indicate the registry default. See [`03-02-12-mme-configurable-activation.md §2`](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). |
+| `POST` | `/api/instances/:instance_id/start` | Transition STOPPED/lifecycle PAUSED → RUNNING (Gate 0 admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
+| `POST` | `/api/instances/:instance_id/pause` | Close Gate 0 entry path; loop keeps running for policy-driven exits. Lifecycle axis only — distinct from stance `CLOSE_ONLY` and policy `AUTO_PAUSED` (see [03-03-06 §6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
+| `POST` | `/api/instances/:instance_id/stop` | Transition RUNNING/lifecycle PAUSED → STOPPING → STOPPED (flatten: cancel orders + market-close positions with `is_emergency_liquidation = true`, `reduce_only = true`). DELETE on a non-STOPPED instance returns `409` (see [03-03-06 IL-08](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |
+| `POST` | `/api/instances/:instance_id/safety/reset` | Reset the per-symbol `consecutive_losses` counter (clears `consecutive_losses[sym]`; does **not** release a drawdown or systemic veto — see `/safety/release-veto` below). |
+| `POST` | `/api/instances/:instance_id/safety/release-veto` | **Release a hard drawdown / systemic veto.** The endpoint checks that the underlying veto condition (drawdown below threshold *and* `systemic_risk_score < systemic_risk_threshold`) has cleared, then restores the operator-configured default stances and clears the operator one-time-acknowledge flag. Returns `422 Unprocessable Entity` if the veto condition is still active, `200 OK` on success. Distinct from `/safety/reset` (which only clears the consecutive-loss counter). The `operator_id` from the local-operator model is recorded in the resulting `risk_control_events` row. |
+| `POST` | `/api/instances/:instance_id/manual/open` | Log manual position open. Request: `InstanceManualRequest { action: string (required), direction: Option<string> ("LONG"\|"SHORT"), price: Option<f64>, pre_dispatch_order_id: Option<string> }`. The optional `pre_dispatch_order_id` references a held order in `PRE_DISPATCH` from Gate 5; if present, the manual action approves the held order rather than opening a separate position. |
+| `POST` | `/api/instances/:instance_id/manual/close` | Log manual position close. Same `InstanceManualRequest` shape. |
+| `POST` | `/api/instances/:instance_id/intervals` | Set trigger loop intervals (`{ slow_seconds, normal_seconds, fast_seconds }`). |
+| `POST` | `/api/orders/:id/override-readiness` | **Gate 2 override** — clears a `STAND_ASIDE` decision for a specific held order. The override is logged with `operator_id = "local"`. Returns `422 Unprocessable Entity` if the order is not currently `HELD_FOR_REVIEW`. |
 
 ### 2.5 Decision & Risk Profiles
 
@@ -227,7 +227,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
 | `GET` | `/api/pre-dispatch?instance_id=` | — | `{ items: PreDispatchOrder[] }` — every `PRE_DISPATCH` order matching the instance scope (or all instances if `instance_id` is omitted). `PreDispatchOrder { order_id, instance_id, pair_key, side, requested_size, estimated_slippage_pct, gate_reasons, held_since_ms }`. |
-| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local_operator"`; caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled); until then `operator_id = local_operator`. |
+| `POST` | `/api/pre-dispatch/:id/approve` | `{ operator_id?: string, accept_slippage_pct: f64 }` | `200 OK` on success (the held order resumes the dispatch flow past Gate 5 with the operator-acknowledged slippage). `422 Unprocessable Entity` if the order is no longer in `PRE_DISPATCH` (e.g. timed out). The default `operator_id` is `"local"`; caller-supplied identity via `X-Operator-Id` is deferred (AUDIT-V4-076, Unscheduled). |
 | `DELETE` | `/api/pre-dispatch/:id` | — | `204 No Content` (the held order is discarded without dispatch; the associated `risk_control_events` row is preserved). |
 
 `Pre-dispatch` orders are not persisted to the `open_orders` table (per [`03-03-03-tae-layer2-execution.md §4`](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)); They live only in process memory. An engine restart, crash, or process termination during the slippage-review window means the held order is lost on restart; only its gate decision survives in `risk_control_events`. Operators relying on Gate 5 for slippage review in a 24/7 deployment should design workflows around the manual-review API rather than expecting engine-replayable recovery. The future `pre_dispatch_orders` table for crash-recoverable persistence is unscheduled (see `docs/CHANGELOG.md`).
@@ -302,7 +302,7 @@ Key properties:
 
 The shared crate (`crates/core-domain/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.
 
-The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the local-operator identity (see §1) — `local_operator` today; caller-supplied identity via the `X-Operator-Id` header is deferred (see `docs/CHANGELOG.md` Open Items).
+The `operator_id` field on internal `execution.*` and `safety.*` control frames carries the local-operator identity (see §1) — `"local"` today; caller-supplied identity via the `X-Operator-Id` header is deferred (see `docs/CHANGELOG.md` Open Items).
 
 ---
 

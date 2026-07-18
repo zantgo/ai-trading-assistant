@@ -3,6 +3,228 @@
     display: flex;
     background: #000;
     color: #fff;
+    overflow: hidden;
+}
+
+.content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.55);
+    margin: 0;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+}
+
+.subtitle {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.35);
+    font-family: 'Courier New', monospace;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+@media (max-width: 1200px) {
+    .grid { grid-template-columns: 1fr; }
+}
+
+.card {
+    background: #0a0d14;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.cardHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.cardTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+}
+
+.cardCount {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.3);
+    font-family: 'Courier New', monospace;
+}
+
+.barList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.barRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.barLabel {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    min-width: 90px;
+    white-space: nowrap;
+}
+
+.barTrack {
+    flex: 1;
+    height: 6px;
+    background: #1e293b;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.barFill {
+    height: 100%;
+    background: #334155;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.barVal {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    font-family: 'Courier New', monospace;
+    min-width: 24px;
+    text-align: right;
+}
+
+.riskStats {
+    display: flex;
+    gap: 24px;
+}
+
+.riskMetric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+}
+
+.riskLabel {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+}
+
+.riskVal {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.emptyRow {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+    font-style: italic;
+}
+
+.tableSection {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sectionTitle {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+    margin: 0;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.4);
+    text-transform: uppercase;
+    border-bottom: 1px solid #1e293b;
+    font-family: 'Courier New', monospace;
+}
+
+.tr {
+    border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+}
+
+.tr:last-child {
+    border-bottom: none;
+}
+
+.tdSymbol {
+    padding: 10px 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.8);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tdMono {
+    padding: 10px 12px;
+    font-family: 'Courier New', monospace;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.td {
+    padding: 10px 12px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.statusDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #475569;
+    flex-shrink: 0;
+}
+
+.statusDot.active {
+    background: #22c55e;
 }
 
 .featurePlaceholder {

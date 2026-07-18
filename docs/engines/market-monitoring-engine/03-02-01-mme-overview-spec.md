@@ -3,7 +3,7 @@
 **Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
-**Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven analytical layers: L1–L3 sequential, L4 ∥ L5 parallel from L3, L6–L7 sequential after convergence (see `01-01-ontology.md Ch. 6`).
+**Purpose:** This document specifies the boundaries, module pipeline, concurrency strategy, and instance-management model of the Market Monitoring Engine — the analytical heart of the platform. The MME transforms clean market data into multi-timeframe technical intelligence across seven core analytical layers (L1–L7) with two fractional extension layers (L1.5: Derivatives Telemetry, L2.5: Liquidity Synthesis) — see `01-01-ontology.md` Ch. 6 and `03-02-11-mme-liquidity-extension.md`. L1–L3 sequential, L4 ∥ L5 parallel from L3 (with additional feeds from L1.5 and L2.5), L6–L7 sequential after convergence.
 
 ---
 
@@ -11,11 +11,11 @@
 
 The MME **interprets** the market. It consumes the DIE's Market Data Matrix and produces the full analytical cascade: Metrics → Alignment → Analysis → (Opportunity ∥ Risk) → Decision → Overview. It executes **no trades** and holds **no capital** — it is a pure observation-and-interpretation engine.
 
-> **Target Architecture (Not Yet Implemented).** MME **Layers 1–5** are intended to be **strict Data-Oriented Design (DOD)** pipelines: their concurrent `TimeframePipeline` tasks process contiguous `f64` arrays with **zero runtime allocations** and no heap-allocated collection searches (no per-tick `HashMap` lookups). *Current implementation:* the pipeline computes indicators in `rust_decimal::Decimal` and carries results in a `HashMap<String, NormalizedIndicatorValue>`-keyed `MarketSnapshot`.
+> **Target Architecture (Not Yet Implemented).** MME **Layers 1–5 (including L1.5 and L2.5)** are intended to be **strict Data-Oriented Design (DOD)** pipelines: their concurrent `TimeframePipeline` tasks process contiguous `f64` arrays with **zero runtime allocations** and no heap-allocated collection searches (no per-tick `HashMap` lookups). *Current implementation:* the pipeline computes indicators in `rust_decimal::Decimal` and carries results in a `HashMap<String, NormalizedIndicatorValue>`-keyed `MarketSnapshot`.
 
 ```
-[Market Data Matrix] ──► MME (7 layers) ──► [Decision Matrix] ──► [TAE]
-                                        └──► [Overview Matrix] ──► [PME veto]
+[Market Data Matrix] ──► MME (7 core + 2 fractional layers) ──► [Decision Matrix] ──► [TAE]
+                                                         └──► [Overview Matrix] ──► [PME veto]
 ```
 
 ### 1.1 Layer Structure
@@ -23,7 +23,9 @@ The MME **interprets** the market. It consumes the DIE's Market Data Matrix and 
 | Layer | Name | Output Matrix |
 |-------|------|---------------|
 | L1 | [Metrics](03-02-02-mme-layer1-metrics.md) | [Metrics Matrix](../../matrices/02-07-metrics-matrix.md) |
+| L1.5 | [Derivatives Telemetry](03-02-11-mme-liquidity-extension.md) | [LiquidityFlow](../../matrices/02-12-liquidity-matrix.md) |
 | L2 | [Alignment](03-02-03-mme-layer2-alignment.md) | [Alignment Matrix](../../matrices/02-01-alignment-matrix.md) |
+| L2.5 | [Liquidity Synthesis](03-02-11-mme-liquidity-extension.md) | [LiquidationClusterMatrix](../../matrices/02-13-liquidation-cluster-matrix.md) |
 | L3 | [Analysis](03-02-04-mme-layer3-analysis.md) | [Analysis Matrix](../../matrices/02-02-analysis-matrix.md) |
 | L4 | [Opportunity](03-02-05-mme-layer4-opportunity.md) | [Opportunity Matrix](../../matrices/02-08-opportunity-matrix.md) |
 | L5 | [Risk](03-02-06-mme-layer5-risk.md) | [Risk Matrix](../../matrices/02-11-risk-matrix.md) |
@@ -63,6 +65,23 @@ completed candle
    ▼
 broadcast MarketSnapshot
 ```
+
+For open (still-flickering) candles, a lighter **shadow path** runs on every tick:
+
+```
+open candle tick
+   │
+   ▼
+[fast indicator recompute] → raw values update (no signal detection)
+   │
+   ▼
+[build_indicator_map]     → unified IndicatorEvaluation map (shadow-only)
+   │
+   ▼
+broadcast MarketSnapshot (is_completed = false)
+```
+
+Shadow snapshots carry updated indicator readings for real-time display, but signals, cross-TF synthesis, and higher-layer matrices are not re-evaluated until the candle closes.
 
 ---
 
@@ -117,8 +136,8 @@ The MME computes **50 technical indicators** across 8 functional groups, with **
 | Metric | Target |
 |--------|--------|
 | Full 7-layer cascade per candle | ≤ 15 ms (MME share of the 25 ms end-to-end observation loop: DIE Raw→Distribution ≤ 10 ms + MME cascade ≤ 15 ms; see [01-03 §4](../../conceptual-foundations/01-03-systemic-data-flow.md)) |
-| Indicator computation (50) | ≤ 8 ms |
-| Cross-TF synthesis (L2–L6) | ≤ 4 ms |
+| Indicator computation (50) | < 10 ms |
+| Cross-TF synthesis (L2–L6) | < 5 ms |
 | Shadow / pipeline overhead (L3 quality stamp, L7 rollup) | ≤ 3 ms |
 | Live shadow update | < 5 ms |
 

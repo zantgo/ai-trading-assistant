@@ -193,7 +193,12 @@ impl ConnectionQualityTracker {
         };
         let disconnect_factor = 1.0 - (disconnect_count as f64 / 10.0).min(1.0);
         let reconnect_factor = 1.0 - (avg_reconnect_ms / 5000.0).min(1.0);
-        let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor)
+        let data_loss_penalty = 5.0 * (total_data_loss_secs as f64 / 600.0).min(1.0);
+        let reconstructed_penalty =
+            5.0 * (state.reconstructed_candle_count as f64 / 100.0).min(1.0);
+        let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor
+            - data_loss_penalty
+            - reconstructed_penalty)
             .clamp(0.0, 100.0);
 
         ConnectionQualityReport {
@@ -343,7 +348,13 @@ impl ConnectionQualityRegistry {
             reports.iter().map(|(_, _, r)| r.reconstructed_candles).sum();
         let disconnect_factor = 1.0 - (disconnect_count as f64 / 10.0).min(1.0);
         let reconnect_factor = 1.0 - (avg_reconnect_ms / 5000.0).min(1.0);
-        let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor)
+        let data_loss_penalty =
+            5.0 * (total_data_loss_secs as f64 / 600.0).min(1.0);
+        let reconstructed_penalty =
+            5.0 * (reconstructed_candles as f64 / 100.0).min(1.0);
+        let score = (0.5 * uptime_pct + 30.0 * disconnect_factor + 20.0 * reconnect_factor
+            - data_loss_penalty
+            - reconstructed_penalty)
             .clamp(0.0, 100.0);
         ConnectionQualityReport {
             window,

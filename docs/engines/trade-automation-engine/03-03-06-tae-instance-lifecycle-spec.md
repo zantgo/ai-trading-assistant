@@ -17,8 +17,8 @@
 | **IL-04** | **`PAUSED`** = the entry gate is closed (no new positions), but **the event loop keeps running** and **existing positions continue to be managed and closed exactly as policy dictates**. |
 | **IL-05** | New **Gate 0 (lifecycle)** in the pre-trade chain of `08-02-pre-trade-risk-controls.md`, evaluated **before Gate 1 (stance)**: entry orders are admitted only when `lifecycle_state = RUNNING`. Exits (`reduce_only = true` or `is_emergency_liquidation = true`) **always bypass Gate 0**. Blocked entries write `risk_control_events` with `gate_id = 0`. Existing Gates 1–7 keep their numbers. |
 | **IL-06** | The corpus recognizes **three orthogonal per-instance axes**: **LifecycleState** (this enum) × **`active_stance`** (per-symbol authorization) × **`safety_state`** (account risk posture). All axes are **conjunctive** — every applicable check must permit. |
-| **IL-07** | Three commands — **start / pause / stop** — map to endpoints: `POST /api/instances/:id/start`, `POST /api/instances/:id/pause`, `POST /api/instances/:id/stop`. **Manual commands are always available regardless of automation configuration** (operator supremacy). |
-| **IL-08** | **Deletion is manual-only, irreversible, requires STOPPED.** `DELETE /api/instances/:id` returns `409` for RUNNING/PAUSED/STOPPING instances. Delete writes a `deleted_at_ms` tombstone; the instance disappears from list/detail endpoints (`404`); telemetry rows are retained. |
+| **IL-07** | Three commands — **start / pause / stop** — map to endpoints: `POST /api/instances/:instance_id/start`, `POST /api/instances/:instance_id/pause`, `POST /api/instances/:instance_id/stop`. **Manual commands are always available regardless of automation configuration** (operator supremacy). |
+| **IL-08** | **Deletion is manual-only, irreversible, requires STOPPED.** `DELETE /api/instances/:instance_id` returns `409` for RUNNING/PAUSED/STOPPING instances. Delete writes a `deleted_at_ms` tombstone; the instance disappears from list/detail endpoints (`404`); telemetry rows are retained. |
 | **IL-09** | **Creation is manual-only** (`POST /api/instances` or UI create bar). No rule, schedule, or automation may create or delete an instance. |
 | **IL-10** | Initial state at creation: created **without** a start condition → **RUNNING immediately**. Created **with** an `automation.start` condition → **STOPPED (armed)**. Column default is `STOPPED` (fail-closed). |
 | **IL-11** | Automation configuration schema — three optional condition objects (`start`, `pause`, `stop`), each with optional keys `at_price_above`, `at_price_below`, `at_time` (RFC3339 UTC), `after_duration_secs` (pause/stop only). Multiple keys inside one condition are **OR** (first to fire wins). TOML form per §4. |
@@ -159,7 +159,7 @@ The following items are implementation work tracked in `CHANGELOG.md` §Open Ite
 
 - `AUDIT-V6-202` — `config-models`: add `LifecycleState` enum; add `instance.automation` struct (start/pause/stop conditions).
 - `AUDIT-V6-203` — `database-storage`: add migrations `00XX_create_instance_lifecycle.sql` and `00XX_create_instance_lifecycle_events.sql`; bump `user_version`.
-- `AUDIT-V6-204` — `api-gateway`: implement `POST /api/instances/:id/start`; rewrite `/pause` handler (entry-gate semantics); rewrite `/stop` handler (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone.
+- `AUDIT-V6-204` — `api-gateway`: implement `POST /api/instances/:instance_id/start`; rewrite `/pause` handler (entry-gate semantics); rewrite `/stop` handler (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone.
 - `AUDIT-V6-205` — `portfolio-supervisor`: implement Gate 0 check in pre-trade chain.
 - `AUDIT-V6-206` — `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true`.
 - `AUDIT-V6-207` — `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line.

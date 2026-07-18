@@ -24,10 +24,12 @@ pub async fn serve_history(
     };
 
     let tf_secs = query.timeframe_secs.unwrap_or(60);
+    let limit = query.limit.min(1000);
 
     let (prices, candles, indicator_history) = match get_active_pair(&state, &pair_key).await {
         Some(pair) => {
-            let snap_hist = pair.snapshot_history_vec(tf_secs).await;
+            let mut snap_hist = pair.snapshot_history_vec(tf_secs).await;
+            snap_hist.truncate(limit);
             let count = snap_hist.len();
 
             // Union of all indicator keys (and their multi-line value

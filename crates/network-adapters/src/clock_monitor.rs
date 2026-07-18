@@ -133,7 +133,7 @@ impl ClockMonitor {
         }
     }
 
-    fn handle_verdict(&self, verdict: &DriftVerdict) {
+    pub fn handle_verdict(&self, verdict: &DriftVerdict) {
         match verdict {
             DriftVerdict::WithinThreshold {
                 offset_us,
@@ -248,7 +248,7 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn verdict_from_sample(sample: &ClockSample, threshold_us: i64) -> DriftVerdict {
+pub fn verdict_from_sample(sample: &ClockSample, threshold_us: i64) -> DriftVerdict {
     let abs_offset = sample.offset_us.unsigned_abs() as i64;
     if abs_offset > threshold_us {
         DriftVerdict::BreachThreshold {

@@ -65,8 +65,8 @@ The `SafetyManager` (`crates/portfolio-supervisor/src/safety.rs`) tracks **five*
 
 ```
 NORMAL ──(daily_drawdown_pct ≥ max_daily_drawdown_pct)──► WARN
-       ──(consecutive_losses ≥ caution_threshold)──► CAUTIOUS
-       ──(consecutive_losses ≥ dropout_threshold)──► SUSPENDED (timed)
+       ──(consecutive_losses[sym] ≥ caution_threshold)──► CAUTIOUS
+       ──(consecutive_losses[sym] ≥ dropout_threshold)──► SUSPENDED (timed)
        ──(current_equity / peak_equity < 1 − drawdown_limit_pct)──► DRAWDOWN_STOP
 ```
 

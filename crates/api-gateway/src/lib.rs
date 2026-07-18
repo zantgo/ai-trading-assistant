@@ -18,6 +18,7 @@ use network_adapters::clock_monitor::ClockMonitor;
 use portfolio_supervisor::session::{Currency, ExchangeChoice, SessionState};
 use portfolio_supervisor::instance::Instance;
 use portfolio_supervisor::workspace_state::WorkspaceState;
+use portfolio_supervisor::execution::ExecutionEngine;
 
 pub mod handlers;
 pub mod helpers;
@@ -56,6 +57,7 @@ pub struct AppState {
     pub bitget_ws_url: String,
     /// L7 cross-symbol market overview, refreshed periodically.
     pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
+    pub execution_engine: Arc<ExecutionEngine>,
 }
 
 impl AppState {
@@ -395,6 +397,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/analytics/trades",
             get(handlers::analytics::serve_trade_analytics),
+        )
+        .route(
+            "/api/analytics/summary",
+            get(handlers::analytics::serve_performance_summary),
         )
         .route(
             "/api/system/status",

@@ -2,28 +2,12 @@ use database_storage;
 use sqlx::SqlitePool;
 use tokio_util::sync::CancellationToken;
 
+use core_domain::performance::{OptimizationReport, RegimePerformanceReport};
+
 pub struct OptimizerConfig {
     pub pool: SqlitePool,
     pub cancel: CancellationToken,
     pub interval_secs: u64,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct RegimePerformanceReport {
-    pub regime: String,
-    pub trade_count: i64,
-    pub win_rate: f64,
-    pub profit_factor: f64,
-    pub avg_r_multiple: f64,
-    pub total_pnl: f64,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct OptimizationReport {
-    pub timestamp: i64,
-    pub total_trades: i64,
-    pub regime_reports: Vec<RegimePerformanceReport>,
-    pub recommendations: Vec<String>,
 }
 
 pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
@@ -64,10 +48,6 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
             let wins = regime_trades
                 .iter()
                 .filter(|t| t.realized_pnl > 0.0)
-                .count();
-            let _losses = regime_trades
-                .iter()
-                .filter(|t| t.realized_pnl < 0.0)
                 .count();
             let win_rate = if !regime_trades.is_empty() {
                 wins as f64 / regime_trades.len() as f64 * 100.0
@@ -165,10 +145,10 @@ pub async fn run_strategy_optimizer(cfg: OptimizerConfig) {
             recommendations,
         };
 
-        // OptimizationReport is composed in-memory and the report is
-        // logged via the `println!` line below. No persistence is performed.
+        database_storage::insert_optimization_report(&cfg.pool, &report).await;
+
         println!(
-            "📊 Strategy Optimizer: Report generated — {} trades, {} regimes analyzed",
+            "📊 Strategy Optimizer: Report persisted — {} trades, {} regimes analyzed",
             report.total_trades,
             by_regime.len()
         );

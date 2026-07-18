@@ -67,7 +67,7 @@ the strict L4 / L5 orthogonality invariant.
 
 2. **L4/L5 orthogonality preserved.** L4 and L5 still never read each other's matrices. The Phase 3 multi-source rule is strictly the additional L1.5/L2.5 feeds already listed in (1); L4 and L5 continue to read L3 directly. See [02-00-matrix-field-ownership.md §5](../../matrices/02-00-matrix-field-ownership.md) for the full edge table.
 
-3. **No new engine.** The Liquidity Intelligence subsystem lives entirely within MME as two new layer pairs. The 5-engine count remains stable.
+3. **No new engine.** The Liquidity Intelligence subsystem lives entirely within MME as two new fractional layers. The 5-engine count remains stable.
 
 ## Layer diagram (post-Phase 0-4)
 
@@ -122,7 +122,7 @@ The Phase 3 `LiquiditySignalKind` enum defines **7** signals derived per snapsho
 All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See [01-05-liquidity-domain.md §Phase 3](../../conceptual-foundations/01-05-liquidity-domain.md).
 
 > **Field-naming note.** A previous version of this section referred to the
-> Advisory Matrix's `opportunity_type` field. That field was removed
+> Decision Matrix's `opportunity_type` field. That field was removed
 > in the institutional redesign; the canonical opportunity classifier now
 > lives on the L4 Opportunity Matrix as `primary_opportunity` (see
 > [02-00-matrix-field-ownership.md §3](../../matrices/02-00-matrix-field-ownership.md)).

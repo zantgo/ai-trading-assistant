@@ -1,4 +1,6 @@
 use config_models::{LifecycleState, OrderPacket, Stance};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GateResult {
@@ -18,6 +20,11 @@ pub fn evaluate_gates(
     slippage_ceiling_pct: f64,
     max_leverage: u32,
     max_position_size_usd: Option<f64>,
+    bid_price: Option<Decimal>,
+    ask_price: Option<Decimal>,
+    active_position_count: usize,
+    total_equity: f64,
+    safety_state: &str,
 ) -> GateResult {
     let is_exit = order.reduce_only || order.is_emergency_liquidation;
     let is_emergency = order.is_emergency_liquidation;
@@ -108,7 +115,11 @@ pub fn evaluate_gates(
         }
 
         if max_leverage > 0 {
-            let leverage = order.size.to_string().parse::<f64>().unwrap_or(0.0) / available_margin;
+            let leverage = if available_margin > 0.0 {
+                order.size.to_string().parse::<f64>().unwrap_or(0.0) / available_margin
+            } else {
+                f64::MAX
+            };
             if leverage > max_leverage as f64 {
                 return GateResult::Blocked {
                     gate: 4,
@@ -122,10 +133,7 @@ pub fn evaluate_gates(
     }
 
     // ── Gate 5: Slippage Ceiling ─────────────────────────────────
-    // Uses spread-based estimation from current order book mid/bid/ask.
-    // When order book data is unavailable, uses a conservative estimate
-    // (2x configured ceiling) to ensure the gate catches pathological fills.
-    let estimated_slippage = slippage_ceiling_pct * 0.8;
+    let estimated_slippage = compute_estimated_slippage(order, bid_price, ask_price);
     if estimated_slippage > slippage_ceiling_pct {
         return GateResult::HeldForReview {
             gate: 5,
@@ -138,12 +146,12 @@ pub fn evaluate_gates(
 
     // ── Gate 6: Exposure Concentration ───────────────────────────
     if !order.reduce_only {
-        let concentration = compute_concentration(order);
+        let concentration = compute_concentration(order, active_position_count, total_equity);
         if concentration > 0.50 {
             return GateResult::Blocked {
                 gate: 6,
                 reason: format!(
-                    "Exposure concentration {:.2} exceeds limit 0.50",
+                    "Portfolio exposure concentration {:.2} exceeds limit 0.50",
                     concentration
                 ),
             };
@@ -157,6 +165,25 @@ pub fn evaluate_gates(
     }
 
     // ── Gate 7: PME Safety Veto ──────────────────────────────────
+    // Fresh re-validation against PME authority (per 08-02 §3: Gate 7 is the
+    // active-veto check that re-validates against most recent PME authority,
+    // catching veto events that may have raced with the policy trigger).
+    match safety_state {
+        "DRAWDOWN_STOP" => {
+            return GateResult::Blocked {
+                gate: 7,
+                reason: "PME safety veto: capital drawdown limit exceeded".into(),
+            };
+        }
+        "SUSPENDED" => {
+            return GateResult::Blocked {
+                gate: 7,
+                reason: "PME safety veto: trading suspended (loss streak)".into(),
+            };
+        }
+        _ => {}
+    }
+
     if stance == Stance::Avoid {
         return GateResult::Blocked {
             gate: 7,
@@ -167,10 +194,297 @@ pub fn evaluate_gates(
     GateResult::Approved
 }
 
-fn compute_concentration(order: &OrderPacket) -> f64 {
-    let size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
-    if size_f64 <= 0.0 {
+fn compute_estimated_slippage(
+    order: &OrderPacket,
+    bid_price: Option<Decimal>,
+    ask_price: Option<Decimal>,
+) -> f64 {
+    match (bid_price, ask_price) {
+        (Some(bid), Some(ask)) if bid > Decimal::ZERO && ask > Decimal::ZERO => {
+            let spread = ask - bid;
+            let mid = (bid + ask) / Decimal::from(2);
+            if mid > Decimal::ZERO {
+                let spread_pct = (spread / mid * Decimal::from(100))
+                    .to_f64()
+                    .unwrap_or(1.0);
+                let order_size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+                if order_size_f64 > 0.0 {
+                    spread_pct * (1.0 + (order_size_f64 / 100_000.0).min(5.0))
+                } else {
+                    spread_pct
+                }
+            } else {
+                1.0
+            }
+        }
+        _ => {
+            let order_size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+            if order_size_f64 > 10_000.0 {
+                0.5
+            } else {
+                0.1
+            }
+        }
+    }
+}
+
+fn compute_concentration(
+    order: &OrderPacket,
+    active_position_count: usize,
+    total_equity: f64,
+) -> f64 {
+    let order_size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+    if order_size_f64 <= 0.0 || total_equity <= 0.0 {
         return 0.0;
     }
-    size_f64.min(1.0)
+    let base_concentration = order_size_f64 / total_equity;
+    let position_multiplier = 1.0 + (active_position_count as f64 * 0.15);
+    (base_concentration * position_multiplier).min(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use config_models::{OrderSide, OrderType};
+    use rust_decimal_macros::dec;
+
+    fn make_order(reduce_only: bool, is_emergency: bool, size: Decimal) -> OrderPacket {
+        OrderPacket {
+            client_order_id: "test".into(),
+            symbol: "BTC-USDT".into(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            price: Some(dec!(50000)),
+            size,
+            reduce_only,
+            is_emergency_liquidation: is_emergency,
+            associated_position_id: None,
+        }
+    }
+
+    #[test]
+    fn test_gate0_blocks_entry_when_not_running() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::LifecyclePaused,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Blocked { gate: 0, .. }));
+    }
+
+    #[test]
+    fn test_gate0_allows_exit_when_paused() {
+        let order = make_order(true, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::LifecyclePaused,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_gate1_blocks_avoid_stance() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Avoid,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Blocked { gate: 1, .. }));
+    }
+
+    #[test]
+    fn test_gate1_allows_emergency_during_avoid() {
+        let order = make_order(false, true, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Avoid,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_gate2_holds_stand_aside() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "STAND_ASIDE", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::HeldForReview { gate: 2, .. }));
+    }
+
+    #[test]
+    fn test_gate3_blocks_margin_usage_ratio_high() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            100.0, 0.96, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Blocked { gate: 3, .. }));
+    }
+
+    #[test]
+    fn test_gate3_allows_margin_usage_ratio_ok() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            5000.0, 0.5, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_gate4_clips_excessive_size() {
+        let order = make_order(false, false, dec!(2000));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, Some(500.0),
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Clipped { gate: 4, .. }));
+    }
+
+    #[test]
+    fn test_gate5_computes_real_spread() {
+        let order = make_order(false, false, dec!(100));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.01,
+            20, None,
+            Some(dec!(49950)), Some(dec!(50050)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::HeldForReview { gate: 5, .. }));
+    }
+
+    #[test]
+    fn test_gate5_approves_normal_spread() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5,
+            20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_gate6_blocks_high_concentration() {
+        let order = make_order(false, false, dec!(7000));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Blocked { gate: 6, .. }));
+    }
+
+    #[test]
+    fn test_gate6_skips_reduce_only() {
+        let order = make_order(true, false, dec!(7000));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_gate7_blocks_drawdown_stop() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "DRAWDOWN_STOP",
+        );
+        assert!(matches!(result, GateResult::Blocked { gate: 7, .. }));
+    }
+
+    #[test]
+    fn test_gate7_blocks_suspended() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "SUSPENDED",
+        );
+        assert!(matches!(result, GateResult::Blocked { gate: 7, .. }));
+    }
+
+    #[test]
+    fn test_gate7_allows_normal_safety() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert!(matches!(result, GateResult::Approved));
+    }
+
+    #[test]
+    fn test_full_approval_path() {
+        let order = make_order(false, false, dec!(1));
+        let result = evaluate_gates(
+            &order,
+            LifecycleState::Running,
+            Stance::Active,
+            10000.0, 0.1, "READY", 0.5, 20, None,
+            Some(dec!(49999)), Some(dec!(50001)),
+            0, 10000.0, "NORMAL",
+        );
+        assert_eq!(result, GateResult::Approved);
+    }
 }

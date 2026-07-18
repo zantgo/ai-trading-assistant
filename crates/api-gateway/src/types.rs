@@ -143,6 +143,11 @@ pub struct HistoryQuery {
     pub symbol: String,
     #[serde(default)]
     pub timeframe_secs: Option<u64>,
+    #[serde(default = "default_history_limit")]
+    pub limit: usize,
+}
+fn default_history_limit() -> usize {
+    100
 }
 
 #[derive(Debug, Deserialize)]

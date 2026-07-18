@@ -65,11 +65,13 @@ pub async fn get_daily_pnl(pool: &SqlitePool) -> Option<f64> {
 
 pub async fn query_all_closed_trades(pool: &SqlitePool) -> Vec<ClosedTradeRow> {
     sqlx::query_as::<_, ClosedTradeRow>(
-        "SELECT id, symbol, direction, realized_pnl, roi_pct,
-                (entry_price * size) as allocated_usd,
-                NULL as market_regime
-         FROM paper_trades
-         ORDER BY id DESC",
+        "SELECT t.id, t.symbol, t.direction, t.realized_pnl, t.roi_pct,
+                (t.entry_price * t.size) as allocated_usd,
+                (SELECT ms.market_regime FROM market_snapshots ms
+                 WHERE ms.symbol = t.symbol AND ms.timestamp <= t.entry_timestamp
+                 ORDER BY ms.timestamp DESC LIMIT 1) as market_regime
+         FROM trade_telemetry_history t
+         ORDER BY t.id DESC",
     )
     .fetch_all(pool)
     .await

@@ -149,3 +149,11 @@ export function divStatus(m: IndicatorMap | undefined | null, key: string): DivS
     if (l.includes('POTENTIAL')) return 'potential';
     return 'none';
 }
+
+export function calcLiqPrice(entryPx: number, direction: 'LONG' | 'SHORT', leverage: number): number {
+    if (entryPx <= 0 || leverage <= 0) return 0;
+    const liqDistance = entryPx / leverage;
+    return direction === 'LONG'
+        ? entryPx - liqDistance
+        : entryPx + liqDistance;
+}

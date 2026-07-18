@@ -16,7 +16,7 @@
 | **Multi-venue failover** | Not supported. `SymbolMapper` binds each internal symbol to exactly one venue. | Define a "primary venue" model with N-second failover timeout; introduce cross-venue reconciliation (currently listed in [03-01-03 §5](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) as `cross_venue_offset` but not implemented). | Unscheduled | DIE team |
 | **WASM per-instance connection-quality scoring** | Not started. Tracker is process-wide; target: per-(pair, timeframe). | Move tracker to a WASM module to isolate per-instance memory; profile overhead. | Unscheduled (AUDIT-V4-078) | DIE team |
 | **Pre-dispatch crash-recoverable persistence** | Not implemented. `PRE_DISPATCH` orders live in process memory only. | Add `pre_dispatch_orders` SQLite table; recovery path on daemon restart. | Unscheduled (per [README §Feature Status](../README.md#feature-status)) | TAE team |
-| **caller-supplied `X-Operator-Id` identity** | Not implemented. v4.0 fixed identity = `local_operator`. | Auth contract; possibly mTLS for non-local callers. | Unscheduled (AUDIT-V4-076) | Cross-cutting |
+| **caller-supplied `X-Operator-Id` identity** | Not implemented. v4.0 fixed identity = `"local"`. | Auth contract; possibly mTLS for non-local callers. | Unscheduled (AUDIT-V4-076) | Cross-cutting |
 | **`cascade_risk_index` aggregation** | Placeholder field. Not aggregated into `systemic_risk_score`. | Define aggregation formula; produce L7 sample rows. | Deferred (v6.5) | PAE team |
 
 ---

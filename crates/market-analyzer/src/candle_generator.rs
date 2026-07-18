@@ -15,6 +15,7 @@ pub struct CandleGenerator {
     pub current_start_ms: u64,
     pub current_open: Decimal,
     pub exchange: Exchange,
+    pub last_trade_ts_ms: u64,
 }
 
 impl CandleGenerator {
@@ -31,6 +32,7 @@ impl CandleGenerator {
             current_start_ms: 0,
             current_open: Decimal::ZERO,
             exchange,
+            last_trade_ts_ms: 0,
         }
     }
 
@@ -50,6 +52,7 @@ impl CandleGenerator {
         &mut self,
         trade: &NormalizedTrade,
     ) -> (Option<NormalizedCandle>, NormalizedCandle) {
+        self.last_trade_ts_ms = trade.timestamp_ms;
         let interval_start = (trade.timestamp_ms / self.duration_ms) * self.duration_ms;
 
         if self.current_candle.is_none() {

@@ -11,13 +11,14 @@
     //   - instance.microTerm.cluster   (5-min refreshed matrix)
     //   - instance.microTerm.liquiditySignals (computed by server)
     import type { LiquidityFlow, LiquidationClusterMatrix, LiquiditySignal } from '../types';
+    import { useAppStore } from '../state.svelte';
     import styles from './LiquidityPanel.module.css';
 
+    const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
 
     let activeView = $state<'flow' | 'cluster' | 'context'>('flow');
 
-    const app = (window as any).__appStore;
     const instance = $derived(app && pairKey ? app.instancesMap[pairKey] : undefined);
     const micro = $derived(instance?.microTerm);
 
@@ -238,11 +239,6 @@
                     {/each}
                 {/if}
             </div>
-        </div>
-    {/if}
+    </div>
+{/if}
 </div>
-
-<style>
-    /* Component-local styles. The full LiquidityPanel.module.css will be
-       created in a follow-up to provide the dark/light theme tokens. */
-</style>

@@ -82,34 +82,27 @@
     color: #fff;
 }
 
-.tfLabel {
-    font-weight: 500;
-}
+.tfLabel { font-weight: 500; }
 
-.tfSecs {
-    font-size: 0.65rem;
-    color: #5a5f6e;
-}
+.tfSecs { font-size: 0.65rem; color: #5a5f6e; }
 
-.tfSidebarItem:global(.active) .tfSecs {
-    color: #888;
-}
+.tfSidebarItem:global(.active) .tfSecs { color: #888; }
 
 /* ─── Chart area ─────────────────────────────────────────────────── */
 
 .chartArea {
     flex: 1;
     overflow-y: auto;
-    padding: 0.5rem;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
 }
 
 .collapsibleSection {
-    border: 1px solid #1e2130;
-    border-radius: 6px;
-    overflow: hidden;
+    border-bottom: 1px solid #1e2130;
+}
+
+.collapsibleSection:last-child {
+    border-bottom: none;
 }
 
 .collapsibleHeader {
@@ -125,11 +118,12 @@
     font-family: monospace;
     font-size: 0.82rem;
     text-align: left;
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
-.collapsibleHeader:hover {
-    background: #0f1119;
-}
+.collapsibleHeader:hover { background: #0f1119; }
 
 .collapsibleCaret {
     font-size: 0.65rem;
@@ -147,21 +141,100 @@
     border-radius: 3px;
 }
 
-.collapsibleBody {
-    padding: 1.25rem;
+.priceChartContainer {
+    height: 420px;
     background: #06080c;
 }
+
+/* ─── Pane toolbar ──────────────────────────────────────────────── */
+
+.panesToolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 10px;
+    background: #080a10;
+    border-bottom: 1px solid #1a1d26;
+}
+
+.paneToggle {
+    padding: 3px 10px;
+    border: 1px solid #1e293b;
+    border-radius: 3px;
+    background: transparent;
+    color: #4a5568;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+}
+
+.paneToggle:hover {
+    border-color: #334155;
+    color: #94a3b8;
+}
+
+.paneToggle:global(.active) {
+    border-color: #64ffda;
+    color: #64ffda;
+    background: rgba(100,255,218,0.08);
+}
+
+/* ─── Pane grid ─────────────────────────────────────────────────── */
+
+.panesGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: #06080c;
+}
+
+.paneWrapper {
+    border-bottom: 1px solid #1a1d26;
+}
+
+.paneWrapper:last-child {
+    border-bottom: none;
+}
+
+.paneHeader {
+    padding: 4px 12px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    background: #090c12;
+    font-family: 'Courier New', monospace;
+}
+
+.paneWrapper > :global(.chart-container) {
+    height: 180px;
+}
+
+/* ─── Liquidity ─────────────────────────────────────────────────── */
+
+.liquidityContainer {
+    padding: 0;
+    background: #06080c;
+}
+
+/* ─── Placeholder ───────────────────────────────────────────────── */
 
 .placeholderChart {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 120px;
+    min-height: 200px;
     gap: 0.5rem;
     color: rgba(255, 255, 255, 0.2);
     font-size: 0.8rem;
     text-align: center;
+    padding: 40px;
 }
 
 .comingSoon {

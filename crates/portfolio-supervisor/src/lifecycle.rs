@@ -9,9 +9,11 @@ pub struct AutomationConditions {
     pub start_at_price_below: Option<f64>,
     pub start_at_time: Option<String>,
     pub pause_at_price_below: Option<f64>,
+    pub pause_at_price_above: Option<f64>,
     pub pause_at_time: Option<String>,
     pub pause_after_duration_secs: Option<u64>,
     pub stop_at_price_above: Option<f64>,
+    pub stop_at_price_below: Option<f64>,
     pub stop_after_duration_secs: Option<u64>,
 }
 
@@ -22,9 +24,11 @@ impl Default for AutomationConditions {
             start_at_price_below: None,
             start_at_time: None,
             pause_at_price_below: None,
+            pause_at_price_above: None,
             pause_at_time: None,
             pause_after_duration_secs: None,
             stop_at_price_above: None,
+            stop_at_price_below: None,
             stop_after_duration_secs: None,
         }
     }
@@ -246,77 +250,130 @@ impl LifecycleManager {
             None => return vec![],
         };
 
+        let now_ms = current_time_ms();
+        let now_secs = now_ms / 1000;
         let mut actions = Vec::new();
 
-        if self.state == LifecycleState::Stopped && !auto.start_fired {
-            if let Some(price) = current_price {
-                if let Some(above) = auto.conditions.start_at_price_above {
-                    if price >= above {
-                        auto.start_fired = true;
-                        actions.push(AutomationAction::Start);
-                        return actions;
-                    }
+        let at_time_fired = |time_str: &Option<String>| -> bool {
+            if let Some(ref ts) = time_str {
+                if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(ts) {
+                    let deadline = parsed.timestamp() as u64;
+                    return now_secs >= deadline;
                 }
-                if let Some(below) = auto.conditions.start_at_price_below {
-                    if price <= below {
+            }
+            false
+        };
+
+        match self.state {
+            LifecycleState::Stopped => {
+                if !auto.start_fired {
+                    if let Some(price) = current_price {
+                        if let Some(above) = auto.conditions.start_at_price_above {
+                            if price >= above {
+                                auto.start_fired = true;
+                                actions.push(AutomationAction::Start);
+                            }
+                        }
+                        if !auto.start_fired {
+                            if let Some(below) = auto.conditions.start_at_price_below {
+                                if price <= below {
+                                    auto.start_fired = true;
+                                    actions.push(AutomationAction::Start);
+                                }
+                            }
+                        }
+                    }
+                    if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
                         auto.start_fired = true;
                         actions.push(AutomationAction::Start);
-                        return actions;
                     }
                 }
             }
-        }
+            LifecycleState::Running => {
+                let mut has_stop = false;
+                let mut has_pause = false;
 
-        if self.state == LifecycleState::Running {
-            if let Some(price) = current_price {
-                if !auto.pause_fired {
-                    if let Some(below) = auto.conditions.pause_at_price_below {
-                        if price <= below {
-                            auto.pause_fired = true;
-                            actions.push(AutomationAction::Pause);
-                        }
-                    }
-                }
+                // Check time-based conditions first (OR with price-based)
                 if !auto.stop_fired {
-                    if let Some(above) = auto.conditions.stop_at_price_above {
-                        if price >= above {
+                    if let Some(duration_secs) = auto.conditions.stop_after_duration_secs {
+                        let elapsed = (now_ms - self.entered_state_at_ms) / 1000;
+                        if elapsed >= duration_secs {
                             auto.stop_fired = true;
-                            actions.push(AutomationAction::Stop);
+                            has_stop = true;
                         }
                     }
                 }
-            }
-
-            if !auto.stop_fired {
-                if let Some(duration_secs) = auto.conditions.stop_after_duration_secs {
-                    let elapsed = (current_time_ms() - self.entered_state_at_ms) / 1000;
-                    if elapsed >= duration_secs {
-                        auto.stop_fired = true;
-                        actions.push(AutomationAction::Stop);
+                if !auto.pause_fired {
+                    if let Some(duration_secs) = auto.conditions.pause_after_duration_secs {
+                        let elapsed = (now_ms - self.entered_state_at_ms) / 1000;
+                        if elapsed >= duration_secs {
+                            auto.pause_fired = true;
+                            has_pause = true;
+                        }
                     }
                 }
-            }
 
-            if !auto.pause_fired {
-                if let Some(duration_secs) = auto.conditions.pause_after_duration_secs {
-                    let elapsed = (current_time_ms() - self.entered_state_at_ms) / 1000;
-                    if elapsed >= duration_secs {
-                        auto.pause_fired = true;
-                        actions.push(AutomationAction::Pause);
+                if !auto.pause_fired && at_time_fired(&auto.conditions.pause_at_time) {
+                    auto.pause_fired = true;
+                    has_pause = true;
+                }
+
+                if let Some(price) = current_price {
+                    if !auto.stop_fired && !has_stop {
+                        if let Some(above) = auto.conditions.stop_at_price_above {
+                            if price >= above {
+                                auto.stop_fired = true;
+                                has_stop = true;
+                            }
+                        }
+                        if let Some(below) = auto.conditions.stop_at_price_below {
+                            if price <= below {
+                                auto.stop_fired = true;
+                                has_stop = true;
+                            }
+                        }
+                    }
+                    if !auto.pause_fired && !has_pause {
+                        if let Some(below) = auto.conditions.pause_at_price_below {
+                            if price <= below {
+                                auto.pause_fired = true;
+                                has_pause = true;
+                            }
+                        }
+                        if let Some(above) = auto.conditions.pause_at_price_above {
+                            if price >= above {
+                                auto.pause_fired = true;
+                                has_pause = true;
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        if self.state == LifecycleState::LifecyclePaused && !auto.start_fired {
-            if let Some(price) = current_price {
-                if let Some(above) = auto.conditions.start_at_price_above {
-                    if price >= above {
+                // Same-tick collision: stop > pause (per IL-12)
+                if has_stop {
+                    actions.push(AutomationAction::Stop);
+                }
+                if has_pause {
+                    actions.push(AutomationAction::Pause);
+                }
+            }
+            LifecycleState::LifecyclePaused => {
+                if !auto.start_fired {
+                    if let Some(price) = current_price {
+                        if let Some(above) = auto.conditions.start_at_price_above {
+                            if price >= above {
+                                auto.start_fired = true;
+                                actions.push(AutomationAction::Start);
+                            }
+                        }
+                    }
+                    if !auto.start_fired && at_time_fired(&auto.conditions.start_at_time) {
                         auto.start_fired = true;
                         actions.push(AutomationAction::Start);
                     }
                 }
             }
+            _ => {}
         }
 
         actions

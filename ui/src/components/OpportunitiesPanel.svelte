@@ -17,6 +17,7 @@
             case 'MeanReversion': return styles.oppDefault;
             case 'Reversal': return styles.oppReversal;
             case 'LiquiditySqueeze': return styles.oppReversal;
+            case 'Scalp': return styles.oppTrend;
             case 'NoClearOpportunity': return styles.oppNone;
             default: return styles.oppNone;
         }
@@ -39,10 +40,18 @@
         return { label: 'NONE', cls: styles.none };
     }
 
-    const oppScore = $derived(analysis
-        ? (analysis.bias === 'StrongBullish' ? 85 : analysis.bias === 'Bullish' ? 65 :
-           analysis.bias === 'StrongBearish' ? 85 : analysis.bias === 'Bearish' ? 65 : 30)
-        : 0);
+    const oppScore = $derived.by(() => {
+        if (!analysis) return 0;
+        const stateConf = (analysis as any).confidence ?? 0;
+        const baseScore = stateConf * 100;
+        const qualMap: Record<string, number> = {
+            STRONG_BULLISH: 90, STRONG_BEARISH: 90,
+            BULLISH: 70, BEARISH: 70, NEUTRAL: 45,
+        };
+        const biasKey = typeof analysis.bias === 'string' ? analysis.bias : '';
+        const biasScore = qualMap[biasKey] ?? 40;
+        return Math.round((biasScore * 0.6) + (baseScore * 0.4));
+    });
 
     const q = $derived(setupQuality(oppScore));
 </script>

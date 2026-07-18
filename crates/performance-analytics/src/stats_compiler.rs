@@ -145,7 +145,7 @@ pub struct MonthlySummary {
 pub async fn compile_dashboard_stats(pool: &SqlitePool, initial_capital: f64) -> DashboardStats {
     let compounded_curve = portfolio_supervisor::portfolio_equity::fetch_equity_history(pool, None, None).await;
 
-    let mut trades: Vec<TradeDetailRow> = database_storage::dash_trade_detail(pool).await;
+    let trades: Vec<TradeDetailRow> = database_storage::dash_trade_detail(pool).await;
 
     if trades.is_empty() {
         // Paper trading removed — no fallback to paper_trades table

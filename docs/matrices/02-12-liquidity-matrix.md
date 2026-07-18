@@ -12,7 +12,7 @@ events** observed on the exchange WebSocket during the current bar. It
 is the ground-truth signal — every field is derived from published
 exchange data, not estimated.
 
-## Why this exists
+## 1. Why this exists
 
 Liquidations are the **only major market microstructure event that
 exchanges publish in near-real-time**. They are observable. They are
@@ -20,7 +20,7 @@ loud. They mark inflection points. The platform needs to track them
 faithfully so cascade detection, risk scoring, and cluster estimation
 have a real input rather than an estimated one.
 
-## Data sources
+## 2. Data sources
 
 - **Hyperliquid**: subscribe to `userFills` channel. Each fill entry
   has a `liquidation` field; non-empty values are force-closed positions.
@@ -30,7 +30,7 @@ have a real input rather than an estimated one.
 The raw events are persisted to `liquidation_events` (90-day
 retention, enforced by hourly cleanup in the telemetry logger).
 
-## Schema
+## 3. Schema
 
 ```rust
 pub struct LiquidityFlow {
@@ -55,7 +55,7 @@ pub enum CascadeState {
 pub enum LiquidationSide { Long, Short }
 ```
 
-## Sign convention
+## 4. Sign convention
 
 `net_liquidation_usd = long_liquidations_usd - short_liquidations_usd`
 
@@ -64,7 +64,7 @@ pub enum LiquidationSide { Long, Short }
 - **Negative** = more shorts got dumped = bullish pressure (short
   squeeze; shorts were forced buyers).
 
-## Cascade state machine
+## 5. Cascade state machine
 
 The accumulator runs a rolling window of recent events for event-rate context. For each completed bar, it computes a z-score from that bar's per-bar notional relative to the running mean and standard deviation of per-bar notional. A single event crossing the threshold → `Detected`. Three or more events crossing the threshold within the window → `Sustained`. Declining intensity after `Sustained` → `Exhausted`.
 
@@ -124,7 +124,7 @@ The constants in the linear map (`+50` midpoint, `12.5` scaling) are fixed at th
 - **`RiskMatrix.cascade_risk` (L5)** consumes `cascade_intensity` directly as `score = max(score, flow.cascade_intensity)` (see [02-11-risk-matrix.md §4.8](../matrices/02-11-risk-matrix.md)). The discrete `cascade_state` adds a risk premium on top of the intensity (`+15` for `Detected`, `+30` for `Sustained`, `+0` for `Exhausted`).
 - **`LiquidityPanel`** displays `cascade_intensity` numerically (0..100) and color-codes it relative to the per-bar thresholds (green ≤ 30, amber ≤ 60, red > 60) for the operator's situational awareness (see [07-04-ui-liquidity-panel-spec.md Flow tab](../ui-ux/07-04-ui-liquidity-panel-spec.md)).
 
-## Frontend exposure
+## 5.1 Frontend exposure
 
 `MarketSnapshot.liquidity` rides the WebSocket frame to the frontend
 under `liquidity`. The LiquidityPanel (Phase 4) renders the Flow tab

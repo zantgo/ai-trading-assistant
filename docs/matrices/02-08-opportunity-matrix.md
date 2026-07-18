@@ -53,7 +53,7 @@ This is a **strategy-agnostic, direction-neutral** contract: it describes only t
 
 #### 2.1.2 TimeHorizon & Update Cadence (L6)
 
-`INTRADAY` (held for minutes to hours) / `SWING` (held for days) / `POSITION` (held for weeks). Drives the cadence at which the Decision Layer's `exit_guidance` is updated. The full TimeHorizon enum is `SCALP` / `INTRADAY` / `SWING` / `POSITION`. Cadence by TimeHorizon:
+The `TimeHorizon` enum has four variants: `SCALP` (held for seconds to minutes), `INTRADAY` (held for minutes to hours), `SWING` (held for hours to days), and `POSITION` (held for days to weeks). Drives the cadence at which the Decision Layer's `exit_guidance` is updated. Cadence by TimeHorizon:
 
 | `TimeHorizon` | Update cadence | Rationale |
 |---------------|----------------|-----------|

@@ -1,8 +1,8 @@
-# Documentation Consistency Manifest — v6.4
+# Documentation Consistency Manifest — v6.4.1
 
 **Generated:** 2026-07-17
-**Audit run:** v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation). Prior run: v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete).
-**Scope:** `docs/` — 138 markdown files at v6.4 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 135 numbered docs)
+**Audit run:** v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation). Prior run: v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete).
+**Scope:** `docs/` — 138 markdown files at v6.4.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 135 numbered docs)
 **Source code:** **Inspected.** v6.2 is the first manifest version where the doc audit covers the per-instance `LifecycleState` axis (RUNNING / PAUSED / STOPPING / STOPPED) and the new Gate 0 (lifecycle) in the pre-trade chain.
 **v6.2 source-of-truth:** `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` (introduced in v6.2). All lifecycle-table and Gate-0 ordering claims in this manifest are verified against that document.
 **v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
@@ -41,7 +41,7 @@ docs/
 Engine specs: 34 = 6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE.
 File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.4.1 correction pass (2026-07-18) re-stamped 15 DIE-adjacent documents (01-01, 02-03, 02-05, 02-06, 02-07, 02-08, 02-10, 03-01-00, 03-01-03, 03-01-04, 03-01-05, 06-00, 06-01, 07-02, 08-06); all remaining files carry the 6.4 stamp. Zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
 
 ---
 

@@ -13,7 +13,7 @@
 
 The Decision Support Layer transforms market intelligence into **actionable guidance without executing trades**. It consumes the Analysis (L3), Opportunity (L4), and Risk (L5) matrices and produces the [Decision Matrix](../../matrices/02-04-decision-matrix.md) (`AdvisoryMatrix` + `DecisionContext` structs).
 
-> **Three inputs, not two.** L6 reads directly from **L3** as well as from L4 and L5. L3 supplies `bias`, `state_confidence`, `market_quality`, `market_regime`, and the **six** qualitative assessments, which feed `directional_guidance`, `strategy_environment`, and `confidence_assessment`. L4 and L5 supply opportunity and risk vectors. L6 is the **only** synthesis point in the pipeline.
+> **Three inputs, not two.** L6 reads directly from **L3** as well as from L4 and L5. L3 supplies `bias`, `state_confidence`, `market_quality`, `market_regime`, and the **five** qualitative assessments (Trend, Momentum, Volume, Volatility, Structure — `market_quality` is a separate categorical field, not counted among these five), which feed `directional_guidance`, `strategy_environment`, and `confidence_assessment`. L4 and L5 supply opportunity and risk vectors. L6 is the **only** synthesis point in the pipeline.
 
 ```
 [Analysis Matrix] ─┐

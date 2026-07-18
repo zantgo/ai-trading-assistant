@@ -40,9 +40,9 @@ bun-debug.log*
 .env.*
 !.env.example
 
-# The platform's single source of configuration truth is `config.json`.
-# The legacy `config.toml` / `config.default.toml` is a stale prototype file —
-# see docs/conceptual-foundations/01-05-liquidity-domain.md (Issue 5.A correction).
+# The platform's single source of configuration truth is `config.toml`.
+# (Legacy `config.json` is still recognized by config-models::load_config()
+# as a fallback for backward compatibility; see 01-02-global-architecture.md.)
 # Only `config.default.toml` is the template (tracked); runtime `config.toml` is local-only.
 config.toml
 

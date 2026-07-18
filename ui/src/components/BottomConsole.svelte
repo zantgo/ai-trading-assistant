@@ -1,8 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
-    import { calcLiqPrice } from '../stores/paperTrading.svelte';
-    import { getDecimalCount } from '../lib/telemetry';
-    import styles from './PaperTradingPanel.module.css';
+    import { calcLiqPrice, getDecimalCount } from '../lib/telemetry';
+    import styles from './BottomTable.module.css';
 
     const app = useAppStore();
 

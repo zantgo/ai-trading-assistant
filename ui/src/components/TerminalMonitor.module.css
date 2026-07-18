@@ -3,6 +3,7 @@
     display: flex;
     background: #000;
     color: #fff;
+    overflow: hidden;
 }
 
 .featurePlaceholder {

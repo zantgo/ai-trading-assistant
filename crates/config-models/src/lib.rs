@@ -58,6 +58,8 @@ struct OnDiskConfig {
     clock_monitor: Option<ClockMonitorTomlConfig>,
     #[serde(default)]
     quality: Option<QualityConfig>,
+    #[serde(default)]
+    reconnect: ReconnectConfig,
     workspace: WorkspaceConfig,
 }
 
@@ -70,6 +72,7 @@ impl OnDiskConfig {
                 bitget: self.bitget,
                 clock_monitor: self.clock_monitor,
                 quality: self.quality,
+                reconnect: self.reconnect,
             },
             self.workspace,
         )
@@ -94,6 +97,8 @@ pub struct PlatformConfig {
     /// When `None`, the median filter is disabled and all ticks are accepted.
     #[serde(default)]
     pub quality: Option<QualityConfig>,
+    #[serde(default)]
+    pub reconnect: ReconnectConfig,
 }
 
 impl Default for PlatformConfig {
@@ -103,6 +108,7 @@ impl Default for PlatformConfig {
             bitget: BitgetConfig::default(),
             clock_monitor: None,
             quality: None,
+            reconnect: ReconnectConfig::default(),
         }
     }
 }
@@ -371,6 +377,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         bitget: on_disk.bitget,
         clock_monitor: on_disk.clock_monitor,
         quality: on_disk.quality,
+        reconnect: on_disk.reconnect,
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;

@@ -59,6 +59,10 @@ pub async fn serve_strategy_analytics_history(
 pub async fn serve_risk_analytics(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    let persisted = database_storage::query_risk_analytics_latest(&state.pool).await;
+    if let Some(risk) = persisted {
+        return Json(risk);
+    }
     let risk = performance_analytics::performance_evaluator::compute_risk_on_demand(&state.pool).await;
     Json(risk)
 }
@@ -89,7 +93,17 @@ pub async fn serve_performance_matrix(
 
 pub async fn serve_optimization_report(
     State(state): State<Arc<AppState>>,
+    Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
+    let persisted = database_storage::query_optimization_reports(
+        &state.pool,
+        query.limit.unwrap_or(10),
+    )
+    .await;
+    if !persisted.is_empty() {
+        return Json(persisted);
+    }
+
     let trades = database_storage::query_all_closed_trades(&state.pool).await;
     if trades.is_empty() {
         let report = core_domain::performance::OptimizationReport {
@@ -101,7 +115,7 @@ pub async fn serve_optimization_report(
             regime_reports: vec![],
             recommendations: vec![],
         };
-        return Json(report);
+        return Json(vec![report]);
     }
 
     let mut by_regime: std::collections::HashMap<String, Vec<&database_storage::ClosedTradeRow>> =
@@ -182,7 +196,7 @@ pub async fn serve_optimization_report(
         regime_reports,
         recommendations,
     };
-    Json(report)
+    Json(vec![report])
 }
 
 pub async fn serve_trade_analytics(
@@ -203,4 +217,19 @@ pub async fn serve_trade_analytics(
             .collect()
     };
     Json(filtered)
+}
+
+pub async fn serve_performance_summary(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<AnalyticsQuery>,
+) -> impl IntoResponse {
+    let summaries = if query.policy_id.is_some() {
+        let trades = performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
+        let mut all = performance_analytics::performance_evaluator::compute_performance_summary_on_demand(&state.pool).await;
+        all.retain(|s| Some(s.policy_id.clone()) == query.policy_id);
+        all
+    } else {
+        performance_analytics::performance_evaluator::compute_performance_summary_on_demand(&state.pool).await
+    };
+    Json(summaries)
 }

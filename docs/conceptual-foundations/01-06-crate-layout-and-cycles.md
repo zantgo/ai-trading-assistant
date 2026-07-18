@@ -116,7 +116,7 @@ This is the **canonical pattern**: network-adjacent features that need both live
 |---|---|---|---|
 | MarketSnapshot.context synthesis | `core-domain` | `market-analyzer::indicators::registry` | Split struct (`MarketContext` in core-domain) vs. synthesis function (`synthesize_market_context` in market-analyzer) |
 | HTTP routes calling registry functions | `api-gateway` | `portfolio-supervisor` | Adapter: `AppState::registry_context(&self) -> RegistryContext` in `portfolio-supervisor` |
-| Network-quality state + DB persistence | `network-adapters` | `database-storage` | Tracker emits events; persistence loop consumes broadcast; tracker has no `sqlx` |
+| Network-quality state + DB persistence | `network-adapters` | `database-storage` | Tracker owns both state and its own 60s persistence loop; `database-storage` exposes only the query layer |
 | Stub invalidate call in analyzer | `market-analyzer` | `portfolio-supervisor` | Removed the call site; stub kept for future real re-implementation via callback interface |
 
 ## 4. Auxiliary Architectural Rules
@@ -131,7 +131,7 @@ The normalized indicator value types (`NormalizedIndicatorValue`, `IndicatorSign
 
 ### 4.2 `MarketSnapshot` and matrix types live in `core-domain`; broadcast serialization lives in `api-gateway`
 
-`MarketSnapshot`, `AnalysisMatrix`, `RiskMatrix`, `AdvisoryMatrix`, `AlignmentMatrix`, `Opportunity`, `Overview`, `LiquidityMatrix`, `LiquidationClusterMatrix`, `StatisticalContext` — all `core-domain` types.
+`MarketSnapshot`, `AnalysisMatrix`, `RiskMatrix`, `DecisionMatrix`, `AlignmentMatrix`, `OpportunityMatrix`, `Overview`, `LiquidityFlow`, `LiquidationClusterMatrix`, `StatisticalContext` — all `core-domain` types.
 
 Serialization via `serde_json` produces the bytes that travel over the WebSocket and into the SQLite `snapshots` table. The serialization shapes **are** the type definitions. `api-gateway` does NOT redefine these types — it serializes them directly via the `IndicatorSnapshot` wrapper struct at `api-gateway/src/types.rs` (which composes one `core_domain::MarketSnapshot` + a `current_price` field). The wrapper exists solely to give the HTTP layer a slimmer output than the full DB-shaped snapshot.
 

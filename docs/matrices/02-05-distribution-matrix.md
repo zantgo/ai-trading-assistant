@@ -38,7 +38,7 @@ The Distribution Matrix itself is not a single data structure but a **multiplexe
 |--------|--------|
 | Raw frame → `NormalizedEvent` | < 1 ms |
 | Trade → live candle update | < 2 ms |
-| Observation loop (Raw → Overview) | < 25 ms |
+| Observation loop (Raw → Market Data Matrix) | < 25 ms |
 | Event channel capacity | 10,000 buffered events |
 | Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) |
 | Permanent disable threshold | 5 consecutive failures |
@@ -85,7 +85,7 @@ Each distributed frame is a **`CandleDistributionFrame`** — the wire envelope 
 ## 5. Backpressure & Fault Tolerance
 
 - **Bounded channels** prevent unbounded memory growth on consumer slowdown.
-- **Broadcast lag signalling**: if a subscriber's channel approaches capacity, an internal backpressure warning is raised to the orchestrator (a structured event visible in `/api/system/status`).
+- **Broadcast lag signalling**: if a subscriber's channel approaches capacity, an internal backpressure warning is raised to the orchestrator (logged via `tracing::warn` and surfaced through `/api/system/observability`).
 - **Dropped frame policy**: frames are never silently dropped; broadcast lag is logged and surfaced in observability.
 
 ---

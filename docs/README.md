@@ -58,6 +58,7 @@ docs/
 │   │   ├── 03-02-09-mme-indicators-guide.md          ← indicator interpretation rulebook
 │   │   ├── 03-02-10-mme-signals-guide.md             ← 12 SignalKind detection rulebook
 │   │   ├── 03-02-11-mme-liquidity-extension.md        ← Phase 0-4 Liquidity Intelligence (L1.5 + L2.5)
+│   │   ├── 03-02-12-mme-configurable-activation.md     ← Configurable activation (denylists, AUTO_PAUSED)
 │   │   ├── indicators/                               (04-02 — 50 + 1 master index)
 │   │   │   ├── 04-02-00-indicator-index.md
 │   │   │   ├── 04-02-01-ema-stack.md
@@ -106,14 +107,14 @@ docs/
     └── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
 ```
 
-Total: **138 markdown files** at v6.4 — 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 15 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 layers (L1–L7) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
+Total: **138 markdown files** at v6.4.1 — 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 15 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 core layers plus 2 fractional extension layers (L1.5, L2.5) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
 
 ## The Five Engines
 
 | Engine | Role | Layers | Key Output |
 |--------|------|--------|------------|
 | **Data Infrastructure Engine (DIE)** `03-01` | Data ingest, normalization, quality, broadcast | 4 | Market Data Matrix |
-| **Market Monitoring Engine (MME)** `03-02` | 50 indicators, signals, multi-TF alignment, decision support | 7 (L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix |
+| **Market Monitoring Engine (MME)** `03-02` | 50 indicators, signals, multi-TF alignment, decision support | 7 (+2 fractional: L1.5, L2.5; L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix |
 | **Trade Automation Engine (TAE)** `03-03` | Policy evaluation, position sizing, order routing | 2 | Execution Matrix |
 | **Portfolio Management Engine (PME)** `03-04` | Position tracking, exposure, capital, safety veto | 4 | Portfolio Matrix |
 | **Performance Analytics Engine (PAE)** `03-05` | Trade reconstruction, NHST (sign-randomized Monte Carlo), drawdown/Sharpe, regime maps | 4 | Performance Matrix |

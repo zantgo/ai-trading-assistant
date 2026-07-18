@@ -65,9 +65,9 @@ impl ActiveSet {
             disabled_signal_kinds,
             config_version,
             liquidity_enabled: true,
-            liquidation_feed: true,
-            cluster_estimation: true,
-            liquidity_signals_enabled: true,
+            liquidation_feed: instance.map(|i| i.liquidation_feed).unwrap_or(global.liquidation_feed),
+            cluster_estimation: instance.map(|i| i.cluster_estimation).unwrap_or(global.cluster_estimation),
+            liquidity_signals_enabled: instance.map(|i| i.liquidity_signals_enabled).unwrap_or(global.liquidity_signals_enabled),
         }
     }
 

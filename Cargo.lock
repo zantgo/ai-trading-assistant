@@ -1648,6 +1648,7 @@ name = "portfolio-supervisor"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "config-models",
  "core-domain",
  "database-storage",

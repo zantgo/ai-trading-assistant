@@ -18,7 +18,7 @@ If `EXCHANGE_SECRET_KEY` is lost or rotated, all existing `exchange_keys` rows b
 
 1. **Inventory existing keys.** `sqlite3 telemetry.db "SELECT key_id, exchange, created_at, last_rotated_at FROM exchange_keys;"` — record every `key_id`.
 2. **Confirm operator UI access** — keys must be re-entered via `POST /api/keys` if rotation requires re-encryption from scratch.
-3. **Schedule a maintenance window.** Rotation requires a daemon restart (Ops Phase 1+ will support hot-rotation; v6.0 requires restart).
+3. **Schedule a maintenance window.** Rotation requires a daemon restart (Ops Phase 1+ will support hot-rotation; v6.4 requires restart).
 4. **Backup `telemetry.db`.** `cp telemetry.db telemetry.db.backup-pre-rotation-$(date +%Y%m%d)`.
 
 ---
@@ -35,14 +35,14 @@ chmod 600 /tmp/new_exchange_secret_key
 
 ### 3.2 Decrypt-and-re-encrypt script (v6.0: manual via API)
 
-v6.0 does **not** ship an in-process rotation tool; the operator uses the documented `POST /api/keys` endpoint. The flow:
+v6.4 does **not** ship an in-process rotation tool; the operator uses the documented `POST /api/keys` endpoint. The flow:
 
 > **Warning.** Re-inserting keys before switching the master key does not rotate anything — rows remain encrypted under the old key.
 
 1. **Record all credentials out-of-band.** For every `key_id` from the pre-rotation inventory (§2), copy the api_key/api_secret/passphrase from the exchange's UI or the operator's secret store. After step 3 the existing rows are unreadable — this record is the only copy.
 2. **Stop the daemon:** `./manage.sh stop`.
 3. **Start the daemon with the new master key:** `EXCHANGE_SECRET_KEY=$NEW_KEY ./execution-daemon`. The existing `exchange_keys` rows were encrypted under the old key and are now unreadable; the daemon treats the store as unconfigured.
-4. **Re-insert every credential** via `POST /api/keys` with the same `exchange`; each insert encrypts under the new key. The new row replaces the old (Ops Phase 2 endpoint will support UPDATE; v6.0 requires DELETE + INSERT).
+4. **Re-insert every credential** via `POST /api/keys` with the same `exchange`; each insert encrypts under the new key. The new row replaces the old (Ops Phase 2 endpoint will support UPDATE; v6.4 requires DELETE + INSERT).
 5. **Verify `ws::account` auth per key** — each key's private account stream must authenticate against the newly inserted credentials.
 6. **Scrub the old key from every environment source** (shell environment, systemd units, `.env` files, secret managers) so it cannot be reused by accident.
 7. Smoke test: confirm a trade tick arrives within 60 s.

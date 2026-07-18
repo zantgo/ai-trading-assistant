@@ -182,6 +182,35 @@ pub struct CandleQualityEnvelope {
     pub is_gap_filled: bool,
     /// Whether any outlier tick was rejected during this candle's construction.
     pub had_outliers_rejected: bool,
+    /// Whether a price spike was filtered from this candle.
+    #[serde(default)]
+    pub spike_detected: bool,
+    /// Whether the candle's last trade timestamp exceeds the staleness threshold.
+    #[serde(default)]
+    pub is_stale: bool,
+    /// Per-candle sequence integrity classification.
+    #[serde(default)]
+    pub sequence_integrity: SequenceIntegrity,
+    /// Seconds since the last valid candle (≤ timeframe_secs = continuous).
+    #[serde(default)]
+    pub gap_since_last: u64,
+    /// Unix epoch of quality validation, in milliseconds.
+    #[serde(default)]
+    pub validated_at: u64,
+}
+
+/// Per-candle sequence ordering classification produced by the DIE Layer 3
+/// sequence audit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SequenceIntegrity {
+    /// Candle arrived in the expected chronological order and is not a duplicate.
+    #[default]
+    Valid,
+    /// Candle arrived out of chronological order relative to the preceding candle.
+    OutOfOrder,
+    /// Candle with identical `start_time_ms` has already been processed.
+    Duplicate,
 }
 
 /// Placeholder for statistical intelligence context.

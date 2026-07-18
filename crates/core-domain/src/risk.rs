@@ -465,6 +465,7 @@ mod tests {
         AnalysisMatrix {
             symbol: "BTC-USD".to_string(),
             bias: MarketBias::Neutral,
+            market_bias_score: 0.0,
             state_confidence: 0.5,
             market_quality_score: 50.0,
             market_regime: MarketRegime::Range,

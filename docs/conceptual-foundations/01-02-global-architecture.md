@@ -49,7 +49,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 #### Layer 2: Market Data Layer
 *   **Purpose:** Transform raw event-based feeds into structured, uniform temporal boundaries.
 *   **Processing:** Aggregate trade events and book snapshots into standardized OHLCV (Open, High, Low, Close, Volume) bars across target intervals.
-*   **Output (Market Data Matrix):** Uniform, multi-timeframe candle data per symbol.
+*   **Output (Market Data Matrix):** Uniform, multi-timeframe candle data per symbol (pre-validation, per-layer output; the inter-engine transport name is also Market Data Matrix, but the data here is raw — quality validation applies at L3).
 *   **Strict UTC-Alignment Constraint (Zero-Drift Synchronization):** All time-boundary candle aggregations synchronize strictly with the UTC daily clock. The closing instant of any candle aligns to the exact epoch-duration multiple of UTC, computed deterministically as `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` (so a `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:15:00.000`, `:30:00.000`, `:45:00.000`, or `:00:00.000`). Local server system clocks execute continuous NTP polling to maintain local system time drift under $\le 50 \text{ microseconds}$ of UTC. Drift enforcement is implemented in `crates/network-adapters/src/clock_monitor.rs` (spawned as a continuous background task by `crates/execution-daemon/src/main.rs` after engine initialization and before live ingestion, polling NTP every 30 s; configured via the `[clock_monitor]` section of `config.toml`). This prevents timezone, socket, or aggregation-time drift, ensuring local indicator values align exactly with exchange historical benchmarks. See [08-06-clock-monitor.md](../operations-and-compliance/08-06-clock-monitor.md) for the full lifecycle and breach handling.
 
 #### Layer 3: Data Quality Layer
@@ -60,7 +60,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 #### Layer 4: Data Distribution Layer
 *   **Purpose:** Route verified data streams to downstream system consumers.
 *   **Processing:** Manage pub/sub event loops, prioritize routing queues, and minimize dispatch latency.
-*   **Output (Distribution Matrix):** High-throughput, real-time data output channels.
+*   **Output (Distribution Matrix):** High-throughput, real-time data output channels. Internally, the Distribution Matrix is the L4-specific output; the composite inter-engine transport (OHLCV candle streams across all timeframes) that flows from DIE to MME and the UI is known as the **Market Data Matrix** — see `01-01-ontology.md §5` for the distinction.
 
 ---
 
@@ -95,7 +95,7 @@ Layers 4 and 5 read the Analysis Matrix independently and run in parallel (ortho
 
 #### Layer 4: Opportunity Layer
 *   **Purpose:** Identify and score positive market configurations.
-*   **Processing:** Evaluate structural setups (such as breakout pressure, pullback depth, and continuation vectors) to determine the statistical viability of potential entries.
+*   **Processing:** Evaluate structural setups (breakout, continuation, pullback, mean-reversion, reversal, liquidity-squeeze, scalp) to identify and score positive market configurations on a 0–100 scale, independent of trade direction or execution parameters. Scoring is strategy-agnostic and direction-neutral; entry-specific synthesis lives at the Decision Layer.
 *   **Output (Opportunity Matrix):** Strategy-agnostic opportunity classifications with associated confidence scores (0-100).
 
 #### Layer 5: Risk Layer
@@ -129,7 +129,7 @@ The Trade Automation Engine evaluates user-defined execution rules and coordinat
 *   **Output (Policy Matrix):** Active policy directives containing target direction, entry parameters, and protective criteria.
 
 #### Layer 2: Execution Layer
-*   **Purpose:** Route transactional orders and manage trade lifecycles on live exchanges or simulated execution environments (such as paper trading engines).
+*   **Purpose:** Route transactional orders and manage trade lifecycles on live exchanges (a simulated paper trading environment is planned for a future release; currently only live execution is supported).
 *   **Processing:** Execute the Position Sizing Protocol upon trade entry validation. Query PME Capital Matrix for Available Margin ($E$) and MME Decision Matrix for Stop-Loss Distance as a raw percentage float ($D_{sl}$, e.g. `1.5`). Calculate the exact trade size ($S$) based on the user-configured risk-per-trade fraction ($R$, e.g. $0.01$ = 1% of margin; with the default `risk_per_trade_pct = 1.0`, $R = 0.01$):
     $$S = \frac{E \times R}{D_{sl} / 100}$$
     Construct order packets, apply slippage filters against real-time order books, dispatch execution messages to the target venue, and track order execution states.
@@ -215,10 +215,10 @@ Engines maintain high operational efficiency by communicating through strictly d
                                                     |
                                                     | [Decision Matrix]
                                                     v
-  +------------------+  [Capital Matrix]   +------------------+
-  |  Portfolio Mgmt. |-------------------->|  Trade Auto.     |
-  |  Engine (PME)    |                     |  Engine (TAE)    |
-  +------------------+                     +------------------+
+  +------------------+                +------------------+
+  |  Portfolio Mgmt. |---[Capital M.]-|  Trade Auto.     |
+  |  Engine (PME)    |  (in-process)  |  Engine (TAE)    |
+  +------------------+                +------------------+
           |                                         |
           | [Closed Trade Logs]                     | [Execution events]
           v                                         v
@@ -229,6 +229,8 @@ Engines maintain high operational efficiency by communicating through strictly d
 ```
 
 > **Price fan-out edges (not drawn above).** Three real edges complement the matrix cascade: **DIE → TAE** (mid-price: paper fills + lifecycle automation), **DIE → PME** (mark prices), and **MME → PME** (Decision Matrix invalidation levels). Matrices flow DIE→MME only; prices fan out from DIE to TAE/PME.
+>
+> **PME → TAE edge convention.** The PME → TAE Capital Matrix edge shown in the diagram is an in-process `tokio::sync::RwLock` over shared memory (see §3.3), not a pub/sub channel. All other inter-engine edges in the cascade are publish/subscribe.
 
 ### 3.1 Unidirectional Stream Cascade
 The platform prohibits bidirectional dependency chains. Execution details do not influence market interpretation; instead, normalized telemetry cascades forward. If a downstream engine requires information from an upstream engine, it subscribes to that engine's published, read-only matrix stream.
@@ -243,9 +245,14 @@ Engines must run in separate memory structures or isolated processes. No engine 
 
 > **Documented exception: TAE–PME in-process sizing query.** The TAE Execution Layer and the PME Capital Layer share state via an in-process `tokio::sync::RwLock` over the in-memory `Capital Matrix` (no IPC, no SQLite round-trip on the sizing hot path). This is a deliberate latency-driven compromise — the Position Sizing Protocol must complete in microseconds, which is incompatible with cross-process RPC or DB round-trips. See [03-03-03-tae-layer2-execution.md §2.0](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md) for the synchronization contract. Migration to out-of-process isolation is on the post-v2.2 roadmap.
 
-### 3.4 Documented Exception: MME L5 Multi-Source Input
+### 3.4 Documented Exception: MME L4 / L5 Multi-Source Input
 
-MME Layer 5 (Risk) consumes the L3 Analysis Matrix **and** the extension layers L1.5/L2.5 (fractional layers of MME) — specifically, the L1.5 `LiquidityFlow` and L2.5 `LiquidationClusterMatrix` (Liquidity Phase 0-4 Liquidity Intelligence extension). The unidirectional invariant is preserved: L2.5 does not read from L5; L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the cascade invariant.
+Both MME Layer 4 (Opportunity) and Layer 5 (Risk) consume the extension layers L1.5/L2.5 (fractional layers of MME) — specifically, the L1.5 `LiquidityFlow` and L2.5 `LiquidationClusterMatrix` (Liquidity Phase 0-4 Liquidity Intelligence extension):
+
+- **L4** reads `cascade_state` (L1.5) and `cascade_asymmetry` (L2.5) for the `LiquiditySqueeze` opportunity precondition only; all other opportunity types read only L3 + L1.
+- **L5** reads `cascade_intensity` (L1.5) and `cascade_asymmetry` (L2.5) for the `cascade_risk` sub-dimension (the 8th unipolar danger dimension).
+
+The unidirectional invariant is preserved: L2.5 does not read from L4 or L5; L4 and L5 remain orthogonal (neither reads the other's matrix); L5 → L6 remains unidirectional. See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the full cascade invariant.
 
 ---
 
@@ -292,7 +299,7 @@ The legacy `config.json` reader path in `config-models/src/lib.rs::load_config()
 
 ### 4.3 CLI Mode (Headless Automated Execution)
 *   **Purpose:** High-performance, zero-overhead execution designed for cloud environments.
-*   **Operation:** Operates purely headlessly with no visual interface. Upon initialization, it consumes the standardized JSON configuration file, boots the DIE, MME, TAE, and PME internally, constructs the defined pair pipelines, and executes pre-configured live or paper trades automatically.
+*   **Operation:** Operates purely headlessly with no visual interface. Upon initialization, it consumes the standardized configuration file, boots the DIE, MME, TAE, and PME internally, constructs the defined pair pipelines, and executes pre-configured live or paper trades automatically.
 *   **Boundaries:** The CLI mode is restricted to loading and applying previously validated configuration payloads. It is strictly banned from exploratory research, manual pair configurations, or manual visualization task processing.
 
 ### 4.4 Shared Persistence & Retroactive Visualization
@@ -310,7 +317,7 @@ Both modes write metrics, signals, orders, and execution events to a shared SQL/
 
 To illustrate the complete pipeline in practice, below is the sequence of events that occurs when a market movement triggers a trade and is subsequently logged by the analytics engine:
 
-1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and the *Distribution Layer* publishes the validated candle — fanning it out to the MME, the UI, and the telemetry logger as the updated **Market Data Matrix**.
+1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and the *Distribution Layer* publishes the validated candle — fanning it out to the MME, the UI, and the telemetry logger as the validated inter-engine **Market Data Matrix** (post-L3 quality validation; distinct from the raw L2 pre-validation output).
 2.  **Telemetry:** The Market Monitoring Engine (MME) receives the update. The *Metrics Layer* recalculates indicators and detects signals, immediately projecting them onto their respective multi-dimensional Evaluation Axes (e.g., extracting State, Direction, Strength, and Quality) and updating the **Metrics Matrix**.
 3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, slow, and macro time horizons, updating the **Alignment Matrix**.
 4.  **Diagnosis:** The *Analysis Layer* confirms a transition to a `TRENDING_BULL` regime under a `STRONG_BULLISH` bias (with a `Market Bias Score: +0.82`), updating the **Analysis Matrix**.
@@ -318,7 +325,7 @@ To illustrate the complete pipeline in practice, below is the sequence of events
 6.  **Risk:** The *Risk Layer* consumes the Analysis Matrix (L3) and the underlying indicator map — running in parallel with the Opportunity Layer (L4) and independent of the Opportunity Matrix — assesses close proximity to major support, and logs a low `Overall Risk Score: 28` in the **Risk Matrix**. The Risk Matrix reads Analysis Matrix fields such as `market_quality` (L3) but does *not* consume the L4 Opportunity Matrix itself.
 7.  **Decision:** The *Decision Layer* synthesizes these matrices, sets *Trade Readiness* to `READY`, and logs a structural invalidation target and calculated `stop_loss_distance_pct: 1.5` in the **Decision Matrix**.
 8.  **Trigger:** The Trade Automation Engine (TAE) receives this decision snapshot. The *Policy Layer* identifies that this state satisfies an active long breakout policy and logs an entry command in the **Policy Matrix**.
-9.  **Routing:** The *Execution Layer* queries the PME *Capital Matrix* to check available margin, reads the Stop-Loss Distance from the MME *Decision Matrix*, runs the Position Sizing Protocol to calculate a safe, risk-adjusted position size ($S = \frac{E \times R}{D_{sl} / 100}$), routes the buy order to the exchange or paper trading engine, and records the event in the **Execution Matrix**.
+9.  **Routing:** The *Execution Layer* queries the PME *Capital Matrix* to check available margin, reads the Stop-Loss Distance from the MME *Decision Matrix*, runs the Position Sizing Protocol to calculate a safe, risk-adjusted position size ($S = \frac{E \times R}{D_{sl} / 100}$), routes the buy order to the live exchange API, and records the event in the **Execution Matrix**.
 10.  **Supervision:** The Portfolio Management Engine (PME) receives the execution confirmation. The *Position Layer* initializes a new open position in the **Position Matrix**. The *Exposure Layer* recalculates directional risk, the *Capital Layer* locks margin, and the *Portfolio Layer* updates the account's master balance vector, running continuous safety checks to verify that the portfolio-wide drawdown ceiling has not been breached, triggering a veto clamp if required.
 11. **Analysis:** Upon a subsequent exit trigger, the trade is closed. The Performance Analytics Engine (PAE) imports the closed log into the *Trade Analytics Layer*, calculates performance metrics and runs statistical significance calculations (P-Value, T-Stat, Monte Carlo sign-randomization) in the *Strategy Analytics Layer*, measures drawdown impact in the *Risk Analytics Layer*, and updates the *Performance Matrix* to refine the strategy-to-regime compatibility maps. If the trade was run headlessly via CLI Mode, these entries are persisted to the database; the operator boots the GUI retroactively to display and analyze these metrics.
 

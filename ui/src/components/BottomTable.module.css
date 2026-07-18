@@ -288,3 +288,90 @@
     cursor: pointer;
 }
 .modalClose:hover { color: #f1f5f9; }
+
+.expandIcon {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 10px;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+}
+.expandIcon:hover { color: #f1f5f9; }
+
+.closeBtnGroup {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+.closeDropdownBtn {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.25);
+    color: #f87171;
+    font-size: 10px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.closeDropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 4px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    min-width: 100px;
+    overflow: hidden;
+    margin-top: 2px;
+}
+.closeDropdown button {
+    background: none;
+    border: none;
+    color: #cbd5e1;
+    font-size: 10px;
+    padding: 6px 12px;
+    cursor: pointer;
+    text-align: left;
+}
+.closeDropdown button:hover { background: rgba(239,68,68,0.1); color: #f87171; }
+
+.detailRow { background: #0a0d14; }
+.cockpitGrid {
+    display: flex;
+    gap: 16px;
+    padding: 10px 14px;
+}
+.bracketSection {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.bracketSectionTitle {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+.tpLabel { color: #10b981; }
+.slLabel { color: #ef4444; }
+.bracketItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.bracketSize {
+    font-size: 10px;
+    color: #64748b;
+    font-family: monospace;
+}
+.noBrackets {
+    font-size: 10px;
+    color: #64748b;
+    font-style: italic;
+}

@@ -1,4 +1,4 @@
-use core_domain::portfolio::PositionMatrix;
+use core_domain::portfolio::{PositionMatrix, PositionState};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal_macros::dec;
@@ -72,6 +72,8 @@ pub fn compute_position_matrix_with_config(
         invalidation_level: None,
         target_profit_ratio: None,
         current_portions: 1,
+        max_portions: 4,
+        position_state: PositionState::Opening,
         initial_allocated_margin: allocated_usd / dec!(20),
         realized_pnl_accumulator: dec!(0),
     }
@@ -197,9 +199,23 @@ pub fn apply_scaled_entry(
     slot_index: u32,
     entry_price: Decimal,
     size: Decimal,
-) -> PositionMatrix {
+    max_slots: u32,
+) -> Result<PositionMatrix, String> {
     let total_existing = positions.iter().find(|p| !p.symbol.is_empty());
     if let Some(existing) = total_existing {
+        if existing.current_portions >= max_slots {
+            return Err(format!(
+                "Position slot limit reached: {}/{} portions filled",
+                existing.current_portions, max_slots
+            ));
+        }
+
+        let new_state = if slot_index.saturating_add(1) >= max_slots {
+            PositionState::Managing
+        } else {
+            PositionState::Opening
+        };
+
         let total_size = existing.size + size;
         let vwap = if total_size > dec!(0) {
             ((existing.average_entry_price * existing.size) + (entry_price * size))
@@ -209,7 +225,7 @@ pub fn apply_scaled_entry(
         };
         let new_allocated = existing.allocated_usd + (entry_price * size);
 
-        PositionMatrix {
+        Ok(PositionMatrix {
             position_id: existing.position_id,
             symbol: existing.symbol.clone(),
             direction: existing.direction.clone(),
@@ -217,11 +233,12 @@ pub fn apply_scaled_entry(
             size: total_size,
             allocated_usd: new_allocated,
             current_portions: slot_index.saturating_add(1),
+            position_state: new_state,
             entry_price: existing.entry_price,
             ..existing.clone()
-        }
+        })
     } else {
-        compute_position_matrix(
+        Ok(compute_position_matrix(
             "",
             "Long",
             entry_price,
@@ -229,7 +246,7 @@ pub fn apply_scaled_entry(
             entry_price,
             0,
             0,
-        )
+        ))
     }
 }
 
@@ -244,6 +261,22 @@ pub fn compute_scaled_portion_size(
     match allocation_curve {
         "Linear" => base * Decimal::from(slot_index + 1),
         "Exponential" => base * Decimal::from(2u32.pow(slot_index)),
+        "Logarithmic" => {
+            let factor = ((slot_index + 1) as f64).ln() + 1.0;
+            let dec_factor = Decimal::from_f64_retain(factor).unwrap_or(dec!(1));
+            base * dec_factor
+        }
+        "Sigmoid" => {
+            let x = slot_index as f64 - 1.5;
+            let factor = 1.0 / (1.0 + (-x).exp());
+            let dec_factor = Decimal::from_f64_retain(factor).unwrap_or(dec!(1));
+            base * dec_factor
+        }
+        "Power" => {
+            let factor = ((slot_index + 1) as f64).powf(1.5);
+            let dec_factor = Decimal::from_f64_retain(factor).unwrap_or(dec!(1));
+            base * dec_factor
+        }
         _ => base,
     }
 }

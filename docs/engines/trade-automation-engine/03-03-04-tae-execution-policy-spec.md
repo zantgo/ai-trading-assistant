@@ -74,7 +74,7 @@ Value          ::= number | string | [number] | [string]
 | `risk.signal_risk.score` | `number` | Risk Matrix | `30.0` (0–100) |
 | `risk.execution_risk.score` | `number` | Risk Matrix | `25.0` (0–100) |
 | `risk.cascade_risk.score` | `number` | Risk Matrix | `30.0` (0–100) |
-| `risk.overall_risk.score` | `number` | Risk Matrix | `28.0` (0–100) |
+| `risk.overall_risk.score` | `number` | Risk Matrix | `28.3` (0–100) |
 
 ---
 

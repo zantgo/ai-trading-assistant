@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -192,7 +192,7 @@ An Evaluation Axis is a standardized analytical dimension used to contextualize 
 *   **Priority:** The structural execution urgency assigned to the event (e.g., Critical, High, Medium, Low).
 
 ### 3.11 Local Confluence
-Local Confluence measures the degree of mathematical agreement among indicators, signals, and analytical features within a single timeframe. It represents single-timeframe consensus.
+Local Confluence measures the degree of mathematical agreement among indicators, signals, and analytical features within a single timeframe. It represents single-timeframe consensus. Multi-timeframe confluence is measured by the Alignment Layer's Confluence Matrix (see §6.2).
 
 ### 3.12 Alignment
 Alignment measures the degree of agreement regarding market direction or structure among multiple timeframes of the same entity. Alignment answers the question: *Do multiple timeframes describe the same market condition?*
@@ -280,7 +280,7 @@ Communication between engines always occurs through stable API contracts exchang
 The DIE transforms raw exchange packets into standardized market data:
 $$\text{Exchange APIs} \longrightarrow \text{Raw Data Layer} \longrightarrow \text{Market Data Layer} \longrightarrow \text{Data Quality Layer} \longrightarrow \text{Data Distribution Layer (Distribution Matrix)}$$
 
-The DIE ensures data timeliness and validity before publishing the **Market Data Matrix** to the rest of the system.
+The DIE ensures data timeliness and validity before publishing the **Market Data Matrix** (the composite of the raw and validated data streams) to the rest of the system. Internally, the Distribution Layer (L4) produces the **Distribution Matrix** as its per-layer output; the **Market Data Matrix** is the term used for the inter-engine transport contract that flows from DIE to downstream consumers (MME, UI, telemetry logger).
 
 ### 4.5 Market Monitoring Engine (MME) Flow
 The MME transforms standardized market data into multi-timeframe, explainable market intelligence:
@@ -389,7 +389,7 @@ The Trading Platform is conceptually organized as a decentralized ecosystem of f
 *   **Domain:** Execution Policy Evaluation, Order Routing, Transaction Lifecycle Management, and Slippage Mitigation.
 *   **Primary Responsibility:** Evaluate user-configured execution policies against real-time market intelligence and dispatch structured orders to target exchanges.
 *   **Core Question:** *Do current market intelligence and portfolio conditions satisfy the configured parameters to execute a transactional action?*
-*   **Input Boundary:** Consumes the **Decision Matrix** (MME) and queries the **Capital Matrix** (`available_margin`) (PME).
+*   **Input Boundary:** Consumes the **Decision Matrix** (MME), queries the **Capital Matrix** (`available_margin`) (PME), and evaluates against active **Overview Matrices** (see §7.1).
 *   **Output Boundary:** The **Execution Matrix**, containing active order status updates, transactional events, and execution feedback logs.
 
 ### 5.4 Portfolio Management Engine (PME)
@@ -488,11 +488,17 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Output (Decision Matrix):** Unified tactical blueprint for a single symbol.
 *   **Key Elements:**
     *   *Trade Readiness:* `READY`, `FORMING`, `WATCH`, `STAND_ASIDE` (canonical vocabulary; see [Decision Matrix §4](../matrices/02-04-decision-matrix.md)).
+    *   *Directional Guidance:* `directional_guidance` — primary trade direction inferred from multi-timeframe analysis.
+    *   *Market Stance:* `market_stance` — `CONSTRUCTIVE`, `CAUTIOUS`, `NEUTRAL`, `DEFENSIVE`, `AGGRESSIVE` (five-variant enum).
+    *   *Entry Guidance:* `entry_guidance` — `IMMEDIATE`, `PULLBACK`, `BREAKOUT`, `WAIT`, `STAND_ASIDE` (five-variant enum).
+    *   *Exit Guidance:* `exit_guidance` — structural exit conditions (trailing stop, target-based, time-based).
     *   *Strategy Environment:* Categorical classification of which strategy class is currently favored — `TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` (six-state enum; see [Decision Matrix §3.3](../matrices/02-04-decision-matrix.md)).
     *   *Protection Strategy:* `STRUCTURE_BASED`, `VOLATILITY_BASED`, `ATR_BASED`, `SR_BASED`, `NO_RECOMMENDATION` (five-variant enum; see [Decision Matrix §3.6](../matrices/02-04-decision-matrix.md)). `NO_RECOMMENDATION` is reached on the empty-state fallback (no indicators available; see §A.6).
     *   *Target Strategy:* `RESISTANCE_BASED`, `RR_BASED`, `VOLATILITY_BASED`, `TRAILING_METHOD`, `NO_RECOMMENDATION` (five-variant enum; see [Decision Matrix §3.7](../matrices/02-04-decision-matrix.md)). `NO_RECOMMENDATION` is reached on the empty-state fallback.
+    *   *Final Recommendation:* `final_recommendation` — structured summary of the tactical blueprint.
     *   *Risk-Adjusted Reward:* `entry_danger` (renamed from `risk_favorability`) and `expected_reward_risk_ratio` — see [Decision Matrix §2.1](../matrices/02-04-decision-matrix.md).
     *   *Confidence Assessment:* `confidence_assessment = clamp(state_confidence × (1 − overall_risk / 100) × 100, 0, 100)` — the risk-attenuated terminal output (see [Decision Matrix §6](../matrices/02-04-decision-matrix.md)).
+    *   *Decision Context:* `decision_context` — inner structure carrying the synthesis weights and contributing factors (see §A.6).
     *   *Scenario Analysis:*
         *   `Primary Scenario:` Most probable path (e.g., `BULLISH_CONTINUATION`).
         *   `Alternative Scenario:` Most probable failure path (e.g., `BREAKDOWN_AND_LIQUIDITY_SWEEP`).
@@ -507,6 +513,17 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
     *   *Regime Distribution:* Mapping of how many symbols are in expansion vs. contraction regimes.
     *   *Asset Rankings:* Leaderboard of strongest and weakest symbols based on Quality and Opportunity scores.
     *   *Systemic Risk Score (0-100):* Cross-market aggregated risk metric representing market-wide danger levels.
+
+### 6.7.1 Fractional Layers: L1.5 (Derivatives Telemetry) and L2.5 (Liquidity Synthesis)
+
+The Liquidity Intelligence extension (Phase 0-4) inserts two fractional layers between the standard L1–L2–L3 spine. These are additive, not replacements — the foundational 7-layer model remains the structural backbone.
+
+- **L1.5 (Derivatives Telemetry):** Consumes WebSocket and REST derivatives data (open interest, funding rate, mark/index prices, liquidation events) from Hyperliquid and Bitget. Produces `LiquidityFlow`, attached to `MarketSnapshot.liquidity`. Outputs: `latest_mark_px`, `latest_index_px`, `latest_oi`, `latest_funding`.
+- **L2.5 (Liquidity Synthesis):** Consumes L1.5 state, L1 candle history (last 200 micro closes), and configuration (leverage distribution, maintenance margin rate). Produces `LiquidationClusterMatrix`, attached to `MarketSnapshot.cluster`, and `Vec<LiquiditySignal>` on `MarketSnapshot.liquidity_signals`. Refreshed every 5 minutes.
+
+**Cascade invariant:** L1.5 and L2.5 feed both L4 (for `LiquiditySqueeze` opportunity precondition — `cascade_state` and `cascade_asymmetry`) and L5 (for `cascade_risk`, the 8th unipolar danger sub-dimension). L2.5 does not read from L1.5's Phase 1 output (LiquidityFlow) for feedback-loop avoidance; it does consume Phase 0 outputs (open interest, funding rate, mark/index prices) from L1.5's production. The unidirectional invariant is preserved: L4 and L5 remain orthogonal, and L5 → L6 remains unidirectional.
+
+See [03-02-11-mme-liquidity-extension.md](../engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md) for the full cascade invariant and cross-engine impact.
 
 ---
 
@@ -988,7 +1005,7 @@ The platform uses a contract-based, decoupled communication architecture. Engine
 *   **Unidirectional Information Flow:** Information always cascades forward from raw observations to meta-intelligence.
     $$\text{Data Infrastructure} \longrightarrow \text{Market Monitoring} \longrightarrow \text{Trade Automation} \longrightarrow \text{Portfolio Management} \longrightarrow \text{Performance Analytics}$$
 *   **Backward Channels (restricted):** The data plane is strictly unidirectional, but four controlled backward channels exist:
-    *   **(1) Sizing Feedback:** PME provides Capital Matrix to TAE to guide size calculation during execution.
+    *   **(1) Sizing Feedback:** TAE queries PME Capital Matrix for available margin to size positions.
     *   **(2) PME→TAE VetoMessage:** PME Portfolio Layer asserts ontological priority to override TAE stance.
     *   **(3) PME→TAE LiquidateCommand:** PME orders emergency liquidation during Hard Exit.
     *   **(4) PAE→config Analytical Feedback:** PAE provides historical performance analysis to configuration databases for off-line policy optimization.
@@ -1284,7 +1301,7 @@ Full specification: [Analysis Matrix](../matrices/02-02-analysis-matrix.md).
 
 > Per [02-00b-confidence-hierarchy.md](../matrices/02-00b-confidence-hierarchy.md), the JSON key is **`state_confidence`** (not `confidence`). No backwards-compat alias.
 
-The continuous **market_bias_score ∈ [−1, +1]** is the Alignment Matrix's `mtf_overall_score` divided by 100.
+The continuous **market_bias_score ∈ [−1, +1]** is the signed Alignment Matrix's `mtf_overall_score` divided by 100 (the score carries the sign of the dominant bias direction).
 
 ---
 
@@ -1603,7 +1620,7 @@ Canonical counts — registry-verified against `crates/market-analyzer/src/indic
 | 4 | `Breakout` | **9** | Price breaks a structural boundary. Includes `RESISTANCE_FLIP_CONFIRMED` / `SUPPORT_FLIP_CONFIRMED` from `support_resistance` (see `04-02-32-support-resistance.md §6`). |
 | 5 | `BandTouch` | **4** | Price contacts a channel/band edge. Producers: `donchian`, `keltner`, `bollinger`, `stddev_channel`. |
 | 6 | `ZeroLineCross` | **11** | Oscillator crosses its zero/mid line. Producers: `rsi`, `chandemo`, `williams_r`, `awesome_oscillator`, `cci`, `macd`, `cmf`, `force_index`, `linreg_slope`, `zscore`, `oi_delta`. |
-| 7 | `CompressionRelease` | **4** | Volatility cycle phase transition (compression/coiling + release/expansion). Producers: `atr`, `bbwp`, `squeeze`. *(The v2.1 docs-only rename to `VolatilityCycle` never propagated to the registry; v4.0 reverts to the canonical registry name `CompressionRelease`.)* |
+| 7 | `CompressionRelease` | **4** | Volatility cycle phase transition (compression/coiling + release/expansion). Producers: `atr`, `bbwp`, `choppiness`, `squeeze`. *(The v2.1 docs-only rename to `VolatilityCycle` never propagated to the registry; v4.0 reverts to the canonical registry name `CompressionRelease`.)* |
 | 8 | `LevelTest` | **14** | Price tests a horizontal level. Producers: `donchian`, `keltner`, `vwap`, `anchored_vwap`, `ichimoku`, `stddev_channel`, `volume_profile`, `bollinger`, `fibonacci`, `support_resistance`, `pivot_points`, `smc_fvg`, `smc_order_blocks`, `supertrend`. |
 | 9 | `TrendFlip` | **8** | Directional regime reverses. Producers: `supertrend`, `psar`, `adx`, `ichimoku`, `obv`, `aroon`, `smc_structure`, `smc_order_blocks`. |
 | 10 | `VolumeClimax` | **2** | Abnormal volume surge. Producers: `volume`, `rvol`. |

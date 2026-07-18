@@ -1,4 +1,4 @@
-use config_models::{ExecutionPolicy, Direction, Stance};
+use config_models::{ExecutionPolicy, Direction, Stance, TriggerMode};
 use core_domain::models::MarketSnapshot;
 use std::collections::HashMap;
 
@@ -20,6 +20,7 @@ pub struct PolicyEngine {
     stances: HashMap<String, Stance>,
     cooldowns: HashMap<String, u64>,
     policy_paused: HashMap<String, bool>,
+    last_interval_eval: HashMap<String, u64>,
 }
 
 impl PolicyEngine {
@@ -33,6 +34,7 @@ impl PolicyEngine {
             stances,
             cooldowns: HashMap::new(),
             policy_paused: HashMap::new(),
+            last_interval_eval: HashMap::new(),
         }
     }
 
@@ -46,6 +48,33 @@ impl PolicyEngine {
 
     pub fn set_policy_auto_paused(&mut self, policy_id: &str, paused: bool) {
         self.policy_paused.insert(policy_id.to_string(), paused);
+    }
+
+    pub fn is_policy_due(
+        &self,
+        policy_id: &str,
+        trigger_mode: &TriggerMode,
+        current_time: u64,
+        candles_completed: u32,
+        pending_events: &[String],
+    ) -> bool {
+        match trigger_mode {
+            TriggerMode::Interval { seconds } => {
+                let last = self.last_interval_eval.get(policy_id).copied().unwrap_or(0);
+                let elapsed = current_time.saturating_sub(last);
+                elapsed >= *seconds
+            }
+            TriggerMode::CandleClose { timeframe: _, count } => {
+                candles_completed >= *count
+            }
+            TriggerMode::EventDriven { events } => {
+                events.iter().any(|ev| pending_events.contains(ev))
+            }
+        }
+    }
+
+    pub fn mark_interval_evaluated(&mut self, policy_id: &str, current_time: u64) {
+        self.last_interval_eval.insert(policy_id.to_string(), current_time);
     }
 
     pub fn evaluate_policies(
@@ -215,6 +244,7 @@ mod tests {
             analysis: Some(AnalysisMatrix {
                 symbol: symbol.into(),
                 bias: MarketBias::StrongBullish,
+                market_bias_score: 85.0,
                 state_confidence: 0.85,
                 market_regime: MarketRegime::TrendingBull,
                 trend_assessment: TrendAssessment::Healthy,

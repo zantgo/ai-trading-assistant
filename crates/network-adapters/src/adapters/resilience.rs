@@ -24,6 +24,17 @@ impl Default for ReconnectPolicy {
     }
 }
 
+impl ReconnectPolicy {
+    pub fn from_config(cfg: &config_models::ReconnectConfig) -> Self {
+        Self {
+            initial_backoff: Duration::from_millis(cfg.initial_backoff_ms),
+            max_backoff: Duration::from_millis(cfg.max_backoff_ms),
+            jitter_pct: cfg.jitter_pct,
+            max_attempts: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReconnectState {
     Connected { since: Instant },
