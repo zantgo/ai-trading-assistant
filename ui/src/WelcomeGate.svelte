@@ -46,7 +46,7 @@
 <div class={styles.welcomeGate}>
     <div class={styles.welcomeCard}>
         <div class={styles.welcomeHeader}>
-            <h1 class={styles.welcomeTitle}>Market Monitor</h1>
+            <h1 class={styles.welcomeTitle}>Trading Platform</h1>
             <p class={styles.welcomeSubtitle}>Configure your session to begin</p>
         </div>
 

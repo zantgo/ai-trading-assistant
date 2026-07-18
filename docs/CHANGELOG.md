@@ -260,7 +260,7 @@ Rust Cargo forbids cyclic crate deps. Four of the natural edges between the new 
 
 1. **`MarketContext`** struct in `core-domain`; `synthesize_market_context()` function in `market-analyzer`. (Avoids `core-domain → market-analyzer`.)
 2. **`AppState`** in `api-gateway`; `RegistryContext` in `portfolio-supervisor` with `AppState::registry_context()` as a one-method bridge. (Avoids `api-gateway ↔ portfolio-supervisor`.)
-3. **`ConnectionQualityTracker`** event-emitter in `network-adapters` (no `sqlx`); persistence loop in `database-storage::connection_quality_persistence`. (Avoids `network-adapters → database-storage`.)
+3. **`ConnectionQualityTracker`** event-emitter in `network-adapters` (no `sqlx`); persistence loop in `database-storage::connection_quality_persistence`. (Avoids `network-adapters → database-storage`.) *(Corrected in v6.4.1 — the persistence loop now lives in `network-adapters::connection_quality_tracker::run_persistence_loop`; `database-storage` exposes only the query layer `list_connection_quality`.)*
 4. **`paper_trading::invalidate_position`** stub removed from the analyzer pipeline. (Avoids `market-analyzer → portfolio-supervisor`.)
 
 Full rationale in [`01-06 §3`](./conceptual-foundations/01-06-crate-layout-and-cycles.md).

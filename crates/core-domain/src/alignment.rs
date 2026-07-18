@@ -8,7 +8,7 @@
 //! Layer: L2.5 in the architecture (Signal Correlation).
 
 use crate::indicator_dtos::NormalizedIndicatorValue;
-use crate::market_context::{ContextDimension, MarketContext};
+use crate::market_context::MarketContext;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -414,6 +414,7 @@ pub fn compute_alignment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::market_context::ContextDimension;
 
     fn build_map(
         rsi: f64,
@@ -545,6 +546,7 @@ mod tests {
         assert!(c.trend_agreement_pct <= 75.0);
     }
 }
+#[allow(dead_code)]
 fn clamp01f(x: f64) -> f64 {
     x.max(0.0).min(1.0)
 }

@@ -1,11 +1,11 @@
 # TAE Layer 1 — Policy Layer
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 1 of 2
 **Input Contract:** [Decision Matrix](../../matrices/02-04-decision-matrix.md), [Overview Matrix](../../matrices/02-09-overview-matrix.md) (MME)
-**Output Contract:** Policy Matrix (validated execution directives)
+**Output Contract:** [Policy Matrix](../../matrices/02-14-policy-matrix.md) (validated execution directives)
 **Purpose:** This document specifies the Policy Layer — the rule evaluation engine that maps incoming MME decision intelligence against user-configured execution policies and produces validated, triggerable directives.
 
 ---
@@ -102,7 +102,7 @@ Stances may be changed manually by the operator or automatically by the **PME Ve
 
 ## 6. Output: Policy Matrix
 
-The Policy Matrix is the set of all validated directives:
+See canonical specification at [Policy Matrix — `02-14-policy-matrix.md`](../../matrices/02-14-policy-matrix.md).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -113,6 +113,8 @@ The Policy Matrix is the set of all validated directives:
 | `decision_context` | `DecisionContext` | The MME decision snapshot that triggered this policy. |
 | `stance` | `Stance` | Current authorization state. |
 | `risk_parameters` | `RiskParams` | Risk-per-trade %, max size. |
+
+> **Canonical source:** The field table above is mirrored from the canonical [Policy Matrix specification](../../matrices/02-14-policy-matrix.md). If any other doc disagrees with the values here, `02-14-policy-matrix.md` wins. |
 
 ---
 

@@ -34,18 +34,23 @@ Exchange WS (Hyperliquid/Bitget)
     │  CandleQualityEnvelope attached to the snapshot
     ▼
 [L4 Data Distribution Layer]         crates/market-analyzer/src/analyzer/mod.rs
-    │  Two independent broadcast channels per (symbol, timeframe) pipeline
+    │  DIE L4 owns the NormalizedCandle broadcast channel
     │  (see 03-01-05 §3):
     │
-    ├── NormalizedCandle channel (DIE L4 transport)
-    │       │  consumed by Candle Aggregator for higher-TF rollup
+    └── NormalizedCandle channel (DIE L4 transport)
+            │  consumed by Candle Aggregator for higher-TF rollup
+
+[MME L1 Metrics Layer]               crates/market-analyzer/src/analyzer/mod.rs
+    │  MME L1 builds the MarketSnapshot and publishes it
+    │  over the MarketSnapshot broadcast channel
+    │  (see 03-02-02 §8):
     │
-    └── MarketSnapshot channel (MME L1 artifact — not produced by DIE L4)
+    └── MarketSnapshot channel (MME L1 artifact)
             │
     ┌───────┼─────────────────┬─────────────────┐
     │       ▼                 ▼                 ▼
-    │  WS broadcast      Telemetry          MME analyzer
-    │  /ws clients       logger             (per-tier)
+    │  WS broadcast      Telemetry          MME L2–L7
+    │  /ws clients       logger             (per-tier pipeline)
     │                    │                  │
     │  crates/api-       crates/database-   crates/market-
     │  gateway/src/      storage/src/       analyzer/src/
@@ -53,11 +58,9 @@ Exchange WS (Hyperliquid/Bitget)
     │                    │                  │
     │       ┌────────────┘                  │
     │       ▼                               ▼
-    │  Svelte 5                        build MarketSnapshot
-    │  runes store                     │
-    │                                  ▼
-    │                            Indicator pipeline
-    │                            (50 indicators)
+    │  Svelte 5                   Alignment/Analysis/
+    │  runes store                Opportunity/Risk/
+    │                             Decision/Overview
 
 Connection-quality samples are persisted outside the telemetry logger (see §3):
 
@@ -84,7 +87,7 @@ SQLite connection_quality_samples
 | 9 | MME L1 | `MarketSnapshot` broadcast | MME builds `MarketSnapshot` (candle, indicator buffers, alignment, etc.) and publishes on the independent `MarketSnapshot` broadcast channel. |
 | 10 | — | Telemetry logger | Subscribe to `MarketSnapshot` channel; on `is_completed = true`, write `TelemetryMsg::InsertSnapshot`. |
 | 11 | — | WS handler | Subscribe to `MarketSnapshot` channel; forward to `/ws?symbol=…&timeframe_secs=…` subscribers. |
-| 12 | — | MME analyzer | Subscribe to `MarketSnapshot` channel; run indicators; produce Alignment/Analysis/Opportunity/Risk/Decision. |
+| 12 | MME L2–L7 | MME analyzer pipeline | Subscribe to `MarketSnapshot` channel; produce Alignment/Analysis/Opportunity/Risk/Decision/Overview from the already-computed indicators and signals in the snapshot. |
 | 13 | DB | `logger.rs::run_telemetry_logger` | INSERT into `market_snapshots` (WAL mode). |
 
 Latency budget (per `AC-DIE-3`): p95 < 25 ms end-to-end.
@@ -141,8 +144,8 @@ The clock monitor does not affect the trade path directly. Its drift budget (≤
 The DIE does not compute indicators, bias, or risk. Those happen in the MME (consuming the L4 broadcast). The DIE's only outputs are:
 
 - `NormalizedEvent` stream (L1 → L2)
-- `NormalizedCandle` stream (L2 → L3)
-- `MarketSnapshot` transport (L4) — the snapshot is **built by the MME analyzer pipeline** (MME L1; see `01-06` §1); DIE attaches its `CandleQualityEnvelope` to the frame and routes it. DIE emits `NormalizedCandle` upstream (L2 → MME); it does not construct the snapshot.
+- `NormalizedCandle` stream (L2 → L3 → L4 → Candle Aggregator). DIE L4 publishes `NormalizedCandle` frames on its broadcast channel; the Candle Aggregator is the sole subscriber.
+- `MarketSnapshot` transport (MME L1 artifact) — the snapshot is **built by the MME analyzer pipeline** (MME L1; see `01-06` §1 and `03-02-02 §8`). DIE does not construct, attach envelopes to, or route the `MarketSnapshot`; that is MME L1's responsibility.
 - `PipelineReliabilityMetrics` (per-instance; served via `GET /api/data-quality` — `crates/api-gateway/src/handlers/data_quality.rs`; see [06-01-api-gateway-contract.md §2.11](../../integration-and-api/06-01-api-gateway-contract.md))
 - `ConnectionQualityReport` (per-`(pair_key, timeframe_secs)`, exposed via `/api/connection-quality`)
 

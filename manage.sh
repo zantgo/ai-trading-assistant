@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# Market Monitor - Workspace Management Script
+# Trading Platform - Workspace Management Script
 # ==============================================================================
 #
 # Workspace architecture: see docs/conceptual-foundations/01-06-crate-layout-
@@ -20,7 +20,7 @@ FRONTEND_DIR="ui"
 PID_FILE=".engine.pid"
 
 show_help() {
-    echo "Market Monitor - CLI Management Tool"
+    echo "Trading Platform - CLI Management Tool"
     echo "Usage: ./manage.sh [command]"
     echo ""
     echo "Commands:"
@@ -60,7 +60,7 @@ build() {
         echo "⚠️  Frontend build missing. Triggering compilation first..."
         build
     fi
-    echo "🚀 Starting Market Monitor in the foreground..."
+    echo "🚀 Starting Trading Platform in the foreground..."
     cargo run --bin execution-daemon -- --web
 }
 
@@ -78,7 +78,7 @@ run_silent() {
         fi
     fi
 
-    echo "🚀 Starting Market Monitor in the background..."
+    echo "🚀 Starting Trading Platform in the background..."
     echo "📝 Logs will be written to: $LOG_FILE"
 
     # Run cargo in background and record PID
@@ -101,7 +101,7 @@ run_headless() {
         fi
     fi
 
-    echo "🚀 Starting Market Monitor in HEADLESS mode..."
+    echo "🚀 Starting Trading Platform in HEADLESS mode..."
     echo "   🔧 No Welcome Gate — session auto-initialised from config.toml"
     echo "   📡 Instances auto-spawned from workspace.instances[]"
     echo "   🌐 API server on port 3000 for monitoring"

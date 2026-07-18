@@ -1,6 +1,6 @@
 # Liquidity Phase 0-4 — Architecture Spec
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Owner:** MME (Market Monitoring Engine), with extensions to TAE / PME
 
 ## Overview
@@ -23,7 +23,7 @@ of where the next cascade will come from. The user sees:
 | **0** | Mark price, OI, funding rate on every snapshot | Exchange WS (Hyperliquid activeAssetCtx / Bitget ticker+funding-rate) + REST polling fallback |
 | **1** | `LiquidityFlow` per candle (real liquidation events) | Exchange WS userFills (HL) / fill (Bitget) |
 | **2** | `LiquidationClusterMatrix` every 5 min (estimated heatmap) | Deterministic estimator on (OI + funding + price history) |
-| **3** | 7 `LiquiditySignalKind` signals per snapshot | Discrete rules on (flow + cluster + funding) |
+| **3** | 11 `LiquiditySignalKind` signals per snapshot | Discrete rules on (flow + cluster + funding) |
 | **4** | Frontend `LiquidityPanel` (Flow / Cluster / Context) | WebSocket frame field `liquidity` + `cluster` + `liquidity_signals` |
 
 ## Data flow

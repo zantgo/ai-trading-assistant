@@ -1,6 +1,6 @@
 # 03-02-11: MME Liquidity Intelligence Extension (L1.5 + L2.5)
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **New layers:** L1.5 (Derivatives Telemetry) + L2.5 (Liquidity Synthesis)
@@ -107,19 +107,23 @@ The integration with the rest of the platform is:
 
 ## Phase 3 LiquiditySignalKind Registry
 
-The Phase 3 `LiquiditySignalKind` enum defines **7** signals derived per snapshot from `liquidity` + `cluster` + `funding`:
+The Phase 3 `LiquiditySignalKind` enum defines **11** signals derived per snapshot from `liquidity` + `cluster` + `funding`:
 
 | # | Signal | Trigger |
 |---|--------|---------|
-| 1 | `LIQUIDITY_CASCADE_DETECTED` | `flow.cascade_state` transitions from `None` → `Detected` |
-| 2 | `LIQUIDITY_CASCADE_SUSTAINED` | `flow.cascade_state = Sustained` for ≥ 3 consecutive candles |
-| 3 | `LIQUIDITY_CASCADE_EXHAUSTED` | `flow.cascade_state` transitions to `Exhausted` |
-| 4 | `LIQUIDITY_CLUSTER_PRESSURE_HIGH` | `|cluster.cascade_asymmetry| > 0.5` |
-| 5 | `LIQUIDITY_CLUSTER_FORWARD_PRESSURE` | `cluster.cascade_asymmetry` sign aligns with detected cascade direction |
-| 6 | `LIQUIDITY_FUNDING_FLIP` | `funding_rate` changes sign (long → short funding) |
-| 7 | `LIQUIDITY_OI_DIVERGENCE` | `oi_delta` disagrees with price direction (liquidity-focused divergence) |
+| 1 | `CASCADE_DETECTED` | `flow.cascade_state` transitions from `None` → `Detected` |
+| 2 | `CASCADE_SUSTAINED` | `flow.cascade_state = Sustained` for ≥ 3 consecutive candles |
+| 3 | `CASCADE_EXHAUSTED` | `flow.cascade_state` transitions to `Exhausted` |
+| 4 | `LIQUIDITY_VACUUM` | Order book thin AND dense liquidations behind price |
+| 5 | `FUNDING_EXTREME` | `|funding_rate|` exceeds extreme threshold |
+| 6 | `OI_FUNDING_DIVERGENCE` | OI increasing while funding rate trending opposite direction |
+| 7 | `MAGNET_ACTIVATED` | Price approaching a cluster zone (magnet active) |
+| 8 | `CLUSTER_PRESSURE_HIGH` | `|cluster.cascade_asymmetry| > 0.5` |
+| 9 | `CLUSTER_FORWARD_PRESSURE` | `cluster.cascade_asymmetry` sign aligns with detected cascade direction |
+| 10 | `FUNDING_FLIP` | `funding_rate` changes sign (long → short funding) |
+| 11 | `OI_PRICE_DIVERGENCE` | OI delta disagrees with price direction |
 
-All 7 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. See [01-05-liquidity-domain.md §Phase 3](../../conceptual-foundations/01-05-liquidity-domain.md).
+All 11 are emitted on the `liquidity_signals` Vec field of `MarketSnapshot`. Signal names serialize in `SCREAMING_SNAKE_CASE` as shown above, matching the Rust `Display` impl in `crates/core-domain/src/liquidity/mod.rs`. See [01-05-liquidity-domain.md §Phase 3](../../conceptual-foundations/01-05-liquidity-domain.md).
 
 > **Field-naming note.** A previous version of this section referred to the
 > Decision Matrix's `opportunity_type` field. That field was removed

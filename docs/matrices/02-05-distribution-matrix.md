@@ -4,31 +4,33 @@
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Producing Layer:** Layer 4 — Data Distribution Layer
-**Purpose:** This document defines the physical schema of the **Distribution Matrix** — the high-throughput, pub/sub event routing system that delivers validated market data to all downstream engine consumers.
+**Purpose:** This document defines the physical schema of the **Distribution Matrix** — the transport contract for validated `NormalizedCandle` frames published by DIE L4 to the Candle Aggregator for higher-timeframe rollup.
+
+The analytical `MarketSnapshot` broadcast channel (which carries indicators, matrices, and telemetry to the MME, UI, and DB) is an **MME L1** artifact. Its channel specification, subscriber table, and wire format are documented at `03-02-02-mme-layer1-metrics.md §8`.
 
 ---
 
 ## 1. Conceptual Definition
 
-The Distribution Layer is the DIE's **output boundary**. It receives validated candles from the Data Quality Layer and routes them to all subscribed downstream engines (MME, real-time dashboards, historical storage) via bounded asynchronous channels.
+The Distribution Layer is the DIE's **output boundary**. It receives validated candles from the Data Quality Layer and publishes them as `NormalizedCandle` frames over a per-`(symbol, timeframe)` broadcast channel consumed exclusively by the Candle Aggregator for higher-timeframe rollup.
 
 ```
-[CandleQualityEnvelope] ──► DISTRIBUTION LAYER (L4) ──► [MME] · [DB Persistence] · [WebSocket to Frontend]
+[CandleQualityEnvelope] ──► DISTRIBUTION LAYER (L4) ──► [Candle Aggregator] ──► higher-TF rollup
 ```
 
 ---
 
 ## 2. Physical Schema
 
-The Distribution Matrix itself is not a single data structure but a **multiplexed channel topology**:
+The Distribution Matrix itself is not a single data structure but a **multiplexed channel topology** for DIE's raw OHLCV transport:
 
 | Component | Description |
 |-----------|-------------|
-| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated broadcast channel. A 4-tier ladder with one symbol thus yields four channels; a workspace of `N` symbols yields `4 × N`. |
-| **MME subscriber** | The Market Monitoring Engine subscribes to the candle channel for indicator computation. |
-| **DB subscriber** | The telemetry logger subscribes to persist candles to `market_snapshots`. |
-| **WS subscriber** | The WebSocket broadcaster subscribes to emit real-time updates to the frontend. |
+| **Channel per `(symbol, timeframe)` pipeline** | Each `(symbol, timeframe_secs)` combination owns a dedicated `NormalizedCandle` broadcast channel. A 4-tier ladder with one symbol thus yields four channels. |
+| **Candle Aggregator subscriber** | The Candle Aggregator subscribes to the micro (base) timeframe `NormalizedCandle` channel for higher-timeframe rollup. |
 | **Channel capacity** | 10,000 buffered events per channel. |
+
+The `MarketSnapshot` broadcast channel (consumed by MME L2–L7, the frontend WebSocket, and the telemetry logger) is produced by MME L1 and documented at `03-02-02-mme-layer1-metrics.md §8`.
 
 ---
 
@@ -49,7 +51,9 @@ The observation-loop latency budget decomposes as: **DIE contribution ≤ 10 ms;
 
 ## 4. Distribution Contract
 
-Each distributed frame is a **`CandleDistributionFrame`** — the wire envelope containing the validated candle and its quality metadata. The frame is a documented **projection** of the upstream products, not a verbatim copy:
+Each DIE L4 `NormalizedCandle` frame carries the OHLCV candle with its `ReconstructionMethod` provenance flag (see [02-06-market-data-matrix.md](02-06-market-data-matrix.md)). Transport is by in-memory `Arc<NormalizedCandle>` broadcast; no independent JSON serialization is performed at this layer. The candle is serialized downstream by MME L1 as part of the `MarketSnapshot` envelope (see `03-02-02 §8.3`).
+
+The `CandleDistributionFrame` (the wire envelope carrying the validated candle and its quality metadata to external consumers) is projected from the `NormalizedCandle` and `CandleQualityEnvelope` at MME L1 serialization time, not at DIE L4:
 
 | Frame field | Projected from |
 |-------------|----------------|
@@ -95,5 +99,5 @@ Each distributed frame is a **`CandleDistributionFrame`** — the wire envelope 
 - [DIE Overview](../engines/data-infrastructure-engine/03-01-01-die-overview-spec.md) — Engine boundaries and performance targets.
 - [DIE Layer 4 — Data Distribution](../engines/data-infrastructure-engine/03-01-05-die-layer4-data-distribution.md) — Producing-layer specification.
 - [Candle Quality Envelope](02-03-data-quality-matrix.md) — Upstream input.
-- [Metrics Matrix](02-07-metrics-matrix.md) — Primary consumer (MME).
-- [API Gateway Contract](../integration-and-api/06-01-api-gateway-contract.md) — WebSocket distribution to frontend.
+- [MME Layer 1 §8 (MarketSnapshot channel)](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) — The analytical broadcast channel consumed by MME L2–L7, UI, and DB.
+- [Market Data Matrix](02-06-market-data-matrix.md) — The `NormalizedCandle` schema contract.

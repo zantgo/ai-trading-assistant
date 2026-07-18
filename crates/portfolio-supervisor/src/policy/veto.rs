@@ -1,5 +1,4 @@
 use config_models::Stance;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct VetoEvent {

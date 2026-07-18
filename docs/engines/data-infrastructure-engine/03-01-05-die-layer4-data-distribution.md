@@ -32,42 +32,34 @@ The Data Distribution Layer is the DIE's egress. It publishes the validated Mark
 
 ## 2. Broadcast Channel Model
 
-Distribution uses Tokio `broadcast` channels — a single producer, many independent consumers, each with its own cursor.
+Distribution uses a Tokio `broadcast` channel per `(symbol, timeframe)` pipeline — a single producer, many independent consumers, each with its own cursor.
 
 | Property | Value |
 |----------|-------|
-| Topology | One broadcast channel per `(symbol, timeframe)` pipeline. |
-| Fan-out | Unlimited subscribers; each receives every message. |
+| Topology | One `NormalizedCandle` broadcast channel per `(symbol, timeframe)` pipeline. |
+| Fan-out | Unlimited subscribers; each receives every frame. |
 | Lag handling | Slow consumers receive `RecvError::Lagged(n)`; they resynchronize rather than blocking the producer. |
-| Payload | Completed and shadow `MarketSnapshot` frames. |
+| Payload | Completed `NormalizedCandle` frames (with `ReconstructionMethod` provenance flag). |
 
 ### 2.1 Producer / Consumer Decoupling
 
-The producer (analyzer pipeline) never awaits a specific consumer. A crashed or slow subscriber cannot stall ingestion — it simply misses frames and re-subscribes at the current head. This satisfies the platform's **Decoupled Producer/Consumer** principle.
+The producer (candle generator) never awaits a specific consumer. A crashed or slow subscriber cannot stall ingestion — it simply misses frames and re-subscribes at the current head. This satisfies the platform's **Decoupled Producer/Consumer** principle.
 
 **Shared-state caveat.** The "zero shared state" framing is aspirational; in practice, state shared across the engine boundary is held in `Arc<…>` containers owned by `RegistryContext` (see [01-06-crate-layout-and-cycles.md §3.2](../../conceptual-foundations/01-06-crate-layout-and-cycles.md)). The actual invariant is *no mutable shared state without synchronisation*: shared containers are read-only after construction, or guarded by Tokio primitives (`RwLock`, `Mutex`, atomic counters). The decoupled-API guarantee is that a slow consumer cannot block the producer; it is not that no state is shared.
 
-> **Target Architecture.** See [01-07 §1](../../conceptual-foundations/01-07-target-architecture-roadmap.md) — "Zero-copy MME distribution". The target design splits distribution into two explicitly different formats: internal distribution (to MME) bypasses JSON serialization, routing raw zero-copy binary memory slices; external distribution (to Frontend / DB) uses the canonical JSON-RPC 2.0 schemas (§4). *Current implementation:* the internal MME path broadcasts cloned `MarketSnapshot` structs; the external path uses JSON-RPC 2.0 as documented in §4.
+> **Target Architecture.** See [01-07 §1](../../conceptual-foundations/01-07-target-architecture-roadmap.md) — "Zero-copy MME distribution". The target design splits distribution into two explicitly different formats: internal distribution (to MME) bypasses JSON serialization, routing raw zero-copy binary memory slices; external distribution (to Frontend / DB) uses the canonical JSON-RPC 2.0 schemas (§4). *Current implementation:* the internal DIE L4 path broadcasts cloned `NormalizedCandle` structs; the external `MarketSnapshot` path (MME L1, see [03-02-02 §8](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md)) uses JSON-RPC 2.0 as documented in [06-01-api-gateway-contract.md](../../integration-and-api/06-01-api-gateway-contract.md).
 
 ---
 
 ## 3. Subscription Registry
 
-Consumers subscribe by `(symbol, timeframe_secs)`. The L4 layer maintains **two distinct broadcast channels** per `(symbol, timeframe)` pipeline:
-
-1. A `NormalizedCandle` broadcast channel carrying raw OHLCV candles (and `ReconstructionMethod` provenance). This is the DIE L4 transport channel, consumed by the Candle Aggregator for higher-timeframe rollup.
-2. A `MarketSnapshot` broadcast channel carrying the full analytical envelope (indicators, alignment, risk, advisory, etc., per [02-07-metrics-matrix.md](../../matrices/02-07-metrics-matrix.md)). This is an MME L1 artifact (not produced by DIE L4), consumed by the MME analyzer, the telemetry logger, and the WebSocket clients.
-
-The two channels are independent: lag in one does not affect the other. Both are Tokio `broadcast` with non-blocking semantics (lagged consumers surface `RecvError::Lagged(n)` but do not stall the producer).
+Consumers subscribe by `(symbol, timeframe_secs)`. The L4 layer maintains a single `NormalizedCandle` broadcast channel per `(symbol, timeframe)` pipeline, carrying raw OHLCV candles (and `ReconstructionMethod` provenance). This is the DIE L4 transport, consumed by the Candle Aggregator for higher-timeframe rollup.
 
 | Consumer | Subscription | Transport |
 |----------|-------------|-----------|
-| MME analyzer | All configured timeframes for an instance. | `MarketSnapshot` broadcast receiver. |
-| Frontend | 4 parallel connections (micro/fast/slow/macro). | WebSocket `/ws?symbol=&timeframe_secs=` → `MarketSnapshot` channel. |
-| Telemetry logger | Completed snapshots. | `MarketSnapshot` broadcast receiver → SQLite. |
 | Candle aggregator | Base timeframe (micro) closes. | Dedicated `NormalizedCandle` broadcast receiver. |
 
-The WebSocket handler (`server/ws.rs`) resolves the requested `(symbol, timeframe_secs)` to the correct `MarketSnapshot` channel and streams frames to the client.
+The `MarketSnapshot` broadcast channel (which carries indicators, matrices, and telemetry) is an MME L1 artifact produced by the MME analyzer pipeline. Its transport specification, subscriber table (MME L2-L7, telemetry logger, frontend WebSocket), and serialization contract live at [03-02-02-mme-layer1-metrics.md §8](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md).
 
 ---
 
@@ -75,30 +67,14 @@ The WebSocket handler (`server/ws.rs`) resolves the requested `(symbol, timefram
 
 ### 4.1 Wire Format
 
-Frames are serialized as **JSON-RPC 2.0 notifications** for the WebSocket transport:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "broadcast.market_snapshot",
-  "params": {
-    "symbol": "BTC-USDT",
-    "timeframe_secs": 60,
-    "snapshot": { /* MarketSnapshot */ }
-  }
-}
-```
-
-Notifications carry no `id` (no response expected). See the [API Gateway Contract](../../integration-and-api/06-01-api-gateway-contract.md) for the full protocol.
+The `NormalizedCandle` is serialized as part of the broader `MarketSnapshot` payload by MME L1 (see [03-02-02 §8](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md)). DIE L4 transports `NormalizedCandle` as in-memory Rust structs via `Arc<NormalizedCandle>` broadcast; no independent JSON serialization is performed at this layer.
 
 ### 4.2 Low-Overhead Rules
 
 | Rule | Effect |
 |------|--------|
-| `skip_serializing_if = "Option::is_none"` | Absent optional fields are omitted, shrinking frames. |
-| Empty collections omitted | Empty `signals` / null `values` maps dropped. |
-| Decimal-as-number | `Decimal` fields serialize as plain JSON numbers (`rust_decimal` `serde-float` feature, `crates/core-domain/Cargo.toml`). See [06-01 §4](../../integration-and-api/06-01-api-gateway-contract.md) for the platform-wide convention and consumer parsing guidance. |
-| Shadow streaming | Live shadow frames (`is_completed = false`) stream at tick cadence; completed frames (`is_completed = true`) on candle close. The platform does not rate-limit shadow frames at the L4 layer — any local throttling is the consumer's responsibility (the WebSocket handler, the MME analyzer, etc.). |
+| In-memory only | `NormalizedCandle` frames are passed as `Arc<…>` references; no serialization overhead at L4. |
+| `ReconstructionMethod` provenance | Attached to candle; `None` when not reconstructed — `skip_serializing_if` applied downstream by MME L1. |
 
 ---
 
@@ -109,35 +85,27 @@ Notifications carry no `id` (no response expected). See the [API Gateway Contrac
 | **Non-blocking** | A slow/failed subscriber never stalls the producer. |
 | **At-most-once per cursor** | Each subscriber sees each frame at most once; lag is signalled explicitly. |
 | **Ordering** | Frames within a channel are delivered in production order. |
-| **Immutability** | Once broadcast, a completed snapshot is never mutated (see [Metrics Matrix §7](../../matrices/02-07-metrics-matrix.md)). |
+| **Immutability** | Once broadcast, a completed `NormalizedCandle` is never mutated (see [L3 §3 Late-trade arrival rule](./03-01-04-die-layer3-data-quality.md)).
 
 ### 5.1 Operational Acceptance Criteria
 
-The L4 (Data Distribution Layer) layer meets these criteria when run with default configuration under nominal load:
+The L4 (Data Distribution Layer) layer meets these criteria when run with default configuration under nominal load. L4 code executes physically in `market-analyzer` (per [01-06 §1](../../conceptual-foundations/01-06-crate-layout-and-cycles.md)); tests are co-located with the implementation.
 
 | ID | Criterion | Verification |
 |----|-----------|--------------|
-| `AC-L4-1` | Per-frame serialization p95 < 1 ms under nominal load (50 indicators, 4 sub-matrix envelopes). | `crates/market-analyzer/tests/perf_serialize.rs` (Phase 1) |
-| `AC-L4-2` | End-to-end observation loop (raw frame → completed snapshot on the WS broadcast) p95 < 25 ms. (Mirrors `AC-DIE-3`.) | `crates/api-gateway/tests/observation_loop.rs` (Phase 1) |
-| `AC-L4-3` | Broadcast fan-out is `O(subscribers)` and non-blocking; a 1 s sleep on one subscriber does not delay other subscribers or the producer. | `crates/market-analyzer/tests/broadcast_fanout.rs` (Phase 1) |
-| `AC-L4-4` | Lagged consumer receives `RecvError::Lagged(n)` within 1 frame of falling behind; the consumer can resubscribe at the current head. | `crates/market-analyzer/tests/broadcast_lag.rs` (existing) |
-| `AC-L4-5` | Two broadcast channels per `(symbol, timeframe)` (`NormalizedCandle` + `MarketSnapshot`) operate independently; lag in one does not affect the other. | `crates/market-analyzer/tests/dual_channel.rs` (Phase 1) |
-
----
+| `AC-L4-1` | Broadcast fan-out is `O(subscribers)` and non-blocking; a 1 s sleep on one subscriber does not delay other subscribers or the producer. | `crates/market-analyzer/tests/broadcast_fanout.rs` (Phase 1) |
+| `AC-L4-2` | Lagged consumer receives `RecvError::Lagged(n)` within 1 frame of falling behind; the consumer can resubscribe at the current head. | `crates/market-analyzer/tests/broadcast_lag.rs` (existing) |
 
 ## 6. Performance Targets
 
 | Metric | Target |
 |--------|--------|
-| Serialization per frame | < 1 ms |
 | Broadcast dispatch | O(subscribers), non-blocking |
-| End-to-end observation loop | < 25 ms |
 
 ---
 
 ## 7. Cross-References
 
 - [DIE Layer 3 — Data Quality](03-01-04-die-layer3-data-quality.md) — Input.
-- [MME Layer 1 — Metrics](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md) — Primary consumer.
-- [API Gateway Contract](../../integration-and-api/06-01-api-gateway-contract.md) — WebSocket protocol.
-- [UI Overview](../../ui-ux/07-01-ui-overview-spec.md) — Frontend subscription model.
+- [MME Layer 1 — Metrics §8 (MarketSnapshot broadcast channel)](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md) — The analytical `MarketSnapshot` channel specification.
+- [DIE End-to-End Flow](03-01-00-die-end-to-end-flow.md) — How the `NormalizedCandle` channel fits in the overall DIE cascade.

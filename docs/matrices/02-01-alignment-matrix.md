@@ -1,6 +1,6 @@
 # Alignment Matrix Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 2 — Alignment Layer
@@ -127,7 +127,7 @@ The four signed consensus scores are blended with fixed weights:
 
 $$\text{mtf\_overall\_score} = \text{clamp}\big((0.5\,T + 0.3\,M + 0.1\,V_{t} + 0.1\,V_{m}) \times 100,\ -100,\ 100\big)$$
 
-where `T` = trend alignment, `M` = momentum alignment, `V_t` = volatility alignment, `V_m` = volume alignment.
+where `T` = `mtf_trend_alignment`, `M` = `mtf_momentum_alignment`, `V_t` = `mtf_volatility_alignment`, `V_m` = `mtf_volume_alignment`.
 
 ### 4.3 Trend Agreement Percentage
 

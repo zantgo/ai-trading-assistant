@@ -224,7 +224,7 @@ pub async fn serve_performance_summary(
     Query(query): Query<AnalyticsQuery>,
 ) -> impl IntoResponse {
     let summaries = if query.policy_id.is_some() {
-        let trades = performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
+        let _trades = performance_analytics::performance_evaluator::get_trade_analytics(&state.pool).await;
         let mut all = performance_analytics::performance_evaluator::compute_performance_summary_on_demand(&state.pool).await;
         all.retain(|s| Some(s.policy_id.clone()) == query.policy_id);
         all

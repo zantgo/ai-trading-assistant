@@ -156,6 +156,10 @@ fn all_signal_kinds_have_display() {
         LiquiditySignalKind::FundingExtreme,
         LiquiditySignalKind::OIFundingDivergence,
         LiquiditySignalKind::MagnetActivated,
+        LiquiditySignalKind::ClusterPressureHigh,
+        LiquiditySignalKind::ClusterForwardPressure,
+        LiquiditySignalKind::FundingFlip,
+        LiquiditySignalKind::OiPriceDivergence,
     ] {
         let s = kind.to_string();
         assert!(!s.is_empty());

@@ -32,7 +32,7 @@ struct BookItem {
 
 /// Open Interest item from the `open-interest` WS channel.
 #[derive(Debug, Deserialize)]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, dead_code)]
 struct OpenInterestItem {
     instId: Option<String>,
     openInterest: Option<String>,

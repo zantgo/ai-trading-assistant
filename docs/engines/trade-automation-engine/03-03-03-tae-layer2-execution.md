@@ -1,11 +1,11 @@
 # TAE Layer 2 — Execution Layer
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Layer:** 2 of 2
 **Input Contract:** Policy Matrix (L1), [Capital Matrix](../portfolio-management-engine/03-04-04-pme-layer3-capital.md) (PME), [Decision Matrix](../../matrices/02-04-decision-matrix.md) (MME)
-**Output Contract:** Execution Matrix (order lifecycle)
+**Output Contract:** [Execution Matrix](../../matrices/02-15-execution-matrix.md) (order lifecycle)
 **Purpose:** This document specifies the Execution Layer — the transaction engine that translates validated Policy directives into exchange orders, manages order state machines, executes the Position Sizing Protocol, and maintains full transaction auditability.
 
 ---
@@ -229,7 +229,9 @@ The rule preserves the central safety property that **risk is bounded at entry**
 
 ## 7. Output: Execution Matrix
 
-The Execution Matrix is a persistent log of all order states:
+See canonical specification at [Execution Matrix — `02-15-execution-matrix.md`](../../matrices/02-15-execution-matrix.md).
+
+The Execution Matrix is a persistent log of all order states, materialized as the `open_orders` SQLite table (see [Database Schema §3.2](../../integration-and-api/06-02-database-schema-spec.md)):
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -249,6 +251,8 @@ The Execution Matrix is a persistent log of all order states:
 | `created_at` | `u64` | Unix epoch timestamp. |
 | `updated_at` | `u64` | Last state transition timestamp. |
 | `slippage_bps` | `f64` | Fill slippage in basis points. |
+
+> **Canonical source:** The field table above is mirrored from the canonical [Execution Matrix specification](../../matrices/02-15-execution-matrix.md). If any other doc disagrees with the values here, `02-15-execution-matrix.md` wins. |
 
 ---
 

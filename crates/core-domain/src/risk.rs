@@ -147,6 +147,7 @@ impl RiskMatrix {
 }
 
 /// Level from score 0-100.
+#[allow(dead_code)]
 fn level_from(score: f64) -> RiskLevel {
     if score >= 80.0 {
         RiskLevel::Extreme
@@ -169,7 +170,7 @@ fn score_mag(value: f64, max: f64) -> f64 {
 /// Assess market risk: general uncertainty from conflicting signals, weak structure.
 fn assess_market_risk(
     analysis: &AnalysisMatrix,
-    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    _indicators: &HashMap<String, NormalizedIndicatorValue>,
 ) -> RiskDimension {
     let mut score: f64 = 50.0;
     let mut evidence = Vec::new();
@@ -535,6 +536,7 @@ mod tests {
         );
     }
 }
+#[allow(dead_code)]
 fn clamp01(x: f64) -> f64 {
     x.max(0.0).min(100.0)
 }

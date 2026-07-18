@@ -1,13 +1,12 @@
 use config_models::{
-    ExecutionPolicy, OrderPacket, OrderSide, OrderStatus, OrderType, RiskParams,
+    ExecutionPolicy, OrderPacket, OrderSide, OrderStatus, OrderType,
 };
-use database_storage;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 
 use crate::execution::state_machine::OrderLifecycle;
 use crate::policy::engine::PolicyTrigger;
@@ -468,8 +467,8 @@ impl PaperTradingEngine {
                     continue;
                 }
 
-                let mock_snapshot = build_mock_snapshot(&policy.symbol, mid_price);
-                let mock_trigger = PolicyTrigger {
+                let _mock_snapshot = build_mock_snapshot(&policy.symbol, mid_price);
+                let _mock_trigger = PolicyTrigger {
                     policy_id: policy.policy_id.clone(),
                     symbol: policy.symbol.clone(),
                     direction: policy.direction,

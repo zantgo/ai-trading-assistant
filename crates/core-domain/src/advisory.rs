@@ -187,7 +187,7 @@ pub fn compute_advisory(
     analysis: &AnalysisMatrix,
     risk: &RiskMatrix,
     opportunity: Option<&OpportunityMatrix>,
-    cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
+    _cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
 ) -> AdvisoryMatrix {
     if analysis.timeframes_considered == 0 {
         return AdvisoryMatrix::empty(&analysis.symbol);

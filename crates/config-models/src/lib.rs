@@ -422,6 +422,54 @@ candles = { duration_seconds = 180, analysis_limit = 500 }
     }
 
     #[test]
+    fn parse_partial_instance_indicator_override() {
+        let toml = r#"
+[workspace]
+id = "main"
+name = "Test"
+default_currency = "USDC"
+default_exchange = "Hyperliquid"
+
+[[workspace.instances]]
+id = "btc"
+symbol = "BTC-USDT"
+quote = "USDT"
+
+[workspace.instances.micro_term]
+candles = { duration_seconds = 60, analysis_limit = 500 }
+indicators = { rsi_period = 21 }
+
+[workspace.instances.fast_term]
+candles = { duration_seconds = 180, analysis_limit = 500 }
+indicators = { rsi_period = 14 }
+"#;
+        let cfg: OnDiskConfig = toml::from_str(toml).expect("partial indicators must parse");
+        let (_platform, workspace) = cfg.split();
+        let micro = &workspace.instances[0].micro_term.indicators;
+        assert_eq!(micro.rsi_period, 21);
+        assert_eq!(micro.ema_fast, 10);
+        assert_eq!(micro.ema_long, 200);
+        assert_eq!(micro.macd_slow, 26);
+        assert_eq!(micro.squeeze_period, 20);
+    }
+
+    #[test]
+    fn indicators_default_is_not_zero() {
+        let cfg = IndicatorsConfig::default();
+        assert_eq!(cfg.ema_fast, 10);
+        assert_eq!(cfg.ema_medium, 50);
+        assert_eq!(cfg.ema_slow, 100);
+        assert_eq!(cfg.ema_long, 200);
+        assert_eq!(cfg.rsi_period, 14);
+        assert_eq!(cfg.macd_fast, 12);
+        assert_eq!(cfg.macd_slow, 26);
+        assert_eq!(cfg.macd_signal, 9);
+        assert_eq!(cfg.adx_period, 14);
+        assert_eq!(cfg.atr_period, 14);
+        assert_eq!(cfg.squeeze_period, 20);
+    }
+
+    #[test]
     fn parse_empty_workspace_is_error() {
         let toml = "";
         let r: std::result::Result<OnDiskConfig, _> = toml::from_str(toml);

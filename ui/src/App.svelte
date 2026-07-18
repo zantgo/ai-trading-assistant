@@ -230,7 +230,7 @@
 </script>
 
 {#if !app.sessionChecked}
-    <div class={styles.loading}><div class={styles.spinner}></div><span>Connecting to Market Monitor…</span></div>
+    <div class={styles.loading}><div class={styles.spinner}></div><span>Connecting to Trading Platform…</span></div>
 {:else if !app.sessionActive}
     <WelcomeGate />
 {:else}
@@ -351,7 +351,7 @@
                 {:else}
                     <div class={styles.profileCard} style="padding:2rem">
                         <h3>{engineLabel(app.currentEngine)} Settings</h3>
-                        <p class={styles.cardSub}>Configure <code>config.toml</code> → <code>[workspace]</code> section for workspace-wide settings like safety thresholds, fees, market-monitor defaults, and scheduler intervals. Use the Market Monitor Workspace settings panel to configure per-instance timeframes and indicators.</p>
+                        <p class={styles.cardSub}>Configure <code>config.toml</code> → <code>[workspace]</code> section for workspace-wide settings like safety thresholds, fees, market-monitor defaults, and scheduler intervals. Use the Market Monitoring Workspace settings panel to configure per-instance timeframes and indicators.</p>
                     </div>
                 {/if}
             {/if}

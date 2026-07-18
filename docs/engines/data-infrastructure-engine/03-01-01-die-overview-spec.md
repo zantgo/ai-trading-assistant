@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — Overview Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document specifies the boundaries, responsibilities, layer structure, exchange adapters, performance targets, and connection-monitoring model of the Data Infrastructure Engine — the first engine in the platform's unidirectional cascade. The DIE ingests, normalizes, validates, and distributes exchange telemetry.
@@ -115,7 +115,7 @@ Each adapter emits a `NormalizedEvent` enum:
 |--------|--------|
 | Raw frame → NormalizedEvent | < 1 ms |
 | Trade → live candle update | < 2 ms |
-| Observation loop (Raw → Market Data Matrix) | < 25 ms |
+| Observation loop (DIE share: Raw → Market Data Matrix) | < 10 ms |
 | Event channel capacity | 10,000 buffered events |
 | Reconnect backoff | 1 s → 30 s (exponential, ±20 % jitter) — **supervisor budget**; see [08-03 §Retry Budgets](../../operations-and-compliance/08-03-connection-resilience.md) for the three-layer retry model |
 | Permanent disable threshold | 5 consecutive cycles (supervisor) — see 08-03 for the adapter-layer `max_attempts: None` semantics |

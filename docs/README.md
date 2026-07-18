@@ -37,7 +37,9 @@ docs/
 │   ├── 02-10-raw-data-matrix.md
 │   ├── 02-11-risk-matrix.md                          ← 8 unipolar risk dimensions (pure danger)
 │   ├── 02-12-liquidity-matrix.md                     ← Phase 1 LiquidityFlow matrix
-│   └── 02-13-liquidation-cluster-matrix.md            ← Phase 2 LiquidationClusterMatrix
+│   ├── 02-13-liquidation-cluster-matrix.md            ← Phase 2 LiquidationClusterMatrix
+│   ├── 02-14-policy-matrix.md                         ← TAE L1: validated execution directives
+│   └── 02-15-execution-matrix.md                      ← TAE L2: persistent order state log (materialized as `open_orders` table)
 ├── engines/
 │   ├── data-infrastructure-engine/                     (03-01 — 6 files)
 │   │   ├── 03-01-00-die-end-to-end-flow.md           ← single integrated end-to-end DIE flow narrative
@@ -107,7 +109,7 @@ docs/
     └── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
 ```
 
-Total: **138 markdown files** at v6.4.1 — 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 15 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 core layers plus 2 fractional extension layers (L1.5, L2.5) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
+Total: **140 markdown files** at v6.4.1 — 137 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 17 matrix + **34 engine** (6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 core layers plus 2 fractional extension layers (L1.5, L2.5) are implemented across **12 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec).
 
 ## The Five Engines
 
@@ -115,7 +117,7 @@ Total: **138 markdown files** at v6.4.1 — 135 numbered docs + 3 governance doc
 |--------|------|--------|------------|
 | **Data Infrastructure Engine (DIE)** `03-01` | Data ingest, normalization, quality, broadcast | 4 | Market Data Matrix |
 | **Market Monitoring Engine (MME)** `03-02` | 50 indicators, signals, multi-TF alignment, decision support | 7 (+2 fractional: L1.5, L2.5; L4 ∥ L5, converge at L6) | Decision Matrix + Overview Matrix |
-| **Trade Automation Engine (TAE)** `03-03` | Policy evaluation, position sizing, order routing | 2 | Execution Matrix |
+| **Trade Automation Engine (TAE)** `03-03` | Policy evaluation, position sizing, order routing | 2 | Policy Matrix + Execution Matrix |
 | **Portfolio Management Engine (PME)** `03-04` | Position tracking, exposure, capital, safety veto | 4 | Portfolio Matrix |
 | **Performance Analytics Engine (PAE)** `03-05` | Trade reconstruction, NHST (sign-randomized Monte Carlo), drawdown/Sharpe, regime maps | 4 | Performance Matrix |
 
@@ -178,7 +180,7 @@ This table is the **single source of implementation truth** — every spec in `d
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
-- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.4).
+- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.4.1).
 - All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
 - All configuration is stored in **`config.toml`** at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()`).
 - Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.

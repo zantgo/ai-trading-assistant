@@ -23,7 +23,7 @@ docs/
 ├── CHANGELOG.md                                    (1)
 ├── DOCS-CONSISTENCY-MANIFEST.md                    (1)
 ├── conceptual-foundations/                        (8)   01-00 … 01-07
-├── matrices/                                       (15)  02-00, 02-00b, 02-01 … 02-13
+├── matrices/                                       (17)  02-00, 02-00b, 02-01 … 02-15
 ├── engines/
 │   ├── data-infrastructure-engine/                 (6)   03-01-00 … 03-01-05
 │   ├── market-monitoring-engine/                   (12)  03-02-01 … 03-02-12
@@ -37,11 +37,11 @@ docs/
 └── operations-and-compliance/                      (7)   08-01 … 08-07
 ```
 
-**Total: 138 markdown files** = 135 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST).
+**Total: 140 markdown files** = 137 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST).
 Engine specs: 34 = 6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE.
-File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06).
+File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix).
 
-**Version stamps:** every numbered doc in `docs/` (excluding `README.md`) carries `**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.4.1 correction pass (2026-07-18) re-stamped 15 DIE-adjacent documents (01-01, 02-03, 02-05, 02-06, 02-07, 02-08, 02-10, 03-01-00, 03-01-03, 03-01-04, 03-01-05, 06-00, 06-01, 07-02, 08-06); all remaining files carry the 6.4 stamp. Zero remaining v1.x / v2.x / v2.1 / v2.2 / v3.x / v4.x / v5.x stamps.
+**Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.4.1 stamping pass (2026-07-18) synchronized all 137 numbered docs. Zero remaining v6.4 or earlier stamps.
 
 ---
 
@@ -181,7 +181,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning
 
-- [x] Every numbered doc carries `**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
+- [x] Every numbered doc carries `**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep (gate G1); earlier-version entries in `CHANGELOG.md` are historical.
 - [x] Exactly three files are permitted to carry a version marker outside the numbered-doc stamp convention: `docs/README.md` (stats line; the corpus entry point), `docs/CHANGELOG.md` (the canonical single version history), and this MANIFEST (the title line). All four coherence points must read the current corpus version.
 - [x] Zero inline `Revision History` tables in individual docs (consolidated to `CHANGELOG.md` per Q2).
 

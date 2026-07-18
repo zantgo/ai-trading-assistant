@@ -11,7 +11,6 @@ use tokio::sync::RwLock;
 use crate::execution::gates::evaluate_gates;
 use crate::execution::state_machine::OrderLifecycle;
 use crate::policy::engine::PolicyTrigger;
-use crate::capital_layer;
 
 #[derive(Debug, Clone)]
 pub struct CapitalState {

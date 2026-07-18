@@ -17,10 +17,9 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput, LiquidationClusterMatrix};
-use core_domain::models::MarketSnapshot;
 
 use config_models::LiquidityConfig;
-use crate::instance::{Instance, TimeframeBuffers};
+use crate::instance::Instance;
 
 /// Shared handle to the most recent cluster matrix. The analyzer reads
 /// this on every candle close and attaches it to the snapshot.
@@ -141,11 +140,10 @@ pub fn spawn_cluster_refresh(
 mod tests {
     use super::*;
     use config_models::LiquidityConfig;
-    use crate::instance::Instance;
+    use crate::instance::{Instance, TimeframeBuffers};
     use crate::session::{Currency, ExchangeChoice, SessionState};
     use rust_decimal::Decimal;
     use core_domain::models::MarketSnapshot;
-    use std::collections::VecDeque;
 
     fn empty_snapshot() -> MarketSnapshot {
         MarketSnapshot {

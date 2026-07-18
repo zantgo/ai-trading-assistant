@@ -298,6 +298,8 @@ Key properties:
 - Exponential backoff on disconnect: initial 1 s → max 30 s; jitter is applied **before** the cap (effective range `[0.8 × delay_n, min(1.2 × delay_n, 30 s)]`). See [`08-03-connection-resilience.md §Backoff Formula`](../operations-and-compliance/08-03-connection-resilience.md).
 - `applySnapshotToTimeframe()` parses the nested `snapshot` object and writes to the Svelte 5 rune store.
 
+> **Producer attribution.** The `MarketSnapshot` frames streamed over this WebSocket are produced by **MME Layer 1** (the Metrics Layer), not by DIE L4. MME L1 is the sole producer of `MarketSnapshot` content; DIE L4 owns only the upstream `NormalizedCandle` transport channel. See [03-02-02-mme-layer1-metrics.md §8](../engines/market-monitoring-engine/03-02-02-mme-layer1-metrics.md) for the channel specification and [03-01-05-die-layer4-data-distribution.md](../engines/data-infrastructure-engine/03-01-05-die-layer4-data-distribution.md) for the DIE L4 `NormalizedCandle` channel.
+
 ### 3.3 JSON-RPC 2.0 method names
 
 The shared crate (`crates/core-domain/src/jsonrpc_methods.rs`) defines JSON-RPC method constants for inter-engine RPC. The single canonical method used by the engine today is `broadcast.market_snapshot` (server→client notification). Internal request/response methods (`execution.open_position`, `safety.check`, `config.update`, `config.query`) round-trip via the same RPC envelope but are only used by paired-server flows; clients should only consume `broadcast.market_snapshot` and the documented REST surface.

@@ -1,6 +1,6 @@
 # Trading Platform Architecture Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document defines the high-level, two-dimensional architecture of the complete Trading Platform. It outlines the boundaries, operational responsibilities, layer structures, and interface matrices for the five core engines of the system, providing a structural blueprint for developers, system engineers, and frontend designers.
 
 ---
@@ -60,7 +60,7 @@ The Data Infrastructure Engine is responsible for the ingest, normalization, val
 #### Layer 4: Data Distribution Layer
 *   **Purpose:** Route verified data streams to downstream system consumers.
 *   **Processing:** Manage pub/sub event loops, prioritize routing queues, and minimize dispatch latency.
-*   **Output (Distribution Matrix):** High-throughput, real-time data output channels. Internally, the Distribution Matrix is the L4-specific output; the composite inter-engine transport (OHLCV candle streams across all timeframes) that flows from DIE to MME and the UI is known as the **Market Data Matrix** — see `01-01-ontology.md §5` for the distinction.
+*   **Output (Distribution Matrix):** High-throughput, real-time `NormalizedCandle` broadcast channel — consumed exclusively by the Candle Aggregator for higher-timeframe rollup. The analytical `MarketSnapshot` channel (which carries indicators, matrices, and telemetry to the MME, UI, and telemetry logger) is an MME L1 artifact — see `03-02-02-mme-layer1-metrics.md §8`.
 
 ---
 
@@ -203,13 +203,13 @@ Engines maintain high operational efficiency by communicating through strictly d
 
 ```
        UNIDIRECTIONAL CASCADE MODEL
-       
-  +------------------+     [Market Data Matrix]
+        
+  +------------------+     [NormalizedCandle]
   |  Data Infra.     |------------------------------+
   |  Engine (DIE)    |                              |
   +------------------+                              v
                                            +------------------+
-                                           |  Market Monitor  |
+                                           |  Market Monitor  |--[MarketSnapshot]--> UI · DB · MME L2–L7
                                            |  Engine (MME)    |
                                            +------------------+
                                                     |
@@ -228,9 +228,7 @@ Engines maintain high operational efficiency by communicating through strictly d
   +------------------+
 ```
 
-> **Price fan-out edges (not drawn above).** Three real edges complement the matrix cascade: **DIE → TAE** (mid-price: paper fills + lifecycle automation), **DIE → PME** (mark prices), and **MME → PME** (Decision Matrix invalidation levels). Matrices flow DIE→MME only; prices fan out from DIE to TAE/PME.
->
-> **PME → TAE edge convention.** The PME → TAE Capital Matrix edge shown in the diagram is an in-process `tokio::sync::RwLock` over shared memory (see §3.3), not a pub/sub channel. All other inter-engine edges in the cascade are publish/subscribe.
+> **Channel ownership note.** The `[NormalizedCandle]` edge from DIE is the raw OHLCV transport (DIE L4 → Candle Aggregator). The `[MarketSnapshot]` edge from MME is the analytical envelope (MME L1 → L2–L7, frontend WebSocket, telemetry logger). See `03-01-05-die-layer4-data-distribution.md` and `03-02-02-mme-layer1-metrics.md §8`. The `[Decision Matrix]` edge from MME to TAE is the policy-level handoff; the `[Capital M.]` edge from PME to TAE is the in-process sizing query.
 
 ### 3.1 Unidirectional Stream Cascade
 The platform prohibits bidirectional dependency chains. Execution details do not influence market interpretation; instead, normalized telemetry cascades forward. If a downstream engine requires information from an upstream engine, it subscribes to that engine's published, read-only matrix stream.
@@ -317,7 +315,7 @@ Both modes write metrics, signals, orders, and execution events to a shared SQL/
 
 To illustrate the complete pipeline in practice, below is the sequence of events that occurs when a market movement triggers a trade and is subsequently logged by the analytics engine:
 
-1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and the *Distribution Layer* publishes the validated candle — fanning it out to the MME, the UI, and the telemetry logger as the validated inter-engine **Market Data Matrix** (post-L3 quality validation; distinct from the raw L2 pre-validation output).
+1.  **Ingest:** A rapid tick update occurs on the BTCUSDT exchange. The Data Infrastructure Engine (DIE) ingests the event via the *Raw Data Layer*, packages it as standard OHLCV data in the *Market Data Layer*, validates it in the *Data Quality Layer*, and the *Distribution Layer* publishes the validated `NormalizedCandle` to the Candle Aggregator for higher-timeframe rollup. The **Market Monitoring Engine (MME L1)** consumes the completed candle, builds the `MarketSnapshot` (containing indicators, signals, and the full analytical cascade), and publishes it over the `MarketSnapshot` broadcast channel — fanning it out to MME L2–L7, the UI, and the telemetry logger (see `03-02-02-mme-layer1-metrics.md §8`).
 2.  **Telemetry:** The Market Monitoring Engine (MME) receives the update. The *Metrics Layer* recalculates indicators and detects signals, immediately projecting them onto their respective multi-dimensional Evaluation Axes (e.g., extracting State, Direction, Strength, and Quality) and updating the **Metrics Matrix**.
 3.  **Consensus:** The *Alignment Layer* checks for trend agreement across micro, fast, slow, and macro time horizons, updating the **Alignment Matrix**.
 4.  **Diagnosis:** The *Analysis Layer* confirms a transition to a `TRENDING_BULL` regime under a `STRONG_BULLISH` bias (with a `Market Bias Score: +0.82`), updating the **Analysis Matrix**.

@@ -10,7 +10,6 @@ use config_models::FibonacciConfig;
 use config_models::OrderBookConfig;
 use config_models::QualityConfig;
 use config_models::TimeframeConfig;
-use database_storage::TelemetryMsg;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 
 use crate::sr_engine::SrRoleTracker;
@@ -618,6 +617,7 @@ pub async fn run_single(
         .map(|q| q.staleness_threshold_secs * 1000)
         .unwrap_or(600_000);
 
+    #[allow(unused_assignments)]
     let mut last_trade_ts_ms: u64 = 0;
 
     // DIE L3 runtime sequence audit + gap-fill state (03-01-04 §3 / §2.1.2).

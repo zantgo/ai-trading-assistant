@@ -80,7 +80,7 @@ The layer verifies candle-set ordering and continuity:
 | **Chronological order** | Candles sorted oldest-first before use. |
 | **Duplicate detection** | Candles with identical `start_time_ms` deduplicated (local preferred over REST). |
 | **Missing bar** | A hole between consecutive `start_time_ms` values ≠ `duration_ms` flags a gap for REST recovery. |
-| **Late-trade arrival** | A trade whose `timestamp_ms` falls inside a previously-closed interval is **dropped** at L3 and counted in the `out_of_order_dropped` reliability metric. The completed candle is immutable per the L4 Distribution Layer invariant (see [03-01-05-die-layer4-data-distribution.md §5](./03-01-05-die-layer4-data-distribution.md)). Retroactive reordering is forbidden: a broadcast `MarketSnapshot` may never be mutated after the L4 producer emits it. |
+| **Late-trade arrival** | A trade whose `timestamp_ms` falls inside a previously-closed interval is **dropped** at L3 and counted in the `out_of_order_dropped` reliability metric. The completed candle is immutable per the L4 Distribution Layer invariant (see [03-01-05-die-layer4-data-distribution.md §5](./03-01-05-die-layer4-data-distribution.md)). Retroactive reordering is forbidden: a broadcast `MarketSnapshot` may never be mutated after the **MME L1 producer** emits it (see [03-02-02-mme-layer1-metrics.md §8](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md)). |
 
 ---
 

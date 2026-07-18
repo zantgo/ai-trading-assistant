@@ -35,7 +35,9 @@ pub struct PipelineContext {
     pub intervals_config: IntervalsConfig,
     pub cancel: CancellationToken,
     pub operational_mode: OperationalMode,
+    #[allow(dead_code)]
     pub weight_overrides: Option<std::collections::HashMap<String, i32>>,
+    #[allow(dead_code)]
     pub position_scaling: Option<PositionScalingConfig>,
     pub liquidity_config: LiquidityConfig,
 }

@@ -1,6 +1,6 @@
 # Pre-Trade Risk Controls
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Category:** Operations & Compliance
 
@@ -21,7 +21,7 @@ The following gates run between a Policy trigger (L1) and the Exchange dispatch 
 | # | Gate | Source | Configuration |
 |---|------|--------|---------------|
 | 0 | **Lifecycle** (v6.2, new) | Entry orders are admitted only when the instance's `lifecycle_state = RUNNING` (see [03-03-06 IL-01/IL-05](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md); lifecycle states per `03-03-06` — see README §Feature Status for rollout). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) **always bypass** Gate 0 regardless of lifecycle state. STOPPING/STOPPED/instance PAUSED entries are blocked and logged to `risk_control_events.gate_id = 0`. | Per-instance; runtime-only (no static threshold). |
-| 1 | **Symbol stance** | The current `Stance` for the symbol must be `ACTIVE`, or the order must be a `reduce_only = true` exit under `CLOSE_ONLY`. `AVOID` blocks all dispatches except those tagged `is_emergency_liquidation = true` (Hard Exit path, see Gate 7 below and [PME Layer 4 §4.2](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). | Set manually by operator or automatically by the [PME Veto](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#4-ontological-priority-veto). |
+| 1 | **Symbol execution stance (`active_stance`)** | The current `Stance` for the symbol must be `ACTIVE`, or the order must be a `reduce_only = true` exit under `CLOSE_ONLY`. `AVOID` blocks all dispatches except those tagged `is_emergency_liquidation = true` (Hard Exit path, see Gate 7 below and [PME Layer 4 §4.2](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md)). | Set manually by operator or automatically by the [PME Veto](../engines/portfolio-management-engine/03-04-05-pme-layer4-portfolio.md#4-ontological-priority-veto). |
 | 2 | **Decision guard (trade readiness)** | The Decision Matrix's `trade_readiness` field must be `READY` or `FORMING`. `WATCH` dispatches with a logged soft warning; `STAND_ASIDE` blocks the dispatch. | Computed by the MME Decision Layer from `directional_guidance × confidence_assessment × market_stance`. See [Decision Matrix §4](../matrices/02-04-decision-matrix.md). |
 | 3 | **Capital query — available margin** | The TAE issues a synchronous request to the PME Capital Matrix for `available_margin`. The query returns 0 if the order would push `margin_usage_ratio` ≥ 0.95. | Live, computed from [PME Layer 3](../engines/portfolio-management-engine/03-04-04-pme-layer3-capital.md). |
 | 4 | **Position sizing** | The Position Sizing Protocol computes $S = E \times R / (D_{sl} / 100)$. If the result exceeds `risk_parameters.max_position_size_usd`, sizing is clipped. If `risk_parameters.max_leverage` is exceeded, the order is rejected. **Bypass:** orders with `reduce_only = true` skip Gate 4 (sizing) — size is copied verbatim from the Position Matrix. | Per-policy in `config.toml` `[execution_policies.*]`. |

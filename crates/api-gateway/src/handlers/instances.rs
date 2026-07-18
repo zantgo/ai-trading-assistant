@@ -427,7 +427,7 @@ pub async fn serve_release_veto(
             match inst.safety.release_veto(body.reset_peak).await {
                 Ok(()) => {
                     let mut stances = inst.stances.write().await;
-                    for (sym, stance) in stances.iter_mut() {
+                    for (_sym, stance) in stances.iter_mut() {
                         *stance = config_models::Stance::Active;
                     }
                     drop(stances);

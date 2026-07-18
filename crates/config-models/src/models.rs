@@ -86,18 +86,29 @@ fn default_analysis_limit() -> usize {
     500
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IndicatorsConfig {
+    #[serde(default = "default_ema_fast")]
     pub ema_fast: usize,
+    #[serde(default = "default_ema_medium")]
     pub ema_medium: usize,
+    #[serde(default = "default_ema_slow")]
     pub ema_slow: usize,
+    #[serde(default = "default_ema_long")]
     pub ema_long: usize,
+    #[serde(default = "default_rsi_period")]
     pub rsi_period: usize,
+    #[serde(default = "default_macd_fast")]
     pub macd_fast: usize,
+    #[serde(default = "default_macd_slow")]
     pub macd_slow: usize,
+    #[serde(default = "default_macd_signal")]
     pub macd_signal: usize,
+    #[serde(default = "default_adx_period")]
     pub adx_period: usize,
+    #[serde(default = "default_atr_period")]
     pub atr_period: usize,
+    #[serde(default = "default_squeeze_period")]
     pub squeeze_period: usize,
     #[serde(default = "default_stoch_k")]
     pub stoch_k_period: usize,
@@ -203,6 +214,108 @@ pub struct IndicatorsConfig {
     pub volume_profile_value_area: f64,
 }
 
+impl Default for IndicatorsConfig {
+    fn default() -> Self {
+        Self {
+            ema_fast: default_ema_fast(),
+            ema_medium: default_ema_medium(),
+            ema_slow: default_ema_slow(),
+            ema_long: default_ema_long(),
+            rsi_period: default_rsi_period(),
+            macd_fast: default_macd_fast(),
+            macd_slow: default_macd_slow(),
+            macd_signal: default_macd_signal(),
+            adx_period: default_adx_period(),
+            atr_period: default_atr_period(),
+            squeeze_period: default_squeeze_period(),
+            stoch_k_period: default_stoch_k(),
+            stoch_d_period: default_stoch_d(),
+            stoch_s_period: default_stoch_s(),
+            chandemo_period: default_chandemo(),
+            supertrend_period: default_supertrend_period(),
+            supertrend_multiplier: default_supertrend_multiplier(),
+            keltner_ema_period: default_keltner_ema(),
+            keltner_atr_period: default_keltner_atr(),
+            keltner_multiplier: default_keltner_multiplier(),
+            donchian_period: default_donchian_period(),
+            obv_smoothing: default_obv_smoothing(),
+            cmf_period: default_cmf_period(),
+            mfi_period: default_mfi_period(),
+            hv_period: default_hv_period(),
+            aroon_period: default_aroon_period(),
+            chop_period: default_chop_period(),
+            linreg_period: default_linreg_period(),
+            zscore_period: default_zscore_period(),
+            bbwp_lookback: default_bbwp_lookback(),
+            bbwp_period: default_bbwp_period(),
+            macd_extreme_high_threshold: default_macd_extreme_high(),
+            macd_extreme_low_threshold: default_macd_extreme_low(),
+            macd_histogram_contraction_threshold: default_macd_contraction_threshold(),
+            adx_trend_threshold: default_adx_trend_threshold(),
+            adx_exhaustion_threshold: default_adx_exhaustion_threshold(),
+            adx_slope_lookback: default_adx_slope_lookback(),
+            squeeze_min_duration: default_squeeze_min_duration(),
+            squeeze_bb_period: default_squeeze_bb_period(),
+            squeeze_bb_std_dev: default_squeeze_bb_std_dev(),
+            squeeze_kc_period: default_squeeze_kc_period(),
+            squeeze_kc_atr_multiplier: default_squeeze_kc_atr_multiplier(),
+            atr_multiplier_coefficient: default_atr_multiplier(),
+            atr_target_rr_ratio: default_atr_target_rr(),
+            volume_average_period: default_volume_average_period(),
+            rvol_threshold_institutional: default_rvol_threshold_institutional(),
+            rvol_threshold_climax: default_rvol_threshold_climax(),
+            ichimoku_tenkan: default_ichimoku_tenkan(),
+            ichimoku_kijun: default_ichimoku_kijun(),
+            ichimoku_senkou_b: default_ichimoku_senkou_b(),
+            ichimoku_displacement: default_ichimoku_displacement(),
+            cci_period: default_cci_period(),
+            psar_af_step: default_psar_af_step(),
+            psar_af_max: default_psar_af_max(),
+            williams_r_period: default_williams_r_period(),
+            hull_ma_period: default_hull_ma_period(),
+            force_index_smoothing: default_force_index_smoothing(),
+            stddev_channel_period: default_stddev_channel_period(),
+            smc_lookback: default_smc_lookback(),
+            volume_profile_bins: default_volume_profile_bins(),
+            volume_profile_window: default_volume_profile_window(),
+            volume_profile_value_area: default_volume_profile_value_area(),
+        }
+    }
+}
+
+fn default_ema_fast() -> usize {
+    10
+}
+fn default_ema_medium() -> usize {
+    50
+}
+fn default_ema_slow() -> usize {
+    100
+}
+fn default_ema_long() -> usize {
+    200
+}
+fn default_rsi_period() -> usize {
+    14
+}
+fn default_macd_fast() -> usize {
+    12
+}
+fn default_macd_slow() -> usize {
+    26
+}
+fn default_macd_signal() -> usize {
+    9
+}
+fn default_adx_period() -> usize {
+    14
+}
+fn default_atr_period() -> usize {
+    14
+}
+fn default_squeeze_period() -> usize {
+    20
+}
 fn default_bbwp_lookback() -> usize {
     252
 }
@@ -1270,7 +1383,16 @@ impl LifecycleState {
     }
 }
 
-// ─── TAE: Symbol Stance ───────────────────────────────────────────
+// ─── TAE: Per-Symbol Execution Stance ────────────────────────────
+//
+// Controls per-symbol execution authorization: whether a symbol may accept
+// new entries, only close existing positions, or no orders at all.
+// Managed by the PME Veto and the operator via REST API.
+//
+// This is the PME/TAE execution-authorization enum — NOT the L6 Decision
+// Matrix `MarketStance` (environmental aggressiveness assessment).
+// The only shared variant is `Avoid` (both AGGRESSIVE/CAUTIOUS/NON_AVOID
+// are exclusive to MarketStance; CLOSE_ONLY is exclusive to this enum).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

@@ -1,8 +1,8 @@
-# Market Monitor Dashboard
+# Trading Platform Dashboard
 
 > **High-performance market telemetry monitor for Hyperliquid and Bitget, built in Rust.**
 
-The **Market Monitor** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It serves as a comprehensive market observation tool — it does **not** execute trades — computing 50 technical indicators across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data) with 100 signal-kind declarations across 12 SignalKind types (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming), 8 of which support bull/bear divergence detection. All computation runs in Rust, streaming live data to a Svelte 5 dashboard via WebSocket.
+The **Trading Platform** processes high-resolution exchange telemetry and transforms raw data into real-time technical indicator visualizations. It serves as a comprehensive market observation tool — it does **not** execute trades — computing 50 technical indicators across 8 functional groups (Trend, Momentum, Volume, Volatility, Structure, Regime, Institutional, Derivatives Data) with 100 signal-kind declarations across 12 SignalKind types (Divergence, Crossover, Threshold, Breakout, BandTouch, ZeroLineCross, CompressionRelease, LevelTest, TrendFlip, VolumeClimax, StackChange, PatternForming), 8 of which support bull/bear divergence detection. All computation runs in Rust, streaming live data to a Svelte 5 dashboard via WebSocket.
 
 ## Quick Start Workflow
 

@@ -1,6 +1,6 @@
 # Trade Automation Engine — Overview Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, API limits, transaction state-transition model, and order-management architecture of the Trade Automation Engine — the engine that evaluates user-defined execution policies against MME decision support and routes orders to live or simulated venues.
@@ -23,8 +23,8 @@ The TAE is the platform's **execution authority**. It consumes the [Decision Mat
 
 | Layer | Name | Output |
 |-------|------|--------|
-| L1 | [Policy Layer](03-03-02-tae-layer1-policy.md) | Policy Matrix (validated directives) |
-| L2 | [Execution Layer](03-03-03-tae-layer2-execution.md) | Execution Matrix (order lifecycle) |
+| L1 | [Policy Layer](03-03-02-tae-layer1-policy.md) | [Policy Matrix](../../matrices/02-14-policy-matrix.md) |
+| L2 | [Execution Layer](03-03-03-tae-layer2-execution.md) | [Execution Matrix](../../matrices/02-15-execution-matrix.md) |
 
 Plus the [Paper Trading](03-03-05-tae-paper-trading-spec.md) simulated matching engine.
 

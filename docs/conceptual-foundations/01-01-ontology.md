@@ -1,6 +1,6 @@
 # Trading Platform Ontology
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 
 ---
 
@@ -489,7 +489,7 @@ The Market Monitoring Engine is structured as a pipeline of 7 analytical layers.
 *   **Key Elements:**
     *   *Trade Readiness:* `READY`, `FORMING`, `WATCH`, `STAND_ASIDE` (canonical vocabulary; see [Decision Matrix §4](../matrices/02-04-decision-matrix.md)).
     *   *Directional Guidance:* `directional_guidance` — primary trade direction inferred from multi-timeframe analysis.
-    *   *Market Stance:* `market_stance` — `CONSTRUCTIVE`, `CAUTIOUS`, `NEUTRAL`, `DEFENSIVE`, `AGGRESSIVE` (five-variant enum).
+    *   *Market Stance:* `market_stance` — `AGGRESSIVE`, `CONSTRUCTIVE`, `NEUTRAL`, `CAUTIOUS`, `AVOID` (five-variant enum).
     *   *Entry Guidance:* `entry_guidance` — `IMMEDIATE`, `PULLBACK`, `BREAKOUT`, `WAIT`, `STAND_ASIDE` (five-variant enum).
     *   *Exit Guidance:* `exit_guidance` — structural exit conditions (trailing stop, target-based, time-based).
     *   *Strategy Environment:* Categorical classification of which strategy class is currently favored — `TREND_FOLLOWING`, `BREAKOUT`, `MEAN_REVERSION`, `HIGH_VOLATILITY`, `LOW_ACTIVITY`, `UNFAVORABLE` (six-state enum; see [Decision Matrix §3.3](../matrices/02-04-decision-matrix.md)).
@@ -539,9 +539,9 @@ The Trade Automation Engine bridges the gap between passive intelligence (MME) a
     *   *Execution Policy:* A deterministic programmatic rule.
         *   *Example Structure:* `IF (analysis.bias == BULLISH) AND (L4.opportunity_score > 75) AND (L5.overall_risk.score < 40) THEN Trigger LONG`.
     *   *Stance Definition:* Automated execution states per symbol:
-        *   `Active:` Full automated trading permitted.
-        *   `Close Only:` Only exit or protection-tightening operations allowed.
-        *   `Avoid:` Strictly block all execution triggers.
+        *   `ACTIVE` — Full automated trading permitted.
+        *   `CLOSE_ONLY` — Only exit or protection-tightening operations allowed.
+        *   `AVOID` — Strictly block all execution triggers.
 
 ### 7.2 Execution Layer (Layer 2)
 *   **Concept:** Transaction implementation.
@@ -1521,7 +1521,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | `rsi` | RSI | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×5 |
 | `stochastic` | Stochastic | Leading | Y | Y | Crossover×2, Divergence, Threshold×4 |
 | `chandemo` | Chande MO | Leading | Y | Y | ZeroLineCross, Divergence, Threshold×4 |
-| `williams_r` | Williams %R | Leading | Y | — | Threshold, ZeroLineCross |
+| `williams_r` | Williams %R | Leading | Y | — | Threshold×2, ZeroLineCross |
 | `awesome_oscillator` | Awesome Oscillator | Leading | Y | — | ZeroLineCross×2, Threshold×2 |
 | `cci` | CCI | Leading | Y | — | Threshold×4, ZeroLineCross |
 | `macd` | MACD | Lagging | Y | Y | Crossover×2, ZeroLineCross, Divergence, Threshold |
@@ -1566,7 +1566,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | `aroon` | Aroon | Hybrid | Y | TrendFlip×2, Threshold×2 |
 | `choppiness` | Choppiness | Hybrid | N (Gate) | Threshold×2, CompressionRelease |
 | `linreg_slope` | LinReg Slope | Lagging | Y | ZeroLineCross, Threshold×2 |
-| `zscore` | Z-Score | Leading | Y | Threshold, ZeroLineCross |
+| `zscore` | Z-Score | Leading | Y | Threshold×2, ZeroLineCross |
 
 > **Aroon Crossover removed.** Aroon's `Crossover` signals were reclassified to `TrendFlip`. The `TrendFlip` multiplicity is unchanged at `×2` (the existing bullish/bearish flip pair absorbs the dropped crossover events). See `04-02-36-aroon.md §4` and `05-02-02-crossover.md §2`. The registry verifies `Crossover = 9` and `TrendFlip = 8` in the current count.
 
@@ -1575,7 +1575,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | Key | Display Name | Class | Dir | SignalKinds |
 |-----|-------------|-------|-----|-------------|
 | `smc_structure` | SMC Structure | Leading | Y | Breakout, TrendFlip |
-| `smc_liquidity` | SMC Liquidity | Leading | Y | PatternForming |
+| `smc_liquidity` | SMC Liquidity | Leading | Y | PatternForming×2 |
 | `smc_fvg` | SMC Fair Value Gap | Leading | Y | LevelTest |
 | `smc_order_blocks` | SMC Order Blocks | Leading | Y | LevelTest×2, TrendFlip×2 |
 
@@ -1584,7 +1584,7 @@ This appendix provides the definitive registry-verified manifest of all 50 indic
 | Key | Display Name | Class | Dir | SignalKinds |
 |-----|-------------|-------|-----|-------------|
 | `open_interest` | Open Interest | Leading | N (Gate) | Threshold |
-| `oi_delta` | OI Delta | Leading | Y | Threshold, ZeroLineCross |
+| `oi_delta` | OI Delta | Leading | Y | Threshold×2, ZeroLineCross |
 | `funding_rate` | Funding Rate | Leading | N (Gate) | Threshold |
 | `oi_price_divergence` | OI-Price Divergence | Leading | Y | Divergence |
 | `order_flow_imbalance` | Order Flow Imbalance | Leading | Y | Threshold |

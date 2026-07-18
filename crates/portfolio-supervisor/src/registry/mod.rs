@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use config_models::{LifecycleState, Stance, TimeframeConfig};
+use config_models::{Stance, TimeframeConfig};
 use crate::instance::{ConfigState, Instance, InstanceStatus};
 use crate::lifecycle::LifecycleManager;
 use crate::registry_context::RegistryContext;

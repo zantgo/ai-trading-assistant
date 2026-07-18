@@ -2,7 +2,7 @@
 //!
 //! The State Matrix collects all Analysis Matrices and instance metadata
 //! across active symbols to produce a global dashboard summary. It answers:
-//! *what is the state of the entire Market Monitor right now?*
+//! *what is the state of the entire Trading Platform right now?*
 //!
 //! Layer: L5.5 in the architecture (Market Synthesis).
 

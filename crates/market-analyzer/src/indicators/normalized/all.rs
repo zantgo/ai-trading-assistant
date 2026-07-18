@@ -792,7 +792,7 @@ impl NormalizationEngine {
 
         // Generalized divergence scored entries (Phase 2). Each also pushes a
         // Divergence signal onto its parent oscillator.
-        for (parent, key, state) in [
+        for (parent, _key, state) in [
             (
                 "stochastic",
                 "stochastic_divergence",
@@ -1723,6 +1723,7 @@ impl NormalizationEngine {
 
 /// Map a divergence classification to a dedicated normalized confluence value.
 /// Confirmed divergences map to ±1.0, potential to ±0.5, none is omitted.
+#[allow(dead_code)]
 fn divergence_value(state: DivergenceState) -> Option<NormalizedIndicatorValue> {
     let (norm, label) = match state {
         DivergenceState::ConfirmedBullish => (1.0, "CONFIRMED_BULLISH_DIVERGENCE"),

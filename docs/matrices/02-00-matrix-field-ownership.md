@@ -1,6 +1,6 @@
 # Matrix Field Ownership
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical mapping of every matrix field to its producing layer. This document is the authoritative reference for which engine layer owns which JSON key.
 
@@ -53,6 +53,20 @@ This document was introduced as part of the institutional-grade architectural re
                    ┌─────────────────────────┐
                    │   Overview Matrix (L7)  │  ← cross-symbol aggregation
                    └─────────────────────────┘
+                                 │
+                                 ▼
+                   ┌──────────────────────────┐
+                   │   Policy Matrix (TAE L1) │  ← validated execution directives
+                   │   policy_id, direction   │     (transient, in-memory)
+                   │   stance, risk_params    │
+                   └────────────┬─────────────┘
+                                │
+                                ▼
+                   ┌──────────────────────────┐
+                   │  Execution Matrix (TAE L2)│ ← persistent order state log
+                   │  order_id, status        │    (materialized as `open_orders`)
+                   │  filled_size, slippage   │
+                   └──────────────────────────┘
 ```
 
 ---
@@ -210,6 +224,41 @@ Owns: cross-symbol aggregation.
 
 ---
 
+### 2.8 Policy Matrix (TAE L1) — `02-14-policy-matrix.md`
+
+Owns: validated execution directives produced by the TAE Policy Layer. Transient in-memory structure consumed immediately by the Execution Layer (L2); not independently persisted.
+
+| Field | Producer | Notes |
+|---|---|---|
+| `policy_id` | TAE L1 | |
+| `symbol` | TAE L1 | |
+| `direction` | TAE L1 | `Long` / `Short` |
+| `trigger_timestamp` | TAE L1 | |
+| `decision_context` | TAE L1 | MME decision snapshot that triggered this policy |
+| `stance` | TAE L1 (PME-managed) | `ACTIVE` / `CLOSE_ONLY` / `AVOID` — read from PME Veto |
+| `risk_parameters` | TAE L1 | |
+
+### 2.9 Execution Matrix (TAE L2) — `02-15-execution-matrix.md`
+
+Owns: persistent log of all order state transitions. Materialized as the `open_orders` SQLite table (not a JSON DTO — unlike MME matrices). See [06-02-database-schema-spec.md §3.2](../integration-and-api/06-02-database-schema-spec.md) for the DDL.
+
+| Field | Producer | Notes |
+|---|---|---|
+| `order_id`, `client_order_id` | TAE L2 | |
+| `symbol`, `order_type`, `direction` | TAE L2 | |
+| `price`, `trigger_price` | TAE L2 | |
+| `size`, `filled_size` | TAE L2 | |
+| `status` | TAE L2 | 7-state lifecycle vocabulary |
+| `is_reduce_only` | TAE L2 | Forced `true` under `CLOSE_ONLY` stance |
+| `is_emergency_liquidation` | TAE L2 | Hard Exit path flag |
+| `associated_position_id` | TAE L2 | |
+| `created_at`, `updated_at` | TAE L2 | |
+| `slippage_bps` | TAE L2 | |
+
+> **Materialization note.** Unlike MME matrices (which are JSON DTOs broadcast over WebSocket), the Execution Matrix is a database artifact — its canonical schema is the `open_orders` DDL in `06-02-database-schema-spec.md §3.2`. The Policy Matrix is a transient in-memory structure; the Execution Matrix is the first persistent artifact in the TAE chain.
+
+---
+
 ## 3. Removed Fields (Migration Map)
 
 | Removed From | Old Field | New Location | Migration Note |
@@ -244,13 +293,15 @@ L4 ← {L3, L1 metrics signals, L1.5/L2.5 liquidity products}
 L5 ← {L3, L1 indicator map, L1.5, L2.5}
 L6 ← {L2 tradability, L3, L4, L5}
 L7 ← {L6 of all symbols}
+TAE_L1 ← {L6, L7}  (Policy Matrix reads Decision + Overview)
+TAE_L2 ← {TAE_L1, PME Capital Matrix, MME L6 stop_loss_distance_pct}  (Execution Matrix reads Policy + sizing inputs)
 ```
 
 **Forbidden:**
 - L4 ↔ L5 (no edge in either direction — they are strictly orthogonal; the only cross-coupling is via the shared L3 fan-out plus the L1.5/L2.5 multi-source exceptions above)
-- Anything ← L6 (L6 is terminal; nothing consumes the Decision Matrix except L7, TAE, PME)
+- Anything ← L6 (L6 is terminal within the MME cascade; downstream engines TAE/PME read from L6 but do not write back)
 - Anything ← L7
-- Anything ← TAE / PME / PAE (those engines read from earlier matrices but their outputs are not feedback inputs)
+- TAE → MME / DIE (forward-only from MME to TAE; TAE outputs do not feed back into market analysis)
 
 > **L4↔L1.5 / L4↔L2.5 architecture clarification.** The Opportunity Matrix `LiquiditySqueeze` precondition reads `LiquidityFlow.cascade_state` (L1.5 derivatives telemetry) and `LiquidationClusterMatrix.cascade_asymmetry` (L2.5 cluster matrix). The rule above formalises L4's *forward-only* access to L1.5/L2.5 — the reverse edge (L1.5/L2.5 reading L4) remains forbidden. The earlier restriction (`L4 ↔ L1.5 / L2.5 forbidden` without exception) was incorrect: a forward-only exception for the Liquidity Intelligence extension is required to evaluate the `LiquiditySqueeze` setup preconditions.
 >

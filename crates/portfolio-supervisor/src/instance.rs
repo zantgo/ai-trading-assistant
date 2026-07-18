@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use market_analyzer::analyzer;
-use config_models::{IntervalsConfig, LifecycleState, SafetyConfig, Stance};
+use config_models::{IntervalsConfig, SafetyConfig, Stance};
 use crate::safety::SafetyManager;
 use crate::lifecycle::LifecycleManager;
 use crate::WorkspaceState;

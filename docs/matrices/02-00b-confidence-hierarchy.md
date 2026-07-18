@@ -1,6 +1,6 @@
 # Confidence Field Hierarchy
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Canonical reference for the platform's confidence-field pipeline. Documents the rename of `confidence` → `state_confidence` / `forecast_confidence` / `score_confidence` and the hierarchical flow from indicator-level up to the user-facing risk-attenuated assessment.
 
@@ -86,6 +86,8 @@ The four-level hierarchy above is the **pipeline-level** confidence flow — the
 | `AssetRank.confidence` | L7 | Mirror of `Decision.confidence_assessment` for the asset ranking. | Not a new computation; a mirror. |
 
 These per-component confidence values are **local reliability measures** for individual data points. They do not flow forward; they modulate the contribution of their parent field. The four pipeline-level `state_confidence` / `forecast_confidence` / `score_confidence` / `confidence_assessment` fields are the only ones that flow forward and are used by the TAE Policy Layer for condition evaluation.
+
+> **Two `[0,100]` confidence scales.** `AlignmentDimension.confidence` (per-component, `[0,100]`) and `AdvisoryMatrix.confidence_assessment` (pipeline-level terminal synthesis, `[0,100]`) share the same numeric range but measure distinct concepts: the former is a local per-dimension reliability weight (not passed to L3); the latter is the risk-attenuated user-facing terminal output. They are never interchangeable.
 
 **Duplicate-signal deduplication (v2.1).** When the same `(kind, direction, label, parent_indicator)` triple is emitted multiple times in a single snapshot (e.g. MACD structured-push + label-based trigger, Bollinger Bands similar), the confidence aggregator counts it **once**, not per emission. This applies to all indicators that intentionally emit duplicates. The `age_bars` of the first emission is preserved. This prevents double-counting duplicate signals in the confidence aggregation pipeline.
 

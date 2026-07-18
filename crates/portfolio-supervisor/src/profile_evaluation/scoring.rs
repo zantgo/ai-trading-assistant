@@ -1,6 +1,3 @@
-use config_models::ScoringConfig;
-use std::collections::HashMap;
-
 /// Maximum possible magnitude of the confluence score (±90).
 pub const MAX_CONFLUENCE_SCORE: f64 = 90.0;
 

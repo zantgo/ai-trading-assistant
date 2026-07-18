@@ -1,6 +1,6 @@
 # Decision Matrix Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Producing Layer:** Layer 6 — Decision Layer
@@ -99,7 +99,7 @@ Derived from `bias × overall_risk × market_stance`:
 
 All six `DirectionalGuidance` values are reachable. The `AVOID_DIRECTIONAL_EXPOSURE` guard at priority 1 ensures the L6 output correctly reflects the L6's own `market_stance = AVOID` determination (e.g. when the L6 stance is forced AVOID by a PME veto or a system safety trigger).
 
-> **Reachability and gating.** Priority 1 (`market_stance = AVOID`) is the **only** path to `AVOID_DIRECTIONAL_EXPOSURE`. This is intentional: the L6 `DirectionalGuidance` is conditional on the L6 `MarketStance` (see §3.2 below), and an `AVOID` stance is itself determined by `market_quality` and `overall_risk` (e.g. `market_quality ∈ {POOR}` or `overall_risk ≥ 80`). The derivation table above is therefore only "live" when `market_stance ∈ {AGGRESSIVE, CONSTRUCTIVE, NEUTRAL, CAUTIOUS}`; whenever the L6 `MarketStance` becomes `AVOID`, every bias × risk combination below priority 1 collapses to `AVOID_DIRECTIONAL_EXPOSURE`. The two `market_stance` families are independent enums (this `MarketStance` is the L6 Decision Matrix field; the PME-managed per-symbol `Stance` of `ACTIVE / CLOSE_ONLY / AVOID` is a separate field — see the disambiguation note in §4 below).
+> **Reachability and gating.** Priority 1 (`market_stance = AVOID`) is the **only** path to `AVOID_DIRECTIONAL_EXPOSURE`. This is intentional: the L6 `DirectionalGuidance` is conditional on the L6 `MarketStance` (see §3.2 below), and an `AVOID` stance is itself determined by `market_quality` and `overall_risk` (e.g. `market_quality ∈ {POOR}` or `overall_risk ≥ 80`). The derivation table above is therefore only "live" when `market_stance ∈ {AGGRESSIVE, CONSTRUCTIVE, NEUTRAL, CAUTIOUS}`; whenever the L6 `MarketStance` becomes `AVOID`, every bias × risk combination below priority 1 collapses to `AVOID_DIRECTIONAL_EXPOSURE`. `MarketStance` (L6 environmental assessment) and `Stance` (PME per-symbol execution authorization) are independent enums — see the disambiguation note in §4 below.
 
 ### 3.2 MarketStance
 `AGGRESSIVE`, `CONSTRUCTIVE`, `NEUTRAL`, `CAUTIOUS`, `AVOID`.
@@ -198,7 +198,14 @@ All five `TargetStrategy` values are reachable from the documented rules. `RESIS
 
 ```
 # Base from market_quality (institutional bands):
-quality_penalty = EXCELLENT → 10 · GOOD → 25 · AVERAGE → 50 · WEAK → 70 · POOR → 80
+#
+#   | market_quality | quality_penalty |
+#   |----------------|-----------------|
+#   | EXCELLENT      | 10              |
+#   | GOOD           | 25              |
+#   | AVERAGE        | 50              |
+#   | WEAK           | 70              |
+#   | POOR           | 80              |
 
 # Combine with opportunity_score (institutional 0–100):
 score = mean(quality_penalty, 100 − opportunity_score)  // ∈ [0, 100]
@@ -211,7 +218,17 @@ score = mean(quality_penalty, 100 − opportunity_score)  // ∈ [0, 100]
 # VERY_LOW = score < 20
 ```
 
-> **`entry_danger` band boundaries.** Bands are strict half-open intervals aligned with the canonical [Risk Matrix §2.3](../matrices/02-11-risk-matrix.md) `RiskLevel` enum (`EXTREME / HIGH / MODERATE / LOW / VERY_LOW`, thresholds `80 / 60 / 40 / 20`). Boundary values map to exactly one band. This unifies the cross-engine vocabulary so `entry_danger.level` and `risk.<dim>.level` share the same enum and the same numeric bands.
+#### 3.8.1 RiskLevel Bands
+
+```
+score ≥ 80 → Extreme
+score ≥ 60 → High
+score ≥ 40 → Moderate
+score ≥ 20 → Low
+otherwise  → VeryLow
+```
+
+> **`entry_danger` band boundaries.** Bands are strict half-open intervals aligned with the canonical [Risk Matrix §2.3](./02-11-risk-matrix.md) `RiskLevel` enum (`EXTREME / HIGH / MODERATE / LOW / VERY_LOW`, thresholds `80 / 60 / 40 / 20`). Boundary values map to exactly one band. This unifies the cross-engine vocabulary so `entry_danger.level` and `risk.<dim>.level` share the same enum and the same numeric bands.
 
 **Why this derivation:** `quality_penalty` reflects "how *poor* is the environment" (low = excellent conditions, high = dangerous conditions). `100 − opportunity_score` reflects "how *poor* is the absence of a setup" (low = great setup, high = no viable setup). Averaging the two gives a synoptic "how dangerous is it to enter here?" measure. This is the natural successor of the old `Risk.expected_rr` formula, with the addition of `opportunity_score` as an L4 input (legitimate L6 synthesis of state + forecast + danger).
 
@@ -241,7 +258,7 @@ Trade readiness is a function of this confidence, the directional guidance, the 
 > - Rules 2–3 partition the surviving non-neutral-guidance states: rule 2 takes the confirmed high-conviction subset (`confidence ≥ 60`, stance ∈ {AGGRESSIVE, CONSTRUCTIVE}, entry ≠ `WAIT_FOR_CONFIRMATION`) → `READY`; rule 3 takes every other non-neutral state → `FORMING`. This closes the former gap: `confidence ≥ 60` with stance `CAUTIOUS`/`NEUTRAL` and non-neutral guidance, and `entry_guidance = WAIT_FOR_CONFIRMATION` at any `confidence ≥ 20`, both now land in `FORMING`.
 > - Rule 4 catches the entire remainder: any state reaching it has neutral guidance (non-neutral states were absorbed by rules 2–3) with `confidence ≥ 20` and `market_stance ≠ AVOID`, so the neutral-guidance disjunct alone suffices; the `confidence ∈ [20, 40)` disjunct is an explicit guard keeping the band visible. Rule 5 is a defensive default — unreachable under the current vocabulary — keeping the ruleset total if the guidance enums grow.
 
-> **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID`, derived from L3 `market_quality` × L5 `overall_risk`). They do **not** reference the symbol **stance** (L1 `Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID`, managed by PME Veto). Although both enums share an `AVOID` variant, they are independent and serve different purposes — `market_stance` is the *environmental aggressiveness assessment* of the L6 Decision Layer, while symbol `stance` is the *execution-authorization state* enforced by the PME safety veto. The pre-trade gate in [08-02-pre-trade-risk-controls.md Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by symbol stance before the readiness check.
+> **Stance-vs-market-stance disambiguation.** The readiness rules reference `market_stance` (the L6 `MarketStance` 5-state enum: `AGGRESSIVE` / `CONSTRUCTIVE` / `NEUTRAL` / `CAUTIOUS` / `AVOID` — environmental aggressiveness assessment). They do **not** reference the per-symbol **execution stance** (`Stance` 3-state enum: `ACTIVE` / `CLOSE_ONLY` / `AVOID` — PME-managed execution authorization). See the Rust doc comment in `crates/config-models/src/models.rs::Stance` for the canonical disambiguation. The pre-trade gate in [08-02 Gate 1](../operations-and-compliance/08-02-pre-trade-risk-controls.md) already filters by execution stance before the readiness check.
 
 ---
 
@@ -254,6 +271,8 @@ The Decision Matrix carries the structural invalidation and target context used 
 | **Stop-loss distance (`D_sl`, %)** | `protection_strategy` applied to ATR / structure levels. | TAE Execution ($S = \frac{E \times R}{D_{sl} / 100}$). |
 | **Target zone** | `target_strategy` applied to resistance / R:R / volatility. | TAE Execution, PME trailing. |
 | **Invalidation level** (`invalidation_level`) | Structural level whose breach nullifies the thesis. | PME dynamic stop management. |
+
+> **`invalidation_level` vs `stop_loss_distance_pct`.** Both fields govern stop distance but serve different roles: `invalidation_level` is an absolute **price level** from L4 — a structural point (Fibonacci Golden Pocket, S/R, trend line) whose breach nullifies the trade thesis (consumed by PME for dynamic stop trailing). `stop_loss_distance_pct` is a **percentage** from L6 — the output of `protection_strategy` (ATR-based, volatility-based, etc.) that feeds the TAE Position Sizing Protocol as $D_{sl}$ (resolution priority: `fixed_stop_loss_pct` → `stop_loss_distance_pct` → system default `2.0`; see [TAE L2 §2](../engines/trade-automation-engine/03-03-03-tae-layer2-execution.md)).
 | **Bull / Bear scenario** | Conditional pathways described in `final_recommendation`. | Human operator / observability. |
 
 ---

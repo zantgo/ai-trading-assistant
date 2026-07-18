@@ -1,4 +1,4 @@
-// Shared TypeScript interfaces for the Market Monitor dashboard.
+// Shared TypeScript interfaces for the Trading Platform dashboard.
 
 // Re-export statistics types for backward compatibility
 export type { CoreStats, DailyActivity, DailyPnl, HourlyWinRate, WeekdayWinRate, DirectionBreakdown, DashboardStats, TradeLedgerRecord, TradeJournalRecord, StyleSegment, TraderStyleBreakdown, StreakMetrics, CalendarDay, PairStat, DailyCommission, FeePnlRatio, MonthlySummary } from './types/stats';
@@ -248,7 +248,7 @@ export type MomentumAssessment = 'Increasing' | 'Stable' | 'Weakening' | 'Exhaus
 export type StructureAssessment = 'Strong' | 'Healthy' | 'Weak' | 'Broken' | 'UNKNOWN';
 export type VolatilityAssessment = 'Compressed' | 'Normal' | 'Expanding' | 'Extreme' | 'Unstable';
 export type VolumeAssessment = 'Weak' | 'Normal' | 'Strong' | 'Exceptional';
-export type OpportunityType = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'NoClearOpportunity';
+export type OpportunityType = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'LiquiditySqueeze' | 'Scalp' | 'NoClearOpportunity';
 export type QualityLevel = 'Poor' | 'Weak' | 'Average' | 'Good' | 'Excellent';
 
 export interface AnalysisMatrix {
@@ -630,7 +630,11 @@ export type LiquiditySignalKind =
     | 'LiquidityVacuum'
     | 'FundingExtreme'
     | 'OIFundingDivergence'
-    | 'MagnetActivated';
+    | 'MagnetActivated'
+    | 'ClusterPressureHigh'
+    | 'ClusterForwardPressure'
+    | 'FundingFlip'
+    | 'OiPriceDivergence';
 
 export type LiquidityDirection = 'Bullish' | 'Bearish' | 'Neutral';
 

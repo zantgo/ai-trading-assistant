@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -123,7 +123,68 @@ else                     → RANGE
 
 ---
 
-## 8. Guarantees
+## 8. MarketSnapshot Broadcast Channel
+
+The Metrics Layer is the **sole producer** of `MarketSnapshot` frames. Once built (after Stage 5), the completed or shadow snapshot is published into a per-`(symbol, timeframe)` Tokio `broadcast` channel. This is the same broadcast transport referenced in the DIE L4 doc — the channel infrastructure is co-located in `market-analyzer`, but the **content ownership** belongs exclusively to MME L1. (DIE L4 owns the separate `NormalizedCandle` broadcast channel; see [03-01-05-die-layer4-data-distribution.md](../data-infrastructure-engine/03-01-05-die-layer4-data-distribution.md).)
+
+### 8.1 Channel Model
+
+| Property | Value |
+|----------|-------|
+| Topology | One `MarketSnapshot` broadcast channel per `(symbol, timeframe)` pipeline. |
+| Fan-out | Unlimited subscribers; each receives every frame. |
+| Lag handling | Slow consumers receive `RecvError::Lagged(n)`; they resynchronize rather than blocking the producer. |
+| Payload | Completed (`is_completed = true`) and shadow (`is_completed = false`) `MarketSnapshot` frames. |
+
+### 8.2 Subscriber Table
+
+| Consumer | Subscription | Transport |
+|----------|-------------|-----------|
+| MME L2–L7 | All configured timeframes for an instance. | `MarketSnapshot` broadcast receiver → higher-layer cascade. |
+| Frontend | 4 parallel connections (micro/fast/slow/macro). | WebSocket `/ws?symbol=&timeframe_secs=` → `MarketSnapshot` channel. |
+| Telemetry logger | Completed snapshots only. | `MarketSnapshot` broadcast receiver → SQLite `market_snapshots`. |
+
+The WebSocket handler (`server/ws.rs`) resolves the requested `(symbol, timeframe_secs)` to the correct `MarketSnapshot` channel and streams frames to the client.
+
+### 8.3 Wire Format (JSON-RPC 2.0)
+
+Frames are serialized as **JSON-RPC 2.0 notifications** for the WebSocket transport:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "broadcast.market_snapshot",
+  "params": {
+    "symbol": "BTC-USDT",
+    "timeframe_secs": 60,
+    "snapshot": { /* MarketSnapshot */ }
+  }
+}
+```
+
+Notifications carry no `id` (no response expected). See the [API Gateway Contract](../../integration-and-api/06-01-api-gateway-contract.md) for the full protocol.
+
+### 8.4 Serialization Rules
+
+| Rule | Effect |
+|------|--------|
+| `skip_serializing_if = "Option::is_none"` | Absent optional fields are omitted, shrinking frames. |
+| Empty collections omitted | Empty `signals` / null `values` maps dropped. |
+| Decimal-as-number | `Decimal` fields serialize as plain JSON numbers (`rust_decimal` `serde-float` feature, `crates/core-domain/Cargo.toml`). See [06-01 §4](../../integration-and-api/06-01-api-gateway-contract.md). |
+| Shadow streaming | Live shadow frames (`is_completed = false`) stream at tick cadence; completed frames (`is_completed = true`) on candle close. |
+
+### 8.5 Guarantees
+
+| Property | Guarantee |
+|----------|-----------|
+| **Non-blocking** | A slow/failed subscriber never stalls the producer. |
+| **At-most-once per cursor** | Each subscriber sees each frame at most once; lag is signalled explicitly. |
+| **Ordering** | Frames within a channel are delivered in production order. |
+| **Immutability** | Once broadcast, a completed snapshot is never mutated (see [Metrics Matrix §7](../../matrices/02-07-metrics-matrix.md)). |
+
+---
+
+## 9. Guarantees
 
 | Property | Guarantee |
 |----------|-----------|
@@ -132,13 +193,13 @@ else                     → RANGE
 | **Regime awareness** | Normalization thresholds adapt to the active regime. |
 | **Explainability** | Every signal carries its label, status, and strength. |
 
-### 8.1 Configurable activation (Active Set)
+### 9.1 Configurable activation (Active Set)
 
 The layer's indicator/signal computation is driven by a config-derived **Active Set**: registry defaults minus the union of the global `[activation]` denylist and the per-instance `[instances.*.activation]` denylist. Disabled indicators/signals are **absent** from the produced `MarketSnapshot` — never null, never tombstoned — and downstream layers reuse the existing NO_DATA/empty-state machinery with no new special cases. The active set is *recorded* on the snapshot via the optional `metrics_config` block (omitted when the active set equals the registry default, so default-path frames remain byte-identical to pre-feature frames). The 50-indicator / 12-SignalKind / 100-declaration **registry** describes capability and never changes with config; activation is a runtime config concern. Canonical spec, wire contract, downstream degradation rules, and the registry-invariance requirement are in [03-02-12-mme-configurable-activation.md](../../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md).
 
 ---
 
-## 9. Phase 0-3 Extensions: Derivatives Telemetry
+## 10. Phase 0-3 Extensions: Derivatives Telemetry
 
 The Phase 0-3 Liquidity Intelligence extension adds a parallel
 **derivatives telemetry** stream that runs alongside the price
@@ -160,9 +221,10 @@ normalised f64 signals in the indicator map) — they are
 *telemetry matrices* that ride the MarketSnapshot as optional
 fields and are consumed by extension layers L1.5/L2.5 (fractional layers of MME), L4 (Opportunity), L5, and the UI.
 
-## 10. Cross-References
+## 11. Cross-References
 
 - [Metrics Matrix](../../matrices/02-07-metrics-matrix.md) — Output contract.
+- [DIE Layer 4 — Data Distribution](../data-infrastructure-engine/03-01-05-die-layer4-data-distribution.md) — The `NormalizedCandle` broadcast channel.
 - [Indicators Guide](03-02-09-mme-indicators-guide.md) · [Signals Guide](03-02-10-mme-signals-guide.md)
 - [MME Layer 2 — Alignment](03-02-03-mme-layer2-alignment.md) — Direct consumer.
 - [Liquidity Extension](03-02-11-mme-liquidity-extension.md) — Derivatives telemetry.

@@ -40,7 +40,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::normalized::{Exchange, LiquidationEvent, LiquidationSide};
+use crate::normalized::{LiquidationEvent, LiquidationSide};
 
 /// State machine for cascade detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -95,6 +95,7 @@ pub struct LiquidityEventAccumulator {
     max_events: usize,
     /// Per-bar flow counters. Reset by `flush_to_flow`.
     bar_flow: LiquidityFlow,
+    #[allow(dead_code)]
     bar_start_ms: u64,
     /// Threshold (USD) above which a single event is considered a cascade trigger.
     cascade_event_zscore: f64,
@@ -262,6 +263,7 @@ impl LiquidityEventAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::normalized::Exchange;
     use rust_decimal::Decimal;
 
     fn make_event(side: LiquidationSide, price: f64, size: f64, ts_ms: u64) -> LiquidationEvent {

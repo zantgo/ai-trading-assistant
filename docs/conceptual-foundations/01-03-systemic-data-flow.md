@@ -1,6 +1,6 @@
 # Systemic Data Flow Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved  
 **Purpose:** This document details the chronological, systemic data flows across the five core engines of the Trading Platform. It specifies the step-by-step path of telemetry as it transforms from raw exchange events into structured market intelligence, automated order routing, active portfolio tracking, and post-trade performance analytics.
 
@@ -40,8 +40,9 @@ The sequence below illustrates the communication boundaries and matrix exchanges
 Exchange       DIE           MME           TAE           PME           PAE
    |            |             |             |             |             |
    |--[Ticks]-->|             |             |             |             |
-   |            |--[Candles]->|             |             |             |
-   |            |             |--[Decision]>|             |             |
+   |            |--[Candles]--|             |             |             |
+   |            |             |--[MarketSnap.→ UI·DB·L2-L7]
+   |            |             |--[Decision]->|             |             |
    |            |             |             |--[Capital]? |             |
    |            |             |             |<--[Matrix]--|             |
    |            |<================[Orders]--|             |             |
@@ -89,7 +90,7 @@ Exchange                DIE                                    MME
 
 #### Detailed Operations:
 1. **DIE Ingestion:** The exchange socket pushes raw trades and order book updates. The DIE standardizes the network frame at Layer 1 and groups updates into uniform time intervals (OHLCV) at Layer 2.
-2. **Quality Verification:** Layer 3 validates sequence integrity and cleans bad ticks. The Distribution Layer (L4) then publishes the immutable **Market Data Matrix**, fanning the validated candle out to the MME, the UI, and the telemetry logger.
+2. **Quality Verification:** Layer 3 validates sequence integrity and cleans bad ticks. The Distribution Layer (L4) publishes the validated `NormalizedCandle` to the Candle Aggregator for higher-timeframe rollup. The **MME Metrics Layer (L1)** consumes the completed candle, builds the `MarketSnapshot` (indicators, signals, alignment, analysis, opportunity, risk, decision matrices), and publishes it over the `MarketSnapshot` broadcast channel — fanning the analytical envelope out to MME L2–L7, the UI, and the telemetry logger (see `03-02-02-mme-layer1-metrics.md §8`).
 3. **MME Multi-Axis Projection:** The MME reads the Market Data Matrix. Layer 1 calculates indicators and signals, projecting them onto their standardized **Evaluation Axes** (e.g., converting RSI to a structured object containing Value, State, Direction, and Strength).
 4. **Consensus & Regime Diagnosis:** Layer 2 measures cross-timeframe alignment scores. Layer 3 evaluates these inputs to determine the categorical `market_bias` and computes the continuous numeric `market_bias_score` (between $-1.0$ and $+1.0$).
 5. **Opportunity Scoring:** Layer 4 evaluates specific strategy-agnostic opportunities (0-100 score) based on the Analysis Matrix, running in parallel with Layer 5.

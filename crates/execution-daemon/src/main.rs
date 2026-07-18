@@ -150,7 +150,7 @@ async fn main() {
 
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    println!("⚙️  Market Monitor: Loading Master Configuration...");
+    println!("⚙️  Trading Platform: Loading Master Configuration...");
 
     let platform = load_platform().expect(
         "❌ Configuration Error: failed to parse platform config from config.toml",

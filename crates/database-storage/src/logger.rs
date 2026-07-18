@@ -204,7 +204,7 @@ async fn run_journaling_task(
 
     let entry_reason = String::new();
 
-    let notes = format!("[Market Monitor trade journal. Trigger: {}]", trigger);
+    let notes = format!("[Trading Platform trade journal. Trigger: {}]", trigger);
 
     crate::queries::journals::insert_trade_journal(
         pool,

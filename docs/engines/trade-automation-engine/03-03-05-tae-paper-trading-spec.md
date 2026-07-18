@@ -1,6 +1,6 @@
 # TAE — Paper Trading Specification
 
-**Version:** 6.4 (2026-07-17) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the internal paper trading engine — a simulated matching engine that mirrors live exchange order lifecycles for strategy development, backtesting, and zero-risk validation without external API dependencies.

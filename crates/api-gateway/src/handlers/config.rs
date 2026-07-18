@@ -61,7 +61,7 @@ pub async fn update_config(
 /// Returns the raw `config.toml` file as `text/plain` so the operator can
 /// download it and `scp` / upload it to another machine. This is the
 /// canonical "share my config" endpoint.
-pub async fn serve_workspace_toml(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn serve_workspace_toml(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
     let raw = std::fs::read_to_string("config.toml")
         .unwrap_or_else(|_| "# config.toml not found on disk".to_string());
     (

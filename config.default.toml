@@ -216,7 +216,7 @@ symbol = "BTC-USDT"
 quote = "USDT"
 initial_capital_usd = 1000.0
 status = "running"
-operational_mode = "ManualOnly"
+operational_mode = "advisory"
 
 [workspace.instances.micro_term]
 candles = { duration_seconds = 60, analysis_limit = 500 }
