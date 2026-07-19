@@ -20,7 +20,7 @@
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let obvSeries: ISeriesApi<'Line'>;
     let markers: SignalMarkerController;
     let ro: ResizeObserver;
@@ -34,7 +34,7 @@
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: { borderColor: '#2a2e39', visible: false },
         });
-        obvSeries = chart.addSeries(LineSeries, { color: '#29b6f6', lineWidth: 1, priceLineVisible: false });
+        obvSeries = chart.addSeries(LineSeries, { color: '#bfc1c8', lineWidth: 1, priceLineVisible: false });
         registerChart(chart);
         markers = createSignalMarkers(obvSeries);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);

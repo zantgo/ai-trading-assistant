@@ -37,7 +37,7 @@ show_help() {
     echo "  test-ui            Svelte 5 visual state & component tests"
     echo "  test-property      Generative property tests across indicators"
     echo "  test-doc           Documentation corpus consistency checks (Phases 8/9/10 gate)"
-    echo "  clean              Delete build targets, node_modules, and temporary locks"
+    echo "  clean              Delete build targets, dependencies, and temporary locks"
     echo "  destroy            Stop the engine, run clean, and permanently delete telemetry.db"
     echo "  help               Show this helper documentation"
     echo ""
@@ -46,8 +46,8 @@ show_help() {
 build() {
     echo "📦 Building Svelte 5 Frontend..."
     cd "$FRONTEND_DIR"
-    npm install
-    npm run build
+    bun install
+    bun run build
     cd - > /dev/null
 
     echo "🦀 Verifying Rust Workspace Compilation..."
@@ -203,15 +203,16 @@ test_property() {
 test_ui() {
     echo "🧪 TEST-UI: Running Svelte 5 frontend Vitest tests..."
     cd "$FRONTEND_DIR"
-    npm run test
+    bun run test
     cd - > /dev/null
 }
 
 clean_workspace() {
     echo "🧹 Cleaning cargo workspace targets..."
     cargo clean
-    echo "🧹 Removing node_modules and frontend builds..."
+    echo "🧹 Removing frontend dependencies and builds..."
     rm -rf "$FRONTEND_DIR/node_modules"
+    rm -rf "$FRONTEND_DIR/bun.lock"
     rm -rf "$FRONTEND_DIR/dist"
     rm -f "$PID_FILE"
     rm -f "$LOG_FILE"

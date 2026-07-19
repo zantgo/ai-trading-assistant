@@ -43,14 +43,14 @@ The unidirectional dependency graph and the four cycle-breaking design decisions
 
 ### Prerequisites
 - Rust toolchain (stable)
-- Node.js / Bun (for frontend)
+- Bun (for frontend)
 
 ### Order matters
 ```bash
 # 1. Build frontend (produces dist/)
 cd ui
-npm install          # or: bun install
-npm run build        # or: bun run build
+bun install
+bun run build
 
 # 2. Build & run engine from workspace root
 cd ../..             # back to workspace root
@@ -71,8 +71,8 @@ The execution-daemon binary reads `config.toml` (legacy: `config.json`) from CWD
 ### Frontend dev mode
 ```bash
 cd ui
-npm run dev          # Vite dev server
-npm run check        # svelte-check + tsc typecheck
+bun run dev          # Vite dev server
+bun run check        # svelte-check + tsc typecheck
 ```
 
 ## Runtime details

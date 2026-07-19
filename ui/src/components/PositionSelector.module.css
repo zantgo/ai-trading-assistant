@@ -14,10 +14,9 @@
     cursor: pointer;
 }
 .position-selector input[type="radio"] {
-    accent-color: #3b82f6;
+    accent-color: rgba(255,255,255,0.8);
     cursor: pointer;
 }
-.sub-title {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.05em;
@@ -32,7 +31,7 @@
     flex: 1; background: #0f131c; border: 1px solid #2a2e39; border-radius: 4px;
     padding: 5px 8px; color: #e2e8f0; font-size: 11px; outline: none; width: 100%;
 }
-.entry-price-input input:focus { border-color: #3b82f6; }
+.entry-price-input input:focus { border-color: rgba(255,255,255,0.25); }
 
 .commission-quick-summary {
     display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;

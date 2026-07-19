@@ -7,25 +7,36 @@
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { takeChartScreenshot } from '../lib/chartScreenshot';
+    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
-        timeframe === 300 ? pair?.fastTerm :
-        timeframe === 900 ? pair?.slowTerm :
-        timeframe === 3600 ? pair?.macroTerm :
+        timeframe === 180 ? pair?.fastTerm :
+        timeframe === 300 ? pair?.slowTerm :
+        timeframe === 900 ? pair?.macroTerm :
         pair?.microTerm
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let ro: ResizeObserver;
     let adxSeries: ISeriesApi<'Line'>;
     let adxPlusSeries: ISeriesApi<'Line'>;
     let adxMinusSeries: ISeriesApi<'Line'>;
     let trendLine: IPriceLine | null = null;
     let exhaustionLine: IPriceLine | null = null;
+    let isFullscreen = $state(false);
+
+    function toggleFullscreen() {
+        isFullscreen = !isFullscreen;
+        if (chart && container) {
+            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
+        }
+    }
+    function screenshotChart() { if (chart) takeChartScreenshot(chart, `adx-${pairKey}-${timeframe}s`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -96,7 +107,7 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
                 const data = await res.json();
                 const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.adx_14 && indicatorHistory.adx_14.length > 0) {
@@ -210,8 +221,17 @@
     });
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
+    <div class="chart-container" bind:this={container}></div>
+</div>
+
+<ChartFullscreenOverlay open={isFullscreen} title="ADX 14 — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
 
 <style>
     .chart-container { width: 100%; height: 100%; }
+    .chart-wrapper { width: 100%; height: 100%; }
+    .chart-wrapper.fs-active {
+        position: fixed; inset: 0; z-index: 990;
+        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
+    }
 </style>

@@ -11,7 +11,7 @@
 
 ## 1. Purpose
 
-The Data Distribution Layer is the DIE's egress. It publishes the validated Market Data Matrix to all interested consumers (chiefly the Market Monitoring Engine and the WebSocket-connected frontend) with minimal latency and zero coupling between producer and consumers.
+The Data Distribution Layer is the DIE's final egress. It publishes validated `NormalizedCandle` frames to the Candle Aggregator for higher-timeframe rollup. The `MarketSnapshot` channel (which feeds the MME L2–L7, the UI, and the telemetry logger) is an MME L1 artifact — see [03-02-02 §8](../market-monitoring-engine/03-02-02-mme-layer1-metrics.md).
 
 ```
 [validated candle / snapshot]

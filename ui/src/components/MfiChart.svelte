@@ -20,7 +20,7 @@
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let mfiSeries: ISeriesApi<'Line'>;
     let markers: SignalMarkerController;
     let ro: ResizeObserver;

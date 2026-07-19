@@ -1,0 +1,72 @@
+.dashboard {
+    display: flex;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: monospace;
+}
+
+.sidebar {
+    width: 200px;
+    border-right: 1px solid #2a2e39;
+    padding: 1rem 0;
+    flex-shrink: 0;
+}
+
+.sidebarTitle {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #5a5f6e;
+    padding: 0 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.sidebarBtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-family: monospace;
+    transition: background 0.15s;
+}
+
+.sidebarBtn:hover {
+    background: #111;
+}
+
+.sidebarBtnActive {
+    background: #1a1d26;
+    color: #fff;
+}
+
+.content {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.sectionTitle {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.sectionDesc {
+    color: #888;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+.sectionDesc code {
+    background: #1a1d26;
+    color: #aaa;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+}

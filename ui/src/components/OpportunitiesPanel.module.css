@@ -5,7 +5,7 @@
 .oppBadge { font-size: 14px; font-weight: 800; padding: 5px 14px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-block; margin-bottom: 10px; }
 .oppTrend { background: rgba(34,197,94,0.18); color: #22c55e; }
 .oppBreakout { background: rgba(245,158,11,0.18); color: #f59e0b; }
-.oppPullback { background: rgba(59,130,246,0.18); color: #60a5fa; }
+.oppPullback { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); }
 .oppReversal { background: rgba(239,68,68,0.18); color: #ef4444; }
 .oppNone { background: rgba(148,163,184,0.08); color: #64748b; }
 .oppDefault { background: rgba(148,163,184,0.12); color: #94a3b8; }

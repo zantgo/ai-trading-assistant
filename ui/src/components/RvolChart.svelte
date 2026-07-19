@@ -7,27 +7,38 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { takeChartScreenshot } from '../lib/chartScreenshot';
+    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
-        timeframe === 300 ? pair?.fastTerm :
-        timeframe === 900 ? pair?.slowTerm :
-        timeframe === 3600 ? pair?.macroTerm :
+        timeframe === 180 ? pair?.fastTerm :
+        timeframe === 300 ? pair?.slowTerm :
+        timeframe === 900 ? pair?.macroTerm :
         pair?.microTerm
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let ro: ResizeObserver;
     let rvolSeries: ISeriesApi<'Histogram'>;
+    let isFullscreen = $state(false);
+
+    function toggleFullscreen() {
+        isFullscreen = !isFullscreen;
+        if (chart && container) {
+            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
+        }
+    }
+    function screenshotChart() { if (chart) takeChartScreenshot(chart, `rvol-${pairKey}-${timeframe}s`); }
 
     function rvolColor(rvol: number): string {
         if (rvol >= 3.0) return '#e040fb';
         if (rvol >= 1.5) return '#26c6da';
         if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)';
-        return '#3b82f6';
+            return '#64ffda';
     }
 
     onMount(() => {
@@ -57,7 +68,7 @@
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         rvolSeries = chart.addSeries(HistogramSeries, {
-            color: '#3b82f6',
+            color: '#64ffda',
             base: 0,
             priceLineVisible: false
         });
@@ -99,7 +110,7 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
+                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
                 const data = await res.json();
                 const ih = flattenHistory(data.indicator_history);
                 if (ih && ih.rvol && ih.rvol.length > 0) {
@@ -167,8 +178,17 @@
     });
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
+    <div class="chart-container" bind:this={container}></div>
+</div>
+
+<ChartFullscreenOverlay open={isFullscreen} title="RVOL — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
 
 <style>
     .chart-container { width: 100%; height: 100%; }
+    .chart-wrapper { width: 100%; height: 100%; }
+    .chart-wrapper.fs-active {
+        position: fixed; inset: 0; z-index: 990;
+        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
+    }
 </style>

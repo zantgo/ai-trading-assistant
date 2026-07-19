@@ -19,7 +19,7 @@
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let series: ISeriesApi<'Line'>;
     let ro: ResizeObserver;
 
@@ -32,7 +32,7 @@
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: { borderColor: '#2a2e39', visible: false },
         });
-        series = chart.addSeries(LineSeries, { color: '#42a5f5', lineWidth: 1, priceLineVisible: false });
+        series = chart.addSeries(LineSeries, { color: '#64ffda', lineWidth: 1, priceLineVisible: false });
         series.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
         registerChart(chart);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);

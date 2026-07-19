@@ -432,7 +432,7 @@ Every audit issue from v2.x is closed below. New identifiers (`AUDIT-V4-NN`) are
 | Legacy ID | New ID | Description | Resolution |
 |---|---|---|---|
 | — | `AUDIT-V4-029` | LiquidityPanel reversed `cascade_asymmetry` sign | Fixed; normative mapping block added |
-| — | `AUDIT-V4-030` | LiquidityPanel data path `microTerm` | Replaced with `instance.timeframes.micro.*` |
+| — | `AUDIT-V4-030` | LiquidityPanel data path `microTerm` | Kept as `instance.microTerm.*` (canonical; the `timeframes.micro` alias was removed per v6.3) |
 | — | `AUDIT-V4-031` | LiquidityPanel used shortened signal names | Replaced with canonical `LIQUIDITY_*` prefixed names |
 | — | `AUDIT-V4-032` | UI dashboard "19 indicator panes" | Corrected to "18 dedicated indicator panes + PriceChart overlay + shared generics" |
 | — | `AUDIT-V4-033` | UI chart map: `volume_profile` / `oi_price_divergence` placement | Moved into PriceChart overlay bucket |

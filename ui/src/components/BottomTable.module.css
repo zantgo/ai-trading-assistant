@@ -33,11 +33,11 @@
     white-space: nowrap;
 }
 .consoleTab:hover { color: #cbd5e1; }
-.consoleTabActive { color: #f1f5f9; border-bottom-color: #3b82f6; }
+.consoleTabActive { color: #f1f5f9; border-bottom-color: rgba(255,255,255,0.3); }
 .consoleTabCount {
     display: inline-block;
-    background: rgba(59,130,246,0.15);
-    color: #3b82f6;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.8);
     font-size: 10px;
     font-weight: 700;
     padding: 1px 6px;
@@ -45,9 +45,9 @@
     margin-left: 4px;
 }
 .exportBtn {
-    background: rgba(59,130,246,0.1);
-    border: 1px solid rgba(59,130,246,0.2);
-    color: #3b82f6;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.8);
     font-size: 10px;
     font-weight: 600;
     padding: 4px 12px;
@@ -58,7 +58,7 @@
     white-space: nowrap;
     align-self: center;
 }
-.exportBtn:hover { background: rgba(59,130,246,0.2); }
+.exportBtn:hover { background: rgba(255,255,255,0.1); }
 
 /* Slot blocks */
 .slotBlocks {
@@ -113,7 +113,7 @@
 .directionShort, .pnlNegative { color: #ef4444; }
 
 .positionRow { cursor: pointer; }
-.positionRow:hover { background: rgba(59,130,246,0.06); }
+.positionRow:hover { background: rgba(255,255,255,0.03); }
 
 .closeBtn {
     background: rgba(239,68,68,0.08);
@@ -162,7 +162,7 @@
     font-family: monospace;
     outline: none;
 }
-.creatorInput:focus { border-color: #3b82f6; }
+.creatorInput:focus { border-color: rgba(255,255,255,0.25); }
 .creatorSelect {
     background: #171b26;
     border: 1px solid #2a2e39;
@@ -174,9 +174,9 @@
     cursor: pointer;
 }
 .addBracketBtn {
-    background: rgba(59,130,246,0.12);
-    border: 1px solid rgba(59,130,246,0.3);
-    color: #3b82f6;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.8);
     font-size: 10px;
     font-weight: 700;
     padding: 5px 12px;
@@ -185,7 +185,7 @@
     text-transform: uppercase;
     transition: all 0.15s;
 }
-.addBracketBtn:hover { background: rgba(59,130,246,0.2); }
+.addBracketBtn:hover { background: rgba(255,255,255,0.1); }
 .addBracketBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Bracket chips */
@@ -247,10 +247,10 @@
     transition: all 0.15s;
 }
 .toggleBtn.active {
-    background: rgba(59, 130, 246, 0.12);
-    border-color: #3b82f6;
-    color: #3b82f6;
-    box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.05);
 }
 
 /* Modal */

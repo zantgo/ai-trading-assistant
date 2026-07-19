@@ -209,33 +209,15 @@ oi_funding_divergence_pct = 2.0
 # Each `[[workspace.instances]]` block is one trading pair. The four
 # timeframes (micro / fast / slow / macro) are mandatory; slow and macro
 # are optional. Override indicator periods inside each timeframe.
-
-[[workspace.instances]]
-id = "btc"
-symbol = "BTC-USDT"
-quote = "USDT"
-initial_capital_usd = 1000.0
-status = "running"
-operational_mode = "advisory"
-
-[workspace.instances.micro_term]
-candles = { duration_seconds = 60, analysis_limit = 500 }
-indicators = { rsi_period = 14 }
-
-[workspace.instances.fast_term]
-candles = { duration_seconds = 180, analysis_limit = 500 }
-indicators = { rsi_period = 14 }
-
-[workspace.instances.slow_term]
-candles = { duration_seconds = 300, analysis_limit = 500 }
-indicators = { rsi_period = 14 }
-
-[workspace.instances.macro_term]
-candles = { duration_seconds = 900, analysis_limit = 500 }
-indicators = { rsi_period = 14 }
-
-[workspace.instances.automation]
-enabled = false
-interval_seconds = 900
-use_scoring_allocation = false
-max_opposite_exit_signals = 5
+#
+# Add instances below, e.g.:
+#
+# [[workspace.instances]]
+# id = "btc"
+# symbol = "BTC-USDT"
+# quote = "USDT"
+# initial_capital_usd = 1000.0
+# status = "running"
+# operational_mode = "advisory"
+# [workspace.instances.micro_term]
+# candles = { duration_seconds = 60, analysis_limit = 500 }

@@ -249,13 +249,13 @@ No short-side clusters above noise threshold.
 │ Active Liquidity Signals                                    │
 │                                                              │
 │ ┌─ BULLISH ──────────────────────────────────────────┐      │
-│ │ LIQUIDITY_CASCADE_SUSTAINED                         │      │
+│ │ CASCADE_SUSTAINED                                       │      │
 │ │ 5 events in last 5 candles                          │      │
 │ │ str 80  conf 90%                                    │      │
 │ └────────────────────────────────────────────────────┘      │
 │                                                              │
 │ ┌─ BEARISH ─────────────────────────────────────────┐      │
-│ │ LIQUIDITY_FUNDING_FLIP                              │      │
+│ │ FUNDING_FLIP                                            │      │
 │ │ Funding rate 0.1200% (above extreme threshold)     │      │
 │ │ str 95  conf 95%                                    │      │
 │ └────────────────────────────────────────────────────┘      │

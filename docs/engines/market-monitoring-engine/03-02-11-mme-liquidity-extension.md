@@ -103,7 +103,7 @@ The integration with the rest of the platform is:
 |---|---|---|---|
 | L4 LiquiditySqueeze precondition | Continuous forecast eligibility | `|asymmetry| > 0.3` | Forward-looking pressure into setup viability (continuous weighting). |
 | L5 `cascade_risk.score` incremental | Continuous risk score contribution | `|asymmetry| > 0.3 → up to +30 risk points` | Linear contribution into the weighted aggregate. |
-| Phase 3, snapshot-level `LIQUIDITY_CLUSTER_PRESSURE_HIGH` signal | Discrete event | `|asymmetry| > 0.5` | Stricter event gate so that the signal only fires on meaningful cluster pressure, while the continuous scoring still weights asymmetry at 0.3+ into the Risk aggregate. |
+| Phase 3, snapshot-level `CLUSTER_PRESSURE_HIGH` signal | Discrete event | `|asymmetry| > 0.5` | Stricter event gate so that the signal only fires on meaningful cluster pressure, while the continuous scoring still weights asymmetry at 0.3+ into the Risk aggregate. |
 
 ## Phase 3 LiquiditySignalKind Registry
 

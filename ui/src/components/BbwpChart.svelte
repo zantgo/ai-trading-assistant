@@ -7,6 +7,8 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { takeChartScreenshot } from '../lib/chartScreenshot';
+    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -19,9 +21,19 @@
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let ro: ResizeObserver;
     let bbwpSeries: ISeriesApi<'Histogram'>;
+
+    let isFullscreen = $state(false);
+
+    function toggleFullscreen() {
+        isFullscreen = !isFullscreen;
+        if (chart && container) {
+            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
+        }
+    }
+    function screenshotChart() { if (chart) takeChartScreenshot(chart, `bbwp-${pairKey}-${timeframe}s`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -58,7 +70,7 @@
         // 10% Compression line (dashed blue)
         bbwpSeries.createPriceLine({
             price: 10,
-            color: '#4488ff',
+            color: '#8f929d',
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,
@@ -104,7 +116,7 @@
                         return {
                             time: t as Time,
                             value: val,
-                            color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa',
+                            color: val < 10 ? '#8f929d' : val > 90 ? '#ff4444' : '#00d4aa',
                         };
                     });
 
@@ -159,14 +171,23 @@
             bbwpSeries.update({
                 time: timeSec as Time,
                 value: val,
-                color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa'
+                color: val < 10 ? '#8f929d' : val > 90 ? '#ff4444' : '#00d4aa'
             });
         }
     });
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
+    <div class="chart-container" bind:this={container}></div>
+</div>
+
+<ChartFullscreenOverlay open={isFullscreen} title="BBWP — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
 
 <style>
     .chart-container { width: 100%; height: 100%; }
+    .chart-wrapper { width: 100%; height: 100%; }
+    .chart-wrapper.fs-active {
+        position: fixed; inset: 0; z-index: 990;
+        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
+    }
 </style>

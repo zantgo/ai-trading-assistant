@@ -1,10 +1,287 @@
 .monitor {
     height: 100%;
     display: flex;
-    background: #000;
-    color: #fff;
+    background: #0a0a0f;
+    color: #e2e8f0;
+    font-family: 'Inter', system-ui, sans-serif;
     overflow: hidden;
 }
+
+/* ─── Timeframe sidebar ─────────────────────────────────────────── */
+
+.tfSidebar {
+    width: 140px;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    padding: 1rem 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.tfSidebarTitle {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #5a5f6e;
+    padding: 0 0.75rem;
+    margin-bottom: 0.5rem;
+    font-family: monospace;
+}
+
+.tfSidebarItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 0.45rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 0.78rem;
+    transition: background 0.15s;
+}
+
+.tfSidebarItem:hover {
+    background: rgba(255,255,255,0.04);
+    color: #ccc;
+}
+
+.tfSidebarItem:global(.active) {
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+}
+
+.tfLabel { font-weight: 500; }
+
+.tfSecs { font-size: 0.65rem; color: #5a5f6e; }
+
+.tfSidebarItem:global(.active) .tfSecs { color: #888; }
+
+/* ─── Content area ────────────────────────────────────────────────── */
+
+.contentArea {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    text-transform: uppercase;
+}
+
+.symbol {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.75);
+}
+
+.tfBadge {
+    margin-left: auto;
+    font-size: 10px;
+    color: #64748b;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+/* ─── Signal-kind cards ──────────────────────────────────────────── */
+
+.signalKindCard {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.kindHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    transition: background 0.15s;
+}
+
+.kindHeader:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.kindCaret {
+    font-size: 9px;
+    width: 14px;
+    color: #64748b;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.kindName {
+    letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.85);
+}
+
+.kindCount {
+    font-size: 10px;
+    color: #64748b;
+    margin-left: auto;
+}
+
+.kindAbbr {
+    font-size: 9px;
+    font-weight: 700;
+    color: #64748b;
+    background: rgba(255,255,255,0.05);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+    letter-spacing: 0.05em;
+}
+
+.kindSignals {
+    padding: 0 12px 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.signalRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 4px;
+    border-left: 3px solid transparent;
+}
+
+.signalRow:nth-child(odd) {
+    background: rgba(255,255,255,0.015);
+}
+
+.signalIndicator {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    min-width: 90px;
+}
+
+.signalDir {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    min-width: 55px;
+    text-align: center;
+}
+
+.signalDir.bull {
+    background: rgba(34,197,94,0.12);
+    color: #4ade80;
+}
+
+.signalDir.bear {
+    background: rgba(239,68,68,0.12);
+    color: #f87171;
+}
+
+.signalDir.neutral {
+    background: rgba(148,163,184,0.12);
+    color: #94a3b8;
+}
+
+.signalStatus {
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+    min-width: 65px;
+}
+
+.signalMeta {
+    font-size: 10px;
+    color: #64748b;
+    font-family: monospace;
+    font-feature-settings: "tnum" 1;
+}
+
+.signalLabel {
+    font-size: 10px;
+    color: rgba(255,255,255,0.45);
+    margin-left: auto;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── Section divider ────────────────────────────────────────────── */
+
+.sectionDivider {
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+    margin: 4px 0;
+}
+
+/* ─── Liquidity ──────────────────────────────────────────────────── */
+
+.liquiditySection {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.liquidityHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    transition: background 0.15s;
+}
+
+.liquidityHeader:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.liquidityBody {
+    padding: 0;
+}
+
+/* ─── Placeholder ────────────────────────────────────────────────── */
 
 .featurePlaceholder {
     height: 100%;
@@ -16,14 +293,14 @@
     gap: 14px;
     padding: 40px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255,255,255,0.3);
 }
 
 .featurePlaceholderTitle {
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255,255,255,0.6);
     margin: 0;
 }
 
@@ -33,6 +310,6 @@
     letter-spacing: 0.03em;
     line-height: 1.5;
     max-width: 360px;
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255,255,255,0.25);
     margin: 0;
 }

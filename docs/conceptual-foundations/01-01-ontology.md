@@ -280,7 +280,7 @@ Communication between engines always occurs through stable API contracts exchang
 The DIE transforms raw exchange packets into standardized market data:
 $$\text{Exchange APIs} \longrightarrow \text{Raw Data Layer} \longrightarrow \text{Market Data Layer} \longrightarrow \text{Data Quality Layer} \longrightarrow \text{Data Distribution Layer (Distribution Matrix)}$$
 
-The DIE ensures data timeliness and validity before publishing the **Market Data Matrix** (the composite of the raw and validated data streams) to the rest of the system. Internally, the Distribution Layer (L4) produces the **Distribution Matrix** as its per-layer output; the **Market Data Matrix** is the term used for the inter-engine transport contract that flows from DIE to downstream consumers (MME, UI, telemetry logger).
+The DIE ensures data timeliness and validity before publishing **NormalizedCandle** frames to the Candle Aggregator (via the Distribution Layer, L4). The **Market Data Matrix** is the standardised OHLCV candle schema; the inter-engine analytical transport (indicators, matrices, and telemetry) is the **MarketSnapshot** channel, produced by MME L1 and consumed by MME L2–L7, the UI, and the telemetry logger (see `03-02-02 §8`).
 
 ### 4.5 Market Monitoring Engine (MME) Flow
 The MME transforms standardized market data into multi-timeframe, explainable market intelligence:
@@ -376,7 +376,7 @@ The Trading Platform is conceptually organized as a decentralized ecosystem of f
 *   **Primary Responsibility:** Transform raw, heterogeneous data streams from multiple external exchanges into standardized, reliable, and real-time market data.
 *   **Core Question:** *What market data is available, and is it valid?*
 *   **Input Boundary:** Raw WebSockets, REST API endpoints, and historical CSV/database repositories from external execution venues.
-*   **Output Boundary:** The **Distribution Matrix** (real-time normalized trade/depth updates) and the **Market Data Matrix** (standardized OHLCV candle streams across monitored symbols and timeframes).
+*   **Output Boundary:** The **Distribution Matrix** (real-time `NormalizedCandle` broadcast channel to the Candle Aggregator) and the **Market Data Matrix** (standardized OHLCV candle streams — the `NormalizedCandle` schema contract). The analytical `MarketSnapshot` envelope (indicators, matrices, telemetry) is produced by MME L1 (see `03-02-02 §8`).
 
 ### 5.2 Market Monitoring Engine (MME)
 *   **Domain:** Multi-Timeframe Technical Analysis, Trend and Structure Diagnostics, Opportunity Mapping, Environmental Risk Assessment, and Tactical Decision Support.
@@ -1013,7 +1013,7 @@ The platform uses a contract-based, decoupled communication architecture. Engine
 ### 15.2 Communication Paradigms
 1.  **Publish / Subscribe (Pub/Sub):**
     *   *Usage:* Real-time, continuous data dissemination.
-    *   *Examples:* Normalized exchange ticks (Distribution Matrix), standardized candle updates (Market Data Matrix), and real-time analytical updates (Decision Matrix).
+    *   *Examples:* Normalized exchange ticks (Raw Data Matrix, DIE L1), standardized candle updates (Market Data Matrix), and real-time analytical updates (Decision Matrix).
     *   *Guarantee:* High-throughput, low-latency, non-blocking delivery.
 2.  **Request / Response:**
     *   *Usage:* On-demand state queries or transaction execution commands.

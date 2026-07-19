@@ -1,0 +1,644 @@
+.dashboard {
+    display: flex;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: monospace;
+}
+
+.sidebar {
+    width: 200px;
+    border-right: 1px solid #2a2e39;
+    padding: 1rem 0;
+    flex-shrink: 0;
+}
+
+.sidebarTitle {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #5a5f6e;
+    padding: 0 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.sidebarBtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-family: monospace;
+    transition: background 0.15s;
+}
+
+.sidebarBtn:hover { background: #111; }
+.sidebarBtnActive { background: #1a1d26; color: #fff; }
+
+.content {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.sectionTitle {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.sectionDesc {
+    color: #888;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+/* ─── Safety state banner ─── */
+.safetyBanner {
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.safetyNormal { background: rgba(76, 175, 80, 0.12); border: 1px solid rgba(76, 175, 80, 0.3); color: #4caf50; }
+.safetyWarn { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); color: #ffb74d; }
+.safetyCautious { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #ff9800; }
+.safetySuspended { background: rgba(239, 83, 80, 0.12); border: 1px solid rgba(239, 83, 80, 0.3); color: #ef5350; }
+.safetyDrawdown { background: rgba(183, 28, 28, 0.2); border: 1px solid rgba(183, 28, 28, 0.5); color: #e53935; }
+
+.safetyIcon {
+    font-size: 1.2rem;
+}
+
+.safetyBadge {
+    padding: 0.2rem 0.6rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.safetyBadgeNormal { background: #1b5e20; color: #4caf50; }
+.safetyBadgeWarn { background: #e65100; color: #ffb74d; }
+.safetyBadgeCautious { background: #bf360c; color: #ff9800; }
+.safetyBadgeSuspended { background: #b71c1c; color: #ef5350; }
+.safetyBadgeDrawdown { background: #880e4f; color: #e53935; }
+
+/* ─── Stats grid ─── */
+.statsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.statCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.statLabel {
+    font-size: 0.7rem;
+    color: #5a5f6e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.35rem;
+}
+
+.statValue {
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.statSub {
+    font-size: 0.7rem;
+    color: #5a5f6e;
+    margin-top: 0.2rem;
+}
+
+.statPositive { color: #4caf50; }
+.statNegative { color: #ef5350; }
+.statNeutral { color: #ffb74d; }
+
+/* ─── Table ─── */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #2a2e39;
+    color: #5a5f6e;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.table td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid #1a1d26;
+    color: #ccc;
+}
+
+.table tr:hover { background: #0a0a0f; }
+
+.tdRight { text-align: right; font-variant-numeric: tabular-nums; }
+.tdCenter { text-align: center; }
+.tdMono { font-family: 'Courier New', monospace; font-size: 0.75rem; }
+
+/* ─── Badges ─── */
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.badgeLong { background: rgba(76,175,80,0.15); color: #4caf50; }
+.badgeShort { background: rgba(239,83,80,0.15); color: #ef5350; }
+
+/* ─── Exposure bars ─── */
+.exposureRow {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.78rem;
+}
+
+.exposureLabel {
+    width: 130px;
+    text-align: right;
+    color: #888;
+    flex-shrink: 0;
+}
+
+.exposureBar {
+    flex: 1;
+    height: 10px;
+    background: #1a1d26;
+    border-radius: 5px;
+    overflow: hidden;
+    position: relative;
+}
+
+.exposureFill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width 0.4s ease;
+}
+
+.exposureFillLong { background: #4caf50; }
+.exposureFillShort { background: #ef5350; }
+.exposureFillNet { background: #64ffda; }
+
+.exposureValue {
+    width: 120px;
+    font-size: 0.72rem;
+    color: #ccc;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── Concentration card ─── */
+.concentrationCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.concentrationHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.3rem;
+}
+
+.concentrationSymbol {
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+
+.concentrationPct {
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.concentrationLimitBar {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #1a1d26;
+    overflow: hidden;
+    position: relative;
+}
+
+.concentrationLimitFill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+.concentrationLimitLine {
+    position: absolute;
+    top: -2px;
+    height: 10px;
+    width: 1px;
+    background: #ef5350;
+}
+
+.concentrationLimitLabel {
+    font-size: 0.6rem;
+    color: #ef5350;
+    margin-top: 0.1rem;
+}
+
+/* ─── Capital gauge ─── */
+.capitalGauge {
+    margin-bottom: 1rem;
+}
+
+.capitalGaugeHeader {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    margin-bottom: 0.25rem;
+}
+
+.capitalGaugeLabel { color: #888; }
+.capitalGaugeValue { font-variant-numeric: tabular-nums; }
+
+.capitalGaugeBar {
+    width: 100%;
+    height: 12px;
+    border-radius: 6px;
+    background: #1a1d26;
+    overflow: hidden;
+    position: relative;
+}
+
+.capitalGaugeFill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.4s ease;
+}
+
+.capitalGaugeMarkers {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6rem;
+    color: #5a5f6e;
+    margin-top: 0.2rem;
+}
+
+/* ─── Threshold info row ─── */
+.thresholdRow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0;
+    font-size: 0.72rem;
+}
+
+.thresholdLevel {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.thresholdText {
+    color: #888;
+}
+
+/* ─── Drawdown monitor ─── */
+.drawdownCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.drawdownStats {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.drawdownStat {
+    display: flex;
+    flex-direction: column;
+}
+
+.drawdownStatLabel {
+    font-size: 0.65rem;
+    color: #5a5f6e;
+    text-transform: uppercase;
+}
+
+.drawdownStatValue {
+    font-size: 0.85rem;
+    color: #ccc;
+    font-variant-numeric: tabular-nums;
+}
+
+.drawdownBar {
+    height: 8px;
+    border-radius: 4px;
+    background: #1a1d26;
+    overflow: hidden;
+}
+
+.drawdownBarFill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+.drawdownBarMarker {
+    position: absolute;
+    top: -3px;
+    height: 14px;
+    width: 1px;
+    background: #ef5350;
+    z-index: 1;
+}
+
+/* ─── Veto triggers table ─── */
+.vetoCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.vetoHeader {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.vetoTrigger {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #ccc;
+}
+
+.vetoArrow {
+    color: #5a5f6e;
+    font-size: 0.7rem;
+}
+
+.vetoResult {
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.vetoHardExit {
+    font-size: 0.7rem;
+    color: #ef5350;
+    font-weight: 600;
+}
+
+.vetoMeta {
+    font-size: 0.68rem;
+    color: #5a5f6e;
+    display: flex;
+    gap: 0.75rem;
+}
+
+/* ─── Positions grid ─── */
+.positionCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.positionHeader {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.positionHeader:hover { background: #0a0a0f; }
+
+.positionSymbol {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.positionDirection {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.positionPnl {
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.positionMeta {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: #5a5f6e;
+    display: flex;
+    gap: 0.75rem;
+}
+
+.positionDetail {
+    padding: 1rem;
+    border-top: 1px solid #2a2e39;
+    background: #080808;
+}
+
+.positionDetailGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.positionField {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+}
+
+.positionFieldLabel {
+    color: #5a5f6e;
+}
+
+.positionFieldValue {
+    color: #ccc;
+    font-family: 'Courier New', monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── Slots indicator ─── */
+.slotsIndicator {
+    display: flex;
+    gap: 0.15rem;
+}
+
+.slotDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.slotDotActive { background: #4caf50; }
+.slotDotVacant { background: #2a2e39; }
+
+/* ─── Loss streak card ─── */
+.lossCard {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.lossHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.3rem;
+}
+
+.lossSymbol {
+    font-weight: 600;
+    font-size: 0.82rem;
+}
+
+.lossCount {
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.lossBar {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #1a1d26;
+    overflow: hidden;
+    position: relative;
+}
+
+.lossBarFill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+.lossThreshold {
+    position: absolute;
+    top: -2px;
+    width: 1px;
+    height: 10px;
+}
+
+.lossThresholdCautious { background: #ffb74d; left: 60%; }
+.lossThresholdSuspended { background: #ef5350; left: 100%; }
+
+.lossLegend {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6rem;
+    color: #5a5f6e;
+    margin-top: 0.2rem;
+}
+
+/* ─── Expand icon ─── */
+.expandIcon {
+    display: inline-block;
+    transition: transform 0.2s;
+    font-size: 0.7rem;
+    color: #5a5f6e;
+}
+
+.expandIconOpen { transform: rotate(90deg); }
+
+/* ─── Correlation mini heatmap ─── */
+.correlationGrid {
+    display: flex;
+    gap: 0;
+    align-items: center;
+}
+
+.correlationLabel {
+    width: 70px;
+    font-size: 0.7rem;
+    color: #888;
+    flex-shrink: 0;
+}
+
+.correlationRow {
+    display: flex;
+    gap: 0.15rem;
+}
+
+.correlationCell {
+    width: 28px;
+    height: 24px;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    color: #fff;
+}
+
+.correlationHeader {
+    width: 28px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    color: #5a5f6e;
+}
+
+/* ─── Empty / placeholder ─── */
+.placeholder {
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    padding: 2rem;
+    text-align: center;
+    color: #5a5f6e;
+    font-size: 0.85rem;
+}
+
+/* ─── Grid 2-column ─── */
+.grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 900px) {
+    .grid2 { grid-template-columns: 1fr; }
+}

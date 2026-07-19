@@ -19,7 +19,7 @@
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let upSeries: ISeriesApi<'Line'>;
     let downSeries: ISeriesApi<'Line'>;
     let ro: ResizeObserver;

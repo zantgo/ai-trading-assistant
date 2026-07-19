@@ -97,7 +97,7 @@ export class AppStore {
 
     selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile') {
         this.currentEngine = engine;
-        this.middleTab = engine === 'market_monitor' ? 'workspace' : 'overview';
+        this.middleTab = engine === 'market_monitor' ? 'overview' : 'overview';
         if (engine === 'market_monitor') {
             this.activeEngineTab = this.selectedInstance ? 'instance' : 'overview';
         }

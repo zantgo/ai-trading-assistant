@@ -20,7 +20,7 @@
     );
 
     let container: HTMLDivElement;
-    let chart: IChartApi;
+    let chart: IChartApi = $state(null!);
     let kSeries: ISeriesApi<'Line'>;
     let dSeries: ISeriesApi<'Line'>;
     let markers: SignalMarkerController;
@@ -36,7 +36,7 @@
             timeScale: { borderColor: '#2a2e39', visible: false },
         });
 
-        kSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 1, priceLineVisible: false });
+        kSeries = chart.addSeries(LineSeries, { color: '#64ffda', lineWidth: 1, priceLineVisible: false });
         dSeries = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1, priceLineVisible: false });
 
         kSeries.createPriceLine({ price: 80, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'OB' });

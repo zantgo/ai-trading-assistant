@@ -77,15 +77,48 @@
     position: relative;
     user-select: none;
     white-space: nowrap;
+    text-decoration: none;
 }
 
 .cellBrand {
     color: var(--text);
     font-weight: 700;
-    font-size: 13px;
+    font-size: 14px;
     letter-spacing: 0.10em;
     justify-content: flex-start;
     text-transform: uppercase;
+    padding-left: 24px;
+    gap: 10px;
+    position: relative;
+}
+
+.cellBrand::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 0;
+    border-radius: 0 2px 2px 0;
+    background: #64ffda;
+    transition: height 0.2s ease;
+}
+
+.cellBrand:hover::after {
+    height: 24px;
+}
+
+.brandChevron {
+    display: inline-flex;
+    align-items: center;
+    opacity: 0.5;
+    margin-left: 2px;
+    transition: opacity 0.2s ease;
+}
+
+.cellBrand:hover .brandChevron {
+    opacity: 0.95;
 }
 
 .cellNavbar {
@@ -319,6 +352,7 @@
     text-transform: uppercase;
     transition: all 0.15s ease;
     box-sizing: border-box;
+    text-decoration: none;
 }
 
 .sidebarItem:hover {
@@ -329,6 +363,12 @@
 .sidebarItemActive {
     color: var(--text);
     background-color: var(--active);
+}
+
+.sidebarDivider {
+    height: 1px;
+    background: var(--line);
+    margin: 8px 16px;
 }
 
 .sidebarFooter {
@@ -810,6 +850,10 @@
     color: var(--text-dim);
     font-size: 16px;
     transition: all 0.15s ease;
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-family: inherit;
 }
 
 .wsPanelClose:hover {
@@ -900,6 +944,8 @@
     gap: 10px;
     cursor: pointer;
     transition: background-color 0.15s ease;
+    text-decoration: none;
+    color: inherit;
 }
 
 .wsPanelRow:hover {
@@ -944,6 +990,10 @@
     font-size: 13px;
     transition: all 0.15s ease;
     flex-shrink: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-family: inherit;
 }
 
 .wsPanelActionBtn:hover {

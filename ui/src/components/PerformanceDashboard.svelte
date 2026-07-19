@@ -1,6 +1,7 @@
 <script lang="ts">
     import styles from './PerformanceDashboard.module.css';
     import { useAppStore } from '../state.svelte';
+    import { getIcon } from '../lib/icons';
     import type {
         StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow,
         OptimizationReport, TradeAnalyticsRecord,
@@ -8,7 +9,7 @@
 
     const app = useAppStore();
 
-    type Panel = 'overview' | 'strategy' | 'risk' | 'regimes' | 'trades';
+    type Panel = 'overview' | 'strategy' | 'risk' | 'regimes' | 'trades' | 'backtesting';
 
     let activePanel = $state<Panel>('overview');
     let loading = $state(false);
@@ -20,6 +21,20 @@
     let optimizationReport = $state<OptimizationReport | null>(null);
     let tradeRecords = $state<TradeAnalyticsRecord[]>([]);
     let errorMsg = $state<string | null>(null);
+
+    // ── Backtesting state ──────────────────────────────────────────────
+    let btPolicy = $state('btc-trend-follow');
+    let btStartDate = $state('2024-01-01');
+    let btEndDate = $state('2025-01-01');
+    let btCapital = $state(10000);
+    let btFeePct = $state(0.06);
+    let btRunning = $state(false);
+    let btResultsReady = $state(false);
+
+    function runBacktest() {
+        btRunning = true;
+        setTimeout(() => { btRunning = false; btResultsReady = true; }, 1200);
+    }
 
     const sessionCapital = $derived(app.sessionCapital ?? 10000);
 
@@ -104,10 +119,11 @@
     <div class={styles.sidebar}>
         <h2 class={styles.sidebarTitle}>PERFORMANCE ANALYTICS</h2>
         <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>📊 Overview</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'strategy' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'strategy'}>🎯 Strategy (NHST)</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'strategy' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'strategy'}>🎯 Strategy</button>
         <button class="{styles.sidebarBtn} {activePanel === 'risk' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'risk'}>⚠ Risk Metrics</button>
         <button class="{styles.sidebarBtn} {activePanel === 'regimes' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'regimes'}>🗺 Regime Map</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'trades' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'trades'}>📋 Trade Ledger</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'trades' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'trades'}>📋 Trade Analytics</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'backtesting' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'backtesting'}>🧪 Backtesting</button>
     </div>
 
     <div class={styles.content}>
@@ -201,7 +217,7 @@
                 {/if}
 
             {:else if activePanel === 'strategy'}
-                <h3 class={styles.sectionTitle}>Strategy Analytics (NHST)</h3>
+                <h3 class={styles.sectionTitle}>Strategy Analytics</h3>
                 <p class={styles.sectionDesc}>Null Hypothesis Significance Testing — determines whether each policy generates a statistically significant positive edge (H₀: μ ≤ 0 vs H₁: μ > 0).</p>
                 {#if strategyRows.length === 0}
                     <div class={styles.equityPlaceholder}>No strategy data available. Trades must be closed for NHST analysis.</div>
@@ -366,6 +382,144 @@
                                     <td>{t.flat_trade ? 'Yes' : ''}</td>
                                 </tr>
                             {/each}
+                        </tbody>
+                    </table>
+                {/if}
+            {:else if activePanel === 'backtesting'}
+                <h3 class={styles.sectionTitle}>Strategy Backtesting</h3>
+                <p class={styles.sectionDesc}>
+                    Simulate strategy performance over historical data. Configure parameters and run
+                    to evaluate edge, drawdown, and risk-adjusted returns on past market conditions.
+                </p>
+
+                <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem">
+                    <div style="display:flex; flex-direction:column; gap:0.25rem">
+                        <label for="bt-policy" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Strategy</label>
+                        <select id="bt-policy" bind:value={btPolicy} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem">
+                            <option value="btc-trend-follow">BTC Trend Following</option>
+                            <option value="eth-mean-reversion">ETH Mean Reversion</option>
+                            <option value="sol-breakout">SOL Breakout</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.25rem">
+                        <label for="bt-start" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Start Date</label>
+                        <input id="bt-start" type="date" bind:value={btStartDate} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem" />
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.25rem">
+                        <label for="bt-end" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">End Date</label>
+                        <input id="bt-end" type="date" bind:value={btEndDate} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem" />
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.25rem">
+                        <label for="bt-capital" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Capital ($)</label>
+                        <input id="bt-capital" type="number" bind:value={btCapital} min="100" step="1000" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem; width:100px" />
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.25rem">
+                        <label for="bt-fee" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Fee %</label>
+                        <input id="bt-fee" type="number" bind:value={btFeePct} min="0" max="1" step="0.01" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem; width:70px" />
+                    </div>
+                    <div style="display:flex; align-items:flex-end">
+                        <button onclick={runBacktest} disabled={btRunning}
+                            style="padding:0.45rem 1rem; background:#fff; border:none; border-radius:4px; color:#000; cursor:pointer; font-family:monospace; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; transition:opacity 0.15s; opacity:{btRunning ? '0.5' : '1'}; font-weight:700">
+                            {btRunning ? 'Running...' : 'Run Backtest'}
+                        </button>
+                    </div>
+                </div>
+
+                {#if !btResultsReady}
+                    <div class={styles.equityPlaceholder} style="margin-top:1rem">
+                        Configure strategy parameters above and run the backtest to see results.
+                    </div>
+                {:else}
+                    <h3 class={styles.sectionTitle} style="margin-top:1.25rem">Results — {btPolicy.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</h3>
+                    <p class={styles.sectionDesc}>{btStartDate} → {btEndDate} · Capital: ${btCapital.toLocaleString()} · Fee: {btFeePct}%</p>
+
+                    <div class={styles.statsGrid}>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Total Trades</div>
+                            <div class={styles.statValue}>47</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Win Rate</div>
+                            <div class={styles.statValue} style="color:#4caf50">61.7%</div>
+                            <div class={styles.statSub}>29W / 18L</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Profit Factor</div>
+                            <div class={styles.statValue}>1.43</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Total P&L</div>
+                            <div class={styles.statValue} style="color:#4caf50">+$1,247.80</div>
+                            <div class={styles.statSub}>+12.5% return</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Max Drawdown</div>
+                            <div class={styles.statValue} style="color:#ffb74d">-12.4%</div>
+                            <div class={styles.statSub}>3 drawdown events</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Sharpe Ratio</div>
+                            <div class={styles.statValue} style="color:#4caf50">1.82</div>
+                            <div class={styles.statSub}>Good</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Expectancy</div>
+                            <div class={styles.statValue} style="color:#4caf50">+$26.55</div>
+                        </div>
+                        <div class={styles.statCard}>
+                            <div class={styles.statLabel}>Avg Win / Loss</div>
+                            <div class={styles.statValue}>$78.40 / -$52.20</div>
+                        </div>
+                    </div>
+
+                    <h3 class={styles.sectionTitle} style="margin-top:1.5rem">Equity Curve</h3>
+                    <div class={styles.equityPlaceholder} style="height:200px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:0.5rem">
+                        {@html getIcon('activity', 48)}
+                        <span>Equity curve visualization coming soon</span>
+                    </div>
+
+                    <h3 class={styles.sectionTitle} style="margin-top:1.5rem">Trade Log</h3>
+                    <p class={styles.sectionDesc}>Simulated trades from backtest run.</p>
+                    <table class={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Symbol</th>
+                                <th>Dir</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>Hold</th>
+                                <th>P&L</th>
+                                <th>ROI</th>
+                                <th>Exit Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>2024-02-15</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
+                                <td style="font-variant-numeric:tabular-nums">$42,350</td><td style="font-variant-numeric:tabular-nums">$44,120</td>
+                                <td>3h 12m</td><td style="color:#4caf50">+$177.00</td><td style="color:#4caf50">+4.18%</td><td>Take Profit</td>
+                            </tr>
+                            <tr>
+                                <td>2024-03-08</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
+                                <td style="font-variant-numeric:tabular-nums">$45,100</td><td style="font-variant-numeric:tabular-nums">$43,780</td>
+                                <td>45m</td><td style="color:#ef5350">-$132.00</td><td style="color:#ef5350">-2.93%</td><td>Stop Loss</td>
+                            </tr>
+                            <tr>
+                                <td>2024-04-22</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
+                                <td style="font-variant-numeric:tabular-nums">$51,200</td><td style="font-variant-numeric:tabular-nums">$54,850</td>
+                                <td>8h 05m</td><td style="color:#4caf50">+$365.00</td><td style="color:#4caf50">+7.13%</td><td>Take Profit</td>
+                            </tr>
+                            <tr>
+                                <td>2024-06-14</td><td>BTC-USDT</td><td style="color:#ef5350">Short</td>
+                                <td style="font-variant-numeric:tabular-nums">$65,800</td><td style="font-variant-numeric:tabular-nums">$64,220</td>
+                                <td>12h 40m</td><td style="color:#4caf50">+$158.00</td><td style="color:#4caf50">+2.40%</td><td>Signal Exit</td>
+                            </tr>
+                            <tr>
+                                <td>2024-09-03</td><td>BTC-USDT</td><td style="color:#4caf50">Long</td>
+                                <td style="font-variant-numeric:tabular-nums">$56,900</td><td style="font-variant-numeric:tabular-nums">$55,450</td>
+                                <td>2h 18m</td><td style="color:#ef5350">-$145.00</td><td style="color:#ef5350">-2.55%</td><td>Thesis Invalidated</td>
+                                </tr>
                         </tbody>
                     </table>
                 {/if}

@@ -5,37 +5,6 @@
     color: #fff;
 }
 
-.featurePlaceholder {
-    height: 100%;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    padding: 40px;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.3);
-}
-
-.featurePlaceholderTitle {
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.6);
-    margin: 0;
-}
-
-.featurePlaceholderMsg {
-    font-size: 12px;
-    font-weight: 400;
-    letter-spacing: 0.03em;
-    line-height: 1.5;
-    max-width: 360px;
-    color: rgba(255, 255, 255, 0.25);
-    margin: 0;
-}
-
 /* ─── Timeframe sidebar ─────────────────────────────────────────── */
 
 .tfSidebar {
@@ -146,57 +115,61 @@
     background: #06080c;
 }
 
-/* ─── Pane toolbar ──────────────────────────────────────────────── */
+/* ─── Resizable chart panes ──────────────────────────────────────── */
 
-.panesToolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 8px 10px;
-    background: #080a10;
-    border-bottom: 1px solid #1a1d26;
+.resizablePane {
+    overflow: hidden;
+    background: #06080c;
+    flex-shrink: 0;
 }
 
-.paneToggle {
-    padding: 3px 10px;
-    border: 1px solid #1e293b;
-    border-radius: 3px;
-    background: transparent;
-    color: #4a5568;
-    font-size: 9px;
-    font-weight: 700;
-    font-family: 'Courier New', monospace;
-    cursor: pointer;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    transition: all 0.15s;
+.dragHandle {
+    height: 6px;
+    width: 100%;
+    background: #1a1d26;
+    cursor: ns-resize;
+    flex-shrink: 0;
+    transition: background 0.15s;
+    position: relative;
+    border: none;
+    padding: 0;
+    margin: 0;
+    display: block;
 }
 
-.paneToggle:hover {
-    border-color: #334155;
-    color: #94a3b8;
+.dragHandle::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 2px;
+    border-radius: 1px;
+    background: #3a3f4e;
 }
 
-.paneToggle:global(.active) {
-    border-color: #64ffda;
-    color: #64ffda;
-    background: rgba(100,255,218,0.08);
+.dragHandle:hover {
+    background: #64ffda;
 }
 
-/* ─── Pane grid ─────────────────────────────────────────────────── */
+.dragHandle:hover::after {
+    background: #000;
+}
 
-.panesGrid {
+/* ─── Fixed indicator panes (legacy, kept for reference) ─────────── */
+
+.fixedPanesSection {
     display: flex;
     flex-direction: column;
-    gap: 0;
-    background: #06080c;
+    border-bottom: 1px solid #1e2130;
 }
 
-.paneWrapper {
+.fixedPane {
     border-bottom: 1px solid #1a1d26;
 }
 
-.paneWrapper:last-child {
+.fixedPane:last-child {
     border-bottom: none;
 }
 
@@ -211,8 +184,13 @@
     font-family: 'Courier New', monospace;
 }
 
-.paneWrapper > :global(.chart-container) {
-    height: 180px;
+.fixedPaneChart {
+    height: calc(100% - 21px);
+    background: #06080c;
+}
+
+.fixedPaneChart:global(> .chart-container) {
+    height: 100%;
 }
 
 /* ─── Liquidity ─────────────────────────────────────────────────── */
@@ -235,14 +213,4 @@
     font-size: 0.8rem;
     text-align: center;
     padding: 40px;
-}
-
-.comingSoon {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #ff9800;
-    background: rgba(255, 152, 0, 0.1);
-    padding: 0.2rem 0.6rem;
-    border-radius: 3px;
 }

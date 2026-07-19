@@ -8,13 +8,13 @@
 
 ## 1. Audience & Prerequisites
 
-This manual is for the operator of the Trading Platform — typically a quantitative trader or quant developer running the platform on a local workstation or a cloud VM. Readers are expected to be comfortable with the Rust toolchain (for the engine), Node.js or Bun (for the frontend), and basic Linux shell commands.
+This manual is for the operator of the Trading Platform — typically a quantitative trader or quant developer running the platform on a local workstation or a cloud VM. Readers are expected to be comfortable with the Rust toolchain (for the engine), Bun (for the frontend), and basic Linux shell commands.
 
 Hardware target: any 64-bit Linux/macOS machine capable of running a Rust binary and an Axum HTTP server. No GPU is required. Memory footprint at idle is ~150 MB; under live load it scales with the number of active Market Instances (4 timeframe pipelines each).
 
 Software prerequisites:
 - Rust toolchain (stable; `rustup` recommended)
-- Node.js ≥ 18 or Bun ≥ 1.0
+- Bun ≥ 1.0
 - SQLite (the engine creates `./telemetry.db` automatically)
 - A POSIX shell for `./manage.sh` shortcuts
 
@@ -27,8 +27,8 @@ The project is a Cargo workspace with a Svelte 5 frontend in `ui/`. The **order 
 ```bash
 # From workspace root:
 cd ui
-npm install          # or: bun install
-npm run build        # or: bun run build
+bun install
+bun run build
 cd ../..
 cargo run --bin execution-daemon -- --web
 ```
@@ -133,7 +133,7 @@ A value of `0` disables the cleanup loop for that table (rows accumulate indefin
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Engine panics on startup with "config not found" | No `config.toml` (and no legacy `config.json` fallback) at workspace root | Run `./manage.sh` once; it scaffolds a default. Or copy `config.example.toml`. |
-| WebSocket frames never arrive | `ui/dist/` is missing or empty | Rebuild frontend (`cd ui && npm run build`). |
+| WebSocket frames never arrive | `ui/dist/` is missing or empty | Rebuild frontend (`cd ui && bun run build`). |
 | All values `null` in dashboard | Initial warm-up not finished | Wait `analysis_limit × duration_seconds` (default 500 × 60 s ≈ 8 h on micro); reduce `analysis_limit` for faster warm-up at the cost of less history. |
 | `margin_usage_ratio > 95%` warning | Position size too large for current equity | Reduce `max_position_size_usd` in policy or close a position. |
 | Indicator shows but `signals` array is empty | Indicators warmed up but no SignalKind conditions are firing yet | Verify thresholds in `config.toml` `[indicators.*]`; check the indicator rulebook via `GET /api/rules`. |

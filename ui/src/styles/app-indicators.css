@@ -42,8 +42,8 @@
         border: 1px solid transparent;
     }
     .clickable-result:hover {
-        border-color: #3b82f6;
-        box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
+        border-color: rgba(255,255,255,0.2);
+        box-shadow: 0 0 12px rgba(255,255,255,0.05);
     }
     .click-hint {
         text-align: center;
@@ -154,7 +154,7 @@
         flex: 1; background: #0f131c; border: 1px solid #2a2e39; border-radius: 4px;
         padding: 5px 8px; color: #e2e8f0; font-size: 11px; outline: none; width: 100%;
     }
-    .entry-price-input input:focus { border-color: #3b82f6; }
+    .entry-price-input input:focus { border-color: rgba(255,255,255,0.25); }
 
     .commission-quick-summary {
         display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
@@ -181,21 +181,21 @@
     .ap-complete .ap-status { color: #10b981; }
     .ap-failed { background: rgba(239, 68, 68, 0.08); }
     .ap-failed .ap-status { color: #ef4444; }
-    .ap-running .ap-status { color: #3b82f6; animation: pulse 1.5s infinite; }
+    .ap-running .ap-status { color: rgba(255,255,255,0.8); animation: pulse 1.5s infinite; }
 
-    .consensus-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 4px; background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+    .consensus-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 4px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8); }
 
     .master-synthesis { margin-bottom: 16px; }
     .sr-ribbon { display: flex; gap: 2px; margin-bottom: 8px; }
     .sr-block { flex: 1; padding: 8px; border-radius: 6px; text-align: center; }
     .sr-support { background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); }
     .sr-resistance { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); }
-    .sr-current { background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); }
+    .sr-current { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); }
     .sr-label { display: block; font-size: 8px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 3px; }
     .sr-level { display: block; font-size: 11px; font-weight: 600; color: #e2e8f0; }
     .sr-support .sr-level { color: #10b981; }
     .sr-resistance .sr-level { color: #ef4444; }
-    .sr-current .sr-level { color: #3b82f6; }
+    .sr-current .sr-level { color: rgba(255,255,255,0.8); }
     .sr-price-label { font-size: 13px; font-weight: 800; }
     .sr-none { font-size: 9px; color: #4c525e !important; font-style: italic; }
     .sr-structural { font-size: 10px; color: #94a3b8; line-height: 1.4; margin: 0 0 8px 0; }
@@ -212,7 +212,7 @@
     .decision-rationale { font-size: 10px; color: #94a3b8; line-height: 1.4; margin: 0; }
 
     .synthesis-summary { background: #0f131c; border: 1px solid #1e293b; border-radius: 6px; padding: 10px; }
-    .synth-count { display: block; font-size: 11px; font-weight: 700; color: #3b82f6; margin-bottom: 4px; }
+    .synth-count { display: block; font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.8); margin-bottom: 4px; }
     .synth-eval { font-size: 10px; color: #94a3b8; line-height: 1.4; margin: 0; }
 
     .indicator-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }

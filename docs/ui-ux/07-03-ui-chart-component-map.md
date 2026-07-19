@@ -1,6 +1,6 @@
 # UI Chart Component Map
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5.0 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** Per-indicator mapping from registry key to frontend rendering location. Companion to [UI Overview](07-01-ui-overview-spec.md) and [Dashboard Layout](07-02-ui-dashboard-layout.md).
 
@@ -76,7 +76,7 @@ The following 18 indicators each have their own dedicated chart component, mount
 
 ### 2.1 CSS-module exemption rule
 
-The six chart-only components (`AtrChart`, `RsiChart`, `MacdChart`, `SqueezeChart`, `VolumeChart`, `AdxChart`) qualify for the CSS-module exemption described in [07-01 §7](07-01-ui-overview-spec.md) — they wrap a single Lightweight Charts canvas with a minimal `.chart-container { width: 100%; height: 100% }` style and need no companion `.module.css` file. The remaining 12 dedicated panes keep their companion modules because they add non-trivial layout chrome (headers, OB/OS line legends, dual-axis annotations).
+The six chart-only components (`AtrChart`, `RsiChart`, `MacdChart`, `SqueezeChart`, `VolumeChart`, `AdxChart`) qualify for the CSS-module exemption described in [07-01 §8](07-01-ui-overview-spec.md) — they wrap a single Lightweight Charts canvas with a minimal `.chart-container { width: 100%; height: 100% }` style and need no companion `.module.css` file. The remaining 12 dedicated panes keep their companion modules because they add non-trivial layout chrome (headers, OB/OS line legends, dual-axis annotations).
 
 ---
 
@@ -119,7 +119,61 @@ Toggles write directly to `TimeframeTelemetry` fields — they are runtime overl
 
 ---
 
-## 5. Aggregate Counts
+## 5. Chart Interaction Model (v6.5)
+
+### 5.1 Independent Pan & Zoom
+
+Every chart pane has its own `IChartApi` instance with `handleScale: true` and `handleScroll: true`. Each pane supports:
+
+| Gesture | Effect |
+|---------|--------|
+| Scroll wheel (vertical) | Zoom vertical price/indicator axis |
+| Drag (horizontal) | Pan timeline left/right |
+| Drag (vertical) | Pan price/indicator axis |
+| Crosshair tracking | Normal crosshair mode with styled vert/horz lines (`#4c525e`) |
+
+Charts are **fully independent** — crosshair, scroll position, and zoom level are not synchronized between panes. Each chart has its own `timeScale()` and `priceScale()`.
+
+### 5.2 Double-Click Fullscreen
+
+All 20 chart components support **double-click → fullscreen**:
+
+1. Double-clicking any chart pane toggles `isFullscreen = true`.
+2. The chart wrapper receives CSS class `.fs-active`: `position: fixed; inset: 0; z-index: 990; background: #131722; padding: 44px 16px 16px 16px`.
+3. The `ChartFullscreenOverlay` component renders a backdrop (`rgba(0,0,0,0.88)`, `z-index: 1000`) plus a header bar with:
+   - **Title:** e.g. "Price Chart — BTC-USDT · 60s" or "RSI 14 — BTC-USDT · 60s"
+   - **Screenshot button:** blue outlined pill, exports PNG
+   - **Close button:** ✕ glyph
+4. Chart resizes to fill the available space via `requestAnimationFrame(() => chart.resize(w, h))`.
+5. **Dismiss:** Click backdrop, press `Escape` (`<svelte:window onkeydown>`), or click ✕.
+
+### 5.3 Screenshot Export
+
+When the **Screenshot** button is clicked in the fullscreen header:
+
+1. `chart.takeScreenshot()` (Lightweight Charts API) → `HTMLCanvasElement`
+2. `canvas.toBlob('image/png')` → PNG blob
+3. `URL.createObjectURL(blob)` → temporary URL
+4. Programmatic `<a download="chart-{indicator}-{pairKey}-{timeframe}s-{timestamp}.png">` click
+5. `URL.revokeObjectURL()` cleanup
+
+Implementation: shared `lib/chartScreenshot.ts` (`takeChartScreenshot(chart, filename)`) used by all 20 chart components.
+
+### 5.4 Resizable Panes
+
+Between each adjacent pane in `LiveTerminal` is a 6 px drag handle (`<button class="dragHandle">`):
+
+- **Appearance:** `height: 6px; background: #1a1d26; cursor: ns-resize`. On hover: `background: #42a5f5`. A centered `::after` ridge (24×2 px, `#3a3f4e`) indicates the drag target.
+- **Drag:** `mousedown` → track `mousemove` Y delta → redistribute height between adjacent panes. `mouseup` stops tracking. Total height conserved between the two panes.
+- **Double-click handle:** resets both adjacent panes to defaults (Price: 420 px, indicators: 160 px each).
+- **Constraints:** minimum 60 px, maximum 800 px per pane.
+- **State:** `paneHeights = $state([420, 160, 160, 160, 160, 160])` array. Each pane renders with `style="height:{paneHeights[i]}px"`.
+
+Internal canvas resizing is handled automatically by each chart's `ResizeObserver` (watching the pane's `parentElement` dimensions).
+
+---
+
+## 6. Aggregate Counts
 
 | Render Bucket | Indicator Count |
 |---|---|
@@ -130,8 +184,8 @@ Toggles write directly to `TimeframeTelemetry` fields — they are runtime overl
 
 ---
 
-## 6. Cross-References
+## 7. Cross-References
 
-- [UI Overview](07-01-ui-overview-spec.md) — Chart architecture (§6) and CSS module contract.
-- [Dashboard Layout](07-02-ui-dashboard-layout.md) — Panel placement for the Charts tab.
+- [UI Overview](07-01-ui-overview-spec.md) — Chart architecture (§7), fullscreen overlay model, CSS module contract.
+- [Dashboard Layout](07-02-ui-dashboard-layout.md) — Panel placement for the Charts tab, resizable pane handles, fullscreen and screenshot UX.
 - [Indicator Index](../engines/market-monitoring-engine/indicators/04-02-00-indicator-index.md) — Authoritative registry.

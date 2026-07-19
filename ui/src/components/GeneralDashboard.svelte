@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './GeneralDashboard.module.css';
+    import { getIcon } from '../lib/icons';
 
     const app = useAppStore();
 
@@ -98,12 +99,7 @@
 
         {#if totalCount === 0}
             <div class={styles.featurePlaceholder}>
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="7" height="9" rx="1"/>
-                    <rect x="14" y="3" width="7" height="5" rx="1"/>
-                    <rect x="14" y="12" width="7" height="9" rx="1"/>
-                    <rect x="3" y="16" width="7" height="5" rx="1"/>
-                </svg>
+                {@html getIcon('layoutDashboard', 64)}
                 <h2 class={styles.featurePlaceholderTitle}>Market Overview</h2>
                 <p class={styles.featurePlaceholderMsg}>
                     Add workspaces to see system-wide market intelligence across all monitored pairs.

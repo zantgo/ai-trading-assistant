@@ -2,7 +2,7 @@
 
 **Generated:** 2026-07-17
 **Audit run:** v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation). Prior run: v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete).
-**Scope:** `docs/` — 138 markdown files at v6.4.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 135 numbered docs)
+**Scope:** `docs/` — 140 markdown files at v6.4.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 137 numbered docs)
 **Source code:** **Inspected.** v6.2 is the first manifest version where the doc audit covers the per-instance `LifecycleState` axis (RUNNING / PAUSED / STOPPING / STOPPED) and the new Gate 0 (lifecycle) in the pre-trade chain.
 **v6.2 source-of-truth:** `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` (introduced in v6.2). All lifecycle-table and Gate-0 ordering claims in this manifest are verified against that document.
 **v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
@@ -74,7 +74,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 | Gate | Rule | Mechanical check | v6.4 result |
 |---|---|---|---|
 | G1 | Version coherence (D2): the corpus version appears simultaneously in the README stats line, the CHANGELOG top entry, the MANIFEST title, and every numbered-doc `**Version:**` stamp | grep `**Version:**` stamps + version strings in README / CHANGELOG / MANIFEST title | PASS (2026-07-17) |
-| G2 | File-count invariant: 138 = 135 numbered + 3 governance | filesystem count vs §2 inventory | PASS (2026-07-17) |
+| G2 | File-count invariant: 140 = 137 numbered + 3 governance | filesystem count vs §2 inventory | PASS (2026-07-17) |
 | G3 | CSR duplication scan: each normative table registered in §13 appears exactly once; all other mentions are links | grep normative table headers outside the owning document | PASS (2026-07-17) |
 | G4 | Canonical scenario recompute: scripted recomputation of the chain `02-01` §6 (seed) → `02-02` §5 → `02-08` §7 → `01-01` §A.2–A.7 | recompute script over the chain's section formulas | PASS (2026-07-17) |
 | G5 | Enum cardinality & band tiling scan: cardinalities per §12.2; bands tile their domains with no gaps/overlaps | script over enum tables and band tables | PASS (2026-07-17) |
@@ -103,6 +103,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **8 Risk sub-dimensions + `overall_risk`** = 9 fields (Weights: `0.14·M + 0.14·V + 0.14·L_ex + 0.10·S + 0.14·Mo + 0.10·Sig + 0.10·E + 0.14·C` = `0.70 + 0.30 = 1.00`)
 - [x] **10 alignment dimensions**; dim 9 = `tradability` (renamed from `opportunity`)
 - [x] **8 MarketRegime / 5 MarketBias / 4 MarketPhase phases + UNKNOWN sentinel / 5 QualityLevel** — MarketPhase serializes 4 phases; UNKNOWN is the empty-state sentinel, not a fifth phase. The four assessment enums (Trend / Momentum / Volatility / Volume Assessment) each include an UNKNOWN empty value; StructureAssessment's empty value is UNKNOWN.
+- [x] **11 LiquiditySignalKind** variants (`CascadeDetected`, `CascadeSustained`, `CascadeExhausted`, `LiquidityVacuum`, `FundingExtreme`, `OIFundingDivergence`, `MagnetActivated`, `ClusterPressureHigh`, `ClusterForwardPressure`, `FundingFlip`, `OiPriceDivergence`). Serialised in `SCREAMING_SNAKE_CASE` per the Rust `Display` impl in `crates/core-domain/src/liquidity/mod.rs`.
 - [x] **6 StrategyEnvironment / 5 ProtectionStrategy / 5 TargetStrategy**
 - [x] **2 distinct drawdown metrics** (`max_daily_drawdown_pct` 5 % early-warning vs `drawdown_limit_pct` 30 % hard veto)
 - [x] **Sizing formula** `S = (E × R) / (D_sl / 100)` with `E = available_margin`, `R = risk_per_trade_pct / 100`, `D_sl = stop_loss_distance_pct` (raw percent float) — present and consistent across `01-00 §8.7`, `01-02 §6.3`, `03-03-01 §6`, `03-03-03 §2`, `03-03-04 §6`, `03-04-04 §4.2`, `08-02 Gate 4`
@@ -126,8 +127,8 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] **Uniform band convention (canonical).** All score→label bands are lower-inclusive half-open `[a, b)` — risk levels, `entry_danger`, quality levels, and SetupQuality bands alike. Canonical boundary examples: `entry_danger.score = 20.0` → `LOW` (`[20, 40)`, not `VERY_LOW`); `setup_quality score = 85.0` → `PRIME` (PRIME ≥ 85). Sole documented exception: the `MarketBias` NEUTRAL band is the closed interval `[-20, 20]`. No claim of a different band orientation survives in the corpus.
 
 ### 12.5 Liquidity & risk
-- [x] `cascade_asymmetry > 0` ⇒ `SHORT_SQUEEZE_RISK`; `< 0` ⇒ `LONG_SQUEEZE_RISK`. Verified in `02-13-liquidation-cluster-matrix.md §Cascade asymmetry` (canonical) and `07-04-ui-liquidity-panel-spec.md §Cascade asymmetry sign convention (canonical mapping)` (UI); the worked example in `07-04` now reads `Sign: -0.400  Direction: LONG_SQUEEZE_RISK` (was the inverted `SHORT_SQUEEZE_RISK`).
-- [x] Canonical `LIQUIDITY_*` signal names used everywhere (Phase 3 LiquidityPanel example) ✓
+- [x] `cascade_asymmetry > +0.3` ⇒ `SHORT_SQUEEZE_RISK`; `< -0.3` ⇒ `LONG_SQUEEZE_RISK`. Verified in `02-13-liquidation-cluster-matrix.md §Cascade asymmetry` (canonical) and `07-04-ui-liquidity-panel-spec.md §Cascade asymmetry sign convention (canonical mapping)` (UI); the worked example in `07-04` now reads `Sign: -0.400  Direction: LONG_SQUEEZE_RISK` (was the inverted `SHORT_SQUEEZE_RISK`).
+- [x] Canonical LiquiditySignalKind names used everywhere (Phase 3 registry at `03-02-11`) ✓
 - [x] `cascade_risk` is the **8th** of the eight sub-dimensions (plus `overall_risk` as the 9th aggregate field). The textual reference at `03-02-06 §7` ("plus `overall_risk` as the 9th and final aggregate field") is correct; no surviving "9th dimension" error.
 - [x] `cascade_risk_index` placeholder is **not** aggregated into `systemic_risk_score` (deferred to v6.5 per CHANGELOG §Open Items `AUDIT-V4-005`).
 - [x] **Liquidity data-flow invariant (pinned).** `L1.5 → {L4, L5}; L2.5 → {L4, L5}; L4 + L5 → L6`.
@@ -160,8 +161,8 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] `liquidity_signals_json` always serialized as a JSON array (never omitted): `DEFAULT '[]' CHECK (json_valid(...))`.
 
 ### 12.9 UI/UX
-- [x] LiquidityPanel data path uses `instance.timeframes.micro.{liquidity, cluster, liquidity_signals}` (the `microTerm` historical error is gone from `07-04` and explained in `07-01 §2.3`).
-- [x] LiquidityPanel `cascade_asymmetry` sign convention matches canonical (`>0 ⇒ SHORT_SQUEEZE_RISK`, `<0 ⇒ LONG_SQUEEZE_RISK`); normative mapping block in `07-04` carries both directions.
+- [x] LiquidityPanel data path uses `instance.microTerm.{liquidity, cluster, liquiditySignals}` (the `timeframes.micro` historical error is corrected in `07-04` and explained in `07-01 §2.3`).
+- [x] LiquidityPanel `cascade_asymmetry` sign convention matches canonical (`> +0.3 ⇒ SHORT_SQUEEZE_RISK`, `< -0.3 ⇒ LONG_SQUEEZE_RISK`); normative mapping block in `07-04` carries both directions.
 - [x] CSS Modules normative example block present in `07-01 §7` (kebab-case ↔ camelCase, conditional class binding, global-token vs component-styling split, 1000-line file limit).
 - [x] Dashboard "18 dedicated indicator panes + PriceChart overlay layer" wording in `07-02 §4.1` matches `07-03 §4` aggregate counts.
 - [x] Connection Quality tab is instance-scoped (verified `07-02 §3`, `07-02 §4.8`, `08-05 §REST API`).
@@ -175,8 +176,8 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
 ### 12.11 v6.2 additions verification (file-count invariant, scoped-enum rule, Gate-0 ordering)
 
-- [x] `docs/` contains **138** files at v6.2 (137 + new `03-03-06-tae-instance-lifecycle-spec.md`).
-- [x] `docs/README.md` total-count line updated to **138** and the directory map carries the new file entry.
+- [x] `docs/` contained **138** files at v6.2 (137 + new `03-03-06-tae-instance-lifecycle-spec.md`); **140** at v6.4.1 after matrix additions (`02-14-policy-matrix`, `02-15-execution-matrix`).
+- [x] `docs/README.md` total-count line updated to **140** and the directory map carries the new file entries.
 - [x] **Scoped-enum rule (v6.2, new).** Enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (safety axis — pre-existing) never co-refer. The canonical rule is documented in [03-03-06 §6](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). On first use in any document section, the axis is qualified (`instance PAUSED`, `policy AUTO_PAUSED`). Verified by `grep -rE "(PAUSED|AUTO_PAUSED|SUSPENDED)" docs/`; no bare `PAUSED` outside a qualified context.
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning

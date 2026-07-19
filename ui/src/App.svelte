@@ -18,6 +18,9 @@
     import DataInfraDashboard from './components/DataInfraDashboard.svelte';
     import EngineOverview from './components/EngineOverview.svelte';
     import PerformanceDashboard from './components/PerformanceDashboard.svelte';
+    import TradeAutomationDashboard from './components/TradeAutomationDashboard.svelte';
+    import PortfolioDashboard from './components/PortfolioDashboard.svelte';
+    import ExchangeSettings from './components/ExchangeSettings.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
 
@@ -31,15 +34,81 @@
         connectWebsocket as connectWs, shouldReconnect,
         type WsState,
     } from './lib/websocket.svelte';
+    import { buildEngineHash, parseEngineHash } from './lib/router.svelte';
+    import { getIcon } from './lib/icons';
 
     const app = useAppStore();
     const wsState: WsState = createWsState();
 
-    // ─── UI state ───────────────────────────────────────────────────────
+    // ─── URL hash sync for right-click "open in new tab" ─────────────────
+    let restoringFromHash = $state(false);
+
+    function currentHash(): string {
+        const pair = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
+        return buildEngineHash(
+            app.currentEngine,
+            app.currentEngine === 'exchange_settings' ? undefined : app.middleTab,
+            app.selectedInstance ?? undefined,
+            pair?.currentView !== 'terminal' ? pair?.currentView : undefined,
+        );
+    }
+
+    function applyRoute(engine: string, middleTab?: string, instance?: string, view?: string) {
+        restoringFromHash = true;
+        const e = engine as EngineKey;
+        app.selectEngine(e);
+        if (middleTab) app.middleTab = middleTab;
+        if (instance) {
+            if (!app.instancesMap[instance]) {
+                const base = instance.includes('-') ? instance.split('-')[0] : instance;
+                app.initInstance(base);
+            }
+            app.selectedInstance = instance;
+            app.activeTab = instance;
+            app.activeEngineTab = 'instance';
+            const p = app.instancesMap[instance];
+            if (p) p.currentView = (view as CurrentView) ?? 'terminal';
+        }
+        setTimeout(() => { restoringFromHash = false; }, 50);
+    }
+
+    function handleNavClick(e: MouseEvent) {
+        if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        e.preventDefault();
+        const anchor = e.currentTarget as HTMLAnchorElement;
+        const href = anchor.getAttribute('href');
+        if (!href) return;
+        const route = parseEngineHash(href);
+        if (!route) return;
+        applyRoute(route.engine, route.middleTab, route.instance, route.view);
+    }
+
+    $effect(() => {
+        if (restoringFromHash || !configReady || !app.sessionActive) return;
+        const hash = currentHash();
+        if (window.location.hash !== hash) {
+            history.replaceState(null, '', hash);
+        }
+    });
+
+    onMount(async () => {
+        app.fetchSessionStatus();
+        await fetchConfig();
+        const route = parseEngineHash(window.location.hash);
+        if (route && configReady && app.sessionActive) {
+            applyRoute(route.engine, route.middleTab, route.instance, route.view);
+        } else if (app.sessionActive) {
+            history.replaceState(null, '', currentHash());
+        }
+        window.addEventListener('hashchange', () => {
+            const r = parseEngineHash(window.location.hash);
+            if (r) applyRoute(r.engine, r.middleTab, r.instance, r.view);
+        });
+    });
     let showQuitDialog = $state(false);
     let isSidebarOpen = $state(false);
     let isWorkspacePanelOpen = $state(false);
-    let confirmModal = $state<{ action: 'pause' | 'delete'; id: string; pair?: string } | null>(null);
+    let confirmModal = $state<{ action: 'start' | 'pause' | 'stop' | 'delete'; id: string; pair?: string } | null>(null);
 
     // ─── Workspace panel data ───────────────────────────────────────────
     interface InstanceRow { id: string; pair: string; symbol: string; status: string; }
@@ -48,22 +117,30 @@
     let newBase = $state('');
     let createLoading = $state(false);
     let createError = $state<string | null>(null);
-    let rowConfirm = $state<{ id: string; action: 'pause' | 'delete'; pair?: string } | null>(null);
 
     // ─── Engines ────────────────────────────────────────────────────────
-    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance';
-    const ENGINES_SIDEBAR: { key: EngineKey; label: string }[] = [
+    type EngineKey = 'profile' | 'data_infra' | 'market_monitor' | 'trade_automation' | 'portfolio' | 'performance' | 'exchange_settings';
+    const ENGINES_SIDEBAR: { key: EngineKey; label: string; divider?: boolean }[] = [
         { key: 'data_infra',        label: 'Data Infrastructure' },
         { key: 'market_monitor',    label: 'Market Monitoring' },
         { key: 'trade_automation',  label: 'Trade Automation' },
         { key: 'portfolio',         label: 'Portfolio Management' },
         { key: 'performance',       label: 'Performance Analytics' },
+        { key: 'exchange_settings', label: 'Exchange API Keys', divider: true },
     ];
 
     const MIDDLE_TABS: { key: string; label: string }[] = [
         { key: 'overview',  label: 'Overview' },
         { key: 'settings',  label: 'Settings' },
     ];
+
+    const MARKET_TABS: { key: string; label: string }[] = [
+        { key: 'overview',  label: 'Overview' },
+        { key: 'workspace', label: 'Workspace' },
+        { key: 'settings',  label: 'Settings' },
+    ];
+
+    const activeMiddleTabs = $derived(app.currentEngine === 'market_monitor' ? MARKET_TABS : MIDDLE_TABS);
 
     const SUB_TABS: { view: CurrentView; label: string }[] = [
         { view: 'terminal',    label: 'Charts' },
@@ -77,12 +154,27 @@
 
     const activePair = $derived(app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined);
     const isHome = $derived(app.currentEngine === 'profile');
+    const isSimplePage = $derived(app.currentEngine === 'exchange_settings');
 
     // ─── Top label ──────────────────────────────────────────────────────
     const topLabel = $derived(isHome ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
 
     // ─── 24h change for selected pair ───────────────────────────────────
-    const livePrice = $derived(activePair ? activePair.microTerm.priceText : '--');
+    const livePrice = $derived.by(() => {
+        if (!activePair) return '--';
+        const tfs = [activePair.microTerm, activePair.fastTerm, activePair.slowTerm, activePair.macroTerm];
+        for (const tf of tfs) {
+            const p = tf?.priceText;
+            if (p && p !== '0' && p !== 'NaN' && parseFloat(p) > 0) {
+                const snap = tf?.latestSnapshot;
+                if (snap) {
+                    const age = (Date.now() / 1000) - ((snap as Record<string, unknown>).timestamp as number);
+                    if (age < 30) return p;
+                }
+            }
+        }
+        return activePair.microTerm.priceText || '--';
+    });
     const change24h = $derived.by<number | null>(() => {
         if (!activePair) return null;
         const snap = activePair.microTerm.latestSnapshot || activePair.fastTerm.latestSnapshot;
@@ -102,13 +194,20 @@
     function changeStr(pairKey: string): string {
         const inst = app.instancesMap[pairKey];
         if (!inst) return '';
-        const snap = inst.microTerm.latestSnapshot || inst.fastTerm.latestSnapshot;
-        if (!snap) return '';
-        const mid = parseFloat(String((snap as Record<string, unknown>).mid_price ?? ''));
-        const prev = parseFloat(String((snap as Record<string, unknown>).prev_day_px ?? ''));
-        if (!isFinite(mid) || !isFinite(prev) || prev === 0) return '';
-        const v = ((mid - prev) / prev) * 100;
-        return (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+        const tfs = [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm];
+        for (const tf of tfs) {
+            const snap = tf?.latestSnapshot;
+            if (!snap) continue;
+            const mid = parseFloat(String((snap as Record<string, unknown>).mid_price ?? ''));
+            const prev = parseFloat(String((snap as Record<string, unknown>).prev_day_px ?? ''));
+            if (!isFinite(mid) || !isFinite(prev) || prev === 0) continue;
+            const age = (Date.now() / 1000) - ((snap as Record<string, unknown>).timestamp as number);
+            if (age < 60) {
+                const v = ((mid - prev) / prev) * 100;
+                return (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+            }
+        }
+        return '';
     }
 
     function changeCls(v: string): string {
@@ -139,8 +238,6 @@
             connectWs(app, wsState);
         } catch (e) { console.error('Failed to fetch config:', e); configReady = true; }
     }
-
-    onMount(async () => { app.fetchSessionStatus(); await fetchConfig(); });
 
     onDestroy(() => { disconnectAllWs(wsState); });
 
@@ -173,13 +270,12 @@
 
     function handleCreateKeydown(e: KeyboardEvent) { if (e.key === 'Enter') handleCreateWorkspace(); }
 
-    function requestRowConfirm(id: string, action: 'start' | 'stop' | 'pause' | 'delete', pair?: string) { rowConfirm = { id, action, pair }; }
-    function cancelRowConfirm() { rowConfirm = null; }
+    function requestRowConfirm(id: string, action: 'start' | 'stop' | 'pause' | 'delete', pair?: string) { confirmModal = { id, action, pair }; }
 
     async function executeRowConfirm() {
-        if (!rowConfirm) return;
-        const { id, action, pair } = rowConfirm;
-        rowConfirm = null;
+        if (!confirmModal) return;
+        const { id, action, pair } = confirmModal;
+        confirmModal = null;
         if (action === 'delete') {
             try {
                 await fetch(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -198,7 +294,14 @@
     }
 
     function priceFor(pairKey: string): string {
-        return app.instancesMap[pairKey]?.microTerm?.priceText || '--';
+        const inst = app.instancesMap[pairKey];
+        if (!inst) return '--';
+        const tfs = [inst.microTerm, inst.fastTerm, inst.slowTerm, inst.macroTerm];
+        for (const tf of tfs) {
+            const p = tf?.priceText;
+            if (p && p !== '0' && p !== 'NaN' && parseFloat(p) > 0) return p;
+        }
+        return inst.microTerm?.priceText || '--';
     }
 
     function statusClass(status: string): string {
@@ -206,6 +309,7 @@
     }
 
     function engineLabel(key: string): string {
+        if (key === 'exchange_settings') return 'EXCHANGE API KEYS';
         return ENGINES_SIDEBAR.find(e => e.key === key)?.label?.toUpperCase() ?? 'COMING SOON';
     }
 
@@ -217,15 +321,16 @@
     function navigateTo(engine: EngineKey) { app.selectEngine(engine); closeSidebar(); }
 
     function sidebarSvg(key: EngineKey): string {
-        const paths: Record<string, string> = {
-            profile: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
-            data_infra: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
-            portfolio: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="12" y1="15" x2="16" y2="15"/><line x1="8" y1="15" x2="10" y2="15"/>',
-            market_monitor: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
-            trade_automation: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
-            performance: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+        const map: Record<EngineKey, string> = {
+            profile: 'home',
+            data_infra: 'database',
+            market_monitor: 'trend',
+            trade_automation: 'cycle',
+            portfolio: 'dollar',
+            performance: 'search',
+            exchange_settings: 'key',
         };
-        return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${paths[key] || ''}</svg>`;
+        return getIcon(map[key] || 'home', 15);
     }
 </script>
 
@@ -238,22 +343,18 @@
 
         <!-- Navbar 1: Top bar -->
         <header class="{styles.row} {styles.rowNavbar}">
-            <div class="{styles.cell} {styles.cellBrand} {styles.cellNavbar} {styles.cellClickable}" onclick={toggleSidebar}>
-                {#if isHome}
-                    <svg class={styles.navIcon} width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="opacity:0.6">
-                        <path d="M12 17l-8-7h16z"/>
-                    </svg>
-                {:else}
-                    <span class={styles.navIcon}>{@html sidebarSvg(app.currentEngine === 'profile' ? 'profile' : app.currentEngine)}</span>
-                {/if}
+            <div class="{styles.cell} {styles.cellBrand} {styles.cellNavbar} {styles.cellClickable}" role="button" tabindex="0" onclick={toggleSidebar} onkeydown={(e) => e.key === 'Enter' && toggleSidebar()}>
+                <span class={styles.navIcon}>{@html getIcon('menu', 16)}</span>
                 {topLabel}
+                <span class={styles.brandChevron}>
+                    {@html getIcon('chevronRight', 8)}
+                </span>
             </div>
             <div class="{styles.cell} {styles.cellMono} {styles.cellNavbar}" style="justify-content: flex-start;">
                 <span class={styles.exchangeChip}>{app.sessionExchange} · {app.sessionCurrency}</span>
             </div>
             <div class="{styles.cell} {styles.cellNavbar}"></div>
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div class="{styles.cell} {styles.cellNavbar} {styles.cellClickable} {isWorkspacePanelOpen ? styles.cellActive : ''}" onclick={openWorkspacePanel}>
+            <div class="{styles.cell} {styles.cellNavbar} {styles.cellClickable} {isWorkspacePanelOpen ? styles.cellActive : ''}" role="button" tabindex="0" onclick={openWorkspacePanel} onkeydown={(e) => e.key === 'Enter' && openWorkspacePanel()}>
                 {#if app.selectedInstance && activePair}
                     <span class={styles.instanceDisplay}>
                         <span class={styles.instancePair}>{app.pairDisplayFor(activePair.symbol)}</span>
@@ -264,23 +365,20 @@
                     </span>
                 {:else}
                     <span class={styles.navLabel}>
-                        <svg class={styles.navIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                        Workspaces
+                        <span class={styles.navIcon}>{@html getIcon('grid', 14)}</span>
+                        Instances
                     </span>
                 {/if}
             </div>
         </header>
 
         <!-- Navbar 2: Middle tabs -->
-        {#if !isHome}
+        {#if !isHome && !isSimplePage}
             <nav class="{styles.row} {styles.rowTabs}">
-                {#if app.currentEngine === 'market_monitor'}
-                    <div class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === 'workspace' ? styles.cellActive : ''}" onclick={() => app.middleTab = 'workspace'}>Workspace</div>
-                {/if}
-                {#each MIDDLE_TABS as tab (tab.key)}
-                    <div class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}" onclick={() => app.middleTab = tab.key}>
+                {#each activeMiddleTabs as tab (tab.key)}
+                    <a href={buildEngineHash(app.currentEngine, tab.key)} class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.middleTab === tab.key ? styles.cellActive : ''}" onclick={(e) => { handleNavClick(e); app.middleTab = tab.key; }}>
                         {tab.label}
-                    </div>
+                    </a>
                 {/each}
             </nav>
         {/if}
@@ -289,9 +387,9 @@
         {#if app.currentEngine === 'market_monitor' && app.middleTab === 'workspace' && app.selectedInstance && activePair}
             <nav class="{styles.row} {styles.rowTabs} {styles.rowSubTabs}">
                 {#each SUB_TABS as tab (tab.view)}
-                    <div class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.activeEngineTab === 'instance' && activePair.currentView === tab.view ? styles.cellActive + ' ' + styles.cellActiveUnderline : ''}" onclick={() => selectSubView(tab.view)}>
+                    <a href={buildEngineHash('market_monitor', 'workspace', app.selectedInstance!, tab.view)} class="{styles.cell} {styles.tabCellFill} {styles.cellClickable} {app.activeEngineTab === 'instance' && activePair.currentView === tab.view ? styles.cellActive + ' ' + styles.cellActiveUnderline : ''}" onclick={(e) => { handleNavClick(e); selectSubView(tab.view); }}>
                         {tab.label}
-                    </div>
+                    </a>
                 {/each}
             </nav>
         {/if}
@@ -341,19 +439,30 @@
                     <PerformanceDashboard />
                 {:else}
                     <div class={styles.profileCard} style="padding:2rem">
-                        <h3>{engineLabel(app.currentEngine)} Settings</h3>
+                        <h3>Performance Analytics Settings</h3>
                         <p class={styles.cardSub}>Configure analytics execution cadences and optimizer intervals in <code>config.toml</code> → <code>[workspace]</code> → <code>eval_interval_secs</code> and <code>optimizer_interval_secs</code>.</p>
                     </div>
                 {/if}
-            {:else}
+            {:else if app.currentEngine === 'trade_automation'}
                 {#if app.middleTab === 'overview'}
-                    <EngineOverview engine={app.currentEngine} />
+                    <TradeAutomationDashboard />
                 {:else}
                     <div class={styles.profileCard} style="padding:2rem">
-                        <h3>{engineLabel(app.currentEngine)} Settings</h3>
-                        <p class={styles.cardSub}>Configure <code>config.toml</code> → <code>[workspace]</code> section for workspace-wide settings like safety thresholds, fees, market-monitor defaults, and scheduler intervals. Use the Market Monitoring Workspace settings panel to configure per-instance timeframes and indicators.</p>
+                        <h3>Trade Automation Settings</h3>
+                        <p class={styles.cardSub}>Configure execution policies, trigger modes, risk parameters, and paper/live trading adapter settings in <code>config.toml</code> → <code>[execution_engine]</code>. Edit policy files in <code>config/policies/</code>.</p>
                     </div>
                 {/if}
+            {:else if app.currentEngine === 'portfolio'}
+                {#if app.middleTab === 'overview'}
+                    <PortfolioDashboard />
+                {:else}
+                    <div class={styles.profileCard} style="padding:2rem">
+                        <h3>Portfolio Management Settings</h3>
+                        <p class={styles.cardSub}>Configure safety thresholds, fee rates, leverage caps, concentration limits, and drawdown enforcement in <code>config.toml</code> → <code>[portfolio]</code>. Edit risk profiles in <code>config/</code>.</p>
+                    </div>
+                {/if}
+            {:else if app.currentEngine === 'exchange_settings'}
+                <ExchangeSettings />
             {/if}
         </main>
     </div>
@@ -365,14 +474,17 @@
             <div class={styles.sidebarBrand}>TRADING PLATFORM</div>
             <div class={styles.sidebarNav}>
                 {#each ENGINES_SIDEBAR as engine (engine.key)}
-                    <button class={sidebarItemClass(engine.key)} onclick={() => navigateTo(engine.key)}>
+                    {#if engine.divider}
+                        <div class={styles.sidebarDivider}></div>
+                    {/if}
+                    <a href={buildEngineHash(engine.key)} class={sidebarItemClass(engine.key)} onclick={(e) => { handleNavClick(e); navigateTo(engine.key); }}>
                         <span class={styles.navIcon}>{@html sidebarSvg(engine.key)}</span>{engine.label}
-                    </button>
+                    </a>
                 {/each}
             </div>
             <div class={styles.sidebarFooter}>
                 <button class={styles.sidebarQuitBtn} onclick={() => { closeSidebar(); showQuitDialog = true; }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                    <span class={styles.navIcon}>{@html getIcon('logout', 14)}</span>
                     Quit Session
                 </button>
             </div>
@@ -385,10 +497,10 @@
         <div class={styles.workspacePanel}>
             <div class={styles.wsPanelHeader}>
                 <div class={styles.wsPanelTitle}>
-                    <svg class={styles.navIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                    Workspaces
+                    <span class={styles.navIcon}>{@html getIcon('grid', 14)}</span>
+                    Instances
                 </div>
-                <div class={styles.wsPanelClose} onclick={closeWorkspacePanel}>✕</div>
+                <button class={styles.wsPanelClose} onclick={closeWorkspacePanel}>{@html getIcon('x', 16)}</button>
             </div>
             <div class={styles.wsPanelCreateBar}>
                 <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:value={newBase} maxlength="10" oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
@@ -402,14 +514,14 @@
             {#if createError}<div class={styles.wsPanelError}>{createError}</div>{/if}
             <div class={styles.wsPanelList}>
                 {#if wsLoading}
-                    <div class={styles.wsPanelEmpty}>Loading workspaces…</div>
+                    <div class={styles.wsPanelEmpty}>Loading instances…</div>
                 {:else if wsInstances.length === 0}
-                    <div class={styles.wsPanelEmpty}>No active workspaces. Create one above.</div>
+                    <div class={styles.wsPanelEmpty}>No active instances. Create one above.</div>
                 {:else}
                     {#each wsInstances as inst (inst.id)}
                         {@const pk = inst.pair}
                         {@const chg = changeStr(pk)}
-                        <div class={styles.wsPanelRow} onclick={() => { app.enterInstance(pk); closeWorkspacePanel(); }}>
+                        <a href={buildEngineHash('market_monitor', 'workspace', pk)} class={styles.wsPanelRow} onclick={(e) => { handleNavClick(e); app.enterInstance(pk); closeWorkspacePanel(); }}>
                             <div class={styles.wsPanelPair}>
                                 <span class="{styles.statusDot} {statusClass(inst.status)}"></span>
                                 <span class={styles.wsPanelSym}>{pairDisplay(pk)}</span>
@@ -418,41 +530,50 @@
                                     <span class="{styles.change} {changeCls(chg)}">{chg}</span>
                                 {/if}
                             </div>
-                            <div class={styles.wsPanelActionBtn} title="Pause" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'pause'); }}>
-                                {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'pause'}
-                                    <div class={styles.confirmRow}>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Pause</button>
-                                    </div>
-                                {:else}⏸{/if}
-                            </div>
-                            <div class="{styles.wsPanelActionBtn} {styles.start}" title="Start" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'start'); }}>
-                                {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'start'}
-                                    <div class={styles.confirmRow}>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Start</button>
-                                    </div>
-                                {:else}▶{/if}
-                            </div>
-                            <div class="{styles.wsPanelActionBtn} {styles.stop}" title="Stop" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'stop'); }}>
-                                {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'stop'}
-                                    <div class={styles.confirmRow}>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Stop</button>
-                                    </div>
-                                {:else}⏹{/if}
-                            </div>
-                            <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'delete', pk); }}>
-                                {#if rowConfirm?.id === inst.id && rowConfirm?.action === 'delete'}
-                                    <div class={styles.confirmRow}>
-                                        <button class={styles.confirmBtn} onclick={(e) => { e.stopPropagation(); cancelRowConfirm(); }}>Cancel</button>
-                                        <button class="{styles.confirmBtn} {styles.confirmBtnDanger}" onclick={(e) => { e.stopPropagation(); executeRowConfirm(); }}>Delete</button>
-                                    </div>
-                                {:else}🗑{/if}
-                            </div>
-                        </div>
+                            <div class={styles.wsPanelActionBtn} title="Pause" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'pause'); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); requestRowConfirm(inst.id, 'pause'); } }}>{@html getIcon('pause', 12)}</div>
+                            <div class="{styles.wsPanelActionBtn} {styles.start}" title="Start" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'start'); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); requestRowConfirm(inst.id, 'start'); } }}>{@html getIcon('play', 12)}</div>
+                            <div class="{styles.wsPanelActionBtn} {styles.stop}" title="Stop" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'stop'); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); requestRowConfirm(inst.id, 'stop'); } }}>{@html getIcon('stop', 12)}</div>
+                            <div class="{styles.wsPanelActionBtn} {styles.danger}" title="Delete" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); requestRowConfirm(inst.id, 'delete', pk); }} onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); requestRowConfirm(inst.id, 'delete', pk); } }}>{@html getIcon('trash', 12)}</div>
+                        </a>
                     {/each}
                 {/if}
+            </div>
+        </div>
+    {/if}
+
+    {#if confirmModal}
+        {@const actionLabels: Record<string, string> = { start: 'Start', pause: 'Pause', stop: 'Stop', delete: 'Delete' }}
+        {@const actionLabel = actionLabels[confirmModal.action] ?? confirmModal.action}
+        {@const isDelete = confirmModal.action === 'delete'}
+        {@const displaySymbol = confirmModal.pair ? pairDisplay(confirmModal.pair) : 'this instance'}
+        <div class={styles.confirmOverlay} role="presentation" onclick={closeConfirmModal}>
+            <div class={styles.confirmDialog} role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+                <div class={styles.confirmIcon}>
+                    {#if isDelete}
+                        {@html getIcon('x', 32)}
+                    {:else}
+                        {@html getIcon('info', 32)}
+                    {/if}
+                </div>
+                <h2 class={styles.confirmTitle}>{actionLabel} {displaySymbol}?</h2>
+                <p class={styles.confirmText}>
+                    {#if isDelete}
+                        This will permanently delete <strong>{displaySymbol}</strong> and all associated data.
+                    {:else if confirmModal.action === 'start'}
+                        This will start the <strong>{displaySymbol}</strong> instance.
+                    {:else if confirmModal.action === 'stop'}
+                        This will stop the <strong>{displaySymbol}</strong> instance.
+                    {:else}
+                        This will pause the <strong>{displaySymbol}</strong> instance. It can be resumed later.
+                    {/if}
+                </p>
+                <div class={styles.confirmActions}>
+                    <button class={styles.confirmCancelBtn} onclick={closeConfirmModal}>Cancel</button>
+                    <button class={styles.confirmDangerBtn} onclick={executeRowConfirm}
+                        style={isDelete ? 'background:#ef5350;color:#fff;border:none' : ''}>
+                        {actionLabel}
+                    </button>
+                </div>
             </div>
         </div>
     {/if}

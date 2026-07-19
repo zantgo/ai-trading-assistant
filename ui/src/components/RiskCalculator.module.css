@@ -9,16 +9,16 @@
     background: #0f131c; border: 1px solid #1e293b; color: #94a3b8; padding: 8px 10px; border-radius: 4px;
     font-size: 11px; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center;
 }
-.rc-profile-btn.active { border-color: #3b82f6; color: #3b82f6; background: rgba(59,130,246,0.08); }
+.rc-profile-btn.active { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.06); }
 .rc-delete-icon { color: #ef4444; font-weight: bold; font-size: 14px; padding: 0 4px; }
 .rc-add-profile { display: flex; gap: 4px; }
 .rc-input {
     flex: 1; background: #0f131c; border: 1px solid #2a2e39; color: #e2e8f0; padding: 6px 8px;
     border-radius: 4px; font-size: 11px; outline: none;
 }
-.rc-input:focus { border-color: #3b82f6; }
+.rc-input:focus { border-color: rgba(255,255,255,0.25); }
 .rc-add-btn {
-    background: #1e40af; border: 1px solid #3b82f6; color: #f1f5f9; padding: 6px 12px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #f1f5f9; padding: 6px 12px;
     border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;
 }
 
@@ -30,7 +30,7 @@
     width: 120px; background: #0f131c; border: 1px solid #2a2e39; color: #e2e8f0;
     padding: 5px 8px; border-radius: 4px; font-size: 11px; text-align: right; outline: none; font-family: monospace;
 }
-.rc-field-input:focus { border-color: #3b82f6; }
+.rc-field-input:focus { border-color: rgba(255,255,255,0.25); }
 .rc-static-val { font-size: 11px; color: #cbd5e1; font-weight: 700; font-family: monospace; }
 .rc-profit-val { font-size: 13px; color: #10b981; font-weight: 700; font-family: monospace; }
 

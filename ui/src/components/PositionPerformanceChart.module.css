@@ -57,7 +57,7 @@
     color: #cbd5e1;
 }
 .timeframeBtn.active {
-    background: #3b82f6;
+    background: rgba(255,255,255,0.12);
     color: #ffffff;
 }
 
@@ -107,7 +107,7 @@
     border-radius: 50%;
     flex-shrink: 0;
 }
-.dotBlue { background: #3b82f6; }
+.dotBlue { background: rgba(255,255,255,0.55); }
 .dotGray { background: #64748b; }
 .legendLabel {
     font-size: 9px;
@@ -118,46 +118,4 @@
     text-overflow: ellipsis;
 }
 
-/* Fullscreen */
-.fullscreenBackdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.85);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.fullscreenContent {
-    background: #131722;
-    border: 1px solid #2a2e39;
-    border-radius: 8px;
-    width: 95vw;
-    height: 90vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-.fullscreenHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid #2a2e39;
-    color: #f1f5f9;
-    font-size: 13px;
-    font-weight: 700;
-}
-.closeBtn {
-    background: none;
-    border: none;
-    color: #64748b;
-    font-size: 16px;
-    cursor: pointer;
-    padding: 4px 8px;
-}
-.closeBtn:hover { color: #f1f5f9; }
-.fullscreenChart {
-    flex: 1;
-    min-height: 0;
-}
+

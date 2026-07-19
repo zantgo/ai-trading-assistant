@@ -3,13 +3,26 @@
     import { createChart, LineSeries, type IChartApi, type ISeriesApi, type IPriceLine, type Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import styles from './PositionPerformanceChart.module.css';
+    import { takeChartScreenshot } from '../lib/chartScreenshot';
+    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
 
     let chartContainer = $state<HTMLDivElement>();
-    let chart: IChartApi | null = null;
+    let chart: IChartApi | null = $state(null);
     let series: ISeriesApi<'Line'> | null = null;
     let isFullscreen = $state(false);
+
+    function toggleFullscreen() {
+        isFullscreen = !isFullscreen;
+        if (chart && chartContainer) {
+            const c = chart;
+            const el = chartContainer;
+            requestAnimationFrame(() => c.resize(el.clientWidth, el.clientHeight));
+        }
+    }
+    function screenshotChart() { if (chart) takeChartScreenshot(chart, `perf-${app.activeTab}`); }
+
     let ro: ResizeObserver;
 
     let selectedTimeframe = $state<'1H' | '1D' | '1W' | '1M' | '1Y' | 'ALL'>('ALL');
@@ -127,8 +140,8 @@
                 scaleMargins: { top: 0.15, bottom: 0.15 },
             },
             crosshair: {
-                vertLine: { color: '#3b82f6', labelBackgroundColor: '#3b82f6' },
-                horzLine: { color: '#3b82f6', labelBackgroundColor: '#3b82f6' },
+                vertLine: { color: '#8f929d', labelBackgroundColor: '#8f929d' },
+                horzLine: { color: '#8f929d', labelBackgroundColor: '#8f929d' },
             },
             handleScale: true,
             handleScroll: true,
@@ -137,7 +150,7 @@
         });
 
         series = chart.addSeries(LineSeries, {
-            color: '#3b82f6',
+            color: '#f5f5f7',
             lineWidth: 3,
             priceLineVisible: false,
             crosshairMarkerVisible: true,
@@ -212,7 +225,7 @@
         if (margin > 0) {
             marginLine = series.createPriceLine({
                 price: margin,
-                color: '#3b82f6',
+                color: '#8f929d',
                 lineWidth: 1,
                 lineStyle: 2,
                 axisLabelVisible: true,
@@ -221,48 +234,11 @@
         }
     });
 
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart) {
-            chart.applyOptions({
-                height: isFullscreen ? window.innerHeight - 80 : chartContainer?.clientHeight ?? 200,
-                width: isFullscreen ? window.innerWidth - 80 : chartContainer?.clientWidth ?? 600,
-            });
-        }
-    }
-
-    function handleWindowKeydown(e: KeyboardEvent) {
-        if (isFullscreen && e.key === 'Escape') {
-            isFullscreen = false;
-        }
-    }
-
     onDestroy(destroyChart);
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
-
-{#if isFullscreen}
-    <div class={styles.fullscreenBackdrop} onclick={toggleFullscreen} role="presentation">
-        <div
-            class={styles.fullscreenContent}
-            onclick={(e) => e.stopPropagation()}
-            onkeydown={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Position performance chart"
-            tabindex="-1"
-        >
-            <div class={styles.fullscreenHeader}>
-                <span>Position Performance — {app.activeTab}</span>
-                <button class={styles.closeBtn} onclick={toggleFullscreen}>✕</button>
-            </div>
-            <div bind:this={chartContainer} class={styles.fullscreenChart}></div>
-        </div>
-    </div>
-{/if}
-
-<div class={styles.perfContainer} ondblclick={toggleFullscreen} role="presentation">
+<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
+    <div class={styles.perfContainer}>
     <div class={styles.perfHeader}>
         <div class={styles.headerLeft}>
             <span class={styles.perfTitle}>Position Value ({app.quote})</span>
@@ -290,7 +266,7 @@
             <svg viewBox="0 0 100 100" class={styles.donutSvg}>
                 <!-- Margin Used (blue) -->
                 <circle cx="50" cy="50" r="38" fill="none" stroke="#1e293b" stroke-width="12" />
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#3b82f6" stroke-width="12"
+                <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="12"
                     stroke-dasharray="{marginDeg * 0.664} {360 * 0.664 - marginDeg * 0.664}"
                     stroke-dashoffset="{0}" transform="rotate(-90 50 50)" />
                 <!-- Unrealized PnL (green/red) -->
@@ -322,3 +298,14 @@
         </div>
     </div>
 </div>
+</div>
+
+<ChartFullscreenOverlay open={isFullscreen} title="Performance — {app.activeTab}" chart={chart} onclose={toggleFullscreen} />
+
+<style>
+    .chart-wrapper { width: 100%; height: 100%; }
+    .chart-wrapper.fs-active {
+        position: fixed; inset: 0; z-index: 990;
+        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
+    }
+</style>
