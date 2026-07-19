@@ -118,12 +118,12 @@
 <div class={styles.dashboard}>
     <div class={styles.sidebar}>
         <h2 class={styles.sidebarTitle}>PERFORMANCE ANALYTICS</h2>
-        <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>📊 Overview</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'strategy' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'strategy'}>🎯 Strategy</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'risk' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'risk'}>⚠ Risk Metrics</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'regimes' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'regimes'}>🗺 Regime Map</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'trades' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'trades'}>📋 Trade Analytics</button>
-        <button class="{styles.sidebarBtn} {activePanel === 'backtesting' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'backtesting'}>🧪 Backtesting</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'overview' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'overview'}>Overview</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'strategy' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'strategy'}>Strategy</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'risk' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'risk'}>Risk Metrics</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'regimes' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'regimes'}>Regime Map</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'trades' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'trades'}>Trade Analytics</button>
+        <button class="{styles.sidebarBtn} {activePanel === 'backtesting' ? styles.sidebarBtnActive : ''}" onclick={() => activePanel = 'backtesting'}>Backtesting</button>
     </div>
 
     <div class={styles.content}>

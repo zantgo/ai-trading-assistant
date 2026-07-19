@@ -1,11 +1,14 @@
-import type { IChartApi, ISeriesApi, ISeriesPrimitive, CanvasRenderingTarget2D } from 'lightweight-charts';
+import type {
+    IChartApi,
+    ISeriesApi,
+    ISeriesPrimitiveBase,
+    SeriesAttachedParameter,
+    IPrimitivePaneView,
+    IPrimitivePaneRenderer,
+    Time,
+} from 'lightweight-charts';
+import type { CanvasRenderingTarget2D } from 'fancy-canvas';
 import type { LiquidationCluster, LiquidationClusterMatrix } from '../types';
-
-interface Cell {
-    y: number;
-    height: number;
-    intensity: number;
-}
 
 function intensityColor(intensity: number): string {
     const i = Math.min(1, Math.max(0, intensity));
@@ -24,12 +27,11 @@ function clusterIntensity(cluster: LiquidationCluster, maxNotional: number): num
     return Math.min(1, (cluster.notional_usd / maxNotional) * (cluster.magnet_strength / 100));
 }
 
-export class LiquidationHeatmapPrimitive implements ISeriesPrimitive<Time> {
+export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesAttachedParameter<Time, 'Candlestick'>> {
     private _chart: IChartApi;
     private _candleSeries: ISeriesApi<'Candlestick'>;
     private _cluster: LiquidationClusterMatrix | null = null;
-    private _cells: Cell[] = [];
-    private _attached = false;
+    private _requestUpdate?: () => void;
 
     constructor(chart: IChartApi, candleSeries: ISeriesApi<'Candlestick'>) {
         this._chart = chart;
@@ -38,34 +40,35 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitive<Time> {
 
     updateData(cluster: LiquidationClusterMatrix | null | undefined) {
         this._cluster = cluster ?? null;
-        if (this._attached) this.requestUpdate?.();
+        this._requestUpdate?.();
     }
 
-    private requestUpdate?: () => void;
-
-    attached({ requestUpdate }: { requestUpdate: () => void }): void {
-        this._attached = true;
-        this.requestUpdate = requestUpdate;
+    attached(param: SeriesAttachedParameter<Time, 'Candlestick'>): void {
+        this._requestUpdate = param.requestUpdate;
     }
 
     detached(): void {
-        this._attached = false;
-        this.requestUpdate = undefined;
+        this._requestUpdate = undefined;
     }
 
-    renderer() {
-        return {
-            draw: (target: CanvasRenderingTarget2D) => {
-                if (!this._cluster) return;
-                this.renderGrid(target);
+    paneViews(): readonly IPrimitivePaneView[] {
+        const self = this;
+        return [{
+            renderer(): IPrimitivePaneRenderer | null {
+                if (!self._cluster) return null;
+                return {
+                    draw(target: CanvasRenderingTarget2D) {
+                        self._renderGrid(target);
+                    },
+                };
             },
-            destroy: () => {
-                this._cells = [];
+            zOrder(): 'top' {
+                return 'top';
             },
-        };
+        }];
     }
 
-    private renderGrid(target: CanvasRenderingTarget2D) {
+    private _renderGrid(target: CanvasRenderingTarget2D) {
         const cl = this._cluster;
         if (!cl) return;
 
@@ -74,49 +77,41 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitive<Time> {
 
         const maxNotional = Math.max(...allClusters.map(c => c.notional_usd || 0), 1);
 
-        const priceScale = this._candleSeries.priceScale();
-        const timeScale = this._chart.timeScale();
-        const visibleRange = timeScale.getVisibleRange();
+        const visibleRange = this._chart.timeScale().getVisibleRange();
         if (!visibleRange) return;
 
-        const ctx = target.context;
-        const { width, height } = target.mediaSize;
-        if (width <= 0 || height <= 0) return;
+        target.useMediaCoordinateSpace(({ context: ctx, mediaSize: { width, height } }) => {
+            if (width <= 0 || height <= 0) return;
 
-        const topY = 0;
-        const bottomY = height;
+            const topY = 0;
+            const bottomY = height;
+            const cellHeight = 3;
 
-        const cells: Cell[] = [];
-        const cellHeight = 3;
+            for (const cluster of allClusters) {
+                const intensity = clusterIntensity(cluster, maxNotional);
+                if (intensity <= 0.01) continue;
 
-        for (const cluster of allClusters) {
-            const intensity = clusterIntensity(cluster, maxNotional);
-            if (intensity <= 0.01) continue;
+                const priceLow = Math.min(cluster.price_low, cluster.price_high);
+                const priceHigh = Math.max(cluster.price_low, cluster.price_high);
+                if (priceLow <= 0 || priceHigh <= 0) continue;
 
-            const priceLow = Math.min(cluster.price_low, cluster.price_high);
-            const priceHigh = Math.max(cluster.price_low, cluster.price_high);
-            if (priceLow <= 0 || priceHigh <= 0) continue;
+                const yHigh = this._candleSeries.priceToCoordinate(priceHigh);
+                const yLow = this._candleSeries.priceToCoordinate(priceLow);
+                if (yHigh === null || yLow === null) continue;
 
-            const yHigh = priceScale.priceToCoordinate(priceHigh);
-            const yLow = priceScale.priceToCoordinate(priceLow);
-            if (yHigh === null || yLow === null) continue;
+                const startY = Math.min(yHigh, yLow);
+                const endY = Math.max(yHigh, yLow);
 
-            const startY = Math.min(yHigh, yLow);
-            const endY = Math.max(yHigh, yLow);
-
-            let ry = Math.floor(startY / cellHeight) * cellHeight;
-            while (ry < endY && ry < bottomY) {
-                if (ry >= topY) {
-                    cells.push({ y: ry, height: cellHeight, intensity });
+                let ry = Math.floor(startY / cellHeight) * cellHeight;
+                while (ry < endY && ry < bottomY) {
+                    if (ry >= topY) {
+                        ctx.fillStyle = intensityColor(intensity);
+                        ctx.fillRect(0, ry, width, cellHeight);
+                    }
+                    ry += cellHeight;
                 }
-                ry += cellHeight;
             }
-        }
-
-        for (const cell of cells) {
-            ctx.fillStyle = intensityColor(cell.intensity);
-            ctx.fillRect(0, cell.y, width, cell.height);
-        }
+        });
     }
 }
 

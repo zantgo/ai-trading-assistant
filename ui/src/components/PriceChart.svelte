@@ -1,6 +1,6 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { iRaw, iSub, getPriceFormat } from '../lib/telemetry';
+    import { iSub, getPriceFormat } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
@@ -8,7 +8,6 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
     import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
 
     const app = useAppStore();
@@ -42,7 +41,6 @@
 
     let container: HTMLDivElement;
     let chart: IChartApi = $state(null!);
-    let ro: ResizeObserver;
 
     let candleSeries: ISeriesApi<'Candlestick'>;
     let lineSeries: ISeriesApi<'Line'>;
@@ -74,6 +72,10 @@
 
     function screenshotChart() {
         if (chart) takeChartScreenshot(chart, `price-${pairKey}-${timeframe}s`);
+    }
+
+    function handleKeydown(e: KeyboardEvent) {
+        if (isFullscreen && e.key === 'Escape') toggleFullscreen();
     }
 
     function ensureEmaFast() {
@@ -132,7 +134,7 @@
             const low   = parseFloat(history.lows?.[i] ?? '0') || 0;
             const close = parseFloat(history.closes?.[i] ?? '0') || 0;
 
-            if (open && high && low && close) {
+            if (!isNaN(open) && !isNaN(high) && !isNaN(low) && !isNaN(close)) {
                 candleData.push({ time: t, open, high, low, close });
                 lineData.push({ time: t, value: close });
             }
@@ -178,10 +180,12 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.10, bottom: 0.10 } },
-            timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: true },
+            timeScale: { borderColor: '#2a2e39', visible: true, timeVisible: true, secondsVisible: true },
             localization: { priceFormatter: (p: number) => p.toFixed(fmt.precision) },
             handleScale: true, handleScroll: true,
         });
+
+        chart.priceScale('right').applyOptions({ alignLabels: true });
 
         candleSeries = chart.addSeries(CandlestickSeries, {
             priceFormat: { type: 'price', precision: fmt.precision, minMove: fmt.minMove },
@@ -258,35 +262,28 @@
                     storedHistory = historyData;
                     persistHistory(historyData, priceLineMode);
                     chart.timeScale().fitContent();
+                    requestAnimationFrame(() => {
+                        if (chart && container) {
+                            chart.resize(container.clientWidth, container.clientHeight);
+                        }
+                    });
                 }
             } catch (err) {
                 console.error('Error bootstrapping PriceChart:', err);
             }
         })();
-
-        ro = new ResizeObserver(() => {
-            const w = container.clientWidth;
-            const h = container.clientHeight;
-            if (chart && w > 0 && h > 0) chart.resize(w, h);
-        });
-        if (container?.parentElement) ro.observe(container.parentElement);
     });
 
     onDestroy(() => {
-        ro?.disconnect();
-        if (chart) {
-            unregisterChart(chart);
-            chart.remove();
-        }
+        try { if (chart) unregisterChart(chart); } catch (_) {}
+        try { if (chart) chart.remove(); } catch (_) {}
     });
 
     $effect(() => {
-        toggleSeries(priceLineMode, prevLineMode,
-            () => {},
-            () => {}
-        );
-        candleSeries?.applyOptions({ visible: !priceLineMode });
-        lineSeries?.applyOptions({ visible: priceLineMode });
+        if (priceLineMode !== prevLineMode) {
+            candleSeries?.applyOptions({ visible: !priceLineMode });
+            lineSeries?.applyOptions({ visible: priceLineMode });
+        }
         prevLineMode = priceLineMode;
     });
 
@@ -319,15 +316,12 @@
         const timeSec = snap.timestamp as number;
         const indicators = (snap.indicators ?? {}) as IndicatorMap;
 
-        const open  = snap.open_px ?? iRaw(indicators, 'open');
-        const high  = snap.high_px ?? iRaw(indicators, 'high');
-        const low   = snap.low_px ?? iRaw(indicators, 'low');
-        const close = snap.close_px ?? iRaw(indicators, 'mid_price') ?? iRaw(indicators, 'close');
+        const open  = Number(snap.open ?? snap.mid_price);
+        const high  = Number(snap.high ?? snap.mid_price);
+        const low   = Number(snap.low ?? snap.mid_price);
+        const close = Number(snap.close ?? snap.mid_price);
 
         if (open != null && high != null && low != null && close != null) {
-            if (snap.is_completed) {
-                candleSeries.setData(candleSeries.data().slice(-2000).map(d => ({ ...d } as any)));
-            }
             candleSeries.update({ time: timeSec as Time, open, high, low, close } as any);
             lineSeries.update({ time: timeSec as Time, value: close } as any);
         }
@@ -344,30 +338,78 @@
         const cluster = tf?.cluster;
         if (cluster) heatmap.updateData(cluster);
     });
-
-    $effect(() => {
-        const interval = setInterval(() => {
-            if (tf?.cluster && heatmap) heatmap.updateData(tf.cluster);
-        }, (timeframe || 60) * 1000);
-        return () => clearInterval(interval);
-    });
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
     <div class="chart-container" bind:this={container}></div>
+    {#if isFullscreen}
+        <div class="fs-toolbar">
+            <span class="fs-title">PRICE — {pairKey} · {timeframe}s</span>
+            <button class="fs-btn" onclick={screenshotChart}>Screenshot</button>
+            <button class="fs-btn fs-close" onclick={toggleFullscreen}>✕</button>
+        </div>
+    {/if}
 </div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="Price Chart — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
+    .chart-wrapper { width: 100%; height: 100%; position: relative; }
     .chart-wrapper.fs-active {
         position: fixed;
         inset: 0;
         z-index: 990;
         background: #131722;
-        padding: 44px 16px 16px 16px;
+        padding: 0;
         box-sizing: border-box;
     }
+    .chart-wrapper.fs-active .chart-container {
+        width: 100%;
+        height: 100%;
+    }
+    .fs-toolbar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        background: rgba(10, 12, 18, 0.92);
+        border-bottom: 1px solid #2a2e39;
+        z-index: 992;
+    }
+    .fs-title {
+        color: #f1f5f9;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        flex: 1;
+    }
+    .fs-btn {
+        padding: 4px 10px;
+        border: 1px solid #2a2e39;
+        border-radius: 4px;
+        background: transparent;
+        color: #888;
+        cursor: pointer;
+        font-size: 11px;
+        font-family: monospace;
+        transition: background 0.15s, color 0.15s;
+    }
+    .fs-btn:hover { background: #1a1d26; color: #fff; }
+    .fs-close {
+        background: none;
+        border: none;
+        color: #64748b;
+        font-size: 16px;
+        padding: 4px 8px;
+        line-height: 1;
+    }
+    .fs-close:hover { color: #f1f5f9; }
 </style>

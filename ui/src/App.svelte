@@ -58,11 +58,7 @@
         const e = engine as EngineKey;
         app.selectEngine(e);
         if (middleTab) app.middleTab = middleTab;
-        if (instance) {
-            if (!app.instancesMap[instance]) {
-                const base = instance.includes('-') ? instance.split('-')[0] : instance;
-                app.initInstance(base);
-            }
+        if (instance && app.instancesMap[instance]) {
             app.selectedInstance = instance;
             app.activeTab = instance;
             app.activeEngineTab = 'instance';

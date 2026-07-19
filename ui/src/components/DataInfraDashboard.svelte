@@ -11,10 +11,10 @@
 <div class={styles.dashboard}>
     <div class={styles.sidebar}>
         <h2 class={styles.sidebarTitle}>DATA INFRASTRUCTURE</h2>
-        <button class="{styles.sidebarBtn} {activeSection === 'connectivity' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'connectivity'}>⚡ Connectivity</button>
-        <button class="{styles.sidebarBtn} {activeSection === 'exchange_status' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'exchange_status'}>🏦 Exchange Status</button>
-        <button class="{styles.sidebarBtn} {activeSection === 'clock_monitor' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'clock_monitor'}>🕒 NTP Clock Monitor</button>
-        <button class="{styles.sidebarBtn} {activeSection === 'data_quality' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'data_quality'}>📊 Data Quality</button>
+        <button class="{styles.sidebarBtn} {activeSection === 'connectivity' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'connectivity'}>Connectivity</button>
+        <button class="{styles.sidebarBtn} {activeSection === 'exchange_status' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'exchange_status'}>Exchange Status</button>
+        <button class="{styles.sidebarBtn} {activeSection === 'clock_monitor' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'clock_monitor'}>NTP Clock Monitor</button>
+        <button class="{styles.sidebarBtn} {activeSection === 'data_quality' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'data_quality'}>Data Quality</button>
     </div>
 
     <div class={styles.content}>
