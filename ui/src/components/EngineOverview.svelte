@@ -27,7 +27,7 @@
     const info = $derived(ENGINE_INFO[engine] || { title: engine, description: 'No description available.', sections: [] });
 </script>
 
-<div style="display:flex; flex-direction:column; height:100%; background:#000; color:#fff; font-family:monospace; padding:2rem; gap:1rem;">
+<div style="display:flex; flex-direction:column; height:100%; background:#000; color:#fff; font-family:var(--mono); padding:2rem; gap:1rem;">
     <h2 style="font-size:1.2rem; text-transform:uppercase; letter-spacing:0.1em; color:#5a5f6e;">{info.title}</h2>
     <p style="color:#ccc; font-size:0.85rem; line-height:1.6; max-width:48rem;">{info.description}</p>
 

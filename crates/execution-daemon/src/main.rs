@@ -214,7 +214,10 @@ async fn main() {
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
     let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
-    exchange_status.seed_defaults(&hl_ws_url, &bg_ws_url).await;
+    let use_hl = workspace.default_exchange.eq_ignore_ascii_case("hyperliquid");
+    let use_bg = workspace.default_exchange.eq_ignore_ascii_case("bitget");
+    if use_hl { exchange_status.seed_single("Hyperliquid", &hl_ws_url).await; }
+    if use_bg  { exchange_status.seed_single("Bitget", &bg_ws_url).await; }
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 

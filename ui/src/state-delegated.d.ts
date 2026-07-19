@@ -69,7 +69,7 @@ declare module './state.svelte' {
         userTrades: UserTrade[];
 
         fetchSessionStatus(): Promise<void>;
-        initSession(mode: string, currency: string, exchange: string, capital: number): Promise<any>;
+        initSession(currency: string, exchange: string): Promise<{ success: boolean; error?: string }>;
         quitSession(): Promise<any>;
         fetchDecisionProfiles(): Promise<void>;
         createDecisionProfile(name: string, longT: number, shortT: number): Promise<void>;

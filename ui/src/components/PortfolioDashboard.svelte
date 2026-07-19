@@ -283,7 +283,7 @@
                 </div>
                 <div>
                     <h4 style="font-size:0.75rem; color:#5a5f6e; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.5rem">Capital Matrix (Canonical)</h4>
-                    <div style="font-size:0.72rem; color:#888; font-family:'Courier New', monospace; line-height:1.8">
+                    <div style="font-size:0.72rem; color:#888; font-family:var(--mono); line-height:1.8">
                         <div>equity = initial + realized + min(0, unrealized)</div>
                         <div style="color:#ccc">$10,523.42 = $10,000 + $423.50 + $99.92</div>
                         <div style="margin-top:0.5rem">available = equity - committed_margin</div>

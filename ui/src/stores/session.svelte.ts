@@ -15,8 +15,9 @@ export class SessionStore {
             const res = await fetch('/api/session/status');
             if (res.ok) {
                 const data = await res.json();
+                const wasActive = this.sessionActive;
                 this.sessionActive = data.active;
-                if (this.sessionActive && this.onSessionActivated) this.onSessionActivated();
+                if (this.sessionActive && !wasActive && this.onSessionActivated) this.onSessionActivated();
                 this.sessionCurrency = data.currency || 'USDT';
                 this.sessionExchange = data.exchange || 'Hyperliquid';
                 this.sessionCapital = data.capital || 10000;
@@ -34,9 +35,10 @@ export class SessionStore {
             });
             const data = await res.json();
             if (res.ok && data.success) {
+                const wasActive = this.sessionActive;
                 this.sessionActive = true; this.sessionCurrency = currency;
                 this.sessionExchange = exchange;
-                if (this.onSessionActivated) this.onSessionActivated();
+                if (!wasActive && this.onSessionActivated) this.onSessionActivated();
                 this.sessionLoading = false; return { success: true };
             }
             this.sessionError = data.error || 'Session initialization failed';

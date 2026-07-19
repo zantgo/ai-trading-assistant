@@ -19,7 +19,7 @@
     const hasPosition = $derived(app.paperDirection !== '');
     const positionCount = $derived(hasPosition ? 1 : 0);
     const positionBrackets = $derived(
-        app.paper.openOrders.filter((o: { is_reduce_only: boolean }) => o.is_reduce_only)
+        app.paper.openOrders.filter((o) => (o as { is_reduce_only: boolean }).is_reduce_only)
     );
 
     let bracketPrice = $state('');
@@ -90,7 +90,7 @@
                 unrealized_roi: app.paperUnrealizedRoi,
             };
         } else if (activeConsoleTab === 'orders') {
-            data = { symbol: app.activeTab, open_orders: app.paper.openOrders.filter((o: { is_reduce_only: boolean }) => !o.is_reduce_only) };
+            data = { symbol: app.activeTab, open_orders: app.paper.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only) };
         } else {
             data = { symbol: app.activeTab, history: app.paperHistory };
         }
@@ -119,7 +119,7 @@
             <button
                 class="{styles.consoleTab} {activeConsoleTab === 'orders' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'orders'}
-            >Open Orders<span class={styles.consoleTabCount}>{app.paper.openOrders.filter((o: { is_reduce_only: boolean }) => !o.is_reduce_only).length}</span></button>
+            >Open Orders<span class={styles.consoleTabCount}>{app.paper.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only).length}</span></button>
             <button
                 class="{styles.consoleTab} {activeConsoleTab === 'history' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'history'}
@@ -136,8 +136,8 @@
         {@const entryPx = (pos.average_entry_price as number) ?? (pos.entry_price as number) ?? 0}
         {@const posSize = (pos.size as number) ?? 0}
         {@const posLiq = entryPx > 0 ? calcLiqPrice(entryPx, app.paperDirection as 'LONG' | 'SHORT', app.paperLeverage) : 0}
-        {@const tps = positionBrackets.filter((b: { order_type: string }) => b.order_type === 'LIMIT')}
-        {@const sls = positionBrackets.filter((b: { order_type: string }) => b.order_type === 'STOP')}
+        {@const tps = positionBrackets.filter((b) => (b as { order_type: string }).order_type === 'LIMIT')}
+        {@const sls = positionBrackets.filter((b) => (b as { order_type: string }).order_type === 'STOP')}
         <div class={styles.tableWrapper}>
             {#if hasPosition}
                 <table class={styles.table}>
@@ -257,7 +257,7 @@
 
     <!-- Open Orders Table -->
     {:else if activeConsoleTab === 'orders'}
-        {@const entryOrders = app.paper.openOrders.filter((o: { is_reduce_only: boolean }) => !o.is_reduce_only)}
+        {@const entryOrders = app.paper.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only)}
         <div class={styles.tableWrapper}>
             {#if entryOrders.length > 0}
                 <table class={styles.table}>

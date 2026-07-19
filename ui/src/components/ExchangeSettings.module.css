@@ -1,4 +1,4 @@
-.es-layout { max-width: 1000px; margin: 0 auto; width: 100%; padding: 16px; box-sizing: border-box; font-family: monospace; }
+.es-layout { max-width: 1000px; margin: 0 auto; width: 100%; padding: 16px; box-sizing: border-box; font-family: var(--mono); }
 .es-main { display: flex; flex-direction: column; gap: 16px; }
 .es-card { background: #0a0a0f; border: 1px solid #2a2e39; border-radius: 8px; padding: 16px; }
 .es-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -7,7 +7,7 @@
 
 .es-toggle-form-btn {
     background: #1a1d26; border: 1px solid #2a2e39; color: #ccc; padding: 6px 14px;
-    border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; font-family: monospace;
+    border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; font-family: var(--mono);
 }
 .es-toggle-form-btn:hover { background: #2a2e39; color: #fff; }
 
@@ -16,19 +16,19 @@
 .es-label { font-size: 10px; font-weight: 600; color: #5a5f6e; text-transform: uppercase; }
 .es-input {
     background: #08080c; border: 1px solid #2a2e39; color: #ccc; padding: 8px 10px;
-    border-radius: 4px; font-size: 11px; outline: none; font-family: monospace;
+    border-radius: 4px; font-size: 11px; outline: none; font-family: var(--mono);
 }
 .es-input:focus { border-color: rgba(255,255,255,0.2); }
 .es-select {
     background: #08080c; border: 1px solid #2a2e39; color: #ccc; padding: 8px 10px;
-    border-radius: 4px; font-size: 11px; outline: none; cursor: pointer; font-family: monospace;
+    border-radius: 4px; font-size: 11px; outline: none; cursor: pointer; font-family: var(--mono);
 }
 .es-checkbox { width: 18px; height: 18px; accent-color: #64ffda; cursor: pointer; }
 
 .es-submit-btn {
     width: 100%; padding: 10px; background: #fff; color: #000;
     border: none; font-size: 11px; font-weight: 700; text-transform: uppercase;
-    border-radius: 6px; cursor: pointer; margin-top: 6px; font-family: monospace;
+    border-radius: 6px; cursor: pointer; margin-top: 6px; font-family: var(--mono);
 }
 .es-submit-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .es-submit-btn:hover:not(:disabled) { opacity: 0.85; }
@@ -46,7 +46,7 @@
 }
 .es-table td { padding: 6px 8px; border-bottom: 1px solid #1a1d26; white-space: nowrap; }
 .es-table tbody tr:hover { background: #0f0f1a; }
-.es-monospace { font-family: monospace; font-size: 9px; }
+.es-monospace { font-family: var(--mono); font-size: 9px; }
 .es-ts { font-size: 9px; color: #5a5f6e; }
 
 .es-status {

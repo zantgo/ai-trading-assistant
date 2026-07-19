@@ -33,12 +33,10 @@
           };
       });
 
-      const isIdle = $derived(
-          report &&
-          report.uptime_pct === 0 &&
-          report.disconnect_count === 0 &&
-          report.score === 100
-      );
+    function isIdleReport(r: ConnectionQualityReport | null): boolean {
+        return r !== null && r.uptime_pct === 0 && r.disconnect_count === 0 && r.score === 100;
+    }
+    const isIdle = $derived(isIdleReport(report));
 
       function scoreClass(score: number): string {
           if (score >= 90) return styles.scoreExcellent;

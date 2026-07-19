@@ -1,4 +1,4 @@
-.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: #0a0a0f; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: #0a0a0f; color: #e2e8f0;      }
 .title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0 0 14px 0; text-transform: uppercase; }
 .section { margin-bottom: 16px; }
 .sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
@@ -28,5 +28,5 @@
 .dimScore { font-size: 10px; font-weight: 700; width: 30px; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
 .dimLevel { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; width: 56px; text-align: center; }
 .evidence { font-size: 9px; color: #64748b; margin-left: 128px; line-height: 1.4; }
-.weights { font-size: 9px; color: #475569; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+.weights { font-size: 9px; color: #475569; margin-top: 4px;     font-family: var(--mono); }
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

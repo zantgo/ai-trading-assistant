@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { iRaw } from '../lib/telemetry';
+    import { iRaw, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { flattenHistory } from '../lib/historyAdapter';
     import { onMount, onDestroy } from 'svelte';
@@ -13,12 +13,7 @@
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(
-        timeframe === 180 ? pair?.fastTerm :
-        timeframe === 300 ? pair?.slowTerm :
-        timeframe === 900 ? pair?.macroTerm :
-        pair?.microTerm
-    );
+    const tf = $derived(resolveChartTimeframe(timeframe, pair));
 
     let container: HTMLDivElement;
     let chart: IChartApi = $state(null!);
@@ -33,7 +28,7 @@
             requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
         }
     }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `bbwp-${pairKey}-${timeframe}s`); }
+    function screenshotChart() { if (chart) takeChartScreenshot(chart, `bbwp-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -97,7 +92,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${timeframe}s_bbwp.png`;
+                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_bbwp.png`;
                 link.href = dataUrl;
                 link.click();
             });

@@ -65,7 +65,7 @@
         color: #f1f5f9;
         font-size: 12px;
         font-weight: 700;
-        font-family: monospace;
+        font-family: var(--mono);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         flex: 1;
@@ -83,7 +83,7 @@
         color: #888;
         cursor: pointer;
         font-size: 11px;
-        font-family: monospace;
+        font-family: var(--mono);
         transition: background 0.15s, color 0.15s;
     }
     .screenshotBtn:hover { background: #1a1d26; color: #fff; }

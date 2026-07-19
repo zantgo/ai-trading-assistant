@@ -90,12 +90,12 @@ export class AppStore {
 
     // ─── Grid cockpit navigation state ────────────────────────────────
     isManageModalOpen = $state(false);
-    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile'>('profile');
+    currentEngine = $state<'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings'>('profile');
     middleTab = $state<string>('overview');
     activeEngineTab = $state<'overview' | 'instance'>('overview');
     selectedInstance = $state<string | null>(null);
 
-    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile') {
+    selectEngine(engine: 'data_infra' | 'market_monitor' | 'portfolio' | 'trade_automation' | 'performance' | 'profile' | 'exchange_settings') {
         this.currentEngine = engine;
         this.middleTab = engine === 'market_monitor' ? 'overview' : 'overview';
         if (engine === 'market_monitor') {
@@ -238,7 +238,7 @@ export class AppStore {
         const m = modes[mode];
         if (m) {
             this.currentLevel2Mode = m.l2;
-            this.currentView = this._modeViews[mode] ?? (defaultViews[mode] ?? 'terminal') as any;
+            this.currentView = (this._modeViews[mode] ?? (defaultViews[mode] ?? 'terminal')) as CurrentView;
             this._lastMode = mode;
         }
     }

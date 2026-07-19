@@ -145,12 +145,14 @@ export function connectWebsocketForTimeframe(
     state[wsKey] = newWs;
 
     newWs.onopen = () => {
-        app.isConnected = true;
+        const pair = app.instancesMap[symbol];
+        if (pair) pair.isConnected = true;
         state.backoff[wsKey] = freshBackoff();
     };
     newWs.onmessage = (event) => applySnapshotToTimeframe(app, tf, event, symbol);
     newWs.onclose = () => {
-        app.isConnected = false;
+        const pairAfter = app.instancesMap[symbol];
+        if (pairAfter) pairAfter.isConnected = false;
         if (state[wsKey] === newWs) {
             state[wsKey] = null;
         }

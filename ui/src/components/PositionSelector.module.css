@@ -35,7 +35,7 @@
 
 .commission-quick-summary {
     display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
-    border-radius: 6px; margin-bottom: 10px; font-size: 10px; font-family: monospace;
+    border-radius: 6px; margin-bottom: 10px; font-size: 10px; font-family: var(--mono);
     border: 1px solid #2a2e39; background: #0f131c;
 }
 .cc-quick-viable { border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.04); }

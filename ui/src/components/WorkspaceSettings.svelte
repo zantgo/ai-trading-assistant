@@ -188,6 +188,7 @@
     }
 
     $effect(() => {
+        if (!pair) return;
         draft.symbol = pair.symbol; draft.exchange = pair.exchange;
         draft.analysisLimit = pair.microTerm.analysisLimit;
         for (const f of ['showEmas','showBb','showVwap','showVolume','showAdx','showAtr','showRsi','showMacd','showSqueeze','showBbwp','showFib','showRvol','showStochastic','showChandeMo','showSupertrend','showKeltner','showDonchian','showObv','showCmf','showMfi','showHv','showAroon','showChoppiness','showLinregSlope','showZscore']) {
@@ -195,7 +196,7 @@
         }
         draft.automation.enabled = pair.automationEnabled;
         draft.automation.intervalValue = pair.automationIntervalValue;
-        draft.automation.intervalUnit = pair.automationIntervalUnit;
+        draft.automation.intervalUnit = pair.automationIntervalUnit as 'seconds' | 'minutes' | 'hours';
         tfDraft.micro = readTermFromTelemetry(pair.microTerm);
         tfDraft.fast = readTermFromTelemetry(pair.fastTerm);
         tfDraft.slow = readTermFromTelemetry(pair.slowTerm);
@@ -224,12 +225,9 @@
     }
 
     async function applySettings() {
+        if (!pair) return;
         const cleanedSymbol = draft.symbol.trim().toUpperCase();
         identityError = null;
-        if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
-            identityError = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
-            return;
-        }
 
         const durations = [
             tfDraft.micro.durationSeconds,
@@ -248,6 +246,10 @@
         let target = pair;
 
         if (isIdentityChanged) {
+            if (!/^[A-Z0-9]{2,10}$/.test(cleanedSymbol)) {
+                identityError = 'Invalid ticker. Must be 2-10 alphanumeric characters.';
+                return;
+            }
             const newPairKey = app.pairKeyFor(cleanedSymbol);
             const result = await createInstance(cleanedSymbol, app.quote);
             if (!result.ok) {

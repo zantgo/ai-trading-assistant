@@ -1,7 +1,7 @@
 <script lang="ts">
     import styles from './PerformanceDashboard.module.css';
     import { useAppStore } from '../state.svelte';
-    import { getIcon } from '../lib/icons';
+    import SvgIcon from '../lib/SvgIcon.svelte';
     import type {
         StrategyAnalyticsRow, RiskAnalyticsRow, PerformanceMatrixRow,
         OptimizationReport, TradeAnalyticsRecord,
@@ -395,7 +395,7 @@
                 <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem">
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
                         <label for="bt-policy" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Strategy</label>
-                        <select id="bt-policy" bind:value={btPolicy} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem">
+                        <select id="bt-policy" bind:value={btPolicy} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem">
                             <option value="btc-trend-follow">BTC Trend Following</option>
                             <option value="eth-mean-reversion">ETH Mean Reversion</option>
                             <option value="sol-breakout">SOL Breakout</option>
@@ -403,23 +403,23 @@
                     </div>
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
                         <label for="bt-start" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Start Date</label>
-                        <input id="bt-start" type="date" bind:value={btStartDate} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem" />
+                        <input id="bt-start" type="date" bind:value={btStartDate} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem" />
                     </div>
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
                         <label for="bt-end" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">End Date</label>
-                        <input id="bt-end" type="date" bind:value={btEndDate} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem" />
+                        <input id="bt-end" type="date" bind:value={btEndDate} style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem" />
                     </div>
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
                         <label for="bt-capital" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Capital ($)</label>
-                        <input id="bt-capital" type="number" bind:value={btCapital} min="100" step="1000" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem; width:100px" />
+                        <input id="bt-capital" type="number" bind:value={btCapital} min="100" step="1000" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem; width:100px" />
                     </div>
                     <div style="display:flex; flex-direction:column; gap:0.25rem">
                         <label for="bt-fee" style="font-size:0.7rem; color:#5a5f6e; text-transform:uppercase">Fee %</label>
-                        <input id="bt-fee" type="number" bind:value={btFeePct} min="0" max="1" step="0.01" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:monospace; font-size:0.78rem; width:70px" />
+                        <input id="bt-fee" type="number" bind:value={btFeePct} min="0" max="1" step="0.01" style="padding:0.4rem 0.6rem; background:#080808; border:1px solid #2a2e39; border-radius:4px; color:#ccc; font-family:var(--mono); font-size:0.78rem; width:70px" />
                     </div>
                     <div style="display:flex; align-items:flex-end">
                         <button onclick={runBacktest} disabled={btRunning}
-                            style="padding:0.45rem 1rem; background:#fff; border:none; border-radius:4px; color:#000; cursor:pointer; font-family:monospace; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; transition:opacity 0.15s; opacity:{btRunning ? '0.5' : '1'}; font-weight:700">
+                            style="padding:0.45rem 1rem; background:#fff; border:none; border-radius:4px; color:#000; cursor:pointer; font-family:var(--mono); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; transition:opacity 0.15s; opacity:{btRunning ? '0.5' : '1'}; font-weight:700">
                             {btRunning ? 'Running...' : 'Run Backtest'}
                         </button>
                     </div>
@@ -474,7 +474,7 @@
 
                     <h3 class={styles.sectionTitle} style="margin-top:1.5rem">Equity Curve</h3>
                     <div class={styles.equityPlaceholder} style="height:200px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:0.5rem">
-                        {@html getIcon('activity', 48)}
+                        <SvgIcon name="activity" size={48} />
                         <span>Equity curve visualization coming soon</span>
                     </div>
 

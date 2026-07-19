@@ -60,7 +60,7 @@
     padding: 8px 10px;
     font-size: 0.85rem;
     color: #fff;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     outline: none;
     box-sizing: border-box;
     transition: border-color 0.15s ease;
@@ -96,7 +96,7 @@
     font-size: 1rem;
     font-weight: 700;
     color: #fff;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     letter-spacing: 0.02em;
 }
 

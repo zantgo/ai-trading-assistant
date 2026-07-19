@@ -12,7 +12,7 @@
     const hasPosition = $derived(app.paperDirection !== '');
     const positionCount = $derived(hasPosition ? 1 : 0);
     const positionBrackets = $derived(
-        app.openOrders.filter((o: { is_reduce_only: boolean }) => o.is_reduce_only)
+                app.openOrders.filter((o) => (o as { is_reduce_only: boolean }).is_reduce_only)
     );
 
     let bracketPrice = $state('');
@@ -42,8 +42,8 @@
     }
 
     function slotBlock(slotIndex: number): string {
-        const slot = app.activeSlots.find((s: { slot_index: number }) => s.slot_index === slotIndex);
-        return slot && slot.is_active ? '■' : '□';
+        const slot = app.activeSlots.find((s) => (s as { slot_index: number }).slot_index === slotIndex);
+        return slot && (slot as { is_active: boolean }).is_active ? '■' : '□';
     }
 
     async function handleAddBracket() {
@@ -81,7 +81,7 @@
                 unrealized_roi: app.paperUnrealizedRoi,
             };
         } else if (activeConsoleTab === 'orders') {
-            data = { symbol: app.activeTab, open_orders: app.openOrders.filter((o: { is_reduce_only: boolean }) => !o.is_reduce_only) };
+            data = { symbol: app.activeTab, open_orders: app.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only) };
         } else {
             data = { symbol: app.activeTab, history: app.paperHistory };
         }
@@ -108,7 +108,7 @@
             </button>
             <button class="{styles.consoleTab} {activeConsoleTab === 'orders' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'orders'}>
-                Orders<span class={styles.consoleTabCount}>{app.openOrders.filter((o: { is_reduce_only: boolean }) => !o.is_reduce_only).length}</span>
+                Orders<span class={styles.consoleTabCount}>{app.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only).length}</span>
             </button>
             <button class="{styles.consoleTab} {activeConsoleTab === 'history' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'history'}>
@@ -126,8 +126,8 @@
         {@const entryPx = (pos.average_entry_price as number) ?? (pos.entry_price as number) ?? 0}
         {@const posSize = (pos.size as number) ?? 0}
         {@const posLiq = entryPx > 0 ? calcLiqPrice(entryPx, app.paperDirection as 'LONG' | 'SHORT', app.paperLeverage) : 0}
-        {@const tps = positionBrackets.filter((b: { order_type: string }) => b.order_type === 'LIMIT')}
-        {@const sls = positionBrackets.filter((b: { order_type: string }) => b.order_type === 'STOP')}
+        {@const tps = positionBrackets.filter((b) => (b as { order_type: string }).order_type === 'LIMIT')}
+        {@const sls = positionBrackets.filter((b) => (b as { order_type: string }).order_type === 'STOP')}
         <div class={styles.tableWrapper}>
             {#if hasPosition}
                 <table class={styles.table}>
@@ -216,7 +216,7 @@
 
     <!-- Orders Tab -->
     {:else if activeConsoleTab === 'orders'}
-        {@const entryOrders = app.openOrders.filter((o: { is_reduce_only: boolean }) => !o.is_reduce_only)}
+        {@const entryOrders = app.openOrders.filter((o) => !(o as { is_reduce_only: boolean }).is_reduce_only)}
         <div class={styles.tableWrapper}>
             {#if entryOrders.length > 0}
                 <table class={styles.table}>
@@ -363,14 +363,14 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {#each app.activeSlots as slot, idx (slot.slot_index)}
+                    {#each app.activeSlots as slot, idx ((slot as { slot_index: number }).slot_index)}
                         <tr>
-                            <td class={styles.marketCell}>#{slot.slot_index}</td>
-                            <td class={styles.numRight}>${fmtPx(slot.entry_price)}</td>
-                            <td class={styles.numRight}>{fmt(slot.size, 5)}</td>
-                            <td class={styles.numRight}>${fmt(slot.allocated_usd)}</td>
-                            <td class="{styles.numRight} {slot.is_active ? (app.paperDirection === 'LONG' ? (markPrice - slot.entry_price > 0 ? styles.pnlPositive : styles.pnlNegative) : (slot.entry_price - markPrice > 0 ? styles.pnlPositive : styles.pnlNegative)) : ''}">
-                                {slot.is_active ? fmtPnl(app.paperDirection === 'LONG' ? (markPrice - slot.entry_price) * slot.size : (slot.entry_price - markPrice) * slot.size) : '—'}
+                            <td class={styles.marketCell}>#{(slot as { slot_index: number }).slot_index}</td>
+                            <td class={styles.numRight}>${fmtPx((slot as { entry_price: number }).entry_price)}</td>
+                            <td class={styles.numRight}>{fmt((slot as { size: number }).size, 5)}</td>
+                            <td class={styles.numRight}>${fmt((slot as { allocated_usd: number }).allocated_usd)}</td>
+                            <td class="{styles.numRight} {(slot as { is_active: boolean }).is_active ? (app.paperDirection === 'LONG' ? (markPrice - (slot as { entry_price: number }).entry_price > 0 ? styles.pnlPositive : styles.pnlNegative) : ((slot as { entry_price: number }).entry_price - markPrice > 0 ? styles.pnlPositive : styles.pnlNegative)) : ''}">
+                                {(slot as { is_active: boolean; entry_price: number; size: number }).is_active ? fmtPnl(app.paperDirection === 'LONG' ? (markPrice - (slot as { entry_price: number }).entry_price) * (slot as { size: number }).size : ((slot as { entry_price: number }).entry_price - markPrice) * (slot as { size: number }).size) : '—'}
                             </td>
                             <td class="{styles.directionCell} {slot.is_active ? styles.directionLong : ''}">
                                 {slot.is_active ? 'Active' : 'Vacant'}

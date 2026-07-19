@@ -18,7 +18,7 @@
     color: #4a5568;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     margin-right: 2px;
 }
 .toggles-separator {
@@ -34,7 +34,7 @@
     color: #4a5568;
     font-size: 8px;
     font-weight: 700;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     cursor: pointer;
     letter-spacing: 0.05em;
     text-transform: uppercase;

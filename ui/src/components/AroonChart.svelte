@@ -1,6 +1,6 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { iSub } from '../lib/telemetry';
+    import { iSub, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
@@ -43,7 +43,7 @@
             onScreenshotReady(() => {
                 if (!chart) return;
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${timeframe}s_aroon.png`;
+                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_aroon.png`;
                 link.href = chart.takeScreenshot().toDataURL('image/png');
                 link.click();
             });

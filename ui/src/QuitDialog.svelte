@@ -1,7 +1,7 @@
 <script lang="ts">
     import { useAppStore } from './state.svelte';
     import styles from './QuitDialog.module.css';
-    import { getIcon } from './lib/icons';
+    import SvgIcon from './lib/SvgIcon.svelte';
 
     interface Props {
         onclose: () => void;
@@ -22,7 +22,7 @@
 <div class={styles.quitOverlay} role="presentation" onclick={onclose} onkeydown={(e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); }}>
     <div class={styles.quitDialog} role="dialog" aria-modal="true" tabindex="-1" onclick={(e: Event) => e.stopPropagation()} onkeydown={() => {}}>
         <div class={styles.quitIcon}>
-            {@html getIcon('info', 44)}
+            <SvgIcon name="info" size={44} />
         </div>
         <h2 class={styles.quitTitle}>Quit Application</h2>
         <p class={styles.quitMessage}>

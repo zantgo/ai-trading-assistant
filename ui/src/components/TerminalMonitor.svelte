@@ -6,7 +6,8 @@
     import TelemetryTable from './TelemetryTable.svelte';
     import LiquidityPanel from './LiquidityPanel.svelte';
     import styles from './TerminalMonitor.module.css';
-    import { getIcon } from '../lib/icons';
+    import SvgIcon from '../lib/SvgIcon.svelte';
+    import { formatTimeframeLabel } from '../lib/telemetry';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -16,12 +17,17 @@
     type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
     let activeTf: TfLabel = $state('Micro');
 
-    const TIMEFRAMES: { key: TfLabel; label: string; tfKey: string; secs: number }[] = [
-        { key: 'Micro', label: 'Micro', tfKey: 'microTerm', secs: 60 },
-        { key: 'Fast',  label: 'Fast',  tfKey: 'fastTerm',  secs: 180 },
-        { key: 'Slow',  label: 'Slow',  tfKey: 'slowTerm',  secs: 300 },
-        { key: 'Macro', label: 'Macro', tfKey: 'macroTerm', secs: 900 },
-    ];
+    const DEFAULT_TF_SECS = { Micro: 60, Fast: 180, Slow: 300, Macro: 900 } as const;
+
+    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; tfKey: string; secs: number }[] => {
+        const p = pair;
+        return [
+            { key: 'Micro', label: 'Micro', tfKey: 'microTerm', secs: p?.microTerm?.barDurationSec ?? DEFAULT_TF_SECS.Micro },
+            { key: 'Fast',  label: 'Fast',  tfKey: 'fastTerm',  secs: p?.fastTerm?.barDurationSec ?? DEFAULT_TF_SECS.Fast },
+            { key: 'Slow',  label: 'Slow',  tfKey: 'slowTerm',  secs: p?.slowTerm?.barDurationSec ?? DEFAULT_TF_SECS.Slow },
+            { key: 'Macro', label: 'Macro', tfKey: 'macroTerm', secs: p?.macroTerm?.barDurationSec ?? DEFAULT_TF_SECS.Macro },
+        ];
+    });
 
     const activeTfEntry = $derived(TIMEFRAMES.find(t => t.key === activeTf)!);
     const activeTfObj = $derived<TimeframeTelemetry | undefined>(
@@ -100,7 +106,7 @@
                 onclick={() => activeTf = tf.key}
             >
                 <span class={styles.tfLabel}>{tf.label}</span>
-                <span class={styles.tfSecs}>{tf.secs}s</span>
+                <span class={styles.tfSecs}>{formatTimeframeLabel(tf.secs)}</span>
             </button>
         {/each}
     </div>
@@ -110,7 +116,7 @@
             <div class={styles.header}>
                 <span class={styles.title}>METRICS</span>
                 <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
-                <span class={styles.tfBadge}>{activeTfEntry.label} · {activeTfEntry.secs}s</span>
+                <span class={styles.tfBadge}>{activeTfEntry.label} · {formatTimeframeLabel(activeTfEntry.secs)}</span>
             </div>
 
             {#each SIGNAL_KIND_ORDER as kind}
@@ -167,7 +173,7 @@
             {/if}
         {:else}
             <div class={styles.featurePlaceholder}>
-                {@html getIcon('tableChart', 64)}
+                <SvgIcon name="tableChart" size={64} />
                 <h2 class={styles.featurePlaceholderTitle}>Market Metrics</h2>
                 <p class={styles.featurePlaceholderMsg}>
                     Awaiting indicator registry and market data...

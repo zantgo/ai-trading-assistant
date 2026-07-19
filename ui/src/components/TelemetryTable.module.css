@@ -31,7 +31,7 @@
     color: #64748b;
     font-size: 9px;
     font-weight: 700;
-    font-family: monospace;
+    font-family: var(--mono);
     cursor: pointer;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -88,7 +88,7 @@
     color: #64748b;
     text-transform: uppercase;
     border-bottom: 1px solid rgba(255,255,255,0.04);
-    font-family: monospace;
+    font-family: var(--mono);
 }
 
 .colName { width: 30%; }
@@ -120,14 +120,14 @@
 .rawCell {
     padding: 5px 10px;
     color: rgba(255,255,255,0.55);
-    font-family: monospace;
+    font-family: var(--mono);
     font-feature-settings: "tnum" 1;
     white-space: nowrap;
 }
 
 .normCell {
     padding: 5px 10px;
-    font-family: monospace;
+    font-family: var(--mono);
     font-feature-settings: "tnum" 1;
     font-weight: 700;
     color: rgba(255,255,255,0.55);
@@ -150,7 +150,7 @@
 .confCell {
     padding: 5px 10px;
     color: rgba(255,255,255,0.45);
-    font-family: monospace;
+    font-family: var(--mono);
     font-feature-settings: "tnum" 1;
     text-align: right;
 }
@@ -170,7 +170,7 @@
     font-size: 7px;
     font-weight: 800;
     line-height: 1.4;
-    font-family: monospace;
+    font-family: var(--mono);
     letter-spacing: 0.03em;
 }
 

@@ -47,7 +47,7 @@
     color: #e2e8f0;
     padding: 6px 8px;
     font-size: 11px;
-    font-family: monospace;
+    font-family: var(--mono);
     width: 100%;
     box-sizing: border-box;
 }
@@ -95,7 +95,7 @@
     color: #e2e8f0;
     padding: 3px 4px;
     font-size: 10px;
-    font-family: monospace;
+    font-family: var(--mono);
     text-align: center;
 }
 .weightInput:focus {
@@ -145,7 +145,7 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin-top: 6px;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 .scoring-row {
     display: flex;
@@ -166,7 +166,7 @@
     flex: 1;
     font-size: 10px;
     color: #cbd5e1;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 .scoring-weight {
     width: 56px;
@@ -176,7 +176,7 @@
     color: #e2e8f0;
     font-size: 10px;
     padding: 2px 6px;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 .scoring-weight:disabled { opacity: 0.4; }
 .scoring-actions {
@@ -194,7 +194,7 @@
     font-size: 10px;
     font-weight: 700;
     cursor: pointer;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 .scoring-save { border-color: #64ffda; color: #64ffda; }
 .scoring-save:hover { background: rgba(100, 255, 218, 0.08); }

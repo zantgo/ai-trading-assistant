@@ -3,7 +3,7 @@
     height: 100%;
     background: #000;
     color: #fff;
-    font-family: monospace;
+    font-family: var(--mono);
 }
 
 .sidebar {
@@ -32,7 +32,7 @@
     color: #888;
     cursor: pointer;
     font-size: 0.82rem;
-    font-family: monospace;
+    font-family: var(--mono);
     transition: background 0.15s;
 }
 
@@ -158,7 +158,7 @@
 
 .tdRight { text-align: right; font-variant-numeric: tabular-nums; }
 .tdCenter { text-align: center; }
-.tdMono { font-family: 'Courier New', monospace; font-size: 0.75rem; }
+.tdMono { font-family: var(--mono); font-size: 0.75rem; }
 
 /* ─── Badges ─── */
 .badge {
@@ -493,7 +493,7 @@
 
 .positionFieldValue {
     color: #ccc;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-variant-numeric: tabular-nums;
 }
 

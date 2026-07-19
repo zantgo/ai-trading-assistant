@@ -7,9 +7,13 @@
 //! (default 60s) per active pair and emit one `OpenInterestEvent`, one
 //! `FundingRateEvent`, and one `MarkPriceEvent` per successful round-trip.
 //!
+//! Resilience: exponential backoff (1s→60s, ±20% jitter) on transient REST
+//! errors; permanent disable after 30 consecutive failures; HTTP 429 triggers
+//! a 300s cooldown. Error logging is rate-limited after 5 consecutive failures
+//! to avoid terminal noise flooding.
+//!
 //! Cancellation: the supplied `CancellationToken` cleanly stops the loop on
-//! instance shutdown. Failures are logged and the loop continues with a
-//! shorter retry cooldown (1s) to recover from transient REST errors.
+//! instance shutdown.
 
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -24,7 +28,32 @@ use crate::adapters::hyperliquid_rest::{
     derivatives_ctx_to_events, fetch_meta_and_asset_ctxs, HlDerivativesCtx,
 };
 
-/// Run the mark-price/OI/funding poller for a single Hyperliquid symbol.
+const MAX_CONSECUTIVE_FAILURES: u32 = 30;
+const INITIAL_BACKOFF_SECS: u64 = 5;
+const MAX_BACKOFF_SECS: u64 = 60;
+const HTTP_429_COOLDOWN_SECS: u64 = 300;
+const JITTER_PCT: f64 = 0.2;
+const LOG_SUPPRESS_INTERVAL: u32 = 10;
+
+fn apply_jitter(secs: u64) -> Duration {
+    let range = (secs as f64 * JITTER_PCT) as i64;
+    let jitter = if range > 0 {
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+        let hash = RandomState::new().build_hasher().finish();
+        ((hash as i64).unsigned_abs() % (2 * range as u64 + 1)) as i64 - range
+    } else {
+        0
+    };
+    let ms = ((secs as f64) * 1000.0) as i64 + jitter * 1000 / secs.max(1) as i64;
+    Duration::from_millis((ms.max(500)) as u64)
+}
+
+fn compute_backoff(attempt: u32) -> u64 {
+    let base = INITIAL_BACKOFF_SECS.saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1)));
+    base.min(MAX_BACKOFF_SECS)
+}
+
 pub async fn run_hl_derivatives_poller(
     raw_symbol: String,
     internal_symbol: String,
@@ -40,8 +69,7 @@ pub async fn run_hl_derivatives_poller(
 
     let mut prev_oi: Option<Decimal> = None;
     let mut consecutive_failures: u32 = 0;
-    let mut interval = tokio::time::interval(Duration::from_millis(poll_ms.max(1000)));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let poll_duration = Duration::from_millis(poll_ms.max(1000));
 
     loop {
         tokio::select! {
@@ -53,11 +81,17 @@ pub async fn run_hl_derivatives_poller(
                 );
                 break;
             }
-            _ = interval.tick() => {}
+            _ = tokio::time::sleep(poll_duration) => {}
         }
 
         match fetch_meta_and_asset_ctxs(&info_url).await {
             Ok(map) => {
+                if consecutive_failures > 5 {
+                    println!(
+                        "✅ HL Derivatives Poller: {} recovered after {} consecutive failures.",
+                        raw_symbol, consecutive_failures
+                    );
+                }
                 consecutive_failures = 0;
                 if let Some(ctx) = lookup_ctx(&map, &raw_symbol) {
                     let events = derivatives_ctx_to_events(&internal_symbol, ctx, prev_oi);
@@ -70,30 +104,45 @@ pub async fn run_hl_derivatives_poller(
                             return;
                         }
                     }
-                } else {
-                    eprintln!(
-                        "⚠️  HL Derivatives Poller: {} not present in metaAndAssetCtxs response",
-                        raw_symbol
-                    );
                 }
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
-                eprintln!(
-                    "⚠️  HL Derivatives Poller: {} failed ({} consecutive): {}",
-                    raw_symbol, consecutive_failures, e
-                );
-                if consecutive_failures >= 5 {
-                    interval = tokio::time::interval(Duration::from_secs(10));
+
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                    eprintln!(
+                        "🛑 HL Derivatives Poller: {} permanently disabled after {} consecutive failures.",
+                        raw_symbol, consecutive_failures
+                    );
+                    break;
+                }
+
+                let suppressed = consecutive_failures > 5
+                    && consecutive_failures % LOG_SUPPRESS_INTERVAL != 0;
+                if !suppressed {
+                    eprintln!(
+                        "⚠️  HL Derivatives Poller: {} failed ({} consecutive): {}",
+                        raw_symbol, consecutive_failures, e
+                    );
+                }
+
+                let backoff_secs = if e.contains("HTTP 429") || e.contains("Too Many Requests") {
+                    HTTP_429_COOLDOWN_SECS
+                } else {
+                    compute_backoff(consecutive_failures)
+                };
+                let delay = apply_jitter(backoff_secs);
+
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(delay) => {},
                 }
             }
         }
     }
 }
 
-/// Look up a coin in the metaAndAssetCtxs response map. Tries the raw name,
-/// then the uppercased variant (Hyperliquid universe is case-sensitive but
-/// our `SymbolMapper` may store either form depending on the coin).
 pub fn lookup_ctx<'a>(
     map: &'a HashMap<String, HlDerivativesCtx>,
     raw_symbol: &str,
@@ -107,9 +156,6 @@ pub fn lookup_ctx<'a>(
     None
 }
 
-/// Spawn a poller for a Hyperliquid pair and return its JoinHandle.
-///
-/// Returns `None` if the pair is not Hyperliquid.
 pub fn spawn_hl_derivatives_poller(
     raw_symbol: String,
     internal_symbol: String,

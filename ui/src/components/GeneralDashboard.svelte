@@ -1,7 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './GeneralDashboard.module.css';
-    import { getIcon } from '../lib/icons';
+    import SvgIcon from '../lib/SvgIcon.svelte';
 
     const app = useAppStore();
 
@@ -99,7 +99,7 @@
 
         {#if totalCount === 0}
             <div class={styles.featurePlaceholder}>
-                {@html getIcon('layoutDashboard', 64)}
+                <SvgIcon name="layoutDashboard" size={64} />
                 <h2 class={styles.featurePlaceholderTitle}>Market Overview</h2>
                 <p class={styles.featurePlaceholderMsg}>
                     Add workspaces to see system-wide market intelligence across all monitored pairs.

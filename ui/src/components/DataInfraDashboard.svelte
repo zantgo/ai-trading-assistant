@@ -6,7 +6,7 @@
       import DataInfraConfig from './DataInfraConfig.svelte';
       import styles from './DataInfraDashboard.module.css';
 
-      type Section = 'connectivity' | 'exchange_status' | 'clock_monitor' | 'data_quality' | 'config';
+      type Section = 'connectivity' | 'exchange_status' | 'clock_monitor' | 'data_quality' | 'settings';
       let activeSection: Section = $state('connectivity');
   </script>
 
@@ -17,7 +17,7 @@
           <button class="{styles.sidebarBtn} {activeSection === 'exchange_status' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'exchange_status'}>Exchange Status</button>
           <button class="{styles.sidebarBtn} {activeSection === 'clock_monitor' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'clock_monitor'}>NTP Clock Monitor</button>
           <button class="{styles.sidebarBtn} {activeSection === 'data_quality' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'data_quality'}>Data Quality</button>
-          <button class="{styles.sidebarBtn} {activeSection === 'config' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'config'}>Configuration</button>
+          <button class="{styles.sidebarBtn} {activeSection === 'settings' ? styles.sidebarBtnActive : ''}" onclick={() => activeSection = 'settings'}>Settings</button>
     </div>
 
     <div class={styles.content}>
@@ -49,8 +49,8 @@
                 out-of-order drops, and reconstructed candle counts.
             </p>
           <DataQualityPanel />
-          {:else if activeSection === 'config'}
-              <h3 class={styles.sectionTitle}>Configuration</h3>
+          {:else if activeSection === 'settings'}
+              <h3 class={styles.sectionTitle}>Settings</h3>
               <p class={styles.sectionDesc}>
                   Data Infrastructure Engine settings: exchange endpoints, NTP clock monitor
                   parameters, connection resilience, quality windows, and persistence intervals.

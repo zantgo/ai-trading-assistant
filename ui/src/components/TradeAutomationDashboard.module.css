@@ -3,7 +3,7 @@
     height: 100%;
     background: #000;
     color: #fff;
-    font-family: monospace;
+    font-family: var(--mono);
 }
 
 .sidebar {
@@ -32,7 +32,7 @@
     color: #888;
     cursor: pointer;
     font-size: 0.82rem;
-    font-family: monospace;
+    font-family: var(--mono);
     transition: background 0.15s;
 }
 
@@ -146,7 +146,7 @@
 
 .tdCenter { text-align: center; }
 .tdRight { text-align: right; font-variant-numeric: tabular-nums; }
-.tdMono { font-family: 'Courier New', monospace; font-size: 0.75rem; }
+.tdMono { font-family: var(--mono); font-size: 0.75rem; }
 
 /* ─── Policy card ─── */
 .policyCard {
@@ -219,7 +219,7 @@
 
 .conditionField {
     color: #64ffda;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 
 .conditionOp {
@@ -265,7 +265,7 @@
 
 .riskParamValue {
     color: #ccc;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 
 /* ─── Observability log ─── */
@@ -309,7 +309,7 @@
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
     font-size: 0.65rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
 }
 
 .obsConditionPass { background: rgba(76,175,80,0.15); color: #4caf50; }
@@ -353,7 +353,7 @@
     color: #888;
     cursor: pointer;
     font-size: 0.65rem;
-    font-family: monospace;
+    font-family: var(--mono);
     transition: background 0.15s;
 }
 
@@ -398,7 +398,7 @@
     color: #5a5f6e;
     cursor: pointer;
     font-size: 0.78rem;
-    font-family: monospace;
+    font-family: var(--mono);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border-bottom: 2px solid transparent;
@@ -431,7 +431,7 @@
 
 .paperAccountValue {
     color: #ccc;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
 }
 

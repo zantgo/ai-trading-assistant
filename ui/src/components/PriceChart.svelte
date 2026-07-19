@@ -1,6 +1,6 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { iSub, getPriceFormat } from '../lib/telemetry';
+    import { iSub, getPriceFormat, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
@@ -27,12 +27,7 @@
 
     const pair = $derived(app.instancesMap[pairKey]);
 
-    const tf = $derived(
-        timeframe === 180 ? pair?.fastTerm :
-        timeframe === 300 ? pair?.slowTerm :
-        timeframe === 900 ? pair?.macroTerm :
-        pair?.microTerm
-    );
+    const tf = $derived(resolveChartTimeframe(timeframe, pair));
 
     const priceLineMode = $derived((pair as any)?.priceLineMode ?? false);
     const showEmaFast    = $derived((pair as any)?.showEmaFast ?? false);
@@ -70,6 +65,9 @@
     let showPivotLevels = $state(false);
     let showClusterLevels = $state(false);
 
+    let historyLoading = $state(true);
+    let historyError = $state<string | null>(null);
+
     function toggleFullscreen() {
         isFullscreen = !isFullscreen;
         if (chart && container) {
@@ -80,7 +78,7 @@
     }
 
     function screenshotChart() {
-        if (chart) takeChartScreenshot(chart, `price-${pairKey}-${timeframe}s`);
+        if (chart) takeChartScreenshot(chart, `price-${pairKey}-${formatTimeframeLabel(timeframe)}`);
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -178,8 +176,53 @@
         series.update({ time: t, value: val });
     }
 
+    async function fetchHistory(tfSecs: number) {
+        if (!pair || !chart) return;
+        historyLoading = true;
+        historyError = null;
+        try {
+            const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${tfSecs}&limit=1000`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            if (data.prices && data.candles) {
+                const times: number[] = [];
+                const opens: string[] = [];
+                const highs: string[] = [];
+                const lows: string[] = [];
+                const closes: string[] = [];
+
+                for (const c of data.candles) {
+                    const t = Math.floor(c.time / 1000);
+                    times.push(t);
+                    opens.push(String(c.open));
+                    highs.push(String(c.high));
+                    lows.push(String(c.low));
+                    closes.push(String(c.close));
+                }
+
+                const indicatorHistory = data.indicator_history ? flattenHistory(data.indicator_history) : null;
+                const historyData = {
+                    times, opens, highs, lows, closes,
+                    ...(indicatorHistory ?? {}),
+                };
+                storedHistory = historyData;
+                persistHistory(historyData, priceLineMode);
+                chart.timeScale().fitContent();
+                requestAnimationFrame(() => {
+                    if (chart && container) {
+                        chart.resize(container.clientWidth, container.clientHeight);
+                    }
+                });
+            }
+        } catch (err) {
+            historyError = err instanceof Error ? err.message : String(err);
+            console.error('Error fetching PriceChart history:', err);
+        } finally {
+            historyLoading = false;
+        }
+    }
+
     onMount(() => {
-        if (!pair) return;
         const refPrice = parseFloat(tf?.priceText ?? '0') || 0;
         const fmt = getPriceFormat(refPrice);
 
@@ -225,7 +268,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${timeframe}s_price.png`;
+                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_price.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -244,50 +287,17 @@
         if (showEmaLong) ensureEmaLong();
         if (showVwap) ensureVwap();
 
-        (async () => {
-            if (!pair) return;
-            try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
-                const data = await res.json();
-                if (data.prices && data.candles) {
-                    const times: number[] = [];
-                    const opens: string[] = [];
-                    const highs: string[] = [];
-                    const lows: string[] = [];
-                    const closes: string[] = [];
-
-                    for (const c of data.candles) {
-                        const t = Math.floor(c.time / 1000);
-                        times.push(t);
-                        opens.push(String(c.open));
-                        highs.push(String(c.high));
-                        lows.push(String(c.low));
-                        closes.push(String(c.close));
-                    }
-
-                    const indicatorHistory = data.indicator_history ? flattenHistory(data.indicator_history) : null;
-                    const historyData = {
-                        times, opens, highs, lows, closes,
-                        ...(indicatorHistory ?? {}),
-                    };
-                    storedHistory = historyData;
-                    persistHistory(historyData, priceLineMode);
-                    chart.timeScale().fitContent();
-                    requestAnimationFrame(() => {
-                        if (chart && container) {
-                            chart.resize(container.clientWidth, container.clientHeight);
-                        }
-                    });
-                }
-            } catch (err) {
-                console.error('Error bootstrapping PriceChart:', err);
-            }
-        })();
+        fetchHistory(timeframe);
     });
 
     onDestroy(() => {
         try { if (chart) unregisterChart(chart); } catch (_) {}
         try { if (chart) chart.remove(); } catch (_) {}
+    });
+
+    $effect(() => {
+        const tfSecs = timeframe;
+        if (chart) fetchHistory(tfSecs);
     });
 
     $effect(() => {
@@ -379,7 +389,18 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
+    <div class="chart-container" bind:this={container}>
+        {#if historyLoading}
+            <div class="chart-loading">
+                <div class="spinner"></div>
+                <span class="loading-text">{!pair ? 'Waiting for data…' : `Loading ${formatTimeframeLabel(timeframe)} data…`}</span>
+            </div>
+        {:else if historyError}
+            <div class="chart-loading">
+                <span class="loading-text error">Error: {historyError}</span>
+            </div>
+        {/if}
+    </div>
     <div class="level-toggles">
         <button class="lv-btn" class:lv-active={showFibLevels} onclick={() => showFibLevels = !showFibLevels} title="Fibonacci levels">Fib</button>
         <button class="lv-btn" class:lv-active={showVpLevels} onclick={() => showVpLevels = !showVpLevels} title="Volume Profile">VP</button>
@@ -388,7 +409,7 @@
     </div>
     {#if isFullscreen}
         <div class="fs-toolbar">
-            <span class="fs-title">PRICE — {pairKey} · {timeframe}s</span>
+            <span class="fs-title">PRICE — {pairKey} · {formatTimeframeLabel(timeframe)}</span>
             <button class="fs-btn" onclick={screenshotChart}>Screenshot</button>
             <button class="fs-btn fs-close" onclick={toggleFullscreen}>✕</button>
         </div>
@@ -396,7 +417,7 @@
 </div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { width: 100%; height: 100%; position: relative; }
     .chart-wrapper { width: 100%; height: 100%; position: relative; }
     .chart-wrapper.fs-active {
         position: fixed;
@@ -409,6 +430,36 @@
     .chart-wrapper.fs-active .chart-container {
         width: 100%;
         height: 100%;
+    }
+    .chart-loading {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(19, 23, 34, 0.92);
+        z-index: 10;
+        gap: 12px;
+    }
+    .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(255,255,255,0.08);
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .loading-text {
+        color: #94a3b8;
+        font-size: 12px;
+        font-family: var(--mono);
+    }
+    .loading-text.error {
+        color: #ef4444;
     }
     .level-toggles {
         position: absolute;
@@ -426,7 +477,7 @@
         color: #64748b;
         cursor: pointer;
         font-size: 10px;
-        font-family: monospace;
+        font-family: var(--mono);
         font-weight: 600;
         transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
@@ -450,7 +501,7 @@
         color: #f1f5f9;
         font-size: 12px;
         font-weight: 700;
-        font-family: monospace;
+        font-family: var(--mono);
         text-transform: uppercase;
         letter-spacing: 0.05em;
         flex: 1;
@@ -463,7 +514,7 @@
         color: #888;
         cursor: pointer;
         font-size: 11px;
-        font-family: monospace;
+        font-family: var(--mono);
         transition: background 0.15s, color 0.15s;
     }
     .fs-btn:hover { background: #1a1d26; color: #fff; }

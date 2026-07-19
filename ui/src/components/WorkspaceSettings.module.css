@@ -96,7 +96,7 @@
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 11px;
     padding: 5px 8px;
     border-radius: 5px;
@@ -151,7 +151,7 @@
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-size: 11px;
     padding: 6px 8px;
     border-radius: 5px;
@@ -175,7 +175,7 @@
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-size: 10px;
     line-height: 1.5;
     padding: 8px;
@@ -185,7 +185,7 @@
 }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .toggle-label { font-size: 10px; font-weight: 600; color: rgba(255, 255, 255, 0.5); }
-.live-counter { font-family: 'Courier New', monospace; font-weight: 700; }
+.live-counter { font-family: var(--mono); font-weight: 700; }
 .paper-reset-btn {
     width: 100%;
     padding: 8px;
@@ -257,7 +257,7 @@
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #fff;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 10px;
     padding: 4px 6px;
     border-radius: 4px;

@@ -157,3 +157,22 @@ export function calcLiqPrice(entryPx: number, direction: 'LONG' | 'SHORT', lever
         ? entryPx - liqDistance
         : entryPx + liqDistance;
 }
+
+export function formatTimeframeLabel(secs: number): string {
+    if (!secs || secs <= 0) return '--';
+    if (secs >= 86400) return `${secs / 86400}d`;
+    if (secs >= 3600) return `${secs / 3600}h`;
+    if (secs >= 60) return `${secs / 60}m`;
+    return `${secs}s`;
+}
+
+export function resolveChartTimeframe(
+    timeframe: number,
+    pair: Record<string, any> | undefined,
+): any {
+    if (!pair) return undefined;
+    if (timeframe === pair.fastTerm?.barDurationSec) return pair.fastTerm;
+    if (timeframe === pair.slowTerm?.barDurationSec) return pair.slowTerm;
+    if (timeframe === pair.macroTerm?.barDurationSec) return pair.macroTerm;
+    return pair.microTerm;
+}

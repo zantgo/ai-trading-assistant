@@ -21,7 +21,7 @@
     background: #1a2030;
     border: 1px solid #2a3040;
     color: #8892b0;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-size: 13px;
     padding: 4px 10px;
     border-radius: 4px;
@@ -70,7 +70,7 @@
 }
 .pair-quote {
     color: #7f8fbf;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-size: 12px;
     font-weight: 700;
     user-select: none;
@@ -87,7 +87,7 @@
     background: #1a2030;
     border: 1px solid #3498db;
     color: #64ffda;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     font-size: 13px;
     padding: 3px 6px;
     border-radius: 4px;
@@ -113,7 +113,7 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.5px;
-    font-family: 'Courier New', monospace;
+    font-family: var(--mono);
     padding: 3px 10px;
     border-radius: 4px;
     white-space: nowrap;

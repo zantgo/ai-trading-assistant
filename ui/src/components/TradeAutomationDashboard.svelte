@@ -223,7 +223,7 @@
                 </div>
                 <div class={styles.statCard}>
                     <div class={styles.statLabel}>Sizing Formula</div>
-                    <div class={styles.statValue} style="font-size:1rem; font-family:'Courier New'">S = E·R / Dsl</div>
+                    <div class={styles.statValue} style="font-size:1rem; font-family:var(--mono)">S = E·R / Dsl</div>
                     <div class={styles.statSub}>Position Sizing Protocol</div>
                 </div>
             </div>

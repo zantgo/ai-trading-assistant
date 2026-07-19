@@ -182,15 +182,26 @@ struct AssetCtxEntry {
     #[allow(dead_code)]
     coin: String,
     #[serde(default, rename = "markPx")]
-    markPx: Option<String>,
+    markPx: Option<serde_json::Value>,
     #[serde(default, rename = "oraclePx")]
-    oraclePx: Option<String>,
+    oraclePx: Option<serde_json::Value>,
     #[serde(default, rename = "openInterest")]
-    openInterest: Option<String>,
+    openInterest: Option<serde_json::Value>,
     #[serde(default)]
-    funding: Option<String>,
+    funding: Option<serde_json::Value>,
     #[serde(default, rename = "prevDayPx")]
-    prevDayPx: Option<String>,
+    prevDayPx: Option<serde_json::Value>,
+}
+
+fn parse_ctx_decimal(v: &Option<serde_json::Value>) -> Option<Decimal> {
+    match v {
+        None => None,
+        Some(serde_json::Value::String(s)) => s.parse::<Decimal>().ok(),
+        Some(serde_json::Value::Number(n)) => {
+            n.as_f64().and_then(|f| Decimal::from_f64_retain(f))
+        }
+        _ => None,
+    }
 }
 
 /// Per-coin parsed derivatives context. All-`None` if a field was absent.
@@ -230,16 +241,16 @@ pub async fn fetch_meta_and_asset_ctxs(
     let parsed: MetaAndAssetCtxsResponse = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Hyperliquid metaAndAssetCtxs: {}", e))?;
+        .map_err(|e| format!("Failed to parse Hyperliquid metaAndAssetCtxs: {e}"))?;
 
     let mut map = std::collections::HashMap::new();
     for entry in parsed.1 {
         let ctx = HlDerivativesCtx {
-            mark_px: entry.markPx.as_deref().and_then(|s| s.parse().ok()),
-            oracle_px: entry.oraclePx.as_deref().and_then(|s| s.parse().ok()),
-            open_interest: entry.openInterest.as_deref().and_then(|s| s.parse().ok()),
-            funding: entry.funding.as_deref().and_then(|s| s.parse().ok()),
-            prev_day_px: entry.prevDayPx.as_deref().and_then(|s| s.parse().ok()),
+            mark_px: parse_ctx_decimal(&entry.markPx),
+            oracle_px: parse_ctx_decimal(&entry.oraclePx),
+            open_interest: parse_ctx_decimal(&entry.openInterest),
+            funding: parse_ctx_decimal(&entry.funding),
+            prev_day_px: parse_ctx_decimal(&entry.prevDayPx),
         };
         map.insert(entry.coin, ctx);
     }

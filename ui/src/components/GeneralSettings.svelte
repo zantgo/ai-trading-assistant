@@ -2,11 +2,12 @@
     import { useAppStore } from '../state.svelte';
     import { fmtPrice } from '../lib/telemetry';
     import styles from './GeneralSettings.module.css';
-    import { getIcon } from '../lib/icons';
+    import SvgIcon from '../lib/SvgIcon.svelte';
+    import ExchangeSettings from './ExchangeSettings.svelte';
 
     const app = useAppStore();
 
-    let activeSection = $state<'fee' | 'settings' | 'share'>('settings');
+    let activeSection = $state<'fee' | 'exchange' | 'share' | 'settings'>('settings');
 
     // ─── Config sharing ───────────────────────────────────────────────
     let importStatus = $state<'idle' | 'importing' | 'success' | 'error'>('idle');
@@ -114,59 +115,30 @@
             class="{styles.sidebarItem} {activeSection === 'fee' ? styles.sidebarActive : ''}"
             onclick={() => activeSection = 'fee'}
         >
-            {@html getIcon('dollar', 14)} Fee Projection
+            <SvgIcon name="dollar" size="sm" /> Fee Projection
         </button>
         <button
-            class="{styles.sidebarItem} {activeSection === 'settings' ? styles.sidebarActive : ''}"
-            onclick={() => activeSection = 'settings'}
+            class="{styles.sidebarItem} {activeSection === 'exchange' ? styles.sidebarActive : ''}"
+            onclick={() => activeSection = 'exchange'}
         >
-            {@html getIcon('settings', 14)} Settings
+            <SvgIcon name="key" size="sm" /> Exchange
         </button>
         <button
             class="{styles.sidebarItem} {activeSection === 'share' ? styles.sidebarActive : ''}"
             onclick={() => activeSection = 'share'}
         >
-            {@html getIcon('upload', 14)} Share Config
+            <SvgIcon name="upload" size="sm" /> Share Config
+        </button>
+        <button
+            class="{styles.sidebarItem} {activeSection === 'settings' ? styles.sidebarActive : ''}"
+            onclick={() => activeSection = 'settings'}
+        >
+            <SvgIcon name="settings" size="sm" /> Settings
         </button>
     </div>
 
     <div class={styles.profileContent}>
-        {#if activeSection === 'share'}
-            <div class={styles.profileCard}>
-                <h3>Share Configuration</h3>
-                <p class={styles.cardSub}>
-                    Download your workspace (instances, timeframes, indicators, fees, safety rules) as a single <code>config.toml</code> file.
-                    Copy it to another machine and start with <code>--mode headless</code> to run the same setup there.
-                    Platform-level fields (exchange URLs, clock monitor) are preserved from the target machine.
-                </p>
-                <div class={styles.shareActions} style="display:flex; gap:1rem; margin-top:1rem; flex-wrap:wrap;">
-                    <a
-                        href="/api/workspace/toml"
-                        download="config.toml"
-                        class={styles.saveBtn}
-                        style="text-decoration:none; display:inline-block;"
-                    >
-                        {@html getIcon('upload', 14)} Download config.toml
-                    </a>
-                    <label class={styles.saveBtn} style="cursor:pointer; display:inline-block; margin:0;">
-                        {@html getIcon('upload', 14)} Import config.toml
-                        <input
-                            type="file"
-                            accept=".toml"
-                            onchange={handleFilePicked}
-                            style="display:none;"
-                        />
-                    </label>
-                </div>
-                {#if importStatus === 'importing'}
-                    <p class={styles.cardSub} style="margin-top:0.75rem;">Importing...</p>
-                {:else if importStatus === 'success'}
-                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #4caf50;">{importMessage}</p>
-                {:else if importStatus === 'error'}
-                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #f44336;">{importMessage}</p>
-                {/if}
-            </div>
-        {:else if activeSection === 'fee'}
+        {#if activeSection === 'fee'}
             <div class={styles.profileCard}>
                 <h3>Fee Reference Calculator</h3>
                 <p class={styles.cardSub}>Calculate round-trip fees and minimum profit needed to break even</p>
@@ -202,6 +174,43 @@
                         <span class="{styles.calcValue} {calcMinProfitPct > 3 ? styles.feeWarn : ''}">{formatPct(calcMinProfitPct)}</span>
                     </div>
                 </div>
+            </div>
+        {:else if activeSection === 'exchange'}
+            <ExchangeSettings />
+        {:else if activeSection === 'share'}
+            <div class={styles.profileCard}>
+                <h3>Share Configuration</h3>
+                <p class={styles.cardSub}>
+                    Download your workspace (instances, timeframes, indicators, fees, safety rules) as a single <code>config.toml</code> file.
+                    Copy it to another machine and start with <code>--mode headless</code> to run the same setup there.
+                    Platform-level fields (exchange URLs, clock monitor) are preserved from the target machine.
+                </p>
+                <div class={styles.shareActions} style="display:flex; gap:1rem; margin-top:1rem; flex-wrap:wrap;">
+                    <a
+                        href="/api/workspace/toml"
+                        download="config.toml"
+                        class={styles.saveBtn}
+                        style="text-decoration:none; display:inline-block;"
+                    >
+                        <SvgIcon name="upload" size="sm" /> Download config.toml
+                    </a>
+                    <label class={styles.saveBtn} style="cursor:pointer; display:inline-block; margin:0;">
+                        <SvgIcon name="upload" size="sm" /> Import config.toml
+                        <input
+                            type="file"
+                            accept=".toml"
+                            onchange={handleFilePicked}
+                            style="display:none;"
+                        />
+                    </label>
+                </div>
+                {#if importStatus === 'importing'}
+                    <p class={styles.cardSub} style="margin-top:0.75rem;">Importing...</p>
+                {:else if importStatus === 'success'}
+                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #4caf50;">{importMessage}</p>
+                {:else if importStatus === 'error'}
+                    <p class={styles.cardSub} style="margin-top:0.75rem; color: #f44336;">{importMessage}</p>
+                {/if}
             </div>
         {:else}
             {#if !loaded}

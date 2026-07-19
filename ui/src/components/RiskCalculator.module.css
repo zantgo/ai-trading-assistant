@@ -28,11 +28,11 @@
 .rc-input-prefix, .rc-input-suffix { font-size: 11px; color: #64748b; font-weight: 600; }
 .rc-field-input {
     width: 120px; background: #0f131c; border: 1px solid #2a2e39; color: #e2e8f0;
-    padding: 5px 8px; border-radius: 4px; font-size: 11px; text-align: right; outline: none; font-family: monospace;
+    padding: 5px 8px; border-radius: 4px; font-size: 11px; text-align: right; outline: none; font-family: var(--mono);
 }
 .rc-field-input:focus { border-color: rgba(255,255,255,0.25); }
-.rc-static-val { font-size: 11px; color: #cbd5e1; font-weight: 700; font-family: monospace; }
-.rc-profit-val { font-size: 13px; color: #10b981; font-weight: 700; font-family: monospace; }
+.rc-static-val { font-size: 11px; color: #cbd5e1; font-weight: 700; font-family: var(--mono); }
+.rc-profit-val { font-size: 13px; color: #10b981; font-weight: 700; font-family: var(--mono); }
 
 .rc-toggle { display: flex; gap: 0; border-radius: 4px; overflow: hidden; }
 .rc-toggle-btn {
@@ -49,7 +49,7 @@
 .rc-result-item { display: flex; flex-direction: column; gap: 2px; }
 .rc-result-full { grid-column: span 2; }
 .rc-result-label { font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase; }
-.rc-result-value { font-size: 13px; color: #e2e8f0; font-weight: 700; font-family: monospace; }
+.rc-result-value { font-size: 13px; color: #e2e8f0; font-weight: 700; font-family: var(--mono); }
 .rc-liq-price { color: #ef4444; }
 .rc-cost { color: #f59e0b; }
 .rc-pnl-pos { color: #10b981; }

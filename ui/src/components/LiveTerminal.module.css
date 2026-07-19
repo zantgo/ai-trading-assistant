@@ -1,15 +1,15 @@
 .terminal-workspace {
     height: 100%;
     display: flex;
-    background: #000;
-    color: #fff;
+    background: #0a0a0f;
+    color: #e2e8f0;
 }
 
 /* ─── Timeframe sidebar ─────────────────────────────────────────── */
 
 .tfSidebar {
     width: 140px;
-    border-right: 1px solid #2a2e39;
+    border-right: 1px solid rgba(255,255,255,0.06);
     padding: 1rem 0;
     flex-shrink: 0;
     display: flex;
@@ -24,6 +24,7 @@
     color: #5a5f6e;
     padding: 0 0.75rem;
     margin-bottom: 0.5rem;
+    font-family: var(--mono);
 }
 
 .tfSidebarItem {
@@ -36,18 +37,18 @@
     background: transparent;
     color: #888;
     cursor: pointer;
-    font-family: monospace;
+    font-family: var(--mono);
     font-size: 0.78rem;
     transition: background 0.15s;
 }
 
 .tfSidebarItem:hover {
-    background: #0f1117;
+    background: rgba(255,255,255,0.04);
     color: #ccc;
 }
 
 .tfSidebarItem:global(.active) {
-    background: #1a1d26;
+    background: rgba(255,255,255,0.06);
     color: #fff;
 }
 
@@ -67,7 +68,7 @@
 }
 
 .collapsibleSection {
-    border-bottom: 1px solid #1e2130;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
 .collapsibleSection:last-child {
@@ -81,33 +82,34 @@
     width: 100%;
     padding: 0.6rem 0.75rem;
     border: none;
-    background: #0b0d14;
-    color: #ccc;
+    background: transparent;
+    color: rgba(255,255,255,0.85);
     cursor: pointer;
-    font-family: monospace;
-    font-size: 0.82rem;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
     text-align: left;
     position: sticky;
     top: 0;
     z-index: 2;
 }
 
-.collapsibleHeader:hover { background: #0f1119; }
+.collapsibleHeader:hover { background: rgba(255,255,255,0.03); }
 
 .collapsibleCaret {
     font-size: 0.65rem;
     width: 12px;
     text-align: center;
-    color: #5a5f6e;
+    color: #64748b;
 }
 
 .tfBadge {
     margin-left: auto;
-    font-size: 0.62rem;
-    color: #3a3f4e;
-    background: #11131a;
-    padding: 0.15rem 0.4rem;
-    border-radius: 3px;
+    font-size: 10px;
+    color: #64748b;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 8px;
+    border-radius: 4px;
 }
 
 .priceChartContainer {
@@ -126,7 +128,7 @@
 .dragHandle {
     height: 6px;
     width: 100%;
-    background: #1a1d26;
+    background: rgba(255,255,255,0.06);
     cursor: ns-resize;
     flex-shrink: 0;
     transition: background 0.15s;
@@ -146,7 +148,7 @@
     width: 24px;
     height: 2px;
     border-radius: 1px;
-    background: #3a3f4e;
+    background: #64748b;
 }
 
 .dragHandle:hover {
@@ -162,11 +164,11 @@
 .fixedPanesSection {
     display: flex;
     flex-direction: column;
-    border-bottom: 1px solid #1e2130;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
 .fixedPane {
-    border-bottom: 1px solid #1a1d26;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
 .fixedPane:last-child {
@@ -175,13 +177,13 @@
 
 .paneHeader {
     padding: 4px 12px;
-    font-size: 9px;
-    font-weight: 700;
+    font-size: 10px;
+    font-weight: 600;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255,255,255,0.35);
     text-transform: uppercase;
-    background: #090c12;
-    font-family: 'Courier New', monospace;
+    background: transparent;
+    font-family: var(--mono);
 }
 
 .fixedPaneChart {
@@ -209,8 +211,9 @@
     justify-content: center;
     min-height: 200px;
     gap: 0.5rem;
-    color: rgba(255, 255, 255, 0.2);
-    font-size: 0.8rem;
+    color: rgba(255,255,255,0.3);
+    font-size: 12px;
+    font-weight: 400;
     text-align: center;
     padding: 40px;
 }

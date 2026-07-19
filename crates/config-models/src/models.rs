@@ -1271,7 +1271,7 @@ fn default_clock_monitor_poll_secs() -> u64 {
     30
 }
 fn default_clock_monitor_threshold_micros() -> i64 {
-    50
+    5000
 }
 fn default_clock_monitor_query_timeout_secs() -> u64 {
     5

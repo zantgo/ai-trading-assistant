@@ -139,7 +139,7 @@
 <style>
     .container {
         color: #e0e0e0;
-        font-family: monospace;
+        font-family: var(--mono);
     }
     .section {
         margin-bottom: 1.5rem;

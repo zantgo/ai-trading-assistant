@@ -1,7 +1,8 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
-    import { getIcon } from '../lib/icons';
+    import SvgIcon from '../lib/SvgIcon.svelte';
+    import { formatTimeframeLabel } from '../lib/telemetry';
     import ChartToggles from './ChartToggles.svelte';
     import PriceChart from './PriceChart.svelte';
     import RvolChart from './RvolChart.svelte';
@@ -18,12 +19,17 @@
     type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
     let activeTf: TfLabel = $state('Micro');
 
-    const TIMEFRAMES: { key: TfLabel; label: string; secs: number }[] = [
-        { key: 'Micro', label: 'Micro', secs: 60 },
-        { key: 'Fast',  label: 'Fast',  secs: 180 },
-        { key: 'Slow',  label: 'Slow',  secs: 300 },
-        { key: 'Macro', label: 'Macro', secs: 900 },
-    ];
+    const DEFAULT_TF_SECS = { Micro: 60, Fast: 180, Slow: 300, Macro: 900 } as const;
+
+    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; secs: number }[] => {
+        const p = pair;
+        return [
+            { key: 'Micro', label: 'Micro', secs: p?.microTerm?.barDurationSec ?? DEFAULT_TF_SECS.Micro },
+            { key: 'Fast',  label: 'Fast',  secs: p?.fastTerm?.barDurationSec ?? DEFAULT_TF_SECS.Fast },
+            { key: 'Slow',  label: 'Slow',  secs: p?.slowTerm?.barDurationSec ?? DEFAULT_TF_SECS.Slow },
+            { key: 'Macro', label: 'Macro', secs: p?.macroTerm?.barDurationSec ?? DEFAULT_TF_SECS.Macro },
+        ];
+    });
 
     const tfSecs = $derived(TIMEFRAMES.find(t => t.key === activeTf)!.secs);
 
@@ -102,7 +108,7 @@
                 onclick={() => activeTf = tf.key}
             >
                 <span class={styles.tfLabel}>{tf.label}</span>
-                <span class={styles.tfSecs}>{tf.secs}s</span>
+                <span class={styles.tfSecs}>{formatTimeframeLabel(tf.secs)}</span>
             </button>
         {/each}
     </div>
@@ -115,7 +121,7 @@
                 <button class={styles.collapsibleHeader} onclick={() => priceOpen = !priceOpen}>
                     <span class={styles.collapsibleCaret}>{priceOpen ? '▼' : '▶'}</span>
                     <span>Price Chart</span>
-                    <span class={styles.tfBadge}>{activeTf} · {tfSecs}s</span>
+                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
                 </button>
                 {#if priceOpen}
                     <div class={styles.resizablePane} style="height:{paneHeights[0]}px">
@@ -131,7 +137,7 @@
                 <button class={styles.collapsibleHeader} onclick={() => rvolOpen = !rvolOpen}>
                     <span class={styles.collapsibleCaret}>{rvolOpen ? '▼' : '▶'}</span>
                     <span>RVOL</span>
-                    <span class={styles.tfBadge}>{activeTf} · {tfSecs}s</span>
+                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
                 </button>
                 {#if rvolOpen}
                     <div class={styles.resizablePane} style="height:{paneHeights[1]}px">
@@ -147,7 +153,7 @@
                 <button class={styles.collapsibleHeader} onclick={() => rsiOpen = !rsiOpen}>
                     <span class={styles.collapsibleCaret}>{rsiOpen ? '▼' : '▶'}</span>
                     <span>RSI 14</span>
-                    <span class={styles.tfBadge}>{activeTf} · {tfSecs}s</span>
+                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
                 </button>
                 {#if rsiOpen}
                     <div class={styles.resizablePane} style="height:{paneHeights[2]}px">
@@ -163,7 +169,7 @@
                 <button class={styles.collapsibleHeader} onclick={() => macdOpen = !macdOpen}>
                     <span class={styles.collapsibleCaret}>{macdOpen ? '▼' : '▶'}</span>
                     <span>MACD</span>
-                    <span class={styles.tfBadge}>{activeTf} · {tfSecs}s</span>
+                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
                 </button>
                 {#if macdOpen}
                     <div class={styles.resizablePane} style="height:{paneHeights[3]}px">
@@ -179,7 +185,7 @@
                 <button class={styles.collapsibleHeader} onclick={() => adxOpen = !adxOpen}>
                     <span class={styles.collapsibleCaret}>{adxOpen ? '▼' : '▶'}</span>
                     <span>ADX 14</span>
-                    <span class={styles.tfBadge}>{activeTf} · {tfSecs}s</span>
+                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
                 </button>
                 {#if adxOpen}
                     <div class={styles.resizablePane} style="height:{paneHeights[4]}px">
@@ -195,7 +201,7 @@
                 <button class={styles.collapsibleHeader} onclick={() => atrOpen = !atrOpen}>
                     <span class={styles.collapsibleCaret}>{atrOpen ? '▼' : '▶'}</span>
                     <span>ATR 14</span>
-                    <span class={styles.tfBadge}>{activeTf} · {tfSecs}s</span>
+                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
                 </button>
                 {#if atrOpen}
                     <div class={styles.resizablePane} style="height:{paneHeights[5]}px">
@@ -220,7 +226,7 @@
             {/if}
         {:else}
             <div class={styles.placeholderChart}>
-                {@html getIcon('activity', 48)}
+                <SvgIcon name="activity" size={48} />
                 <p>Select a workspace to view live charts</p>
             </div>
         {/if}
