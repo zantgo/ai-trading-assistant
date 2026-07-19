@@ -141,7 +141,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 ### 12.7 HTTP & API contract
 - [x] `/ws` payload has a normative reference to `02-07-metrics-matrix.md §2.1`. The legacy `/* MarketSnapshot */` placeholder is replaced by the inline comment `MarketSnapshot — byte-for-byte per 02-07-metrics-matrix.md §2.1` plus the canonical reference.
 - [x] `/api/history?limit=` documented (default `100`, max `1000`).
-- [x] `/api/connection-quality` requires `instance_id` and `timeframe_secs`; instance-scoped; no process-wide aggregate.
+- [x] `/api/connection-quality` supports optional `instance_id` + `timeframe_secs` for per-scope queries; absent params return process-wide aggregate.
 - [x] `/api/pre-dispatch` resource complete: `GET /api/pre-dispatch`, `POST /api/pre-dispatch/:id/approve`, `DELETE /api/pre-dispatch/:id`; `operator_id` field captured.
 - [x] HTTP status & error envelope documented (`200/201/204/400/404/409/422/500/503`; `{ error: { code, message, details, request_id, documentation_url } }`).
 - [x] SPA fallback scoped to non-`/api/*` paths (§5 in `06-01`).

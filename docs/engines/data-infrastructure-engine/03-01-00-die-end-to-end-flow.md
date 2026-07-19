@@ -27,7 +27,7 @@ Exchange WS (Hyperliquid/Bitget)
     │  process_trade → (Option<completed>, live) on the base (micro) tier
     │  record_open_interest / record_funding_rate / record_mark_price / record_prev_day_px updates (if event)
     ▼
-[L3 Data Quality Layer]              inline in market-analyzer/mod.rs
+[L3 Data Quality Layer]              in `crates/network-adapters/src/median_filter.rs` (imported by `market-analyzer/src/analyzer/mod.rs`)
     │  assert_validity on the completed candle
     │  median filter on incoming ticks (warm-up then evaluate)
     │  late-tick drop counter
@@ -135,7 +135,7 @@ on breach: log + (optional panic)         see 08-06 §Failure Mode
 (no direct coupling to candles; see Drift-Breach Consequence)
 ```
 
-The clock monitor does not affect the trade path directly. Its drift budget (≤ 50 µs) is the contract that the L2 candle-alignment invariant relies on.
+The clock monitor does not affect the trade path directly. Its drift budget (≤ 100 µs) is the contract that the L2 candle-alignment invariant relies on.
 
 ---
 

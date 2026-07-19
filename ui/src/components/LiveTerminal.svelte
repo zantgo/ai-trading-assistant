@@ -42,7 +42,7 @@
         pair?.microTerm
     );
 
-    const hasLiquidity = $derived(!!activeTfObj?.liquidity || !!activeTfObj?.cluster);
+    const hasLiquidity = $derived(!!pair?.microTerm?.liquidity || !!pair?.microTerm?.cluster);
 
     // ─── Resizable pane heights ────────────────────────────────────────
     const DEFAULT_PRICE = 420;

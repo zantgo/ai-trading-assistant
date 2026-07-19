@@ -16,7 +16,7 @@ The platform is a Cargo Workspace of 9 specialized, decoupled crates plus the Sv
 | `core-domain` | DTOs shared across all engines | Stateless data shapes: snapshot, matrices, indicator value types, JSON-RPC envelopes. Leaf crate — no deps on other workspace crates. |
 | `config-models` | All `*Config` structs | Configuration loading (`load_config()`, `load_instances()`), TOML/JSON deserialization. Leaf crate. |
 | `market-analyzer` | MME L1–L7 (logical ownership); DIE L2–L4 (physical execution) | 50 indicators across 4 timeframes, signal detection, multi-TF pipeline orchestrator (`ActivePair`, `TimeframePipeline`), `MarketContext` synthesis, candle generation, quality validation, distribution channels, indicator DTO re-exports. |
-| `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 active tables; migration history tracks table additions — see CHANGELOG), WAL telemetry logger, all query layer (incl. `list_connection_quality`), encryption helpers. |
+| `database-storage` | DIE persistence + PAE persistence | SQLite schema (26 active tables; migration history tracks table additions — see CHANGELOG), WAL telemetry logger, query layer, encryption helpers. |
 | `network-adapters` | DIE ingestion | WebSocket/REST clients for Hyperliquid and Bitget, NTP clock monitor, candle reconstruction (`ReconstructionMethod`), connection-quality event tracker. |
 | `portfolio-supervisor` | PME + TAE | Instance lifecycle, `SafetyManager`, sizing, exposure, capital, session state, profile evaluation, risk/commission math, registry orchestrator. |
 | `performance-analytics` | PAE | Dashboard stats compiler, strategy optimizer, performance evaluator stub. |
@@ -98,7 +98,7 @@ The dependency arrow is: `api-gateway` depends on `portfolio-supervisor` (no cyc
 
 **Cycle we avoided:** the connection-quality feature needs both the **state tracker** (in-memory rolling windows, score recomputation) and a **persistence writer** (write rolled-up entries to `connection_quality_samples` SQLite table). Putting both in `network-adapters` would force `network-adapters → database-storage` (the tracker side is already resolved per §3.3; the write side was solved by giving the tracker its own persistence loop).
 
-**Decision:** the connection-quality tracker and its 60-second persistence loop both live in `network-adapters::connection_quality_tracker.rs` (`run_persistence_loop`). The loop writes one row per `(pair_key, timeframe_secs, window)` into `connection_quality_samples` every 60 s. `database-storage` exposes only the query layer (`list_connection_quality`). There is no `connection_quality_persistence` module and no `connection_quality_events` table (retired concept, see `06-02` §3.9).
+**Decision:** the connection-quality tracker and its 60-second persistence loop both live in `network-adapters::connection_quality_tracker.rs` (`run_persistence_loop`). The loop writes one row per `(pair_key, timeframe_secs, window)` into `connection_quality_samples` every 60 s. `database-storage` provides the schema and migration layer; connection quality is served live from the in-memory `ConnectionQualityRegistry`.
 
 This is the **canonical pattern**: network-adjacent features that need both live state and periodic persistence keep the write loop colocated with the tracker; the storage crate owns only queries.
 

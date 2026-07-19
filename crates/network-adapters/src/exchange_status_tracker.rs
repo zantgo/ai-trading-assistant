@@ -46,6 +46,29 @@ impl ExchangeStatusTracker {
         }
     }
 
+    /// Pre-seed the tracker with both supported exchanges in Disconnected
+    /// state so the frontend always shows the full list even before any
+    /// adapter connects.
+    pub async fn seed_defaults(&self, hl_ws_url: &str, bg_ws_url: &str) {
+        let mut map = self.state.write().await;
+        map.entry("Hyperliquid".to_string()).or_insert_with(|| ExchangeStatus {
+            name: "Hyperliquid".to_string(),
+            state: ExchangeConnectionState::Disconnected,
+            active_pairs: 0,
+            last_heartbeat_ms: 0,
+            total_reconnects: 0,
+            ws_url: hl_ws_url.to_string(),
+        });
+        map.entry("Bitget".to_string()).or_insert_with(|| ExchangeStatus {
+            name: "Bitget".to_string(),
+            state: ExchangeConnectionState::Disconnected,
+            active_pairs: 0,
+            last_heartbeat_ms: 0,
+            total_reconnects: 0,
+            ws_url: bg_ws_url.to_string(),
+        });
+    }
+
     pub async fn register_exchange(
         &self,
         name: &str,

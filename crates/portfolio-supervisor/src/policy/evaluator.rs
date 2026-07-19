@@ -359,13 +359,12 @@ mod tests {
             setup_quality: core_domain::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            contributing_signals: vec![],
-            invalidation_note: String::new(),
             entry_zone: core_domain::opportunity::PriceRange { low: 0.0, high: 0.0 },
             target_zone: core_domain::opportunity::PriceRange { low: 0.0, high: 0.0 },
             invalidation_level: 0.0,
             expected_rr_internal: 2.5,
             time_horizon: "SWING".into(),
+            ..Default::default()
         });
         let type_val = resolve_field_string("opportunity.primary_opportunity", &snap);
         assert_eq!(type_val, Some("Breakout".into()));

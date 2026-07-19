@@ -194,21 +194,14 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Prime,
             profiles: vec![],
             forecast_confidence: 0.85,
-            contributing_signals: vec![],
-            invalidation_note: String::new(),
-            entry_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            target_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            invalidation_level: 0.0,
             expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
+            ..Default::default()
         };
         let ctx =
             DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
-        // expected_rr_internal × (1 - 0.20) = 2.5 × 0.80 = 2.0
         assert!((ctx.expected_reward_risk_ratio - 2.0).abs() < 1e-9);
-        // entry_danger = mean(25, 100 - 85) = mean(25, 15) = 20
         assert!((ctx.entry_danger - 20.0).abs() < 1e-9);
-        // trade_readiness: entry_danger=20 < 50 and rr=2.0 >= 1 → READY
         assert_eq!(ctx.trade_readiness, "READY");
     }
 
@@ -224,18 +217,12 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Strong,
             profiles: vec![],
             forecast_confidence: 0.7,
-            contributing_signals: vec![],
-            invalidation_note: String::new(),
-            entry_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            target_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            invalidation_level: 0.0,
             expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
+            ..Default::default()
         };
         let ctx =
             DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
-        // entry_danger = mean(50, 30) = 40 < 70 → not blocked on entry_danger
-        // But risk_disc = 1 - 0.80 = 0.20 → rr = 2.5 * 0.20 = 0.5 < 1 → FORMING
         assert!((ctx.expected_reward_risk_ratio - 0.5).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "FORMING");
     }
@@ -252,17 +239,12 @@ mod tests {
             setup_quality: crate::analysis::SetupQuality::Marginal,
             profiles: vec![],
             forecast_confidence: 0.3,
-            contributing_signals: vec![],
-            invalidation_note: String::new(),
-            entry_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            target_zone: crate::opportunity::PriceRange { low: 0.0, high: 0.0 },
-            invalidation_level: 0.0,
             expected_rr_internal: 2.5,
             time_horizon: "SWING".to_string(),
+            ..Default::default()
         };
         let ctx =
             DecisionContext::compute(&indicators, 100.0, 1.0, 30.0, &analysis, Some(&opp), &risk);
-        // entry_danger = mean(70, 70) = 70 → STAND_ASIDE
         assert!((ctx.entry_danger - 70.0).abs() < 1e-9);
         assert_eq!(ctx.trade_readiness, "STAND_ASIDE");
     }

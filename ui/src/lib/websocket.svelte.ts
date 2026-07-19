@@ -80,7 +80,7 @@ function num(v: unknown): number | null {
  * truth; only genuine non-indicator market data (price/volume) is stored as
  * flat text alongside it.
  */
-export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, event: MessageEvent): void {
+export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, event: MessageEvent, symbol: string): void {
     try {
         const raw = JSON.parse(event.data);
         const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
@@ -110,21 +110,20 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         if (Array.isArray(snapshot.liquidity_signals)) {
             tf.liquiditySignals = snapshot.liquidity_signals;
         }
-        if (snapshot.alignment && typeof snapshot.alignment === 'object') {
-            const pair = app.instancesMap[app.activeTab];
-            if (pair) pair.alignment = snapshot.alignment;
-        }
-        if (snapshot.analysis && typeof snapshot.analysis === 'object') {
-            const pair = app.instancesMap[app.activeTab];
-            if (pair) pair.analysis = snapshot.analysis;
-        }
-        if (snapshot.risk && typeof snapshot.risk === 'object') {
-            const pair = app.instancesMap[app.activeTab];
-            if (pair) pair.risk = snapshot.risk;
-        }
-        if (snapshot.advisory && typeof snapshot.advisory === 'object') {
-            const pair = app.instancesMap[app.activeTab];
-            if (pair) pair.advisory = snapshot.advisory;
+        const pair = app.instancesMap[symbol];
+        if (pair) {
+            if (snapshot.alignment && typeof snapshot.alignment === 'object') {
+                pair.alignment = snapshot.alignment;
+            }
+            if (snapshot.analysis && typeof snapshot.analysis === 'object') {
+                pair.analysis = snapshot.analysis;
+            }
+            if (snapshot.risk && typeof snapshot.risk === 'object') {
+                pair.risk = snapshot.risk;
+            }
+            if (snapshot.advisory && typeof snapshot.advisory === 'object') {
+                pair.advisory = snapshot.advisory;
+            }
         }
     } catch (_) {}
 }
@@ -135,10 +134,11 @@ export function connectWebsocketForTimeframe(
     tf: TimeframeTelemetry,
     wsKey: WsKey,
     tfSecs: number,
+    symbol: string,
 ): void {
     closeWs(state[wsKey]);
 
-    const url = buildWsUrl(app.activeTab, tfSecs);
+    const url = buildWsUrl(symbol, tfSecs);
     if (!url) return;
 
     const newWs = new WebSocket(url);
@@ -148,7 +148,7 @@ export function connectWebsocketForTimeframe(
         app.isConnected = true;
         state.backoff[wsKey] = freshBackoff();
     };
-    newWs.onmessage = (event) => applySnapshotToTimeframe(app, tf, event);
+    newWs.onmessage = (event) => applySnapshotToTimeframe(app, tf, event, symbol);
     newWs.onclose = () => {
         app.isConnected = false;
         if (state[wsKey] === newWs) {
@@ -158,8 +158,8 @@ export function connectWebsocketForTimeframe(
         state.backoff[wsKey] = nextBackoff(bo);
         if (bo.retries < WS_MAX_RETRIES) {
             setTimeout(() => {
-                if (app.activeTab === state.currentWsSymbol) {
-                    connectWebsocketForTimeframe(app, state, tf, wsKey, tfSecs);
+                if (app.instancesMap[symbol]) {
+                    connectWebsocketForTimeframe(app, state, tf, wsKey, tfSecs, symbol);
                 }
             }, bo.delayMs);
         }
@@ -167,24 +167,41 @@ export function connectWebsocketForTimeframe(
     newWs.onerror = () => { newWs.close(); };
 }
 
-export function connectWebsocket(app: AppStore, state: WsState): void {
-    const symbol = app.activeTab;
+export function connectWebsocket(app: AppStore, state: WsState, symbol: string): void {
     if (!symbol) return;
     state.currentWsSymbol = symbol;
 
     const pair = app.instancesMap[symbol];
     if (!pair) return;
 
-    connectWebsocketForTimeframe(app, state, pair.microTerm, 'wsMicro', pair.microTerm.barDurationSec);
-    connectWebsocketForTimeframe(app, state, pair.fastTerm, 'wsFast', pair.fastTerm.barDurationSec);
-    connectWebsocketForTimeframe(app, state, pair.slowTerm, 'wsSlow', pair.slowTerm.barDurationSec);
-    connectWebsocketForTimeframe(app, state, pair.macroTerm, 'wsMacro', pair.macroTerm.barDurationSec);
+    connectWebsocketForTimeframe(app, state, pair.microTerm, 'wsMicro', pair.microTerm.barDurationSec, symbol);
+    connectWebsocketForTimeframe(app, state, pair.fastTerm,  'wsFast',  pair.fastTerm.barDurationSec,  symbol);
+    connectWebsocketForTimeframe(app, state, pair.slowTerm,  'wsSlow',  pair.slowTerm.barDurationSec,  symbol);
+    connectWebsocketForTimeframe(app, state, pair.macroTerm, 'wsMacro', pair.macroTerm.barDurationSec, symbol);
 }
 
-export function shouldReconnect(app: AppStore, state: WsState): boolean {
-    const symbol = app.activeTab;
+export function connectWsForInstance(
+    app: AppStore,
+    wssMap: Record<string, WsState>,
+    symbol: string,
+): void {
+    if (!symbol) return;
+    const existing = wssMap[symbol];
+    if (existing) disconnectAllWs(existing);
+    const state = createWsState();
+    wssMap[symbol] = state;
+    connectWebsocket(app, state, symbol);
+}
+
+export function disconnectWsForInstance(wssMap: Record<string, WsState>, symbol: string): void {
+    const state = wssMap[symbol];
+    if (!state) return;
+    disconnectAllWs(state);
+    delete wssMap[symbol];
+}
+
+export function shouldReconnect(app: AppStore, state: WsState, symbol: string): boolean {
     if (!symbol) return false;
-    if (symbol !== state.currentWsSymbol) return true;
 
     const pair = app.instancesMap[symbol];
     if (!pair) return false;
@@ -192,8 +209,8 @@ export function shouldReconnect(app: AppStore, state: WsState): boolean {
     const connectionsNeeded = 4;
     let activeConnections = 0;
     if (state.wsMicro && state.wsMicro.readyState === WebSocket.OPEN) activeConnections++;
-    if (state.wsFast && state.wsFast.readyState === WebSocket.OPEN) activeConnections++;
-    if (state.wsSlow && state.wsSlow.readyState === WebSocket.OPEN) activeConnections++;
+    if (state.wsFast  && state.wsFast.readyState  === WebSocket.OPEN) activeConnections++;
+    if (state.wsSlow  && state.wsSlow.readyState  === WebSocket.OPEN) activeConnections++;
     if (state.wsMacro && state.wsMacro.readyState === WebSocket.OPEN) activeConnections++;
 
     return activeConnections < connectionsNeeded;

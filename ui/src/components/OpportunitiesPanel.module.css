@@ -30,3 +30,8 @@
 .infoBadge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); color: #94a3b8; font-weight: 600; }
 .rrValue { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
+.confluenceRow { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.015); margin-bottom: 3px; }
+.confluencePrice { font-size: 12px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; width: 70px; }
+.confluenceSources { display: flex; gap: 3px; flex: 1; flex-wrap: wrap; }
+.confluenceStr { font-size: 10px; font-weight: 700; width: 36px; text-align: right; }
+.sourceTag { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.10); text-transform: uppercase; }

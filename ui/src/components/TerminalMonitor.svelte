@@ -28,7 +28,7 @@
         (pair as any)?.[activeTfEntry.tfKey] as TimeframeTelemetry | undefined
     );
 
-    const hasLiquidity = $derived(!!activeTfObj?.liquidity || !!activeTfObj?.cluster);
+    const hasLiquidity = $derived(!!pair?.microTerm?.liquidity || !!pair?.microTerm?.cluster);
 
     const SIGNAL_KIND_ORDER: SignalKind[] = [
         'Divergence', 'Crossover', 'Threshold', 'Breakout', 'BandTouch',

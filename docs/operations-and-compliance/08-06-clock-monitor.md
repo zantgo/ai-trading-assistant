@@ -6,7 +6,7 @@
 
 ## Purpose
 
-The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤50 µs drift budget** of true UTC.
+The platform's [Timeframe Model](../conceptual-foundations/01-04-timeframe-model.md) requires all candle close boundaries to align to exact epoch-duration multiples of UTC. A `micro60` candle closes at `:00.000` of the next minute; a `macro900` candle closes at `:00:00.000`, `:15:00.000`, `:30:00.000`, or `:45:00.000`. **The boundary is the integer epoch multiple — never `:MM:59.999`.** This alignment is only correct if the local system clock is within the **≤100 µs drift budget** of true UTC.
 
 **Why 50 µs.** NTPv4 over a LAN achieves typical offset of 10–100 µs. The 50 µs threshold is the midpoint of that band and is chosen so that the maximum candle-boundary error stays below 0.01 % of the shortest supported candle duration (0.01 % of the 60 s micro tier = 6 ms; the 50 µs budget is 120× tighter). A 50 µs drift produces a 0.000083 % boundary error, which is well within the indicator pipeline's numerical tolerance. Operators running direct-exchange colocation may tighten this via config; operators running cloud VPS with >100 µs typical jitter should widen it.
 
@@ -20,7 +20,7 @@ pub struct ClockMonitorConfig {
     // ntp_servers tried in order. First successful response defines the
     // current UTC reference; subsequent servers are polled as fallback.
     pub poll_interval: Duration,          // default: 30s
-    pub threshold: Duration,              // default: 50µs
+    pub threshold: Duration,              // default: 100µs
     pub breach_action: BreachAction,      // Warn (default) | Panic
     pub warn_on_breach: bool,            // default: true
     pub jitter_window_size: usize,       // default: 20
@@ -144,7 +144,7 @@ The system is **resilient to network crashes**: if NTP servers are unreachable, 
 
 ### Drift-breach consequence on candle alignment
 
-If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 candle-alignment invariant ([03-01-03-die-layer2-market-data.md §3.1](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — "candles close at integer epoch multiples of UTC") **may be silently violated**. The boundary formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` uses `SystemTime::now()`, which is the local clock; a drifted local clock produces boundaries that are offset by the drift from the true UTC epoch. The violation is invisible to the platform (no boundary check) and to the indicator pipeline (which assumes UTC alignment). Operators relying on millisecond-accurate cross-exchange reconciliation must either (a) set `breach_action = panic` for fail-fast behaviour, or (b) run `warn` mode and actively monitor the drift via the `GET /api/system/clock` endpoint ([06-01 §2.11](../integration-and-api/06-01-api-gateway-contract.md)). The `ClockMonitor` records a `DriftVerdict::BreachThreshold` for every observed breach; the breach counter is exposed alongside the current offset for operator dashboards (the endpoint's `breach_count` field currently reports a placeholder `0` — the persistent counter is tracked code work; see `docs/CHANGELOG.md` v6.4.1).
+If `breach_action = warn` and drift actually exceeds `threshold_micros`, the L2 candle-alignment invariant ([03-01-03-die-layer2-market-data.md §3.1](../engines/data-infrastructure-engine/03-01-03-die-layer2-market-data.md) — "candles close at integer epoch multiples of UTC") **may be silently violated**. The boundary formula `interval_start = ⌊timestamp_ms / duration_ms⌋ × duration_ms` uses `SystemTime::now()`, which is the local clock; a drifted local clock produces boundaries that are offset by the drift from the true UTC epoch. The violation is invisible to the platform (no boundary check) and to the indicator pipeline (which assumes UTC alignment). Operators relying on millisecond-accurate cross-exchange reconciliation must either (a) set `breach_action = panic` for fail-fast behaviour, or (b) run `warn` mode and actively monitor the drift via the `GET /api/system/clock` endpoint ([06-01 §2.11](../integration-and-api/06-01-api-gateway-contract.md)). The `ClockMonitor` records a `DriftVerdict::BreachThreshold` for every observed breach; the breach counter (`AtomicU32`) is incremented on each breach and exposed alongside the current offset for operator dashboards.
 
 ## Integration
 

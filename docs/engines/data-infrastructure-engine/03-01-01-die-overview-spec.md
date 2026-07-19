@@ -49,7 +49,7 @@ The DIE meets these acceptance criteria when run with default configuration unde
 | `AC-DIE-5` | Reconnect after forced disconnect completes within 1–30 s ± 20 % jitter (3 trial average) | `crates/network-adapters/tests/orchestrator_reconnect.rs` (Phase 1) |
 | `AC-DIE-6` | Permanent disable after 5 consecutive failed cycles | `crates/network-adapters/tests/orchestrator_reconnect.rs` (Phase 1) |
 | `AC-DIE-7` | Drift breach detected within 3 NTP polls (≤ 90 s default) | `crates/network-adapters/tests/clock_monitor_breach.rs` (Phase 1) |
-| `AC-DIE-8` | L2 candle close instant aligns to integer UTC epoch multiple to within the ≤ 50 µs drift budget | `crates/network-adapters/tests/candle_alignment.rs` (Phase 1) |
+| `AC-DIE-8` | L2 candle close instant aligns to integer UTC epoch multiple to within the ≤ 100 µs drift budget | `crates/network-adapters/tests/candle_alignment.rs` (Phase 1) |
 | `AC-DIE-9` | EMA reconstruction (sub-minute, ≥ 50 history) converges within `ema_window` ticks of first synthesis | `crates/network-adapters/tests/reconstruction_ema.rs` (existing) |
 | `AC-DIE-10` | Composite score formula returns 100 for a perfect session and 0 for a worst-case session (no uptime, 10+ disconnects, 5 s+ reconnect, 600 s+ data loss, 100+ reconstructed candles) | `crates/network-adapters/tests/connection_quality_score.rs` (Phase 1) |
 

@@ -760,3 +760,37 @@ export type TriggerModeConfig =
     | { mode: 'interval'; seconds: number }
     | { mode: 'candle_close'; timeframe: string; count: number }
     | { mode: 'event_driven'; events: string[] };
+
+// ── Opportunity Matrix (L4) ──
+export type LevelSource = 'FIBONACCI' | 'VOLUME_PROFILE' | 'PIVOT_POINTS' | 'SUPPORT_RESISTANCE' | 'LIQUIDITY_CLUSTER' | 'ATR_FALLBACK';
+
+export interface ConfluentLevel {
+    price: number;
+    confluence_count: number;
+    sources: LevelSource[];
+    strength: number;
+}
+
+export interface PriceRange {
+    low: number;
+    high: number;
+}
+
+export interface OpportunityMatrix {
+    symbol: string;
+    primary_opportunity: string;
+    opportunity_score: number;
+    setup_quality: string;
+    profiles: { opportunity_type: string; score: number; preconditions_met: number; preconditions_total: number; notes: string }[];
+    forecast_confidence: number;
+    contributing_signals: string[];
+    invalidation_note: string;
+    entry_zone: PriceRange;
+    target_zone: PriceRange;
+    invalidation_level: number;
+    expected_rr_internal: number;
+    time_horizon: string;
+    confluent_entry_levels: ConfluentLevel[];
+    confluent_target_levels: ConfluentLevel[];
+    confluent_invalidation_levels: ConfluentLevel[];
+}

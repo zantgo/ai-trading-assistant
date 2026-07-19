@@ -1,3 +1,7 @@
+// COLD PATH — rolling quality metrics with 60 s persistence loop.
+// This module tracks aggregate statistics over 1h/6h/24h windows.
+// It is read by the frontend dashboard and persisted to SQLite.
+// It does not gate the live data pipeline.
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;

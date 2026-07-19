@@ -118,7 +118,7 @@ pub enum VolumeAssessment {
 /// Opportunity type classification — canonical 8-variant enum.
 /// This is the authoritative home of the setup selector in the institutional
 /// redesign; the Opportunity Matrix (L4) is its sole producer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OpportunityType {
     TrendContinuation,
@@ -127,19 +127,19 @@ pub enum OpportunityType {
     MeanReversion,
     Reversal,
     LiquiditySqueeze,
-    /// v6.4: sub-minute-to-seconds scalp setup (BBWP ∈ [70,95) + tight structure).
     Scalp,
+    #[default]
     NoClearOpportunity,
 }
 
-/// Setup quality band classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SetupQuality {
     Prime,
     Strong,
     Moderate,
     Marginal,
+    #[default]
     None,
 }
 

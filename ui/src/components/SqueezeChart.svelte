@@ -14,9 +14,9 @@
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
     const tf = $derived(
-        timeframe === 300 ? pair?.fastTerm :
-        timeframe === 900 ? pair?.slowTerm :
-        timeframe === 3600 ? pair?.macroTerm :
+        timeframe === 180 ? pair?.fastTerm :
+        timeframe === 300 ? pair?.slowTerm :
+        timeframe === 900 ? pair?.macroTerm :
         pair?.microTerm
     );
 
@@ -99,14 +99,11 @@
                 const data = await res.json();
                 const indicatorHistory = flattenHistory(data.indicator_history);
                 if (indicatorHistory && indicatorHistory.squeeze_momentum && indicatorHistory.squeeze_momentum.length > 0) {
-                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => {
-                        const val = indicatorHistory.squeeze_momentum[i] != null ? parseFloat(indicatorHistory.squeeze_momentum[i]) : 0;
-                        return {
-                            time: t as Time,
-                            mom: indicatorHistory.squeeze_momentum[i],
-                            on: indicatorHistory.squeeze_on[i]
-                        };
-                    });
+                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
+                        time: t as Time,
+                        mom: indicatorHistory.squeeze_momentum[i],
+                        on: indicatorHistory.squeeze_on[i]
+                    }));
 
                     const seenTimes = new Set<number>();
                     const cleanedCombined: { time: Time; mom: string | null; on: boolean }[] = [];
@@ -119,14 +116,16 @@
                     }
                     cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
 
-                    const momData = cleanedCombined.map(x => {
-                        const val = x.mom != null ? parseFloat(x.mom) : 0;
-                        return {
-                            time: x.time,
-                            value: val,
-                            color: val >= 0 ? '#26a69a' : '#ef5350'
-                        };
-                    });
+                    const momData = cleanedCombined
+                        .filter(x => x.mom != null)
+                        .map(x => {
+                            const val = parseFloat(x.mom!);
+                            return {
+                                time: x.time,
+                                value: val,
+                                color: val >= 0 ? '#26a69a' : '#ef5350'
+                            };
+                        });
                     const dotData = cleanedCombined.map(x => ({
                         time: x.time,
                         value: 0.1,

@@ -129,18 +129,24 @@
                     }
                     cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
 
-                    const adxData = cleanedCombined.map(x => ({
-                        time: x.time,
-                        value: x.adx != null ? parseFloat(x.adx) : 0
-                    }));
-                    const plusData = cleanedCombined.map(x => ({
-                        time: x.time,
-                        value: x.plus != null ? parseFloat(x.plus) : 0
-                    }));
-                    const minusData = cleanedCombined.map(x => ({
-                        time: x.time,
-                        value: x.minus != null ? parseFloat(x.minus) : 0
-                    }));
+                    const adxData = cleanedCombined
+                        .filter(x => x.adx != null)
+                        .map(x => ({
+                            time: x.time,
+                            value: parseFloat(x.adx!)
+                        }));
+                    const plusData = cleanedCombined
+                        .filter(x => x.plus != null)
+                        .map(x => ({
+                            time: x.time,
+                            value: parseFloat(x.plus!)
+                        }));
+                    const minusData = cleanedCombined
+                        .filter(x => x.minus != null)
+                        .map(x => ({
+                            time: x.time,
+                            value: parseFloat(x.minus!)
+                        }));
 
                     adxSeries.setData(adxData);
                     adxPlusSeries.setData(plusData);

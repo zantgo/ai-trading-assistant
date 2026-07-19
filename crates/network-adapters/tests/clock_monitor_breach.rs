@@ -8,7 +8,7 @@ use network_adapters::clock_monitor::{
 fn config_defaults_are_correct() {
     let cfg = ClockMonitorConfig::default();
     assert_eq!(cfg.poll_interval, Duration::from_secs(30));
-    assert_eq!(cfg.threshold, Duration::from_micros(50));
+    assert_eq!(cfg.threshold, Duration::from_micros(100));
     assert_eq!(cfg.breach_action, BreachAction::Warn);
 }
 

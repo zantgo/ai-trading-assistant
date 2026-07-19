@@ -1,0 +1,12 @@
+.panel { padding: 12px 16px; background: #0a0a0f; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; height: 100%; overflow-y: auto; }
+.title { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: #94a3b8; margin: 0 0 10px 0; text-transform: uppercase; }
+.ladder { display: flex; flex-direction: column; gap: 3px; }
+.rung { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.03); }
+.price { font-size: 11px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; width: 60px; }
+.dots { display: flex; gap: 3px; flex: 1; }
+.dot { width: 10px; height: 10px; border-radius: 50%; opacity: 0.85; }
+.zone { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; }
+.entry { background: rgba(34,197,94,0.12); color: #22c55e; }
+.target { background: rgba(59,130,246,0.12); color: #3b82f6; }
+.inval { background: rgba(239,68,68,0.12); color: #ef4444; }
+.placeholder { display: flex; align-items: center; justify-content: center; height: 80px; color: #475569; font-size: 11px; }

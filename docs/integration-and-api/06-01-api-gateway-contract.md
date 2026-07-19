@@ -248,9 +248,9 @@ Served since v6.4.1 (previously tracked as the Phase-3 handlers under AUDIT-V6-3
 
 | Method | Path | Response |
 |--------|------|----------|
-| `GET` | `/api/system/clock` | `ClockStatusResponse` — `{ within_threshold, drift_us?, jitter_rms_us?, last_poll_ms?, breach_count, breach_action, ntp_servers, sample_count, threshold_micros }` (`crates/api-gateway/src/handlers/clock.rs`). Returns `503 Service Unavailable` when the clock monitor is disabled. `breach_count` currently reports a placeholder `0`; the persistent counter is tracked code work (see [08-06 §Drift-breach consequence](../operations-and-compliance/08-06-clock-monitor.md)). |
+| `GET` | `/api/system/clock` | `ClockStatusResponse` — `{ within_threshold, drift_us?, jitter_rms_us?, last_poll_ms?, breach_count, breach_action, ntp_servers, sample_count, threshold_micros }` (`crates/api-gateway/src/handlers/clock.rs`). Returns `503 Service Unavailable` when the clock monitor is disabled. `breach_count` is a running `AtomicU32` counter incremented on each observed breach since process start. |
 | `GET` | `/api/exchange-status` | Per-exchange connectivity status (`crates/api-gateway/src/handlers/exchange_status.rs`). |
-| `GET` | `/api/data-quality` | `PipelineReliabilityMetrics` — `{ coverage, gap_count, outliers_rejected, out_of_order_dropped, total_candles_processed, reconstructed_candles }` (`crates/api-gateway/src/handlers/data_quality.rs`; contract in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md)). |
+| `GET` | `/api/data-quality` | `PipelineReliabilityMetrics` — `{ coverage, gap_count, outliers_rejected, outliers_bypassed, out_of_order_dropped, total_candles_processed, reconstructed_candles, source_mix }` where `source_mix` has `{ db_warm, rest_gap, live }` (`crates/api-gateway/src/handlers/data_quality.rs`; contract in [03-01-04 §5](../engines/data-infrastructure-engine/03-01-04-die-layer3-data-quality.md)). Aggregates process-wide across all instances. |
 
 ### 2.12 Planned endpoints (not yet served)
 

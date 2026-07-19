@@ -1,3 +1,6 @@
+// COLD PATH — background NTP polling and drift analysis.
+// This module runs asynchronously on a long interval (default 30 s).
+// Blocking or latency is acceptable; it does not gate the data pipeline.
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -52,7 +55,7 @@ impl Default for ClockMonitorConfig {
         Self {
             ntp_servers: vec!["pool.ntp.org".to_string(), "time.aws.com".to_string()],
             poll_interval: Duration::from_secs(30),
-            threshold: Duration::from_micros(50),
+            threshold: Duration::from_micros(100),
             breach_action: BreachAction::Warn,
             warn_on_breach: true,
             jitter_window_size: 20,

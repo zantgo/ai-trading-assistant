@@ -1,4 +1,4 @@
-use crate::types::{ObservabilityBuffersResponse, SystemStatusResponse, WsQuery};
+use crate::types::{DecisionMemoryBufferRow, ObservabilityBuffersResponse, SystemStatusResponse, WsQuery};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
@@ -11,14 +11,20 @@ pub async fn serve_system_status(State(state): State<Arc<AppState>>) -> impl Int
     let active_pairs_count = state.instance_count().await;
     let lat = state.latency_tracker.snapshot();
 
+    let report = state.exchange_status.report().await;
+    let connected = report.exchanges.iter().any(|e| matches!(e.state, network_adapters::exchange_status_tracker::ExchangeConnectionState::Connected));
+
+    let capital = state.execution_engine.capital.read().await;
+    let total_allocated_margin = capital.reserved_margin.to_string().parse::<f64>().unwrap_or(0.0);
+
     let response = SystemStatusResponse {
-        connected: true,
+        connected,
         latency_ms: lat.observation_loop_latency_ms,
         ingest_skew_ms: lat.ingest_skew_ms,
         observation_loop_latency_ms: lat.observation_loop_latency_ms,
         system_heartbeat_latency_ms: lat.system_heartbeat_latency_ms,
         journal_mode: "WAL".to_string(),
-        total_allocated_margin: 0.0,
+        total_allocated_margin,
         active_pairs_count,
     };
 
@@ -41,7 +47,26 @@ pub async fn serve_observability_buffers(
         .unwrap_or(&symbol)
         .to_string();
 
-    let recent_decisions: Vec<crate::types::DecisionMemoryBufferRow> = Vec::new();
+    let overview = state.overview.read().await;
+    let recent_decisions: Vec<DecisionMemoryBufferRow> = overview
+        .as_ref()
+        .map(|o| {
+            o.asset_ranking
+                .iter()
+                .take(10)
+                .map(|rank| DecisionMemoryBufferRow {
+                    id: 0,
+                    symbol: rank.symbol.clone(),
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    regime_classification: rank.regime.clone(),
+                    orchestrator_decision: rank.bias.clone(),
+                    confidence_score: rank.confidence,
+                    eight_factor_score: (rank.score * 8.0) as i32,
+                    portfolio_risk_pct: 0.0,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let completed_trades: Vec<crate::types::CompletedTradesBufferRow> = sqlx::query_as(
         "SELECT \

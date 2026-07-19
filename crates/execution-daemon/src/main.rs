@@ -214,6 +214,7 @@ async fn main() {
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
     let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
+    exchange_status.seed_defaults(&hl_ws_url, &bg_ws_url).await;
     println!("📡 Hyperliquid WS endpoint: {}", hl_ws_url);
     println!("📡 Bitget WS endpoint: {}", bg_ws_url);
 
@@ -251,6 +252,14 @@ async fn main() {
                 currency.as_str(),
                 exchange.as_str(),
             );
+            // In web mode keep the session technically inactive so the
+            // frontend Welcome Gate is shown on first page load.  The
+            // session fields (exchange, currency) are already populated
+            // so that config.toml instances can be auto-spawned below.
+            if matches!(cli.mode, LaunchMode::Web) {
+                app_state.session.active.store(false, std::sync::atomic::Ordering::Relaxed);
+                println!("   (session marked inactive for Welcome Gate)");
+            }
         }
     }
 

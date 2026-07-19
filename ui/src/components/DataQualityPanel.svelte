@@ -65,13 +65,17 @@
     {:else if error}
         <div class={styles.error}>Error: {error}</div>
     {:else if report}
-        <div class={styles.metrics}>
-            <div class={styles.metric}>
-                <div class={styles.metricLabel}>Coverage</div>
-                <div class="{styles.metricValue} {coverageClass(report.coverage * 100)}">
-                    {(report.coverage * 100).toFixed(2)}%
-                </div>
-            </div>
+          <div class={styles.metrics}>
+              <div class={styles.metric}>
+                  <div class={styles.metricLabel}>Coverage</div>
+                  {#if report.total_candles_processed > 0}
+                      <div class="{styles.metricValue} {coverageClass(report.coverage * 100)}">
+                          {(report.coverage * 100).toFixed(2)}%
+                      </div>
+                  {:else}
+                      <div class={styles.metricValue} style="color: #999">No data yet</div>
+                  {/if}
+              </div>
             <div class={styles.metric}>
                 <div class={styles.metricLabel}>Total Candles</div>
                 <div class={styles.metricValue}>{report.total_candles_processed.toLocaleString('en-US')}</div>

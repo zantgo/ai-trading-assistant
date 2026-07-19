@@ -1,4 +1,4 @@
-//! Per-instance pipeline reliability metrics.
+//! COLD PATH — per-instance pipeline reliability metrics.
 //!
 //! `PipelineReliabilityMetrics` rolls up data-quality signals (coverage,
 //! gaps, outliers, ordering) across a session so the `/api/data-quality`
@@ -41,7 +41,7 @@ pub struct PipelineReliabilityMetrics {
 impl Default for PipelineReliabilityMetrics {
     fn default() -> Self {
         Self {
-            coverage: 1.0,
+            coverage: 0.0,
             gap_count: 0,
             outliers_rejected: 0,
             outliers_bypassed: 0,
@@ -69,10 +69,21 @@ impl ReliabilityTracker {
         self.state.read().await.clone()
     }
 
+    pub async fn has_data(&self) -> bool {
+        let m = self.state.read().await;
+        m.total_candles_processed > 0 || m.gap_count > 0
+    }
+
     pub async fn increment_candles(&self, count: u64) {
         let mut m = self.state.write().await;
         m.total_candles_processed += count;
         m.source_mix.live += count;
+        let expected = m.total_candles_processed + m.gap_count as u64;
+        m.coverage = if expected > 0 {
+            m.total_candles_processed as f64 / expected as f64
+        } else {
+            0.0
+        };
     }
 
     pub async fn increment_gaps(&self, count: u32) {
@@ -83,7 +94,7 @@ impl ReliabilityTracker {
             m.coverage = if expected > 0 {
                 m.total_candles_processed as f64 / expected as f64
             } else {
-                1.0
+                0.0
             };
         }
     }
@@ -114,23 +125,5 @@ impl ReliabilityTracker {
     pub async fn increment_reconstructed(&self, count: u32) {
         let mut m = self.state.write().await;
         m.reconstructed_candles += count;
-    }
-
-    pub async fn record_gap_fill(
-        &self,
-        gaps: u32,
-        reconstructed: u32,
-        total_candles: u64,
-    ) {
-        let mut m = self.state.write().await;
-        m.gap_count += gaps;
-        m.reconstructed_candles += reconstructed;
-        m.total_candles_processed += total_candles;
-        let expected = m.total_candles_processed + m.gap_count as u64;
-        m.coverage = if expected > 0 {
-            m.total_candles_processed as f64 / expected as f64
-        } else {
-            1.0
-        };
     }
 }

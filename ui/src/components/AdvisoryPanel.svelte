@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { AdvisoryMatrix } from '../types';
+    import type { AdvisoryMatrix, OpportunityMatrix } from '../types';
     import { useAppStore } from '../state.svelte';
     import styles from './AdvisoryPanel.module.css';
 
@@ -11,6 +11,7 @@
 
     const snapshot = $derived(instance?.microTerm.latestSnapshot as any);
     const decisionCtx = $derived(snapshot?.decision_context ?? null);
+    const opportunity = $derived<OpportunityMatrix | null>(snapshot?.opportunity ?? null);
 
     function recClass(d: string): string {
         if (d.includes('Long')) return styles.recLong;
@@ -45,6 +46,7 @@
     const dangerDisplay = $derived(decisionCtx?.entry_danger ?? 50);
     const readinessDisplay = $derived(decisionCtx?.trade_readiness ?? 'STAND_ASIDE');
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
+    const stopLossPct = $derived((advisory as any)?.stop_loss_distance_pct ?? 0);
 </script>
 
 <div class={styles.panel}>
@@ -95,7 +97,41 @@
                 </div>
                 <span class={styles.metricVal}>{confidenceDisplay.toFixed(0)}%</span>
             </div>
+            {#if stopLossPct > 0}
+                <div class={styles.metricBar}>
+                    <span class={styles.metricLabel}>Stop-Loss</span>
+                    <div class={styles.metricBarBg}>
+                        <div class="{styles.metricFill} {styles.blue}"
+                             style="width: {Math.min(stopLossPct * 500, 100).toFixed(1)}%"></div>
+                    </div>
+                    <span class={styles.metricVal}>{(stopLossPct * 100).toFixed(2)}%</span>
+                </div>
+            {/if}
         </div>
+
+        {#if opportunity}
+            <div class={styles.section}>
+                <div class={styles.sectionTitle}>Levels</div>
+                <div class={styles.grid2}>
+                    <div class={styles.card}>
+                        <span class={styles.cardLabel}>Entry Zone</span>
+                        <span class={styles.cardValue}>{opportunity.entry_zone.low.toFixed(0)} – {opportunity.entry_zone.high.toFixed(0)}</span>
+                    </div>
+                    <div class={styles.card}>
+                        <span class={styles.cardLabel}>Target Zone</span>
+                        <span class={styles.cardValue}>{opportunity.target_zone.low.toFixed(0)} – {opportunity.target_zone.high.toFixed(0)}</span>
+                    </div>
+                    <div class={styles.card}>
+                        <span class={styles.cardLabel}>Invalidation</span>
+                        <span class={styles.cardValue}>{opportunity.invalidation_level.toFixed(0)}</span>
+                    </div>
+                    <div class={styles.card}>
+                        <span class={styles.cardLabel}>Horizon</span>
+                        <span class={styles.cardValue}>{opportunity.time_horizon}</span>
+                    </div>
+                </div>
+            </div>
+        {/if}
 
         <div class={styles.section}>
             <div class={styles.sectionTitle}>Strategy</div>

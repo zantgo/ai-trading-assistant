@@ -63,10 +63,10 @@
                 </div>
             </div>
             <div class={styles.metric}>
-                <div class={styles.metricLabel}>Drift</div>
-                <div class="{styles.metricValue} {driftClass(report.drift_us, report.threshold_micros)}">
-                    {report.drift_us != null ? `${report.drift_us}µs` : '—'}
-                </div>
+                  <div class={styles.metricLabel}>Drift</div>
+                  <div class="{styles.metricValue} {driftClass(report.drift_us, report.threshold_micros)}">
+                      {report.drift_us != null ? `${report.drift_us}µs` : 'No samples yet'}
+                  </div>
             </div>
             <div class={styles.metric}>
                 <div class={styles.metricLabel}>Threshold</div>

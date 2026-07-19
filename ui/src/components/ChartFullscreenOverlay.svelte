@@ -1,6 +1,4 @@
 <script lang="ts">
-    import styles from './ChartFullscreenOverlay.module.css';
-
     interface Props {
         open: boolean;
         title: string;
@@ -9,22 +7,10 @@
     }
 
     let { open, title, chart, onclose }: Props = $props();
-    let chartDiv = $state<HTMLDivElement | null>(null);
 
     function handleKeydown(e: KeyboardEvent) {
         if (open && e.key === 'Escape') onclose();
     }
-
-    $effect(() => {
-        if (open && chart && chartDiv) {
-            requestAnimationFrame(() => {
-                const rect = chartDiv!.getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0) {
-                    chart!.resize(rect.width, rect.height);
-                }
-            });
-        }
-    });
 
     function takeScreenshot() {
         if (!chart) return;
@@ -49,17 +35,67 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-    <div class={styles.backdrop} role="presentation" onclick={onclose}>
-        <div class={styles.content} onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}
-             role="dialog" aria-modal="true" tabindex="-1">
-            <div class={styles.header}>
-                <span class={styles.title}>{title}</span>
-                <div class={styles.actions}>
-                    <button class={styles.screenshotBtn} onclick={takeScreenshot}>Screenshot</button>
-                    <button class={styles.closeBtn} onclick={onclose}>✕</button>
-                </div>
-            </div>
-            <div bind:this={chartDiv} class={styles.chartBody}></div>
+    <div class="toolbar">
+        <span class="title">{title}</span>
+        <div class="actions">
+            <button class="screenshotBtn" onclick={takeScreenshot}>Screenshot</button>
+            <button class="closeBtn" onclick={onclose}>✕</button>
         </div>
     </div>
 {/if}
+
+<style>
+    .toolbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 44px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+        background: rgba(10, 12, 18, 0.94);
+        border-bottom: 1px solid #2a2e39;
+        z-index: 1001;
+        backdrop-filter: blur(8px);
+    }
+    .title {
+        color: #f1f5f9;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        flex: 1;
+    }
+    .actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .screenshotBtn {
+        padding: 5px 12px;
+        border: 1px solid #2a2e39;
+        border-radius: 4px;
+        background: transparent;
+        color: #888;
+        cursor: pointer;
+        font-size: 11px;
+        font-family: monospace;
+        transition: background 0.15s, color 0.15s;
+    }
+    .screenshotBtn:hover { background: #1a1d26; color: #fff; }
+    .closeBtn {
+        background: none;
+        border: none;
+        color: #64748b;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 4px 8px;
+        line-height: 1;
+        transition: color 0.15s;
+    }
+    .closeBtn:hover { color: #f1f5f9; }
+</style>

@@ -117,21 +117,25 @@
                     }
                     cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
 
-                    const lineData = cleanedCombined.map(x => ({
-                        time: x.time,
-                        value: x.line != null ? parseFloat(x.line) : 0
-                    }));
-                    const sigData = cleanedCombined.map(x => ({
-                        time: x.time,
-                        value: x.sig != null ? parseFloat(x.sig) : 0
-                    }));
-                    const histData = cleanedCombined.map(x => ({
-                        time: x.time,
-                        value: x.hist != null ? parseFloat(x.hist) : 0,
-                        color: x.hist != null
-                            ? (parseFloat(x.hist) >= 0 ? '#26a69a' : '#ef5350')
-                            : '#131722'
-                    }));
+                    const lineData = cleanedCombined
+                        .filter(x => x.line != null)
+                        .map(x => ({
+                            time: x.time,
+                            value: parseFloat(x.line!)
+                        }));
+                    const sigData = cleanedCombined
+                        .filter(x => x.sig != null)
+                        .map(x => ({
+                            time: x.time,
+                            value: parseFloat(x.sig!)
+                        }));
+                    const histData = cleanedCombined
+                        .filter(x => x.hist != null)
+                        .map(x => ({
+                            time: x.time,
+                            value: parseFloat(x.hist!),
+                            color: parseFloat(x.hist!) >= 0 ? '#26a69a' : '#ef5350'
+                        }));
 
                     macdLineSeries.setData(lineData);
                     macdSigSeries.setData(sigData);

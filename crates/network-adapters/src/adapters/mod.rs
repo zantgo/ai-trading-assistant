@@ -1,3 +1,6 @@
+// HOT PATH — real-time exchange WebSocket adapters.
+// These modules process live market data on the critical path.
+// Operations must be non-blocking and bounded-channel-aware.
 pub mod bitget;
 pub mod bitget_derivatives;
 pub mod bitget_rest;

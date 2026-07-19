@@ -9,6 +9,8 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { takeChartScreenshot } from '../lib/chartScreenshot';
     import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
+    import { attachZoneBands, type ZoneBandsPrimitive } from '../lib/zoneBands';
+    import { attachStrategyLevels, buildLevelLines, type StrategyLevelsPrimitive } from '../lib/strategyLevels';
 
     const app = useAppStore();
     let {
@@ -51,6 +53,8 @@
     let emaLongSeries: ISeriesApi<'Line'> | undefined;
     let vwapSeries: ISeriesApi<'Line'> | undefined;
     let heatmap: LiquidationHeatmapPrimitive | undefined;
+    let zoneBands: ZoneBandsPrimitive | undefined;
+    let strategyLevels: StrategyLevelsPrimitive | undefined;
 
     let prevLineMode = $state(false);
     let prevShowEmaFast = $state(false);
@@ -60,6 +64,11 @@
     let prevShowVwap = $state(false);
     let isFullscreen = $state(false);
     let storedHistory: any = null;
+
+    let showFibLevels = $state(false);
+    let showVpLevels = $state(false);
+    let showPivotLevels = $state(false);
+    let showClusterLevels = $state(false);
 
     function toggleFullscreen() {
         isFullscreen = !isFullscreen;
@@ -205,6 +214,8 @@
         registerChart(chart);
 
         heatmap = attachHeatmap(chart, candleSeries);
+        zoneBands = attachZoneBands(chart, candleSeries);
+        strategyLevels = attachStrategyLevels(candleSeries);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
@@ -331,6 +342,31 @@
         updateOverlayLine(timeSec as Time, emaSlowSeries, iSub(indicators, 'ema_stack', 'ema_slow'));
         updateOverlayLine(timeSec as Time, emaLongSeries, iSub(indicators, 'ema_stack', 'ema_long'));
         updateOverlayLine(timeSec as Time, vwapSeries, iSub(indicators, 'vwap', 'vwap'));
+
+        if (zoneBands) {
+            const opp = (snap as any)?.opportunity ?? null;
+            zoneBands.updateData(opp);
+        }
+
+        if (strategyLevels) {
+            const cluster = tf?.cluster;
+            const anyShow = showFibLevels || showVpLevels || showPivotLevels || showClusterLevels;
+            if (anyShow) {
+                const lines = buildLevelLines(
+                    indicators,
+                    cluster,
+                    showFibLevels,
+                    showVpLevels,
+                    showPivotLevels,
+                    false,
+                    showClusterLevels,
+                    close,
+                );
+                strategyLevels.setLines(lines);
+            } else {
+                strategyLevels.setLines([]);
+            }
+        }
     });
 
     $effect(() => {
@@ -344,6 +380,12 @@
 
 <div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
     <div class="chart-container" bind:this={container}></div>
+    <div class="level-toggles">
+        <button class="lv-btn" class:lv-active={showFibLevels} onclick={() => showFibLevels = !showFibLevels} title="Fibonacci levels">Fib</button>
+        <button class="lv-btn" class:lv-active={showVpLevels} onclick={() => showVpLevels = !showVpLevels} title="Volume Profile">VP</button>
+        <button class="lv-btn" class:lv-active={showPivotLevels} onclick={() => showPivotLevels = !showPivotLevels} title="Pivot Points">Pivot</button>
+        <button class="lv-btn" class:lv-active={showClusterLevels} onclick={() => showClusterLevels = !showClusterLevels} title="Liquidity Clusters">Liq</button>
+    </div>
     {#if isFullscreen}
         <div class="fs-toolbar">
             <span class="fs-title">PRICE — {pairKey} · {timeframe}s</span>
@@ -368,6 +410,28 @@
         width: 100%;
         height: 100%;
     }
+    .level-toggles {
+        position: absolute;
+        top: 4px;
+        right: 50px;
+        display: flex;
+        gap: 4px;
+        z-index: 5;
+    }
+    .lv-btn {
+        padding: 2px 8px;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 3px;
+        background: rgba(10,12,18,0.85);
+        color: #64748b;
+        cursor: pointer;
+        font-size: 10px;
+        font-family: monospace;
+        font-weight: 600;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .lv-btn:hover { color: #94a3b8; border-color: rgba(255,255,255,0.25); }
+    .lv-active { color: #e2e8f0; border-color: rgba(255,255,255,0.35); background: rgba(30,30,40,0.9); }
     .fs-toolbar {
         position: absolute;
         top: 0;

@@ -1,3 +1,7 @@
+// HOT PATH — real-time indicator pipeline.
+// Receives live NormalizedEvents from the exchange adapter layer,
+// builds candles, runs 50 indicators, and broadcasts MarketSnapshots.
+// This is the critical data path; operations must be non-blocking.
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::collections::{HashMap, VecDeque};

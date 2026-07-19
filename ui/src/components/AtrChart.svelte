@@ -101,17 +101,19 @@
                 if (indicatorHistory && indicatorHistory.atr_14 && indicatorHistory.atr_14.length > 0) {
                     const rawAtrData = indicatorHistory.times.map((t: number, i: number) => {
                         const val = indicatorHistory.atr_14[i];
+                        if (val == null) return null;
                         return {
                             time: t as Time,
-                            value: val != null ? parseFloat(val) : 0
+                            value: parseFloat(val)
                         };
                     });
 
                     const seenTimes = new Set<number>();
                     const cleanedAtrData: { time: Time; value: number }[] = [];
                     for (const item of rawAtrData) {
+                        if (!item) continue;
                         const tNum = item.time as number;
-                        if (item && tNum && !seenTimes.has(tNum)) {
+                        if (tNum && !seenTimes.has(tNum)) {
                             seenTimes.add(tNum);
                             cleanedAtrData.push(item);
                         }

@@ -69,7 +69,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
     it('parses the nested indicators map into the state rune', () => {
         const tf: TimeframeTelemetry = app.instancesMap['BTC-USDT'].microTerm;
-        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()));
+        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
 
         // Nested map is the source of truth.
         expect(tf.indicators['rsi'].normalized).toBe(0.75);
@@ -81,7 +81,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
     it('exposes indicator values via the shared telemetry accessors', () => {
         const tf = app.instancesMap['BTC-USDT'].microTerm;
-        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()));
+        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
 
         // Core (non-indicator) market data stays as flat text, price-scaled.
         expect(tf.priceText).toBe('65000.0');
@@ -102,7 +102,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
 
     it('renders the backend state_label verbatim (no client re-derivation)', () => {
         const tf = app.instancesMap['BTC-USDT'].microTerm;
-        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()));
+        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
         // The TelemetryTable binds directly to these labels.
         expect(tf.indicators['squeeze'].state_label).toBe('BULLISH_EXPANSION_ACCELERATING');
         expect(tf.indicators['bbwp'].state_label).toBe('NORMAL_VOLATILITY_BULL_CYCLE');
@@ -114,6 +114,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         applySnapshotToTimeframe(app,
             tf,
             wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '30000.00' }),
+            'BTC-USDT',
         );
         expect(tf.indicators).toEqual({});
         expect(tf.priceText).toBe('30000.0');
@@ -128,7 +129,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         const btc = app.instancesMap['BTC-USDT'].microTerm;
         const eth = app.instancesMap['ETH-USDT'].microTerm;
 
-        applySnapshotToTimeframe(app, btc, wsEvent(nestedSnapshot()));
+        applySnapshotToTimeframe(app, btc, wsEvent(nestedSnapshot()), 'BTC-USDT');
         applySnapshotToTimeframe(app,
             eth,
             wsEvent({
@@ -139,6 +140,7 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
                     rsi: { raw_value: 72.0, normalized: -0.75, state_label: 'OVERBOUGHT_DISTRIBUTION' },
                 },
             }),
+            'ETH-USDT',
         );
 
         expect(btc.indicators['rsi'].state_label).toBe('OVERSOLD_ACCUMULATION');

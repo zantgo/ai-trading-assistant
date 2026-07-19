@@ -30,15 +30,14 @@
     // ─── Lib imports (live data pipeline) ───────────────────────────────
     import { fetchConfigFromServer, applyConfigToStore } from './lib/api.svelte';
     import {
-        createWsState, disconnectAllWs,
-        connectWebsocket as connectWs, shouldReconnect,
+        connectWsForInstance, disconnectWsForInstance, shouldReconnect,
         type WsState,
     } from './lib/websocket.svelte';
     import { buildEngineHash, parseEngineHash } from './lib/router.svelte';
     import { getIcon } from './lib/icons';
 
     const app = useAppStore();
-    const wsState: WsState = createWsState();
+    let wssMap = $state<Record<string, WsState>>({});
 
     // ─── URL hash sync for right-click "open in new tab" ─────────────────
     let restoringFromHash = $state(false);
@@ -231,15 +230,26 @@
             const { firstSymbol } = applyConfigToStore(app, config);
             if (firstSymbol) app.activeTab = app.pairKeyFor(firstSymbol);
             configReady = true;
-            connectWs(app, wsState);
+            for (const sym of Object.keys(app.instancesMap)) {
+                connectWsForInstance(app, wssMap, sym);
+            }
         } catch (e) { console.error('Failed to fetch config:', e); configReady = true; }
     }
 
-    onDestroy(() => { disconnectAllWs(wsState); });
+    onDestroy(() => {
+        for (const sym of Object.keys(wssMap)) {
+            disconnectWsForInstance(wssMap, sym);
+        }
+    });
 
     $effect(() => {
-        const tab = app.activeTab;
-        if (configReady && tab && shouldReconnect(app, wsState)) connectWs(app, wsState);
+        if (!configReady) return;
+        for (const sym of Object.keys(app.instancesMap)) {
+            const state = wssMap[sym];
+            if (!state || shouldReconnect(app, state, sym)) {
+                connectWsForInstance(app, wssMap, sym);
+            }
+        }
     });
 
     // ─── Workspace panel CRUD ───────────────────────────────────────────
@@ -258,7 +268,7 @@
         createLoading = true; createError = null;
         try {
             const result = await createInstance(base, app.quote);
-            if (result.ok) { app.initInstance(base); newBase = ''; await fetchWorkspaces(); await app.fetchSessionStatus(); }
+            if (result.ok) { app.initInstance(base); newBase = ''; await fetchWorkspaces(); await app.fetchSessionStatus(); connectWsForInstance(app, wssMap, app.pairKeyFor(base)); }
             else { createError = result.error || 'Failed to create workspace.'; }
         } catch (_) { createError = 'Failed to create workspace.'; }
         finally { createLoading = false; }
@@ -275,7 +285,7 @@
         if (action === 'delete') {
             try {
                 await fetch(`/api/instances/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                if (pair) { app.removeInstance(pair); if (app.selectedInstance === pair) app.exitInstance(); }
+                if (pair) { disconnectWsForInstance(wssMap, pair); app.removeInstance(pair); if (app.selectedInstance === pair) app.exitInstance(); }
             } catch (_) {}
         } else {
             try {

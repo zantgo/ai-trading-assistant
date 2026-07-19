@@ -605,6 +605,47 @@ async fn spawn_tasks(
                 }
             }
             let session_start = std::time::Instant::now();
+
+            // ── Spawn heartbeat task ──────────────────────────────────────
+            // Pings the exchange status tracker every 10 s while the adapter
+            // loop is alive so the frontend can display a fresh heartbeat age.
+            let hb_es = es_tracker.clone();
+            let hb_label = exchange_label.clone();
+            let hb_cancel = ws_cancel.clone();
+            let heartbeat_task = tokio::spawn(async move {
+                let mut interval = tokio::time::interval(
+                    std::time::Duration::from_secs(10),
+                );
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = hb_cancel.cancelled() => break,
+                        _ = interval.tick() => {
+                            let ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
+                            hb_es.record_heartbeat(&hb_label, ms).await;
+                        }
+                    }
+                }
+            });
+
+            // ── Delayed connect signal ────────────────────────────────────
+            // The adapter's WS handshake succeeds a few hundred ms after
+            // `.await` begins.  We fire set_connected after a 2 s grace
+            // period; if the adapter crashes before that the connect task
+            // is aborted when the adapter returns.
+            let conn_es = es_tracker.clone();
+            let conn_label = exchange_label.clone();
+            let conn_cancel = ws_cancel.clone();
+            let connect_task = tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if !conn_cancel.is_cancelled() {
+                    conn_es.set_connected(&conn_label).await;
+                }
+            });
+
             if exchange_for_spawn == ExchangeChoice::Bitget {
                 network_adapters::adapters::bitget::run_for_symbol(
                     ws_symbol.clone(),
@@ -625,6 +666,9 @@ async fn spawn_tasks(
                 )
                 .await;
             }
+
+            heartbeat_task.abort();
+            connect_task.abort();
 
             es_disconnect.set_disconnected(&es_disconnect_label).await;
             let disconnect_ms = now_ms();

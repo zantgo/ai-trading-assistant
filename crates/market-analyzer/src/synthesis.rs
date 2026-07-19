@@ -9,7 +9,7 @@ use core_domain::analysis::{
 };
 use core_domain::liquidity::{LiquidationClusterMatrix, LiquidityFlow};
 use core_domain::models::MarketSnapshot;
-use core_domain::opportunity::OpportunityMatrix;
+use core_domain::opportunity::{ConfluentLevel, LevelSource, OpportunityMatrix};
 use core_domain::risk::{self, RiskMatrix};
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
 use core_domain::market_context::MarketContext;
@@ -100,6 +100,321 @@ fn compute_candidate_score(
     );
 
     (score, notes)
+}
+
+struct LevelCandidate {
+    price: f64,
+    source: LevelSource,
+    weight: f64,
+}
+
+fn indicator_sub_value(
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    key: &str,
+    sub: &str,
+) -> Option<f64> {
+    indicators
+        .get(key)
+        .and_then(|v| v.values.as_ref())
+        .and_then(|m| m.get(sub))
+        .copied()
+}
+
+fn collect_candidate_levels(
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    cluster: Option<&LiquidationClusterMatrix>,
+    close: f64,
+    bias_bullish: bool,
+    for_target: bool,
+) -> Vec<LevelCandidate> {
+    let mut candidates: Vec<LevelCandidate> = Vec::new();
+
+    let fib = indicators.get("fibonacci").and_then(|v| v.values.as_ref());
+    let vp = indicators.get("volume_profile").and_then(|v| v.values.as_ref());
+    let pp = indicators.get("pivot_points").and_then(|v| v.values.as_ref());
+
+    let source_weight = |s: LevelSource| -> f64 {
+        match s {
+            LevelSource::Fibonacci => 0.25,
+            LevelSource::VolumeProfile => 0.30,
+            LevelSource::PivotPoints => 0.15,
+            LevelSource::SupportResistance => 0.20,
+            LevelSource::LiquidityCluster => 0.10,
+            LevelSource::AtrFallback => 0.05,
+        }
+    };
+
+    if for_target {
+        if bias_bullish {
+            if let Some(m) = fib {
+                for key in &["ext_1272", "ext_1618", "ext_2000", "ext_2618"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::Fibonacci, weight: source_weight(LevelSource::Fibonacci) });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = vp {
+                for key in &["vah"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: source_weight(LevelSource::VolumeProfile) });
+                        }
+                    }
+                }
+                for key in &["lvn_0", "lvn_1", "lvn_2"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: source_weight(LevelSource::VolumeProfile) * 0.8 });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = pp {
+                for key in &["r1", "r2", "r3"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::PivotPoints, weight: source_weight(LevelSource::PivotPoints) });
+                        }
+                    }
+                }
+            }
+            if let Some(c) = cluster {
+                for lc in &c.long_clusters {
+                    let p = (lc.price_low + lc.price_high) / 2.0;
+                    if p > close {
+                        candidates.push(LevelCandidate { price: p, source: LevelSource::LiquidityCluster, weight: source_weight(LevelSource::LiquidityCluster) * (lc.notional_usd / c.total_short_oi_usd.max(1.0)).min(1.0) });
+                    }
+                }
+            }
+        } else {
+            if let Some(m) = fib {
+                for key in &["ext_1272", "ext_1618", "ext_2000", "ext_2618"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::Fibonacci, weight: source_weight(LevelSource::Fibonacci) });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = vp {
+                for key in &["val"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: source_weight(LevelSource::VolumeProfile) });
+                        }
+                    }
+                }
+                for key in &["lvn_0", "lvn_1", "lvn_2"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: source_weight(LevelSource::VolumeProfile) * 0.8 });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = pp {
+                for key in &["s1", "s2", "s3"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::PivotPoints, weight: source_weight(LevelSource::PivotPoints) });
+                        }
+                    }
+                }
+            }
+            if let Some(c) = cluster {
+                for lc in &c.short_clusters {
+                    let p = (lc.price_low + lc.price_high) / 2.0;
+                    if p < close {
+                        candidates.push(LevelCandidate { price: p, source: LevelSource::LiquidityCluster, weight: source_weight(LevelSource::LiquidityCluster) * (lc.notional_usd / c.total_long_oi_usd.max(1.0)).min(1.0) });
+                    }
+                }
+            }
+        }
+    } else {
+        if bias_bullish {
+            if let Some(m) = fib {
+                for key in &["fib_0382", "fib_0500", "fib_0618", "fib_0660", "fib_0786"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > 0.0 && v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::Fibonacci, weight: source_weight(LevelSource::Fibonacci) });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = vp {
+                for key in &["poc", "val"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > 0.0 && v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: source_weight(LevelSource::VolumeProfile) });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = pp {
+                for key in &["s1", "s2", "s3"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > 0.0 && v < close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::PivotPoints, weight: source_weight(LevelSource::PivotPoints) });
+                        }
+                    }
+                }
+            }
+            if let Some(c) = cluster {
+                for lc in &c.short_clusters {
+                    let p = (lc.price_low + lc.price_high) / 2.0;
+                    if p > 0.0 && p < close {
+                        candidates.push(LevelCandidate { price: p, source: LevelSource::LiquidityCluster, weight: source_weight(LevelSource::LiquidityCluster) * (lc.notional_usd / c.total_long_oi_usd.max(1.0)).min(1.0) });
+                    }
+                }
+            }
+        } else {
+            if let Some(m) = fib {
+                for key in &["fib_0382", "fib_0500", "fib_0618", "fib_0660", "fib_0786"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > 0.0 && v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::Fibonacci, weight: source_weight(LevelSource::Fibonacci) });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = vp {
+                for key in &["poc", "vah"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > 0.0 && v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: source_weight(LevelSource::VolumeProfile) });
+                        }
+                    }
+                }
+            }
+            if let Some(m) = pp {
+                for key in &["r1", "r2", "r3"] {
+                    if let Some(&v) = m.get(*key) {
+                        if v > 0.0 && v > close {
+                            candidates.push(LevelCandidate { price: v, source: LevelSource::PivotPoints, weight: source_weight(LevelSource::PivotPoints) });
+                        }
+                    }
+                }
+            }
+            if let Some(c) = cluster {
+                for lc in &c.long_clusters {
+                    let p = (lc.price_low + lc.price_high) / 2.0;
+                    if p > 0.0 && p > close {
+                        candidates.push(LevelCandidate { price: p, source: LevelSource::LiquidityCluster, weight: source_weight(LevelSource::LiquidityCluster) * (lc.notional_usd / c.total_short_oi_usd.max(1.0)).min(1.0) });
+                    }
+                }
+            }
+        }
+    }
+
+    candidates
+}
+
+fn cluster_levels(
+    candidates: &[LevelCandidate],
+    tolerance: f64,
+) -> Vec<Vec<&LevelCandidate>> {
+    if candidates.is_empty() {
+        return vec![];
+    }
+    let mut sorted: Vec<usize> = (0..candidates.len()).collect();
+    sorted.sort_by(|&a, &b| candidates[a].price.partial_cmp(&candidates[b].price).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut clusters: Vec<Vec<&LevelCandidate>> = Vec::new();
+    for &idx in &sorted {
+        let cand = &candidates[idx];
+        let mut found = false;
+        for cluster in &mut clusters {
+            let cluster_avg = cluster.iter().map(|c| c.price).sum::<f64>() / cluster.len() as f64;
+            if (cand.price - cluster_avg).abs() <= tolerance {
+                cluster.push(cand);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            clusters.push(vec![cand]);
+        }
+    }
+    clusters
+}
+
+fn clusters_to_confluent(clusters: Vec<Vec<&LevelCandidate>>) -> Vec<ConfluentLevel> {
+    let mut out: Vec<ConfluentLevel> = Vec::new();
+    for cluster in &clusters {
+        let avg_price = cluster.iter().map(|c| c.price).sum::<f64>() / cluster.len() as f64;
+        let mut sources: Vec<LevelSource> = cluster.iter().map(|c| c.source).collect();
+        sources.sort_by_key(|s| *s as u8);
+        sources.dedup_by_key(|s| *s as u8);
+        let confluence_count = sources.len() as u32;
+        let total_weight: f64 = cluster.iter().map(|c| c.weight).sum();
+        let strength = (total_weight * 100.0).min(100.0);
+        out.push(ConfluentLevel {
+            price: avg_price,
+            confluence_count,
+            sources,
+            strength,
+        });
+    }
+    out.sort_by(|a, b| b.strength.partial_cmp(&a.strength).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
+fn derive_confluent_zones(
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+    cluster: Option<&LiquidationClusterMatrix>,
+    close: f64,
+    bias_bullish: bool,
+) -> (Vec<ConfluentLevel>, Vec<ConfluentLevel>, Vec<ConfluentLevel>) {
+    let atr = indicators
+        .get("atr")
+        .and_then(|v| v.values.as_ref())
+        .and_then(|vals| vals.get("atr_14").copied())
+        .unwrap_or(close * 0.01);
+    let tolerance = (atr * 0.2).max(close * 0.001);
+
+    let entry_candidates = collect_candidate_levels(indicators, cluster, close, bias_bullish, false);
+    let target_candidates = collect_candidate_levels(indicators, cluster, close, bias_bullish, true);
+
+    let entry_clusters = cluster_levels(&entry_candidates, tolerance);
+    let target_clusters = cluster_levels(&target_candidates, tolerance);
+
+    let entry_levels = clusters_to_confluent(entry_clusters);
+    let target_levels = clusters_to_confluent(target_clusters);
+
+    let invalidation_candidates: Vec<LevelCandidate> = if bias_bullish {
+        let mut inval = Vec::new();
+        if let Some(v) = indicator_sub_value(indicators, "fibonacci", "fib_0786") {
+            if v > 0.0 && v < close {
+                inval.push(LevelCandidate { price: v, source: LevelSource::Fibonacci, weight: 0.5 });
+            }
+        }
+        if let Some(v) = indicator_sub_value(indicators, "volume_profile", "val") {
+            if v > 0.0 && v < close {
+                inval.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: 0.4 });
+            }
+        }
+        inval
+    } else {
+        let mut inval = Vec::new();
+        if let Some(v) = indicator_sub_value(indicators, "fibonacci", "fib_0786") {
+            if v > 0.0 && v > close {
+                inval.push(LevelCandidate { price: v, source: LevelSource::Fibonacci, weight: 0.5 });
+            }
+        }
+        if let Some(v) = indicator_sub_value(indicators, "volume_profile", "vah") {
+            if v > 0.0 && v > close {
+                inval.push(LevelCandidate { price: v, source: LevelSource::VolumeProfile, weight: 0.4 });
+            }
+        }
+        inval
+    };
+
+    let inval_clusters = cluster_levels(&invalidation_candidates, tolerance);
+    let invalidation_levels = clusters_to_confluent(inval_clusters);
+
+    (entry_levels, target_levels, invalidation_levels)
 }
 
 fn compute_opportunity(
@@ -271,21 +586,48 @@ fn compute_opportunity(
         .and_then(|vals| vals.get("atr_14").copied())
         .unwrap_or(close * 0.01);
 
-    let entry_low = (close - atr * 0.5).max(0.0);
-    let entry_high = close + atr * 0.5;
-    let target_low = close + atr * (if primary_score >= 70.0 { 2.0 } else { 1.5 });
-    let target_high = close + atr * (if primary_score >= 70.0 { 3.0 } else { 2.0 });
+    let (confluent_entry, confluent_target, confluent_inval) =
+        derive_confluent_zones(indicators, cluster, close, bias_bullish);
 
-    let invalidation_level = if primary_score >= 70.0 {
-        close - atr * 2.0
+    let has_confluent_entry = confluent_entry.len() >= 2;
+    let has_confluent_target = confluent_target.len() >= 2;
+    let has_confluent_inval = !confluent_inval.is_empty();
+
+    let entry_zone = if has_confluent_entry {
+        let prices: Vec<f64> = confluent_entry.iter().map(|c| c.price).collect();
+        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let low = low.min(close).max(0.0);
+        let high = high.max(close);
+        core_domain::opportunity::PriceRange { low, high }
     } else {
-        close - atr * 1.5
-    }
-    .max(0.0);
+        let entry_low = (close - atr * 0.5).max(0.0);
+        let entry_high = close + atr * 0.5;
+        core_domain::opportunity::PriceRange { low: entry_low, high: entry_high }
+    };
+
+    let target_zone = if has_confluent_target {
+        let prices: Vec<f64> = confluent_target.iter().map(|c| c.price).collect();
+        let low = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let high = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        core_domain::opportunity::PriceRange { low, high }
+    } else {
+        let target_low = close + atr * (if primary_score >= 70.0 { 2.0 } else { 1.5 });
+        let target_high = close + atr * (if primary_score >= 70.0 { 3.0 } else { 2.0 });
+        core_domain::opportunity::PriceRange { low: target_low, high: target_high }
+    };
+
+    let invalidation_level = if has_confluent_inval {
+        confluent_inval[0].price.max(0.0)
+    } else if primary_score >= 70.0 {
+        (close - atr * 2.0).max(0.0)
+    } else {
+        (close - atr * 1.5).max(0.0)
+    };
 
     let expected_rr_internal = if atr > 0.0 {
-        let avg_target = (target_low + target_high) / 2.0;
-        let entry_mid = (entry_low + entry_high) / 2.0;
+        let avg_target = (target_zone.low + target_zone.high) / 2.0;
+        let entry_mid = (entry_zone.low + entry_zone.high) / 2.0;
         let reward = (avg_target - entry_mid).abs();
         let risk_val = (entry_mid - invalidation_level).abs();
         if risk_val > 0.0 {
@@ -322,17 +664,14 @@ fn compute_opportunity(
         forecast_confidence,
         contributing_signals,
         invalidation_note,
-        entry_zone: core_domain::opportunity::PriceRange {
-            low: entry_low,
-            high: entry_high,
-        },
-        target_zone: core_domain::opportunity::PriceRange {
-            low: target_low,
-            high: target_high,
-        },
+        entry_zone,
+        target_zone,
         invalidation_level,
         expected_rr_internal,
         time_horizon,
+        confluent_entry_levels: confluent_entry,
+        confluent_target_levels: confluent_target,
+        confluent_invalidation_levels: confluent_inval,
     })
 }
 
