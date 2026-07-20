@@ -49,6 +49,10 @@
     flex: 1;
     padding: 1.5rem;
     overflow-y: auto;
+    /* Without this, a single wide monospace hostname (e.g. inside the
+       Clock Monitor's NTP Servers cell) makes the flex column refuse to
+       shrink below its min-content, blowing out the layout. */
+    min-width: 0;
 }
 
 .sectionTitle {

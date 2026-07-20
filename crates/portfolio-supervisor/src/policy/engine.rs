@@ -225,6 +225,7 @@ mod tests {
         };
 
         MarketSnapshot {
+            timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro),
             exchange: None,
             timeframe_secs: 60,
             timestamp: 1000,

@@ -13,6 +13,7 @@
 
     import styles from './styles/brutalist-grid.module.css';
     import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList } from './lib/api.svelte';
+    import { pickInstanceLivePrice } from './lib/livePrice';
     import {
         connectWsForInstance, disconnectWsForInstance, shouldReconnect,
         type WsState,
@@ -53,18 +54,15 @@
 
     const livePrice = $derived.by(() => {
         if (!activePair) return '--';
-        const tfs = [activePair.microTerm, activePair.fastTerm, activePair.slowTerm, activePair.macroTerm];
-        for (const tf of tfs) {
-            const p = tf?.priceText;
-            if (p && p !== '0' && p !== 'NaN' && parseFloat(p) > 0) {
-                const snap = tf?.latestSnapshot;
-                if (snap) {
-                    const age = (Date.now() / 1000) - ((snap as Record<string, unknown>).timestamp as number);
-                    if (age < 30) return p;
-                }
-            }
-        }
-        return activePair.microTerm.priceText || '--';
+        return pickInstanceLivePrice(
+            {
+                microTerm: activePair.microTerm,
+                fastTerm: activePair.fastTerm,
+                slowTerm: activePair.slowTerm,
+                macroTerm: activePair.macroTerm,
+            },
+            Date.now(),
+        );
     });
 
     const change24h = $derived.by<number | null>(() => {

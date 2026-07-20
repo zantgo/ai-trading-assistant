@@ -1,4 +1,5 @@
 use market_analyzer::analyzer::{ActivePair, TimeframePipeline};
+use core_domain::models::TimeframeSlot;
 use config_models::{FibonacciConfig, PlatformConfig, WorkspaceConfig};
 use database_storage;
 use portfolio_supervisor::instance::TimeframeBuffers;
@@ -166,6 +167,7 @@ async fn test_websocket_stream_with_active_pair() {
         cluster_matrix: Arc::new(RwLock::new(None)),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         micro: TimeframePipeline {
+            slot: TimeframeSlot::Micro,
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: mid_bcast.clone(),
             latest_snapshot: Arc::new(RwLock::new(None)),
@@ -182,6 +184,7 @@ async fn test_websocket_stream_with_active_pair() {
             active_set: Default::default(),
         },
         fast: TimeframePipeline {
+            slot: TimeframeSlot::Fast,
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: long_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
@@ -198,6 +201,7 @@ async fn test_websocket_stream_with_active_pair() {
             active_set: Default::default(),
         },
         slow: TimeframePipeline {
+            slot: TimeframeSlot::Slow,
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: macro_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),
@@ -214,6 +218,7 @@ async fn test_websocket_stream_with_active_pair() {
             active_set: Default::default(),
         },
         r#macro: TimeframePipeline {
+            slot: TimeframeSlot::Macro,
             history: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             broadcast_tx: supermacro_bcast,
             latest_snapshot: Arc::new(RwLock::new(None)),

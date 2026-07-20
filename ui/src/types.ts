@@ -479,7 +479,24 @@ export function emptyIndicator(): IndicatorDto {
     return { raw_value: 0, normalized: 0, state_label: 'UNKNOWN', values: null };
 }
 
+/// Stable slot identity. The four timeframes are positional; their actual
+/// `barDurationSec` may be any positive value the user picked. Slot identity
+/// travels on the wire as `timeframe_slot` (`micro`/`fast`/`slow`/`macro`)
+/// and is stamped by the analyzer onto every snapshot. Consumers that need
+/// to bind a chart to a column should key by slot, never by duration.
+export type TimeframeSlotKind = 'micro' | 'fast' | 'slow' | 'macro';
+
+export const TIMEFRAME_SLOT_KINDS: readonly TimeframeSlotKind[] = ['micro', 'fast', 'slow', 'macro'] as const;
+
+export function isTimeframeSlotKind(s: unknown): s is TimeframeSlotKind {
+    return s === 'micro' || s === 'fast' || s === 'slow' || s === 'macro';
+}
+
 export interface TimeframeTelemetry {
+    /// Authoritative slot identity (`micro`/`fast`/`slow`/`macro`). A
+    /// `TimeframeTelemetry` lives on a known slot — never derive slot from
+    /// `barDurationSec`.
+    slot: TimeframeSlotKind;
     symbol: string;
     exchange: string;
     barDurationSec: number;

@@ -147,6 +147,7 @@ mod tests {
 
     fn empty_snapshot() -> MarketSnapshot {
         MarketSnapshot {
+            timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro),
             exchange: Some(core_domain::normalized::Exchange::Hyperliquid),
             timeframe_secs: 60,
             timestamp: 0,

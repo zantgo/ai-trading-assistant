@@ -309,6 +309,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.fib_config,
         &input.internal_symbol,
         input.micro_secs,
+        core_domain::models::TimeframeSlot::Micro,
     );
     let w_fast = analyzer::warm_indicators_for_timeframe(
         fast_candles,
@@ -316,6 +317,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.fib_config,
         &input.internal_symbol,
         input.fast_secs,
+        core_domain::models::TimeframeSlot::Fast,
     );
     let w_slow = analyzer::warm_indicators_for_timeframe(
         slow_candles,
@@ -323,6 +325,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.fib_config,
         &input.internal_symbol,
         input.slow_secs,
+        core_domain::models::TimeframeSlot::Slow,
     );
     let w_macro = analyzer::warm_indicators_for_timeframe(
         macro_candles,
@@ -330,6 +333,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.fib_config,
         &input.internal_symbol,
         input.macro_secs,
+        core_domain::models::TimeframeSlot::Macro,
     );
 
     Ok((w_micro, w_fast, w_slow, w_macro))

@@ -142,6 +142,7 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
                     pk,
                     secs,
                     label,
+                    core_domain::models::TimeframeSlot::Micro,
                     cancel,
                     None,
                     None,

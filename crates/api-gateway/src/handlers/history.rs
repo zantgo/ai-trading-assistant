@@ -34,7 +34,7 @@ pub async fn serve_history(
 
     let (prices, candles, indicator_history) = match get_active_pair(&state, &pair_key).await {
         Some(pair) => {
-            let mut snap_hist = pair.snapshot_history_vec(tf_secs).await;
+            let mut snap_hist = pair.snapshot_history_vec_for_secs(tf_secs).await;
             snap_hist.truncate(limit);
             // Drop leading snapshots with no close so the first bar the UI sees
             // always has real OHLC. The first historical candle is therefore the

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { iSub, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iSub, formatTimeframeLabel } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
@@ -9,14 +9,16 @@
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
 
     const app = useAppStore();
-    let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
+    // Slot identity is positional; never re-derive from duration.
     const tf = $derived(
-        timeframe === pair?.fastTerm?.barDurationSec ? pair?.fastTerm :
-        timeframe === pair?.slowTerm?.barDurationSec ? pair?.slowTerm :
-        timeframe === pair?.macroTerm?.barDurationSec ? pair?.macroTerm :
-        pair?.microTerm
+        slot === 'micro' ? pair?.microTerm :
+        slot === 'fast'  ? pair?.fastTerm :
+        slot === 'slow'  ? pair?.slowTerm :
+                          pair?.macroTerm
     );
+    const timeframe = $derived(tf?.barDurationSec ?? 60);
 
     let container: HTMLDivElement;
     let chart: IChartApi = $state(null!);

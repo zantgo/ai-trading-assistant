@@ -121,6 +121,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             "Hyperliquid:BTC".to_string(),
             60,
             "Micro",
+            core_domain::models::TimeframeSlot::Micro,
             cancel,
             Some(candle_tx),
             None,

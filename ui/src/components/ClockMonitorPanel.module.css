@@ -21,14 +21,23 @@
 
 .metrics {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    /* `minmax(0, 1fr)` lets a card hold a single overlong word (e.g. an
+       NTP hostname like `time.cloudflare.com`) without expanding past the
+       panel width. Without the `0` lower bound, the grid track locks at
+       its min-content size and the row overflows. */
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     gap: 1rem;
+    min-width: 0;
 }
 
 .metric {
     padding: 0.75rem;
     background: var(--metric-bg, #222);
     border-radius: 6px;
+    /* Belt-and-suspenders for the grid-track-collapse fix; without this,
+       the default `min-width: auto` keeps the cell at min-content. */
+    min-width: 0;
+    overflow: hidden;
 }
 
 .metric-label {
@@ -49,10 +58,18 @@
     font-size: 0.85rem;
     line-height: 1.6;
     color: var(--text-primary, #e0e0e0);
+    /* Allow wrapping so a long monospace hostname breaks inside the card
+       instead of pushing the right edge beyond the panel border. */
+    overflow-wrap: anywhere;
+    min-width: 0;
 }
 
 .server-item {
     padding: 0.15rem 0;
+    /* `word-break: break-all` is the final fallback for monospace strings
+       that contain no break opportunity (e.g. a bare hostname). */
+    overflow-wrap: anywhere;
+    word-break: break-all;
 }
 
 .drift-good {

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
-    import { iRaw, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iRaw, formatTimeframeLabel } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
@@ -10,9 +10,9 @@
     import { createSignalMarkers, type SignalMarkerController } from '../lib/signalMarkers';
 
     const app = useAppStore();
-    let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+    let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(slot === 'micro' ? pair?.microTerm : slot === 'fast' ? pair?.fastTerm : slot === 'slow' ? pair?.slowTerm : pair?.macroTerm); const timeframe = $derived(tf?.barDurationSec ?? 60);
 
     let container: HTMLDivElement;
     let chart: IChartApi = $state(null!);

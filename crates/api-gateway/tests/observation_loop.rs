@@ -160,6 +160,7 @@ async fn observation_loop_latency_p95_below_threshold() {
             "BTC-USDT".to_string(),
             60,
             "Micro",
+            core_domain::models::TimeframeSlot::Micro,
             cancel,
             None,
             None,

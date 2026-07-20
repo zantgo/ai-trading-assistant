@@ -147,4 +147,136 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(eth.indicators['rsi'].state_label).toBe('OVERBOUGHT_DISTRIBUTION');
         expect(eth.priceText).toBe('3200.00');
     });
+
+    it('drops foreign-slot snapshots even when duration matches', () => {
+        // Regression: with the legacy duration-based dispatcher, a snapshot
+        // whose `timeframe_slot` doesn't match the receiving slot (e.g. a
+        // micro snapshot accidentally routed to the slow WS connection
+        // because both happened to share `timeframe_secs=60`) silently
+        // mutated the wrong slot. With `timeframe_slot` on the wire we
+        // reject foreign slots so this cannot happen.
+        const tf = app.instancesMap['BTC-USDT'].slowTerm;
+        const indicatorsBefore = { ...tf.indicators };
+        const rsiBefore = tf.indicators['rsi']?.state_label;
+
+        const foreignMicro = {
+            timeframe_slot: 'micro',
+            symbol: 'BTC',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '99999.99',
+            indicators: {
+                rsi: { raw_value: 99.0, normalized: 0.95, state_label: 'FOREIGN_OVERRIDE' },
+            },
+        } as Record<string, unknown>;
+        applySnapshotToTimeframe(app, tf, wsEvent(foreignMicro), 'BTC-USDT');
+        // Foreign-slot snapshot must NOT have mutated the slow slot's
+        // indicator payload (which is what the bug originally corrupted).
+        expect(tf.indicators['rsi']?.state_label).toBe(rsiBefore);
+        expect(Object.keys(tf.indicators).length).toBe(Object.keys(indicatorsBefore).length);
+
+        const ownSlow = {
+            timeframe_slot: 'slow',
+            symbol: 'BTC',
+            timeframe_secs: 60,
+            is_completed: true,
+            mid_price: '65100.00',
+            indicators: {
+                rsi: { raw_value: 11.0, normalized: -0.95, state_label: 'OVERSOLD' },
+            },
+        } as Record<string, unknown>;
+        applySnapshotToTimeframe(app, tf, wsEvent(ownSlow), 'BTC-USDT');
+        expect(tf.priceText).toBe('65100.0');
+        expect(tf.indicators['rsi'].state_label).toBe('OVERSOLD');
+    });
+
+    it('accepts legacy snapshots without timeframe_slot via positional slot binding', () => {
+        // Backward-compat: older backends omit `timeframe_slot`. The chart
+        // is bound by positional slot, not by inferred duration, so a
+        // missing `timeframe_slot` must NOT cause the snapshot to be
+        // dropped — the receiving slot is already identified by the WS
+        // dispatcher, and the dispatcher's slot choice is what determines
+        // where the snapshot lands.
+        const tf = app.instancesMap['BTC-USDT'].fastTerm;
+        const legacy = {
+            symbol: 'BTC',
+            timeframe_secs: 180,
+            is_completed: true,
+            mid_price: '64950.00',
+            indicators: {
+                rsi: { raw_value: 33.0, normalized: 0.7, state_label: 'LEGACY_OVERRIDE' },
+            },
+        } as Record<string, unknown>;
+        applySnapshotToTimeframe(app, tf, wsEvent(legacy), 'BTC-USDT');
+        expect(tf.priceText).toBe('64950.0');
+        expect(tf.indicators['rsi'].state_label).toBe('LEGACY_OVERRIDE');
+    });
+
+    it('header_price_picker_returns_freshest_among_slots', async () => {
+        // Regression for the "--" header bug: previously the livePrice
+        // derivation fell through `microTerm.priceText || '--'`, which is
+        // the seeded placeholder when no WS frame has reached that slot.
+        // The picker now scans all four slots before falling back.
+        const { pickInstanceLivePrice } = await import('../lib/livePrice');
+        const inst = app.instancesMap['BTC-USDT'];
+        const now = Math.floor(Date.now() / 1000);
+
+        // Three slots fresh, one stale. micro=5s ago, slow=10s ago,
+        // macro=15s ago, fast=120s ago (stale, ignored).
+        inst.microTerm.priceText = '65000.00';
+        inst.microTerm.latestSnapshot = { timestamp: now - 5 } as never;
+        inst.slowTerm.priceText = '65100.00';
+        inst.slowTerm.latestSnapshot = { timestamp: now - 10 } as never;
+        inst.macroTerm.priceText = '65200.00';
+        inst.macroTerm.latestSnapshot = { timestamp: now - 15 } as never;
+        inst.fastTerm.priceText = '64900.00';
+        inst.fastTerm.latestSnapshot = { timestamp: now - 120 } as never;
+
+        expect(pickInstanceLivePrice(inst as never, now * 1000)).toBe('65000.00');
+    });
+
+    it('header_price_picker_falls_back_when_every_snapshot_is_stale_or_missing', async () => {
+        // First WS frame happens, then drift stalls every slot beyond
+        // the staleness threshold. The picker should still show the most
+        // recent known price rather than '--'.
+        const { pickInstanceLivePrice } = await import('../lib/livePrice');
+        const inst = app.instancesMap['BTC-USDT'];
+        const now = Math.floor(Date.now() / 1000);
+
+        // micro: stale by 60s (3x older than threshold but still the
+        //   most recent we have);
+        // slow: stale by 200s; macro: still the placeholder;
+        // fast: stale by 300s.
+        inst.microTerm.priceText = '65000.00';
+        inst.microTerm.latestSnapshot = { timestamp: now - 60 } as never;
+        inst.slowTerm.priceText = '64950.00';
+        inst.slowTerm.latestSnapshot = { timestamp: now - 200 } as never;
+        inst.fastTerm.priceText = '64900.00';
+        inst.fastTerm.latestSnapshot = { timestamp: now - 300 } as never;
+        inst.macroTerm.priceText = '--';
+        inst.macroTerm.latestSnapshot = null;
+
+        // All four slots are stale, but micro (60s) is the youngest
+        // non-placeholder — the picker must return it, not '--'.
+        expect(pickInstanceLivePrice(inst as never, now * 1000)).toBe('65000.00');
+    });
+
+    it('header_price_picker_returns_dashes_when_no_real_price_has_ever_arrived', async () => {
+        const { pickInstanceLivePrice } = await import('../lib/livePrice');
+        const inst = app.instancesMap['BTC-USDT'];
+
+        const slotPool = [
+            inst.microTerm,
+            inst.fastTerm,
+            inst.slowTerm,
+            inst.macroTerm,
+        ] as unknown as Array<{ priceText: string; latestSnapshot: unknown }>;
+        // Reset everything to seeded placeholders.
+        for (const tf of slotPool) {
+            tf.priceText = '--';
+            tf.latestSnapshot = null;
+        }
+
+        expect(pickInstanceLivePrice(inst as never, Date.now())).toBe('--');
+    });
 });

@@ -43,10 +43,75 @@ impl Default for LiquidityActivation {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeframeSlot {
+    #[default]
+    Micro,
+    Fast,
+    Slow,
+    #[serde(alias = "macro")]
+    Macro,
+}
+
+impl TimeframeSlot {
+    /// Lowercase identifier used on the wire and in URLs.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TimeframeSlot::Micro => "micro",
+            TimeframeSlot::Fast => "fast",
+            TimeframeSlot::Slow => "slow",
+            TimeframeSlot::Macro => "macro",
+        }
+    }
+
+    /// Uppercase label rendered in the UI column header.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            TimeframeSlot::Micro => "MICRO",
+            TimeframeSlot::Fast => "FAST",
+            TimeframeSlot::Slow => "SLOW",
+            TimeframeSlot::Macro => "MACRO",
+        }
+    }
+
+    /// Inverse lookup. Unknown / legacy values default to `Micro` so a
+    /// stale wire or older client never silently reroutes to the wrong slot.
+    pub fn parse(raw: &str) -> TimeframeSlot {
+        match raw {
+            "micro" => TimeframeSlot::Micro,
+            "fast" => TimeframeSlot::Fast,
+            "slow" => TimeframeSlot::Slow,
+            "macro" | "r#macro" => TimeframeSlot::Macro,
+            _ => TimeframeSlot::Micro,
+        }
+    }
+
+    /// Best-effort slot reconstruction when only the historical timeframe
+    /// duration is available (e.g. snapshot rows read from `market_snapshots`
+    /// before the slot column was introduced). Defaults to Micro on ties or
+    /// collisions so we never assign data to a slot that wasn't its source.
+    pub fn parse_from_secs(secs: u64) -> TimeframeSlot {
+        match secs {
+            ..180 => TimeframeSlot::Micro,
+            180..300 => TimeframeSlot::Fast,
+            300..900 => TimeframeSlot::Slow,
+            _ => TimeframeSlot::Macro,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exchange: Option<Exchange>,
+    /// Stable slot identity (`micro` / `fast` / `slow` / `macro`) of the
+    /// pipeline that produced this snapshot. Carried on every wire payload
+    /// so the frontend never has to re-derive slot from duration (which is
+    /// fundamentally ambiguous when the user picks non-default durations).
+    /// Pre-existing clients that don't read this field continue to work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeframe_slot: Option<TimeframeSlot>,
     pub timeframe_secs: u64,
     pub timestamp: u64,
     pub symbol: String,

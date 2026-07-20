@@ -1,6 +1,6 @@
 use rust_decimal_macros::dec;
 use market_analyzer::indicators::normalized::{NormalizationEngine, NormalizedIndicatorValue};
-use core_domain::models::MarketSnapshot;
+use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::Exchange;
 use core_domain::TriggerType;
 use std::collections::HashMap;
@@ -25,6 +25,7 @@ fn sample_indicators() -> HashMap<String, NormalizedIndicatorValue> {
 #[test]
 fn test_market_snapshot_json_roundtrip() {
     let snap = MarketSnapshot {
+        timeframe_slot: Some(TimeframeSlot::Micro),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs: 60,
         timestamp: 1718000000,
@@ -89,6 +90,7 @@ fn test_market_snapshot_json_roundtrip() {
 #[test]
 fn test_market_snapshot_empty_indicators() {
     let snap = MarketSnapshot {
+        timeframe_slot: Some(TimeframeSlot::Micro),
         exchange: None,
         timeframe_secs: 0,
         timestamp: 0,

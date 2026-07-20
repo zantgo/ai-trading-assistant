@@ -61,7 +61,6 @@
     // ── Filters ───────────────────────────────────────────────────────
     let filters: FilterState = $state(defaultFilters());
 
-    function setQuery(q: string) { filters = { ...filters, query: q }; }
     function toggleActiveOnly() { filters = { ...filters, activeOnly: !filters.activeOnly }; }
     function toggleConfirmed() { filters = { ...filters, confirmedPlusOnly: !filters.confirmedPlusOnly }; }
     function toggleHideGates() { filters = { ...filters, hideGates: !filters.hideGates }; }
@@ -172,16 +171,6 @@
 
             <!-- SEARCH + FILTER PILLS -->
             <div class={styles.controls}>
-                <div class={styles.searchWrap}>
-                    <span class={styles.searchIcon}>⌕</span>
-                    <input
-                        type="text"
-                        class={styles.searchInput}
-                        placeholder="Search indicator, signal label, level…"
-                        value={filters.query}
-                        oninput={(e) => setQuery((e.target as HTMLInputElement).value)}
-                    />
-                </div>
                 <div class={styles.pillBar}>
                     <button
                         class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
@@ -201,7 +190,7 @@
                     >
                         Hide gates
                     </button>
-                    {#if filters.query || filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
+                    {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
                         <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
                     {/if}
                 </div>

@@ -156,6 +156,11 @@ pub struct WsQuery {
     pub symbol: String,
     #[serde(default)]
     pub timeframe_secs: Option<u64>,
+    /// Authoritative slot identifier (`micro`/`fast`/`slow`/`macro`).
+    /// Optional for backward compatibility with older clients that
+    /// identified the slot purely by `timeframe_secs`.
+    #[serde(default)]
+    pub slot: Option<String>,
 }
 
 /// Nested dual-representation indicator DTO (v2.0). Carries the normalized

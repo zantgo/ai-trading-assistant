@@ -166,13 +166,11 @@ export function formatTimeframeLabel(secs: number): string {
     return `${secs}s`;
 }
 
-export function resolveChartTimeframe(
-    timeframe: number,
-    pair: Record<string, any> | undefined,
-): any {
-    if (!pair) return undefined;
-    if (timeframe === pair.fastTerm?.barDurationSec) return pair.fastTerm;
-    if (timeframe === pair.slowTerm?.barDurationSec) return pair.slowTerm;
-    if (timeframe === pair.macroTerm?.barDurationSec) return pair.macroTerm;
-    return pair.microTerm;
-}
+// `resolveChartTimeframe(timeframe, pair)` was deleted: every chart
+// component now takes a positional `slot: 'micro' | 'fast' | 'slow' |
+// 'macro'` prop. The old duration-based dispatch was the source of the
+// label/contents cross-talk whenever the user picked non-default
+// durations (e.g. micro=1s, fast=3m, slow=1m, macro=1h — every column
+// rendered micro data). Slot identity is the single source of truth:
+// stamped onto every MarketSnapshot on the wire (`timeframe_slot`)
+// and stamped onto every TimeframeTelemetry in the store (`slot`).

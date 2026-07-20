@@ -179,8 +179,14 @@ struct MetaAndAssetCtxsResponse(
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct AssetCtxEntry {
+    /// Hyperliquid's `/info metaAndAssetCtxs` response doesn't include a
+    /// `coin` field per entry — the coin name comes positionally from
+    /// `meta.universe[i].name`. We try to deserialise it for forward
+    /// compatibility with any future shape change, but make it optional
+    /// so the parser never rejects the real payload.
     #[allow(dead_code)]
-    coin: String,
+    #[serde(default)]
+    coin: Option<String>,
     #[serde(default, rename = "markPx")]
     markPx: Option<serde_json::Value>,
     #[serde(default, rename = "oraclePx")]
@@ -242,9 +248,24 @@ pub async fn fetch_meta_and_asset_ctxs(
         .json()
         .await
         .map_err(|e| format!("Failed to parse Hyperliquid metaAndAssetCtxs: {e}"))?;
+    let MetaAndAssetCtxsResponse(meta_json, asset_ctxs) = parsed;
 
-    let mut map = std::collections::HashMap::new();
-    for entry in parsed.1 {
+    // Recover the asset universe so each entry can be keyed by its real
+    // coin name. `meta.universe` and the parallel `asset_ctxs` array are
+    // positional; the i-th entry of each refers to the same coin. We
+    // reuse the existing `HlMeta` struct (only `universe` is read) so the
+    // JSON shape is forgiving: extra fields in `meta` are ignored.
+    let meta: HlMeta = serde_json::from_value(meta_json).map_err(|e| {
+        format!("Failed to parse Hyperliquid meta universe: {e}")
+    })?;
+    let universe_index_to_name: Vec<Option<String>> = meta
+        .universe
+        .into_iter()
+        .map(|a| if a.name.is_empty() { None } else { Some(a.name) })
+        .collect();
+
+    let mut map = std::collections::HashMap::with_capacity(asset_ctxs.len());
+    for (i, mut entry) in asset_ctxs.into_iter().enumerate() {
         let ctx = HlDerivativesCtx {
             mark_px: parse_ctx_decimal(&entry.markPx),
             oracle_px: parse_ctx_decimal(&entry.oraclePx),
@@ -252,7 +273,15 @@ pub async fn fetch_meta_and_asset_ctxs(
             funding: parse_ctx_decimal(&entry.funding),
             prev_day_px: parse_ctx_decimal(&entry.prevDayPx),
         };
-        map.insert(entry.coin, ctx);
+        // Prefer `entry.coin` if present (forward-compat); otherwise fall
+        // back to the positional `meta.universe[i].name`; otherwise invent
+        // a UNKNOWN_<i> placeholder so the response is never empty.
+        let key = entry
+            .coin
+            .take()
+            .or_else(|| universe_index_to_name.get(i).and_then(|n| n.clone()))
+            .unwrap_or_else(|| format!("UNKNOWN_{i}"));
+        map.insert(key, ctx);
     }
     Ok(map)
 }

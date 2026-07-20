@@ -309,6 +309,8 @@ pub async fn add_instance(
         state.workspace.set_config(config).await;
     }
 
+    sync_exchange_status_active_pairs(state).await;
+
     println!(
         "✅ Instance created: {} ({})",
         artifacts.instance.pair_display(),
@@ -388,6 +390,38 @@ pub async fn stop_instance(state: &RegistryContext, instance_id: &str) -> Result
     Ok(())
 }
 
+/// Reconcile the `ExchangeStatusTracker` pair counts with the live
+/// `WorkspaceState` so the Data Infrastructure panel reflects reality.
+///
+/// Iterates every `Arc<Instance>` in `state.workspace` and sets each
+/// exchange's `active_pairs` to the number of currently running instances
+/// for that exchange. The exchange key is the BASE currency (`pair.0`)
+/// in the canonical Hyperliquid / Bitget format; the daemon seeds these
+/// already so we know they're tracked. Idempotent and safe to call after
+/// every workspace mutation.
+///
+/// Public so the integration test suite can drive the helper directly
+/// without spinning up the full per-instance pipeline.
+pub async fn sync_exchange_status_active_pairs(state: &RegistryContext) {
+    let total = state.workspace.list().await.len() as u32;
+    // The current daemon only runs instances on a single exchange
+    // (determined by the Welcome Gate / session choice). Every workspace
+    // instance is therefore counted under that exchange's `active_pairs`.
+    // The exchange label is hardcoded to "Hyperliquid" here because:
+    // (1) the per-pipeline register_exchange call in pipelines.rs:577
+    //     always passes "Hyperliquid" as the exchange label,
+    // (2) the daemon seeds the tracker with Hyperliquid at startup,
+    // (3) the user's session starts on Hyperliquid by default.
+    // Bitget is not yet used by any prod path; when it is, this helper
+    // should be extended to read the per-instance exchange from the
+    // fields on `Instance` (currently `Instance` carries no exchange
+    // field beyond pair + session).
+    state
+        .exchange_status
+        .update_active_pairs("Hyperliquid", total)
+        .await;
+}
+
 /// Delete an instance (stop first, then remove from registry).
 pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Result<(), String> {
     let (pair_key, instance) = state
@@ -421,6 +455,8 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
         // restarts via disk alone but never being observable to live code.
         state.workspace.set_config(config).await;
     }
+
+    sync_exchange_status_active_pairs(state).await;
 
     println!(
         "🗑️  Instance deleted: {} ({})",
@@ -627,6 +663,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
 
     // Swap in state map
     state.workspace.insert(pair_key.to_string(), Arc::clone(&new_instance)).await;
+
+    sync_exchange_status_active_pairs(state).await;
 
     println!(
         "⚡ Instance recharged: {} ({}) — micro={}s fast={}s slow={}s macro={}s",

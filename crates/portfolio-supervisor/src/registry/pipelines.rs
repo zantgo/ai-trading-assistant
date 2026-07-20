@@ -102,6 +102,7 @@ pub async fn build_pipelines(
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
         micro: analyzer::TimeframePipeline {
+            slot: core_domain::models::TimeframeSlot::Micro,
             history: micro_history.clone(),
             broadcast_tx: micro_broadcast_tx.clone(),
             latest_snapshot: micro_latest.clone(),
@@ -118,6 +119,7 @@ pub async fn build_pipelines(
             active_set: Default::default(),
         },
         fast: analyzer::TimeframePipeline {
+            slot: core_domain::models::TimeframeSlot::Fast,
             history: fast_history.clone(),
             broadcast_tx: fast_broadcast_tx.clone(),
             latest_snapshot: fast_latest.clone(),
@@ -134,6 +136,7 @@ pub async fn build_pipelines(
             active_set: Default::default(),
         },
         slow: analyzer::TimeframePipeline {
+            slot: core_domain::models::TimeframeSlot::Slow,
             history: slow_history.clone(),
             broadcast_tx: slow_broadcast_tx.clone(),
             latest_snapshot: slow_latest.clone(),
@@ -150,6 +153,7 @@ pub async fn build_pipelines(
             active_set: Default::default(),
         },
         r#macro: analyzer::TimeframePipeline {
+            slot: core_domain::models::TimeframeSlot::Macro,
             history: macro_history.clone(),
             broadcast_tx: macro_broadcast_tx.clone(),
             latest_snapshot: macro_latest.clone(),
@@ -386,7 +390,8 @@ async fn spawn_tasks(
         Arc<RwLock<VecDeque<NormalizedCandle>>>,
         Arc<RwLock<Option<MarketSnapshot>>>,
         Arc<RwLock<VecDeque<MarketSnapshot>>>,
-        &str,
+        core_domain::models::TimeframeSlot,
+        &'static str,
         u64,
         tokio::sync::broadcast::Sender<MarketSnapshot>,
         Arc<tokio::sync::Mutex<DivergenceDetector>>,
@@ -400,6 +405,7 @@ async fn spawn_tasks(
             micro_history.clone(),
             micro_latest.clone(),
             micro_snapshot_history.clone(),
+            core_domain::models::TimeframeSlot::Micro,
             "Micro",
             micro_secs,
             micro_broadcast_tx.clone(),
@@ -414,6 +420,7 @@ async fn spawn_tasks(
             fast_history.clone(),
             fast_latest.clone(),
             fast_snapshot_history.clone(),
+            core_domain::models::TimeframeSlot::Fast,
             "Fast",
             fast_secs,
             fast_broadcast_tx.clone(),
@@ -428,6 +435,7 @@ async fn spawn_tasks(
             slow_history.clone(),
             slow_latest.clone(),
             slow_snapshot_history.clone(),
+            core_domain::models::TimeframeSlot::Slow,
             "Slow",
             slow_secs,
             slow_broadcast_tx.clone(),
@@ -442,6 +450,7 @@ async fn spawn_tasks(
             macro_history.clone(),
             macro_latest.clone(),
             macro_snapshot_history.clone(),
+            core_domain::models::TimeframeSlot::Macro,
             "Macro",
             macro_secs,
             macro_broadcast_tx.clone(),
@@ -471,7 +480,7 @@ async fn spawn_tasks(
         }
     };
 
-    for (rx, tf_cfg, hist, snap, snap_hist, label, tf_secs, bcast, div_det, candle_fwd, warmed, active_set) in
+    for (rx, tf_cfg, hist, snap, snap_hist, slot, label, tf_secs, bcast, div_det, candle_fwd, warmed, active_set) in
         pipeline_specs
     {
         let a_symbol = internal_symbol.to_string();
@@ -497,11 +506,11 @@ async fn spawn_tasks(
         let x_macro = macro_latest.clone();
 
         tokio::spawn(async move {
-            let (ct_a, ct_b, ct_c) = match label {
-                "Micro" => (x_fast, x_slow, x_macro),
-                "Fast" => (x_micro, x_slow, x_macro),
-                "Slow" => (x_micro, x_fast, x_macro),
-                _ => (x_micro, x_fast, x_slow),
+            let (ct_a, ct_b, ct_c) = match slot {
+                core_domain::models::TimeframeSlot::Micro => (x_fast, x_slow, x_macro),
+                core_domain::models::TimeframeSlot::Fast => (x_micro, x_slow, x_macro),
+                core_domain::models::TimeframeSlot::Slow => (x_micro, x_fast, x_macro),
+                core_domain::models::TimeframeSlot::Macro => (x_micro, x_fast, x_slow),
             };
 
             analyzer::run_single(
@@ -519,6 +528,7 @@ async fn spawn_tasks(
                 a_pair_key,
                 tf_secs,
                 label,
+                slot,
                 a_cancel,
                 candle_fwd,
                 warmed,

@@ -82,6 +82,7 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 analyzer_pair_key,
                 60,
                 "Micro",
+                core_domain::models::TimeframeSlot::Micro,
                 analyzer_cancel,
                 None,
                 None,

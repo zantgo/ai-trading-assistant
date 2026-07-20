@@ -768,10 +768,10 @@ pub fn synthesize_cross_tf(
 
 fn tf_label(secs: u64) -> &'static str {
     match secs {
-        60 => "micro60",
-        180 => "fast180",
-        300 => "slow300",
-        900 => "macro900",
+        60 => "MICRO",
+        180 => "FAST",
+        300 => "SLOW",
+        900 => "MACRO",
         _ => "unknown",
     }
 }
@@ -866,6 +866,7 @@ mod tests {
 
         let close = Decimal::from_f64_retain(price).unwrap();
         MarketSnapshot {
+            timeframe_slot: None,
             exchange: None,
             timeframe_secs: secs,
             timestamp: 0,

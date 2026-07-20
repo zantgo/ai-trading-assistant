@@ -86,7 +86,8 @@ async fn setup_app_with_instance() -> Arc<AppState> {
     let cancel = CancellationToken::new();
 
     let snap_hist = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::new()));
-    let new_pipe = |secs, label, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+    let new_pipe = |secs, label, slot: core_domain::models::TimeframeSlot, tx: broadcast::Sender<MarketSnapshot>| TimeframePipeline {
+        slot,
         history: Arc::new(RwLock::new(VecDeque::new())),
         broadcast_tx: tx,
         latest_snapshot: Arc::new(RwLock::new(None)),
@@ -111,10 +112,10 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_index_px: Arc::new(RwLock::new(None)),
         cluster_matrix: Arc::new(RwLock::new(None)),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
-        micro: new_pipe(60, "Micro", mid_bcast.clone()),
-        fast: new_pipe(180, "Fast", fast_bcast.clone()),
-        slow: new_pipe(300, "Slow", slow_bcast.clone()),
-        r#macro: new_pipe(900, "Macro", macro_bcast.clone()),
+        micro: new_pipe(60, "Micro", core_domain::models::TimeframeSlot::Micro, mid_bcast.clone()),
+        fast: new_pipe(180, "Fast", core_domain::models::TimeframeSlot::Fast, fast_bcast.clone()),
+        slow: new_pipe(300, "Slow", core_domain::models::TimeframeSlot::Slow, slow_bcast.clone()),
+        r#macro: new_pipe(900, "Macro", core_domain::models::TimeframeSlot::Macro, macro_bcast.clone()),
         snapshot_tx,
         cancel,
     });

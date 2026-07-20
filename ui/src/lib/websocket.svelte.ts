@@ -1,8 +1,16 @@
 import type { AppStore } from '../state.svelte';
-import type { IndicatorMap, TimeframeTelemetry } from '../types';
+import type { IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
 import { getDecimalCount } from './telemetry';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
+
+/// Maps a slot key (`TimeframeSlotKind`) to the corresponding WS state key.
+export const SLOT_TO_WS_KEY: Record<TimeframeSlotKind, WsKey> = {
+    micro: 'wsMicro',
+    fast: 'wsFast',
+    slow: 'wsSlow',
+    macro: 'wsMacro',
+};
 
 const WS_MAX_RETRIES = 30;
 const WS_INITIAL_DELAY_MS = 1000;
@@ -49,10 +57,17 @@ export function createWsState(): WsState {
     };
 }
 
-export function buildWsUrl(symbol: string, timeframeSecs: number): string {
+export function buildWsUrl(
+    symbol: string,
+    timeframeSecs: number,
+    slot: TimeframeSlotKind,
+): string {
     if (!symbol) return '';
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}&timeframe_secs=${timeframeSecs}`;
+    // The backend now uses `slot` (`micro|fast|slow|macro`) as the
+    // authoritative wire identifier, so it can never mis-route a snapshot
+    // even if two slots happen to share the same `timeframe_secs`.
+    return `${protocol}//${window.location.host}/ws?symbol=${encodeURIComponent(symbol)}&timeframe_secs=${timeframeSecs}&slot=${slot}`;
 }
 
 export function closeWs(ws: WebSocket | null): void {
@@ -82,13 +97,20 @@ function num(v: unknown): number | null {
  */
 export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, event: MessageEvent, symbol: string): void {
     try {
-        const raw = JSON.parse(event.data);
-        const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
-            ? (raw.params?.snapshot || raw)
-            : raw;
-        if (!snapshot || typeof snapshot !== 'object') return;
+    const raw = JSON.parse(event.data);
+    const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
+        ? (raw.params?.snapshot || raw)
+        : raw;
+    if (!snapshot || typeof snapshot !== 'object') return;
 
-        tf.indicators = (snapshot.indicators && typeof snapshot.indicators === 'object')
+    // Slot guard: the backend stamps `timeframe_slot` on every snapshot.
+    // If a foreign slot's snapshot somehow arrives (corrupted dispatcher,
+    // shared broadcast channel pre-fix, etc.) drop it instead of letting
+    // it silently mutate this slot's telemetry.
+    const wireSlot = (snapshot as Record<string, unknown>).timeframe_slot;
+    if (wireSlot != null && wireSlot !== tf.slot) return;
+
+    tf.indicators = (snapshot.indicators && typeof snapshot.indicators === 'object')
             ? (snapshot.indicators as IndicatorMap)
             : {};
         tf.latestSnapshot = snapshot;
@@ -141,13 +163,13 @@ export function connectWebsocketForTimeframe(
     app: AppStore,
     state: WsState,
     tf: TimeframeTelemetry,
-    wsKey: WsKey,
     tfSecs: number,
     symbol: string,
 ): void {
+    const wsKey: WsKey = SLOT_TO_WS_KEY[tf.slot];
     closeWs(state[wsKey]);
 
-    const url = buildWsUrl(symbol, tfSecs);
+    const url = buildWsUrl(symbol, tfSecs, tf.slot);
     if (!url) return;
 
     const newWs = new WebSocket(url);
@@ -170,7 +192,7 @@ export function connectWebsocketForTimeframe(
         if (bo.retries < WS_MAX_RETRIES) {
             setTimeout(() => {
                 if (app.instancesMap[symbol]) {
-                    connectWebsocketForTimeframe(app, state, tf, wsKey, tfSecs, symbol);
+                    connectWebsocketForTimeframe(app, state, tf, tfSecs, symbol);
                 }
             }, bo.delayMs);
         }
@@ -185,10 +207,12 @@ export function connectWebsocket(app: AppStore, state: WsState, symbol: string):
     const pair = app.instancesMap[symbol];
     if (!pair) return;
 
-    connectWebsocketForTimeframe(app, state, pair.microTerm, 'wsMicro', pair.microTerm.barDurationSec, symbol);
-    connectWebsocketForTimeframe(app, state, pair.fastTerm,  'wsFast',  pair.fastTerm.barDurationSec,  symbol);
-    connectWebsocketForTimeframe(app, state, pair.slowTerm,  'wsSlow',  pair.slowTerm.barDurationSec,  symbol);
-    connectWebsocketForTimeframe(app, state, pair.macroTerm, 'wsMacro', pair.macroTerm.barDurationSec, symbol);
+    // Each `TimeframeTelemetry` carries its own slot identity, so the WS
+    // dispatcher can no longer mis-route by shared duration.
+    connectWebsocketForTimeframe(app, state, pair.microTerm, pair.microTerm.barDurationSec, symbol);
+    connectWebsocketForTimeframe(app, state, pair.fastTerm,  pair.fastTerm.barDurationSec,  symbol);
+    connectWebsocketForTimeframe(app, state, pair.slowTerm,  pair.slowTerm.barDurationSec,  symbol);
+    connectWebsocketForTimeframe(app, state, pair.macroTerm, pair.macroTerm.barDurationSec, symbol);
 }
 
 export function connectWsForInstance(

@@ -536,6 +536,7 @@ pub struct ReplayTrade {
 fn build_mock_snapshot(symbol: &str, mid_price: Decimal) -> core_domain::models::MarketSnapshot {
     use std::collections::HashMap;
     core_domain::models::MarketSnapshot {
+        timeframe_slot: Some(core_domain::models::TimeframeSlot::Micro),
         exchange: None,
         timeframe_secs: 60,
         timestamp: 0,

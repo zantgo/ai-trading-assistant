@@ -28,7 +28,7 @@ use crate::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use core_domain::liquidity::LiquidationClusterMatrix;
-use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity};
+use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use crate::candle_generator::CandleGenerator;
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
@@ -38,6 +38,11 @@ pub mod warm;
 pub use warm::{warm_indicators_for_timeframe, WarmedPipelineState, HIST_BUFFER_MAX};
 
 pub struct TimeframePipeline {
+    /// Stable slot identity. The frontend never has to re-derive slot from
+    /// `timeframe_secs` because every snapshot carries `timeframe_slot` and
+    /// every chart component renders the slot the pipeline was constructed
+    /// with. Allowed at construction: `Micro | Fast | Slow | Macro`.
+    pub slot: TimeframeSlot,
     pub history: Arc<RwLock<VecDeque<NormalizedCandle>>>,
     pub broadcast_tx: broadcast::Sender<MarketSnapshot>,
     pub latest_snapshot: Arc<RwLock<Option<MarketSnapshot>>>,
@@ -85,21 +90,61 @@ pub struct ActivePair {
 }
 
 impl ActivePair {
-    fn pipeline_for(&self, timeframe_secs: u64) -> &TimeframePipeline {
+    /// O(1) slot-based dispatch. Replaces the legacy `pipeline_for(secs)`
+    /// linear lookup that collapsed duplicate durations and silently
+    /// defaulted to `micro` for any unmatched frame.
+    pub fn pipeline_for_slot(&self, slot: TimeframeSlot) -> &TimeframePipeline {
+        match slot {
+            TimeframeSlot::Micro => &self.micro,
+            TimeframeSlot::Fast => &self.fast,
+            TimeframeSlot::Slow => &self.slow,
+            TimeframeSlot::Macro => &self.r#macro,
+        }
+    }
+
+    /// Legacy shim for callers that still key on a duration. Picks the
+    /// uniquely matching slot; returns `Err` on a missing/colliding
+    /// duration so callers never silently default to micro.
+    pub fn pipeline_for_duration(&self, timeframe_secs: u64) -> Result<&TimeframePipeline, String> {
+        let mut hits: Vec<(&'static str, &TimeframePipeline)> = Vec::new();
         if self.fast.timeframe_secs == timeframe_secs {
-            return &self.fast;
+            hits.push(("fast", &self.fast));
         }
         if self.slow.timeframe_secs == timeframe_secs {
-            return &self.slow;
+            hits.push(("slow", &self.slow));
         }
         if self.r#macro.timeframe_secs == timeframe_secs {
-            return &self.r#macro;
+            hits.push(("macro", &self.r#macro));
         }
-        &self.micro
+        if self.micro.timeframe_secs == timeframe_secs {
+            hits.push(("micro", &self.micro));
+        }
+        match hits.len() {
+            1 => Ok(hits[0].1),
+            0 => Err(format!("No slot matches timeframe_secs={timeframe_secs}")),
+            _ => Err(format!(
+                "Timeframe_secs={timeframe_secs} is configured on multiple slots: {:?}",
+                hits.iter().map(|(n, _)| *n).collect::<Vec<_>>()
+            )),
+        }
     }
 
     pub fn subscribe_broadcast(&self, timeframe_secs: u64) -> broadcast::Receiver<MarketSnapshot> {
-        self.pipeline_for(timeframe_secs).broadcast_tx.subscribe()
+        // Existing WS callers still key by duration. We fall back to the
+        // micro pipeline only when there is exactly no match; collisions
+        // (two slots sharing a duration) propagate as an error and never
+        // silently collapse onto the same broadcast channel.
+        match self.pipeline_for_duration(timeframe_secs) {
+            Ok(p) => p.broadcast_tx.subscribe(),
+            Err(e) => {
+                eprintln!("ActivePair::subscribe_broadcast fallback to micro: {e}");
+                self.micro.broadcast_tx.subscribe()
+            }
+        }
+    }
+
+    pub fn subscribe_broadcast_by_slot(&self, slot: TimeframeSlot) -> broadcast::Receiver<MarketSnapshot> {
+        self.pipeline_for_slot(slot).broadcast_tx.subscribe()
     }
 
     pub async fn latest_close_str(&self) -> Option<String> {
@@ -113,13 +158,19 @@ impl ActivePair {
             .and_then(|s| s.mid_price.to_string().parse::<f64>().ok())
     }
 
-    pub async fn snapshot_history_vec(&self, timeframe_secs: u64) -> Vec<MarketSnapshot> {
-        let hist = self
-            .pipeline_for(timeframe_secs)
-            .snapshot_history
-            .read()
-            .await;
+    pub async fn snapshot_history_vec(&self, slot: TimeframeSlot) -> Vec<MarketSnapshot> {
+        let hist = self.pipeline_for_slot(slot).snapshot_history.read().await;
         hist.iter().cloned().collect()
+    }
+
+    pub async fn snapshot_history_vec_for_secs(&self, timeframe_secs: u64) -> Vec<MarketSnapshot> {
+        match self.pipeline_for_duration(timeframe_secs) {
+            Ok(p) => {
+                let hist = p.snapshot_history.read().await;
+                hist.iter().cloned().collect()
+            }
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Latest completed snapshot for each of the four timeframes
@@ -260,8 +311,14 @@ async fn fetch_interval_candles(
 /// gap-filled candle (08-04 §Forwarding). Reconstructed candles carry no
 /// indicator payload — they exist so charts, persistence, and rollups see a
 /// continuous candle series; indicator state resumes on the next live candle.
-fn build_gapfill_snapshot(candle: &NormalizedCandle, symbol: &str, timeframe_secs: u64) -> MarketSnapshot {
+fn build_gapfill_snapshot(
+    candle: &NormalizedCandle,
+    symbol: &str,
+    timeframe_secs: u64,
+    slot: TimeframeSlot,
+) -> MarketSnapshot {
     MarketSnapshot {
+        timeframe_slot: Some(slot),
         exchange: Some(candle.exchange),
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,
@@ -313,6 +370,9 @@ fn build_gapfill_snapshot(candle: &NormalizedCandle, symbol: &str, timeframe_sec
     }
 }
 
+/// Stable slot identity. Stamped onto every snapshot emitted by this task
+/// so the wire and the frontend always know which slot a snapshot came from,
+/// regardless of the user-chosen `timeframe_secs`.
 pub async fn run_single(
     mut rx: Receiver<NormalizedEvent>,
     telemetry_tx: tokio::sync::mpsc::Sender<database_storage::TelemetryMsg>,
@@ -328,6 +388,7 @@ pub async fn run_single(
     pair_key: String,
     timeframe_secs: u64,
     timeframe_label: &'static str,
+    slot: TimeframeSlot,
     cancel: CancellationToken,
     candle_forward: Option<tokio::sync::mpsc::Sender<NormalizedCandle>>,
     warmed: Option<WarmedPipelineState>,
@@ -352,7 +413,7 @@ pub async fn run_single(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
         symbol,
         pair_key,
-        timeframe_label,
+        slot.display_name(),
         tf_config.candles.duration_seconds,
         if warmed.is_some() {
             " [pre-warmed]"
@@ -852,6 +913,7 @@ pub async fn run_single(
                                     &gap_candle,
                                     &symbol,
                                     timeframe_secs,
+                                    slot,
                                 );
                                 let _ = telemetry_tx
                                     .send(database_storage::TelemetryMsg::InsertSnapshot(
@@ -1488,6 +1550,7 @@ pub async fn run_single(
                         crate::market_context_synth::synthesize_market_context(&indicators);
 
                     let this_snapshot_for_synth = MarketSnapshot {
+                        timeframe_slot: Some(slot),
                         exchange: shadow_exchange,
                         timeframe_secs,
                         timestamp: candle_close_sec,
@@ -1651,6 +1714,7 @@ pub async fn run_single(
                     }
 
                     let completed_snapshot = MarketSnapshot {
+                        timeframe_slot: Some(slot),
                         exchange: shadow_exchange,
                         timeframe_secs,
                         timestamp: candle_close_sec,
@@ -1757,6 +1821,7 @@ pub async fn run_single(
                     shadow_exchange,
                     shadow_bid,
                     shadow_ask,
+                    slot,
                     &ema_fast,
                     &ema_medium,
                     &ema_slow,
@@ -1834,6 +1899,7 @@ pub async fn run_single(
                         shadow_exchange,
                         shadow_bid,
                         shadow_ask,
+                        slot,
                         &ema_fast,
                         &ema_medium,
                         &ema_slow,
@@ -2115,6 +2181,7 @@ fn broadcast_live_snapshot(
     exchange: Option<Exchange>,
     bid_price: Decimal,
     ask_price: Decimal,
+    slot: TimeframeSlot,
     ema_fast: &Ema,
     ema_medium: &Ema,
     ema_slow: &Ema,
@@ -2290,6 +2357,7 @@ fn broadcast_live_snapshot(
     });
 
     let snapshot = MarketSnapshot {
+        timeframe_slot: Some(slot),
         exchange,
         timeframe_secs,
         timestamp: candle.start_time_ms / 1000,

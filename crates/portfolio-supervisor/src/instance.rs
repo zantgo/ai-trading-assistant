@@ -226,7 +226,8 @@ impl Instance {
 
         let cancel = CancellationToken::new();
         let (bcast_tx, _) = broadcast::channel::<MarketSnapshot>(2);
-        let new_pipeline = || TimeframePipeline {
+        let new_pipeline = |slot: core_domain::models::TimeframeSlot| TimeframePipeline {
+            slot,
             history: Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::new())),
             broadcast_tx: bcast_tx.clone(),
             latest_snapshot: Arc::new(RwLock::new(None)),
@@ -246,10 +247,10 @@ impl Instance {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
         };
-        let micro_pipe = new_pipeline();
-        let fast_pipe = new_pipeline();
-        let slow_pipe = new_pipeline();
-        let macro_pipe = new_pipeline();
+        let micro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Micro);
+        let fast_pipe = new_pipeline(core_domain::models::TimeframeSlot::Fast);
+        let slow_pipe = new_pipeline(core_domain::models::TimeframeSlot::Slow);
+        let macro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Macro);
         let internal_symbol = format!("{}-{}", pair.0, pair.1);
         let active_pair = Arc::new(ActivePair {
             symbol: internal_symbol,

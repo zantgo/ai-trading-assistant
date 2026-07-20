@@ -14,8 +14,13 @@ import { AnalyticsStore } from './stores/analytics.svelte';
 import { SessionStore } from './stores/session.svelte';
 import { ProfileStore } from './stores/profiles.svelte';
 
-function createTimeframeTelemetry(symbol: string, barDurationSec: number): TimeframeTelemetry {
+function createTimeframeTelemetry(
+    symbol: string,
+    slot: 'micro' | 'fast' | 'slow' | 'macro',
+    barDurationSec: number,
+): TimeframeTelemetry {
     return {
+        slot,
         symbol, exchange: 'Hyperliquid', barDurationSec,
         indicators: {},
         priceText: '--', volText: '--', avgVolText: '--',
@@ -50,10 +55,10 @@ function createTimeframeTelemetry(symbol: string, barDurationSec: number): Timef
 function createInstanceState(symbol: string): InstanceState {
     return {
         symbol, exchange: 'Hyperliquid', isConnected: false,
-        microTerm: createTimeframeTelemetry(symbol, 60),
-        fastTerm: createTimeframeTelemetry(symbol, 180),
-        slowTerm: createTimeframeTelemetry(symbol, 300),
-        macroTerm: createTimeframeTelemetry(symbol, 900),
+        microTerm: createTimeframeTelemetry(symbol, 'micro', 60),
+        fastTerm: createTimeframeTelemetry(symbol, 'fast', 180),
+        slowTerm: createTimeframeTelemetry(symbol, 'slow', 300),
+        macroTerm: createTimeframeTelemetry(symbol, 'macro', 900),
         historyLatestClose: '0',
         currentView: 'terminal',
         alignment: null,

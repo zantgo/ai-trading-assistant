@@ -121,6 +121,7 @@ async fn shadow_candles_never_completed() {
             "BTC-USDT".to_string(),
             60,
             "Micro",
+            core_domain::models::TimeframeSlot::Micro,
             cancel,
             None,
             None,

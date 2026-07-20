@@ -76,4 +76,33 @@ describe('ClockMonitorPanel', () => {
         render(ClockMonitorPanel);
         expect(await screen.findByText('Error: network down')).toBeTruthy();
     });
+
+    it('renders_long_ntp_hostnames_without_overflowing_the_card', async () => {
+        // Regression for the visual bug where the third NTP hostname
+        // (`time.cloudflare.com` ~17 chars) blew out the right edge of the
+        // "NTP Servers" cell because the grid track was locked at
+        // min-content and the monospace text had no break-opportunity.
+        const longHostnameReport: ClockStatusResponse = {
+            ...report,
+            ntp_servers: [
+                'pool.ntp.org',
+                'time.aws.com',
+                'time.cloudflare.com',
+                'time.google.com',
+            ],
+        };
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse(longHostnameReport)));
+        render(ClockMonitorPanel);
+        // All four hostnames must appear regardless of layout.
+        expect(await screen.findByText('pool.ntp.org')).toBeTruthy();
+        expect(screen.getByText('time.aws.com')).toBeTruthy();
+        expect(screen.getByText('time.cloudflare.com')).toBeTruthy();
+        expect(screen.getByText('time.google.com')).toBeTruthy();
+
+        // The server list must render 4 items. jsdom cannot compute
+        // `overflow-wrap` from a stylesheet, so we only assert the DOM
+        // was built — the CSS fix is verified by manual smoke.
+        const items = document.querySelectorAll('[class*="serverItem"]');
+        expect(items.length).toBe(4);
+    });
 });

@@ -16,7 +16,7 @@ use crate::indicators::{
     Macd, Mfi, Obv, ParabolicSar, PivotMethod, PivotPoints, Rsi, SeriesDivergence, SmartMoney,
     SqueezeMomentum, StdDevChannel, Stochastic, Supertrend, VolumeProfile, WilliamsR, ZScore,
 };
-use core_domain::models::MarketSnapshot;
+use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle};
 
 /// Maximum number of candles/snapshots retained in live memory buffers.
@@ -90,6 +90,7 @@ pub fn warm_indicators_for_timeframe(
     fib_config: &FibonacciConfig,
     symbol: &str,
     timeframe_secs: u64,
+    slot: TimeframeSlot,
 ) -> WarmedPipelineState {
     let active_indicators = tf_config.indicators.clone();
 
@@ -368,6 +369,7 @@ pub fn warm_indicators_for_timeframe(
             completed,
             symbol,
             timeframe_secs,
+            slot,
             final_vwap,
             avwap_reading,
             final_ema_fast,
@@ -494,6 +496,7 @@ fn build_historical_snapshot(
     completed: &NormalizedCandle,
     symbol: &str,
     timeframe_secs: u64,
+    slot: TimeframeSlot,
     final_vwap: Option<Decimal>,
     avwap_reading: crate::indicators::AvwapOutput,
     final_ema_fast: Decimal,
@@ -646,6 +649,7 @@ fn build_historical_snapshot(
     );
 
     MarketSnapshot {
+        timeframe_slot: Some(slot),
         exchange: Some(Exchange::Hyperliquid),
         timeframe_secs,
         timestamp: candle_close_sec,
