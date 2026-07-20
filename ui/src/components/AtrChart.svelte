@@ -1,47 +1,29 @@
 <script lang="ts">
-    import { iRaw, atrVolatilityRegime, getPriceFormat, getDecimalCount, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iRaw, atrVolatilityRegime } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { flattenHistory } from '../lib/historyAdapter';
+    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(
+        timeframe === 300 ? pair?.fastTerm :
+        timeframe === 900 ? pair?.slowTerm :
+        timeframe === 3600 ? pair?.macroTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
-    let chart: IChartApi = $state(null!);
+    let chart: IChartApi;
     let ro: ResizeObserver;
     let atrSeries: ISeriesApi<'Line'>;
-    let isFullscreen = $state(false);
-
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart && container) {
-            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
-        }
-    }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `atr-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
-
     let atrVal = $state(0);
     let atrRegime = $state('stable');
-
-    // Reconfigure the ATR price scale only when the asset's price crosses a
-    // decimal tier so axis/crosshair labels match the active pricing scale.
-    let lastAtrDecimals = -1;
-    function applyAtrScale(refPrice: number): void {
-        if (!atrSeries || refPrice <= 0) return;
-        const decimals = getDecimalCount(refPrice);
-        if (decimals === lastAtrDecimals) return;
-        lastAtrDecimals = decimals;
-        atrSeries.applyOptions({ priceFormat: getPriceFormat(refPrice) });
-    }
 
     onMount(() => {
         chart = createChart(container, {
@@ -81,7 +63,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_atr.png`;
+                link.download = `${pairKey}_${timeframe}s_atr.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -90,54 +72,22 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
-                const data = await res.json();
-                const indicatorHistory = flattenHistory(data.indicator_history);
-                if (indicatorHistory && indicatorHistory.atr_14 && indicatorHistory.atr_14.length > 0) {
-                    const rawAtrData = indicatorHistory.times.map((t: number, i: number) => {
-                        const val = indicatorHistory.atr_14[i];
-                        if (val == null) return null;
-                        return {
-                            time: t as Time,
-                            value: parseFloat(val)
-                        };
-                    });
+                const data = await fetchChartHistoryOnce(pairKey, timeframe);
+                if (!data || !data.indicatorHistory || !data.indicatorHistory.atr_14.length) return;
+                const ih = data.indicatorHistory;
+                const rawAtrData = ih.times.map((t: number, i: number) => {
+                    const val = ih.atr_14[i];
+                    if (val == null) return null;
+                    return {
+                        time: t as Time,
+                        value: parseFloat(val)
+                    };
+                }).filter((x): x is { time: Time; value: number } => x != null);
 
-                    const seenTimes = new Set<number>();
-                    const cleanedAtrData: { time: Time; value: number }[] = [];
-                    for (const item of rawAtrData) {
-                        if (!item) continue;
-                        const tNum = item.time as number;
-                        if (tNum && !seenTimes.has(tNum)) {
-                            seenTimes.add(tNum);
-                            cleanedAtrData.push(item);
-                        }
-                    }
-                    cleanedAtrData.sort((a, b) => (a.time as number) - (b.time as number));
+                const cleanedAtrData = dedupSortByTime(rawAtrData);
 
+                if (cleanedAtrData.length > 0) {
                     atrSeries.setData(cleanedAtrData);
-                    chart.timeScale().fitContent();
-                } else if (data.prices && data.prices.length > 0) {
-                    const hasCandles = data.candles && data.candles.length > 0;
-                    const source = hasCandles ? data.candles : data.prices;
-
-                    const now = Math.floor(Date.now() / 1000);
-                    const step = tf.barDurationSec || 60;
-                    const baseTime = now - (data.prices.length * step);
-
-                    const seenTimes = new Set<number>();
-                    const placeholder: { time: Time; value: number }[] = [];
-                    for (let idx = 0; idx < source.length; idx++) {
-                        const item = source[idx];
-                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
-                        if (!seenTimes.has(tVal)) {
-                            seenTimes.add(tVal);
-                            placeholder.push({ time: tVal as Time, value: 0 });
-                        }
-                    }
-                    placeholder.sort((a, b) => (a.time as number) - (b.time as number));
-
-                    atrSeries.setData(placeholder);
                     chart.timeScale().fitContent();
                 }
             } catch (err) {
@@ -161,9 +111,9 @@
 
     function regimeColor(regime: string): string {
         switch (regime) {
-            case 'expanding': return '#10b981';  // Bright Green
-            case 'contracting': return '#ef4444'; // Dark Red
-            default: return '#8f929d';             // Gray (stable)
+            case 'expanding': return '#10b981';
+            case 'contracting': return '#ef4444';
+            default: return '#8f929d';
         }
     }
 
@@ -177,7 +127,7 @@
 
     $effect(() => {
         if (!pair) return;
-        const snap = tf.latestSnapshot;
+        const snap = tf?.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
@@ -185,9 +135,6 @@
         if (val != null) {
             atrSeries.update({ time: timeSec as Time, value: val });
             atrVal = val;
-
-            const refPrice = parseFloat(tf.priceText) || 0;
-            applyAtrScale(refPrice);
 
             const regime = atrVolatilityRegime(m);
             atrRegime = regime;
@@ -198,17 +145,8 @@
     });
 </script>
 
-<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
-</div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="ATR 14 — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
+<div class="chart-container" bind:this={container}></div>
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
-    .chart-wrapper.fs-active {
-        position: fixed; inset: 0; z-index: 990;
-        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
-    }
 </style>

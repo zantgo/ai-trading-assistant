@@ -256,8 +256,10 @@
                 identityError = result.error || 'Failed to update workspace.';
                 return;
             }
-            app.initInstance(cleanedSymbol, draft.exchange);
-            target = app.instancesMap[newPairKey] || pair;
+            app.initInstance(cleanedSymbol, draft.exchange, result.instanceId);
+            const newInst = app.instancesMap[newPairKey];
+            if (newInst && result.instanceId) newInst.instanceId = result.instanceId;
+            target = newInst || pair;
             app.removeInstance(tabKey);
             app.activeTab = newPairKey;
             targetTabKey = newPairKey;
@@ -281,12 +283,20 @@
                 macro_term: { candles: { duration_seconds: tfDraft.macro.durationSeconds, analysis_limit: tfDraft.macro.analysisLimit }, indicators: buildIndicators(tfDraft.macro) },
                 automation: { enabled: auto.enabled, interval_seconds: calculatedAutomationInterval },
             };
-            const res = await fetch(`/api/instances/${encodeURIComponent(targetTabKey)}/config`, {
+            // Prefer the backend-assigned UUID; fall back to the pair key only
+            // for the first paint of a freshly added instance whose UUID has
+            // not yet propagated through `syncInstanceIdsFromList`.
+            const instanceId = target.instanceId ?? targetTabKey;
+            const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
             if (res.ok) {
+                if (!target.instanceId) {
+                    const headerId = res.headers.get('x-instance-id');
+                    if (headerId) target.instanceId = headerId;
+                }
                 applyTermToTelemetry(tfDraft.micro, target.microTerm);
                 applyTermToTelemetry(tfDraft.fast, target.fastTerm);
                 applyTermToTelemetry(tfDraft.slow, target.slowTerm);

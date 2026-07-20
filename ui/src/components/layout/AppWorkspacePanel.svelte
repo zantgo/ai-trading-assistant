@@ -87,11 +87,15 @@
         try {
             const result = await createInstance(base, app.quote);
             if (result.ok) {
-                app.initInstance(base);
+                const pairKey = app.pairKeyFor(base);
+                app.initInstance(base, undefined, result.instanceId);
+                if (result.instanceId && app.instancesMap[pairKey]) {
+                    app.instancesMap[pairKey].instanceId = result.instanceId;
+                }
                 newBase = '';
                 await fetchWorkspaces();
                 await app.fetchSessionStatus();
-                connectWsForInstance(app, wssMap, app.pairKeyFor(base));
+                connectWsForInstance(app, wssMap, pairKey);
             } else {
                 createError = result.error || 'Failed to create workspace.';
             }

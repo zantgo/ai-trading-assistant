@@ -220,15 +220,22 @@ export async function readErrorMessage(res: Response, fallback: string): Promise
     }
 }
 
-/** Create an instance; returns success plus a friendly error message on failure. */
-export async function createInstance(base: string, quote: string): Promise<{ ok: boolean; error?: string }> {
+/** Create an instance; returns success, the backend-assigned instance UUID,
+ * and a friendly error message on failure. The UUID must be threaded into
+ * the matching `app.instancesMap[pairKey]` entry so /config POSTs reach the
+ * correct route. */
+export async function createInstance(base: string, quote: string): Promise<{ ok: boolean; instanceId?: string; error?: string }> {
     try {
         const res = await fetch('/api/instances', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ base, quote }),
         });
-        if (res.ok) return { ok: true };
+        if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            const id = typeof data?.id === 'string' ? data.id : undefined;
+            return { ok: true, instanceId: id };
+        }
         return { ok: false, error: await readErrorMessage(res, 'Failed to add workspace.') };
     } catch (e: any) {
         return { ok: false, error: e?.message || 'Network error. Please try again.' };
@@ -244,13 +251,34 @@ export async function postInstanceCreation(baseSymbol: string, quote: string): P
     return res.ok;
 }
 
-export async function postInstanceConfig(pairKey: string, body: ApplySettingsBody): Promise<boolean> {
-    const res = await fetch(`/api/instances/${encodeURIComponent(pairKey)}/config`, {
+/** POST the instance config payload. `instanceId` is the backend-assigned
+ * UUID (`inst_<hex>`); the previous pairKey-based slug still works as a
+ * fallback while older deploys drain, but new callers should pass the UUID
+ * after `createInstance` returns it. */
+export async function postInstanceConfig(instanceId: string, body: ApplySettingsBody): Promise<boolean> {
+    const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
     });
     return res.ok;
+}
+
+/** Fetch the live list of instances and seed `instanceId` for each pairKey
+ * the store already knows about. Safe to call repeatedly — only fills in
+ * missing ids. */
+export async function syncInstanceIdsFromList(app: AppStore): Promise<void> {
+    try {
+        const res = await fetch('/api/instances');
+        if (!res.ok) return;
+        const data = await res.json();
+        const instances: Array<{ id?: string; pair?: string }> = data?.instances ?? [];
+        for (const inst of instances) {
+            if (!inst?.id || !inst?.pair) continue;
+            const entry = app.instancesMap[inst.pair];
+            if (entry && !entry.instanceId) entry.instanceId = inst.id;
+        }
+    } catch (_) {}
 }
 
 /** Syncs draft state from an existing pair. Pure function — no side effects. */

@@ -281,11 +281,16 @@ export class AppStore {
     pairKeyFor(symbol: string): string { return `${symbol}-${this.quote}`; }
     pairDisplayFor(symbol: string): string { return `${symbol}/${this.quote}`; }
 
-    initInstance(symbol: string, _exchange?: string) {
+    initInstance(symbol: string, _exchange?: string, instanceId?: string) {
         const key = this.pairKeyFor(symbol);
         if (!this.instancesMap[key]) {
-            this.instancesMap[key] = createInstanceState(symbol);
+            const created = createInstanceState(symbol);
+            if (instanceId) created.instanceId = instanceId;
+            this.instancesMap[key] = created;
         } else {
+            if (instanceId && !this.instancesMap[key].instanceId) {
+                this.instancesMap[key].instanceId = instanceId;
+            }
             const pair = this.instancesMap[key];
             for (const tf of [pair.microTerm, pair.fastTerm, pair.slowTerm, pair.macroTerm] as TimeframeTelemetry[]) {
                 tf.emaFastVal = this.settings.globalIndicatorsConfig.ema_fast;

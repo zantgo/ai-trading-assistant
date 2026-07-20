@@ -1,39 +1,33 @@
 <script lang="ts">
-    import { iRaw, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iRaw } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { flattenHistory } from '../lib/historyAdapter';
+    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(
+        timeframe === 300 ? pair?.fastTerm :
+        timeframe === 900 ? pair?.slowTerm :
+        timeframe === 3600 ? pair?.macroTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
-    let chart: IChartApi = $state(null!);
+    let chart: IChartApi;
     let ro: ResizeObserver;
     let rvolSeries: ISeriesApi<'Histogram'>;
-    let isFullscreen = $state(false);
-
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart && container) {
-            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
-        }
-    }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `rvol-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
 
     function rvolColor(rvol: number): string {
         if (rvol >= 3.0) return '#e040fb';
         if (rvol >= 1.5) return '#26c6da';
         if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)';
-            return '#64ffda';
+        return '#3b82f6';
     }
 
     onMount(() => {
@@ -63,7 +57,7 @@
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         rvolSeries = chart.addSeries(HistogramSeries, {
-            color: '#64ffda',
+            color: '#3b82f6',
             base: 0,
             priceLineVisible: false
         });
@@ -96,7 +90,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_rvol.png`;
+                link.download = `${pairKey}_${timeframe}s_rvol.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -105,30 +99,21 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
-                const data = await res.json();
-                const ih = flattenHistory(data.indicator_history);
-                if (ih && ih.rvol && ih.rvol.length > 0) {
-                    const rawRvolData = ih.times.map((t: number, i: number) => {
-                        const val = parseFloat(ih.rvol[i] ?? "0") || 0;
-                        return {
-                            time: t as Time,
-                            value: val,
-                            color: rvolColor(val),
-                        };
-                    });
+                const data = await fetchChartHistoryOnce(pairKey, timeframe);
+                if (!data || !data.indicatorHistory || !data.indicatorHistory.rvol.length) return;
+                const ih = data.indicatorHistory;
+                const rawRvolData = ih.times.map((t: number, i: number) => {
+                    const val = parseFloat(ih.rvol[i] ?? "0") || 0;
+                    return {
+                        time: t as Time,
+                        value: val,
+                        color: rvolColor(val),
+                    };
+                });
 
-                    const seenTimes = new Set<number>();
-                    const cleanedRvolData: { time: Time; value: number; color: string }[] = [];
-                    for (const item of rawRvolData) {
-                        const tNum = item.time as number;
-                        if (item && tNum && !seenTimes.has(tNum)) {
-                            seenTimes.add(tNum);
-                            cleanedRvolData.push(item);
-                        }
-                    }
-                    cleanedRvolData.sort((a, b) => (a.time as number) - (b.time as number));
+                const cleanedRvolData = dedupSortByTime(rawRvolData);
 
+                if (cleanedRvolData.length > 0) {
                     rvolSeries.setData(cleanedRvolData);
                     chart.timeScale().fitContent();
                 }
@@ -173,17 +158,8 @@
     });
 </script>
 
-<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
-</div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="RVOL — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
+<div class="chart-container" bind:this={container}></div>
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
-    .chart-wrapper.fs-active {
-        position: fixed; inset: 0; z-index: 990;
-        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
-    }
 </style>

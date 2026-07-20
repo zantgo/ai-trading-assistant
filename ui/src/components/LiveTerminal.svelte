@@ -1,234 +1,387 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
-    import SvgIcon from '../lib/SvgIcon.svelte';
-    import { formatTimeframeLabel } from '../lib/telemetry';
+    import type { TimeframeTelemetry } from '../types';
     import ChartToggles from './ChartToggles.svelte';
     import PriceChart from './PriceChart.svelte';
+    import VolumeChart from './VolumeChart.svelte';
     import RvolChart from './RvolChart.svelte';
-    import RsiChart from './RsiChart.svelte';
     import MacdChart from './MacdChart.svelte';
+    import SqueezeChart from './SqueezeChart.svelte';
+    import RsiChart from './RsiChart.svelte';
     import AdxChart from './AdxChart.svelte';
+    import BbwpChart from './BbwpChart.svelte';
     import AtrChart from './AtrChart.svelte';
-    import LiquidityPanel from './LiquidityPanel.svelte';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
-    const pair = $derived(app.instancesMap[pairKey]);
+    let showMicro = $state(true);
+    let showFast = $state(true);
+    let showSlow = $state(true);
+    let showMacro = $state(true);
 
-    type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
-    let activeTf: TfLabel = $state('Micro');
+    let expandedTf = $state<string | null>(null);
 
-    const DEFAULT_TF_SECS = { Micro: 60, Fast: 180, Slow: 300, Macro: 900 } as const;
+    function label(tf: TimeframeTelemetry): string {
+        const sec = tf.barDurationSec;
+        let suffix: string;
+        if (sec >= 86400) suffix = `${sec / 86400}d`;
+        else if (sec >= 3600) suffix = `${sec / 3600}h`;
+        else if (sec >= 60) suffix = `${sec / 60}m`;
+        else suffix = `${sec}s`;
 
-    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; secs: number }[] => {
-        const p = pair;
-        return [
-            { key: 'Micro', label: 'Micro', secs: p?.microTerm?.barDurationSec ?? DEFAULT_TF_SECS.Micro },
-            { key: 'Fast',  label: 'Fast',  secs: p?.fastTerm?.barDurationSec ?? DEFAULT_TF_SECS.Fast },
-            { key: 'Slow',  label: 'Slow',  secs: p?.slowTerm?.barDurationSec ?? DEFAULT_TF_SECS.Slow },
-            { key: 'Macro', label: 'Macro', secs: p?.macroTerm?.barDurationSec ?? DEFAULT_TF_SECS.Macro },
-        ];
+        if (sec >= 900) return `MACRO (${suffix})`;
+        if (sec >= 300) return `SLOW (${suffix})`;
+        if (sec >= 180) return `FAST (${suffix})`;
+        return `MICRO (${suffix})`;
+    }
+
+    function tfKey(pairKey: string, tf: TimeframeTelemetry): string {
+        return `${pairKey}-${tf.barDurationSec}-${tf.emaFastVal}-${tf.emaMediumVal}-${tf.emaSlowVal}-${tf.emaLongVal}`;
+    }
+
+    function toggleExpand(key: string) {
+        expandedTf = expandedTf === key ? null : key;
+    }
+
+    let expandedChartKey = $state<string | null>(null);
+    let triggerScreenshot = $state<(() => void) | null>(null);
+
+    function handleChartDblClick(chartType: string, timeframe: number) {
+        expandedChartKey = `${chartType}-${timeframe}`;
+        triggerScreenshot = null;
+    }
+
+    function handleFullscreenKeydown(e: KeyboardEvent) {
+        if (e.key === 'Escape') { expandedChartKey = null; triggerScreenshot = null; }
+    }
+
+    $effect(() => {
+        if (expandedChartKey === null) return;
+        window.addEventListener('keydown', handleFullscreenKeydown);
+        return () => window.removeEventListener('keydown', handleFullscreenKeydown);
     });
-
-    const tfSecs = $derived(TIMEFRAMES.find(t => t.key === activeTf)!.secs);
-
-    let priceOpen = $state(true);
-    let rvolOpen = $state(true);
-    let rsiOpen = $state(true);
-    let macdOpen = $state(true);
-    let adxOpen = $state(true);
-    let atrOpen = $state(true);
-    let liquidityOpen = $state(true);
-
-    const activeTfObj = $derived(
-        (activeTf as string) === 'Fast' ? pair?.fastTerm :
-        (activeTf as string) === 'Slow' ? pair?.slowTerm :
-        (activeTf as string) === 'Macro' ? pair?.macroTerm :
-        pair?.microTerm
-    );
-
-    const hasLiquidity = $derived(!!pair?.microTerm?.liquidity || !!pair?.microTerm?.cluster);
-
-    // ─── Resizable pane heights ────────────────────────────────────────
-    const DEFAULT_PRICE = 420;
-    const DEFAULT_INDICATOR = 160;
-    const MIN_HEIGHT = 60;
-    const MAX_HEIGHT = 800;
-
-    let paneHeights = $state([DEFAULT_PRICE, DEFAULT_INDICATOR, DEFAULT_INDICATOR, DEFAULT_INDICATOR, DEFAULT_INDICATOR, DEFAULT_INDICATOR]);
-    let draggingIdx = $state(-1);
-    let dragStartY = $state(0);
-    let dragStartHeights = $state<number[]>([]);
-
-    function handleDragStart(idx: number, e: MouseEvent) {
-        e.preventDefault();
-        draggingIdx = idx;
-        dragStartY = e.clientY;
-        dragStartHeights = [...paneHeights];
-        window.addEventListener('mousemove', handleDragMove);
-        window.addEventListener('mouseup', handleDragEnd);
-    }
-
-    function handleDragMove(e: MouseEvent) {
-        if (draggingIdx < 0) return;
-        const delta = e.clientY - dragStartY;
-        const current = [...dragStartHeights];
-        const newTop = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, current[draggingIdx] + delta));
-        const newBottom = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, current[draggingIdx + 1] - delta));
-        const total = current[draggingIdx] + current[draggingIdx + 1];
-        current[draggingIdx] = total > 0 ? (newTop / (newTop + newBottom)) * total : current[draggingIdx] + delta / 2;
-        current[draggingIdx + 1] = total - current[draggingIdx];
-        current[draggingIdx] = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, current[draggingIdx]));
-        current[draggingIdx + 1] = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, current[draggingIdx + 1]));
-        paneHeights = current;
-    }
-
-    function handleDragEnd() {
-        draggingIdx = -1;
-        window.removeEventListener('mousemove', handleDragMove);
-        window.removeEventListener('mouseup', handleDragEnd);
-    }
-
-    function resetPanes(idx: number) {
-        const current = [...paneHeights];
-        current[idx] = idx === 0 ? DEFAULT_PRICE : DEFAULT_INDICATOR;
-        current[idx + 1] = DEFAULT_INDICATOR;
-        paneHeights = current;
-    }
 </script>
 
 <div class={styles.terminalWorkspace}>
-    <div class={styles.tfSidebar}>
-        <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
-        {#each TIMEFRAMES as tf (tf.key)}
-            <button
-                class={styles.tfSidebarItem}
-                class:active={activeTf === tf.key}
-                onclick={() => activeTf = tf.key}
-            >
-                <span class={styles.tfLabel}>{tf.label}</span>
-                <span class={styles.tfSecs}>{formatTimeframeLabel(tf.secs)}</span>
-            </button>
-        {/each}
-    </div>
+    {#if app.instancesMap[pairKey]}
+        {@const pair = app.instancesMap[pairKey]}
 
-    <div class={styles.chartArea}>
-        {#if pair && tfSecs}
-            <ChartToggles {pairKey} />
-
-            <section class={styles.collapsibleSection}>
-                <button class={styles.collapsibleHeader} onclick={() => priceOpen = !priceOpen}>
-                    <span class={styles.collapsibleCaret}>{priceOpen ? '▼' : '▶'}</span>
-                    <span>Price Chart</span>
-                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
-                </button>
-                {#if priceOpen}
-                    <div class={styles.resizablePane} style="height:{paneHeights[0]}px">
-                        <PriceChart pairKey={pairKey} timeframe={tfSecs} />
-                    </div>
-                    <button class={styles.dragHandle} onmousedown={(e) => handleDragStart(0, e)}
-                         ondblclick={() => resetPanes(0)}
-                         title="Drag to resize · Double-click to reset"></button>
-                {/if}
-            </section>
-
-            <section class={styles.collapsibleSection}>
-                <button class={styles.collapsibleHeader} onclick={() => rvolOpen = !rvolOpen}>
-                    <span class={styles.collapsibleCaret}>{rvolOpen ? '▼' : '▶'}</span>
-                    <span>RVOL</span>
-                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
-                </button>
-                {#if rvolOpen}
-                    <div class={styles.resizablePane} style="height:{paneHeights[1]}px">
-                        <RvolChart pairKey={pairKey} timeframe={tfSecs} />
-                    </div>
-                    <button class={styles.dragHandle} onmousedown={(e) => handleDragStart(1, e)}
-                         ondblclick={() => resetPanes(1)}
-                         title="Drag to resize · Double-click to reset"></button>
-                {/if}
-            </section>
-
-            <section class={styles.collapsibleSection}>
-                <button class={styles.collapsibleHeader} onclick={() => rsiOpen = !rsiOpen}>
-                    <span class={styles.collapsibleCaret}>{rsiOpen ? '▼' : '▶'}</span>
-                    <span>RSI 14</span>
-                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
-                </button>
-                {#if rsiOpen}
-                    <div class={styles.resizablePane} style="height:{paneHeights[2]}px">
-                        <RsiChart pairKey={pairKey} timeframe={tfSecs} />
-                    </div>
-                    <button class={styles.dragHandle} onmousedown={(e) => handleDragStart(2, e)}
-                         ondblclick={() => resetPanes(2)}
-                         title="Drag to resize · Double-click to reset"></button>
-                {/if}
-            </section>
-
-            <section class={styles.collapsibleSection}>
-                <button class={styles.collapsibleHeader} onclick={() => macdOpen = !macdOpen}>
-                    <span class={styles.collapsibleCaret}>{macdOpen ? '▼' : '▶'}</span>
-                    <span>MACD</span>
-                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
-                </button>
-                {#if macdOpen}
-                    <div class={styles.resizablePane} style="height:{paneHeights[3]}px">
-                        <MacdChart pairKey={pairKey} timeframe={tfSecs} />
-                    </div>
-                    <button class={styles.dragHandle} onmousedown={(e) => handleDragStart(3, e)}
-                         ondblclick={() => resetPanes(3)}
-                         title="Drag to resize · Double-click to reset"></button>
-                {/if}
-            </section>
-
-            <section class={styles.collapsibleSection}>
-                <button class={styles.collapsibleHeader} onclick={() => adxOpen = !adxOpen}>
-                    <span class={styles.collapsibleCaret}>{adxOpen ? '▼' : '▶'}</span>
-                    <span>ADX 14</span>
-                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
-                </button>
-                {#if adxOpen}
-                    <div class={styles.resizablePane} style="height:{paneHeights[4]}px">
-                        <AdxChart pairKey={pairKey} timeframe={tfSecs} />
-                    </div>
-                    <button class={styles.dragHandle} onmousedown={(e) => handleDragStart(4, e)}
-                         ondblclick={() => resetPanes(4)}
-                         title="Drag to resize · Double-click to reset"></button>
-                {/if}
-            </section>
-
-            <section class={styles.collapsibleSection}>
-                <button class={styles.collapsibleHeader} onclick={() => atrOpen = !atrOpen}>
-                    <span class={styles.collapsibleCaret}>{atrOpen ? '▼' : '▶'}</span>
-                    <span>ATR 14</span>
-                    <span class={styles.tfBadge}>{activeTf} · {formatTimeframeLabel(tfSecs)}</span>
-                </button>
-                {#if atrOpen}
-                    <div class={styles.resizablePane} style="height:{paneHeights[5]}px">
-                        <AtrChart pairKey={pairKey} timeframe={tfSecs} />
-                    </div>
-                {/if}
-            </section>
-
-            {#if hasLiquidity}
-                <section class={styles.collapsibleSection}>
-                    <button class={styles.collapsibleHeader} onclick={() => liquidityOpen = !liquidityOpen}>
-                        <span class={styles.collapsibleCaret}>{liquidityOpen ? '▼' : '▶'}</span>
-                        <span>Liquidation Analysis</span>
-                        <span class={styles.tfBadge}>cascade · cluster</span>
+        <ChartToggles {pairKey} />
+        <div class={styles.mtfGrid}>
+        <!-- Micro-Term Column -->
+        <div class="{styles.timescaleColumn} {!showMicro ? styles.hiddenPane : ''} {expandedTf === 'micro' ? styles.expandedTfColumn : ''}">
+            <div class={styles.timescaleHeader}>
+                <span class={styles.timescaleTitle}>{label(pair.microTerm)}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.microTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('micro')} title={expandedTf === 'micro' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'micro' ? '✕' : '⛶'}
                     </button>
-                    {#if liquidityOpen}
-                        <div class={styles.liquidityContainer}>
-                            <LiquidityPanel {pairKey} />
-                        </div>
-                    {/if}
-                </section>
-            {/if}
-        {:else}
-            <div class={styles.placeholderChart}>
-                <SvgIcon name="activity" size={48} />
-                <p>Select a workspace to view live charts</p>
+                </div>
             </div>
-        {/if}
-    </div>
+            <div class={styles.timescaleCharts}>
+                <div class="{styles.panelBox} {styles.panePrice}">
+                    <div class={styles.panelLabel}>PRICE</div>
+                    {#key tfKey(pairKey, pair.microTerm)}
+                        <PriceChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('price', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneVol}">
+                    <div class={styles.panelLabel}>VOLUME</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}`}
+                        <VolumeChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('volume', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRvol}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rvol', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneMacd}">
+                    <div class={styles.panelLabel}>MACD</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-macd`}
+                        <MacdChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('macd', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneSqueeze}">
+                    <div class={styles.panelLabel}>SQUEEZE</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-squeeze`}
+                        <SqueezeChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('squeeze', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRsi}">
+                    <div class={styles.panelLabel}>RSI</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-rsi`}
+                        <RsiChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rsi', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAdx}">
+                    <div class={styles.panelLabel}>ADX</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-adx`}
+                        <AdxChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('adx', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneBbwp}">
+                    <div class={styles.panelLabel}>BBWP</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-bbwp`}
+                        <BbwpChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('bbwp', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAtr}">
+                    <div class={styles.panelLabel}>ATR</div>
+                    {#key `${pairKey}-${pair.microTerm.barDurationSec}-atr`}
+                        <AtrChart pairKey={pairKey} timeframe={pair.microTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('atr', pair.microTerm.barDurationSec)} />
+                    {/key}
+                </div>
+            </div>
+        </div>
+
+        <!-- Small-Term Column -->
+        <div class="{styles.timescaleColumn} {!showFast ? styles.hiddenPane : ''} {expandedTf === 'fast' ? styles.expandedTfColumn : ''}">
+            <div class={styles.timescaleHeader}>
+                <span class={styles.timescaleTitle}>{label(pair.fastTerm)}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.fastTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('fast')} title={expandedTf === 'fast' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'fast' ? '✕' : '⛶'}
+                    </button>
+                </div>
+            </div>
+            <div class={styles.timescaleCharts}>
+                <div class="{styles.panelBox} {styles.panePrice}">
+                    <div class={styles.panelLabel}>PRICE</div>
+                    {#key tfKey(pairKey, pair.fastTerm)}
+                        <PriceChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('price', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneVol}">
+                    <div class={styles.panelLabel}>VOLUME</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}`}
+                        <VolumeChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('volume', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRvol}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rvol', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneMacd}">
+                    <div class={styles.panelLabel}>MACD</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-macd`}
+                        <MacdChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('macd', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneSqueeze}">
+                    <div class={styles.panelLabel}>SQUEEZE</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-squeeze`}
+                        <SqueezeChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('squeeze', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRsi}">
+                    <div class={styles.panelLabel}>RSI</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-rsi`}
+                        <RsiChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rsi', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAdx}">
+                    <div class={styles.panelLabel}>ADX</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-adx`}
+                        <AdxChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('adx', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneBbwp}">
+                    <div class={styles.panelLabel}>BBWP</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-bbwp`}
+                        <BbwpChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('bbwp', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAtr}">
+                    <div class={styles.panelLabel}>ATR</div>
+                    {#key `${pairKey}-${pair.fastTerm.barDurationSec}-atr`}
+                        <AtrChart pairKey={pairKey} timeframe={pair.fastTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('atr', pair.fastTerm.barDurationSec)} />
+                    {/key}
+                </div>
+            </div>
+        </div>
+
+        <!-- Medium-Term Column -->
+        <div class="{styles.timescaleColumn} {!showSlow ? styles.hiddenPane : ''} {expandedTf === 'slow' ? styles.expandedTfColumn : ''}">
+            <div class={styles.timescaleHeader}>
+                <span class={styles.timescaleTitle}>{label(pair.slowTerm)}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.slowTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('slow')} title={expandedTf === 'slow' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'slow' ? '✕' : '⛶'}
+                    </button>
+                </div>
+            </div>
+            <div class={styles.timescaleCharts}>
+                <div class="{styles.panelBox} {styles.panePrice}">
+                    <div class={styles.panelLabel}>PRICE</div>
+                    {#key tfKey(pairKey, pair.slowTerm)}
+                        <PriceChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('price', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneVol}">
+                    <div class={styles.panelLabel}>VOLUME</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}`}
+                        <VolumeChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('volume', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRvol}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rvol', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneMacd}">
+                    <div class={styles.panelLabel}>MACD</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-macd`}
+                        <MacdChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('macd', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneSqueeze}">
+                    <div class={styles.panelLabel}>SQUEEZE</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-squeeze`}
+                        <SqueezeChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('squeeze', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRsi}">
+                    <div class={styles.panelLabel}>RSI</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-rsi`}
+                        <RsiChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rsi', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAdx}">
+                    <div class={styles.panelLabel}>ADX</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-adx`}
+                        <AdxChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('adx', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneBbwp}">
+                    <div class={styles.panelLabel}>BBWP</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-bbwp`}
+                        <BbwpChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('bbwp', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAtr}">
+                    <div class={styles.panelLabel}>ATR</div>
+                    {#key `${pairKey}-${pair.slowTerm.barDurationSec}-atr`}
+                        <AtrChart pairKey={pairKey} timeframe={pair.slowTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('atr', pair.slowTerm.barDurationSec)} />
+                    {/key}
+                </div>
+            </div>
+        </div>
+
+        <!-- Large-Term Column -->
+        <div class="{styles.timescaleColumn} {!showMacro ? styles.hiddenPane : ''} {expandedTf === 'macro' ? styles.expandedTfColumn : ''}">
+            <div class={styles.timescaleHeader}>
+                <span class={styles.timescaleTitle}>{label(pair.macroTerm)}</span>
+                <div class={styles.headerActions}>
+                    <span class={styles.timescalePrice}>{pair.macroTerm.priceText}</span>
+                    <button class={styles.expandBtn} onclick={() => toggleExpand('macro')} title={expandedTf === 'macro' ? 'Collapse' : 'Expand'}>
+                        {expandedTf === 'macro' ? '✕' : '⛶'}
+                    </button>
+                </div>
+            </div>
+            <div class={styles.timescaleCharts}>
+                <div class="{styles.panelBox} {styles.panePrice}">
+                    <div class={styles.panelLabel}>PRICE</div>
+                    {#key tfKey(pairKey, pair.macroTerm)}
+                        <PriceChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('price', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneVol}">
+                    <div class={styles.panelLabel}>VOLUME</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}`}
+                        <VolumeChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('volume', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRvol}">
+                    <div class={styles.panelLabel}>RVOL</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-rvol`}
+                        <RvolChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rvol', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneMacd}">
+                    <div class={styles.panelLabel}>MACD</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-macd`}
+                        <MacdChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('macd', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneSqueeze}">
+                    <div class={styles.panelLabel}>SQUEEZE</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-squeeze`}
+                        <SqueezeChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('squeeze', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneRsi}">
+                    <div class={styles.panelLabel}>RSI</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-rsi`}
+                        <RsiChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('rsi', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAdx}">
+                    <div class={styles.panelLabel}>ADX</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-adx`}
+                        <AdxChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('adx', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneBbwp}">
+                    <div class={styles.panelLabel}>BBWP</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-bbwp`}
+                        <BbwpChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('bbwp', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+                <div class="{styles.panelBox} {styles.paneAtr}">
+                    <div class={styles.panelLabel}>ATR</div>
+                    {#key `${pairKey}-${pair.macroTerm.barDurationSec}-atr`}
+                        <AtrChart pairKey={pairKey} timeframe={pair.macroTerm.barDurationSec} onDoubleClick={() => handleChartDblClick('atr', pair.macroTerm.barDurationSec)} />
+                    {/key}
+                </div>
+            </div>
+        </div>
+        </div>
+    {/if}
 </div>
+
+{#if expandedChartKey !== null}
+    {@const lastDash = expandedChartKey.lastIndexOf('-')}
+    {@const chartType = expandedChartKey.slice(0, lastDash)}
+    {@const timeframeSec = parseInt(expandedChartKey.slice(lastDash + 1))}
+    <div class={styles.singleChartFullscreen}>
+        <div class={styles.timescaleHeader}>
+            <span class={styles.timescaleTitle}>{chartType.toUpperCase()}</span>
+            <div class={styles.headerActions}>
+                {#if triggerScreenshot}
+                    <button class={styles.expandBtn} onclick={() => triggerScreenshot?.()} title="Save Screenshot">📸 SCREENSHOT</button>
+                {/if}
+                <button class={styles.expandBtn} onclick={() => { expandedChartKey = null; triggerScreenshot = null; }} title="Close">✕</button>
+            </div>
+        </div>
+        <div class={styles.singleChartBody}>
+            {#if chartType === 'price'}
+                <PriceChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'volume'}
+                <VolumeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'rvol'}
+                <RvolChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'macd'}
+                <MacdChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'squeeze'}
+                <SqueezeChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'rsi'}
+                <RsiChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'adx'}
+                <AdxChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'bbwp'}
+                <BbwpChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {:else if chartType === 'atr'}
+                <AtrChart pairKey={pairKey} timeframe={timeframeSec} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
+            {/if}
+        </div>
+    </div>
+{/if}

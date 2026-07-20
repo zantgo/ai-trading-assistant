@@ -1,36 +1,30 @@
 <script lang="ts">
-    import { flattenHistory } from '../lib/historyAdapter';
-    import { iRaw, iSub, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
+    import { iRaw, iSub } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(
+        timeframe === 300 ? pair?.fastTerm :
+        timeframe === 900 ? pair?.slowTerm :
+        timeframe === 3600 ? pair?.macroTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
-    let chart: IChartApi = $state(null!);
+    let chart: IChartApi;
     let ro: ResizeObserver;
     let macdLineSeries: ISeriesApi<'Line'>;
     let macdSigSeries: ISeriesApi<'Line'>;
     let macdHistSeries: ISeriesApi<'Histogram'>;
     let zeroLine: IPriceLine | null = null;
-    let isFullscreen = $state(false);
-
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart && container) {
-            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
-        }
-    }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `macd-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -55,11 +49,10 @@
             handleScroll: true,
         });
 
-        macdLineSeries = chart.addSeries(LineSeries, { color: '#64ffda', lineWidth: 2, priceLineVisible: false });
+        macdLineSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 2, priceLineVisible: false });
         macdSigSeries = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 2, priceLineVisible: false });
         macdHistSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
 
-        // Zero-line reference
         zeroLine = macdHistSeries.createPriceLine({
             price: 0,
             color: '#4c525e',
@@ -81,7 +74,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_macd.png`;
+                link.download = `${pairKey}_${timeframe}s_macd.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -90,78 +83,42 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
-                const data = await res.json();
-                const indicatorHistory = flattenHistory(data.indicator_history);
-                if (indicatorHistory && indicatorHistory.macd_line && indicatorHistory.macd_line.length > 0) {
-                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        line: indicatorHistory.macd_line[i],
-                        sig: indicatorHistory.macd_signal[i],
-                        hist: indicatorHistory.macd_hist[i]
+                const data = await fetchChartHistoryOnce(pairKey, timeframe);
+                if (!data || !data.indicatorHistory || !data.indicatorHistory.macd_line.length) return;
+                const ih = data.indicatorHistory;
+                const rawCombined = ih.times.map((t: number, i: number) => ({
+                    time: t as Time,
+                    line: ih.macd_line[i],
+                    sig: ih.macd_signal[i],
+                    hist: ih.macd_hist[i]
+                }));
+
+                const cleanedCombined = dedupSortByTime(rawCombined);
+
+                const lineData = cleanedCombined
+                    .filter((x: any) => x.line != null)
+                    .map((x: any) => ({
+                        time: x.time,
+                        value: parseFloat(x.line!)
+                    }));
+                const sigData = cleanedCombined
+                    .filter((x: any) => x.sig != null)
+                    .map((x: any) => ({
+                        time: x.time,
+                        value: parseFloat(x.sig!)
+                    }));
+                const histData = cleanedCombined
+                    .filter((x: any) => x.hist != null)
+                    .map((x: any) => ({
+                        time: x.time,
+                        value: parseFloat(x.hist!),
+                        color: parseFloat(x.hist!) >= 0 ? '#26a69a' : '#ef5350'
                     }));
 
-                    const seenTimes = new Set<number>();
-                    const cleanedCombined: { time: Time; line: string | null; sig: string | null; hist: string | null }[] = [];
-                    for (const item of rawCombined) {
-                        const tNum = item.time as number;
-                        if (item && tNum && !seenTimes.has(tNum)) {
-                            seenTimes.add(tNum);
-                            cleanedCombined.push(item);
-                        }
-                    }
-                    cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
-
-                    const lineData = cleanedCombined
-                        .filter(x => x.line != null)
-                        .map(x => ({
-                            time: x.time,
-                            value: parseFloat(x.line!)
-                        }));
-                    const sigData = cleanedCombined
-                        .filter(x => x.sig != null)
-                        .map(x => ({
-                            time: x.time,
-                            value: parseFloat(x.sig!)
-                        }));
-                    const histData = cleanedCombined
-                        .filter(x => x.hist != null)
-                        .map(x => ({
-                            time: x.time,
-                            value: parseFloat(x.hist!),
-                            color: parseFloat(x.hist!) >= 0 ? '#26a69a' : '#ef5350'
-                        }));
-
+                if (lineData.length > 0) {
                     macdLineSeries.setData(lineData);
                     macdSigSeries.setData(sigData);
                     macdHistSeries.setData(histData);
-                    chart.timeScale().fitContent();
-                } else if (data.prices && data.prices.length > 0) {
-                    const hasCandles = data.candles && data.candles.length > 0;
-                    const source = hasCandles ? data.candles : data.prices;
-
-                    const now = Math.floor(Date.now() / 1000);
-                    const step = tf.barDurationSec || 60;
-                    const baseTime = now - (data.prices.length * step);
-
-                    const seenTimes = new Set<number>();
-                    const placeholderLine: { time: Time; value: number }[] = [];
-                    const placeholderHist: { time: Time; value: number; color: string }[] = [];
-                    for (let idx = 0; idx < source.length; idx++) {
-                        const item = source[idx];
-                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
-                        if (!seenTimes.has(tVal)) {
-                            seenTimes.add(tVal);
-                            placeholderLine.push({ time: tVal as Time, value: 0 });
-                            placeholderHist.push({ time: tVal as Time, value: 0, color: '#131722' });
-                        }
-                    }
-                    placeholderLine.sort((a, b) => (a.time as number) - (b.time as number));
-                    placeholderHist.sort((a, b) => (a.time as number) - (b.time as number));
-
-                    macdLineSeries.setData(placeholderLine);
-                    macdSigSeries.setData(placeholderLine);
-                    macdHistSeries.setData(placeholderHist);
                     chart.timeScale().fitContent();
                 }
             } catch (err) {
@@ -186,16 +143,16 @@
     function histogramColor(mHist: number, prevHist: number): string {
         const positive = mHist >= 0;
         const expanding = Math.abs(mHist) >= Math.abs(prevHist);
-        if (positive && expanding) return '#26a69a';       // Light Green — building
-        if (positive && !expanding) return '#00695c';       // Dark Green — warning
-        if (!positive && expanding) return '#ef5350';       // Bright Red — building
-        return '#b71c1c';                                    // Dark Red — warning
+        if (positive && expanding) return '#26a69a';
+        if (positive && !expanding) return '#00695c';
+        if (!positive && expanding) return '#ef5350';
+        return '#b71c1c';
     }
 
     let prevMacdHist = 0;
     $effect(() => {
         if (!pair) return;
-        const snap = tf.latestSnapshot;
+        const snap = tf?.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
@@ -212,17 +169,8 @@
     });
 </script>
 
-<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
-</div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="MACD — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
+<div class="chart-container" bind:this={container}></div>
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
-    .chart-wrapper.fs-active {
-        position: fixed; inset: 0; z-index: 990;
-        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
-    }
 </style>

@@ -16,9 +16,15 @@ pub async fn ws_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let pair_key = if query.symbol.is_empty() {
-        let _cfg = state.platform.read().await;
-        let first = state.workspace.config().await.declared_symbols().first().cloned().unwrap_or_default();
-        default_pair_key(&first)
+        let first = state
+            .workspace
+            .config()
+            .await
+            .declared_symbols()
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        default_pair_key(&state, &first).await
     } else {
         query.symbol
     };

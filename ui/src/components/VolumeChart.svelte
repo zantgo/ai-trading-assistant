@@ -1,33 +1,27 @@
 <script lang="ts">
-    import { iRaw, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iRaw } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { flattenHistory } from '../lib/historyAdapter';
+    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(
+        timeframe === 300 ? pair?.fastTerm :
+        timeframe === 900 ? pair?.slowTerm :
+        timeframe === 3600 ? pair?.macroTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
-    let chart: IChartApi = $state(null!);
+    let chart: IChartApi;
+    let ro: ResizeObserver;
     let volumeSeries: ISeriesApi<'Histogram'>;
-
-    let isFullscreen = $state(false);
-
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart && container) {
-            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
-        }
-    }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `volume-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -67,7 +61,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_volume.png`;
+                link.download = `${pairKey}_${timeframe}s_volume.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -76,42 +70,35 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
-                const data = await res.json();
-                if (data.prices && data.prices.length > 0) {
-                    const hasCandles = data.candles && data.candles.length > 0;
-                    const source = hasCandles ? data.candles : data.prices;
+                const data = await fetchChartHistoryOnce(pairKey, timeframe);
+                if (!data) return;
+                if (data.candles && data.candles.length > 0) {
+                    const rvolHistory = data.indicatorHistory?.rvol ?? [];
 
-                    const now = Math.floor(Date.now() / 1000);
-                    const step = tf.barDurationSec || 60;
-                    const baseTime = now - (data.prices.length * step);
-
-                    const rvolHistory = flattenHistory(data.indicator_history).rvol;
-
-                    const rawCombined = source.map((item: any, idx: number) => ({
-                        time: hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step)),
-                        close: hasCandles ? (parseFloat(item.close) || 0) : 0,
-                        open: hasCandles ? (parseFloat(item.open) || 0) : 0,
-                        volume: hasCandles ? (parseFloat(item.volume) || 0) : 0,
+                    const rawCombined = data.candles.map((c, idx) => ({
+                        time: Math.floor(c.time / 1000) as Time,
+                        close: parseFloat(c.close) || 0,
+                        open: parseFloat(c.open) || 0,
+                        volume: parseFloat(c.volume) || 0,
                         rvolRaw: rvolHistory[idx] ?? null
                     }));
 
-                    const seenTimes = new Set<number>();
-                    const cleanedCombined: { time: number; close: number; open: number; volume: number; rvolRaw: string | null }[] = [];
-                    for (const item of rawCombined) {
-                        if (item && item.time && !seenTimes.has(item.time)) {
-                            seenTimes.add(item.time);
-                            cleanedCombined.push(item);
-                        }
-                    }
-                    cleanedCombined.sort((a, b) => a.time - b.time);
+                    const cleanedCombined = dedupSortByTime(rawCombined.map((c) => ({
+                        time: c.time as unknown as Time,
+                        close: c.close,
+                        open: c.open,
+                        volume: c.volume,
+                        rvolRaw: c.rvolRaw,
+                    }))) as { time: Time; close: number; open: number; volume: number; rvolRaw: string | null }[];
 
-                    const placeholder = cleanedCombined.map(item => ({
-                        time: item.time as Time,
+                    const placeholder = cleanedCombined.map((item) => ({
+                        time: item.time,
                         value: item.volume,
-                        color: hasCandles
-                            ? volumeColor(item.rvolRaw != null ? parseFloat(item.rvolRaw) : 1.0, item.close, item.open)
-                            : '#131722'
+                        color: volumeColor(
+                            item.rvolRaw != null ? parseFloat(item.rvolRaw) : 1.0,
+                            item.close,
+                            item.open
+                        ),
                     }));
 
                     volumeSeries.setData(placeholder);
@@ -122,15 +109,14 @@
             }
         })();
 
-        const ro = new ResizeObserver(() => {
+        ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
-
-        return () => ro.disconnect();
     });
 
     onDestroy(() => {
+        ro?.disconnect();
         if (chart) {
             unregisterChart(chart);
             chart.remove();
@@ -138,21 +124,21 @@
     });
 
     function volumeColor(rvol: number, close: number, open: number): string {
-        if (rvol >= 3.0) return '#e040fb';       // Magenta — Exhaustion Climax
-        if (rvol >= 1.5) return '#26c6da';       // Cyan — Institutional
-        if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)'; // Translucent gray — Consolidation
-        return close >= open ? '#26a69a' : '#ef5350'; // Standard green/red — Normal
+        if (rvol >= 3.0) return '#e040fb';
+        if (rvol >= 1.5) return '#26c6da';
+        if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)';
+        return close >= open ? '#26a69a' : '#ef5350';
     }
 
     $effect(() => {
         if (!pair) return;
-        const snap = tf.latestSnapshot;
+        const snap = tf?.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         if (snap.open != null && snap.close != null) {
             const close = parseFloat(String(snap.close));
             const open = parseFloat(String(snap.open));
-            const vol = parseFloat(String(snap.volume));
+            const vol = parseFloat(String(snap.volume ?? '0')) || 0;
             const rvol = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rvol') ?? 1.0;
 
             const color = volumeColor(rvol, close, open);
@@ -161,17 +147,8 @@
     });
 </script>
 
-<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
-</div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="Volume — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
+<div class="chart-container" bind:this={container}></div>
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
-    .chart-wrapper.fs-active {
-        position: fixed; inset: 0; z-index: 990;
-        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
-    }
 </style>

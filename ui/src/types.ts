@@ -585,6 +585,10 @@ export interface InstanceState {
     symbol: string;
     exchange: string;
     isConnected: boolean;
+    /// Backend-assigned instance UUID (`inst_<hex>`). Used as the path
+    /// parameter for `/api/instances/{instance_id}/...` endpoints.
+    /// Populated lazily from `GET /api/instances` or `POST /api/instances`.
+    instanceId?: string;
     microTerm: TimeframeTelemetry;
     fastTerm: TimeframeTelemetry;
     slowTerm: TimeframeTelemetry;

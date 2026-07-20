@@ -12,7 +12,7 @@
     import QuitDialog from './QuitDialog.svelte';
 
     import styles from './styles/brutalist-grid.module.css';
-    import { fetchConfigFromServer, applyConfigToStore } from './lib/api.svelte';
+    import { fetchConfigFromServer, applyConfigToStore, syncInstanceIdsFromList } from './lib/api.svelte';
     import {
         connectWsForInstance, disconnectWsForInstance, shouldReconnect,
         type WsState,
@@ -148,6 +148,7 @@
             const config = await fetchConfigFromServer();
             const { firstSymbol } = applyConfigToStore(app, config);
             if (firstSymbol) app.activeTab = app.pairKeyFor(firstSymbol);
+            await syncInstanceIdsFromList(app);
             configReady = true;
             for (const sym of Object.keys(app.instancesMap)) {
                 connectWsForInstance(app, wssMap, sym);

@@ -25,6 +25,12 @@
         syncAll(tf => { tf.showVwap = v; });
     }
 
+    function toggleBb() {
+        if (!pair) return;
+        const v = !pair.microTerm.showBb;
+        syncAll(tf => { tf.showBb = v; });
+    }
+
     function toggleEma(label: 'Fast' | 'Medium' | 'Slow' | 'Long') {
         if (!pair) return;
         const key = `showEma${label}` as keyof typeof pair;
@@ -61,6 +67,8 @@
     <div class={styles.togglesGroup}>
         <button class="{styles.togglePill} {styles.vwapPill} {pair.microTerm.showVwap ? styles.active : ''}"
             onclick={toggleVwap}>VWAP</button>
+        <button class="{styles.togglePill} {styles.bbPill} {pair.microTerm.showBb ? styles.active : ''}"
+            onclick={toggleBb}>BOLLINGER</button>
     </div>
 </div>
 {/if}

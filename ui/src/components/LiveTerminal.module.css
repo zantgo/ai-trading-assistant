@@ -1,219 +1,192 @@
 .terminal-workspace {
-    height: 100%;
-    display: flex;
-    background: #0a0a0f;
-    color: #e2e8f0;
-}
-
-/* ─── Timeframe sidebar ─────────────────────────────────────────── */
-
-.tfSidebar {
-    width: 140px;
-    border-right: 1px solid rgba(255,255,255,0.06);
-    padding: 1rem 0;
-    flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
 }
-
-.tfSidebarTitle {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: #5a5f6e;
-    padding: 0 0.75rem;
-    margin-bottom: 0.5rem;
-    font-family: var(--mono);
+.mtf-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 8px;
+    padding: 8px;
+    overflow: hidden;
+    min-height: 0;
 }
-
-.tfSidebarItem {
+.timescale-column {
+    background-color: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+.timescale-header {
+    background-color: #0f111a;
+    border-bottom: 1px solid #1e293b;
+    padding: 8px 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    width: 100%;
-    padding: 0.45rem 0.75rem;
-    border: none;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    transition: background 0.15s;
+    flex-shrink: 0;
 }
-
-.tfSidebarItem:hover {
-    background: rgba(255,255,255,0.04);
-    color: #ccc;
+.timescale-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
 }
-
-.tfSidebarItem:global(.active) {
-    background: rgba(255,255,255,0.06);
-    color: #fff;
+.timescale-price {
+    font-size: 12px;
+    font-weight: 700;
+    color: #64ffda;
+    font-family: 'Courier New', monospace;
 }
-
-.tfLabel { font-weight: 500; }
-
-.tfSecs { font-size: 0.65rem; color: #5a5f6e; }
-
-.tfSidebarItem:global(.active) .tfSecs { color: #888; }
-
-/* ─── Chart area ─────────────────────────────────────────────────── */
-
-.chartArea {
+.timescale-charts {
     flex: 1;
     overflow-y: auto;
+    scrollbar-gutter: stable both-edges;
+    border-left: 10px solid #0f111a;
     display: flex;
     flex-direction: column;
+    gap: 6px;
+    padding: 0 4px 0 6px;
 }
 
-.collapsibleSection {
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+.timescale-charts::-webkit-scrollbar {
+    width: 10px;
 }
-
-.collapsibleSection:last-child {
-    border-bottom: none;
-}
-
-.collapsibleHeader {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.6rem 0.75rem;
-    border: none;
-    background: transparent;
-    color: rgba(255,255,255,0.85);
-    cursor: pointer;
-    font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 600;
-    text-align: left;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}
-
-.collapsibleHeader:hover { background: rgba(255,255,255,0.03); }
-
-.collapsibleCaret {
-    font-size: 0.65rem;
-    width: 12px;
-    text-align: center;
-    color: #64748b;
-}
-
-.tfBadge {
-    margin-left: auto;
-    font-size: 10px;
-    color: #64748b;
-    background: rgba(255,255,255,0.04);
-    padding: 2px 8px;
+.timescale-charts::-webkit-scrollbar-track {
+    background: #0f111a;
     border-radius: 4px;
+    border-left: 1px solid #1e293b;
+}
+.timescale-charts::-webkit-scrollbar-thumb {
+    background: #2a2e39;
+    border-radius: 5px;
+    border: 2px solid #0f111a;
+}
+.timescale-charts::-webkit-scrollbar-thumb:hover {
+    background: #475569;
 }
 
-.priceChartContainer {
-    height: 420px;
-    background: #06080c;
-}
-
-/* ─── Resizable chart panes ──────────────────────────────────────── */
-
-.resizablePane {
-    overflow: hidden;
-    background: #06080c;
-    flex-shrink: 0;
-}
-
-.dragHandle {
-    height: 6px;
-    width: 100%;
-    background: rgba(255,255,255,0.06);
-    cursor: ns-resize;
-    flex-shrink: 0;
-    transition: background 0.15s;
-    position: relative;
-    border: none;
-    padding: 0;
-    margin: 0;
-    display: block;
-}
-
-.dragHandle::after {
-    content: '';
+.panel-label {
     position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 24px;
-    height: 2px;
-    border-radius: 1px;
-    background: #64748b;
-}
-
-.dragHandle:hover {
-    background: #64ffda;
-}
-
-.dragHandle:hover::after {
-    background: #000;
-}
-
-/* ─── Fixed indicator panes (legacy, kept for reference) ─────────── */
-
-.fixedPanesSection {
-    display: flex;
-    flex-direction: column;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-
-.fixedPane {
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-
-.fixedPane:last-child {
-    border-bottom: none;
-}
-
-.paneHeader {
-    padding: 4px 12px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    color: rgba(255,255,255,0.35);
+    top: 4px;
+    left: 8px;
+    z-index: 5;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #4c525e;
     text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    pointer-events: none;
+}
+.panel-box {
+    position: relative;
+    background: #0f111a;
+    border-radius: 4px;
+    min-height: 110px;
+    flex-shrink: 0;
+}
+.panel-box.pane-price { height: 200px; }
+.panel-box.pane-vol { height: 110px; }
+.panel-box.pane-adx { height: 110px; }
+.panel-box.pane-atr { height: 110px; }
+.panel-box.pane-rsi { height: 110px; }
+.panel-box.pane-macd { height: 110px; }
+.panel-box.pane-squeeze { height: 110px; }
+.panel-box.pane-bbwp { height: 110px; }
+.panel-box.pane-rvol { height: 110px; }
+.hidden-pane { display: none; }
+
+@media (max-width: 1600px) {
+    .mtf-grid {
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: repeat(2, 1fr);
+    }
+}
+@media (max-width: 1280px) {
+    .mtf-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(4, 400px);
+        overflow-y: auto;
+    }
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.expand-btn {
     background: transparent;
-    font-family: var(--mono);
+    border: 1px solid #1e293b;
+    color: #8f929d;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: monospace;
+    transition: all 0.15s;
 }
 
-.fixedPaneChart {
-    height: calc(100% - 21px);
-    background: #06080c;
+.expand-btn:hover {
+    border-color: #64ffda;
+    color: #64ffda;
+    background: rgba(100, 255, 218, 0.08);
 }
 
-.fixedPaneChart:global(> .chart-container) {
-    height: 100%;
+.expanded-tf-column {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 99999 !important;
+    background-color: #131722 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-sizing: border-box;
+    overflow-y: auto !important;
 }
 
-/* ─── Liquidity ─────────────────────────────────────────────────── */
-
-.liquidityContainer {
-    padding: 0;
-    background: #06080c;
-}
-
-/* ─── Placeholder ───────────────────────────────────────────────── */
-
-.placeholderChart {
+.expanded-tf-column .timescale-charts {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 200px;
-    gap: 0.5rem;
-    color: rgba(255,255,255,0.3);
-    font-size: 12px;
-    font-weight: 400;
-    text-align: center;
-    padding: 40px;
+    scrollbar-gutter: stable both-edges;
+    border-left: 10px solid #0f111a;
+    padding: 0 16px 0 22px;
+    gap: 12px;
+}
+
+.expanded-tf-column .panel-box.pane-price { flex: 2 1 0%; height: auto !important; }
+.expanded-tf-column .panel-box { flex: 1 1 0%; height: auto !important; }
+
+.single-chart-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 999999 !important;
+    background-color: #131722 !important;
+    display: flex;
+    flex-direction: column;
+}
+.single-chart-body {
+    flex: 1;
+    min-height: 0;
+    padding: 8px 12px 12px 12px;
 }

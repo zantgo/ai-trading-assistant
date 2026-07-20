@@ -18,7 +18,7 @@
     color: #4a5568;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-family: var(--mono);
+    font-family: 'Courier New', monospace;
     margin-right: 2px;
 }
 .toggles-separator {
@@ -34,7 +34,7 @@
     color: #4a5568;
     font-size: 8px;
     font-weight: 700;
-    font-family: var(--mono);
+    font-family: 'Courier New', monospace;
     cursor: pointer;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -53,4 +53,5 @@
 .toggle-pill.ema-medium.active { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.1); }
 .toggle-pill.ema-slow.active { border-color: #e91e63; color: #e91e63; background: rgba(233, 30, 99, 0.1); }
 .toggle-pill.ema-long.active { border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.1); }
-.toggle-pill.vwap-pill.active { border-color: #64ffda; color: #64ffda; background: rgba(100, 255, 218, 0.1); }
+.toggle-pill.vwap-pill.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }
+.toggle-pill.bb-pill.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0, 229, 255, 0.1); }

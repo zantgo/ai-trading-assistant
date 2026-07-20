@@ -1,37 +1,31 @@
 <script lang="ts">
-    import { iRaw, iSub, adxRegime, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iRaw, iSub, adxRegime } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { flattenHistory } from '../lib/historyAdapter';
+    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(
+        timeframe === 300 ? pair?.fastTerm :
+        timeframe === 900 ? pair?.slowTerm :
+        timeframe === 3600 ? pair?.macroTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
-    let chart: IChartApi = $state(null!);
+    let chart: IChartApi;
     let ro: ResizeObserver;
     let adxSeries: ISeriesApi<'Line'>;
     let adxPlusSeries: ISeriesApi<'Line'>;
     let adxMinusSeries: ISeriesApi<'Line'>;
     let trendLine: IPriceLine | null = null;
     let exhaustionLine: IPriceLine | null = null;
-    let isFullscreen = $state(false);
-
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart && container) {
-            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
-        }
-    }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `adx-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -60,7 +54,6 @@
         adxPlusSeries = chart.addSeries(LineSeries, { color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false });
         adxMinusSeries = chart.addSeries(LineSeries, { color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false });
 
-        // Trend threshold line at 20 (dashed gray)
         trendLine = adxSeries.createPriceLine({
             price: 20,
             color: '#4c525e',
@@ -70,7 +63,6 @@
             title: 'TREND',
         });
 
-        // Exhaustion threshold line at 40 (dashed red)
         exhaustionLine = adxSeries.createPriceLine({
             price: 40,
             color: '#ff5252',
@@ -93,7 +85,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_adx.png`;
+                link.download = `${pairKey}_${timeframe}s_adx.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -102,74 +94,41 @@
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`);
-                const data = await res.json();
-                const indicatorHistory = flattenHistory(data.indicator_history);
-                if (indicatorHistory && indicatorHistory.adx_14 && indicatorHistory.adx_14.length > 0) {
-                    const rawCombined = indicatorHistory.times.map((t: number, i: number) => ({
-                        time: t as Time,
-                        adx: indicatorHistory.adx_14[i],
-                        plus: indicatorHistory.adx_plus[i],
-                        minus: indicatorHistory.adx_minus[i]
+                const data = await fetchChartHistoryOnce(pairKey, timeframe);
+                if (!data || !data.indicatorHistory || !data.indicatorHistory.adx_14.length) return;
+                const ih = data.indicatorHistory;
+                const rawCombined = ih.times.map((t: number, i: number) => ({
+                    time: t as Time,
+                    adx: ih.adx_14[i],
+                    plus: ih.adx_plus[i],
+                    minus: ih.adx_minus[i]
+                }));
+
+                const cleanedCombined = dedupSortByTime(rawCombined);
+
+                const adxData = cleanedCombined
+                    .filter((x: any) => x.adx != null)
+                    .map((x: any) => ({
+                        time: x.time,
+                        value: parseFloat(x.adx!)
+                    }));
+                const plusData = cleanedCombined
+                    .filter((x: any) => x.plus != null)
+                    .map((x: any) => ({
+                        time: x.time,
+                        value: parseFloat(x.plus!)
+                    }));
+                const minusData = cleanedCombined
+                    .filter((x: any) => x.minus != null)
+                    .map((x: any) => ({
+                        time: x.time,
+                        value: parseFloat(x.minus!)
                     }));
 
-                    const seenTimes = new Set<number>();
-                    const cleanedCombined: { time: Time; adx: string | null; plus: string | null; minus: string | null }[] = [];
-                    for (const item of rawCombined) {
-                        const tNum = item.time as number;
-                        if (item && tNum && !seenTimes.has(tNum)) {
-                            seenTimes.add(tNum);
-                            cleanedCombined.push(item);
-                        }
-                    }
-                    cleanedCombined.sort((a, b) => (a.time as number) - (b.time as number));
-
-                    const adxData = cleanedCombined
-                        .filter(x => x.adx != null)
-                        .map(x => ({
-                            time: x.time,
-                            value: parseFloat(x.adx!)
-                        }));
-                    const plusData = cleanedCombined
-                        .filter(x => x.plus != null)
-                        .map(x => ({
-                            time: x.time,
-                            value: parseFloat(x.plus!)
-                        }));
-                    const minusData = cleanedCombined
-                        .filter(x => x.minus != null)
-                        .map(x => ({
-                            time: x.time,
-                            value: parseFloat(x.minus!)
-                        }));
-
+                if (adxData.length > 0) {
                     adxSeries.setData(adxData);
                     adxPlusSeries.setData(plusData);
                     adxMinusSeries.setData(minusData);
-                    chart.timeScale().fitContent();
-                } else if (data.prices && data.prices.length > 0) {
-                    const hasCandles = data.candles && data.candles.length > 0;
-                    const source = hasCandles ? data.candles : data.prices;
-
-                    const now = Math.floor(Date.now() / 1000);
-                    const step = tf.barDurationSec || 60;
-                    const baseTime = now - (data.prices.length * step);
-
-                    const seenTimes = new Set<number>();
-                    const placeholder: { time: Time; value: number }[] = [];
-                    for (let idx = 0; idx < source.length; idx++) {
-                        const item = source[idx];
-                        const tVal = hasCandles ? Math.floor(item.time / 1000) : (baseTime + (idx * step));
-                        if (!seenTimes.has(tVal)) {
-                            seenTimes.add(tVal);
-                            placeholder.push({ time: tVal as Time, value: 0 });
-                        }
-                    }
-                    placeholder.sort((a, b) => (a.time as number) - (b.time as number));
-
-                    adxSeries.setData(placeholder);
-                    adxPlusSeries.setData(placeholder);
-                    adxMinusSeries.setData(placeholder);
                     chart.timeScale().fitContent();
                 }
             } catch (err) {
@@ -192,15 +151,15 @@
     });
 
     function adxLineColor(val: number, slope: number, regime: string): string {
-        if (val > 40) return '#ff5252';         // Pulsing Red — extreme exhaustion
-        if (val < 20) return '#4c525e';          // Dull Gray — congestion
-        if (slope > 0) return '#f1c40f';          // Bright Yellow/Gold — accelerating
-        return '#f97316';                          // Orange — decelerating (above trend)
+        if (val > 40) return '#ff5252';
+        if (val < 20) return '#4c525e';
+        if (slope > 0) return '#f1c40f';
+        return '#f97316';
     }
 
     $effect(() => {
         if (!pair) return;
-        const snap = tf.latestSnapshot;
+        const snap = tf?.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
@@ -215,24 +174,14 @@
             if (plus != null) adxPlusSeries.update({ time: timeSec as Time, value: plus });
             if (minus != null) adxMinusSeries.update({ time: timeSec as Time, value: minus });
 
-            // Dynamic ADX line coloring
             const color = adxLineColor(adxVal, slope, regime);
             adxSeries.applyOptions({ color });
         }
     });
 </script>
 
-<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
-</div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="ADX 14 — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
+<div class="chart-container" bind:this={container}></div>
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
-    .chart-wrapper.fs-active {
-        position: fixed; inset: 0; z-index: 990;
-        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
-    }
 </style>

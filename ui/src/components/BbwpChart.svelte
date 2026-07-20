@@ -1,34 +1,27 @@
 <script lang="ts">
-    import { iRaw, formatTimeframeLabel, resolveChartTimeframe } from '../lib/telemetry';
+    import { iRaw } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { flattenHistory } from '../lib/historyAdapter';
+    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
-    import { takeChartScreenshot } from '../lib/chartScreenshot';
-    import ChartFullscreenOverlay from './ChartFullscreenOverlay.svelte';
 
     const app = useAppStore();
     let { pairKey, timeframe = 60, onDoubleClick, onScreenshotReady }: { pairKey: string; timeframe?: number; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(resolveChartTimeframe(timeframe, pair));
+    const tf = $derived(
+        timeframe === 300 ? pair?.fastTerm :
+        timeframe === 900 ? pair?.slowTerm :
+        timeframe === 3600 ? pair?.macroTerm :
+        pair?.microTerm
+    );
 
     let container: HTMLDivElement;
-    let chart: IChartApi = $state(null!);
+    let chart: IChartApi;
     let ro: ResizeObserver;
     let bbwpSeries: ISeriesApi<'Histogram'>;
-
-    let isFullscreen = $state(false);
-
-    function toggleFullscreen() {
-        isFullscreen = !isFullscreen;
-        if (chart && container) {
-            requestAnimationFrame(() => chart.resize(container.clientWidth, container.clientHeight));
-        }
-    }
-    function screenshotChart() { if (chart) takeChartScreenshot(chart, `bbwp-${pairKey}-${formatTimeframeLabel(timeframe)}`); }
 
     onMount(() => {
         chart = createChart(container, {
@@ -62,17 +55,15 @@
             priceLineVisible: false
         });
 
-        // 10% Compression line (dashed blue)
         bbwpSeries.createPriceLine({
             price: 10,
-            color: '#8f929d',
+            color: '#4488ff',
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,
             title: 'COMPRESSION',
         });
 
-        // 90% Exhaustion line (dashed red)
         bbwpSeries.createPriceLine({
             price: 90,
             color: '#ff4444',
@@ -92,40 +83,30 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_bbwp.png`;
+                link.download = `${pairKey}_${timeframe}s_bbwp.png`;
                 link.href = dataUrl;
                 link.click();
             });
         }
 
-        // Bootstrap historical data
         (async () => {
             if (!pair) return;
             try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
-                const data = await res.json();
-                const ih = flattenHistory(data.indicator_history);
-                if (ih && ih.bbwp && ih.bbwp.length > 0) {
-                    const rawBbwpData = ih.times.map((t: number, i: number) => {
-                        const val = parseFloat(ih.bbwp[i] ?? "0") || 0;
-                        return {
-                            time: t as Time,
-                            value: val,
-                            color: val < 10 ? '#8f929d' : val > 90 ? '#ff4444' : '#00d4aa',
-                        };
-                    });
+                const data = await fetchChartHistoryOnce(pairKey, timeframe);
+                if (!data || !data.indicatorHistory || !data.indicatorHistory.bbwp.length) return;
+                const ih = data.indicatorHistory;
+                const rawBbwpData = ih.times.map((t: number, i: number) => {
+                    const val = parseFloat(ih.bbwp[i] ?? "0") || 0;
+                    return {
+                        time: t as Time,
+                        value: val,
+                        color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa',
+                    };
+                });
 
-                    const seenTimes = new Set<number>();
-                    const cleanedBbwpData: { time: Time; value: number; color: string }[] = [];
-                    for (const item of rawBbwpData) {
-                        const tNum = item.time as number;
-                        if (item && tNum && !seenTimes.has(tNum)) {
-                            seenTimes.add(tNum);
-                            cleanedBbwpData.push(item);
-                        }
-                    }
-                    cleanedBbwpData.sort((a, b) => (a.time as number) - (b.time as number));
+                const cleanedBbwpData = dedupSortByTime(rawBbwpData);
 
+                if (cleanedBbwpData.length > 0) {
                     bbwpSeries.setData(cleanedBbwpData);
                     chart.timeScale().fitContent();
                 }
@@ -134,7 +115,6 @@
             }
         })();
 
-        // Watch the parent element dimension adjustments
         ro = new ResizeObserver(() => {
             const w = container.clientWidth;
             const h = container.clientHeight;
@@ -155,7 +135,6 @@
         }
     });
 
-    // Handle real-time WebSockets data changes
     $effect(() => {
         if (!pair) return;
         const snap = tf?.latestSnapshot;
@@ -166,23 +145,14 @@
             bbwpSeries.update({
                 time: timeSec as Time,
                 value: val,
-                color: val < 10 ? '#8f929d' : val > 90 ? '#ff4444' : '#00d4aa'
+                color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa'
             });
         }
     });
 </script>
 
-<div class="chart-wrapper" class:fs-active={isFullscreen} ondblclick={toggleFullscreen} role="presentation">
-    <div class="chart-container" bind:this={container}></div>
-</div>
-
-<ChartFullscreenOverlay open={isFullscreen} title="BBWP — {pairKey} · {timeframe}s" chart={chart} onclose={toggleFullscreen} />
+<div class="chart-container" bind:this={container}></div>
 
 <style>
     .chart-container { width: 100%; height: 100%; }
-    .chart-wrapper { width: 100%; height: 100%; }
-    .chart-wrapper.fs-active {
-        position: fixed; inset: 0; z-index: 990;
-        background: #131722; padding: 44px 16px 16px 16px; box-sizing: border-box;
-    }
 </style>

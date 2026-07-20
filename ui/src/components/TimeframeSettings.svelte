@@ -212,12 +212,17 @@
 
         saveStatus = 'saving';
         try {
-            const res = await fetch(`/api/instances/${encodeURIComponent(tabKey)}/config`, {
+            const instanceId = pair.instanceId ?? tabKey;
+            const res = await fetch(`/api/instances/${encodeURIComponent(instanceId)}/config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
             if (res.ok) {
+                if (!pair.instanceId) {
+                    const headerId = res.headers.get('x-instance-id');
+                    if (headerId) pair.instanceId = headerId;
+                }
                 applyTermToTelemetry(draft.micro, pair.microTerm);
                 applyTermToTelemetry(draft.fast, pair.fastTerm);
                 applyTermToTelemetry(draft.slow, pair.slowTerm);

@@ -1,0 +1,169 @@
+// Single-flight history fetch shared across all 36 mounted chart instances
+// (4 timeframes × 9 charts). Coalesces concurrent requests into one HTTP call
+// per (pairKey, timeframe) and serves cached data on subsequent mounts.
+//
+// Sub-minute timeframes (<60s) are not fetched: they accumulate live data
+// exclusively, so that freshly-warming indicators do not draw artifact
+// placeholder lines.
+
+import type { Time } from 'lightweight-charts';
+
+export interface HistoryCandle {
+    time: number;
+    open: string;
+    high: string;
+    low: string;
+    close: string;
+    volume: string;
+}
+
+export interface FlatIndicatorHistory {
+    times: number[];
+    rsi_14: Array<string | null>;
+    macd_line: Array<string | null>;
+    macd_signal: Array<string | null>;
+    macd_hist: Array<string | null>;
+    adx_14: Array<string | null>;
+    adx_plus: Array<string | null>;
+    adx_minus: Array<string | null>;
+    atr_14: Array<string | null>;
+    bbwp: Array<string | null>;
+    rvol: Array<string | null>;
+    squeeze_momentum: Array<string | null>;
+    squeeze_on: Array<boolean>;
+    ema_fast: Array<string | null>;
+    ema_medium: Array<string | null>;
+    ema_slow: Array<string | null>;
+    ema_long: Array<string | null>;
+    bb_upper: Array<string | null>;
+    bb_middle: Array<string | null>;
+    bb_lower: Array<string | null>;
+    vwap: Array<string | null>;
+}
+
+export interface HistoryResponse {
+    prices: string[];
+    candles: HistoryCandle[];
+    indicatorHistory: FlatIndicatorHistory | null;
+}
+
+interface RawHistoryIndicator {
+    raw?: Array<number | null>;
+    normalized?: Array<number | null>;
+    state_label?: Array<string | null>;
+    values?: Record<string, Array<number | null>>;
+}
+
+interface RawHistory {
+    times?: number[];
+    indicators?: Record<string, RawHistoryIndicator>;
+}
+
+interface RawResponse {
+    prices?: string[];
+    candles?: HistoryCandle[];
+    indicator_history?: RawHistory | null;
+}
+
+function toStr(arr: Array<number | null>): Array<string | null> {
+    return arr.map((v) => (v == null ? null : String(v)));
+}
+
+function flattenRaw(ih: RawHistory | undefined | null): FlatIndicatorHistory {
+    const map = ih?.indicators ?? {};
+    const raw = (k: string): Array<string | null> => toStr(map[k]?.raw ?? []);
+    const val = (k: string, s: string): Array<string | null> => toStr(map[k]?.values?.[s] ?? []);
+    const label = (k: string): Array<string | null> => map[k]?.state_label ?? [];
+    const adxMain = val('adx', 'adx');
+
+    return {
+        times: ih?.times ?? [],
+        rsi_14: raw('rsi'),
+        macd_line: val('macd', 'line'),
+        macd_signal: val('macd', 'signal'),
+        macd_hist: val('macd', 'histogram'),
+        adx_14: adxMain.length ? adxMain : raw('adx'),
+        adx_plus: val('adx', 'plus_di'),
+        adx_minus: val('adx', 'minus_di'),
+        atr_14: raw('atr'),
+        bbwp: raw('bbwp'),
+        rvol: raw('rvol'),
+        squeeze_momentum: raw('squeeze'),
+        squeeze_on: label('squeeze').map((l) => l === 'COMPRESSION_COILING'),
+        ema_fast: val('ema_stack', 'fast'),
+        ema_medium: val('ema_stack', 'medium'),
+        ema_slow: val('ema_stack', 'slow'),
+        ema_long: val('ema_stack', 'long'),
+        bb_upper: val('bollinger', 'upper'),
+        bb_middle: val('bollinger', 'middle'),
+        bb_lower: val('bollinger', 'lower'),
+        vwap: val('vwap', 'vwap'),
+    };
+}
+
+const cache = new Map<string, Promise<HistoryResponse | null>>();
+const HISTORY_URL = '/api/history';
+
+export function isSubMinute(timeframe: number): boolean {
+    return timeframe > 0 && timeframe < 60;
+}
+
+export function fetchChartHistoryOnce(
+    pairKey: string,
+    timeframe: number,
+): Promise<HistoryResponse | null> {
+    if (!pairKey || !timeframe) return Promise.resolve(null);
+    if (isSubMinute(timeframe)) return Promise.resolve(null);
+
+    const key = `${pairKey}@${timeframe}`;
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    const p = (async () => {
+        try {
+            const res = await fetch(
+                `${HISTORY_URL}?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}&limit=1000`,
+            );
+            if (!res.ok) return null;
+            const data: RawResponse = await res.json();
+            return {
+                prices: data.prices ?? [],
+                candles: data.candles ?? [],
+                indicatorHistory: data.indicator_history ? flattenRaw(data.indicator_history) : null,
+            };
+        } catch (err) {
+            console.error('chartHistory fetch failed', err);
+            return null;
+        }
+    })();
+    cache.set(key, p);
+    return p;
+}
+
+export interface TimeKeyed {
+    time: Time;
+}
+
+// De-duplicate + sort an array of `{time, ...}` entries by ascending time.
+// Strips entries whose time is missing and ignores repeats so light-weight
+// charts never sees out-of-order or zero-second duplicates.
+export function dedupSortByTime<T extends TimeKeyed>(items: T[]): T[] {
+    const seen = new Set<number>();
+    const out: T[] = [];
+    for (const it of items) {
+        const t = typeof it.time === 'number' ? it.time : Number(it.time);
+        if (!Number.isFinite(t) || t === 0 || seen.has(t)) continue;
+        seen.add(t);
+        out.push(it);
+    }
+    out.sort((a, b) => {
+        const ta = typeof a.time === 'number' ? a.time : Number(a.time);
+        const tb = typeof b.time === 'number' ? b.time : Number(b.time);
+        return ta - tb;
+    });
+    return out;
+}
+
+export function clearHistoryCache(): void {
+    cache.clear();
+}

@@ -168,95 +168,106 @@ pub async fn serve_update_instance_config(
     Path(instance_id): Path<String>,
     Json(payload): Json<InstanceConfigPayload>,
 ) -> impl IntoResponse {
-    let pair_key = state
-        .get_instance_by_id(&instance_id)
-        .await
-        .map(|inst| inst.pair_key())
-        .or_else(|| Some(instance_id.clone()));
-
-    match pair_key {
-        Some(pk) => {
-            let mut config = state.workspace.config().await;
-            let symbol = pk.clone();
-
-            // Locate the existing entry by symbol (workspace.instances is a
-            // Vec<InstanceEntry>, not a HashMap).
-            let mut existing = config
-                .instances
-                .iter()
-                .find(|i| i.symbol == symbol)
-                .cloned();
-            if existing.is_none() {
-                let default_indicators = config_models::IndicatorsConfig::default();
-                existing = Some(config_models::InstanceEntry {
-                    id: symbol.clone(),
-                    symbol: symbol.clone(),
-                    quote: String::new(),
-                    initial_capital_usd: 1000.0,
-                    status: config_models::InstanceStatus::Running,
-                    micro_term: config_models::TimeframeConfig::new(60, default_indicators.clone()),
-                    fast_term: config_models::TimeframeConfig::new(180, default_indicators.clone()),
-                    slow_term: None,
-                    macro_term: None,
-                    automation: Default::default(),
-                    operational_mode: Default::default(),
-                    weight_overrides: None,
-                    position_scaling: None,
-                    activation: None,
-                });
-            }
-            let mut entry = existing.expect("entry created above");
-            entry.micro_term = payload.micro_term.unwrap_or(entry.micro_term);
-            entry.fast_term = payload.fast_term.unwrap_or(entry.fast_term);
-            entry.slow_term = payload.slow_term.or(entry.slow_term);
-            entry.macro_term = payload.macro_term.or(entry.macro_term);
-            entry.automation = payload.automation.unwrap_or(entry.automation);
-             entry.operational_mode = payload
-                .operational_mode
-                .as_deref()
-                .and_then(|s| match s {
-                    "advisory" | "ManualOnly" => Some(config_models::OperationalMode::Advisory),
-                    "paper_trading" | "DeterministicHeuristics" => {
-                        Some(config_models::OperationalMode::PaperTrading)
-                    }
-                    "live_trading" => Some(config_models::OperationalMode::LiveTrading),
-                    _ => None,
-                })
-                .unwrap_or(entry.operational_mode);
-            entry.weight_overrides = payload.weight_overrides.or(entry.weight_overrides);
-            entry.position_scaling = payload.position_scaling.or(entry.position_scaling);
-
-            // Replace or insert the entry in workspace.instances.
-            if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == symbol) {
-                *slot = entry;
-            } else {
-                config.instances.push(entry);
-            }
-            if let Err(e) = config_models::save_workspace(&config) {
-                eprintln!("⚠️  Failed to persist workspace config: {}", e);
-            }
-            println!(
-                "Instance config saved: {} — triggering pipeline recharge",
-                pk
-            );
-
-            match registry::recharge_instance(&state.registry_context(), &pk).await {
-                Ok(()) => (
-                    axum::http::StatusCode::OK,
-                    "Instance configuration saved and pipelines recharged",
-                )
-                    .into_response(),
-                Err(e) => {
-                    eprintln!("Pipeline recharge failed for {}: {}", pk, e);
-                    (
-                        axum::http::StatusCode::OK,
-                        format!("Config saved but pipeline recharge failed: {}", e),
-                    )
-                        .into_response()
-                }
-            }
+    // The route parameter is the instance UUID (e.g. "inst_018e4a6d3f5a1b2c").
+    // We no longer fall back to using the path parameter as a pair key so an
+    // accidental POST that points at a stale slug returns 404 instead of
+    // mutating state on the wrong pair.
+    let pair_key = match state.get_instance_by_id(&instance_id).await {
+        Some(inst) => inst.pair_key(),
+        None => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                format!("Instance {} not found", instance_id),
+            )
+                .into_response();
         }
-        None => (axum::http::StatusCode::NOT_FOUND, "Instance not found").into_response(),
+    };
+
+    let mut config = state.workspace.config().await;
+    let symbol = pair_key.clone();
+
+    // Locate the existing entry by symbol (workspace.instances is a
+    // Vec<InstanceEntry>, not a HashMap).
+    let mut existing = config
+        .instances
+        .iter()
+        .find(|i| i.symbol == symbol)
+        .cloned();
+    if existing.is_none() {
+        let default_indicators = config_models::IndicatorsConfig::default();
+        existing = Some(config_models::InstanceEntry {
+            id: symbol.clone(),
+            symbol: symbol.clone(),
+            quote: String::new(),
+            initial_capital_usd: 1000.0,
+            status: config_models::InstanceStatus::Running,
+            micro_term: config_models::TimeframeConfig::new(60, default_indicators.clone()),
+            fast_term: config_models::TimeframeConfig::new(180, default_indicators.clone()),
+            slow_term: None,
+            macro_term: None,
+            automation: Default::default(),
+            operational_mode: Default::default(),
+            weight_overrides: None,
+            position_scaling: None,
+            activation: None,
+        });
+    }
+    let mut entry = existing.expect("entry created above");
+    entry.id = instance_id.clone();
+    entry.micro_term = payload.micro_term.unwrap_or(entry.micro_term);
+    entry.fast_term = payload.fast_term.unwrap_or(entry.fast_term);
+    entry.slow_term = payload.slow_term.or(entry.slow_term);
+    entry.macro_term = payload.macro_term.or(entry.macro_term);
+    entry.automation = payload.automation.unwrap_or(entry.automation);
+    entry.operational_mode = payload
+        .operational_mode
+        .as_deref()
+        .and_then(|s| match s {
+            "advisory" | "ManualOnly" => Some(config_models::OperationalMode::Advisory),
+            "paper_trading" | "DeterministicHeuristics" => {
+                Some(config_models::OperationalMode::PaperTrading)
+            }
+            "live_trading" => Some(config_models::OperationalMode::LiveTrading),
+            _ => None,
+        })
+        .unwrap_or(entry.operational_mode);
+    entry.weight_overrides = payload.weight_overrides.or(entry.weight_overrides);
+    entry.position_scaling = payload.position_scaling.or(entry.position_scaling);
+
+    // Replace or insert the entry in workspace.instances.
+    if let Some(slot) = config.instances.iter_mut().find(|i| i.symbol == symbol) {
+        *slot = entry;
+    } else {
+        config.instances.push(entry);
+    }
+    if let Err(e) = config_models::save_workspace(&config) {
+        eprintln!("⚠️  Failed to persist workspace config: {}", e);
+    }
+    // Bridge in-memory state: workspace.config() returns a clone, so the
+    // mutation above is invisible to subsequent readers until we publish it.
+    // Without this the next call (and in particular `recharge_instance`)
+    // would see a stale Vec<InstanceEntry> and fail with
+    // "No saved config for pair ...", exactly the bug the caller reported.
+    state.workspace.set_config(config).await;
+    println!(
+        "Instance config saved: {} — triggering pipeline recharge",
+        pair_key
+    );
+
+    match registry::recharge_instance(&state.registry_context(), &pair_key).await {
+        Ok(()) => (
+            axum::http::StatusCode::OK,
+            "Instance configuration saved and pipelines recharged",
+        )
+            .into_response(),
+        Err(e) => {
+            eprintln!("Pipeline recharge failed for {}: {}", pair_key, e);
+            (
+                axum::http::StatusCode::OK,
+                format!("Config saved but pipeline recharge failed: {}", e),
+            )
+                .into_response()
+        }
     }
 }
 

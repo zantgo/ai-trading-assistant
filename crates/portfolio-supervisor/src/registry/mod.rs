@@ -233,9 +233,9 @@ pub async fn add_instance(
         safety_config,
         intervals_config: intervals_config.clone(),
         cancel: cancel.clone(),
-        operational_mode,
-        weight_overrides,
-        position_scaling,
+        operational_mode: operational_mode.clone(),
+        weight_overrides: weight_overrides.clone(),
+        position_scaling: position_scaling.clone(),
         liquidity_config: liquidity_config_first,
     };
 
@@ -266,10 +266,48 @@ pub async fn add_instance(
         .await;
     }
 
-    // Register instance (the workspace.instances[] list is the single
-    // source of truth for "what pairs are configured"; `add_instance` below
-    // inserts into both the live map and the persisted workspace config).
-    state.workspace.insert(pair_key, Arc::clone(&artifacts.instance)).await;
+    // Register instance: insert into both the live map AND the persisted
+    // workspace config so a subsequent `recharge_instance` (or any other
+    // reader of `workspace.config()`) can find the InstanceEntry. The legacy
+    // implementation only updated the live map, which broke save→recharge
+    // cycles because the in-memory WorkspaceConfig snapshot stayed empty
+    // until the daemon was restarted and the TOML was reloaded.
+    state.workspace.insert(pair_key.clone(), Arc::clone(&artifacts.instance)).await;
+
+    {
+        let mut config = state.workspace.config().await;
+        if let Some(slot) = config
+            .instances
+            .iter_mut()
+            .find(|i| i.symbol == pair_key)
+        {
+            // Re-adding an existing pair (rare). Refresh the UUID in case the
+            // disk copy is stale and accept the live configs in memory.
+            slot.id = artifacts.instance.id.clone();
+        } else {
+            let entry = config_models::InstanceEntry {
+                id: artifacts.instance.id.clone(),
+                symbol: pair_key.clone(),
+                quote: quote.as_str().to_string(),
+                initial_capital_usd: 1000.0,
+                status: config_models::InstanceStatus::Running,
+                micro_term: micro_cfg.clone(),
+                fast_term: fast_cfg.clone(),
+                slow_term: Some(slow_cfg.clone()),
+                macro_term: Some(macro_cfg.clone()),
+                automation: config_models::AutomationConfig::default(),
+                operational_mode: operational_mode.clone(),
+                weight_overrides: weight_overrides.clone(),
+                position_scaling: position_scaling.clone(),
+                activation: None,
+            };
+            config.instances.push(entry);
+        }
+        if let Err(e) = config_models::save_workspace(&config) {
+            eprintln!("⚠️  Failed to persist workspace after add: {}", e);
+        }
+        state.workspace.set_config(config).await;
+    }
 
     println!(
         "✅ Instance created: {} ({})",
@@ -376,6 +414,12 @@ pub async fn delete_instance(state: &RegistryContext, instance_id: &str) -> Resu
         if let Err(e) = config_models::save_workspace(&config) {
             eprintln!("⚠️  Failed to persist workspace after delete: {}", e);
         }
+        // Publish the deletion to the in-memory snapshot so the next reader
+        // (and in particular `recharge_instance` if it ever runs for a
+        // deleted pair) sees the cleared list. Without this, an entry could
+        // linger in WorkspaceConfig indefinitely, surviving daemon
+        // restarts via disk alone but never being observable to live code.
+        state.workspace.set_config(config).await;
     }
 
     println!(
