@@ -94,6 +94,15 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         tf.latestSnapshot = snapshot;
         tf.isCompleted = snapshot.is_completed === true;
 
+        // Capture the per-TF MarketContext synthesis block (L1 LOCAL
+        // 5-dimension + regime + overall score/label). Previously this
+        // lived only inside `latestSnapshot` as an opaque record and was
+        // never surfaced. The MarketContextStrip in the redesigned Metrics
+        // view reads this directly.
+        if (snapshot.context && typeof snapshot.context === 'object') {
+            tf.context = snapshot.context;
+        }
+
         const mid = num(snapshot.mid_price);
         if (mid != null) tf.priceText = mid.toFixed(getDecimalCount(mid));
         const vol = num(snapshot.volume);

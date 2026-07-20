@@ -30,6 +30,11 @@ pub async fn serve_history(
         Some(pair) => {
             let mut snap_hist = pair.snapshot_history_vec(tf_secs).await;
             snap_hist.truncate(limit);
+            // Drop leading snapshots with no close so the first bar the UI sees
+            // always has real OHLC. The first historical candle is therefore the
+            // first valid bar of the response.
+            let prefix = snap_hist.iter().take_while(|s| s.close.is_none()).count();
+            if prefix > 0 { snap_hist.drain(..prefix); }
             let count = snap_hist.len();
 
             // Union of all indicator keys (and their multi-line value

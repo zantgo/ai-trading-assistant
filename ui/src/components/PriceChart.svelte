@@ -12,6 +12,22 @@
     import { attachZoneBands, type ZoneBandsPrimitive } from '../lib/zoneBands';
     import { attachStrategyLevels, buildLevelLines, type StrategyLevelsPrimitive } from '../lib/strategyLevels';
 
+    const MAX_BARS = 1000;
+
+    interface CandleBar {
+        time: number;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: string | null;
+        vwap: number | null;
+        ema_fast: number | null;
+        ema_medium: number | null;
+        ema_slow: number | null;
+        ema_long: number | null;
+    }
+
     const app = useAppStore();
     let {
         pairKey,
@@ -58,7 +74,16 @@
     let prevShowEmaLong = $state(false);
     let prevShowVwap = $state(false);
     let isFullscreen = $state(false);
-    let storedHistory: any = null;
+
+    // Single source of truth: the sliding window of up to MAX_BARS most recent
+    // candle bars, each carrying its own OHLC + per-bar indicators. Time-
+    // monotonic. Trimmed to MAX_BARS on every new bar. Rendered via renderWindow.
+    // Plain `let` on purpose: re-renders are driven explicitly by renderWindow()
+    // calls inside ingestHistorical/ingestLive, so wrapping in $state would only
+    // turn these into spurious effect dependencies and re-trigger the timeframe
+    // effect on every WS message (effect_update_depth_exceeded).
+    let candleWindow: CandleBar[] = [];
+    let lastBarTime: number | null = null;
 
     let showFibLevels = $state(false);
     let showVpLevels = $state(false);
@@ -67,6 +92,10 @@
 
     let historyLoading = $state(true);
     let historyError = $state<string | null>(null);
+
+    let fetchSeq = 0;
+    let abortCtrl: AbortController | null = null;
+    let prevTimeframe: number | null = null;
 
     function toggleFullscreen() {
         isFullscreen = !isFullscreen;
@@ -88,27 +117,76 @@
     function ensureEmaFast() {
         if (emaFastSeries) return;
         emaFastSeries = chart.addSeries(LineSeries, { color: '#fdd835', lineWidth: 2, priceLineVisible: false });
-        if (storedHistory?.ema_fast) pushHistoryLine(emaFastSeries, storedHistory.times, storedHistory.ema_fast);
     }
     function ensureEmaMedium() {
         if (emaMediumSeries) return;
         emaMediumSeries = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 2, priceLineVisible: false });
-        if (storedHistory?.ema_medium) pushHistoryLine(emaMediumSeries, storedHistory.times, storedHistory.ema_medium);
     }
     function ensureEmaSlow() {
         if (emaSlowSeries) return;
         emaSlowSeries = chart.addSeries(LineSeries, { color: '#e91e63', lineWidth: 2, priceLineVisible: false });
-        if (storedHistory?.ema_slow) pushHistoryLine(emaSlowSeries, storedHistory.times, storedHistory.ema_slow);
     }
     function ensureEmaLong() {
         if (emaLongSeries) return;
         emaLongSeries = chart.addSeries(LineSeries, { color: '#9c27b0', lineWidth: 2, priceLineVisible: false });
-        if (storedHistory?.ema_long) pushHistoryLine(emaLongSeries, storedHistory.times, storedHistory.ema_long);
     }
     function ensureVwap() {
         if (vwapSeries) return;
         vwapSeries = chart.addSeries(LineSeries, { color: '#64ffda', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false });
-        if (storedHistory?.vwap) pushHistoryLine(vwapSeries, storedHistory.times, storedHistory.vwap);
+    }
+
+    function safeFitContent() {
+        if (!chart) return;
+        try { chart.timeScale().fitContent(); } catch (e) { console.warn('fitContent skipped:', e); }
+    }
+
+    function safeSetData(s: ISeriesApi<any> | undefined, data: any[]) {
+        if (!s || data.length === 0) return;
+        try { s.setData(data); } catch (e) { console.warn('setData skipped:', e); }
+    }
+
+    function safeApplyOptions(s: ISeriesApi<any> | undefined, opts: any) {
+        if (!s) return;
+        try { s.applyOptions(opts); } catch (e) { console.warn('applyOptions skipped:', e); }
+    }
+
+    function numFromMaybe(s: string | null | undefined): number | null {
+        if (s == null) return null;
+        const v = parseFloat(s);
+        return Number.isNaN(v) ? null : v;
+    }
+
+    // Build a single line series array, skipping bars whose indicator value is
+    // null. Indicators that can't yet be computed (EMA before its lookback has
+    // accumulated volume; VWAP until enough volume is present) simply do not
+    // draw a point — no forward-fill, no leading artefact.
+    function toLine(src: CandleBar[], pick: (b: CandleBar) => number | null): { time: Time; value: number }[] {
+        const out: { time: Time; value: number }[] = [];
+        for (const c of src) {
+            const v = pick(c);
+            if (v == null || Number.isNaN(v)) continue;
+            out.push({ time: c.time as Time, value: v });
+        }
+        return out;
+    }
+
+    // Single render path: re-push every series from candleWindow.
+    function renderWindow() {
+        if (!chart) return;
+        const candleData = candleWindow.map(c => ({
+            time: c.time, open: c.open, high: c.high, low: c.low, close: c.close,
+        }));
+        const lineData = candleWindow.map(c => ({ time: c.time, value: c.close }));
+        safeSetData(candleSeries, candleData);
+        safeSetData(lineSeries, lineData);
+        safeApplyOptions(candleSeries, { visible: !priceLineMode });
+        safeApplyOptions(lineSeries, { visible: priceLineMode });
+        if (showEmaFast && emaFastSeries)         safeSetData(emaFastSeries,   toLine(candleWindow, b => b.ema_fast));
+        if (showEmaMedium && emaMediumSeries)     safeSetData(emaMediumSeries, toLine(candleWindow, b => b.ema_medium));
+        if (showEmaSlow && emaSlowSeries)         safeSetData(emaSlowSeries,   toLine(candleWindow, b => b.ema_slow));
+        if (showEmaLong && emaLongSeries)         safeSetData(emaLongSeries,   toLine(candleWindow, b => b.ema_long));
+        if (showVwap && vwapSeries)               safeSetData(vwapSeries,      toLine(candleWindow, b => b.vwap));
+        safeFitContent();
     }
 
     function destroyOptional(series: ISeriesApi<any> | undefined) {
@@ -124,90 +202,124 @@
         if (show) factory(); else destroy();
     }
 
-    function persistHistory(history: any, isLineMode: boolean) {
+    // Ingest the historical API response into `candleWindow`, replacing any
+    // prior contents. Bars whose OHLC are missing are skipped so the first
+    // bar in the window is the first historical candle with real data. The
+    // window is then capped to MAX_BARS trailing entries so the chart always
+    // shows the most-recent slice and never grows unbounded.
+    function ingestHistorical(history: any) {
         if (!history) return;
-
-        const times = history.times || [];
-        const len = times.length;
-        if (len === 0) return;
-
-        const candleData: { time: Time; open: number; high: number; low: number; close: number }[] = [];
-        const lineData: { time: Time; value: number }[] = [];
-
-        for (let i = 0; i < len; i++) {
-            const t = times[i] as Time;
-            const open  = parseFloat(history.opens?.[i] ?? '0') || 0;
-            const high  = parseFloat(history.highs?.[i] ?? '0') || 0;
-            const low   = parseFloat(history.lows?.[i] ?? '0') || 0;
-            const close = parseFloat(history.closes?.[i] ?? '0') || 0;
-
-            if (!isNaN(open) && !isNaN(high) && !isNaN(low) && !isNaN(close)) {
-                candleData.push({ time: t, open, high, low, close });
-                lineData.push({ time: t, value: close });
-            }
-        }
-
-        if (candleData.length > 0) {
-            candleSeries.setData(candleData);
-            lineSeries.setData(lineData);
-            candleSeries.applyOptions({ visible: !isLineMode });
-            lineSeries.applyOptions({ visible: isLineMode });
-        }
-
-        if (history.ema_fast && showEmaFast) pushHistoryLine(emaFastSeries, times, history.ema_fast);
-        if (history.ema_medium && showEmaMedium) pushHistoryLine(emaMediumSeries, times, history.ema_medium);
-        if (history.ema_slow && showEmaSlow) pushHistoryLine(emaSlowSeries, times, history.ema_slow);
-        if (history.ema_long && showEmaLong) pushHistoryLine(emaLongSeries, times, history.ema_long);
-        if (history.vwap && showVwap) pushHistoryLine(vwapSeries, times, history.vwap);
-    }
-
-    function pushHistoryLine(s: ISeriesApi<'Line'> | undefined, times: number[], arr: string[]) {
-        if (!s) return;
-        const data: { time: Time; value: number }[] = [];
+        const times: number[] = history.times || [];
+        const built: CandleBar[] = [];
         for (let i = 0; i < times.length; i++) {
-            const v = parseFloat(arr[i]);
-            if (!isNaN(v)) data.push({ time: times[i] as Time, value: v });
+            const t = times[i];
+            if (typeof t !== 'number') continue;
+            const oRaw = history.opens?.[i];
+            const hRaw = history.highs?.[i];
+            const lRaw = history.lows?.[i];
+            const cRaw = history.closes?.[i];
+            if (oRaw == null || hRaw == null || lRaw == null || cRaw == null) continue;
+            const open  = parseFloat(oRaw);
+            const high  = parseFloat(hRaw);
+            const low   = parseFloat(lRaw);
+            const close = parseFloat(cRaw);
+            if ([open, high, low, close].some(Number.isNaN)) continue;
+            built.push({
+                time: t,
+                open, high, low, close,
+                volume: history.volumes?.[i] ?? null,
+                vwap:       numFromMaybe(history.vwap?.[i]),
+                ema_fast:   numFromMaybe(history.ema_fast?.[i]),
+                ema_medium: numFromMaybe(history.ema_medium?.[i]),
+                ema_slow:   numFromMaybe(history.ema_slow?.[i]),
+                ema_long:   numFromMaybe(history.ema_long?.[i]),
+            });
         }
-        if (data.length > 0) s.setData(data);
+        candleWindow = built.length > MAX_BARS ? built.slice(-MAX_BARS) : built;
+        lastBarTime = candleWindow.length > 0 ? candleWindow[candleWindow.length - 1].time : null;
+        renderWindow();
     }
 
-    function updateOverlayLine(t: Time, series: ISeriesApi<'Line'> | undefined, val: number | null) {
-        if (!series || val == null) return;
-        series.update({ time: t, value: val });
+    // Ingest one live WS snapshot into `candleWindow`. Same-bar updates
+    // overwrite the tail; new-bar updates append and evict the oldest when
+    // the window exceeds MAX_BARS. Late out-of-order messages are dropped.
+    function ingestLive(snap: any) {
+        const t = typeof snap.timestamp === 'number' ? snap.timestamp : null;
+        if (t == null) return;
+        const open  = Number(snap.open  ?? snap.mid_price);
+        const high  = Number(snap.high  ?? snap.mid_price);
+        const low   = Number(snap.low   ?? snap.mid_price);
+        const close = Number(snap.close ?? snap.mid_price);
+        if (![open, high, low, close].every(Number.isFinite)) return;
+
+        const indicators = (snap.indicators ?? {}) as IndicatorMap;
+        const bar: CandleBar = {
+            time: t, open, high, low, close,
+            volume: snap.volume != null ? String(snap.volume) : null,
+            vwap:       iSub(indicators, 'vwap',      'vwap'),
+            ema_fast:   iSub(indicators, 'ema_stack', 'fast'),
+            ema_medium: iSub(indicators, 'ema_stack', 'medium'),
+            ema_slow:   iSub(indicators, 'ema_stack', 'slow'),
+            ema_long:   iSub(indicators, 'ema_stack', 'long'),
+        };
+
+        if (lastBarTime == null) {
+            candleWindow.push(bar);
+        } else if (t > lastBarTime) {
+            candleWindow.push(bar);
+            if (candleWindow.length > MAX_BARS) candleWindow.shift();
+        } else if (t === lastBarTime) {
+            candleWindow[candleWindow.length - 1] = bar;
+        } else {
+            return; // late out-of-order message
+        }
+        lastBarTime = t;
+        renderWindow();
     }
 
     async function fetchHistory(tfSecs: number) {
         if (!pair || !chart) return;
+        if (abortCtrl) abortCtrl.abort();
+        const ctrl = new AbortController();
+        abortCtrl = ctrl;
+        const seq = ++fetchSeq;
+
         historyLoading = true;
         historyError = null;
         try {
-            const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${tfSecs}&limit=1000`);
+            const res = await fetch(
+                `/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${tfSecs}&limit=1000`,
+                { signal: ctrl.signal },
+            );
+            if (seq !== fetchSeq || !chart) return;
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
+            if (seq !== fetchSeq || !chart) return;
+
             if (data.prices && data.candles) {
                 const times: number[] = [];
                 const opens: string[] = [];
                 const highs: string[] = [];
                 const lows: string[] = [];
                 const closes: string[] = [];
+                const volumes: string[] = [];
 
                 for (const c of data.candles) {
-                    const t = Math.floor(c.time / 1000);
-                    times.push(t);
+                    times.push(Math.floor(c.time / 1000));
                     opens.push(String(c.open));
                     highs.push(String(c.high));
                     lows.push(String(c.low));
                     closes.push(String(c.close));
+                    volumes.push(c.volume != null ? String(c.volume) : '');
                 }
 
                 const indicatorHistory = data.indicator_history ? flattenHistory(data.indicator_history) : null;
                 const historyData = {
-                    times, opens, highs, lows, closes,
+                    times, opens, highs, lows, closes, volumes,
                     ...(indicatorHistory ?? {}),
                 };
-                storedHistory = historyData;
-                persistHistory(historyData, priceLineMode);
-                chart.timeScale().fitContent();
+                if (seq !== fetchSeq || !chart) return;
+                ingestHistorical(historyData);
                 requestAnimationFrame(() => {
                     if (chart && container) {
                         chart.resize(container.clientWidth, container.clientHeight);
@@ -215,10 +327,12 @@
                 });
             }
         } catch (err) {
+            if (ctrl.signal.aborted) return;
+            if (seq !== fetchSeq) return;
             historyError = err instanceof Error ? err.message : String(err);
             console.error('Error fetching PriceChart history:', err);
         } finally {
-            historyLoading = false;
+            if (seq === fetchSeq) historyLoading = false;
         }
     }
 
@@ -293,17 +407,31 @@
     onDestroy(() => {
         try { if (chart) unregisterChart(chart); } catch (_) {}
         try { if (chart) chart.remove(); } catch (_) {}
+        if (abortCtrl) abortCtrl.abort();
+        abortCtrl = null;
+        fetchSeq++;
     });
 
     $effect(() => {
         const tfSecs = timeframe;
-        if (chart) fetchHistory(tfSecs);
+        if (!chart) return;
+
+        // Timeframe changed: drop the sliding window so we never paint stale
+        // candles from the previous pipeline. The new fetch will repopulate it.
+        if (prevTimeframe !== null && prevTimeframe !== tfSecs) {
+            candleWindow = [];
+            lastBarTime = null;
+            renderWindow();
+        }
+        prevTimeframe = tfSecs;
+
+        fetchHistory(tfSecs);
     });
 
     $effect(() => {
         if (priceLineMode !== prevLineMode) {
-            candleSeries?.applyOptions({ visible: !priceLineMode });
-            lineSeries?.applyOptions({ visible: priceLineMode });
+            safeApplyOptions(candleSeries, { visible: !priceLineMode });
+            safeApplyOptions(lineSeries, { visible: priceLineMode });
         }
         prevLineMode = priceLineMode;
     });
@@ -334,24 +462,9 @@
         if (!pair) return;
         const snap = tf?.latestSnapshot;
         if (!snap) return;
-        const timeSec = snap.timestamp as number;
-        const indicators = (snap.indicators ?? {}) as IndicatorMap;
-
-        const open  = Number(snap.open ?? snap.mid_price);
-        const high  = Number(snap.high ?? snap.mid_price);
-        const low   = Number(snap.low ?? snap.mid_price);
-        const close = Number(snap.close ?? snap.mid_price);
-
-        if (open != null && high != null && low != null && close != null) {
-            candleSeries.update({ time: timeSec as Time, open, high, low, close } as any);
-            lineSeries.update({ time: timeSec as Time, value: close } as any);
-        }
-
-        updateOverlayLine(timeSec as Time, emaFastSeries, iSub(indicators, 'ema_stack', 'ema_fast'));
-        updateOverlayLine(timeSec as Time, emaMediumSeries, iSub(indicators, 'ema_stack', 'ema_medium'));
-        updateOverlayLine(timeSec as Time, emaSlowSeries, iSub(indicators, 'ema_stack', 'ema_slow'));
-        updateOverlayLine(timeSec as Time, emaLongSeries, iSub(indicators, 'ema_stack', 'ema_long'));
-        updateOverlayLine(timeSec as Time, vwapSeries, iSub(indicators, 'vwap', 'vwap'));
+        // Single source of truth: ingestLive mutates candleWindow and renders
+        // all series from it. zoneBands / strategyLevels stay independent.
+        ingestLive(snap);
 
         if (zoneBands) {
             const opp = (snap as any)?.opportunity ?? null;
@@ -360,6 +473,8 @@
 
         if (strategyLevels) {
             const cluster = tf?.cluster;
+            const indicators = (snap.indicators ?? {}) as IndicatorMap;
+            const close = Number(snap.close ?? snap.mid_price);
             const anyShow = showFibLevels || showVpLevels || showPivotLevels || showClusterLevels;
             if (anyShow) {
                 const lines = buildLevelLines(

@@ -44,6 +44,13 @@ export class StrategyLevelsPrimitive implements ISeriesPrimitiveBase<SeriesAttac
         return [{
             renderer(): IPrimitivePaneRenderer | null {
                 if (self._lines.length === 0) return null;
+                // lightweight-charts' priceToCoordinate throws "Value is null"
+                // on an empty series. Bail early so we don't fall into that path.
+                try {
+                    if (!self._candleSeries.priceScale().getVisibleRange()) return null;
+                } catch (_) {
+                    return null;
+                }
                 return {
                     draw(target: CanvasRenderingTarget2D) {
                         self._render(target);
@@ -56,6 +63,14 @@ export class StrategyLevelsPrimitive implements ISeriesPrimitiveBase<SeriesAttac
         }];
     }
 
+    private _safePriceToCoordinate(price: number): number | null {
+        try {
+            return this._candleSeries.priceToCoordinate(price);
+        } catch (_) {
+            return null;
+        }
+    }
+
     private _render(target: CanvasRenderingTarget2D) {
         target.useMediaCoordinateSpace(({ context: ctx, mediaSize: { width, height } }) => {
             if (width <= 0 || height <= 0) return;
@@ -63,7 +78,7 @@ export class StrategyLevelsPrimitive implements ISeriesPrimitiveBase<SeriesAttac
 
             for (const line of this._lines) {
                 if (line.price <= 0) continue;
-                const y = this._candleSeries.priceToCoordinate(line.price);
+                const y = this._safePriceToCoordinate(line.price);
                 if (y === null || y < 0 || y > height) continue;
 
                 ctx.strokeStyle = line.color;

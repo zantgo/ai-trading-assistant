@@ -1,0 +1,147 @@
+.grid {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 6px;
+}
+
+@media (max-width: 1400px) {
+    .grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 10px 12px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-left: 3px solid var(--accent, rgba(255, 255, 255, 0.4));
+    border-radius: 6px;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--mono, monospace);
+    transition: all 0.12s ease;
+    overflow: hidden;
+}
+
+.card:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.12);
+    border-left-color: var(--accent, rgba(255, 255, 255, 0.6));
+}
+
+.cardActive {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--accent, rgba(255, 255, 255, 0.5));
+    border-left-width: 4px;
+}
+
+.cardHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.cardName {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent, rgba(255, 255, 255, 0.85));
+}
+
+.cardTotal {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 600;
+}
+
+.cardDots {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    height: 10px;
+}
+
+.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dot_bull    { background: #4ade80; box-shadow: 0 0 4px rgba(74, 222, 128, 0.5); }
+.dot_bear    { background: #f87171; box-shadow: 0 0 4px rgba(248, 113, 113, 0.5); }
+.dot_neutral { background: rgba(255, 255, 255, 0.18); }
+
+.cardCount {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.55);
+    font-feature-settings: "tnum" 1;
+    flex-wrap: wrap;
+}
+
+.bullCount    { color: #4ade80; }
+.bearCount    { color: #f87171; }
+.neutralCount { color: rgba(255, 255, 255, 0.5); }
+
+.countSep {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.cardGates {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+}
+
+.cardSignals {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.75);
+    font-weight: 600;
+}
+
+.signalDot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #22d3ee;
+    box-shadow: 0 0 4px rgba(34, 211, 238, 0.7);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+}
+
+.cardBias {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: transparent;
+}
+
+.bias_bull    { background: linear-gradient(90deg, transparent, #4ade80, transparent); }
+.bias_bear    { background: linear-gradient(90deg, transparent, #f87171, transparent); }
+.bias_neutral { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent); }

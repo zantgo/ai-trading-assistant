@@ -56,6 +56,13 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
         return [{
             renderer(): IPrimitivePaneRenderer | null {
                 if (!self._cluster) return null;
+                // lightweight-charts' priceToCoordinate throws "Value is null"
+                // on an empty series. Bail early so we don't fall into that path.
+                try {
+                    if (!self._chart.timeScale().getVisibleLogicalRange()) return null;
+                } catch (_) {
+                    return null;
+                }
                 return {
                     draw(target: CanvasRenderingTarget2D) {
                         self._renderGrid(target);
@@ -66,6 +73,14 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
                 return 'top';
             },
         }];
+    }
+
+    private _safePriceToCoordinate(price: number): number | null {
+        try {
+            return this._candleSeries.priceToCoordinate(price);
+        } catch (_) {
+            return null;
+        }
     }
 
     private _renderGrid(target: CanvasRenderingTarget2D) {
@@ -95,8 +110,8 @@ export class LiquidationHeatmapPrimitive implements ISeriesPrimitiveBase<SeriesA
                 const priceHigh = Math.max(cluster.price_low, cluster.price_high);
                 if (priceLow <= 0 || priceHigh <= 0) continue;
 
-                const yHigh = this._candleSeries.priceToCoordinate(priceHigh);
-                const yLow = this._candleSeries.priceToCoordinate(priceLow);
+                const yHigh = this._safePriceToCoordinate(priceHigh);
+                const yLow = this._safePriceToCoordinate(priceLow);
                 if (yHigh === null || yLow === null) continue;
 
                 const startY = Math.min(yHigh, yLow);

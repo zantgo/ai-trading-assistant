@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 // Phase 4: LiquidityPanel data type & helper tests.
 //
-// This file focuses on the underlying data model and the type
-// compatibility of the new Phase 1-3 types with the rest of the
-// frontend. The full component rendering is exercised manually because
-// the Svelte 5 + Vitest + jsdom triple currently has lifecycle_function
-// issues in headless tests (see RiskPanel, AdvisoryPanel placeholders
-// which also have no component-level tests).
+// Updated for the Metrics redesign — the wire-format enums are now
+// SCREAMING_SNAKE_CASE (matching the Rust `#[serde(rename_all = ...)]`
+// attribute). The previous PascalCase strings silently mismatched the
+// real server payload and broke every cascade-state styling branch.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import type {
@@ -31,12 +29,12 @@ describe('LiquidityPanel data types', () => {
             event_count: 3,
             largest_event_usd: 30000.0,
             largest_event_price: 49500.0,
-            largest_event_side: 'Long',
-            cascade_state: 'Detected',
+            largest_event_side: 'LONG',
+            cascade_state: 'DETECTED',
             cascade_intensity: 65.0,
         };
         const flow = json as LiquidityFlow;
-        expect(flow.cascade_state).toBe<CascadeState>('Detected');
+        expect(flow.cascade_state).toBe<CascadeState>('DETECTED');
         expect(flow.cascade_intensity).toBe(65.0);
     });
 
@@ -51,7 +49,7 @@ describe('LiquidityPanel data types', () => {
                 weights: [0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
                 funding_modulation_active: true,
                 funding_extreme_pct: 0.0005,
-                source: 'FundingAdaptive',
+                source: 'FUNDING_ADAPTIVE',
             },
             short_clusters: [{
                 price_low: 50100.0,
@@ -60,7 +58,7 @@ describe('LiquidityPanel data types', () => {
                 notional_usd: 1500000.0,
                 dominant_leverage: 10,
                 distance_from_mid_pct: 0.5,
-                cluster_kind: 'AboveCurrentPrice',
+                cluster_kind: 'ABOVE_CURRENT_PRICE',
                 magnet_strength: 75.0,
             }],
             long_clusters: [],
@@ -78,21 +76,21 @@ describe('LiquidityPanel data types', () => {
 
     it('LiquiditySignal kind enum matches server output', () => {
         const sig: LiquiditySignal = {
-            kind: 'CascadeSustained',
-            direction: 'Bearish',
+            kind: 'CASCADE_SUSTAINED',
+            direction: 'BEARISH',
             strength: 80,
             confidence: 0.9,
             evidence: ['3 events in last 5 candles'],
         };
-        expect(sig.kind).toBe('CascadeSustained');
-        expect(sig.direction).toBe('Bearish');
+        expect(sig.kind).toBe('CASCADE_SUSTAINED');
+        expect(sig.direction).toBe('BEARISH');
         expect(sig.evidence.length).toBe(1);
     });
 
     it('all signal kind enum values are valid strings', () => {
         const kinds: LiquiditySignal['kind'][] = [
-            'CascadeDetected', 'CascadeSustained', 'CascadeExhausted',
-            'LiquidityVacuum', 'FundingExtreme', 'OIFundingDivergence', 'MagnetActivated',
+            'CASCADE_DETECTED', 'CASCADE_SUSTAINED', 'CASCADE_EXHAUSTED',
+            'LIQUIDITY_VACUUM', 'FUNDING_EXTREME', 'OI_FUNDING_DIVERGENCE', 'MAGNET_ACTIVATED',
         ];
         // Each must be a non-empty string.
         for (const k of kinds) {
@@ -103,7 +101,7 @@ describe('LiquidityPanel data types', () => {
 
     it('all cluster kind values are valid strings', () => {
         const kinds: LiquidationClusterMatrix['short_clusters'][0]['cluster_kind'][] = [
-            'AboveCurrentPrice', 'BelowCurrentPrice', 'AtCurrentPrice', 'Distant',
+            'ABOVE_CURRENT_PRICE', 'BELOW_CURRENT_PRICE', 'AT_CURRENT_PRICE', 'DISTANT',
         ];
         for (const k of kinds) {
             expect(typeof k).toBe('string');

@@ -147,6 +147,95 @@ export interface IndicatorDto {
     confidence?: number;
 }
 
+/** Optional per-snapshot statistical context block (L1-native Monte Carlo / z-scores). */
+export interface StatisticalContext {
+    close_zscore?: number | null;
+    rsi_zscore?: number | null;
+    macd_zscore?: number | null;
+    monte_carlo_expected_return?: number | null;
+    monte_carlo_std_dev?: number | null;
+    monte_carlo_sample_count?: number | null;
+    monte_carlo_p_value?: number | null;
+    window_bars?: number | null;
+}
+
+/** Candle quality envelope — only present on completed snapshots. */
+export type SequenceIntegrity = 'Valid' | 'OutOfOrder' | 'Duplicate';
+export interface CandleQualityEnvelope {
+    quality_score: number;
+    is_valid: boolean;
+    is_gap_filled: boolean;
+    had_outliers_rejected: boolean;
+    spike_detected: boolean;
+    is_stale: boolean;
+    sequence_integrity: SequenceIntegrity;
+    gap_since_last: number;
+    validated_at: number;
+}
+
+/** Liquidity activation subset (Phase 0/1/2/3 toggles). */
+export interface LiquidityActivation {
+    enabled: boolean;
+    liquidation_feed: boolean;
+    cluster_estimation: boolean;
+    signals: boolean;
+}
+
+/** Optional activation block surfaced from the snapshot. */
+export interface MetricsConfig {
+    disabled_indicators: string[];
+    disabled_signals: Array<[string, string]>;
+    disabled_signal_kinds: string[];
+    liquidity: LiquidityActivation;
+    config_version: number;
+}
+
+/**
+ * Top-level per-timeframe snapshot envelope (mirrors the Rust `MarketSnapshot`).
+ * This is what the WebSocket broadcasts per `(symbol, timeframe_secs)`. Most
+ * fields are optional because some only populate on completed candles.
+ */
+export interface MarketSnapshot {
+    exchange?: string | null;
+    symbol: string;
+    timeframe_secs: number;
+    timestamp: number;
+    is_completed?: boolean;
+    mid_price?: number | string | null;
+    bid_price?: number | string | null;
+    ask_price?: number | string | null;
+    bid_size?: number | string | null;
+    ask_size?: number | string | null;
+    funding_rate?: number | string | null;
+    open?: number | string | null;
+    high?: number | string | null;
+    low?: number | string | null;
+    close?: number | string | null;
+    volume?: number | string | null;
+    average_volume?: number | string | null;
+    indicators: IndicatorMap;
+    context?: MarketContext | null;
+    alignment?: AlignmentMatrix | null;
+    analysis?: AnalysisMatrix | null;
+    risk?: RiskMatrix | null;
+    advisory?: AdvisoryMatrix | null;
+    open_interest?: number | string | null;
+    oi_delta_1h?: number | string | null;
+    mark_price?: number | string | null;
+    index_price?: number | string | null;
+    mark_index_spread_pct?: number | null;
+    prev_day_px?: number | string | null;
+    statistical_context?: StatisticalContext | null;
+    decision_context?: Record<string, unknown> | null;
+    opportunity?: OpportunityMatrix | null;
+    liquidity_signals?: LiquiditySignal[];
+    metrics_config?: MetricsConfig | null;
+    risk_profile?: number | null;
+    liquidity?: LiquidityFlow | null;
+    cluster?: LiquidationClusterMatrix | null;
+    quality_envelope?: CandleQualityEnvelope | null;
+}
+
 // ── Signals (mirror Rust shared::indicators::normalized signal model) ──
 export type SignalKind =
     | 'Divergence' | 'Crossover' | 'Threshold' | 'Breakout' | 'BandTouch'
@@ -402,6 +491,8 @@ export interface TimeframeTelemetry {
     isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
     historyPrices: number[];
+    /** Per-TF synthesis block from the analyzer (L1 MarketContext). */
+    context?: MarketContext | null;
     /** Phase 1: per-candle liquidity flow (real liquidation events). */
     liquidity?: LiquidityFlow;
     /** Phase 2: estimated liquidation cluster matrix (5-min refresh). */
@@ -573,10 +664,16 @@ export const TIMEFRAME_OPTIONS: TimeframeOption[] = [
 // Phase 1-3: Liquidity Intelligence types
 // ================================================================
 
-export type CascadeState = 'None' | 'Detected' | 'Sustained' | 'Exhausted';
-export type LiquidationSide = 'Long' | 'Short';
-export type ClusterKind = 'AboveCurrentPrice' | 'BelowCurrentPrice' | 'AtCurrentPrice' | 'Distant';
-export type LeverageDistributionSource = 'DefaultPowerLaw' | 'FundingAdaptive' | 'ConfigOverride';
+/**
+ * Wire-format enum values are SCREAMING_SNAKE_CASE (the Rust side uses
+ * `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]` on every liquidity-related
+ * enum). Older frontend code compared PascalCase strings — that was a bug;
+ * these unions match the actual JSON the server emits.
+ */
+export type CascadeState = 'NONE' | 'DETECTED' | 'SUSTAINED' | 'EXHAUSTED';
+export type LiquidationSide = 'LONG' | 'SHORT';
+export type ClusterKind = 'ABOVE_CURRENT_PRICE' | 'BELOW_CURRENT_PRICE' | 'AT_CURRENT_PRICE' | 'DISTANT';
+export type LeverageDistributionSource = 'DEFAULT_POWER_LAW' | 'FUNDING_ADAPTIVE' | 'CONFIG_OVERRIDE';
 
 export interface LiquidityFlow {
     long_liquidations_usd: number;
@@ -623,20 +720,26 @@ export interface LiquidationClusterMatrix {
     estimation_confidence: number;  // 0..1
 }
 
+/**
+ * Wire-format SCREAMING_SNAKE_CASE values (matches Rust `LiquiditySignalKind`).
+ * The frontend previously used PascalCase and silently miscategorized every
+ * incoming liquidity signal — see `LiquidityPanel.svelte` for the fix.
+ */
 export type LiquiditySignalKind =
-    | 'CascadeDetected'
-    | 'CascadeSustained'
-    | 'CascadeExhausted'
-    | 'LiquidityVacuum'
-    | 'FundingExtreme'
-    | 'OIFundingDivergence'
-    | 'MagnetActivated'
-    | 'ClusterPressureHigh'
-    | 'ClusterForwardPressure'
-    | 'FundingFlip'
-    | 'OiPriceDivergence';
+    | 'CASCADE_DETECTED'
+    | 'CASCADE_SUSTAINED'
+    | 'CASCADE_EXHAUSTED'
+    | 'LIQUIDITY_VACUUM'
+    | 'FUNDING_EXTREME'
+    | 'OI_FUNDING_DIVERGENCE'
+    | 'MAGNET_ACTIVATED'
+    | 'CLUSTER_PRESSURE_HIGH'
+    | 'CLUSTER_FORWARD_PRESSURE'
+    | 'FUNDING_FLIP'
+    | 'OI_PRICE_DIVERGENCE';
 
-export type LiquidityDirection = 'Bullish' | 'Bearish' | 'Neutral';
+/** Wire-format LiquidityDirection (was PascalCase; old code broke styling). */
+export type LiquidityDirection = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
 
 export interface LiquiditySignal {
     kind: LiquiditySignalKind;

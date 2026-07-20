@@ -1,0 +1,142 @@
+<script lang="ts">
+    // GroupConfluenceGrid — row 2 of the redesigned Metrics view.
+    //
+    // Renders 8 cards, one per functional IndicatorGroup, summarizing the
+    // current directional bias of every enabled, non-gate indicator in that
+    // group. Each card shows:
+    //
+    //   - Group name + group accent color
+    //   - A 5-dot confluence strip (bullish / neutral / bearish)
+    //   - A count breakdown ("4 bull / 1 bear / 2 inactive")
+    //   - Gate count (filtered out of the main count)
+    //
+    // Clicking a card scrolls to and expands that group in the active facet
+    // body — communication is via the `onGroupClick` callback so this
+    // component stays generic.
+
+    import type { IndicatorDto, IndicatorMeta } from '../types';
+    import { GROUP_ORDER, GROUP_META } from '../lib/groupMeta';
+    import styles from './GroupConfluenceGrid.module.css';
+
+    interface GroupStats {
+        group: string;
+        total: number;
+        gates: number;
+        bullish: number;
+        bearish: number;
+        neutral: number;
+        active: number;       // has any signals
+        activeSignals: number; // sum of signals[] across all indicators in group
+    }
+
+    interface Props {
+        registry: IndicatorMeta[];
+        indicators: Record<string, IndicatorDto>;
+        activeGroup?: string | null;
+        onGroupClick?: (group: string) => void;
+    }
+
+    let { registry, indicators, activeGroup = null, onGroupClick }: Props = $props();
+
+    const BULL_THRESHOLD = 0.1;
+    const BEAR_THRESHOLD = -0.1;
+
+    const stats = $derived.by<GroupStats[]>(() => {
+        const map = new Map<string, GroupStats>();
+        for (const g of GROUP_ORDER) {
+            map.set(g, {
+                group: g,
+                total: 0,
+                gates: 0,
+                bullish: 0,
+                bearish: 0,
+                neutral: 0,
+                active: 0,
+                activeSignals: 0,
+            });
+        }
+        for (const m of registry) {
+            if (!m.default_enabled) continue;
+            const bucket = map.get(m.group);
+            if (!bucket) continue;
+            const dto = indicators[m.key];
+            bucket.total += 1;
+            if (!m.directional) {
+                bucket.gates += 1;
+                continue;
+            }
+            const n = dto?.normalized ?? 0;
+            if (n > BULL_THRESHOLD) bucket.bullish += 1;
+            else if (n < BEAR_THRESHOLD) bucket.bearish += 1;
+            else bucket.neutral += 1;
+            const sigs = dto?.signals ?? [];
+            if (sigs.length > 0) {
+                bucket.active += 1;
+                bucket.activeSignals += sigs.length;
+            }
+        }
+        return GROUP_ORDER
+            .map((g) => map.get(g)!)
+            .filter((s) => s.total > 0);
+    });
+
+    function dominantKind(s: GroupStats): 'bull' | 'bear' | 'neutral' {
+        if (s.bullish > s.bearish && s.bullish > s.neutral) return 'bull';
+        if (s.bearish > s.bullish && s.bearish > s.neutral) return 'bear';
+        return 'neutral';
+    }
+
+    function buildDots(s: GroupStats): Array<'bull' | 'bear' | 'neutral'> {
+        const total = Math.max(s.bullish + s.bearish + s.neutral, 1);
+        const out: Array<'bull' | 'bear' | 'neutral'> = [];
+        const slots = Math.min(total, 5);
+        const bullSlots = Math.round((s.bullish / total) * slots);
+        const bearSlots = Math.round((s.bearish / total) * slots);
+        for (let i = 0; i < bullSlots; i++) out.push('bull');
+        for (let i = 0; i < bearSlots; i++) out.push('bear');
+        while (out.length < slots) out.push('neutral');
+        return out;
+    }
+</script>
+
+<div class={styles.grid}>
+    {#each stats as s (s.group)}
+        {@const meta = GROUP_META[s.group as keyof typeof GROUP_META]}
+        {@const dom = dominantKind(s)}
+        {@const dots = buildDots(s)}
+        {@const isActive = activeGroup === s.group}
+        <button
+            class="{styles.card} {isActive ? styles.cardActive : ''}"
+            style="--accent: {meta.accent}"
+            onclick={() => onGroupClick?.(s.group)}
+            title={meta.description}
+        >
+            <div class={styles.cardHeader}>
+                <span class={styles.cardName}>{meta.label}</span>
+                <span class={styles.cardTotal}>{s.total}</span>
+            </div>
+            <div class={styles.cardDots}>
+                {#each dots as kind, i (i)}
+                    <span class="{styles.dot} {styles[`dot_${kind}`]}"></span>
+                {/each}
+            </div>
+            <div class={styles.cardCount}>
+                <span class={styles.bullCount}>{s.bullish} bull</span>
+                <span class={styles.countSep}>·</span>
+                <span class={styles.bearCount}>{s.bearish} bear</span>
+                <span class={styles.countSep}>·</span>
+                <span class={styles.neutralCount}>{s.neutral} flat</span>
+            </div>
+            {#if s.gates > 0}
+                <div class={styles.cardGates}>◐ {s.gates} gate{s.gates > 1 ? 's' : ''}</div>
+            {/if}
+            {#if s.activeSignals > 0}
+                <div class={styles.cardSignals}>
+                    <span class={styles.signalDot}></span>
+                    {s.activeSignals} signal{s.activeSignals > 1 ? 's' : ''}
+                </div>
+            {/if}
+            <div class="{styles.cardBias} {styles[`bias_${dom}`]}"></div>
+        </button>
+    {/each}
+</div>

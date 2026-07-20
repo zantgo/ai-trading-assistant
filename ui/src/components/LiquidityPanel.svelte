@@ -88,9 +88,9 @@
                 <div class={styles.subSection}>
                     <div class={styles.subLabel}>Cascade State</div>
                     <div class={styles.cascadeRow}>
-                        <div class="{styles.cascadeBadge} {flow.cascade_state === 'Sustained' ? styles.cascadeDanger :
-                                                      flow.cascade_state === 'Detected' ? styles.cascadeWarning :
-                                                      flow.cascade_state === 'Exhausted' ? styles.cascadeCooling :
+                        <div class="{styles.cascadeBadge} {flow.cascade_state === 'SUSTAINED' ? styles.cascadeDanger :
+                                                      flow.cascade_state === 'DETECTED' ? styles.cascadeWarning :
+                                                      flow.cascade_state === 'EXHAUSTED' ? styles.cascadeCooling :
                                                       styles.cascadeNormal}">
                             {flow.cascade_state}
                         </div>
@@ -113,7 +113,7 @@
                             <span class={styles.detailKey}>Price:</span>
                             <span class={styles.detailVal}>{fmtPrice(flow.largest_event_price)}</span>
                             <span class={styles.detailKey}>Side:</span>
-                            <span class="{styles.detailVal} {flow.largest_event_side === 'Long' ? styles.bearish : styles.bullish}">
+                            <span class="{styles.detailVal} {flow.largest_event_side === 'LONG' ? styles.bearish : styles.bullish}">
                                 {flow.largest_event_side ?? '—'}
                             </span>
                         </div>
@@ -224,8 +224,8 @@
                 {:else}
                     {#each signals as sig}
                         <div class={styles.signalRow + ' ' +
-                                    (sig.direction === 'Bullish' ? styles.signalBullish :
-                                     sig.direction === 'Bearish' ? styles.signalBearish : styles.signalNeutral)}>
+                                    (sig.direction === 'BULLISH' ? styles.signalBullish :
+                                     sig.direction === 'BEARISH' ? styles.signalBearish : styles.signalNeutral)}>
                             <span class={styles.signalKind}>{sig.kind}</span>
                             <span class={styles.signalDir}>{sig.direction}</span>
                             <span class={styles.signalStrength}>str {sig.strength.toFixed(0)}</span>

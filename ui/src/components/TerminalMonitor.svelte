@@ -1,10 +1,30 @@
 <script lang="ts">
+    // TerminalMonitor — Market Monitoring → Metrics view.
+    //
+    // Redesigned layout (Phase C of the metrics-ia-rebuild):
+    //   Row 1: MarketContextStrip       — per-TF LOCAL synthesis (5 dimensions + regime + overall)
+    //   Row 2: GroupConfluenceGrid      — 8 functional-group cards with directional bias summary
+    //   Row 3: FacetTabs                — 6-tab strip (Indicators / Signals / Divergences / Levels / Liquidity / MTF)
+    //   Row 4: Facet body               — pivots the same data through the chosen facet
+    //
+    // Header includes the timeframe selector (4 buttons: Micro / Fast / Slow / Macro).
+    // Cross-cutting controls (search, filter pills) live above the facet tabs.
+
     import { useAppStore } from '../state.svelte';
     import type {
-        TimeframeTelemetry, IndicatorMeta, IndicatorSignal, SignalKind
+        IndicatorMeta, IndicatorSignal, TimeframeTelemetry,
+        SignalKind, MarketContext,
     } from '../types';
-    import TelemetryTable from './TelemetryTable.svelte';
-    import LiquidityPanel from './LiquidityPanel.svelte';
+    import { defaultFilters, filterSignals, type FilterState } from '../lib/filtering';
+    import MarketContextStrip from './MarketContextStrip.svelte';
+    import GroupConfluenceGrid from './GroupConfluenceGrid.svelte';
+    import FacetTabs, { type FacetId } from './facets/FacetTabs.svelte';
+    import IndicatorsView from './facets/IndicatorsView.svelte';
+    import SignalsView from './facets/SignalsView.svelte';
+    import DivergencesView from './facets/DivergencesView.svelte';
+    import LevelsView from './facets/LevelsView.svelte';
+    import LiquidityView from './facets/LiquidityView.svelte';
+    import MtfView from './facets/MtfView.svelte';
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
@@ -29,71 +49,86 @@
         ];
     });
 
-    const activeTfEntry = $derived(TIMEFRAMES.find(t => t.key === activeTf)!);
+    const activeTfEntry = $derived(TIMEFRAMES.find((t) => t.key === activeTf)!);
     const activeTfObj = $derived<TimeframeTelemetry | undefined>(
-        (pair as any)?.[activeTfEntry.tfKey] as TimeframeTelemetry | undefined
+        (pair as any)?.[activeTfEntry.tfKey] as TimeframeTelemetry | undefined,
     );
 
-    const hasLiquidity = $derived(!!pair?.microTerm?.liquidity || !!pair?.microTerm?.cluster);
+    // ── Facet state ───────────────────────────────────────────────────
+    let activeFacet: FacetId = $state('indicators');
+    let focusGroup: string | null = $state(null);
 
-    const SIGNAL_KIND_ORDER: SignalKind[] = [
-        'Divergence', 'Crossover', 'Threshold', 'Breakout', 'BandTouch',
-        'ZeroLineCross', 'CompressionRelease', 'LevelTest', 'TrendFlip',
-        'VolumeClimax', 'StackChange', 'PatternForming',
-    ];
+    // ── Filters ───────────────────────────────────────────────────────
+    let filters: FilterState = $state(defaultFilters());
 
-    const SIGNAL_ABBR: Record<string, string> = {
-        Divergence: 'DIV', Crossover: 'CRO', Threshold: 'TH', Breakout: 'BO',
-        BandTouch: 'BT', ZeroLineCross: '0X', CompressionRelease: 'SQZ',
-        LevelTest: 'LV', TrendFlip: 'FLIP', VolumeClimax: 'VOL',
-        StackChange: 'STK', PatternForming: 'PAT',
-    };
+    function setQuery(q: string) { filters = { ...filters, query: q }; }
+    function toggleActiveOnly() { filters = { ...filters, activeOnly: !filters.activeOnly }; }
+    function toggleConfirmed() { filters = { ...filters, confirmedPlusOnly: !filters.confirmedPlusOnly }; }
+    function toggleHideGates() { filters = { ...filters, hideGates: !filters.hideGates }; }
+    function clearFilters() { filters = defaultFilters(); }
 
-    function indicatorName(key: string): string {
-        const meta = registry.find(m => m.key === key);
-        return meta?.display_name ?? key;
+    // ── Per-facet counts ──────────────────────────────────────────────
+    function countActiveSignals(): number {
+        if (!activeTfObj) return 0;
+        let n = 0;
+        for (const k in activeTfObj.indicators ?? {}) {
+            n += (activeTfObj.indicators[k]?.signals ?? []).length;
+        }
+        return n;
     }
 
-    function confidence(tf: TimeframeTelemetry, key: string): number {
-        return Math.round((tf.indicators?.[key]?.confidence ?? 0) * 100);
-    }
-
-    function signalStyle(s: IndicatorSignal): string {
-        if (s.direction === 'Bullish') return 'bull';
-        if (s.direction === 'Bearish') return 'bear';
-        return 'neutral';
-    }
-
-    function signalAge(s: IndicatorSignal): string {
-        const a = s.age_bars ?? 0;
-        return a === 0 ? 'now' : `${a}b`;
-    }
-
-    function getSignalsForKind(kind: SignalKind): Array<{ indicatorKey: string; displayName: string; signal: IndicatorSignal }> {
-        if (!activeTfObj) return [];
-        const results: Array<{ indicatorKey: string; displayName: string; signal: IndicatorSignal }> = [];
-        for (const meta of registry) {
-            const signals = activeTfObj.indicators?.[meta.key]?.signals ?? [];
-            for (const s of signals) {
-                if (s.kind === kind) {
-                    results.push({
-                        indicatorKey: meta.key,
-                        displayName: meta.display_name,
-                        signal: s,
-                    });
-                }
+    function countActiveDivergences(): number {
+        if (!activeTfObj) return 0;
+        let n = 0;
+        for (const k in activeTfObj.indicators ?? {}) {
+            for (const s of (activeTfObj.indicators[k]?.signals ?? []) as IndicatorSignal[]) {
+                if (s.kind === 'Divergence') n++;
             }
         }
-        return results.sort((a, b) => b.signal.strength - a.signal.strength);
+        return n;
     }
 
-    let expandedKinds = $state<Record<string, boolean>>({});
-
-    function toggleKind(kind: string) {
-        expandedKinds = { ...expandedKinds, [kind]: !expandedKinds[kind] };
+    function countActiveLevels(): number {
+        if (!activeTfObj) return 0;
+        let n = 0;
+        for (const k in activeTfObj.indicators ?? {}) {
+            for (const s of (activeTfObj.indicators[k]?.signals ?? []) as IndicatorSignal[]) {
+                if (s.kind === 'LevelTest') n++;
+            }
+        }
+        return n;
     }
 
-    let liquidityOpen = $state(false);
+    const facets = $derived.by(() => {
+        const out: { id: FacetId; label: string; count?: number }[] = [
+            { id: 'indicators',  label: 'Indicators' },
+            { id: 'signals',     label: 'Signals',    count: countActiveSignals() },
+            { id: 'divergences', label: 'Divergences',count: countActiveDivergences() },
+            { id: 'levels',      label: 'Levels',     count: countActiveLevels() },
+        ];
+        if (pair?.microTerm?.liquidity || pair?.microTerm?.cluster) {
+            out.push({ id: 'liquidity', label: 'Liquidity' });
+        }
+        out.push({ id: 'mtf', label: 'MTF' });
+        return out;
+    });
+
+    function handleGroupClick(group: string) {
+        // When a group card is clicked, switch to the Indicators facet and
+        // focus that group so it expands and scrolls into view.
+        activeFacet = 'indicators';
+        focusGroup = group;
+        // Clear focus after a tick so the same group can be re-focused.
+        setTimeout(() => { focusGroup = null; }, 50);
+    }
+
+    // ── Header context extraction ─────────────────────────────────────
+    const context = $derived<MarketContext | null | undefined>(activeTfObj?.context);
+    const snapshotTs = $derived<number | null>(
+        activeTfObj?.latestSnapshot && typeof (activeTfObj.latestSnapshot as any).timestamp === 'number'
+            ? (activeTfObj.latestSnapshot as any).timestamp
+            : null,
+    );
 </script>
 
 <div class={styles.monitor}>
@@ -112,71 +147,105 @@
     </div>
 
     <div class={styles.contentArea}>
-        {#if pair && registry.length > 0}
+        {#if pair && registry.length > 0 && activeTfObj}
+            <!-- HEADER -->
             <div class={styles.header}>
                 <span class={styles.title}>METRICS</span>
                 <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
                 <span class={styles.tfBadge}>{activeTfEntry.label} · {formatTimeframeLabel(activeTfEntry.secs)}</span>
             </div>
 
-            {#each SIGNAL_KIND_ORDER as kind}
-                {@const sigs = getSignalsForKind(kind)}
-                {#if sigs.length > 0}
-                    <div class={styles.signalKindCard}>
-                        <button class={styles.kindHeader} onclick={() => toggleKind(kind)}>
-                            <span class={styles.kindCaret}>{expandedKinds[kind] !== false ? '▼' : '▶'}</span>
-                            <span class={styles.kindName}>{kind}</span>
-                            <span class={styles.kindCount}>{sigs.length} signal{sigs.length > 1 ? 's' : ''}</span>
-                            <span class={styles.kindAbbr}>{SIGNAL_ABBR[kind]}</span>
-                        </button>
-                        {#if expandedKinds[kind] !== false}
-                            <div class={styles.kindSignals}>
-                                {#each sigs as entry (entry.indicatorKey)}
-                                    <div class={styles.signalRow}>
-                                        <span class={styles.signalIndicator}>{entry.displayName}</span>
-                                        <span class="{styles.signalDir} {styles[signalStyle(entry.signal)]}">
-                                            {entry.signal.direction}
-                                        </span>
-                                        <span class={styles.signalStatus}>{entry.signal.status}</span>
-                                        <span class={styles.signalMeta}>
-                                            str {(entry.signal.strength * 100).toFixed(0)} ·
-                                            conf {confidence(activeTfObj!, entry.indicatorKey)}% ·
-                                            age {signalAge(entry.signal)}
-                                        </span>
-                                        <span class={styles.signalLabel}>{entry.signal.label}</span>
-                                    </div>
-                                {/each}
-                            </div>
-                        {/if}
-                    </div>
-                {/if}
-            {/each}
+            <!-- ROW 1 — MarketContext -->
+            <MarketContextStrip
+                context={context ?? null}
+                timestamp={snapshotTs}
+                barDurationSec={activeTfEntry.secs}
+            />
 
-            <div class={styles.sectionDivider}></div>
+            <!-- ROW 2 — Group Confluence Grid -->
+            <GroupConfluenceGrid
+                registry={registry}
+                indicators={activeTfObj.indicators ?? {}}
+                activeGroup={focusGroup}
+                onGroupClick={handleGroupClick}
+            />
 
-            <TelemetryTable {pairKey} tfKey={activeTfEntry.tfKey} tfSecs={activeTfEntry.secs} />
-
-            {#if hasLiquidity}
-                <div class={styles.sectionDivider}></div>
-                <div class={styles.liquiditySection}>
-                    <button class={styles.liquidityHeader} onclick={() => liquidityOpen = !liquidityOpen}>
-                        <span class={styles.kindCaret}>{liquidityOpen ? '▼' : '▶'}</span>
-                        <span>Liquidity Data</span>
-                        <span class={styles.tfBadge}>cascade · cluster · flow</span>
+            <!-- SEARCH + FILTER PILLS -->
+            <div class={styles.controls}>
+                <div class={styles.searchWrap}>
+                    <span class={styles.searchIcon}>⌕</span>
+                    <input
+                        type="text"
+                        class={styles.searchInput}
+                        placeholder="Search indicator, signal label, level…"
+                        value={filters.query}
+                        oninput={(e) => setQuery((e.target as HTMLInputElement).value)}
+                    />
+                </div>
+                <div class={styles.pillBar}>
+                    <button
+                        class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
+                        onclick={toggleActiveOnly}
+                    >
+                        Active only
                     </button>
-                    {#if liquidityOpen}
-                        <div class={styles.liquidityBody}>
-                            <LiquidityPanel {pairKey} />
-                        </div>
+                    <button
+                        class="{styles.pill} {filters.confirmedPlusOnly ? styles.pillActive : ''}"
+                        onclick={toggleConfirmed}
+                    >
+                        Confirmed+
+                    </button>
+                    <button
+                        class="{styles.pill} {filters.hideGates ? styles.pillActive : ''}"
+                        onclick={toggleHideGates}
+                    >
+                        Hide gates
+                    </button>
+                    {#if filters.query || filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
+                        <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
                     {/if}
                 </div>
-            {/if}
+            </div>
+
+            <!-- ROW 3 — Facet Tabs -->
+            <FacetTabs active={activeFacet} facets={facets} onChange={(id) => activeFacet = id} />
+
+            <!-- ROW 4 — Facet Body -->
+            <div class={styles.facetBody}>
+                {#if activeFacet === 'indicators'}
+                    <IndicatorsView
+                        tf={activeTfObj}
+                        registry={registry}
+                        filters={filters}
+                        focusGroup={focusGroup}
+                    />
+                {:else if activeFacet === 'signals'}
+                    <SignalsView tf={activeTfObj} registry={registry} filters={filters} />
+                {:else if activeFacet === 'divergences'}
+                    <DivergencesView tf={activeTfObj} registry={registry} filters={filters} />
+                {:else if activeFacet === 'levels'}
+                    <LevelsView tf={activeTfObj} registry={registry} filters={filters} />
+                {:else if activeFacet === 'liquidity'}
+                    <LiquidityView pairKey={pairKey} />
+                {:else if activeFacet === 'mtf'}
+                    <MtfView
+                        pair={{
+                            microTerm: pair.microTerm,
+                            fastTerm:  pair.fastTerm,
+                            slowTerm:  pair.slowTerm,
+                            macroTerm: pair.macroTerm,
+                        }}
+                        registry={registry}
+                        filters={filters}
+                    />
+                {/if}
+            </div>
         {:else}
             <div class={styles.featurePlaceholder}>
                 <SvgIcon name="tableChart" size={64} />
                 <h2 class={styles.featurePlaceholderTitle}>Market Metrics</h2>
                 <p class={styles.featurePlaceholderMsg}>
-                    Awaiting indicator registry and market data...
+                    Awaiting indicator registry and market data…
                 </p>
             </div>
         {/if}

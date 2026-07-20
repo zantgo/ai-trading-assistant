@@ -1,0 +1,147 @@
+.view {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.placeholder {
+    padding: 32px 24px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.4);
+    font-style: italic;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    line-height: 1.5;
+}
+
+.section {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-left: 3px solid var(--accent, rgba(255, 255, 255, 0.4));
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.sectionHeader {
+    display: grid;
+    grid-template-columns: 200px 1fr 60px;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 14px;
+    background: rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sectionTitle {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent, rgba(255, 255, 255, 0.85));
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.sectionDesc {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.45);
+    font-style: italic;
+}
+
+.sectionCount {
+    text-align: right;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    font-family: var(--mono, monospace);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.row {
+    display: grid;
+    grid-template-columns: 160px 100px 130px 90px 80px 70px 70px 60px;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 14px;
+    background: rgba(0, 0, 0, 0.15);
+    border-left: 2px solid transparent;
+    transition: background 0.12s ease;
+}
+
+.row:hover {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.rowSupport    { border-left-color: #4ade80; }
+.rowResistance { border-left-color: #f87171; }
+.rowNeutral    { border-left-color: rgba(255, 255, 255, 0.4); }
+
+.producer {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.role {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-align: center;
+    border: 1px solid;
+}
+
+.roleSupport    { color: #4ade80; background: rgba(74, 222, 128, 0.08); border-color: rgba(74, 222, 128, 0.4); }
+.roleResistance { color: #f87171; background: rgba(248, 113, 113, 0.08); border-color: rgba(248, 113, 113, 0.4); }
+.roleNeutral    { color: rgba(255, 255, 255, 0.55); background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.15); }
+
+.levelName {
+    font-size: 11px;
+    font-family: var(--mono, monospace);
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.direction {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.status {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.55);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.strength,
+.conf,
+.age {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.6);
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    text-align: right;
+}
+
+@media (max-width: 1100px) {
+    .row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+}

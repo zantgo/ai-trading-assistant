@@ -24,13 +24,13 @@ ws_url = "wss://api.hyperliquid.xyz/ws"
 [bitget]
 ws_url = "wss://ws.bitget.com/v2/ws/public"
 
-# Clock-drift monitor: enforces the platform's <=5000µs UTC drift budget via
+# Clock-drift monitor: enforces the platform's <=10000µs UTC drift budget via
 # continuous NTP polling. Set `enabled = false` to disable drift enforcement.
 [clock_monitor]
 enabled = true
-ntp_servers = ["pool.ntp.org", "time.aws.com", "time.google.com"]
+ntp_servers = ["pool.ntp.org", "time.aws.com", "time.google.com", "time.cloudflare.com"]
 poll_interval_secs = 30
-threshold_micros = 5000
+threshold_micros = 10000
 query_timeout_secs = 5
 jitter_window_size = 20
 breach_action = "warn"

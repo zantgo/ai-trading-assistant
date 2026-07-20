@@ -51,6 +51,13 @@ export class ZoneBandsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPa
         return [{
             renderer(): IPrimitivePaneRenderer | null {
                 if (!self._data.entry && !self._data.target && !self._data.invalidation) return null;
+                // lightweight-charts' priceToCoordinate throws "Value is null"
+                // on an empty series. Bail early so we don't fall into that path.
+                try {
+                    if (!self._chart.timeScale().getVisibleLogicalRange()) return null;
+                } catch (_) {
+                    return null;
+                }
                 return {
                     draw(target: CanvasRenderingTarget2D) {
                         self._render(target);
@@ -63,6 +70,14 @@ export class ZoneBandsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPa
         }];
     }
 
+    private _safePriceToCoordinate(price: number): number | null {
+        try {
+            return this._candleSeries.priceToCoordinate(price);
+        } catch (_) {
+            return null;
+        }
+    }
+
     private _render(target: CanvasRenderingTarget2D) {
         const d = this._data;
         target.useMediaCoordinateSpace(({ context: ctx, mediaSize: { width, height } }) => {
@@ -71,8 +86,8 @@ export class ZoneBandsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPa
             ctx.save();
 
             if (d.entry && d.entry.high > 0 && d.entry.low > 0) {
-                const yh = this._candleSeries.priceToCoordinate(d.entry.high);
-                const yl = this._candleSeries.priceToCoordinate(d.entry.low);
+                const yh = this._safePriceToCoordinate(d.entry.high);
+                const yl = this._safePriceToCoordinate(d.entry.low);
                 if (yh !== null && yl !== null) {
                     const top = Math.min(yh, yl);
                     const h = Math.abs(yh - yl);
@@ -96,8 +111,8 @@ export class ZoneBandsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPa
             }
 
             if (d.target && d.target.high > 0 && d.target.low > 0) {
-                const yh = this._candleSeries.priceToCoordinate(d.target.high);
-                const yl = this._candleSeries.priceToCoordinate(d.target.low);
+                const yh = this._safePriceToCoordinate(d.target.high);
+                const yl = this._safePriceToCoordinate(d.target.low);
                 if (yh !== null && yl !== null) {
                     const top = Math.min(yh, yl);
                     const h = Math.abs(yh - yl);
@@ -121,7 +136,7 @@ export class ZoneBandsPrimitive implements ISeriesPrimitiveBase<SeriesAttachedPa
             }
 
             if (d.invalidation && d.invalidation > 0) {
-                const y = this._candleSeries.priceToCoordinate(d.invalidation);
+                const y = this._safePriceToCoordinate(d.invalidation);
                 if (y !== null && y > 0 && y < height) {
                     ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
                     ctx.lineWidth = 1;
