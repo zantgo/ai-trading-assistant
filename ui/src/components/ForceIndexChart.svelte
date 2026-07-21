@@ -1,8 +1,8 @@
 <script lang="ts">
-    import { iRaw, iSub, adxRegime } from '../lib/telemetry';
+    import { iRaw } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
-    import { createChart, CrosshairMode, LineSeries, LineStyle } from 'lightweight-charts';
+    import { createChart, CrosshairMode, HistogramSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
@@ -27,13 +27,19 @@
     let container: HTMLDivElement;
     let chart: IChartApi;
     let ro: ResizeObserver;
-    let adxSeries: ISeriesApi<'Line'>;
-    let adxPlusSeries: ISeriesApi<'Line'>;
-    let adxMinusSeries: ISeriesApi<'Line'>;
-    let trendLine: ReturnType<typeof adxSeries.createPriceLine> | null = null;
-    let exhaustionLine: ReturnType<typeof adxSeries.createPriceLine> | null = null;
+    let forceSeries: ISeriesApi<'Histogram'>;
+    let prevVal = 0;
     let dataPoints = $state(0);
     let liveReceived = $state(false);
+
+    function forceColor(cur: number, prev: number): string {
+        const positive = cur >= 0;
+        const growing = Math.abs(cur) >= Math.abs(prev);
+        if (positive && growing) return '#26a69a';
+        if (positive && !growing) return '#00695c';
+        if (!positive && growing) return '#ef5350';
+        return '#b71c1c';
+    }
 
     onMount(() => {
         chart = createChart(container, {
@@ -42,29 +48,13 @@
             grid: { vertLines: { color: '#1a1d26' }, horzLines: { color: '#1a1d26' } },
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
-            timeScale: {
-                borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true,
-                tickMarkFormatter: (time: any) => {
-                    const date = new Date(time * 1000);
-                    const h = String(date.getHours()).padStart(2, '0');
-                    const m = String(date.getMinutes()).padStart(2, '0');
-                    return `${h}:${m}`;
-                }
-            },
+            timeScale: { borderColor: '#2a2e39', visible: false },
             handleScale: true, handleScroll: true,
         });
 
-        adxSeries = chart.addSeries(LineSeries, { color: '#f1c40f', lineWidth: 2, priceLineVisible: false });
-        adxPlusSeries = chart.addSeries(LineSeries, { color: '#2ecc71', lineWidth: 1, priceLineVisible: false });
-        adxMinusSeries = chart.addSeries(LineSeries, { color: '#e74c3c', lineWidth: 1, priceLineVisible: false });
-        trendLine = adxSeries.createPriceLine({
-            price: 20, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true, title: 'TREND',
-        });
-        exhaustionLine = adxSeries.createPriceLine({
-            price: 40, color: '#ff5252', lineWidth: 1, lineStyle: LineStyle.Dashed,
-            axisLabelVisible: true, title: 'EXHAUST',
-        });
+        forceSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
+        forceSeries.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
+
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
@@ -77,7 +67,7 @@
                 const canvas = chart.takeScreenshot();
                 const dataUrl = canvas.toDataURL('image/png');
                 const link = document.createElement('a');
-                link.download = `${pairKey}_${timeframe}s_adx.png`;
+                link.download = `${pairKey}_${timeframe}s_force_index.png`;
                 link.href = dataUrl;
                 link.click();
             });
@@ -100,46 +90,35 @@
         let cancelled = false;
         fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
             if (cancelled || !h) return;
-            const adxPts = pairsFromHistory(h, 'adx', 'adx');
-            const plusPts = pairsFromHistory(h, 'adx', 'plus_di');
-            const minusPts = pairsFromHistory(h, 'adx', 'minus_di');
-            if (adxPts.length > 0) {
-                adxSeries.setData(adxPts);
-                dataPoints = adxPts.length;
+            const pts = pairsFromHistory(h, 'force_index');
+            if (pts.length > 0) {
+                let prev = 0;
+                const data = pts.map((p) => {
+                    const c = forceColor(p.value, prev);
+                    prev = p.value;
+                    return { time: p.time, value: p.value, color: c };
+                });
+                forceSeries.setData(data);
+                prevVal = pts[pts.length - 1].value;
+                dataPoints = pts.length;
             }
-            if (plusPts.length > 0) adxPlusSeries.setData(plusPts);
-            if (minusPts.length > 0) adxMinusSeries.setData(minusPts);
         });
         return () => { cancelled = true; };
     });
 
-    function adxLineColor(val: number, slope: number): string {
-        if (val > 40) return '#ff5252';
-        if (val < 20) return '#4c525e';
-        if (slope > 0) return '#f1c40f';
-        return '#f97316';
-    }
-
-    const adxCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const forceCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
-        const adxVal = iSub(m, 'adx', 'adx') ?? iRaw(m, 'adx');
-        if (adxVal != null) {
-            const slope = iSub(m, 'adx', 'adx_slope') ?? 0;
-            const plus = iSub(m, 'adx', 'plus_di');
-            const minus = iSub(m, 'adx', 'minus_di');
-            adxSeries.update({ time: timeSec as Time, value: adxVal });
-            if (plus != null) adxPlusSeries.update({ time: timeSec as Time, value: plus });
-            if (minus != null) adxMinusSeries.update({ time: timeSec as Time, value: minus });
-            adxSeries.applyOptions({ color: adxLineColor(adxVal, slope) });
+        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'force_index');
+        if (val != null) {
+            forceSeries.update({ time: timeSec as Time, value: val, color: forceColor(val, prevVal) });
+            prevVal = val;
             liveReceived = true;
         }
     });
-    $effect(adxCoalescer.effect);
-    onDestroy(adxCoalescer.destroy);
+    $effect(forceCoalescer.effect);
+    onDestroy(forceCoalescer.destroy);
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
-    void adxRegime; void trendLine; void exhaustionLine;
 </script>
 
 <div class="chart-container" bind:this={container}>

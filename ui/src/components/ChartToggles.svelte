@@ -48,6 +48,77 @@
         const v = !pair.microTerm.showVolumeProfile;
         syncAll(tf => { tf.showVolumeProfile = v; });
     }
+
+    /// New v6.6 overlay toggles. All sync across the 4 timeframes the same
+    /// way LIQ HEATMAP and VOL PROFILE do.
+    function toggleAnchoredVwap() {
+        if (!pair) return;
+        const v = !pair.microTerm.showAnchoredVwap;
+        syncAll(tf => { tf.showAnchoredVwap = v; });
+    }
+
+    function toggleSupertrend() {
+        if (!pair) return;
+        const v = !pair.microTerm.showSupertrend;
+        syncAll(tf => { tf.showSupertrend = v; });
+    }
+
+    function toggleDonchian() {
+        if (!pair) return;
+        const v = !pair.microTerm.showDonchian;
+        syncAll(tf => { tf.showDonchian = v; });
+    }
+
+    function toggleIchimoku() {
+        if (!pair) return;
+        const v = !pair.microTerm.showIchimoku;
+        syncAll(tf => { tf.showIchimoku = v; });
+    }
+
+    function toggleSupportResistance() {
+        if (!pair) return;
+        const v = !pair.microTerm.showSupportResistance;
+        syncAll(tf => { tf.showSupportResistance = v; });
+    }
+
+    function togglePivotPoints() {
+        if (!pair) return;
+        const v = !pair.microTerm.showPivotPoints;
+        syncAll(tf => { tf.showPivotPoints = v; });
+    }
+
+    function toggleFibonacci() {
+        if (!pair) return;
+        const v = !pair.microTerm.showFib;
+        syncAll(tf => { tf.showFib = v; });
+    }
+
+    function toggleSmc() {
+        if (!pair) return;
+        const v = !pair.microTerm.showSmcStructure;
+        syncAll(tf => {
+            tf.showSmcStructure = v;
+            tf.showSmcLiquidity = v;
+        });
+    }
+
+    function toggleFvg() {
+        if (!pair) return;
+        const v = !pair.microTerm.showFvgZones;
+        syncAll(tf => { tf.showFvgZones = v; });
+    }
+
+    function toggleOrderBlocks() {
+        if (!pair) return;
+        const v = !pair.microTerm.showOrderBlocks;
+        syncAll(tf => { tf.showOrderBlocks = v; });
+    }
+
+    function toggleRibbon() {
+        if (!pair) return;
+        const v = !pair.microTerm.showDerivativeRibbon;
+        syncAll(tf => { tf.showDerivativeRibbon = v; });
+    }
 </script>
 
 {#if pair}
@@ -81,6 +152,34 @@
             onclick={toggleVwap}>VWAP</button>
         <button class="{styles.togglePill} {styles.bbPill} {pair.microTerm.showBb ? styles.active : ''}"
             onclick={toggleBb}>BOLLINGER</button>
+        <button class="{styles.togglePill} {styles.avwapPill} {pair.microTerm.showAnchoredVwap ? styles.active : ''}"
+            onclick={toggleAnchoredVwap}>ANC VWAP</button>
+        <button class="{styles.togglePill} {styles.supertrendPill} {pair.microTerm.showSupertrend ? styles.active : ''}"
+            onclick={toggleSupertrend}>SUPERTREND</button>
+        <button class="{styles.togglePill} {styles.donchianPill} {pair.microTerm.showDonchian ? styles.active : ''}"
+            onclick={toggleDonchian}>DONCHIAN</button>
+    </div>
+    <div class={styles.togglesSeparator}></div>
+    <div class={styles.togglesGroup}>
+        <span class={styles.togglesLabel}>LEVELS</span>
+        <button class="{styles.togglePill} {styles.srPill} {pair.microTerm.showSupportResistance ? styles.active : ''}"
+            onclick={toggleSupportResistance}>S/R</button>
+        <button class="{styles.togglePill} {styles.pivotPill} {pair.microTerm.showPivotPoints ? styles.active : ''}"
+            onclick={togglePivotPoints}>PIVOT</button>
+        <button class="{styles.togglePill} {styles.fibPill} {pair.microTerm.showFib ? styles.active : ''}"
+            onclick={toggleFibonacci}>FIB</button>
+        <button class="{styles.togglePill} {styles.ichimokuPill} {pair.microTerm.showIchimoku ? styles.active : ''}"
+            onclick={toggleIchimoku}>ICHIMOKU</button>
+    </div>
+    <div class={styles.togglesSeparator}></div>
+    <div class={styles.togglesGroup}>
+        <span class={styles.togglesLabel}>SMC</span>
+        <button class="{styles.togglePill} {styles.smcStructurePill} {pair.microTerm.showSmcStructure ? styles.active : ''}"
+            onclick={toggleSmc}>BOS/CHoCH</button>
+        <button class="{styles.togglePill} {styles.fvgPill} {pair.microTerm.showFvgZones ? styles.active : ''}"
+            onclick={toggleFvg}>FVG</button>
+        <button class="{styles.togglePill} {styles.obPill} {pair.microTerm.showOrderBlocks ? styles.active : ''}"
+            onclick={toggleOrderBlocks}>ORDER BLOCKS</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>
@@ -88,6 +187,8 @@
             onclick={toggleLiqHeatmap}>LIQ HEATMAP</button>
         <button class="{styles.togglePill} {styles.volumeProfilePill} {pair.microTerm.showVolumeProfile ? styles.active : ''}"
             onclick={toggleVolumeProfile}>VOL PROFILE</button>
+        <button class="{styles.togglePill} {styles.derivativeRibbonPill} {pair.microTerm.showDerivativeRibbon ? styles.active : ''}"
+            onclick={toggleRibbon}>DERIVATIVES</button>
     </div>
 </div>
 {/if}

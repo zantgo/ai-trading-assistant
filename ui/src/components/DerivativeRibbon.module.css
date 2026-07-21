@@ -1,0 +1,123 @@
+.ribbon {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    flex-wrap: wrap;
+}
+
+.ribbonLabel {
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    align-self: center;
+    margin-right: 4px;
+}
+
+.badge {
+    flex: 1 1 auto;
+    min-width: 110px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.badgeHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.badgeName {
+    font-size: 8px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.45);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+}
+
+.feedStatus {
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+}
+
+.statusLive {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.statusStale {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.statusConnecting {
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    animation: connectingPulse 2s ease-in-out infinite;
+}
+
+@keyframes connectingPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+.badgeValue {
+    font-size: 12px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+}
+
+.badgeSub {
+    font-size: 8px;
+    font-family: 'Courier New', monospace;
+    color: rgba(255, 255, 255, 0.35);
+    letter-spacing: 0.04em;
+}
+
+.bullish {
+    color: #26a69a;
+}
+.bearish {
+    color: #ef5350;
+}
+.neutral {
+    color: #8f929d;
+}
+.bullishBg {
+    background: rgba(38, 166, 154, 0.12);
+    border-color: rgba(38, 166, 154, 0.35);
+}
+.bearishBg {
+    background: rgba(239, 83, 80, 0.12);
+    border-color: rgba(239, 83, 80, 0.35);
+}
+.warningBg {
+    background: rgba(255, 152, 0, 0.12);
+    border-color: rgba(255, 152, 0, 0.4);
+}
+.connecting {
+    background: rgba(96, 165, 250, 0.06);
+    border-color: rgba(96, 165, 250, 0.3);
+}

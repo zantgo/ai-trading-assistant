@@ -1,13 +1,17 @@
 <script lang="ts">
     import { iRaw } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
+    import {
+        fetchIndicatorHistoryOnce,
+        pairsFromHistory,
+        type IndicatorFlatHistory,
+    } from '../lib/indicatorHistory';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -24,6 +28,8 @@
     let chart: IChartApi;
     let ro: ResizeObserver;
     let bbwpSeries: ISeriesApi<'Histogram'>;
+    let dataPoints = $state(0);
+    let liveReceived = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -33,50 +39,34 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: '#2a2e39',
-                visible: false,
-                timeVisible: false,
-                secondsVisible: false,
-                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                borderColor: '#2a2e39', visible: false, timeVisible: false, secondsVisible: false,
+                tickMarkFormatter: (time: any) => {
                     const date = new Date(time * 1000);
-                    const hours = String(date.getHours()).padStart(2, '0');
-                    const minutes = String(date.getMinutes()).padStart(2, '0');
-                    return `${hours}:${minutes}`;
+                    const h = String(date.getHours()).padStart(2, '0');
+                    const m = String(date.getMinutes()).padStart(2, '0');
+                    return `${h}:${m}`;
                 }
             },
-            handleScale: true,
-            handleScroll: true,
+            handleScale: true, handleScroll: true,
         });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         bbwpSeries = chart.addSeries(HistogramSeries, {
-            color: '#00d4aa',
-            base: 0,
-            priceLineVisible: false
+            color: '#00d4aa', base: 0, priceLineVisible: false
         });
 
         bbwpSeries.createPriceLine({
-            price: 10,
-            color: '#4488ff',
-            lineWidth: 1,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: 'COMPRESSION',
+            price: 10, color: '#4488ff', lineWidth: 1, lineStyle: 2,
+            axisLabelVisible: true, title: 'COMPRESSION',
         });
-
         bbwpSeries.createPriceLine({
-            price: 90,
-            color: '#ff4444',
-            lineWidth: 1,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: 'EXHAUSTION',
+            price: 90, color: '#ff4444', lineWidth: 1, lineStyle: 2,
+            axisLabelVisible: true, title: 'EXHAUSTION',
         });
 
         registerChart(chart, container);
-
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
         if (onScreenshotReady) {
@@ -91,50 +81,35 @@
             });
         }
 
-        (async () => {
-            if (!pair) return;
-            try {
-                const data = await fetchChartHistoryOnce(pairKey, timeframe);
-                if (!data || !data.indicatorHistory || !data.indicatorHistory.bbwp.length) return;
-                const ih = data.indicatorHistory;
-                const rawBbwpData = ih.times.map((t: number, i: number) => {
-                    const val = parseFloat(ih.bbwp[i] ?? "0") || 0;
-                    return {
-                        time: t as Time,
-                        value: val,
-                        color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa',
-                    };
-                });
-
-                const cleanedBbwpData = dedupSortByTime(rawBbwpData);
-
-                if (cleanedBbwpData.length > 0) {
-                    bbwpSeries.setData(cleanedBbwpData);
-                    chart.timeScale().fitContent();
-                }
-            } catch (err) {
-                console.error("Error bootstrapping BBWP chart history:", err);
-            }
-        })();
-
         ro = new ResizeObserver(() => {
-            const w = container.clientWidth;
-            const h = container.clientHeight;
-            if (chart && w > 0 && h > 0) {
-                chart.resize(w, h);
-            }
+            const w = container.clientWidth, h = container.clientHeight;
+            if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
-        if (container?.parentElement) {
-            ro.observe(container.parentElement);
-        }
+        if (container?.parentElement) ro.observe(container.parentElement);
     });
 
     onDestroy(() => {
         ro?.disconnect();
-        if (chart) {
-            unregisterChart(chart);
-            chart.remove();
-        }
+        if (chart) { unregisterChart(chart); chart.remove(); }
+    });
+
+    $effect(() => {
+        if (!timeframe) return;
+        let cancelled = false;
+        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+            if (cancelled || !h) return;
+            const points = pairsFromHistory(h, 'bbwp');
+            if (points.length > 0) {
+                const data = points.map((p) => ({
+                    time: p.time,
+                    value: p.value,
+                    color: p.value < 10 ? '#4488ff' : p.value > 90 ? '#ff4444' : '#00d4aa',
+                }));
+                bbwpSeries.setData(data);
+                dataPoints = points.length;
+            }
+        });
+        return () => { cancelled = true; };
     });
 
     const bbwpCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
@@ -142,18 +117,34 @@
         const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'bbwp');
         if (val != null) {
             bbwpSeries.update({
-                time: timeSec as Time,
-                value: val,
+                time: timeSec as Time, value: val,
                 color: val < 10 ? '#4488ff' : val > 90 ? '#ff4444' : '#00d4aa'
             });
+            liveReceived = true;
         }
     });
     $effect(bbwpCoalescer.effect);
     onDestroy(bbwpCoalescer.destroy);
+
+    const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-container" bind:this={container}>
+    {#if showEmptyOverlay}
+        <div class="empty-overlay">NO HISTORICAL DATA</div>
+    {/if}
+</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    .empty-overlay {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 4;
+        font-family: 'Courier New', monospace;
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        color: #ffb300;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
 </style>

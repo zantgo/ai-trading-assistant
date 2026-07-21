@@ -166,6 +166,27 @@
 .panel-box.pane-bbwp { height: 110px; }
 .panel-box.pane-rvol { height: 110px; }
 
+.panel-box.pane-stoch { height: 90px; }
+.panel-box.pane-chande-mo { height: 90px; }
+.panel-box.pane-williams-r { height: 90px; }
+.panel-box.pane-cci { height: 90px; }
+.panel-box.pane-force-index { height: 90px; }
+.panel-box.pane-obv { height: 90px; }
+.panel-box.pane-cmf { height: 90px; }
+.panel-box.pane-mfi { height: 90px; }
+.panel-box.pane-hv { height: 90px; }
+.panel-box.pane-aroon { height: 90px; }
+.panel-box.pane-choppiness { height: 90px; }
+.panel-box.pane-lin-reg { height: 90px; }
+.panel-box.pane-z-score { height: 90px; }
+.panel-box.pane-funding { height: 90px; }
+.panel-box.pane-oi { height: 90px; }
+.panel-box.pane-oi-delta { height: 90px; }
+.panel-box.pane-ofi-depth { height: 90px; }
+
+.grouped-pane-box { height: 90px; }
+.hidden-pane { display: none !important; }
+
 .header-actions {
     display: flex;
     align-items: center;

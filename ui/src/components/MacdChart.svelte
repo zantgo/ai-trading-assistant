@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { iRaw, iSub } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
@@ -8,6 +7,11 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
+    import {
+        fetchIndicatorHistoryOnce,
+        pairsFromHistory,
+        type IndicatorFlatHistory,
+    } from '../lib/indicatorHistory';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -27,6 +31,8 @@
     let macdSigSeries: ISeriesApi<'Line'>;
     let macdHistSeries: ISeriesApi<'Histogram'>;
     let zeroLine: IPriceLine | null = null;
+    let dataPoints = $state(0);
+    let liveReceived = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -36,38 +42,28 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: '#2a2e39',
-                visible: false,
-                timeVisible: true,
-                secondsVisible: true,
-                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true,
+                tickMarkFormatter: (time: any) => {
                     const date = new Date(time * 1000);
-                    const hours = String(date.getHours()).padStart(2, '0');
-                    const minutes = String(date.getMinutes()).padStart(2, '0');
-                    return `${hours}:${minutes}`;
+                    const h = String(date.getHours()).padStart(2, '0');
+                    const m = String(date.getMinutes()).padStart(2, '0');
+                    return `${h}:${m}`;
                 }
             },
-            handleScale: true,
-            handleScroll: true,
+            handleScale: true, handleScroll: true,
         });
 
         macdLineSeries = chart.addSeries(LineSeries, { color: '#2962ff', lineWidth: 2, priceLineVisible: false });
         macdSigSeries = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 2, priceLineVisible: false });
         macdHistSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
-
         zeroLine = macdHistSeries.createPriceLine({
-            price: 0,
-            color: '#4c525e',
-            lineWidth: 1,
-            lineStyle: 1,
-            axisLabelVisible: false,
+            price: 0, color: '#4c525e', lineWidth: 1, lineStyle: 1, axisLabelVisible: false,
         });
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart, container);
-
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
         if (onScreenshotReady) {
@@ -82,64 +78,38 @@
             });
         }
 
-        (async () => {
-            if (!pair) return;
-            try {
-                const data = await fetchChartHistoryOnce(pairKey, timeframe);
-                if (!data || !data.indicatorHistory || !data.indicatorHistory.macd_line.length) return;
-                const ih = data.indicatorHistory;
-                const rawCombined = ih.times.map((t: number, i: number) => ({
-                    time: t as Time,
-                    line: ih.macd_line[i],
-                    sig: ih.macd_signal[i],
-                    hist: ih.macd_hist[i]
-                }));
-
-                const cleanedCombined = dedupSortByTime(rawCombined);
-
-                const lineData = cleanedCombined
-                    .filter((x: any) => x.line != null)
-                    .map((x: any) => ({
-                        time: x.time,
-                        value: parseFloat(x.line!)
-                    }));
-                const sigData = cleanedCombined
-                    .filter((x: any) => x.sig != null)
-                    .map((x: any) => ({
-                        time: x.time,
-                        value: parseFloat(x.sig!)
-                    }));
-                const histData = cleanedCombined
-                    .filter((x: any) => x.hist != null)
-                    .map((x: any) => ({
-                        time: x.time,
-                        value: parseFloat(x.hist!),
-                        color: parseFloat(x.hist!) >= 0 ? '#26a69a' : '#ef5350'
-                    }));
-
-                if (lineData.length > 0) {
-                    macdLineSeries.setData(lineData);
-                    macdSigSeries.setData(sigData);
-                    macdHistSeries.setData(histData);
-                    chart.timeScale().fitContent();
-                }
-            } catch (err) {
-                console.error("Error bootstrapping MACD chart history:", err);
-            }
-        })();
-
         ro = new ResizeObserver(() => {
-            const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
+            const w = container.clientWidth, h = container.clientHeight;
+            if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
     });
 
     onDestroy(() => {
         ro?.disconnect();
-        if (chart) {
-            unregisterChart(chart);
-            chart.remove();
-        }
+        if (chart) { unregisterChart(chart); chart.remove(); }
+    });
+
+    $effect(() => {
+        if (!timeframe) return;
+        let cancelled = false;
+        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+            if (cancelled || !h) return;
+            const line = pairsFromHistory(h, 'macd', 'line');
+            const signal = pairsFromHistory(h, 'macd', 'signal');
+            const histArr = pairsFromHistory(h, 'macd', 'histogram');
+            if (line.length > 0) {
+                macdLineSeries.setData(line);
+                dataPoints = line.length;
+            }
+            if (signal.length > 0) macdSigSeries.setData(signal);
+            if (histArr.length > 0) {
+                macdHistSeries.setData(
+                    histArr.map((p) => ({ time: p.time, value: p.value, color: p.value >= 0 ? '#26a69a' : '#ef5350' }))
+                );
+            }
+        });
+        return () => { cancelled = true; };
     });
 
     function histogramColor(mHist: number, prevHist: number): string {
@@ -161,17 +131,33 @@
         if (mLine != null && mSig != null && mHist != null) {
             macdLineSeries.update({ time: timeSec as Time, value: mLine });
             macdSigSeries.update({ time: timeSec as Time, value: mSig });
-            const color = histogramColor(mHist, prevMacdHist);
-            macdHistSeries.update({ time: timeSec as Time, value: mHist, color });
+            macdHistSeries.update({ time: timeSec as Time, value: mHist, color: histogramColor(mHist, prevMacdHist) });
             prevMacdHist = mHist;
+            liveReceived = true;
         }
     });
     $effect(macdCoalescer.effect);
     onDestroy(macdCoalescer.destroy);
+
+    const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-container" bind:this={container}>
+    {#if showEmptyOverlay}
+        <div class="empty-overlay">NO HISTORICAL DATA</div>
+    {/if}
+</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    .empty-overlay {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 4;
+        font-family: 'Courier New', monospace;
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        color: #ffb300;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
 </style>

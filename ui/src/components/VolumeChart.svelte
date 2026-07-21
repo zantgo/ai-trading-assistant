@@ -1,13 +1,19 @@
 <script lang="ts">
+    // VolumeChart consumes CANDLE volume (not an indicator value). The
+    // unified helper exposes `candles.close` rows; volume is read via
+    // `hist.candles.volume` directly.
     import { iRaw } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, HistogramSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
+    import {
+        fetchIndicatorHistoryOnce,
+        type IndicatorFlatHistory,
+    } from '../lib/indicatorHistory';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -24,6 +30,15 @@
     let chart: IChartApi;
     let ro: ResizeObserver;
     let volumeSeries: ISeriesApi<'Histogram'>;
+    let dataPoints = $state(0);
+    let liveReceived = $state(false);
+
+    function volumeColor(rvol: number, close: number, open: number): string {
+        if (rvol >= 3.0) return '#e040fb';
+        if (rvol >= 1.5) return '#26c6da';
+        if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)';
+        return close >= open ? '#26a69a' : '#ef5350';
+    }
 
     onMount(() => {
         chart = createChart(container, {
@@ -33,28 +48,22 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: '#2a2e39',
-                visible: false,
-                timeVisible: true,
-                secondsVisible: true,
-                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true,
+                tickMarkFormatter: (time: any) => {
                     const date = new Date(time * 1000);
-                    const hours = String(date.getHours()).padStart(2, '0');
-                    const minutes = String(date.getMinutes()).padStart(2, '0');
-                    return `${hours}:${minutes}`;
+                    const h = String(date.getHours()).padStart(2, '0');
+                    const m = String(date.getMinutes()).padStart(2, '0');
+                    return `${h}:${m}`;
                 }
             },
-            handleScale: true,
-            handleScroll: true,
+            handleScale: true, handleScroll: true,
         });
 
         volumeSeries = chart.addSeries(HistogramSeries, { base: 0, priceLineVisible: false });
-
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart, container);
-
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
         if (onScreenshotReady) {
@@ -69,68 +78,45 @@
             });
         }
 
-        (async () => {
-            if (!pair) return;
-            try {
-                const data = await fetchChartHistoryOnce(pairKey, timeframe);
-                if (!data) return;
-                if (data.candles && data.candles.length > 0) {
-                    const rvolHistory = data.indicatorHistory?.rvol ?? [];
-
-                    const rawCombined = data.candles.map((c, idx) => ({
-                        time: Math.floor(c.time / 1000) as Time,
-                        close: parseFloat(c.close) || 0,
-                        open: parseFloat(c.open) || 0,
-                        volume: parseFloat(c.volume) || 0,
-                        rvolRaw: rvolHistory[idx] ?? null
-                    }));
-
-                    const cleanedCombined = dedupSortByTime(rawCombined.map((c) => ({
-                        time: c.time as unknown as Time,
-                        close: c.close,
-                        open: c.open,
-                        volume: c.volume,
-                        rvolRaw: c.rvolRaw,
-                    }))) as { time: Time; close: number; open: number; volume: number; rvolRaw: string | null }[];
-
-                    const placeholder = cleanedCombined.map((item) => ({
-                        time: item.time,
-                        value: item.volume,
-                        color: volumeColor(
-                            item.rvolRaw != null ? parseFloat(item.rvolRaw) : 1.0,
-                            item.close,
-                            item.open
-                        ),
-                    }));
-
-                    volumeSeries.setData(placeholder);
-                    chart.timeScale().fitContent();
-                }
-            } catch (err) {
-                console.error("Error bootstrapping volume chart history:", err);
-            }
-        })();
-
         ro = new ResizeObserver(() => {
-            const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
+            const w = container.clientWidth, h = container.clientHeight;
+            if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
     });
 
     onDestroy(() => {
         ro?.disconnect();
-        if (chart) {
-            unregisterChart(chart);
-            chart.remove();
-        }
+        if (chart) { unregisterChart(chart); chart.remove(); }
     });
 
-    function volumeColor(rvol: number, close: number, open: number): string {
-        if (rvol >= 3.0) return '#e040fb';
-        if (rvol >= 1.5) return '#26c6da';
-        if (rvol < 1.0) return 'rgba(143, 146, 157, 0.25)';
-        return close >= open ? '#26a69a' : '#ef5350';
-    }
+    $effect(() => {
+        if (!timeframe) return;
+        let cancelled = false;
+        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+            if (cancelled || !h) return;
+            const rvol = h.values['rvol'] ?? [];
+            const out: Array<{ time: Time; value: number; color: string }> = [];
+            for (let i = 0; i < h.candles.volume.length && i < h.candleTimes.length; i++) {
+                const t = h.candleTimes[i];
+                const v = h.candles.volume[i];
+                if (t == null || v == null) continue;
+                const open = h.candles.open[i];
+                const close = h.candles.close[i];
+                const r = (rvol[i] != null && rvol[i] !== null) ? Number(rvol[i]) : 1.0;
+                out.push({
+                    time: t as Time,
+                    value: v,
+                    color: volumeColor(r, close, open),
+                });
+            }
+            if (out.length > 0) {
+                volumeSeries.setData(out);
+                dataPoints = out.length;
+            }
+        });
+        return () => { cancelled = true; };
+    });
 
     const volumeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
@@ -139,17 +125,32 @@
             const open = parseFloat(String(snap.open));
             const vol = parseFloat(String(snap.volume ?? '0')) || 0;
             const rvol = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rvol') ?? 1.0;
-
-            const color = volumeColor(rvol, close, open);
-            volumeSeries.update({ time: timeSec as Time, value: vol, color });
+            volumeSeries.update({ time: timeSec as Time, value: vol, color: volumeColor(rvol, close, open) });
+            liveReceived = true;
         }
     });
     $effect(volumeCoalescer.effect);
     onDestroy(volumeCoalescer.destroy);
+
+    const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-container" bind:this={container}>
+    {#if showEmptyOverlay}
+        <div class="empty-overlay">NO HISTORICAL DATA</div>
+    {/if}
+</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    .empty-overlay {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 4;
+        font-family: 'Courier New', monospace;
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        color: #ffb300;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
 </style>

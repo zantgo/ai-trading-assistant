@@ -1,13 +1,17 @@
 <script lang="ts">
     import { iRaw, atrVolatilityRegime } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
-    import { fetchChartHistoryOnce, dedupSortByTime } from '../lib/chartHistory';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { makeChartCoalescer } from '../lib/chartCoalesce';
+    import {
+        fetchIndicatorHistoryOnce,
+        pairsFromHistory,
+        type IndicatorFlatHistory,
+    } from '../lib/indicatorHistory';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -26,6 +30,8 @@
     let atrSeries: ISeriesApi<'Line'>;
     let atrVal = $state(0);
     let atrRegime = $state('stable');
+    let dataPoints = $state(0);
+    let liveReceived = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -35,28 +41,22 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: {
-                borderColor: '#2a2e39',
-                visible: false,
-                timeVisible: true,
-                secondsVisible: true,
-                tickMarkFormatter: (time: any, _tickMarkType: number, _locale: string) => {
+                borderColor: '#2a2e39', visible: false, timeVisible: true, secondsVisible: true,
+                tickMarkFormatter: (time: any) => {
                     const date = new Date(time * 1000);
-                    const hours = String(date.getHours()).padStart(2, '0');
-                    const minutes = String(date.getMinutes()).padStart(2, '0');
-                    return `${hours}:${minutes}`;
+                    const h = String(date.getHours()).padStart(2, '0');
+                    const m = String(date.getMinutes()).padStart(2, '0');
+                    return `${h}:${m}`;
                 }
             },
-            handleScale: true,
-            handleScroll: true,
+            handleScale: true, handleScroll: true,
         });
 
         atrSeries = chart.addSeries(LineSeries, { color: '#8f929d', lineWidth: 2, priceLineVisible: false });
-
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
         registerChart(chart, container);
-
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
         if (onScreenshotReady) {
@@ -71,44 +71,30 @@
             });
         }
 
-        (async () => {
-            if (!pair) return;
-            try {
-                const data = await fetchChartHistoryOnce(pairKey, timeframe);
-                if (!data || !data.indicatorHistory || !data.indicatorHistory.atr_14.length) return;
-                const ih = data.indicatorHistory;
-                const rawAtrData = ih.times.map((t: number, i: number) => {
-                    const val = ih.atr_14[i];
-                    if (val == null) return null;
-                    return {
-                        time: t as Time,
-                        value: parseFloat(val)
-                    };
-                }).filter((x): x is { time: Time; value: number } => x != null);
-
-                const cleanedAtrData = dedupSortByTime(rawAtrData);
-
-                if (cleanedAtrData.length > 0) {
-                    atrSeries.setData(cleanedAtrData);
-                    chart.timeScale().fitContent();
-                }
-            } catch (err) {
-                console.error("Error bootstrapping ATR chart history:", err);
-            }
-        })();
-
         ro = new ResizeObserver(() => {
-            const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
+            const w = container.clientWidth, h = container.clientHeight;
+            if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
     });
 
     onDestroy(() => {
         ro?.disconnect();
-        if (chart) {
-            unregisterChart(chart);
-            chart.remove();
-        }
+        if (chart) { unregisterChart(chart); chart.remove(); }
+    });
+
+    $effect(() => {
+        if (!timeframe) return;
+        let cancelled = false;
+        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+            if (cancelled || !h) return;
+            const points = pairsFromHistory(h, 'atr');
+            if (points.length > 0) {
+                atrSeries.setData(points);
+                dataPoints = points.length;
+            }
+        });
+        return () => { cancelled = true; };
     });
 
     function regimeColor(regime: string): string {
@@ -134,20 +120,41 @@
         if (val != null) {
             atrSeries.update({ time: timeSec as Time, value: val });
             atrVal = val;
-
             const regime = atrVolatilityRegime(m);
             atrRegime = regime;
-
             const color = regimeColor(regime);
             atrSeries.applyOptions({ color });
+            liveReceived = true;
         }
     });
     $effect(atrCoalescer.effect);
     onDestroy(atrCoalescer.destroy);
+
+    const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
+    void regimeLabel;
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-container" bind:this={container}>
+    {#if showEmptyOverlay}
+        <div class="empty-overlay">NO HISTORICAL DATA</div>
+    {/if}
+</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    .empty-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 4;
+        font-family: 'Courier New', monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: #ffb300;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
 </style>

@@ -34,3 +34,20 @@
 }
 .vwap-bias-label.premium { color: #ffb300; border-color: rgba(255, 179, 0, 0.4); }
 .vwap-bias-label.discount { color: #ff5252; border-color: rgba(255, 82, 82, 0.4); }
+.smc-footer {
+    position: absolute;
+    top: 4px;
+    left: 184px;
+    z-index: 10;
+    font-size: 8px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.05em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.85);
+    color: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.smc-footer.smc-footer-bull { color: #26a69a; border-color: rgba(38, 166, 154, 0.4); }
+.smc-footer.smc-footer-bear { color: #ef5350; border-color: rgba(239, 83, 80, 0.4); }

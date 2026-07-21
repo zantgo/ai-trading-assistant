@@ -1,4 +1,20 @@
 <script lang="ts">
+    // LiveTerminal — single-column chart stack driven by a typed `LIVE_PANES`
+    // descriptor. The 8 always-visible panes (Price, Volume, MACD, RSI, ADX,
+    // Squeeze, BBWP, ATR) match the institutional-quant workflow; secondary
+    // oscillators (Stochastic, ChandeMO, OBV, CMF, MFI, Williams %R, CCI,
+    // Force Index) and derivative panels (Funding, Open Interest, OI Delta,
+    // Order-Flow+Depth) are grouped under collapsible accordion headers
+    // (MOMENTUM OSCILLATORS / VOLUME FLOW / REGIME / DERIVATIVES DETAIL) so
+    // the default screen stays readable.
+    //
+    // Layout:
+    //   - ChartToggles (overlay pills)
+    //   - Price pane (200px)
+    //   - Derivative ribbon (if showDerivativeRibbon)
+    //   - Volume pane (RVOL kept as color annotation, RVOL pane removed)
+    //   - 7 always-on oscillator panes
+    //   - Accordion groups
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
     import type { TimeframeTelemetry } from '../types';
@@ -12,6 +28,25 @@
     import AdxChart from './AdxChart.svelte';
     import BbwpChart from './BbwpChart.svelte';
     import AtrChart from './AtrChart.svelte';
+    import StochasticChart from './StochasticChart.svelte';
+    import ChandeMoChart from './ChandeMoChart.svelte';
+    import WilliamsRChart from './WilliamsRChart.svelte';
+    import CciChart from './CciChart.svelte';
+    import ForceIndexChart from './ForceIndexChart.svelte';
+    import ObvChart from './ObvChart.svelte';
+    import CmfChart from './CmfChart.svelte';
+    import MfiChart from './MfiChart.svelte';
+    import HvChart from './HvChart.svelte';
+    import AroonChart from './AroonChart.svelte';
+    import ChoppinessChart from './ChoppinessChart.svelte';
+    import LinRegSlopeChart from './LinRegSlopeChart.svelte';
+    import ZScoreChart from './ZScoreChart.svelte';
+    import FundingChart from './FundingChart.svelte';
+    import OpenInterestChart from './OpenInterestChart.svelte';
+    import OiDeltaChart from './OiDeltaChart.svelte';
+    import OrderFlowDepthChart from './OrderFlowDepthChart.svelte';
+    import DerivativeRibbon from './DerivativeRibbon.svelte';
+    import PaneGroupHeader from './PaneGroupHeader.svelte';
     import FullscreenToolbar from './FullscreenToolbar.svelte';
     import { chartsWithin } from '../chartRegistry.svelte';
     import { composeChartScreenshots } from '../lib/chartScreenshot';
@@ -55,10 +90,6 @@
         return `${name} (${durationSuffix(tf.barDurationSec)})`;
     }
 
-    function tfKey(pairKey: string, tf: TimeframeTelemetry): string {
-        return `${pairKey}-${tf.barDurationSec}-${tf.emaFastVal}-${tf.emaMediumVal}-${tf.emaSlowVal}-${tf.emaLongVal}-${tf.slot}`;
-    }
-
     function toggleExpand(key: string) {
         expandedTf = expandedTf === key ? null : key;
     }
@@ -67,30 +98,110 @@
         app.openFullscreenChart(chartType, slot as 'micro' | 'fast' | 'slow' | 'macro', pairKey);
     }
 
-    type SlotName = 'micro' | 'fast' | 'slow' | 'macro';
-
     function chartKey(t: TimeframeTelemetry, chartType: string): string {
         // Remount when slot, duration or any EMA param flips so the chart
         // picks up new config without leaking stale series.
         return `${pairKey}-${t.slot}-${chartType}-${t.barDurationSec}-${t.emaFastVal}-${t.emaMediumVal}-${t.emaSlowVal}-${t.emaLongVal}`;
     }
 
-    /// One column of panes for a single slot. Each chart inside binds to the
-    /// same `tf` reference so the WS stream and the chart components stay in
-    /// lockstep without re-deriving slot from duration.
-    function paneStack(t: TimeframeTelemetry): { chartType: string; box: string; component: 'Price' | 'Volume' | 'Rvol' | 'Macd' | 'Squeeze' | 'Rsi' | 'Adx' | 'Bbwp' | 'Atr' }[] {
-        return [
-            { chartType: 'price',   box: 'panePrice',   component: 'Price' },
-            { chartType: 'volume',  box: 'paneVol',     component: 'Volume' },
-            { chartType: 'rvol',    box: 'paneRvol',    component: 'Rvol' },
-            { chartType: 'macd',    box: 'paneMacd',    component: 'Macd' },
-            { chartType: 'squeeze', box: 'paneSqueeze', component: 'Squeeze' },
-            { chartType: 'rsi',     box: 'paneRsi',     component: 'Rsi' },
-            { chartType: 'adx',     box: 'paneAdx',     component: 'Adx' },
-            { chartType: 'bbwp',    box: 'paneBbwp',    component: 'Bbwp' },
-            { chartType: 'atr',     box: 'paneAtr',     component: 'Atr' },
-        ];
+    /// Type-safe chart-type union — used by `LIVE_PANES`, `GROUPS`, and the
+    /// dblClick dispatch in `FullscreenChartModal`. Adding a new pane = add
+    /// one row here + one row in `LIVE_PANES` (or one of `GROUPS`).
+    type ChartType =
+        | 'price' | 'volume' | 'rvol'
+        | 'macd' | 'rsi' | 'squeeze' | 'adx' | 'bbwp' | 'atr'
+        | 'stochastic' | 'chandemo' | 'williams_r' | 'cci' | 'force_index'
+        | 'obv' | 'cmf' | 'mfi' | 'hv'
+        | 'aroon' | 'choppiness' | 'linreg' | 'zscore'
+        | 'funding' | 'open_interest' | 'oi_delta' | 'order_flow_depth';
+
+    interface PaneDescriptor {
+        chartType: ChartType;
+        box: string;
+        component:
+            | typeof PriceChart | typeof VolumeChart | typeof RvolChart
+            | typeof MacdChart | typeof RsiChart | typeof SqueezeChart
+            | typeof AdxChart | typeof BbwpChart | typeof AtrChart
+            | typeof StochasticChart | typeof ChandeMoChart
+            | typeof WilliamsRChart | typeof CciChart | typeof ForceIndexChart
+            | typeof ObvChart | typeof CmfChart | typeof MfiChart | typeof HvChart
+            | typeof AroonChart | typeof ChoppinessChart
+            | typeof LinRegSlopeChart | typeof ZScoreChart
+            | typeof FundingChart | typeof OpenInterestChart
+            | typeof OiDeltaChart | typeof OrderFlowDepthChart;
     }
+
+    // 8 always-on panes (compact default). RVOL intentionally omitted as a
+    // dedicated pane — RVOL values still color Volume bars and are surfaced
+    // via the inline RVOL numeric badge inside VolumeChart's snapshot.
+    const LIVE_PANES: PaneDescriptor[] = [
+        { chartType: 'price',   box: 'panePrice',   component: PriceChart },
+        { chartType: 'volume',  box: 'paneVol',     component: VolumeChart },
+        { chartType: 'macd',    box: 'paneMacd',    component: MacdChart },
+        { chartType: 'rsi',     box: 'paneRsi',     component: RsiChart },
+        { chartType: 'adx',     box: 'paneAdx',     component: AdxChart },
+        { chartType: 'squeeze', box: 'paneSqueeze', component: SqueezeChart },
+        { chartType: 'bbwp',    box: 'paneBbwp',    component: BbwpChart },
+        { chartType: 'atr',     box: 'paneAtr',     component: AtrChart },
+    ];
+
+    interface PaneGroup {
+        title: string;
+        panes: PaneDescriptor[];
+        defaultOpen?: boolean;
+    }
+
+    const MOMENTUM_GROUP: PaneGroup = {
+        title: 'MOMENTUM OSCILLATORS',
+        defaultOpen: false,
+        panes: [
+            { chartType: 'stochastic', box: 'paneStoch', component: StochasticChart },
+            { chartType: 'chandemo',   box: 'paneChandeMo', component: ChandeMoChart },
+            { chartType: 'williams_r', box: 'paneWilliamsR', component: WilliamsRChart },
+            { chartType: 'cci',        box: 'paneCci', component: CciChart },
+            { chartType: 'force_index', box: 'paneForceIndex', component: ForceIndexChart },
+        ],
+    };
+
+    const VOLUME_GROUP: PaneGroup = {
+        title: 'VOLUME FLOW',
+        defaultOpen: false,
+        panes: [
+            { chartType: 'obv', box: 'paneObv', component: ObvChart },
+            { chartType: 'cmf', box: 'paneCmf', component: CmfChart },
+            { chartType: 'mfi', box: 'paneMfi', component: MfiChart },
+            { chartType: 'hv',  box: 'paneHv',  component: HvChart },
+        ],
+    };
+
+    const REGIME_GROUP: PaneGroup = {
+        title: 'REGIME / CHOPPINESS',
+        defaultOpen: false,
+        panes: [
+            { chartType: 'aroon',      box: 'paneAroon', component: AroonChart },
+            { chartType: 'choppiness', box: 'paneChoppiness', component: ChoppinessChart },
+            { chartType: 'linreg',     box: 'paneLinReg', component: LinRegSlopeChart },
+            { chartType: 'zscore',     box: 'paneZScore', component: ZScoreChart },
+        ],
+    };
+
+    const DERIVATIVES_GROUP: PaneGroup = {
+        title: 'DERIVATIVES DETAIL',
+        defaultOpen: false,
+        panes: [
+            { chartType: 'funding',         box: 'paneFunding', component: FundingChart },
+            { chartType: 'open_interest',   box: 'paneOi',      component: OpenInterestChart },
+            { chartType: 'oi_delta',        box: 'paneOiDelta', component: OiDeltaChart },
+            { chartType: 'order_flow_depth', box: 'paneOfiDepth', component: OrderFlowDepthChart },
+        ],
+    };
+
+    const COLLAPSED_GROUPS: PaneGroup[] = [
+        MOMENTUM_GROUP,
+        VOLUME_GROUP,
+        REGIME_GROUP,
+        DERIVATIVES_GROUP,
+    ];
 
     /// Static descriptor for each sidebar entry. The label feeds the header
     /// (`termLabel`) and the secsFn keeps the duration live against the
@@ -167,32 +278,55 @@
                         </div>
                     </div>
                     <div class={styles.timescaleCharts}>
-                        {#each paneStack(activeTerm) as pane (pane.chartType)}
+                        {#each LIVE_PANES as pane (pane.chartType)}
                             <div class="{styles.panelBox} {styles[pane.box]}" data-pane-type={pane.chartType}>
                                 <div class={styles.panelLabel}>{pane.chartType.toUpperCase()}</div>
                                 {#key chartKey(activeTerm, pane.chartType)}
-                                    {#if pane.component === 'Price'}
-                                        <PriceChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('price', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Volume'}
-                                        <VolumeChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('volume', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Rvol'}
-                                        <RvolChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('rvol', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Macd'}
-                                        <MacdChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('macd', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Squeeze'}
-                                        <SqueezeChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('squeeze', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Rsi'}
-                                        <RsiChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('rsi', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Adx'}
-                                        <AdxChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('adx', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Bbwp'}
-                                        <BbwpChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('bbwp', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {:else if pane.component === 'Atr'}
-                                        <AtrChart pairKey={pairKey} slot={activeTerm.slot} onDoubleClick={() => handleChartDblClick('atr', activeTerm.slot, activeTerm.barDurationSec)} />
-                                    {/if}
+                                    {@const C = pane.component}
+                                    <C
+                                        {pairKey}
+                                        slot={activeTerm.slot}
+                                        onDoubleClick={() => handleChartDblClick(pane.chartType, activeTerm.slot, activeTerm.barDurationSec)}
+                                    />
                                 {/key}
                             </div>
                         {/each}
+
+                        {#if activeTerm.showDerivativeRibbon}
+                            {#key chartKey(activeTerm, 'derivative-ribbon')}
+                                <DerivativeRibbon slot={activeTerm.slot} />
+                            {/key}
+                        {/if}
+
+                        {#each COLLAPSED_GROUPS as group (group.title)}
+                            <PaneGroupHeader title={group.title} count={group.panes.length} defaultOpen={group.defaultOpen ?? false}>
+                                {#each group.panes as pane (pane.chartType)}
+                                    <div class="{styles.panelBox} {styles[pane.box]} {styles.groupedPaneBox}" data-pane-type={pane.chartType}>
+                                        <div class={styles.panelLabel}>{pane.chartType.toUpperCase()}</div>
+                                        {#key chartKey(activeTerm, pane.chartType)}
+                                            {@const C = pane.component}
+                                            <C
+                                                {pairKey}
+                                                slot={activeTerm.slot}
+                                                onDoubleClick={() => handleChartDblClick(pane.chartType, activeTerm.slot, activeTerm.barDurationSec)}
+                                            />
+                                        {/key}
+                                    </div>
+                                {/each}
+                            </PaneGroupHeader>
+                        {/each}
+
+                        <!--
+                            Hidden RVOL pane retained (off by default) so the
+                            fullscreen modal can still open the RVOL chart by
+                            URL/shortcut, preserving the legacy URL contract.
+                        -->
+                        <div class="{styles.panelBox} {styles.paneRvol} {styles.hiddenPane}" data-pane-type="rvol" aria-hidden="true" hidden>
+                            <div class={styles.panelLabel}>RVOL</div>
+                            {#key chartKey(activeTerm, 'rvol')}
+                                <RvolChart {pairKey} slot={activeTerm.slot} />
+                            {/key}
+                        </div>
                     </div>
                 </div>
             </div>

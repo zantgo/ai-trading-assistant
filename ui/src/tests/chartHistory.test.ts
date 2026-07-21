@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import {
-    fetchChartHistoryOnce,
+    fetchIndicatorHistoryOnce,
     clearHistoryCache,
     dedupSortByTime,
-} from '../lib/chartHistory';
+} from '../lib/indicatorHistory';
 
-describe('chartHistory', () => {
-    it('fetchChartHistoryOnce_allows_sub_minute_timeframes', async () => {
+describe('indicatorHistory (unified)', () => {
+    it('fetchIndicatorHistoryOnce_allows_sub_minute_timeframes', async () => {
         // Regression: sub-minute timeframes used to return `null`
         // immediately, which prevented every chart's `setData()` from
         // running on bootstrap. Now the helper always fetches and the
@@ -24,7 +24,7 @@ describe('chartHistory', () => {
             return new Response('', { status: 404 });
         };
         try {
-            const p = fetchChartHistoryOnce('BTC-USDT', 1);
+            const p = fetchIndicatorHistoryOnce('BTC-USDT', 1);
             const result = await p;
             // 404 returns null from the helper because !res.ok.
             expect(result).toBeNull();
@@ -37,12 +37,12 @@ describe('chartHistory', () => {
         }
     });
 
-    it('fetchChartHistoryOnce_returns_null_for_zero_timeframe', async () => {
-        expect(await fetchChartHistoryOnce('BTC-USDT', 0)).toBeNull();
+    it('fetchIndicatorHistoryOnce_returns_null_for_zero_timeframe', async () => {
+        expect(await fetchIndicatorHistoryOnce('BTC-USDT', 0)).toBeNull();
     });
 
-    it('fetchChartHistoryOnce_returns_null_for_empty_pairKey', async () => {
-        expect(await fetchChartHistoryOnce('', 60)).toBeNull();
+    it('fetchIndicatorHistoryOnce_returns_null_for_empty_pairKey', async () => {
+        expect(await fetchIndicatorHistoryOnce('', 60)).toBeNull();
     });
 
     it('clearHistoryCache_is_noop_on_empty_cache', () => {

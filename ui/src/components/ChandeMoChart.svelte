@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { flattenHistory } from '../lib/historyAdapter';
     import { iRaw, formatTimeframeLabel } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
@@ -8,17 +7,25 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { createSignalMarkers, type SignalMarkerController } from '../lib/signalMarkers';
+    import {
+        fetchIndicatorHistoryOnce,
+        pairsFromHistory,
+        type IndicatorFlatHistory,
+    } from '../lib/indicatorHistory';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(slot === 'micro' ? pair?.microTerm : slot === 'fast' ? pair?.fastTerm : slot === 'slow' ? pair?.slowTerm : pair?.macroTerm); const timeframe = $derived(tf?.barDurationSec ?? 60);
+    const tf = $derived(slot === 'micro' ? pair?.microTerm : slot === 'fast' ? pair?.fastTerm : slot === 'slow' ? pair?.slowTerm : pair?.macroTerm);
+    const timeframe = $derived(tf?.barDurationSec ?? 60);
 
     let container: HTMLDivElement;
     let chart: IChartApi = $state(null!);
     let cmoSeries: ISeriesApi<'Line'>;
     let markers: SignalMarkerController;
     let ro: ResizeObserver;
+    let dataPoints = $state(0);
+    let liveReceived = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -28,10 +35,9 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: { borderColor: '#2a2e39', visible: false },
+            handleScale: true, handleScroll: true,
         });
-
         cmoSeries = chart.addSeries(LineSeries, { color: '#e040fb', lineWidth: 1, priceLineVisible: false });
-
         cmoSeries.createPriceLine({ price: 50, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '+50' });
         cmoSeries.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
         cmoSeries.createPriceLine({ price: -50, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '-50' });
@@ -43,40 +49,12 @@
         if (onScreenshotReady) {
             onScreenshotReady(() => {
                 if (!chart) return;
-                const canvas = chart.takeScreenshot();
                 const link = document.createElement('a');
                 link.download = `${pairKey}_${formatTimeframeLabel(timeframe)}_chandemo.png`;
-                link.href = canvas.toDataURL('image/png');
+                link.href = chart.takeScreenshot().toDataURL('image/png');
                 link.click();
             });
         }
-
-        (async () => {
-            if (!pair) return;
-            try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
-                const data = await res.json();
-                const ih = flattenHistory(data.indicator_history);
-                if (ih && ih.chandemo && ih.chandemo.length > 0) {
-                    const seen = new Set<number>();
-                    const cmoData: { time: Time; value: number }[] = [];
-                    for (let i = 0; i < ih.times.length; i++) {
-                        const t = ih.times[i];
-                        if (t == null || seen.has(t)) continue;
-                        const v = ih.chandemo[i];
-                        if (v == null) continue;
-                        seen.add(t);
-                        cmoData.push({ time: t as Time, value: parseFloat(v) });
-                    }
-                    if (cmoData.length > 0) {
-                        cmoSeries.setData(cmoData);
-                        chart.timeScale().fitContent();
-                    }
-                }
-            } catch (err) {
-                console.error("Error bootstrapping ChandeMO history:", err);
-            }
-        })();
 
         ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight;
@@ -91,6 +69,20 @@
     });
 
     $effect(() => {
+        if (!timeframe) return;
+        let cancelled = false;
+        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+            if (cancelled || !h) return;
+            const cmo = pairsFromHistory(h, 'chandemo');
+            if (cmo.length > 0) {
+                cmoSeries.setData(cmo);
+                dataPoints = cmo.length;
+            }
+        });
+        return () => { cancelled = true; };
+    });
+
+    $effect(() => {
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
         const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
@@ -101,13 +93,30 @@
         const cmo = iRaw(m, 'chandemo');
         if (cmo != null) {
             cmoSeries.update({ time: timeSec as Time, value: cmo });
+            liveReceived = true;
         }
-        markers?.push(timeSec, ((snap.indicators ?? {}) as IndicatorMap)['chandemo']?.signals ?? []);
+        markers?.push(timeSec, m['chandemo']?.signals ?? []);
     });
+
+    const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-container" bind:this={container}>
+    {#if showEmptyOverlay}
+        <div class="empty-overlay">NO HISTORICAL DATA</div>
+    {/if}
+</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    .empty-overlay {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 4;
+        font-family: 'Courier New', monospace;
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        color: #ffb300;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
 </style>

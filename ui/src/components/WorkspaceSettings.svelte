@@ -4,7 +4,7 @@
     import type { InstanceState, PositionScalingConfig, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
-    import { clearHistoryCache } from '../lib/chartHistory';
+    import { clearHistoryCache } from '../lib/indicatorHistory';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();

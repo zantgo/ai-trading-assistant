@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { flattenHistory } from '../lib/historyAdapter';
     import { iRaw, formatTimeframeLabel } from '../lib/telemetry';
     import type { IndicatorMap } from '../types';
     import { onMount, onDestroy } from 'svelte';
@@ -8,17 +7,25 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { createSignalMarkers, type SignalMarkerController } from '../lib/signalMarkers';
+    import {
+        fetchIndicatorHistoryOnce,
+        pairsFromHistory,
+        type IndicatorFlatHistory,
+    } from '../lib/indicatorHistory';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
     const pair = $derived(app.instancesMap[pairKey]);
-    const tf = $derived(slot === 'micro' ? pair?.microTerm : slot === 'fast' ? pair?.fastTerm : slot === 'slow' ? pair?.slowTerm : pair?.macroTerm); const timeframe = $derived(tf?.barDurationSec ?? 60);
+    const tf = $derived(slot === 'micro' ? pair?.microTerm : slot === 'fast' ? pair?.fastTerm : slot === 'slow' ? pair?.slowTerm : pair?.macroTerm);
+    const timeframe = $derived(tf?.barDurationSec ?? 60);
 
     let container: HTMLDivElement;
     let chart: IChartApi = $state(null!);
     let cmfSeries: ISeriesApi<'Line'>;
     let markers: SignalMarkerController;
     let ro: ResizeObserver;
+    let dataPoints = $state(0);
+    let liveReceived = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -28,14 +35,17 @@
             crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#4c525e', width: 1, style: 3 }, horzLine: { color: '#4c525e', width: 1, style: 3 } },
             rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.15, bottom: 0.1 } },
             timeScale: { borderColor: '#2a2e39', visible: false },
+            handleScale: true, handleScroll: true,
         });
         cmfSeries = chart.addSeries(LineSeries, { color: '#26c6da', lineWidth: 1, priceLineVisible: false });
         cmfSeries.createPriceLine({ price: 0.2, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '+.2' });
         cmfSeries.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
         cmfSeries.createPriceLine({ price: -0.2, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '-.2' });
+
         registerChart(chart, container);
         markers = createSignalMarkers(cmfSeries);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
+
         if (onScreenshotReady) {
             onScreenshotReady(() => {
                 if (!chart) return;
@@ -45,28 +55,7 @@
                 link.click();
             });
         }
-        (async () => {
-            if (!pair) return;
-            try {
-                const res = await fetch(`/api/history?symbol=${encodeURIComponent(pairKey)}&timeframe_secs=${timeframe}`);
-                const data = await res.json();
-                const ih = flattenHistory(data.indicator_history);
-                if (ih && ih.cmf && ih.cmf.length > 0) {
-                    const seen = new Set<number>();
-                    const d: { time: Time; value: number }[] = [];
-                    for (let i = 0; i < ih.times.length; i++) {
-                        const t = ih.times[i];
-                        const v = ih.cmf[i];
-                        if (t == null || v == null || seen.has(t)) continue;
-                        seen.add(t);
-                        d.push({ time: t as Time, value: parseFloat(v) });
-                    }
-                    if (d.length > 0) { cmfSeries.setData(d); chart.timeScale().fitContent(); }
-                }
-            } catch (err) {
-                console.error('Error bootstrapping CMF history:', err);
-            }
-        })();
+
         ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight;
             if (chart && w > 0 && h > 0) chart.resize(w, h);
@@ -80,6 +69,20 @@
     });
 
     $effect(() => {
+        if (!timeframe) return;
+        let cancelled = false;
+        fetchIndicatorHistoryOnce(pairKey, timeframe).then((h: IndicatorFlatHistory | null) => {
+            if (cancelled || !h) return;
+            const cmf = pairsFromHistory(h, 'cmf');
+            if (cmf.length > 0) {
+                cmfSeries.setData(cmf);
+                dataPoints = cmf.length;
+            }
+        });
+        return () => { cancelled = true; };
+    });
+
+    $effect(() => {
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
         const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
@@ -88,12 +91,29 @@
         const timeSec = snap.timestamp as number;
         const v = iRaw((snap.indicators ?? {}) as IndicatorMap, 'cmf');
         if (v != null) cmfSeries.update({ time: timeSec as Time, value: v });
+        liveReceived = true;
         markers?.push(timeSec, ((snap.indicators ?? {}) as IndicatorMap)['cmf']?.signals ?? []);
     });
+
+    const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);
 </script>
 
-<div class="chart-container" bind:this={container}></div>
+<div class="chart-container" bind:this={container}>
+    {#if showEmptyOverlay}
+        <div class="empty-overlay">NO HISTORICAL DATA</div>
+    {/if}
+</div>
 
 <style>
-    .chart-container { width: 100%; height: 100%; }
+    .chart-container { position: relative; width: 100%; height: 100%; }
+    .empty-overlay {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 4;
+        font-family: 'Courier New', monospace;
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        color: #ffb300;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+    }
 </style>
