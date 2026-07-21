@@ -10,7 +10,7 @@
     align-items: center;
     gap: 3px;
     font-size: 10px;
-    color: #94a3b8;
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
 }
 .position-selector input[type="radio"] {
@@ -20,29 +20,29 @@
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.05em;
-    color: #64748b;
+    color: rgba(255, 255, 255, 0.35);
     margin-top: 10px;
     margin-bottom: 6px;
     text-transform: uppercase;
 }
 .entry-price-input { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.entry-price-input label { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; white-space: nowrap; }
+.entry-price-input label { font-size: 10px; font-weight: 600; color: rgba(255, 255, 255, 0.35); text-transform: uppercase; white-space: nowrap; }
 .entry-price-input input {
-    flex: 1; background: #0f131c; border: 1px solid #2a2e39; border-radius: 4px;
-    padding: 5px 8px; color: #e2e8f0; font-size: 11px; outline: none; width: 100%;
+    flex: 1; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px;
+    padding: 5px 8px; color: #fff; font-size: 11px; outline: none; width: 100%;
 }
 .entry-price-input input:focus { border-color: rgba(255,255,255,0.25); }
 
 .commission-quick-summary {
     display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
     border-radius: 6px; margin-bottom: 10px; font-size: 10px; font-family: var(--mono);
-    border: 1px solid #2a2e39; background: #0f131c;
+    border: 1px solid rgba(255, 255, 255, 0.07); background: rgba(255, 255, 255, 0.02);
 }
 .cc-quick-viable { border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.04); }
 .cc-quick-not-viable { border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.04); }
-.cc-quick-label { color: #64748b; font-weight: 700; text-transform: uppercase; font-size: 8px; }
+.cc-quick-label { color: rgba(255, 255, 255, 0.35); font-weight: 700; text-transform: uppercase; font-size: 8px; }
 .cc-quick-fees { color: #f59e0b; }
-.cc-quick-net { color: #cbd5e1; }
+.cc-quick-net { color: #fff; }
 .cc-quick-badge { font-weight: 800; font-size: 10px; }
 .cc-quick-viable .cc-quick-badge { color: #10b981; }
 .cc-quick-not-viable .cc-quick-badge { color: #ef4444; }

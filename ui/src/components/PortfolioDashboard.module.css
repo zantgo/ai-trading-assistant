@@ -8,7 +8,7 @@
 
 .sidebar {
     width: 200px;
-    border-right: 1px solid #2a2e39;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
     padding: 1rem 0;
     flex-shrink: 0;
 }
@@ -17,7 +17,7 @@
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     padding: 0 1rem;
     margin-bottom: 0.75rem;
 }
@@ -29,15 +29,15 @@
     padding: 0.5rem 1rem;
     border: none;
     background: transparent;
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
     font-size: 0.82rem;
     font-family: var(--mono);
     transition: background 0.15s;
 }
 
-.sidebarBtn:hover { background: #111; }
-.sidebarBtnActive { background: #1a1d26; color: #fff; }
+.sidebarBtn:hover { background: rgba(255, 255, 255, 0.04); }
+.sidebarBtnActive { background: rgba(255, 255, 255, 0.06); color: #fff; }
 
 .content {
     flex: 1;
@@ -51,7 +51,7 @@
 }
 
 .sectionDesc {
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     font-size: 0.8rem;
     margin-bottom: 1rem;
 }
@@ -59,7 +59,7 @@
 /* ─── Safety state banner ─── */
 .safetyBanner {
     padding: 0.75rem 1rem;
-    border-radius: 6px;
+    border-radius: 8px;
     margin-bottom: 1rem;
     display: flex;
     align-items: center;
@@ -102,15 +102,16 @@
 }
 
 .statCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 1rem;
     text-align: center;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .statLabel {
     font-size: 0.7rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 0.35rem;
@@ -123,7 +124,7 @@
 
 .statSub {
     font-size: 0.7rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     margin-top: 0.2rem;
 }
 
@@ -141,8 +142,8 @@
 .table th {
     text-align: left;
     padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid #2a2e39;
-    color: #5a5f6e;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.35);
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -150,11 +151,11 @@
 
 .table td {
     padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid #1a1d26;
-    color: #ccc;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
 }
 
-.table tr:hover { background: #0a0a0f; }
+.table tr:hover { background: rgba(255, 255, 255, 0.03); }
 
 .tdRight { text-align: right; font-variant-numeric: tabular-nums; }
 .tdCenter { text-align: center; }
@@ -186,14 +187,14 @@
 .exposureLabel {
     width: 130px;
     text-align: right;
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     flex-shrink: 0;
 }
 
 .exposureBar {
     flex: 1;
     height: 10px;
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     border-radius: 5px;
     overflow: hidden;
     position: relative;
@@ -212,16 +213,17 @@
 .exposureValue {
     width: 120px;
     font-size: 0.72rem;
-    color: #ccc;
+    color: rgba(255, 255, 255, 0.85);
     font-variant-numeric: tabular-nums;
 }
 
 /* ─── Concentration card ─── */
 .concentrationCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 0.75rem 1rem;
     margin-bottom: 0.5rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .concentrationHeader {
@@ -245,7 +247,7 @@
     width: 100%;
     height: 6px;
     border-radius: 3px;
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
     position: relative;
 }
@@ -282,14 +284,14 @@
     margin-bottom: 0.25rem;
 }
 
-.capitalGaugeLabel { color: #888; }
+.capitalGaugeLabel { color: rgba(255, 255, 255, 0.45); }
 .capitalGaugeValue { font-variant-numeric: tabular-nums; }
 
 .capitalGaugeBar {
     width: 100%;
     height: 12px;
     border-radius: 6px;
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
     position: relative;
 }
@@ -304,7 +306,7 @@
     display: flex;
     justify-content: space-between;
     font-size: 0.6rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     margin-top: 0.2rem;
 }
 
@@ -325,15 +327,16 @@
 }
 
 .thresholdText {
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
 }
 
 /* ─── Drawdown monitor ─── */
 .drawdownCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 1rem;
     margin-bottom: 0.75rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .drawdownStats {
@@ -349,20 +352,20 @@
 
 .drawdownStatLabel {
     font-size: 0.65rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     text-transform: uppercase;
 }
 
 .drawdownStatValue {
     font-size: 0.85rem;
-    color: #ccc;
+    color: rgba(255, 255, 255, 0.85);
     font-variant-numeric: tabular-nums;
 }
 
 .drawdownBar {
     height: 8px;
     border-radius: 4px;
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
 }
 
@@ -383,10 +386,11 @@
 
 /* ─── Veto triggers table ─── */
 .vetoCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 0.75rem 1rem;
     margin-bottom: 0.5rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .vetoHeader {
@@ -399,11 +403,11 @@
 .vetoTrigger {
     font-size: 0.78rem;
     font-weight: 600;
-    color: #ccc;
+    color: rgba(255, 255, 255, 0.85);
 }
 
 .vetoArrow {
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     font-size: 0.7rem;
 }
 
@@ -420,17 +424,18 @@
 
 .vetoMeta {
     font-size: 0.68rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     display: flex;
     gap: 0.75rem;
 }
 
 /* ─── Positions grid ─── */
 .positionCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     margin-bottom: 0.75rem;
     overflow: hidden;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .positionHeader {
@@ -442,7 +447,7 @@
     transition: background 0.15s;
 }
 
-.positionHeader:hover { background: #0a0a0f; }
+.positionHeader:hover { background: rgba(255, 255, 255, 0.03); }
 
 .positionSymbol {
     font-weight: 600;
@@ -464,15 +469,15 @@
 .positionMeta {
     margin-left: auto;
     font-size: 0.7rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     display: flex;
     gap: 0.75rem;
 }
 
 .positionDetail {
     padding: 1rem;
-    border-top: 1px solid #2a2e39;
-    background: #080808;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.3);
 }
 
 .positionDetailGrid {
@@ -488,11 +493,11 @@
 }
 
 .positionFieldLabel {
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
 }
 
 .positionFieldValue {
-    color: #ccc;
+    color: rgba(255, 255, 255, 0.85);
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
 }
@@ -510,14 +515,15 @@
 }
 
 .slotDotActive { background: #4caf50; }
-.slotDotVacant { background: #2a2e39; }
+.slotDotVacant { background: rgba(255, 255, 255, 0.1); }
 
 /* ─── Loss streak card ─── */
 .lossCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 0.75rem 1rem;
     margin-bottom: 0.5rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .lossHeader {
@@ -542,7 +548,7 @@
     width: 100%;
     height: 6px;
     border-radius: 3px;
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
     position: relative;
 }
@@ -567,7 +573,7 @@
     display: flex;
     justify-content: space-between;
     font-size: 0.6rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     margin-top: 0.2rem;
 }
 
@@ -576,7 +582,7 @@
     display: inline-block;
     transition: transform 0.2s;
     font-size: 0.7rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
 }
 
 .expandIconOpen { transform: rotate(90deg); }
@@ -591,7 +597,7 @@
 .correlationLabel {
     width: 70px;
     font-size: 0.7rem;
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     flex-shrink: 0;
 }
 
@@ -618,17 +624,18 @@
     align-items: center;
     justify-content: center;
     font-size: 0.6rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
 }
 
 /* ─── Empty / placeholder ─── */
 .placeholder {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 2rem;
     text-align: center;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 /* ─── Grid 2-column ─── */

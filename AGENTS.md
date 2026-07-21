@@ -85,6 +85,9 @@ bun run check        # svelte-check + tsc typecheck
 - Database: SQLite, auto-created at `./telemetry.db` on startup
 - Market data: Hyperliquid WebSocket (`wss://api.hyperliquid.xyz/ws`) and Bitget WebSocket (`wss://ws.bitget.com/v2/ws/public`)
 - Static assets served from `ui/dist`
+- **Price-chart overlays** (toggle pills in `ChartToggles.svelte`, opt-in, both default `false`):
+  - **LIQ HEATMAP** — `LiquidationHeatmapPrimitive` (`ui/src/lib/liquidationHeatmap.ts`) renders colored horizontal bands at liquidation cluster price zones, fed by `tf.cluster` (per-TF `LiquidationClusterMatrix`, see `docs/engines/market-monitoring-engine/03-02-11-mme-liquidity-extension.md`).
+  - **VOL PROFILE** — `VolumeProfilePrimitive` (`ui/src/lib/volumeProfile.ts`) renders a right-edge stacked buy/sell histogram with POC / VAH / VAL labels, fed by `tf.volumeProfile` (per-TF `VolumeProfileSnapshot`; see `docs/engines/market-monitoring-engine/03-02-13-mme-volume-profile-layer.md`). Dynamic bin count 30–120, computed server-side per `volume_profile_window` / `tick_size` / `bar_duration_secs`.
 
 ### Connection Resilience & Quality
 

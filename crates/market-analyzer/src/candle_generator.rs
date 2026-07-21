@@ -16,6 +16,7 @@ pub struct CandleGenerator {
     pub current_open: Decimal,
     pub exchange: Exchange,
     pub last_trade_ts_ms: u64,
+    pub last_received_ms: u64,
 }
 
 impl CandleGenerator {
@@ -33,6 +34,7 @@ impl CandleGenerator {
             current_open: Decimal::ZERO,
             exchange,
             last_trade_ts_ms: 0,
+            last_received_ms: 0,
         }
     }
 
@@ -48,11 +50,46 @@ impl CandleGenerator {
         interval_start < self.current_start_ms
     }
 
+    pub fn is_stale(&self, now_ms: u64, grace_period_ms: u64) -> bool {
+        if self.current_candle.is_none() {
+            return false;
+        }
+        if self.last_received_ms == 0 {
+            return false;
+        }
+        now_ms.saturating_sub(self.last_received_ms) > grace_period_ms
+    }
+
+    pub fn force_close(&mut self) -> Option<NormalizedCandle> {
+        let completed = self.current_candle.take()?;
+        self.current_start_ms = 0;
+        self.current_open = Decimal::ZERO;
+        self.current_high = Decimal::ZERO;
+        self.current_low = Decimal::ZERO;
+        self.current_close = Decimal::ZERO;
+        self.current_volume = Decimal::ZERO;
+        self.current_trades = 0;
+        self.current_candle = None;
+        self.last_received_ms = 0;
+        Some(completed)
+    }
+
     pub fn process_trade(
         &mut self,
         trade: &NormalizedTrade,
     ) -> (Option<NormalizedCandle>, NormalizedCandle) {
+        self.process_trade_at(trade, 0)
+    }
+
+    pub fn process_trade_at(
+        &mut self,
+        trade: &NormalizedTrade,
+        now_ms: u64,
+    ) -> (Option<NormalizedCandle>, NormalizedCandle) {
         self.last_trade_ts_ms = trade.timestamp_ms;
+        if now_ms > 0 {
+            self.last_received_ms = now_ms;
+        }
         let interval_start = (trade.timestamp_ms / self.duration_ms) * self.duration_ms;
 
         if self.current_candle.is_none() {

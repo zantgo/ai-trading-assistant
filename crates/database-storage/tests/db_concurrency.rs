@@ -91,6 +91,7 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     risk_profile: None,
                     liquidity: None,
                     cluster: None,
+                    volume_profile: None,
                     quality_envelope: None,
                 };
 

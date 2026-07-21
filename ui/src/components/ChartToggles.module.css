@@ -3,8 +3,8 @@
     align-items: center;
     gap: 10px;
     padding: 4px 8px;
-    background: #0a0d14;
-    border-bottom: 1px solid #1e293b;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     flex-wrap: wrap;
 }
 .toggles-group {
@@ -15,7 +15,7 @@
 .toggles-label {
     font-size: 8px;
     font-weight: 700;
-    color: #4a5568;
+    color: rgba(255, 255, 255, 0.35);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-family: 'Courier New', monospace;
@@ -24,14 +24,14 @@
 .toggles-separator {
     width: 1px;
     height: 18px;
-    background: #1e293b;
+    background: rgba(255, 255, 255, 0.1);
 }
 .toggle-pill {
     padding: 2px 8px;
-    border: 1px solid #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 3px;
     background: transparent;
-    color: #4a5568;
+    color: rgba(255, 255, 255, 0.45);
     font-size: 8px;
     font-weight: 700;
     font-family: 'Courier New', monospace;
@@ -41,8 +41,8 @@
     transition: all 0.15s;
 }
 .toggle-pill:hover {
-    border-color: #334155;
-    color: #94a3b8;
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.7);
 }
 .toggle-pill.active {
     border-color: #64ffda;
@@ -55,3 +55,5 @@
 .toggle-pill.ema-long.active { border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.1); }
 .toggle-pill.vwap-pill.active { border-color: #2962ff; color: #2962ff; background: rgba(41, 98, 255, 0.1); }
 .toggle-pill.bb-pill.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0, 229, 255, 0.1); }
+.toggle-pill.liq-heatmap-pill.active { border-color: #ff5252; color: #ff5252; background: rgba(255, 82, 82, 0.1); }
+.toggle-pill.volume-profile-pill.active { border-color: #b388ff; color: #b388ff; background: rgba(179, 136, 255, 0.1); }

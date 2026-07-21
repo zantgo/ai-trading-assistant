@@ -8,7 +8,7 @@
 
 .sidebar {
     width: 200px;
-    border-right: 1px solid #2a2e39;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
     padding: 1rem 0;
     flex-shrink: 0;
 }
@@ -17,7 +17,7 @@
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     padding: 0 1rem;
     margin-bottom: 0.75rem;
 }
@@ -29,7 +29,7 @@
     padding: 0.5rem 1rem;
     border: none;
     background: transparent;
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
     font-size: 0.82rem;
     font-family: var(--mono);
@@ -37,11 +37,11 @@
 }
 
 .sidebarBtn:hover {
-    background: #111;
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .sidebarBtnActive {
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     color: #fff;
 }
 
@@ -57,7 +57,7 @@
 }
 
 .sectionDesc {
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     font-size: 0.8rem;
     margin-bottom: 1rem;
 }
@@ -71,15 +71,16 @@
 }
 
 .statCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 1rem;
     text-align: center;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .statLabel {
     font-size: 0.7rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 0.35rem;
@@ -96,7 +97,7 @@
 
 .statSub {
     font-size: 0.7rem;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     margin-top: 0.2rem;
 }
 
@@ -110,8 +111,8 @@
 .table th {
     text-align: left;
     padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid #2a2e39;
-    color: #5a5f6e;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.35);
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -119,12 +120,12 @@
 
 .table td {
     padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid #1a1d26;
-    color: #ccc;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
 }
 
 .table tr:hover {
-    background: #0a0a0f;
+    background: rgba(255, 255, 255, 0.03);
 }
 
 /* ─── Regime heatmap ─── */
@@ -135,9 +136,10 @@
 }
 
 .regimeCard {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .regimeName {
@@ -164,7 +166,7 @@
 }
 
 .labelStrong { background: #1b5e20; color: #4caf50; }
-.labelFavorable { background: #1a1d26; color: #64ffda; }
+.labelFavorable { background: rgba(255, 255, 255, 0.06); color: #64ffda; }
 .labelMarginal { background: #e65100; color: #ffb74d; }
 .labelAvoid { background: #b71c1c; color: #ef5350; }
 
@@ -179,17 +181,17 @@
 }
 
 .badgeStrong { background: #1b5e20; color: #4caf50; }
-.badgeModerate { background: #1a1d26; color: #64ffda; }
+.badgeModerate { background: rgba(255, 255, 255, 0.06); color: #64ffda; }
 .badgeWeak { background: #e65100; color: #ffb74d; }
 .badgeNone { background: #b71c1c; color: #ef5350; }
-.badgeInsufficient { background: #424242; color: #9e9e9e; }
+.badgeInsufficient { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); }
 
 /* ─── Gauge bars ─── */
 .gaugeBar {
     width: 100%;
     height: 8px;
     border-radius: 4px;
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
     margin-top: 0.35rem;
 }
@@ -207,12 +209,13 @@
 
 /* ─── Equity curve placeholder ─── */
 .equityPlaceholder {
-    border: 1px solid #2a2e39;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
     padding: 2rem;
     text-align: center;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 /* ─── Recommendations ─── */
@@ -221,8 +224,8 @@
     border-left: 3px solid #ffb74d;
     margin-bottom: 0.5rem;
     font-size: 0.78rem;
-    color: #ccc;
-    background: #1a1d26;
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 0 4px 4px 0;
 }
 
@@ -231,6 +234,6 @@
     align-items: center;
     justify-content: center;
     height: 200px;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     font-size: 0.85rem;
 }

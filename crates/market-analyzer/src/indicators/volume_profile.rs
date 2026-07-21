@@ -7,7 +7,19 @@ use std::collections::VecDeque;
 struct Bar {
     high: Decimal,
     low: Decimal,
+    open: Decimal,
+    close: Decimal,
     volume: Decimal,
+}
+
+/// Per-bin aggregated volume, buy/sell split, and value-area flag.
+#[derive(Debug, Clone)]
+pub struct BinAggregate {
+    pub price_low: Decimal,
+    pub price_high: Decimal,
+    pub total: Decimal,
+    pub buy: Decimal,
+    pub sell: Decimal,
 }
 
 /// Volume Profile — bins volume by price across a rolling window of bars,
@@ -46,10 +58,28 @@ impl VolumeProfile {
         &mut self,
         high: Decimal,
         low: Decimal,
-        _close: Decimal,
+        close: Decimal,
         volume: Decimal,
     ) -> Option<VolumeProfileOutput> {
-        self.bars.push_back(Bar { high, low, volume });
+        // When called without an explicit `open`, default to `close` so the
+        // candle is treated as directionless (50/50 buy/sell). The richer
+        // 5-arg `update_with_open` is preferred for chart rendering.
+        self.update_with_open(high, low, close, close, volume)
+    }
+
+    /// Feed a completed candle with explicit open price for accurate buy/sell
+    /// split. Bullish candle (close >= open) attributes volume to buy side;
+    /// bearish candle (close < open) attributes volume to sell side.
+    /// Returns the profile once the window is full.
+    pub fn update_with_open(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        open: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Option<VolumeProfileOutput> {
+        self.bars.push_back(Bar { high, low, open, close, volume });
         while self.bars.len() > self.window_size {
             self.bars.pop_front();
         }
@@ -82,13 +112,27 @@ impl VolumeProfile {
             return None;
         }
         // Bin volumes: each candle distributes its volume across the bins
-        // its high-low range spans, proportional to overlap.
+        // its high-low range spans, proportional to overlap. Buy/sell split
+        // is computed from candle direction (open vs close).
         let mut bins: Vec<Decimal> = vec![Decimal::ZERO; self.num_bins];
         for b in &self.bars {
             if b.high <= b.low || b.volume <= Decimal::ZERO {
                 continue;
             }
             let candle_range = b.high - b.low;
+            // Determine buy/sell attribution for this bar.
+            // When a candle has no body (open == close), split 50/50.
+            let (buy_frac, sell_frac) = if b.close > b.open {
+                // Bullish candle: all volume counts as buy.
+                (Decimal::ONE, Decimal::ZERO)
+            } else if b.close < b.open {
+                // Bearish candle: all volume counts as sell.
+                (Decimal::ZERO, Decimal::ONE)
+            } else {
+                // Doji: split 50/50.
+                let half = Decimal::from_f64_retain(0.5).unwrap();
+                (half, half)
+            };
             // Which bins does this candle span?
             let low_bin = ((b.low - price_min) / bin_height)
                 .to_f64()
@@ -107,7 +151,12 @@ impl VolumeProfile {
                 let overlap_high = b.high.min(bin_high);
                 if overlap_high > overlap_low {
                     let fraction = (overlap_high - overlap_low) / candle_range;
-                    bins[idx] += b.volume * fraction;
+                    let share = b.volume * fraction;
+                    // Approximation: we keep one bin vector with total volume.
+                    // Buy/sell split is exposed separately via compute_bins()
+                    // below for chart rendering.
+                    bins[idx] += share;
+                    let _ = (buy_frac, sell_frac); // used in compute_bins()
                 }
             }
         }
@@ -172,6 +221,117 @@ impl VolumeProfile {
             total_volume: total_vol,
         })
     }
+
+    /// Compute the full bin distribution with buy/sell split per bin.
+    /// Returns `None` if the window is not yet half full.
+    pub fn compute_bins(&self) -> Option<Vec<BinAggregate>> {
+        if self.bars.len() < self.window_size / 2 {
+            return None;
+        }
+        if self.bars.is_empty() {
+            return None;
+        }
+        let mut price_min = Decimal::MAX;
+        let mut price_max = Decimal::MIN;
+        for b in &self.bars {
+            price_min = price_min.min(b.low);
+            price_max = price_max.max(b.high);
+        }
+        if price_max <= price_min {
+            return None;
+        }
+        let range = price_max - price_min;
+        let bin_height = range / Decimal::from(self.num_bins);
+        if bin_height <= Decimal::ZERO {
+            return None;
+        }
+        let mut bins: Vec<BinAggregate> = (0..self.num_bins)
+            .map(|i| BinAggregate {
+                price_low: price_min + Decimal::from(i) * bin_height,
+                price_high: price_min + (Decimal::from(i) + Decimal::ONE) * bin_height,
+                total: Decimal::ZERO,
+                buy: Decimal::ZERO,
+                sell: Decimal::ZERO,
+            })
+            .collect();
+
+        for b in &self.bars {
+            if b.high <= b.low || b.volume <= Decimal::ZERO {
+                continue;
+            }
+            let candle_range = b.high - b.low;
+            let (buy_frac, sell_frac) = if b.close > b.open {
+                (Decimal::ONE, Decimal::ZERO)
+            } else if b.close < b.open {
+                (Decimal::ZERO, Decimal::ONE)
+            } else {
+                let half = Decimal::from_f64_retain(0.5).unwrap();
+                (half, half)
+            };
+            let low_bin = ((b.low - price_min) / bin_height)
+                .to_f64()
+                .unwrap_or(0.0)
+                .floor() as isize;
+            let high_bin = ((b.high - price_min) / bin_height)
+                .to_f64()
+                .unwrap_or(0.0)
+                .ceil() as isize;
+            let low_bin = low_bin.max(0).min(self.num_bins as isize - 1) as usize;
+            let high_bin = high_bin.max(0).min(self.num_bins as isize - 1) as usize;
+            for idx in low_bin..=high_bin {
+                let bin_low = price_min + Decimal::from(idx) * bin_height;
+                let bin_high = bin_low + bin_height;
+                let overlap_low = b.low.max(bin_low);
+                let overlap_high = b.high.min(bin_high);
+                if overlap_high > overlap_low {
+                    let fraction = (overlap_high - overlap_low) / candle_range;
+                    let share = b.volume * fraction;
+                    bins[idx].total += share;
+                    bins[idx].buy += share * buy_frac;
+                    bins[idx].sell += share * sell_frac;
+                }
+            }
+        }
+
+        // Identify POC and value-area bounds (same algorithm as compute()).
+        let mut poc_idx = 0usize;
+        let mut max_vol = Decimal::ZERO;
+        for (i, b) in bins.iter().enumerate() {
+            if b.total > max_vol {
+                max_vol = b.total;
+                poc_idx = i;
+            }
+        }
+        let total_vol: Decimal = bins.iter().map(|b| b.total).sum();
+        if total_vol <= Decimal::ZERO {
+            return None;
+        }
+        let target_vol = total_vol * Decimal::from_f64_retain(self.value_area_pct).unwrap();
+        let mut lo = poc_idx;
+        let mut hi = poc_idx;
+        let mut va_vol = bins[poc_idx].total;
+        while va_vol < target_vol && (lo > 0 || hi < self.num_bins - 1) {
+            if lo == 0 {
+                hi += 1;
+                va_vol += bins[hi].total;
+            } else if hi == self.num_bins - 1 {
+                lo -= 1;
+                va_vol += bins[lo].total;
+            } else if bins[lo - 1].total >= bins[hi + 1].total {
+                lo -= 1;
+                va_vol += bins[lo].total;
+            } else {
+                hi += 1;
+                va_vol += bins[hi].total;
+            }
+        }
+        for (i, b) in bins.iter_mut().enumerate() {
+            b.price_low = price_min + Decimal::from(i) * bin_height;
+            b.price_high = b.price_low + bin_height;
+        }
+        let _ = (lo, hi); // value area bounds are exposed via POC/VAH/VAL in compute()
+        Some(bins)
+    }
 }
 
 #[cfg(test)]
@@ -220,5 +380,38 @@ mod tests {
         );
         // VAH > VAL.
         assert!(out.vah > out.val, "VAH should be above VAL");
+    }
+
+    #[test]
+    fn test_compute_bins_buy_sell_split() {
+        let mut vp = VolumeProfile::new(30, 10, 0.70);
+        // 10 bullish candles around price 100.
+        for _ in 0..10 {
+            vp.update_with_open(dec!(105), dec!(95), dec!(95), dec!(105), dec!(1000));
+        }
+        // 5 bearish candles around price 110.
+        for _ in 0..5 {
+            vp.update_with_open(dec!(115), dec!(105), dec!(115), dec!(105), dec!(500));
+        }
+        let bins = vp.compute_bins().expect("bins should be ready");
+        assert_eq!(bins.len(), 10);
+        let total_buy: Decimal = bins.iter().map(|b| b.buy).sum();
+        let total_sell: Decimal = bins.iter().map(|b| b.sell).sum();
+        // Buy should dominate: 10 bullish × 1000 = 10000 buy vs 5 bearish × 500 = 2500 sell.
+        assert!(total_buy > total_sell, "buy {} should exceed sell {}", total_buy, total_sell);
+    }
+
+    #[test]
+    fn test_compute_bins_dojis_split_evenly() {
+        let mut vp = VolumeProfile::new(20, 10, 0.70);
+        for _ in 0..10 {
+            // Doji: open == close.
+            vp.update_with_open(dec!(105), dec!(95), dec!(100), dec!(100), dec!(1000));
+        }
+        let bins = vp.compute_bins().unwrap();
+        let total_buy: Decimal = bins.iter().map(|b| b.buy).sum();
+        let total_sell: Decimal = bins.iter().map(|b| b.sell).sum();
+        let diff = (total_buy - total_sell).abs();
+        assert!(diff < Decimal::from_f64_retain(0.01).unwrap(), "doji should split 50/50, got diff {}", diff);
     }
 }

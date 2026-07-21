@@ -22,6 +22,18 @@
 
     let expandedTf = $state<string | null>(null);
 
+    function handleExpandedKeydown(e: KeyboardEvent) {
+        if (e.key === 'Escape') {
+            expandedTf = null;
+        }
+    }
+
+    $effect(() => {
+        if (expandedTf === null) return;
+        window.addEventListener('keydown', handleExpandedKeydown);
+        return () => window.removeEventListener('keydown', handleExpandedKeydown);
+    });
+
     /// Format the `(suffix)` portion of a column header. Always pairs with the
     /// positional MICRO/FAST/SLOW/MACRO label from the column's slot.
     function durationSuffix(sec: number): string {
@@ -47,23 +59,9 @@
         expandedTf = expandedTf === key ? null : key;
     }
 
-    let expandedChartKey = $state<string | null>(null);
-    let triggerScreenshot = $state<(() => void) | null>(null);
-
-    function handleChartDblClick(chartType: string, slot: string, timeframe: number) {
-        expandedChartKey = `${chartType}-${slot}-${timeframe}`;
-        triggerScreenshot = null;
+    function handleChartDblClick(chartType: string, slot: string, _timeframe: number) {
+        app.openFullscreenChart(chartType, slot as 'micro' | 'fast' | 'slow' | 'macro', pairKey);
     }
-
-    function handleFullscreenKeydown(e: KeyboardEvent) {
-        if (e.key === 'Escape') { expandedChartKey = null; triggerScreenshot = null; }
-    }
-
-    $effect(() => {
-        if (expandedChartKey === null) return;
-        window.addEventListener('keydown', handleFullscreenKeydown);
-        return () => window.removeEventListener('keydown', handleFullscreenKeydown);
-    });
 
     type SlotName = 'micro' | 'fast' | 'slow' | 'macro';
 
@@ -99,7 +97,7 @@
         <div class={styles.mtfGrid}>
         <!-- Micro-Term Column -->
         <div class="{styles.timescaleColumn} {!showMicro ? styles.hiddenPane : ''} {expandedTf === 'micro' ? styles.expandedTfColumn : ''}">
-            <div class={styles.timescaleHeader}>
+            <div class={styles.timescaleHeader} class:styles.tfHeaderHidden={expandedTf === 'micro'}>
                 <span class={styles.timescaleTitle}>{termLabel('MICRO', pair.microTerm)}</span>
                 <div class={styles.headerActions}>
                     <span class={styles.timescalePrice}>{pair.microTerm.priceText}</span>
@@ -140,7 +138,7 @@
 
         <!-- Small-Term Column -->
         <div class="{styles.timescaleColumn} {!showFast ? styles.hiddenPane : ''} {expandedTf === 'fast' ? styles.expandedTfColumn : ''}">
-            <div class={styles.timescaleHeader}>
+            <div class={styles.timescaleHeader} class:styles.tfHeaderHidden={expandedTf === 'fast'}>
                 <span class={styles.timescaleTitle}>{termLabel('FAST', pair.fastTerm)}</span>
                 <div class={styles.headerActions}>
                     <span class={styles.timescalePrice}>{pair.fastTerm.priceText}</span>
@@ -181,7 +179,7 @@
 
         <!-- Medium-Term Column -->
         <div class="{styles.timescaleColumn} {!showSlow ? styles.hiddenPane : ''} {expandedTf === 'slow' ? styles.expandedTfColumn : ''}">
-            <div class={styles.timescaleHeader}>
+            <div class={styles.timescaleHeader} class:styles.tfHeaderHidden={expandedTf === 'slow'}>
                 <span class={styles.timescaleTitle}>{termLabel('SLOW', pair.slowTerm)}</span>
                 <div class={styles.headerActions}>
                     <span class={styles.timescalePrice}>{pair.slowTerm.priceText}</span>
@@ -222,7 +220,7 @@
 
         <!-- Large-Term Column -->
         <div class="{styles.timescaleColumn} {!showMacro ? styles.hiddenPane : ''} {expandedTf === 'macro' ? styles.expandedTfColumn : ''}">
-            <div class={styles.timescaleHeader}>
+            <div class={styles.timescaleHeader} class:styles.tfHeaderHidden={expandedTf === 'macro'}>
                 <span class={styles.timescaleTitle}>{termLabel('MACRO', pair.macroTerm)}</span>
                 <div class={styles.headerActions}>
                     <span class={styles.timescalePrice}>{pair.macroTerm.priceText}</span>
@@ -263,43 +261,3 @@
         </div>
     {/if}
 </div>
-
-{#if expandedChartKey !== null}
-    {@const parts = expandedChartKey.lastIndexOf('-')}
-    {@const slotSuffix = expandedChartKey.lastIndexOf('-', parts - 1)}
-    {@const chartType = expandedChartKey.slice(0, slotSuffix)}
-    {@const slotKind = expandedChartKey.slice(slotSuffix + 1, parts) as 'micro' | 'fast' | 'slow' | 'macro'}
-    {@const timeframeSec = parseInt(expandedChartKey.slice(parts + 1))}
-    <div class={styles.singleChartFullscreen}>
-        <div class={styles.timescaleHeader}>
-            <span class={styles.timescaleTitle}>{chartType.toUpperCase()}</span>
-            <div class={styles.headerActions}>
-                {#if triggerScreenshot}
-                    <button class={styles.expandBtn} onclick={() => triggerScreenshot?.()} title="Save Screenshot">📸 SCREENSHOT</button>
-                {/if}
-                <button class={styles.expandBtn} onclick={() => { expandedChartKey = null; triggerScreenshot = null; }} title="Close">✕</button>
-            </div>
-        </div>
-        <div class={styles.singleChartBody}>
-            {#if chartType === 'price'}
-                <PriceChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'volume'}
-                <VolumeChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'rvol'}
-                <RvolChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'macd'}
-                <MacdChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'squeeze'}
-                <SqueezeChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'rsi'}
-                <RsiChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'adx'}
-                <AdxChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'bbwp'}
-                <BbwpChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'atr'}
-                <AtrChart pairKey={pairKey} slot={slotKind} onDoubleClick={() => { expandedChartKey = null; triggerScreenshot = null; }} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {/if}
-        </div>
-    </div>
-{/if}

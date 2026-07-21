@@ -292,6 +292,7 @@ mod tests {
             risk_profile: None,
             liquidity: None,
             cluster: None,
+            volume_profile: None,
             liquidity_signals: vec![],
             metrics_config: None,
             opportunity: None,

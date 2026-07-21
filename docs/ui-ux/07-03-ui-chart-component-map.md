@@ -114,8 +114,11 @@ A generic pane is a single canvas shared by 2-4 oscillators or derivatives. The 
 | Price mode | `CANDLES` / `LINE` | `pair.priceLineMode` |
 | EMA stack | `FAST` / `MED` / `SLOW` / `LONG` | `pair.showEma{Fast,Medium,Slow,Long}` |
 | Channel overlays | `VWAP` / `BOLLINGER` / `SUPERTREND` / `KELTNER` / `DONCHIAN` | `pair.microTerm.show{Vwap,Bb,Supertrend,Keltner,Donchian}` (synced across all 4 TFs via `syncAll`) |
+| Chart overlays (opt-in) | `LIQ HEATMAP` / `VOL PROFILE` | `pair.microTerm.show{LiqHeatmap,VolumeProfile}` (synced across all 4 TFs via `syncAll`; both default to `false`) |
 
 Toggles write directly to `TimeframeTelemetry` fields — they are runtime overlays, not config-level settings. The dedicated panes (§2) are NOT toggleable from this bar; each pane has its own visibility header on its own canvas.
+
+**LIQ HEATMAP** enables the `LiquidationHeatmapPrimitive` overlay (colored horizontal bands at cluster price zones). **VOL PROFILE** enables the `VolumeProfilePrimitive` overlay (right-edge stacked buy/sell histogram). Both overlays share the same `candleSeries` price scale and cost no extra chart instances. See `crates/market-analyzer/src/indicators/volume_profile.rs` and `docs/engines/market-monitoring-engine/03-02-13-mme-volume-profile-layer.md`.
 
 ---
 

@@ -108,10 +108,19 @@
         }
     });
 
+    let _lastUpdateTs = 0;
     $effect(() => {
-        if (!pair) return;
-        const snap = tf?.latestSnapshot;
+        const pairVal = app.instancesMap[pairKey];
+        if (!pairVal) return;
+        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
+        const snap = tfVal.latestSnapshot;
         if (!snap) return;
+        const now = Date.now();
+        const gap = _lastUpdateTs > 0 ? now - _lastUpdateTs : 0;
+        _lastUpdateTs = now;
+        if (gap > 10_000) {
+            console.warn(`[CHART-DIAG] RsiChart ${pairKey}/${slot}: ${gap}ms gap between updates at ${new Date(now).toISOString()}`);
+        }
         const timeSec = snap.timestamp as number;
         const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rsi');
         if (val != null) {

@@ -36,6 +36,18 @@
         const key = `showEma${label}` as keyof typeof pair;
         (pair as any)[key] = !(pair as any)[key];
     }
+
+    function toggleLiqHeatmap() {
+        if (!pair) return;
+        const v = !pair.microTerm.showLiqHeatmap;
+        syncAll(tf => { tf.showLiqHeatmap = v; });
+    }
+
+    function toggleVolumeProfile() {
+        if (!pair) return;
+        const v = !pair.microTerm.showVolumeProfile;
+        syncAll(tf => { tf.showVolumeProfile = v; });
+    }
 </script>
 
 {#if pair}
@@ -69,6 +81,13 @@
             onclick={toggleVwap}>VWAP</button>
         <button class="{styles.togglePill} {styles.bbPill} {pair.microTerm.showBb ? styles.active : ''}"
             onclick={toggleBb}>BOLLINGER</button>
+    </div>
+    <div class={styles.togglesSeparator}></div>
+    <div class={styles.togglesGroup}>
+        <button class="{styles.togglePill} {styles.liqHeatmapPill} {pair.microTerm.showLiqHeatmap ? styles.active : ''}"
+            onclick={toggleLiqHeatmap}>LIQ HEATMAP</button>
+        <button class="{styles.togglePill} {styles.volumeProfilePill} {pair.microTerm.showVolumeProfile ? styles.active : ''}"
+            onclick={toggleVolumeProfile}>VOL PROFILE</button>
     </div>
 </div>
 {/if}

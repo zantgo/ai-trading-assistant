@@ -2,7 +2,7 @@
 
 **Generated:** 2026-07-17
 **Audit run:** v6.4.1 DIE documentation-reality alignment audit + v6.4 corpus-wide consistency audit (8 HIGH / 40 MEDIUM / ~25 LOW findings; docs-only remediation). Prior run: v6.2 instance-lifecycle + lifecycle-gate doc pass (3 commits, all complete).
-**Scope:** `docs/` — 140 markdown files at v6.4.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 137 numbered docs)
+**Scope:** `docs/` — 141 markdown files at v6.4.1 (1 README + 1 CHANGELOG + 1 DOCS-CONSISTENCY-MANIFEST + 138 numbered docs)
 **Source code:** **Inspected.** v6.2 is the first manifest version where the doc audit covers the per-instance `LifecycleState` axis (RUNNING / PAUSED / STOPPING / STOPPED) and the new Gate 0 (lifecycle) in the pre-trade chain.
 **v6.2 source-of-truth:** `docs/engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md` (introduced in v6.2). All lifecycle-table and Gate-0 ordering claims in this manifest are verified against that document.
 **v5.0 source-of-truth:** `docs/conceptual-foundations/01-06-crate-layout-and-cycles.md` (introduced in v5.0). All crate-table and dependency-graph claims in this manifest are verified against that document.
@@ -37,9 +37,9 @@ docs/
 └── operations-and-compliance/                      (7)   08-01 … 08-07
 ```
 
-**Total: 140 markdown files** = 137 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST).
+**Total: 141 markdown files** = 138 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST).
 Engine specs: 34 = 6 DIE + 12 MME + 6 TAE + 5 PME + 5 PAE.
-File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix).
+File growth: v4.0 = 130 → v5.0 = 132 (+01-06, +MANIFEST) → v6.1 = 136 (+01-07, +03-01-00, +06-00, +08-07) → v6.2/v6.3 = 138 (+03-02-12, +03-03-06) → v6.4.1 = 140 (+02-14-policy-matrix, +02-15-execution-matrix) → v6.4.1+ = 141 (+03-02-13-mme-volume-profile-layer).
 
 **Version stamps:** every numbered doc in `docs/` (excluding `README.md`, `CHANGELOG.md`) carries `**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.` Per D2, the corpus version is the value appearing simultaneously in four places: the README stats line, the CHANGELOG top entry, this MANIFEST's title, and every numbered-doc stamp. Verified by automated grep against the corpus (gate G1); the v6.4.1 stamping pass (2026-07-18) synchronized all 137 numbered docs. Zero remaining v6.4 or earlier stamps.
 
@@ -74,7 +74,7 @@ The following gates run on every release. The v6.4 result column is filled in by
 | Gate | Rule | Mechanical check | v6.4 result |
 |---|---|---|---|
 | G1 | Version coherence (D2): the corpus version appears simultaneously in the README stats line, the CHANGELOG top entry, the MANIFEST title, and every numbered-doc `**Version:**` stamp | grep `**Version:**` stamps + version strings in README / CHANGELOG / MANIFEST title | PASS (2026-07-17) |
-| G2 | File-count invariant: 140 = 137 numbered + 3 governance | filesystem count vs §2 inventory | PASS (2026-07-17) |
+| G2 | File-count invariant: 141 = 138 numbered + 3 governance | filesystem count vs §2 inventory | PASS (2026-07-17) |
 | G3 | CSR duplication scan: each normative table registered in §13 appears exactly once; all other mentions are links | grep normative table headers outside the owning document | PASS (2026-07-17) |
 | G4 | Canonical scenario recompute: scripted recomputation of the chain `02-01` §6 (seed) → `02-02` §5 → `02-08` §7 → `01-01` §A.2–A.7 | recompute script over the chain's section formulas | PASS (2026-07-17) |
 | G5 | Enum cardinality & band tiling scan: cardinalities per §12.2; bands tile their domains with no gaps/overlaps | script over enum tables and band tables | PASS (2026-07-17) |
@@ -176,8 +176,8 @@ The following gates run on every release. The v6.4 result column is filled in by
 - [x] External issue IDs (`EXE-08`, `Issue 4.N`) live only in `docs/CHANGELOG.md`.
 ### 12.11 v6.2 additions verification (file-count invariant, scoped-enum rule, Gate-0 ordering)
 
-- [x] `docs/` contained **138** files at v6.2 (137 + new `03-03-06-tae-instance-lifecycle-spec.md`); **140** at v6.4.1 after matrix additions (`02-14-policy-matrix`, `02-15-execution-matrix`).
-- [x] `docs/README.md` total-count line updated to **140** and the directory map carries the new file entries.
+- [x] `docs/` contained **138** files at v6.2 (137 + new `03-03-06-tae-instance-lifecycle-spec.md`); **140** at v6.4.1 after matrix additions (`02-14-policy-matrix`, `02-15-execution-matrix`); **141** after volume-profile layer spec (`03-02-13-mme-volume-profile-layer.md`).
+- [x] `docs/README.md` total-count line updated to **141** and the directory map carries the new file entries.
 - [x] **Scoped-enum rule (v6.2, new).** Enum values are scoped to their axis. `instance PAUSED` (lifecycle), `AUTO_PAUSED` (policy), `SUSPENDED` (safety axis — pre-existing) never co-refer. The canonical rule is documented in [03-03-06 §6](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). On first use in any document section, the axis is qualified (`instance PAUSED`, `policy AUTO_PAUSED`). Verified by `grep -rE "(PAUSED|AUTO_PAUSED|SUSPENDED)" docs/`; no bare `PAUSED` outside a qualified context.
 - [x] **Gate 0 (lifecycle) ordering (v6.2, new).** Pre-trade Gate 0 evaluates `lifecycle_state` **before** Gate 1 (stance) per [08-02 §2](./operations-and-compliance/08-02-pre-trade-risk-controls.md). Exits (`reduce_only = true` or `is_emergency_liquidation = true`) always bypass Gate 0. Verified by `grep -rE "Gate 0|Gate 1 → if" docs/`; the pseudo-code ladder in [08-02 §3](./operations-and-compliance/08-02-pre-trade-risk-controls.md) and the `risk_control_events.gate_id = 0` annotation in [03-03-06 IL-05](./engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md) agree.
 ### 12.12 Versioning

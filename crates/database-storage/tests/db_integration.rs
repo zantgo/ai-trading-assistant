@@ -72,6 +72,7 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         quality_envelope: None,
     };
 

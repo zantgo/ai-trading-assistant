@@ -8,6 +8,8 @@
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
     import { fetchChartHistoryOnce } from '../lib/chartHistory';
+    import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
+    import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
     import styles from './PriceChart.module.css';
 
     const app = useAppStore();
@@ -35,6 +37,8 @@
     let bbLowerSeries: ISeriesApi<'Line'>;
     let vwapSeries: ISeriesApi<'Line'>;
     let priceLineSeries: ISeriesApi<'Line'>;
+    let heatmap: LiquidationHeatmapPrimitive | null = null;
+    let volumeProfilePrim: VolumeProfilePrimitive | null = null;
 
     onMount(() => {
         chart = createChart(container, {
@@ -52,6 +56,11 @@
             upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         });
+
+        // Liquidity heatmap overlay (toggle-controlled; data supplied later via $effect).
+        heatmap = attachHeatmap(chart, candleSeries);
+        // Volume profile overlay (right-edge stacked buy/sell histogram).
+        volumeProfilePrim = attachVolumeProfile(chart, candleSeries);
 
         ema10Series = chart.addSeries(LineSeries, { color: '#fdd835', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ema50Series = chart.addSeries(LineSeries, { color: '#ff9800', lineWidth: 1.0, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
@@ -87,33 +96,34 @@
             try {
                 const data = await fetchChartHistoryOnce(pairKey, timeframe);
                 if (!data) return;
-                if (data.prices && data.prices.length > 0) {
+                // Prefer real OHLC candles over the fallback `data.prices`
+                // string array so sub-minute bootstraps (which carry a
+                // candle payload from the warm-up) render immediately
+                // rather than waiting for the first live WS frame.
+                const hasCandles = data.candles && data.candles.length > 0;
+                if (hasCandles || (data.prices && data.prices.length > 0)) {
                     const now = Math.floor(Date.now() / 1000);
                     const step = tf?.barDurationSec || 60;
-                    const baseTime = now - (data.prices.length * step);
+                    const baseTime = now - ((data.prices?.length ?? 0) * step);
 
-                    const hasCandles = data.candles && data.candles.length > 0;
-
-                    const rawCandles = data.prices.map((priceStr: string, idx: number) => {
-                        if (hasCandles && data.candles[idx]) {
-                            const c = data.candles[idx];
+                    const rawCandles = hasCandles
+                        ? data.candles.map((c) => ({
+                            time: (c.time / 1000) as Time,
+                            open: parseFloat(c.open) || 0,
+                            high: parseFloat(c.high) || 0,
+                            low: parseFloat(c.low) || 0,
+                            close: parseFloat(c.close) || 0,
+                        }))
+                        : (data.prices ?? []).map((priceStr: string, idx: number) => {
+                            const val = parseFloat(priceStr) || 0;
                             return {
-                                time: (c.time / 1000) as Time,
-                                open: parseFloat(c.open) || 0,
-                                high: parseFloat(c.high) || 0,
-                                low: parseFloat(c.low) || 0,
-                                close: parseFloat(c.close) || 0
+                                time: (baseTime + (idx * step)) as Time,
+                                open: val,
+                                high: val,
+                                low: val,
+                                close: val,
                             };
-                        }
-                        const val = parseFloat(priceStr) || 0;
-                        return {
-                            time: (baseTime + (idx * step)) as Time,
-                            open: val,
-                            high: val,
-                            low: val,
-                            close: val
-                        };
-                    });
+                        });
 
                     const seenTimes = new Set<number>();
                     const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
@@ -215,10 +225,19 @@
         vwapSeries.applyOptions({ visible: tf.showVwap });
     });
 
+    let _lastUpdateTs = 0;
     $effect(() => {
-        if (!pair) return;
-        const snap = tf?.latestSnapshot;
+        const pairVal = app.instancesMap[pairKey];
+        if (!pairVal) return;
+        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
+        const snap = tfVal.latestSnapshot;
         if (!snap) return;
+        const now = Date.now();
+        const gap = _lastUpdateTs > 0 ? now - _lastUpdateTs : 0;
+        _lastUpdateTs = now;
+        if (gap > 10_000) {
+            console.warn(`[CHART-DIAG] PriceChart ${pairKey}/${slot}: ${gap}ms gap between updates at ${new Date(now).toISOString()}`);
+        }
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
 
@@ -253,6 +272,20 @@
         if (bbMiddle != null) bbMiddleSeries.update({ time: timeSec as Time, value: bbMiddle });
         if (bbLower != null) bbLowerSeries.update({ time: timeSec as Time, value: bbLower });
         if (vwapVal != null) vwapSeries.update({ time: timeSec as Time, value: vwapVal });
+    });
+
+    // Liquidity heatmap — toggle visibility + data feeding.
+    $effect(() => {
+        if (!heatmap) return;
+        const visible = tf?.showLiqHeatmap ?? false;
+        heatmap.updateData(visible ? (tf?.cluster ?? null) : null);
+    });
+
+    // Volume profile — toggle visibility + data feeding.
+    $effect(() => {
+        if (!volumeProfilePrim) return;
+        const visible = tf?.showVolumeProfile ?? false;
+        volumeProfilePrim.updateData(visible ? (tf?.volumeProfile ?? null) : null);
     });
 </script>
 

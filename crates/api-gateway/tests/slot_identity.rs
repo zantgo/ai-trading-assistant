@@ -260,6 +260,7 @@ async fn timeframe_slot_round_trips_through_wire_payload() {
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         decision_context: None,
         statistical_context: None,
         context: None,

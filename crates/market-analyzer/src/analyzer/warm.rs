@@ -236,9 +236,10 @@ pub fn warm_indicators_for_timeframe(
         let fi_reading = fi_indicator.update(completed.close, completed.volume);
         let sdc_reading = sdc_indicator.update(completed.close);
 
-        let volume_profile_reading = volume_profile_indicator.update(
+        let volume_profile_reading = volume_profile_indicator.update_with_open(
             completed.high,
             completed.low,
+            completed.open,
             completed.close,
             completed.volume,
         );
@@ -722,6 +723,7 @@ fn build_historical_snapshot(
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         quality_envelope: None,
     }
 }

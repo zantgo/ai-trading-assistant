@@ -212,6 +212,59 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(tf.indicators['rsi'].state_label).toBe('LEGACY_OVERRIDE');
     });
 
+    it('applyTimeframeConfig_preserves_live_state_after_save', async () => {
+        // Regression for the bug where saving new timeframes cleared
+        // `tf.priceText`, `tf.latestSnapshot`, and `tf.indicators`,
+        // causing the header to show `--` and charts to freeze for
+        // several seconds until the new pipeline's first WS frame
+        // landed. The helper now mutates only config scalars.
+        const { applyTimeframeConfig } = await import('../lib/timeframeConfig');
+        const tf = app.instancesMap['BTC-USDT'].microTerm;
+
+        // Populate live state as if a WS frame had landed.
+        tf.priceText = '65000.00';
+        tf.latestSnapshot = { mid_price: '65000.00', timestamp: 1 } as never;
+        tf.indicators = { rsi: { raw_value: 28.5, normalized: 0.75, state_label: 'OVERSOLD', values: null } };
+        const beforePrice = tf.priceText;
+        const beforeSnap = tf.latestSnapshot;
+        const beforeInd = { ...tf.indicators };
+
+        // Simulate a save: change barDurationSec from 60 to 5.
+        applyTimeframeConfig(tf, {
+            durationSeconds: 5,
+            emaFast: 9,  emaMedium: 49,  emaSlow: 99,  emaLong: 199,
+            rsiPeriod: 14,
+            macdFast: 12,  macdSlow: 26,  macdSignal: 9,
+            adxPeriod: 14,  atrPeriod: 14,  squeezePeriod: 20,
+            bbwpPeriod: 20,  bbwpLookback: 252,
+            stochKPeriod: 18,  stochDPeriod: 5,  stochSPeriod: 9,
+            chandemoPeriod: 12,
+            supertrendPeriod: 10,  supertrendMultiplier: 3.0,
+            keltnerEmaPeriod: 20,  keltnerAtrPeriod: 10,  keltnerMultiplier: 2.0,
+            donchianPeriod: 20,
+            obvSmoothing: 20,  cmfPeriod: 20,  mfiPeriod: 14,  hvPeriod: 20,
+            aroonPeriod: 25,  chopPeriod: 14,  linregPeriod: 20,  zscorePeriod: 20,
+            macdExtremeHigh: 1000,  macdExtremeLow: -1000,  macdContraction: 0.30,
+            adxTrendThreshold: 20,  adxExhaustionThreshold: 40,  adxSlopeLookback: 3,
+            squeezeMinDuration: 5,  squeezeBbPeriod: 20,  squeezeBbStdDev: 2.0,
+            squeezeKcPeriod: 20,  squeezeKcAtrMult: 1.5,
+            atrMultiplier: 2.0,  atrTargetRR: 2.5,
+            volumeAvgPeriod: 20,  rvolInstitutional: 1.5,  rvolClimax: 3.0,
+            analysisLimit: 100,
+        });
+
+        // Config scalars must reflect the new values.
+        expect(tf.barDurationSec).toBe(5);
+        expect(tf.emaFastVal).toBe(9);
+        expect(tf.emaMediumVal).toBe(49);
+
+        // Live state must be UNCHANGED (the historical code wiped it).
+        expect(tf.priceText).toBe(beforePrice);
+        expect(tf.latestSnapshot).toBe(beforeSnap);
+        expect(Object.keys(tf.indicators).length).toBe(Object.keys(beforeInd).length);
+        expect(tf.indicators['rsi'].state_label).toBe('OVERSOLD');
+    });
+
     it('header_price_picker_returns_freshest_among_slots', async () => {
         // Regression for the "--" header bug: previously the livePrice
         // derivation fell through `microTerm.priceText || '--'`, which is

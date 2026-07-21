@@ -13,6 +13,13 @@ export const SLOT_TO_WS_KEY: Record<TimeframeSlotKind, WsKey> = {
 };
 
 const WS_MAX_RETRIES = 30;
+
+let _globalMsgCount = 0;
+function logWsActivity(symbol: string, slot: string, msgCount: number): void {
+    if (msgCount % 100 === 0) {
+        console.log(`[WS-DIAG] ${symbol}/${slot}: message #${msgCount} at ${new Date().toISOString()}`);
+    }
+}
 const WS_INITIAL_DELAY_MS = 1000;
 const WS_MAX_DELAY_MS = 30000;
 
@@ -97,6 +104,8 @@ function num(v: unknown): number | null {
  */
 export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, event: MessageEvent, symbol: string): void {
     try {
+    _globalMsgCount++;
+    logWsActivity(symbol, tf.slot, _globalMsgCount);
     const raw = JSON.parse(event.data);
     const snapshot = (raw.jsonrpc === '2.0' && raw.method === 'broadcast.market_snapshot')
         ? (raw.params?.snapshot || raw)
@@ -137,6 +146,9 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
         }
         if (snapshot.cluster && typeof snapshot.cluster === 'object') {
             tf.cluster = snapshot.cluster;
+        }
+        if (snapshot.volume_profile && typeof snapshot.volume_profile === 'object') {
+            tf.volumeProfile = snapshot.volume_profile;
         }
         if (Array.isArray(snapshot.liquidity_signals)) {
             tf.liquiditySignals = snapshot.liquidity_signals;

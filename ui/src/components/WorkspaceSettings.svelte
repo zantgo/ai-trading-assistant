@@ -3,6 +3,7 @@
     import { createInstance } from '../lib/api.svelte';
     import type { InstanceState, PositionScalingConfig, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
+    import { applyTimeframeConfig } from '../lib/timeframeConfig';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -104,36 +105,7 @@
     }
 
     function applyTermToTelemetry(term: TermDraft, tf: TimeframeTelemetry) {
-        tf.barDurationSec = term.durationSeconds;
-        tf.emaFastVal = term.emaFast; tf.emaMediumVal = term.emaMedium;
-        tf.emaSlowVal = term.emaSlow; tf.emaLongVal = term.emaLong;
-        tf.rsiPeriodVal = term.rsiPeriod;
-        tf.macdFastVal = term.macdFast; tf.macdSlowVal = term.macdSlow; tf.macdSignalVal = term.macdSignal;
-        tf.adxPeriodVal = term.adxPeriod; tf.atrPeriodVal = term.atrPeriod; tf.squeezePeriodVal = term.squeezePeriod;
-        tf.bbwpPeriodVal = term.bbwpPeriod; tf.bbwpLookbackVal = term.bbwpLookback;
-        tf.stochKPeriodVal = term.stochKPeriod; tf.stochDPeriodVal = term.stochDPeriod;
-        tf.stochSPeriodVal = term.stochSPeriod; tf.chandemoPeriodVal = term.chandemoPeriod;
-        tf.supertrendPeriodVal = term.supertrendPeriod; tf.supertrendMultiplierVal = term.supertrendMultiplier;
-        tf.keltnerEmaPeriodVal = term.keltnerEmaPeriod; tf.keltnerAtrPeriodVal = term.keltnerAtrPeriod;
-        tf.keltnerMultiplierVal = term.keltnerMultiplier; tf.donchianPeriodVal = term.donchianPeriod;
-        tf.obvSmoothingVal = term.obvSmoothing; tf.cmfPeriodVal = term.cmfPeriod;
-        tf.mfiPeriodVal = term.mfiPeriod; tf.hvPeriodVal = term.hvPeriod;
-        tf.aroonPeriodVal = term.aroonPeriod; tf.chopPeriodVal = term.chopPeriod;
-        tf.linregPeriodVal = term.linregPeriod; tf.zscorePeriodVal = term.zscorePeriod;
-        tf.macdExtremeHighVal = term.macdExtremeHigh; tf.macdExtremeLowVal = term.macdExtremeLow;
-        tf.macdContractionVal = term.macdContraction;
-        tf.adxTrendThresholdVal = term.adxTrendThreshold; tf.adxExhaustionThresholdVal = term.adxExhaustionThreshold;
-        tf.adxSlopeLookbackVal = term.adxSlopeLookback;
-        tf.squeezeMinDurationVal = term.squeezeMinDuration; tf.squeezeBbPeriodVal = term.squeezeBbPeriod;
-        tf.squeezeBbStdDevVal = term.squeezeBbStdDev; tf.squeezeKcPeriodVal = term.squeezeKcPeriod;
-        tf.squeezeKcAtrMultVal = term.squeezeKcAtrMult;
-        tf.atrMultiplierVal = term.atrMultiplier; tf.atrTargetRRVal = term.atrTargetRR;
-        tf.volumeAvgPeriodVal = term.volumeAvgPeriod;
-        tf.rvolInstitutionalVal = term.rvolInstitutional; tf.rvolClimaxVal = term.rvolClimax;
-        tf.analysisLimit = term.analysisLimit;
-        tf.latestSnapshot = null;
-        tf.priceText = '--';
-        tf.indicators = {};
+        applyTimeframeConfig(tf, term);
     }
 
     function buildIndicators(term: TermDraft): Record<string, number> {
@@ -301,6 +273,9 @@
                 applyTermToTelemetry(tfDraft.fast, target.fastTerm);
                 applyTermToTelemetry(tfDraft.slow, target.slowTerm);
                 applyTermToTelemetry(tfDraft.macro, target.macroTerm);
+                // Force WS reconnect so each connection's URL carries the
+                // new `timeframe_secs` value matching the recharged pipeline.
+                app.bumpWsVersion();
                 saveStatus = 'success';
                 setTimeout(() => { saveStatus = 'idle'; }, 2000);
             } else {

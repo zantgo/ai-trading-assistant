@@ -7,6 +7,7 @@
     import AppWorkspacePanel from './components/layout/AppWorkspacePanel.svelte';
     import AppPageRouter from './components/layout/AppPageRouter.svelte';
     import AppConfirmModal from './components/layout/AppConfirmModal.svelte';
+    import FullscreenChartModal from './components/FullscreenChartModal.svelte';
     import SvgIcon from './lib/SvgIcon.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
     import QuitDialog from './QuitDialog.svelte';
@@ -177,6 +178,10 @@
 
     $effect(() => {
         if (!configReady) return;
+        // Bumping `wsVersion` after every config save causes this block to
+        // re-run, tearing down stale WS connections and re-attaching them
+        // with the new per-slot durations from the store.
+        void app.wsVersion;
         for (const sym of Object.keys(app.instancesMap)) {
             const state = wssMap[sym];
             if (!state || shouldReconnect(app, state, sym)) {
@@ -307,6 +312,8 @@
             onconfirm={executeRowConfirm}
         />
     {/if}
+
+    <FullscreenChartModal />
 
     {#if showQuitDialog}<QuitDialog onclose={() => showQuitDialog = false} />{/if}
 {/if}

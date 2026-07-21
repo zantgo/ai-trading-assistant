@@ -29,6 +29,7 @@ use crate::indicators::{
 };
 use core_domain::liquidity::LiquidationClusterMatrix;
 use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot};
+use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use crate::candle_generator::CandleGenerator;
 use core_domain::statistics::{StatisticsConfig, StatisticsEngine};
@@ -356,6 +357,7 @@ fn build_gapfill_snapshot(
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         quality_envelope: Some(CandleQualityEnvelope {
             quality_score: 100.0,
             is_valid: true,
@@ -704,22 +706,105 @@ pub async fn run_single(
     let mut shadow_exchange: Option<Exchange> = None;
     let mut shadow_prev_day_px: Option<Decimal> = None;
 
+    let stale_check_interval_ms: u64 = (timeframe_secs * 1000 / 2).max(500);
+    let grace_period_ms: u64 = duration_ms;
+    let mut stale_check = tokio::time::interval(std::time::Duration::from_millis(stale_check_interval_ms));
+    stale_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    enum LoopAction {
+        Process(NormalizedEvent),
+        StaleCheck,
+        Shutdown,
+    }
+
     loop {
-        let event = tokio::select! {
+        let action = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
                 println!("🛑 Analysis Task: {} ({}) cancelled, shutting down.", symbol, timeframe_label);
-                break;
+                LoopAction::Shutdown
+            }
+            _ = stale_check.tick() => {
+                LoopAction::StaleCheck
             }
             result = rx.recv() => {
                 match result {
-                    Some(e) => e,
+                    Some(e) => LoopAction::Process(e),
                     None => {
                         println!("🛑 Analysis Task: {} ({}) channel closed.", symbol, timeframe_label);
-                        break;
+                        LoopAction::Shutdown
                     }
                 }
             }
+        };
+
+        let event = match action {
+            LoopAction::Shutdown => break,
+            LoopAction::StaleCheck => {
+                let now_ms = core_domain::LatencyTracker::now_ms();
+                if candle_gen.is_stale(now_ms, grace_period_ms) {
+                    if let Some(forced) = candle_gen.force_close() {
+                        let mid = if shadow_bid > Decimal::ZERO && shadow_ask > Decimal::ZERO {
+                            (shadow_bid + shadow_ask) / Decimal::from(2)
+                        } else {
+                            forced.close
+                        };
+                        let live = core_domain::normalized::NormalizedCandle {
+                            exchange: forced.exchange,
+                            symbol: forced.symbol.clone(),
+                            start_time_ms: forced.start_time_ms,
+                            duration_ms: forced.duration_ms,
+                            open: forced.open,
+                            high: forced.high,
+                            low: forced.low,
+                            close: mid,
+                            volume: forced.volume,
+                            trades_count: forced.trades_count,
+                            reconstructed: forced.reconstructed,
+                        };
+                        broadcast_live_snapshot(
+                            &broadcast_tx,
+                            &symbol,
+                            &live,
+                            shadow_exchange,
+                            shadow_bid,
+                            shadow_ask,
+                            slot,
+                            &ema_fast,
+                            &ema_medium,
+                            &ema_slow,
+                            &ema_long,
+                            &rsi_14,
+                            &macd,
+                            &adx_14,
+                            &sqz_mom,
+                            &bollinger,
+                            &atr_standalone,
+                            &bbwp_indicator,
+                            &stochastic_indicator,
+                            &chandemo_indicator,
+                            &supertrend_indicator,
+                            &keltner_indicator,
+                            &donchian_indicator,
+                            &obv_indicator,
+                            &cmf_indicator,
+                            &mfi_indicator,
+                            &hv_indicator,
+                            &aroon_indicator,
+                            &choppiness_indicator,
+                            &linreg_indicator,
+                            &zscore_indicator,
+                            &vwap_sum_tp_vol,
+                            &vwap_sum_vol,
+                            &volume_history,
+                            timeframe_secs,
+                            shadow_prev_day_px,
+                        );
+                    }
+                }
+                continue;
+            }
+            LoopAction::Process(e) => e,
         };
 
         {
@@ -767,7 +852,7 @@ pub async fn run_single(
                     FilterVerdict::Accepted => {}
                 }
 
-                let (completed_opt, live_candle) = candle_gen.process_trade(trade);
+                let (completed_opt, live_candle) = candle_gen.process_trade_at(trade, core_domain::LatencyTracker::now_ms());
                 let mut completed_opt = completed_opt.filter(|c| c.start_time_ms > t_last_hist);
 
                 // ── DIE L3 §4.2: quarantine + REST refetch on validity failure.
@@ -1027,11 +1112,22 @@ pub async fn run_single(
                     let fi_reading = fi_indicator.update(completed.close, completed.volume);
                     let sdc_reading = sdc_indicator.update(completed.close);
 
-                    let volume_profile_reading = volume_profile_indicator.update(
+                    let volume_profile_reading = volume_profile_indicator.update_with_open(
                         completed.high,
                         completed.low,
+                        completed.open,
                         completed.close,
                         completed.volume,
+                    );
+
+                    // Build the bin-level VolumeProfileSnapshot for chart rendering.
+                    let volume_profile_snapshot = build_volume_profile_snapshot(
+                        &symbol,
+                        slot,
+                        timeframe_secs,
+                        &volume_profile_reading,
+                        volume_profile_indicator.compute_bins().as_ref(),
+                        completed.start_time_ms,
                     );
                     let smc_reading = smc_indicator.update(
                         completed.open,
@@ -1594,6 +1690,7 @@ pub async fn run_single(
                         risk_profile: None,
                         liquidity: None,
                         cluster: None,
+                        volume_profile: None,
                         quality_envelope: Some(quality_envelope.clone()),
                     };
 
@@ -1750,6 +1847,7 @@ pub async fn run_single(
                         risk_profile: None,
                         liquidity: Some(liquidity_flow),
                         cluster: cluster_matrix.read().await.clone(),
+                        volume_profile: volume_profile_snapshot,
                         liquidity_signals,
                         metrics_config: active_set.to_metrics_config(),
                         quality_envelope: Some(quality_envelope),
@@ -2145,6 +2243,113 @@ pub(crate) fn update_sr_levels(
     (tracker.get_supports(), tracker.get_resistances())
 }
 
+/// Build a `VolumeProfileSnapshot` from the indicator output and the bin-level
+/// aggregates returned by `VolumeProfile::compute_bins()`. Returns `None` when
+/// the indicator has not yet accumulated enough bars to produce a profile.
+fn build_volume_profile_snapshot(
+    symbol: &str,
+    slot: TimeframeSlot,
+    timeframe_secs: u64,
+    reading: &Option<crate::indicators::VolumeProfileOutput>,
+    bins: Option<&Vec<crate::indicators::volume_profile::BinAggregate>>,
+    candle_start_time_ms: u64,
+) -> Option<VolumeProfileSnapshot> {
+    let reading = reading.as_ref()?;
+    let bins = bins?;
+    if bins.is_empty() {
+        return None;
+    }
+    let d2f = |d: Decimal| d.to_f64().unwrap_or(0.0);
+
+    let mut out_bins: Vec<VolumeProfileBin> = Vec::with_capacity(bins.len());
+    let mut range_low = f64::INFINITY;
+    let mut range_high = f64::NEG_INFINITY;
+    let mut total_volume = 0.0;
+    for b in bins {
+        let pl = d2f(b.price_low);
+        let ph = d2f(b.price_high);
+        let v = d2f(b.total);
+        let buy = d2f(b.buy);
+        let sell = d2f(b.sell);
+        if v <= 0.0 {
+            continue;
+        }
+        range_low = range_low.min(pl);
+        range_high = range_high.max(ph);
+        total_volume += v;
+        out_bins.push(VolumeProfileBin {
+            price_low: pl,
+            price_high: ph,
+            volume: v,
+            buy_volume: buy,
+            sell_volume: sell,
+            is_poc: false,
+            is_value_area: false,
+        });
+    }
+    if out_bins.is_empty() {
+        return None;
+    }
+
+    // Identify POC (highest-volume bin) and value-area bounds using the same
+    // algorithm as `VolumeProfile::compute`.
+    let mut poc_idx = 0usize;
+    let mut max_vol = 0.0;
+    for (i, b) in out_bins.iter().enumerate() {
+        if b.volume > max_vol {
+            max_vol = b.volume;
+            poc_idx = i;
+        }
+    }
+    out_bins[poc_idx].is_poc = true;
+    let target_vol = total_volume * 0.70;
+    let mut lo = poc_idx;
+    let mut hi = poc_idx;
+    let mut va_vol = out_bins[poc_idx].volume;
+    let n = out_bins.len();
+    while va_vol < target_vol && (lo > 0 || hi + 1 < n) {
+        if lo == 0 {
+            hi += 1;
+            va_vol += out_bins[hi].volume;
+        } else if hi + 1 == n {
+            lo -= 1;
+            va_vol += out_bins[lo].volume;
+        } else if out_bins[lo - 1].volume >= out_bins[hi + 1].volume {
+            lo -= 1;
+            va_vol += out_bins[lo].volume;
+        } else {
+            hi += 1;
+            va_vol += out_bins[hi].volume;
+        }
+    }
+    for b in &mut out_bins[lo..=hi] {
+        b.is_value_area = true;
+    }
+    let value_area_high = out_bins[hi].price_high;
+    let value_area_low = out_bins[lo].price_low;
+    let poc_price = d2f(reading.poc);
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(candle_start_time_ms);
+
+    Some(VolumeProfileSnapshot {
+        symbol: symbol.to_string(),
+        timeframe_slot: format!("{:?}", slot).to_lowercase(),
+        timeframe_secs,
+        bins: out_bins,
+        poc_price,
+        value_area_high,
+        value_area_low,
+        total_volume,
+        range_low,
+        range_high,
+        num_bins: n,
+        timestamp_ms: now_ms,
+    })
+}
+
 /// Stamp `age_bars` on every signal using a persistent tracker keyed by
 /// `<indicator>:<kind>`. A signal resets to age 0 when it first appears or flips
 /// direction; otherwise its age is the number of completed bars since first seen.
@@ -2395,6 +2600,7 @@ fn broadcast_live_snapshot(
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         quality_envelope: None,
     };
 

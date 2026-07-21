@@ -11,9 +11,9 @@
     letter-spacing: 0.05em;
     padding: 1px 5px;
     border-radius: 3px;
-    background: rgba(15, 17, 26, 0.85);
-    color: #8f929d;
-    border: 1px solid #4c525e;
+    background: rgba(0, 0, 0, 0.85);
+    color: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .ema-stack-label.bullish { color: #26a69a; border-color: rgba(38, 166, 154, 0.4); }
 .ema-stack-label.bearish { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
@@ -28,9 +28,9 @@
     letter-spacing: 0.05em;
     padding: 1px 5px;
     border-radius: 3px;
-    background: rgba(15, 17, 26, 0.85);
-    color: #8f929d;
-    border: 1px solid #4c525e;
+    background: rgba(0, 0, 0, 0.85);
+    color: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .vwap-bias-label.premium { color: #ffb300; border-color: rgba(255, 179, 0, 0.4); }
 .vwap-bias-label.discount { color: #ff5252; border-color: rgba(255, 82, 82, 0.4); }

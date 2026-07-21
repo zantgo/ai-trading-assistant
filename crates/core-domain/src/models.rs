@@ -7,6 +7,7 @@
 use crate::indicator_dtos::NormalizedIndicatorValue;
 use crate::liquidity::{LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal};
 use crate::normalized::Exchange;
+use crate::volume_profile::VolumeProfileSnapshot;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -221,6 +222,12 @@ pub struct MarketSnapshot {
     /// before the first refresh.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cluster: Option<LiquidationClusterMatrix>,
+
+    /// Per-timeframe volume profile snapshot. Recomputed on each
+    /// completed candle. `None` before the analyzer has accumulated
+    /// enough history, or when the candle set has zero volume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_profile: Option<VolumeProfileSnapshot>,
 
     /// Per-candle data-quality envelope (from DIE L3). Attached to completed
     /// snapshots after validity, outlier, and gap-fill checks.

@@ -571,6 +571,7 @@ fn build_mock_snapshot(symbol: &str, mid_price: Decimal) -> core_domain::models:
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         liquidity_signals: vec![],
         metrics_config: None,
         opportunity: None,

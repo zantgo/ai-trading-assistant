@@ -62,6 +62,7 @@ fn test_market_snapshot_json_roundtrip() {
         opportunity: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         risk_profile: None,
         quality_envelope: None,
     };
@@ -127,6 +128,7 @@ fn test_market_snapshot_empty_indicators() {
         opportunity: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         risk_profile: None,
         quality_envelope: None,
     };

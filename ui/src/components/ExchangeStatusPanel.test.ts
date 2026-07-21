@@ -48,11 +48,15 @@ describe('ExchangeStatusPanel', () => {
     it('renders_exchanges_after_fetch', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse(report)));
         render(ExchangeStatusPanel);
+        // The panel filters exchanges to only the currently active one
+        // (defaults to 'Hyperliquid' from app.session.sessionExchange), so
+        // only the Hyperliquid card is rendered even when the API report
+        // contains multiple exchanges.
         expect(await screen.findByText('Hyperliquid')).toBeTruthy();
-        expect(screen.getByText('Bitget')).toBeTruthy();
-        expect(screen.getAllByText('● Connected').length).toBe(2);
+        expect(screen.queryByText('Bitget')).toBeNull();
+        expect(screen.getAllByText('● Connected').length).toBe(1);
         expect(screen.getByText('3')).toBeTruthy();
-        expect(screen.getByText('0')).toBeTruthy();
+        expect(screen.getByText('1')).toBeTruthy();
     });
 
     it('renders_disconnected_state', async () => {
@@ -80,15 +84,17 @@ describe('ExchangeStatusPanel', () => {
     });
 
     it('renders_disabled_state', async () => {
+        // Use Hyperliquid since the panel filters by currentExchange
+        // (defaults to 'Hyperliquid' from app.session.sessionExchange).
         const disabled: ExchangeStatusReport = {
             exchanges: [
                 {
-                    name: 'Bitget',
+                    name: 'Hyperliquid',
                     state: 'Disabled',
                     active_pairs: 1,
                     last_heartbeat_ms: Date.now() - 60_000,
                     total_reconnects: 6,
-                    ws_url: 'wss://ws.bitget.com/v2/ws/public',
+                    ws_url: 'wss://api.hyperliquid.xyz/ws',
                 },
             ],
         };

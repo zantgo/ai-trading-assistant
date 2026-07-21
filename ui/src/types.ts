@@ -516,6 +516,8 @@ export interface TimeframeTelemetry {
     cluster?: LiquidationClusterMatrix;
     /** Phase 3: liquidity signals derived from flow + cluster. */
     liquiditySignals?: LiquiditySignal[];
+    /** Volume profile snapshot — per-timeframe aggregated volume distribution. */
+    volumeProfile?: VolumeProfileSnapshot;
     showEmas: boolean;
     showBb: boolean;
     showVwap: boolean;
@@ -545,6 +547,8 @@ export interface TimeframeTelemetry {
     showChoppiness: boolean;
     showLinregSlope: boolean;
     showZscore: boolean;
+    showLiqHeatmap: boolean;
+    showVolumeProfile: boolean;
     emaFastVal: number;
     emaMediumVal: number;
     emaSlowVal: number;
@@ -768,6 +772,35 @@ export interface LiquiditySignal {
     strength: number;     // 0..100
     confidence: number;   // 0..1
     evidence: string[];
+}
+
+// ================================================================
+// Volume Profile (per-timeframe, computed by market-analyzer)
+// ================================================================
+
+export interface VolumeProfileBin {
+    price_low: number;
+    price_high: number;
+    volume: number;
+    buy_volume: number;
+    sell_volume: number;
+    is_poc: boolean;
+    is_value_area: boolean;
+}
+
+export interface VolumeProfileSnapshot {
+    symbol: string;
+    timeframe_slot: string;
+    timeframe_secs: number;
+    bins: VolumeProfileBin[];
+    poc_price: number;
+    value_area_high: number;
+    value_area_low: number;
+    total_volume: number;
+    range_low: number;
+    range_high: number;
+    num_bins: number;
+    timestamp_ms: number;
 }
 
 export type QualityWindow = 'one_hour' | 'six_hour' | 'twenty_four_hour';

@@ -8,7 +8,7 @@
 
 .sidebar {
     width: 200px;
-    border-right: 1px solid #2a2e39;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
     padding: 1rem 0;
     flex-shrink: 0;
 }
@@ -17,7 +17,7 @@
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #5a5f6e;
+    color: rgba(255, 255, 255, 0.35);
     padding: 0 1rem;
     margin-bottom: 0.75rem;
 }
@@ -29,7 +29,7 @@
     padding: 0.5rem 1rem;
     border: none;
     background: transparent;
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
     font-size: 0.82rem;
     font-family: var(--mono);
@@ -37,11 +37,11 @@
 }
 
 .sidebarBtn:hover {
-    background: #111;
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .sidebarBtnActive {
-    background: #1a1d26;
+    background: rgba(255, 255, 255, 0.06);
     color: #fff;
 }
 
@@ -61,14 +61,14 @@
 }
 
 .sectionDesc {
-    color: #888;
+    color: rgba(255, 255, 255, 0.45);
     font-size: 0.8rem;
     margin-bottom: 1rem;
 }
 
 .sectionDesc code {
-    background: #1a1d26;
-    color: #aaa;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.85);
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
     font-family: var(--mono);

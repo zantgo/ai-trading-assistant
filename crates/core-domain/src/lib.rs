@@ -23,6 +23,7 @@ pub mod portfolio;
 pub mod risk;
 pub mod state_matrix;
 pub mod statistics;
+pub mod volume_profile;
 
 pub use latency::{LatencyTracker, LatencySnapshot, SharedLatencyTracker};
 pub use normalized::TriggerType;

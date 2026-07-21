@@ -1,26 +1,26 @@
 .es-layout { max-width: 1000px; margin: 0 auto; width: 100%; padding: 16px; box-sizing: border-box; font-family: var(--mono); }
 .es-main { display: flex; flex-direction: column; gap: 16px; }
-.es-card { background: #0a0a0f; border: 1px solid #2a2e39; border-radius: 8px; padding: 16px; }
+.es-card { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 16px; }
 .es-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.es-card-title { font-size: 11px; font-weight: 700; color: #5a5f6e; text-transform: uppercase; letter-spacing: 0.05em; margin: 0; }
-.es-counter { font-size: 10px; color: #8f929d; font-weight: 600; }
+.es-card-title { font-size: 11px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; margin: 0; }
+.es-counter { font-size: 10px; color: rgba(255, 255, 255, 0.35); font-weight: 600; }
 
 .es-toggle-form-btn {
-    background: #1a1d26; border: 1px solid #2a2e39; color: #ccc; padding: 6px 14px;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; padding: 6px 14px;
     border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; font-family: var(--mono);
 }
-.es-toggle-form-btn:hover { background: #2a2e39; color: #fff; }
+.es-toggle-form-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
 .es-form { display: flex; flex-direction: column; gap: 10px; }
 .es-field-row { display: flex; flex-direction: column; gap: 4px; }
-.es-label { font-size: 10px; font-weight: 600; color: #5a5f6e; text-transform: uppercase; }
+.es-label { font-size: 10px; font-weight: 600; color: rgba(255, 255, 255, 0.35); text-transform: uppercase; }
 .es-input {
-    background: #08080c; border: 1px solid #2a2e39; color: #ccc; padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; padding: 8px 10px;
     border-radius: 4px; font-size: 11px; outline: none; font-family: var(--mono);
 }
 .es-input:focus { border-color: rgba(255,255,255,0.2); }
 .es-select {
-    background: #08080c; border: 1px solid #2a2e39; color: #ccc; padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; padding: 8px 10px;
     border-radius: 4px; font-size: 11px; outline: none; cursor: pointer; font-family: var(--mono);
 }
 .es-checkbox { width: 18px; height: 18px; accent-color: #64ffda; cursor: pointer; }
@@ -33,27 +33,27 @@
 .es-submit-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .es-submit-btn:hover:not(:disabled) { opacity: 0.85; }
 
-.es-empty { font-size: 11px; color: #5a5f6e; text-align: center; padding: 20px; font-style: italic; }
+.es-empty { font-size: 11px; color: rgba(255, 255, 255, 0.3); text-align: center; padding: 20px; font-style: italic; }
 
 .es-table-wrap { overflow-x: auto; }
 .es-table {
-    width: 100%; border-collapse: collapse; font-size: 10px; color: #888;
+    width: 100%; border-collapse: collapse; font-size: 10px; color: rgba(255, 255, 255, 0.45);
 }
-.es-table thead { position: sticky; top: 0; background: #0a0a0f; }
+.es-table thead { position: sticky; top: 0; background: transparent; }
 .es-table th {
-    text-align: left; padding: 6px 8px; font-weight: 700; color: #5a5f6e; text-transform: uppercase;
-    letter-spacing: 0.04em; border-bottom: 1px solid #2a2e39; font-size: 9px;
+    text-align: left; padding: 6px 8px; font-weight: 700; color: rgba(255, 255, 255, 0.35); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid rgba(255, 255, 255, 0.07); font-size: 9px;
 }
-.es-table td { padding: 6px 8px; border-bottom: 1px solid #1a1d26; white-space: nowrap; }
-.es-table tbody tr:hover { background: #0f0f1a; }
+.es-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); white-space: nowrap; }
+.es-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
 .es-monospace { font-family: var(--mono); font-size: 9px; }
-.es-ts { font-size: 9px; color: #5a5f6e; }
+.es-ts { font-size: 9px; color: rgba(255, 255, 255, 0.3); }
 
 .es-status {
     padding: 2px 8px; border-radius: 10px; font-size: 9px; font-weight: 700; text-transform: uppercase;
 }
 .es-active { background: rgba(16,185,129,0.12); color: #10b981; }
-.es-inactive { background: rgba(90,95,110,0.12); color: #5a5f6e; }
+.es-inactive { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.35); }
 
 .es-delete-btn {
     background: none; border: 1px solid rgba(239,68,68,0.3); color: #ef4444;

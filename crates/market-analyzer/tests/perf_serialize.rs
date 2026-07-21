@@ -156,6 +156,7 @@ fn build_realistic_snapshot() -> MarketSnapshot {
         risk_profile: Some(1),
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         quality_envelope: Some(CandleQualityEnvelope {
             quality_score: 95.0,
             is_valid: true,

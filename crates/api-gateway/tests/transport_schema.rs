@@ -58,6 +58,7 @@ fn sample_snapshot() -> MarketSnapshot {
         risk_profile: None,
         liquidity: None,
         cluster: None,
+        volume_profile: None,
         quality_envelope: None,
     }
 }

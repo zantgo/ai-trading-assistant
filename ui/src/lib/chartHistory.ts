@@ -2,9 +2,13 @@
 // (4 timeframes × 9 charts). Coalesces concurrent requests into one HTTP call
 // per (pairKey, timeframe) and serves cached data on subsequent mounts.
 //
-// Sub-minute timeframes (<60s) are not fetched: they accumulate live data
-// exclusively, so that freshly-warming indicators do not draw artifact
-// placeholder lines.
+// Every timeframe (including sub-minute) fetches what the backend provides.
+// Chart components handle empty / sparse responses gracefully — they render
+// only what the bootstrap returned and let the live $effect accumulate the
+// rest as candles close. This design is intentional: sub-minute timeframes
+// have limited historical data but the WS stream fills them organically,
+// and indicator values appear as each indicator chain warms from its
+// lookback window.
 
 import type { Time } from 'lightweight-charts';
 
@@ -104,16 +108,11 @@ function flattenRaw(ih: RawHistory | undefined | null): FlatIndicatorHistory {
 const cache = new Map<string, Promise<HistoryResponse | null>>();
 const HISTORY_URL = '/api/history';
 
-export function isSubMinute(timeframe: number): boolean {
-    return timeframe > 0 && timeframe < 60;
-}
-
 export function fetchChartHistoryOnce(
     pairKey: string,
     timeframe: number,
 ): Promise<HistoryResponse | null> {
     if (!pairKey || !timeframe) return Promise.resolve(null);
-    if (isSubMinute(timeframe)) return Promise.resolve(null);
 
     const key = `${pairKey}@${timeframe}`;
     const cached = cache.get(key);

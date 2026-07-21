@@ -34,6 +34,7 @@ function createTimeframeTelemetry(
         showIchimoku: true, showHullMa: true, showPsar: true, showStddevChan: true,
         showObv: true, showCmf: true, showMfi: true, showHv: true,
         showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
+        showLiqHeatmap: false, showVolumeProfile: false,
         emaFastVal: 10, emaMediumVal: 50, emaSlowVal: 100, emaLongVal: 200,
         rsiPeriodVal: 14, macdFastVal: 12, macdSlowVal: 26, macdSignalVal: 9,
         adxPeriodVal: 14, atrPeriodVal: 14, squeezePeriodVal: 20,
@@ -90,8 +91,24 @@ export class AppStore {
     // ─── Global State ─────────────────────────────────────────────────
     instancesMap = $state<Record<string, InstanceState>>({});
     activeTab = $state<string>('BTC-USDT');
+    /// Bumped by `bumpWsVersion()` after every config save so the
+    /// reconnect `$effect` in `App.svelte` re-runs and re-attaches each
+    /// WS connection with the new `timeframe_secs`.
+    wsVersion = $state(0);
     currentGlobalView = $state<string>('dashboard');
     overviewMatrix = $state<OverviewMatrix | null>(null);
+
+    // ─── Fullscreen chart modal ───────────────────────────────────────
+    // Rendered at the root of App.svelte so it escapes the grid container's
+    // stacking context and covers the entire viewport (including the top
+    // navigation bar). null = modal closed.
+    fullscreenChart = $state<{ chartType: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; pairKey: string } | null>(null);
+    openFullscreenChart(chartType: string, slot: 'micro' | 'fast' | 'slow' | 'macro', pairKey: string) {
+        this.fullscreenChart = { chartType, slot, pairKey };
+    }
+    closeFullscreenChart() {
+        this.fullscreenChart = null;
+    }
 
     // ─── Grid cockpit navigation state ────────────────────────────────
     isManageModalOpen = $state(false);
@@ -321,6 +338,13 @@ export class AppStore {
     removeInstance(key: string) { delete this.instancesMap[key]; }
 
     switchTab(key: string) { this.activeTab = key; }
+
+    /// Signal the WS reconnect effect in `App.svelte` to tear down and
+    /// re-attach all WebSocket connections with the current per-slot
+    /// durations. Must be called after every save in `WorkspaceSettings`
+    /// and `TimeframeSettings` so the WS URL's `timeframe_secs` matches
+    /// the new pipeline's `barDurationSec`.
+    bumpWsVersion(): void { this.wsVersion++; }
 
     // ─── Instance / Telemetry Accessors ──────────────────────────────
 
