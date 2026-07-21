@@ -186,6 +186,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         execution_engine: Arc::new(
             portfolio_supervisor::execution::ExecutionEngine::new(),
         ),
+        recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
     })
 }
 

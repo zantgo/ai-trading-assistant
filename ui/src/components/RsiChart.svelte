@@ -7,6 +7,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -109,7 +110,16 @@
     });
 
     let _lastUpdateTs = 0;
+    const rsiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+        const timeSec = snap.timestamp as number;
+        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rsi');
+        if (val != null) {
+            rsiSeries.update({ time: timeSec as Time, value: val });
+        }
+    });
     $effect(() => {
+        // Track broadcast arrival (the gap diagnostic must measure WS gaps,
+        // not rAF gaps) and let the coalescer collapse redraws to one per frame.
         const pairVal = app.instancesMap[pairKey];
         if (!pairVal) return;
         const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
@@ -121,12 +131,9 @@
         if (gap > 10_000) {
             console.warn(`[CHART-DIAG] RsiChart ${pairKey}/${slot}: ${gap}ms gap between updates at ${new Date(now).toISOString()}`);
         }
-        const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rsi');
-        if (val != null) {
-            rsiSeries.update({ time: timeSec as Time, value: val });
-        }
+        rsiCoalescer.effect();
     });
+    onDestroy(rsiCoalescer.destroy);
 </script>
 
 <div class="chart-container" bind:this={container}></div>

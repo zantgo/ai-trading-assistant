@@ -46,6 +46,7 @@ async fn setup_test_state() -> (Arc<AppState>, SqlitePool) {
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
     });
 
     (state, pool)
@@ -290,6 +291,7 @@ async fn test_websocket_stream_with_active_pair() {
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
     });
 
     let router = api_gateway::build_router(state.clone());

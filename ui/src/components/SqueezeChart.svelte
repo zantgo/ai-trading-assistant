@@ -7,6 +7,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -145,12 +146,7 @@
         }
     }
 
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
+    const squeezeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
         const momVal = iRaw(m, 'squeeze');
@@ -163,6 +159,8 @@
             squeezeDotSeries.update({ time: timeSec as Time, value: 0.1, color: dotColor });
         }
     });
+    $effect(squeezeCoalescer.effect);
+    onDestroy(squeezeCoalescer.destroy);
 </script>
 
 <div class="chart-container" bind:this={container}></div>

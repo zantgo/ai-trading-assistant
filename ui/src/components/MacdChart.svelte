@@ -7,6 +7,7 @@
     import type { IChartApi, ISeriesApi, IPriceLine, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -151,12 +152,7 @@
     }
 
     let prevMacdHist = 0;
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
+    const macdCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
         const mLine = iSub(m, 'macd', 'line');
@@ -170,6 +166,8 @@
             prevMacdHist = mHist;
         }
     });
+    $effect(macdCoalescer.effect);
+    onDestroy(macdCoalescer.destroy);
 </script>
 
 <div class="chart-container" bind:this={container}></div>

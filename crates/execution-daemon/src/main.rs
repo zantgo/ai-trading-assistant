@@ -211,6 +211,8 @@ async fn main() {
     let platform_arc = Arc::new(RwLock::new(platform));
     let workspace_state = WorkspaceState::new(workspace.clone());
     let session = Arc::new(portfolio_supervisor::session::SessionState::new());
+    let (recharge_tx, _) =
+        tokio::sync::broadcast::channel::<api_gateway::RechargeNotice>(64);
 
     let hl_ws_url = platform_arc.read().await.hyperliquid.ws_url.clone();
     let bg_ws_url = platform_arc.read().await.bitget.ws_url.clone();
@@ -237,6 +239,7 @@ async fn main() {
         bitget_ws_url: bg_ws_url.clone(),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: execution_engine.clone(),
+        recharge_tx: recharge_tx.clone(),
     });
 
     // ── Session auto-init (headless and web mode) ──────────────────

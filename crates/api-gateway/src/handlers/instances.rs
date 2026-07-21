@@ -255,18 +255,31 @@ pub async fn serve_update_instance_config(
     );
 
     match registry::recharge_instance(&state.registry_context(), &pair_key).await {
-        Ok(()) => (
-            axum::http::StatusCode::OK,
-            "Instance configuration saved and pipelines recharged",
-        )
-            .into_response(),
+        Ok(()) => {
+            // Notify WS handlers so they re-subscribe to the new
+            // `ActivePair`'s broadcast channel. Without this notification
+            // any WS handler that had cached the OLD `Arc<ActivePair>`
+            // would silently freeze (its `Receiver` would block forever on
+            // a channel whose Sender is now kept alive only by the
+            // handler itself — no `Closed`, no `onclose`, no reconnect).
+            let _ = state
+                .recharge_tx
+                .send(crate::RechargeNotice {
+                    pair_key: pair_key.clone(),
+                });
+            (
+                axum::http::StatusCode::OK,
+                "Instance configuration saved and pipelines recharged",
+            )
+                .into_response()
+        }
         Err(e) => {
             eprintln!("Pipeline recharge failed for {}: {}", pair_key, e);
             (
                 axum::http::StatusCode::OK,
                 format!("Config saved but pipeline recharge failed: {}", e),
             )
-                .into_response()
+            .into_response()
         }
     }
 }

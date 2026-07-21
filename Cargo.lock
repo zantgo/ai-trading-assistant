@@ -73,6 +73,7 @@ dependencies = [
  "config-models",
  "core-domain",
  "database-storage",
+ "futures-util",
  "http-body-util",
  "hyper",
  "market-analyzer",

@@ -7,6 +7,7 @@
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
     import { useAppStore } from '../state.svelte';
     import { registerChart, unregisterChart } from '../chartRegistry.svelte';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
@@ -131,12 +132,7 @@
         return close >= open ? '#26a69a' : '#ef5350';
     }
 
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
+    const volumeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
         if (snap.open != null && snap.close != null) {
             const close = parseFloat(String(snap.close));
@@ -148,6 +144,8 @@
             volumeSeries.update({ time: timeSec as Time, value: vol, color });
         }
     });
+    $effect(volumeCoalescer.effect);
+    onDestroy(volumeCoalescer.destroy);
 </script>
 
 <div class="chart-container" bind:this={container}></div>

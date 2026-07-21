@@ -198,7 +198,7 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c42fd6bd1cacf9"
+id = "inst_18c45508ecfa8360"
 symbol = "BTC-USDC"
 quote = "USDC"
 initial_capital_usd = 1000.0
@@ -274,7 +274,7 @@ volume_profile_window = 500
 volume_profile_value_area = 0.7
 
 [workspace.instances.fast_term.candles]
-duration_seconds = 180
+duration_seconds = 1
 analysis_limit = 100
 
 [workspace.instances.fast_term.indicators]
@@ -342,7 +342,7 @@ volume_profile_window = 500
 volume_profile_value_area = 0.7
 
 [workspace.instances.slow_term.candles]
-duration_seconds = 300
+duration_seconds = 5
 analysis_limit = 100
 
 [workspace.instances.slow_term.indicators]
@@ -410,7 +410,7 @@ volume_profile_window = 500
 volume_profile_value_area = 0.7
 
 [workspace.instances.macro_term.candles]
-duration_seconds = 43200
+duration_seconds = 15
 analysis_limit = 100
 
 [workspace.instances.macro_term.indicators]

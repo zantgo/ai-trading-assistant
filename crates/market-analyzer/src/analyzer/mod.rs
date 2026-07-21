@@ -718,6 +718,16 @@ pub async fn run_single(
     let mut stale_check = tokio::time::interval(std::time::Duration::from_millis(stale_check_interval_ms));
     stale_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // Shadow-broadcast throttle. The flickering "live candle" broadcast is
+    // emitted on every trade tick and order-book event — at 1-s timeframes
+    // that's 50+ Hz per pipeline slot × 4 slots = 200+ broadcasts/sec on the
+    // frontend, which saturates the broadcast channel (cap 200) and freezes
+    // the dashboard. Cap the shadow path at 4 Hz; the candle-close path
+    // (one fire per natural candle close) is unaffected and carries the
+    // authoritative snapshot for the bar.
+    let shadow_throttle_ms: u64 = ((timeframe_secs * 1000) / 4).clamp(100, 250);
+    let mut last_shadow_broadcast_ms: u64 = 0;
+
     enum LoopAction {
         Process(NormalizedEvent),
         StaleCheck,
@@ -1918,45 +1928,53 @@ pub async fn run_single(
                     }
                 }
 
-                // BROADCAST: Flickering snapshot from live candle
-                broadcast_live_snapshot(
-                    &broadcast_tx,
-                    &symbol,
-                    &live_candle,
-                    shadow_exchange,
-                    shadow_bid,
-                    shadow_ask,
-                    slot,
-                    &ema_fast,
-                    &ema_medium,
-                    &ema_slow,
-                    &ema_long,
-                    &rsi_14,
-                    &macd,
-                    &adx_14,
-                    &sqz_mom,
-                    &bollinger,
-                    &atr_standalone,
-                    &bbwp_indicator,
-                    &stochastic_indicator,
-                    &chandemo_indicator,
-                    &supertrend_indicator,
-                    &keltner_indicator,
-                    &donchian_indicator,
-                    &obv_indicator,
-                    &cmf_indicator,
-                    &mfi_indicator,
-                    &hv_indicator,
-                    &aroon_indicator,
-                    &choppiness_indicator,
-                    &linreg_indicator,
-                    &zscore_indicator,
-                    &vwap_sum_tp_vol,
-                    &vwap_sum_vol,
-                    &volume_history,
-                    timeframe_secs,
-                    shadow_prev_day_px,
-                );
+                // BROADCAST: Flickering snapshot from live candle (throttled
+                // to `shadow_throttle_ms` so sub-60s timeframes don't drown
+                // the frontend; candle-close path above is unaffected).
+                {
+                    let now_ms = core_domain::LatencyTracker::now_ms();
+                    if now_ms.saturating_sub(last_shadow_broadcast_ms) >= shadow_throttle_ms {
+                        last_shadow_broadcast_ms = now_ms;
+                        broadcast_live_snapshot(
+                            &broadcast_tx,
+                            &symbol,
+                            &live_candle,
+                            shadow_exchange,
+                            shadow_bid,
+                            shadow_ask,
+                            slot,
+                            &ema_fast,
+                            &ema_medium,
+                            &ema_slow,
+                            &ema_long,
+                            &rsi_14,
+                            &macd,
+                            &adx_14,
+                            &sqz_mom,
+                            &bollinger,
+                            &atr_standalone,
+                            &bbwp_indicator,
+                            &stochastic_indicator,
+                            &chandemo_indicator,
+                            &supertrend_indicator,
+                            &keltner_indicator,
+                            &donchian_indicator,
+                            &obv_indicator,
+                            &cmf_indicator,
+                            &mfi_indicator,
+                            &hv_indicator,
+                            &aroon_indicator,
+                            &choppiness_indicator,
+                            &linreg_indicator,
+                            &zscore_indicator,
+                            &vwap_sum_tp_vol,
+                            &vwap_sum_vol,
+                            &volume_history,
+                            timeframe_secs,
+                            shadow_prev_day_px,
+                        );
+                    }
+                }
             }
 
             NormalizedEvent::OrderBook(ref book) => {
@@ -1997,44 +2015,52 @@ pub async fn run_single(
                         reconstructed: None,
                     };
 
-                    broadcast_live_snapshot(
-                        &broadcast_tx,
-                        &symbol,
-                        &shadow_candle,
-                        shadow_exchange,
-                        shadow_bid,
-                        shadow_ask,
-                        slot,
-                        &ema_fast,
-                        &ema_medium,
-                        &ema_slow,
-                        &ema_long,
-                        &rsi_14,
-                        &macd,
-                        &adx_14,
-                        &sqz_mom,
-                        &bollinger,
-                        &atr_standalone,
-                        &bbwp_indicator,
-                        &stochastic_indicator,
-                        &chandemo_indicator,
-                        &supertrend_indicator,
-                        &keltner_indicator,
-                        &donchian_indicator,
-                        &obv_indicator,
-                        &cmf_indicator,
-                        &mfi_indicator,
-                        &hv_indicator,
-                        &aroon_indicator,
-                        &choppiness_indicator,
-                        &linreg_indicator,
-                        &zscore_indicator,
-                        &vwap_sum_tp_vol,
-                        &vwap_sum_vol,
-                        &volume_history,
-                        timeframe_secs,
-                        shadow_prev_day_px,
-                    );
+                    // Throttle the order-book shadow broadcast at the
+                    // same cadence as the trade-tick shadow path; otherwise
+                    // sub-60s timeframes emit ~200 broadcasts/sec on the
+                    // order-book channel alone.
+                    let now_ms = core_domain::LatencyTracker::now_ms();
+                    if now_ms.saturating_sub(last_shadow_broadcast_ms) >= shadow_throttle_ms {
+                        last_shadow_broadcast_ms = now_ms;
+                        broadcast_live_snapshot(
+                            &broadcast_tx,
+                            &symbol,
+                            &shadow_candle,
+                            shadow_exchange,
+                            shadow_bid,
+                            shadow_ask,
+                            slot,
+                            &ema_fast,
+                            &ema_medium,
+                            &ema_slow,
+                            &ema_long,
+                            &rsi_14,
+                            &macd,
+                            &adx_14,
+                            &sqz_mom,
+                            &bollinger,
+                            &atr_standalone,
+                            &bbwp_indicator,
+                            &stochastic_indicator,
+                            &chandemo_indicator,
+                            &supertrend_indicator,
+                            &keltner_indicator,
+                            &donchian_indicator,
+                            &obv_indicator,
+                            &cmf_indicator,
+                            &mfi_indicator,
+                            &hv_indicator,
+                            &aroon_indicator,
+                            &choppiness_indicator,
+                            &linreg_indicator,
+                            &zscore_indicator,
+                            &vwap_sum_tp_vol,
+                            &vwap_sum_vol,
+                            &volume_history,
+                            timeframe_secs,
+                            shadow_prev_day_px,
+                        );
+                    }
                 }
             }
 

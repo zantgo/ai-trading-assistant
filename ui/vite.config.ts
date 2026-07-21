@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       include: ['src/**/*.test.ts'],
+      environment: 'jsdom',
     },
     server: {
       proxy: {

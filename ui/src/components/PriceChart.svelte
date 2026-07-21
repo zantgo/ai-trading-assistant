@@ -10,6 +10,7 @@
     import { fetchChartHistoryOnce } from '../lib/chartHistory';
     import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
+    import { makeChartCoalescer } from '../lib/chartCoalesce';
     import styles from './PriceChart.module.css';
 
     const app = useAppStore();
@@ -205,6 +206,7 @@
     });
 
     onDestroy(() => {
+        candleCoalescer.destroy();
         ro?.disconnect();
         if (chart) {
             unregisterChart(chart);
@@ -212,45 +214,49 @@
         }
     });
 
+    // NOTE: each $effect below reads all reactive dependencies BEFORE the
+    // early-return guard. Per Svelte 5 semantics, an effect only tracks
+    // values that are *synchronously read during its execution*; an early
+    // return that fires before the dependencies are evaluated would leave
+    // them untracked, so subsequent mutations (toggle clicks, WS-driven
+    // `tf.*` updates) would never re-trigger the effect. See the official
+    // Svelte 5 `$effect` docs, "Understanding dependencies".
+
     $effect(() => {
+        const showFast = pair?.showEmaFast ?? false;
+        const showMedium = pair?.showEmaMedium ?? false;
+        const showSlow = pair?.showEmaSlow ?? false;
+        const showLong = pair?.showEmaLong ?? false;
         if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
-        ema10Series.applyOptions({ visible: pair.showEmaFast });
-        ema50Series.applyOptions({ visible: pair.showEmaMedium });
-        ema100Series.applyOptions({ visible: pair.showEmaSlow });
-        ema200Series.applyOptions({ visible: pair.showEmaLong });
+        ema10Series.applyOptions({ visible: showFast });
+        ema50Series.applyOptions({ visible: showMedium });
+        ema100Series.applyOptions({ visible: showSlow });
+        ema200Series.applyOptions({ visible: showLong });
     });
 
     $effect(() => {
+        const priceLineMode = pair?.priceLineMode ?? false;
         if (!candleSeries || !priceLineSeries || !pair) return;
-        candleSeries.applyOptions({ visible: !pair.priceLineMode });
-        priceLineSeries.applyOptions({ visible: pair.priceLineMode });
+        candleSeries.applyOptions({ visible: !priceLineMode });
+        priceLineSeries.applyOptions({ visible: priceLineMode });
     });
 
     $effect(() => {
+        const showBb = tf?.showBb ?? false;
         if (!bbUpperSeries || !bbMiddleSeries || !bbLowerSeries || !pair || !tf) return;
-        bbUpperSeries.applyOptions({ visible: tf.showBb });
-        bbMiddleSeries.applyOptions({ visible: tf.showBb });
-        bbLowerSeries.applyOptions({ visible: tf.showBb });
+        bbUpperSeries.applyOptions({ visible: showBb });
+        bbMiddleSeries.applyOptions({ visible: showBb });
+        bbLowerSeries.applyOptions({ visible: showBb });
     });
 
     $effect(() => {
+        const showVwap = tf?.showVwap ?? false;
         if (!vwapSeries || !pair || !tf) return;
-        vwapSeries.applyOptions({ visible: tf.showVwap });
+        vwapSeries.applyOptions({ visible: showVwap });
     });
 
     let _lastUpdateTs = 0;
-    $effect(() => {
-        const pairVal = app.instancesMap[pairKey];
-        if (!pairVal) return;
-        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
-        const snap = tfVal.latestSnapshot;
-        if (!snap) return;
-        const now = Date.now();
-        const gap = _lastUpdateTs > 0 ? now - _lastUpdateTs : 0;
-        _lastUpdateTs = now;
-        if (gap > 10_000) {
-            console.warn(`[CHART-DIAG] PriceChart ${pairKey}/${slot}: ${gap}ms gap between updates at ${new Date(now).toISOString()}`);
-        }
+    const candleCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
 
@@ -286,24 +292,44 @@
         if (bbLower != null) bbLowerSeries.update({ time: timeSec as Time, value: bbLower });
         if (vwapVal != null) vwapSeries.update({ time: timeSec as Time, value: vwapVal });
     });
+    $effect(() => {
+        // Track broadcast arrival (the gap diagnostic must measure WS gaps,
+        // not rAF gaps) and let the coalescer collapse redraws to one per frame.
+        const pairVal = app.instancesMap[pairKey];
+        if (!pairVal) return;
+        const tfVal = slot === 'micro' ? pairVal.microTerm : slot === 'fast' ? pairVal.fastTerm : slot === 'slow' ? pairVal.slowTerm : pairVal.macroTerm;
+        const snap = tfVal.latestSnapshot;
+        if (!snap) return;
+        const now = Date.now();
+        const gap = _lastUpdateTs > 0 ? now - _lastUpdateTs : 0;
+        _lastUpdateTs = now;
+        if (gap > 10_000) {
+            console.warn(`[CHART-DIAG] PriceChart ${pairKey}/${slot}: ${gap}ms gap between updates at ${new Date(now).toISOString()}`);
+        }
+        candleCoalescer.effect();
+    });
 
     // Liquidity heatmap — toggle visibility + data feeding.
     // v6.5 fallback chain: prefer WS-populated tf.cluster; fall back to
     // history-sourced historyCluster when WS hasn't delivered yet.
+    // Dependencies are read BEFORE the primitive-guard so they stay tracked
+    // across mount (see note on the EMA effect above).
     $effect(() => {
-        if (!heatmap) return;
         const visible = tf?.showLiqHeatmap ?? false;
         const data = tf?.cluster ?? historyCluster ?? null;
+        if (!heatmap) return;
         heatmap.updateData(visible ? data : null);
     });
 
     // Volume profile — toggle visibility + data feeding.
     // v6.5 fallback chain: prefer WS-populated tf.volumeProfile; fall back to
     // history-sourced historyVolumeProfile when WS hasn't delivered yet.
+    // Dependencies are read BEFORE the primitive-guard so they stay tracked
+    // across mount (see note on the EMA effect above).
     $effect(() => {
-        if (!volumeProfilePrim) return;
         const visible = tf?.showVolumeProfile ?? false;
         const data = tf?.volumeProfile ?? historyVolumeProfile ?? null;
+        if (!volumeProfilePrim) return;
         volumeProfilePrim.updateData(visible ? data : null);
     });
 </script>

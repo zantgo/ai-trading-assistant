@@ -33,6 +33,20 @@ pub use types::IndicatorSnapshot;
 
 use portfolio_supervisor::registry_context::RegistryContext;
 
+/// Notification emitted after `registry::recharge_instance` has swapped the
+/// workspace entry for a pair. The WS handler subscribes to this channel so
+/// it can re-subscribe to the new `ActivePair`'s broadcast channel when the
+/// previous one is silently orphaned by the swap.
+///
+/// Without this notification the WS handler would hold a stale
+/// `Arc<ActivePair>` whose embedded `broadcast::Sender` is kept alive by the
+/// handler itself, so `Receiver::recv()` blocks forever (no `Closed` error),
+/// the TCP socket never emits `onclose`, the frontend sees a frozen chart.
+#[derive(Clone, Debug)]
+pub struct RechargeNotice {
+    pub pair_key: String,
+}
+
 pub struct AppState {
     /// The single workspace state (workspace config + live `Arc<Instance>`
     /// map). The binary supports one workspace per deployment; the field is
@@ -58,6 +72,10 @@ pub struct AppState {
     /// L7 cross-symbol market overview, refreshed periodically.
     pub overview: Arc<RwLock<Option<core_domain::overview::OverviewMatrix>>>,
     pub execution_engine: Arc<ExecutionEngine>,
+    /// Notification channel fired by HTTP handlers after a successful
+    /// `recharge_instance`. Subscribed by the WS handler so it can swap its
+    /// broadcast subscription off the orphaned `ActivePair` onto the new one.
+    pub recharge_tx: tokio::sync::broadcast::Sender<RechargeNotice>,
 }
 
 impl AppState {

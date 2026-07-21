@@ -156,6 +156,7 @@ async fn build_router_with_snapshots(
         latency_tracker: Arc::new(Default::default()),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
     });
     (api_gateway::build_router(state.clone()), state)
 }

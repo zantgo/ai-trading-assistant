@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use portfolio_supervisor::workspace_state::WorkspaceState;
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use network_adapters::clock_monitor::ClockMonitor;
 use network_adapters::pipeline_reliability::ReliabilityTracker;
 use network_adapters::exchange_status_tracker::ExchangeStatusTracker;
@@ -68,6 +68,7 @@ async fn setup_test_state_with_decimal_profile() -> (Arc<AppState>, SqlitePool, 
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         overview: Arc::new(RwLock::new(None)),
         execution_engine: Arc::new(portfolio_supervisor::execution::ExecutionEngine::new()),
+        recharge_tx: broadcast::channel::<api_gateway::RechargeNotice>(64).0,
     });
 
     let router = api_gateway::build_router(state.clone());
