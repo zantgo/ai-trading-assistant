@@ -524,6 +524,15 @@ pub struct HistoryResponse {
     pub prices: Vec<String>,
     pub candles: Vec<HistoryCandle>,
     pub indicator_history: IndicatorHistoryArrays,
+    /// v6.5: per-timeframe cluster matrices. One entry per TF slot the
+    /// history was loaded for. Empty map if the analyzer hasn't computed
+    /// the cluster yet (freshly started). Cost: ~2 KB per TF.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub clusters: HashMap<String, core_domain::liquidity::LiquidationClusterMatrix>,
+    /// v6.5: per-timeframe volume profile snapshot (right-edge histogram).
+    /// One entry per TF slot. Cost: ~2 KB per TF.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub volume_profiles: HashMap<String, core_domain::volume_profile::VolumeProfileSnapshot>,
 }
 
 // ─── Terminal Monitor (cross-timeframe meta-intelligence) ──────

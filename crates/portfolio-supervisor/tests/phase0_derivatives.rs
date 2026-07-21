@@ -136,8 +136,12 @@ fn liquidity_config_default_is_safe() {
     // Polling cadence is sane (>= 1s to avoid hot loops).
     assert!(cfg.mark_price_poll_ms >= 1000);
     assert!(cfg.funding_refresh_ms >= 1000);
-    // Cluster refresh is 5 minutes.
-    assert_eq!(cfg.cluster_refresh_secs, 300);
+    // Cluster refresh: v6.5 changed the default from 300 s to 0
+    // (means "synchronize with TF candle cadence"). Operators may still
+    // override with any value ≥ 1, but the v6.5 default is 0 so the
+    // cluster refresh runs at every candle close (matching every other
+    // MME indicator/signal).
+    assert_eq!(cfg.cluster_refresh_secs, 0);
     // Maintenance margin 0.5% (industry standard for perps).
     assert!((cfg.maintenance_margin_rate - 0.005).abs() < 1e-9);
     // Cascade z-score threshold is meaningful (>= 2.0).

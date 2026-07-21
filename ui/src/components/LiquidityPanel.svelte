@@ -8,7 +8,8 @@
     //
     // Data sources:
     //   - instance.microTerm.liquidity (per-candle flow)
-    //   - instance.microTerm.cluster   (5-min refreshed matrix)
+    //   - instance.microTerm.cluster   (per-timeframe matrix; refreshed at
+    //                                   TF candle cadence; each TF owns its own)
     //   - instance.microTerm.liquiditySignals (computed by server)
     import type { LiquidityFlow, LiquidationClusterMatrix, LiquiditySignal } from '../types';
     import { useAppStore } from '../state.svelte';

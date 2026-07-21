@@ -29,7 +29,7 @@
         });
         series = chart.addSeries(LineSeries, { color: '#64ffda', lineWidth: 1, priceLineVisible: false });
         series.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
-        registerChart(chart);
+        registerChart(chart, container);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {
             onScreenshotReady(() => {

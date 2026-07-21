@@ -22,12 +22,11 @@ of where the next cascade will come from. The user sees:
 |---|---|---|
 | **0** | Mark price, OI, funding rate on every snapshot | Exchange WS (Hyperliquid activeAssetCtx / Bitget ticker+funding-rate) + REST polling fallback |
 | **1** | `LiquidityFlow` per candle (real liquidation events) | Exchange WS userFills (HL) / fill (Bitget) |
-| **2** | `LiquidationClusterMatrix` every 5 min (estimated heatmap) | Deterministic estimator on (OI + funding + price history) |
-| **3** | 11 `LiquiditySignalKind` signals per snapshot | Discrete rules on (flow + cluster + funding) |
-| **4** | Frontend `LiquidityPanel` (Flow / Cluster / Context) | WebSocket frame field `liquidity` + `cluster` + `liquidity_signals` |
+| **2** | `LiquidationClusterMatrix` per-timeframe (4 matrices per pair, refreshed at each TF's candle cadence) | Deterministic estimator on (OI + funding + TF-specific price history) |
+| **3** | 11 `LiquiditySignalKind` signals per snapshot | Discrete rules on (micro TF's `flow` + micro TF's `cluster` + funding) |
+| **4** | Frontend `LiquidityPanel` (Flow / Cluster / Context) + per-TF chart overlays (`/ws` frame fields `liquidity` + `cluster` + `liquidity_signals` per snapshot; also `/api/history` returns `clusters`/`volume_profiles` maps) | WebSocket broadcast + REST history |
 
-## Data flow
-
+## Data flow (per-TF as of v6.4.2)
 ```
 Exchange WS
     │
@@ -38,27 +37,33 @@ Exchange WS
     ├─ Mark/Funding/OI → latest_*_px RwLock
     │   └─ On candle close: attach to MarketSnapshot
     │
-    └─ 5-min cluster refresh task (per pair)
-        └─ read OI + funding + history → estimate_clusters()
-            └─ write to cluster_matrix RwLock
-                └─ On candle close: attach to MarketSnapshot
+    └─ Per-TF cluster refresh task (one per micro/fast/slow/macro)
+        ├─ micro: refresh at micro.tf_secs cadence
+        ├─ fast:  refresh at fast.tf_secs cadence
+        ├─ slow:  refresh at slow.tf_secs cadence
+        └─ macro: refresh at macro.tf_secs cadence
+        └─ read OI + funding + this TF's price history (200 candles) → estimate_clusters()
+            └─ write to {slot}_cluster_matrix RwLock (4 separate handles)
+                └─ On this TF's candle close: attach to MarketSnapshot.cluster
 
-MarketSnapshot (per candle)
+MarketSnapshot (per candle, per TF)
     ├─ liquidity:            Option<LiquidityFlow>                  (Liquidity Phase 1, top-level field)
-    ├─ cluster:              Option<LiquidationClusterMatrix>      (Liquidity Phase 2, top-level field)
-    ├─ liquidity_signals:    Vec<LiquiditySignal>                  (Liquidity Phase 3, top-level field — derived from liquidity + cluster)
+    ├─ cluster:              Option<LiquidationClusterMatrix>      (Liquidity Phase 2 — **per-TF**; populated from this TF's pipeline handle)
+    ├─ liquidity_signals:    Vec<LiquiditySignal>                  (Liquidity Phase 3, top-level field — derived from THIS TF's `liquidity` + THIS TF's `cluster` + funding)
     └─ statistical_context:  StatisticalContext                     (Monte Carlo + z-scores)
 
 WS broadcast payload
-    ├─ market_snapshots
+    ├─ market_snapshots (one per TF slot subscription)
     │   ├─ indicators (50 indicators + signals)
     │   ├─ context, alignment, analysis, decision_context, ...
     │   └─ liquidity, cluster, liquidity_signals              ← liquidity extension surface
+    │       (each TF carries its own `cluster` field)
     └─ sent as a single MarketSnapshot frame on /ws
+
+> **Per-TF cluster since v6.4.2.** `MarketSnapshot.cluster` is now **per-timeframe** — each WS frame carries the cluster matrix for the slot the client subscribed to. The chart at `slot=micro` shows the micro-fast-magnet cluster; the chart at `slot=macro` shows the macro-slow-magnet cluster. The frontend primitives (`LiquidationHeatmapPrimitive`) read `tf.cluster` directly — no client-side fan-out required. Phase-3 cross-engine synthesis (L4 `LiquiditySqueeze`, L5 `cascade_risk`) continues to consume the **micro** TF's cluster as the authoritative "fastest-magnet" signal, preserving the v6.4.x decision semantics.
 
 > **Top-level liquidity fields.** The three liquidity fields (`liquidity`, `cluster`, `liquidity_signals`) are siblings of `indicators` on the `MarketSnapshot` wire frame — not nested within `indicators`. The canonical contract is in [`02-07-metrics-matrix.md §2.1`](../matrices/02-07-metrics-matrix.md); the underlying Rust type is in `crates/core-domain/src/models.rs`. Placement within `indicators` would have contradicted both the Metrics Matrix contract and the canonical wire-frame definition.
 ```
-
 ## Architectural placement
 
 The Liquidity Intelligence subsystem extends the existing two-

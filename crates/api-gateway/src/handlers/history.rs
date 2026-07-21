@@ -132,9 +132,42 @@ pub async fn serve_history(
         ),
     };
 
+    // v6.5: per-TF cluster matrices. Each TF pipeline owns its own
+    // `cluster_matrix` handle, so we read all 4 (micro, fast, slow, macro).
+    // These are the same matrices the WS broadcast already carries on each
+    // snapshot — exposing them here lets the chart render overlays on
+    // first-mount (before the WS delivery has happened).
+    let mut clusters = std::collections::HashMap::new();
+    let mut volume_profiles = std::collections::HashMap::new();
+    if let Some(pair) = get_active_pair(&state, &pair_key).await {
+        for (slot_label, pipe) in [
+            ("micro", &pair.micro),
+            ("fast", &pair.fast),
+            ("slow", &pair.slow),
+            ("macro", &pair.r#macro),
+        ] {
+            if let Ok(guard) = pipe.cluster_matrix.try_read() {
+                if let Some(m) = guard.as_ref() {
+                    clusters.insert(slot_label.to_string(), m.clone());
+                }
+            }
+            // Volume profile is per-completed-candle and lives on the
+            // most recent snapshot in `snapshot_history`. We take the
+            // latest completed snapshot for this TF.
+            let snap_hist = pipe.snapshot_history.read().await;
+            if let Some(last) = snap_hist.back() {
+                if let Some(vp) = last.volume_profile.as_ref() {
+                    volume_profiles.insert(slot_label.to_string(), vp.clone());
+                }
+            }
+        }
+    }
+
     Json(HistoryResponse {
         prices,
         candles,
         indicator_history,
+        clusters,
+        volume_profiles,
     })
 }

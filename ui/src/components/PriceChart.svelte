@@ -1,7 +1,7 @@
 <script lang="ts">
     import { flattenHistory } from '../lib/historyAdapter';
     import { emaStackState, vwapBias, iSub } from '../lib/telemetry';
-    import type { IndicatorMap } from '../types';
+    import type { IndicatorMap, LiquidationClusterMatrix, VolumeProfileSnapshot } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
     import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
@@ -39,6 +39,13 @@
     let priceLineSeries: ISeriesApi<'Line'>;
     let heatmap: LiquidationHeatmapPrimitive | null = null;
     let volumeProfilePrim: VolumeProfilePrimitive | null = null;
+    /// v6.5: cluster / volume-profile snapshots fetched via
+    /// `/api/history` on first-mount. Used as a **fallback** when the WS
+    /// stream hasn't yet populated `tf.cluster` / `tf.volumeProfile`
+    /// (i.e. on a fresh daemon restart, before the first per-TF refresh
+    /// tick fires).
+    let historyCluster: LiquidationClusterMatrix | null = $state(null);
+    let historyVolumeProfile: VolumeProfileSnapshot | null = $state(null);
 
     onMount(() => {
         chart = createChart(container, {
@@ -75,7 +82,7 @@
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
-        registerChart(chart);
+        registerChart(chart, container);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
@@ -180,6 +187,12 @@
                         vwapSeries.setData(mapIndicator(ind.vwap));
                     }
                 }
+                // v6.5: capture per-TF cluster + volume profile from
+                // history (used as a fallback if the WS stream hasn't
+                // yet populated tf.cluster / tf.volumeProfile).
+                const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
+                historyCluster = data.clusters?.[slotKey] ?? null;
+                historyVolumeProfile = data.volumeProfiles?.[slotKey] ?? null;
             } catch (err) {
                 console.error("Error bootstrapping price chart history:", err);
             }
@@ -275,17 +288,23 @@
     });
 
     // Liquidity heatmap — toggle visibility + data feeding.
+    // v6.5 fallback chain: prefer WS-populated tf.cluster; fall back to
+    // history-sourced historyCluster when WS hasn't delivered yet.
     $effect(() => {
         if (!heatmap) return;
         const visible = tf?.showLiqHeatmap ?? false;
-        heatmap.updateData(visible ? (tf?.cluster ?? null) : null);
+        const data = tf?.cluster ?? historyCluster ?? null;
+        heatmap.updateData(visible ? data : null);
     });
 
     // Volume profile — toggle visibility + data feeding.
+    // v6.5 fallback chain: prefer WS-populated tf.volumeProfile; fall back to
+    // history-sourced historyVolumeProfile when WS hasn't delivered yet.
     $effect(() => {
         if (!volumeProfilePrim) return;
         const visible = tf?.showVolumeProfile ?? false;
-        volumeProfilePrim.updateData(visible ? (tf?.volumeProfile ?? null) : null);
+        const data = tf?.volumeProfile ?? historyVolumeProfile ?? null;
+        volumeProfilePrim.updateData(visible ? data : null);
     });
 </script>
 

@@ -246,6 +246,10 @@ impl Instance {
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            // Per-TF cluster-matrix handle (Phase 2). Empty by default;
+            // tests don't exercise cluster refresh so leaving this as
+            // None is fine.
+            cluster_matrix: Arc::new(RwLock::new(None)),
         };
         let micro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Micro);
         let fast_pipe = new_pipeline(core_domain::models::TimeframeSlot::Fast);
@@ -264,7 +268,6 @@ impl Instance {
             latest_funding: Arc::new(RwLock::new(None)),
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
-            cluster_matrix: Arc::new(RwLock::new(None)),
             latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         });
         let empty_buffers = TimeframeBuffers::new();

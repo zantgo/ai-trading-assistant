@@ -36,7 +36,7 @@
         cmoSeries.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
         cmoSeries.createPriceLine({ price: -50, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '-50' });
 
-        registerChart(chart);
+        registerChart(chart, container);
         markers = createSignalMarkers(cmoSeries);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 

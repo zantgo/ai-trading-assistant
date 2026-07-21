@@ -4,6 +4,35 @@
 
 ------
 
+## v6.4.2 (2026-07-18) — Liquidation clusters per-timeframe + cluster refresh rewiring
+
+Major change to the Liquidity Intelligence subsystem (MME Phase 2). Liquidation clusters are now computed **per-timeframe** (one matrix per `micro`/`fast`/`slow`/`macro`) instead of per-instance. Each chart in the dashboard now shows clusters at its own horizon — micro=fast-magnet, macro=slow-magnet.
+
+- **Cluster refresh per TF.** `TimeframePipeline` gains its own `cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>`. `ActivePair` no longer carries a shared cluster handle. Each TF reads its own price history (200 candles of *that* TF, not just micro) for the swing-low/high seeds, while OI/funding are still pair-level (shared at `ActivePair`).
+- **Per-TF refresh tasks.** `portfolio-supervisor/registry/pipelines.rs::spawn_tasks` now spawns **four** cluster refresh tasks (one per slot). Each runs at the TF's own candle cadence — sub-second TFs refresh at sub-second intervals, matching every other MME indicator/signal.
+- **First fire is immediate.** The 5-min delayed first tick is gone: each task computes and writes once before entering its loop, so the cluster is populated on the first completed candle of each TF.
+- **Default `cluster_refresh_secs` changed** from 300 → **0** (means "synchronize with TF candle cadence"). Operators may override with any value ≥ 1 (clamped to 1).
+- **Diagnostic logs.** Every cluster refresh tick logs its outcome: `✅ Cluster Refresh: BTC-USDT mid=50000.00 OI=$1.2M → 3 short + 5 long clusters (12ms)` (success) or `⚠️  Cluster Refresh: BTC-USDT skipped this tick: no open_interest yet (...)` (failure with reason). Errors are typed (`ClusterRefreshError::{NoSnapshotYet, InvalidMidPrice, NoOpenInterest, InsufficientHistory}`) so a missing cluster on the chart is debuggable from the logs alone.
+- **`/api/history` enrichment.** The endpoint now also returns `clusters` and `volume_profiles` maps keyed by TF slot. This gives the frontend both overlays on first-mount, before the WS broadcast has delivered a snapshot.
+- **Cross-TF L4/L5 unchanged.** `LiquiditySqueeze` preconditions (L4) and `cascade_risk` (L5) continue to consume the **micro** TF's cluster as the authoritative "fastest-magnet" signal — same semantics as v6.4.x.
+- **Sub-minute TFs supported.** New `dynamic_bin_count_handles_sub_minute_tfs` and `dynamic_bin_count_sub_minute_clamped_to_30` tests verify the volume-profile bin formula is sane for 1s/5s/15s/30s TFs. CPU impact: ~10 ms/sec for a 4-TF pair at 1s/15s/60s/900s cadences — well below any concern on a normal PC. See new `03-02-14-mme-sub-min-tf-feasibility.md`.
+
+### Documentation updates
+- `01-05-liquidity-domain.md` Phase 2 rewritten (cluster per-TF).
+- `03-02-11-mme-liquidity-extension.md` L2.5 outputs section updated.
+- `02-13-liquidation-cluster-matrix.md` adds multi-TF section.
+- New `03-02-14-mme-sub-min-tf-feasibility.md` documents Rust efficiency for sub-minute TFs.
+- `07-03-ui-chart-component-map.md` toggle table updated.
+- `AGENTS.md` runtime details updated.
+
+### Tests
+- New `cluster_refresh_per_tf.rs` (3 tests): per-TF handle isolation, per-TF history isolation, failure-modes (`NoSnapshotYet`, `NoOpenInterest`).
+- New `volume_profile::dynamic_bin_count_handles_sub_minute_tfs` and `dynamic_bin_count_sub_minute_clamped_to_30`.
+- Updated `phase0_derivatives::liquidity_config_default_is_safe` to expect `cluster_refresh_secs == 0`.
+- All 481+ pre-existing tests still pass; net delta: +5 unit tests.
+
+------
+
 ## v6.4.1 (2026-07-18) — DIE documentation-reality alignment
 
 Documentation-only correction pass syncing the DIE corpus with the shipped implementation, following the DIE feature-completeness audit (2026-07-18). Only divergences resolved *toward the code* are listed here; all other audit findings remain resolved *toward the docs* (the spec is unchanged) and are tracked as pending code work.

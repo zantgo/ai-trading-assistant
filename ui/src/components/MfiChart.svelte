@@ -32,7 +32,7 @@
         mfiSeries = chart.addSeries(LineSeries, { color: '#ab47bc', lineWidth: 1, priceLineVisible: false });
         mfiSeries.createPriceLine({ price: 80, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'OB' });
         mfiSeries.createPriceLine({ price: 20, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'OS' });
-        registerChart(chart);
+        registerChart(chart, container);
         markers = createSignalMarkers(mfiSeries);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {

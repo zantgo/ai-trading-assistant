@@ -162,4 +162,31 @@ mod tests {
         // Higher TF bonus should produce equal or higher bin count.
         assert!(macro_tf >= micro);
     }
+
+    #[test]
+    fn dynamic_bin_count_handles_sub_minute_tfs() {
+        // Sub-minute timeframes (1s, 5s, 15s, 30s). The formula must
+        // remain sane — i.e. every TF produces a bin count in [30, 120].
+        for tf_secs in [1u64, 5, 15, 30, 60, 180, 300, 900] {
+            let n = VolumeProfileSnapshot::dynamic_bin_count(
+                500.0, // $500 price range
+                0.01,  // 1-cent tick
+                tf_secs,
+            );
+            assert!(
+                (30..=120).contains(&n),
+                "TF={}s bin count {} must be in [30, 120]",
+                tf_secs,
+                n,
+            );
+        }
+    }
+
+    #[test]
+    fn dynamic_bin_count_sub_minute_clamped_to_30() {
+        // For a tight range at a 1s TF, the formula clamps to 30 bins
+        // (lower bound). The result must remain a valid usize, never 0.
+        let n = VolumeProfileSnapshot::dynamic_bin_count(0.10, 0.01, 1);
+        assert_eq!(n, 30);
+    }
 }

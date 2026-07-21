@@ -14,7 +14,7 @@ use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
 use market_analyzer::sr_engine::SrRoleTracker;
 use market_analyzer::indicators::DivergenceDetector;
-use core_domain::models::MarketSnapshot;
+use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
 use tokio_util::sync::CancellationToken;
 
@@ -99,6 +99,19 @@ pub async fn build_pipelines(
         analyzer::HIST_BUFFER_MAX,
     )));
 
+    // Per-TF cluster-matrix handles (Phase 2). Each TF pipeline gets its
+    // own handle so the 4 charts in the dashboard can show clusters at
+    // their own horizons. Populated by the cluster refresh tasks spawned
+    // below; read by `run_single` on every candle close.
+    let micro_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
+        Arc::new(RwLock::new(None));
+    let fast_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
+        Arc::new(RwLock::new(None));
+    let slow_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
+        Arc::new(RwLock::new(None));
+    let macro_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
+        Arc::new(RwLock::new(None));
+
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
         micro: analyzer::TimeframePipeline {
@@ -117,6 +130,7 @@ pub async fn build_pipelines(
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: micro_cluster_matrix.clone(),
         },
         fast: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Fast,
@@ -134,6 +148,7 @@ pub async fn build_pipelines(
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: fast_cluster_matrix.clone(),
         },
         slow: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Slow,
@@ -151,6 +166,7 @@ pub async fn build_pipelines(
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: slow_cluster_matrix.clone(),
         },
         r#macro: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Macro,
@@ -168,6 +184,7 @@ pub async fn build_pipelines(
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: macro_cluster_matrix.clone(),
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
@@ -175,7 +192,6 @@ pub async fn build_pipelines(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-        cluster_matrix: Arc::new(RwLock::new(None)),
         latency_tracker: state.latency_tracker.clone(),
     });
 
@@ -212,6 +228,10 @@ pub async fn build_pipelines(
         ctx.exchange_choice.clone(),
         ctx.quote.clone(),
         ctx.liquidity_config.clone(),
+        &micro_cluster_matrix,
+        &fast_cluster_matrix,
+        &slow_cluster_matrix,
+        &macro_cluster_matrix,
     )
     .await;
 
@@ -299,6 +319,10 @@ async fn spawn_tasks(
     exchange_choice: ExchangeChoice,
     quote: Currency,
     liquidity_config: LiquidityConfig,
+    micro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    fast_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    slow_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    macro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -493,7 +517,16 @@ async fn spawn_tasks(
         let a_latest_funding = active_pair.latest_funding.clone();
         let a_latest_mark = active_pair.latest_mark_px.clone();
         let a_latest_index = active_pair.latest_index_px.clone();
-        let a_cluster_matrix = active_pair.cluster_matrix.clone();
+        // Per-TF cluster-matrix handle (Phase 2, per-TF refactor). Each TF
+        // pipeline owns its own `Arc<RwLock<...>>` so the 4 charts in the
+        // dashboard each see the cluster at their own horizon. See
+        // `compute_cluster_for_tf` for the per-TF history lookback.
+        let a_cluster_matrix = match slot {
+            core_domain::models::TimeframeSlot::Micro => micro_cluster_matrix.clone(),
+            core_domain::models::TimeframeSlot::Fast => fast_cluster_matrix.clone(),
+            core_domain::models::TimeframeSlot::Slow => slow_cluster_matrix.clone(),
+            core_domain::models::TimeframeSlot::Macro => macro_cluster_matrix.clone(),
+        };
         let a_latency = active_pair.latency_tracker.clone();
         let a_quality = state.platform.read().await.quality.clone();
         let a_reliability = state.reliability.clone();
@@ -750,58 +783,235 @@ async fn spawn_tasks(
         );
     }
 
-    // Phase 2: Liquidation cluster-matrix refresh task. Runs every
-    // 5 minutes (configurable), computes an estimated cluster matrix
-    // from current OI + funding + price history, and writes it to the
-    // shared handle on the active pair.
+    // Phase 2: per-timeframe Liquidation cluster-matrix refresh tasks
+    // (one per TF). Each runs at the TF's own candle cadence — sub-second
+    // TFs refresh at sub-second intervals (matching the cadence of every
+    // other MME indicator/signal). The cluster matrix is **per-TF**: the
+    // micro chart shows the fastest-magnet cluster, the macro chart shows
+    // the slow-magnet cluster, with a different price-history lookback
+    // per TF (200 candles of *that* TF, not just micro).
+    //
+    // First refresh is **immediate** at startup (no 5-min delay). Each
+    // tick prints the outcome (N short + M long clusters, elapsed ms) so
+    // operators can see at a glance whether the cluster refresh is alive.
     if liquidity_config.enabled {
-        let cluster_handle = active_pair.cluster_matrix.clone();
-        let active_pair_clone = active_pair.clone();
-        let refresh_config = liquidity_config.clone();
-        let cancel_for_refresh = cancel.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-                refresh_config.cluster_refresh_secs.max(30),
-            ));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            interval.tick().await; // skip the immediate first tick
-            loop {
-                tokio::select! {
-                    biased;
-                    _ = cancel_for_refresh.cancelled() => break,
-                    _ = interval.tick() => {}
-                }
-                if let Some(m) =
-                    compute_cluster_from_active_pair(&active_pair_clone, &refresh_config).await
+        let pair_str = pair_key.to_string();
+        let per_tf_handles: Vec<(
+            TimeframeSlot,
+            &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+            u64,
+        )> = vec![
+            (TimeframeSlot::Micro, micro_cluster_matrix, micro_cfg.candles.duration_seconds),
+            (TimeframeSlot::Fast, fast_cluster_matrix, fast_cfg.candles.duration_seconds),
+            (TimeframeSlot::Slow, slow_cluster_matrix, slow_cfg.candles.duration_seconds),
+            (TimeframeSlot::Macro, macro_cluster_matrix, macro_cfg.candles.duration_seconds),
+        ];
+
+        for (slot, handle, tf_secs) in per_tf_handles {
+            // Cadence resolution:
+            //   - `cluster_refresh_secs == 0` → synchronize with TF candle cadence
+            //   - any value > 0                  → clamp(min, 60); operator override
+            // The default is 0 (== TF cadence) since v6.5; the legacy 300 s default
+            // was too long for an opt-in chart overlay that users expect to react to
+            // observed price action.
+            let configured = liquidity_config.cluster_refresh_secs;
+            let cadence_secs = if configured == 0 {
+                tf_secs.max(1)
+            } else {
+                configured.max(1)
+            };
+            println!(
+                "🌀 Cluster Refresh: {} {} started ({}s cadence, first fire immediate)",
+                pair_str,
+                slot.as_str(),
+                cadence_secs,
+            );
+            let pair_log = pair_str.clone();
+            let handle = handle.clone();
+            let active_pair_clone = active_pair.clone();
+            let refresh_config = liquidity_config.clone();
+            let cancel_for_refresh = cancel.clone();
+            tokio::spawn(async move {
+                // ── First fire: immediate (don't wait one tick) ──
+                let started = std::time::Instant::now();
+                match compute_cluster_for_tf(
+                    &active_pair_clone,
+                    slot,
+                    &refresh_config,
+                )
+                .await
                 {
-                    *cluster_handle.write().await = Some(m);
+                    Ok(matrix) => {
+                        let n_short = matrix.short_clusters.len();
+                        let n_long = matrix.long_clusters.len();
+                        let mid = matrix.mid_price;
+                        let oi = matrix.total_long_oi_usd + matrix.total_short_oi_usd;
+                        println!(
+                            "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters (first fire, {}ms)",
+                            pair_log,
+                            slot.as_str(),
+                            mid,
+                            oi,
+                            n_short,
+                            n_long,
+                            started.elapsed().as_millis(),
+                        );
+                        *handle.write().await = Some(matrix);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "⚠️  Cluster Refresh: {} {} first fire skipped: {}",
+                            pair_log,
+                            slot.as_str(),
+                            e,
+                        );
+                    }
                 }
-            }
-        });
+
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                    cadence_secs,
+                ));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = cancel_for_refresh.cancelled() => {
+                            println!(
+                                "🛑 Cluster Refresh: {} {} cancelled, shutting down.",
+                                pair_log,
+                                slot.as_str(),
+                            );
+                            break;
+                        }
+                        _ = interval.tick() => {}
+                    }
+                    let started = std::time::Instant::now();
+                    match compute_cluster_for_tf(
+                        &active_pair_clone,
+                        slot,
+                        &refresh_config,
+                    )
+                    .await
+                    {
+                        Ok(matrix) => {
+                            let n_short = matrix.short_clusters.len();
+                            let n_long = matrix.long_clusters.len();
+                            let mid = matrix.mid_price;
+                            let oi = matrix.total_long_oi_usd + matrix.total_short_oi_usd;
+                            println!(
+                                "✅ Cluster Refresh: {} {} mid={:.2} OI=${:.0} → {} short + {} long clusters ({}ms)",
+                                pair_log,
+                                slot.as_str(),
+                                mid,
+                                oi,
+                                n_short,
+                                n_long,
+                                started.elapsed().as_millis(),
+                            );
+                            *handle.write().await = Some(matrix);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "⚠️  Cluster Refresh: {} {} skipped this tick: {}",
+                                pair_log,
+                                slot.as_str(),
+                                e,
+                            );
+                        }
+                    }
+                }
+            });
+        }
     }
 }
 
-/// Compute a cluster matrix from an active pair's micro buffer (no
-/// full `Instance` needed). Used by the cluster refresh task spawned
-/// in `spawn_tasks`.
-async fn compute_cluster_from_active_pair(
+/// Discriminated failure modes for the cluster refresh task. The error
+/// variant tells the operator (or the diagnostic log) **exactly why** the
+/// cluster matrix could not be recomputed this tick, so a missing cluster
+/// on the chart is debuggable from the logs alone.
+#[derive(Debug)]
+pub enum ClusterRefreshError {
+    /// No snapshot has been produced for this TF yet (DIE → MME warm-up).
+    NoSnapshotYet,
+    /// `mid_price <= 0.0` is unphysical — usually means the snapshot's
+    /// OHLC fields are NaN or empty.
+    InvalidMidPrice(f64),
+    /// `open_interest` is missing or non-positive. The HL derivatives
+    /// poller feeds OI on a 60 s REST cadence; some symbols/perpetuals
+    /// may take a while to populate, especially against thin markets.
+    NoOpenInterest,
+    /// TF candle history has fewer than 5 bars; cluster estimation needs
+    /// swing-low/high seeds which require non-trivial history.
+    InsufficientHistory(usize),
+}
+
+impl std::fmt::Display for ClusterRefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClusterRefreshError::NoSnapshotYet => write!(
+                f,
+                "no snapshot yet (DIE → MME warm-up still in progress)"
+            ),
+            ClusterRefreshError::InvalidMidPrice(p) => {
+                write!(f, "invalid mid_price ({}); non-positive or NaN", p)
+            }
+            ClusterRefreshError::NoOpenInterest => write!(
+                f,
+                "no open_interest yet (HL derivatives poller hasn't populated this symbol)"
+            ),
+            ClusterRefreshError::InsufficientHistory(n) => write!(
+                f,
+                "insufficient history ({} bars; need ≥5 for swing-low/high seeds)",
+                n
+            ),
+        }
+    }
+}
+
+/// Compute a cluster matrix for one specific timeframe slot. Each TF sees
+/// the same OI/funding (shared at ActivePair level) but a different
+/// price-history lookback — the last 200 candles of its own TF. This gives
+/// the micro chart the fastest-magnet cluster and the macro chart the
+/// slow-magnet cluster, matching the multi-TF synthesis model.
+///
+/// `pub` (not `pub(crate)`) so the integration tests under `tests/`
+/// can drive it without instantiating the full pipeline machinery.
+pub async fn compute_cluster_for_tf(
     active_pair: &Arc<analyzer::ActivePair>,
+    slot: core_domain::models::TimeframeSlot,
     config: &config_models::LiquidityConfig,
-) -> Option<core_domain::liquidity::LiquidationClusterMatrix> {
+) -> Result<core_domain::liquidity::LiquidationClusterMatrix, ClusterRefreshError> {
     use core_domain::liquidity::{estimate_clusters, ClusterEstimateInput};
 
-    let micro = active_pair.micro.latest_snapshot.read().await.clone()?;
-    let mid = micro.mid_price.to_f64()?;
-    if mid <= 0.0 {
-        return None;
-    }
-    let funding = micro.funding_rate.and_then(|d| d.to_f64()).unwrap_or(0.0);
-    let oi = micro.open_interest.and_then(|d| d.to_f64()).unwrap_or(0.0);
+    // 1. Pull latest snapshot from the TF we are computing for.
+    let tf_snapshot = tf_latest_snapshot(active_pair, slot).await;
+    let tf_snapshot = match tf_snapshot {
+        Some(s) => s,
+        None => return Err(ClusterRefreshError::NoSnapshotYet),
+    };
+    let mid = match tf_snapshot.mid_price.to_f64() {
+        Some(p) if p > 0.0 => p,
+        Some(p) => return Err(ClusterRefreshError::InvalidMidPrice(p)),
+        None => return Err(ClusterRefreshError::InvalidMidPrice(0.0)),
+    };
+    let funding = tf_snapshot
+        .funding_rate
+        .and_then(|d| d.to_f64())
+        .unwrap_or(0.0);
+
+    // 2. Get OI from the snapshot. OI is pair-level (shared at ActivePair
+    //    level), not per-TF.
+    let oi = tf_snapshot
+        .open_interest
+        .and_then(|d| d.to_f64())
+        .unwrap_or(0.0);
     if oi <= 0.0 {
-        return None;
+        return Err(ClusterRefreshError::NoOpenInterest);
     }
 
-    let history_handle = active_pair.micro.history.read().await;
+    // 3. Build price history (last 200 candles of *this* TF, not micro).
+    let history_arc = tf_history(active_pair, slot);
+    let history_handle = history_arc.read().await;
     let price_history: Vec<f64> = history_handle
         .iter()
         .rev()
@@ -813,7 +1023,12 @@ async fn compute_cluster_from_active_pair(
         .collect();
     drop(history_handle);
 
-    let symbol = micro.symbol.clone();
+    if price_history.len() < 5 {
+        return Err(ClusterRefreshError::InsufficientHistory(price_history.len()));
+    }
+
+    // 4. Compute.
+    let symbol = tf_snapshot.symbol.clone();
     let input = ClusterEstimateInput {
         symbol: &symbol,
         mid_price: mid,
@@ -828,7 +1043,34 @@ async fn compute_cluster_from_active_pair(
         leverage_weights: &[0.05, 0.10, 0.20, 0.30, 0.20, 0.10, 0.05],
         min_cluster_notional_usd: 50_000.0,
     };
-    Some(estimate_clusters(&input))
+    Ok(estimate_clusters(&input))
+}
+
+/// Helper: read the latest snapshot from one TF slot.
+async fn tf_latest_snapshot(
+    active_pair: &Arc<analyzer::ActivePair>,
+    slot: core_domain::models::TimeframeSlot,
+) -> Option<core_domain::models::MarketSnapshot> {
+    let pipe = match slot {
+        core_domain::models::TimeframeSlot::Micro => &active_pair.micro,
+        core_domain::models::TimeframeSlot::Fast => &active_pair.fast,
+        core_domain::models::TimeframeSlot::Slow => &active_pair.slow,
+        core_domain::models::TimeframeSlot::Macro => &active_pair.r#macro,
+    };
+    pipe.latest_snapshot.read().await.clone()
+}
+
+/// Helper: get a reference to the history `VecDeque` of one TF slot.
+fn tf_history(
+    active_pair: &Arc<analyzer::ActivePair>,
+    slot: core_domain::models::TimeframeSlot,
+) -> Arc<RwLock<std::collections::VecDeque<core_domain::normalized::NormalizedCandle>>> {
+    match slot {
+        core_domain::models::TimeframeSlot::Micro => active_pair.micro.history.clone(),
+        core_domain::models::TimeframeSlot::Fast => active_pair.fast.history.clone(),
+        core_domain::models::TimeframeSlot::Slow => active_pair.slow.history.clone(),
+        core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.history.clone(),
+    }
 }
 
 fn uuid_v4_simple() -> String {

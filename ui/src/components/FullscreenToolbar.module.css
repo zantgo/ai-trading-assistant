@@ -1,0 +1,63 @@
+.toolbar {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: #131722;
+    border: 1px solid #2a2e39;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+}
+
+.screenshotBtn {
+    padding: 5px 12px;
+    border: 1px solid #2a2e39;
+    border-radius: 4px;
+    background: #1a1d26;
+    color: #cbd5e1;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.screenshotBtn:hover {
+    background: #232838;
+    color: #ffffff;
+    border-color: #64ffda;
+}
+
+.screenshotBtn:active {
+    transform: translateY(1px);
+}
+
+.closeBtn {
+    background: transparent;
+    border: 1px solid #2a2e39;
+    color: #cbd5e1;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 2px 9px;
+    line-height: 1;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    font-family: 'Courier New', monospace;
+}
+
+.closeBtn:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #ffffff;
+}
+
+.closeBtn:active {
+    transform: translateY(1px);
+}

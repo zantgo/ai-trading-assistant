@@ -74,7 +74,7 @@
             title: 'EXHAUSTION',
         });
 
-        registerChart(chart);
+        registerChart(chart, container);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 

@@ -36,7 +36,7 @@
         series = chart.addSeries(LineSeries, { color: '#ffa726', lineWidth: 1, priceLineVisible: false });
         series.createPriceLine({ price: 61.8, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'CHOP' });
         series.createPriceLine({ price: 38.2, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'TREND' });
-        registerChart(chart);
+        registerChart(chart, container);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {
             onScreenshotReady(() => {

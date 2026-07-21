@@ -28,7 +28,7 @@
             timeScale: { borderColor: '#2a2e39', visible: false },
         });
         hvSeries = chart.addSeries(LineSeries, { color: '#ff7043', lineWidth: 1, priceLineVisible: false });
-        registerChart(chart);
+        registerChart(chart, container);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {
             onScreenshotReady(() => {

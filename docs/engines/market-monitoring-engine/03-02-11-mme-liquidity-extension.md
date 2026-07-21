@@ -38,21 +38,33 @@ the strict L4 / L5 orthogonality invariant.
 ### L2.5: Liquidity Synthesis
 
 **Inputs:**
-- L1.5 state: OI, funding, mark, index prices
-- L1 state: history (last 200 micro candle closes)
+- L1.5 state: OI, funding, mark, index prices (pair-level, shared)
+- L1 state: last 200 candle closes **of the specific TF being computed**
+  (micro history for the micro TF, fast history for fast, etc. — swing
+  detection windows reflect the TF's own horizon)
 - Configuration: leverage distribution assumption, maintenance
   margin rate, funding extreme threshold, refresh cadence
 
-**Outputs:**
-- `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>`
-  (5-min refreshed)
-- `MarketSnapshot.liquidity_signals: Vec<LiquiditySignal>`
-  (per-snapshot, derived from L1 + L2.5 outputs)
+**Outputs (since v6.4.2 — per-timeframe):**
+- `MarketSnapshot.cluster: Option<LiquidationClusterMatrix>` — **per-TF**
+  (one matrix per micro/fast/slow/macro; the WS frame for each slot
+  carries that TF's matrix, not a shared one)
+- `MarketSnapshot.liquidity_signals: Vec<LiquiditySignal>` — **per-TF**
+  (computed from this TF's `liquidity` + this TF's `cluster` + funding)
 
 **Producer/consumer contract:**
-- Writes: `RwLock<Option<LiquidationClusterMatrix>>` on ActivePair.
-- Reads: `latest_oi`, `latest_funding`, `micro.history` (all shared
-  state on the ActivePair).
+- Writes: 4 separate `Arc<RwLock<Option<LiquidationClusterMatrix>>>`
+  handles on `TimeframePipeline` (one per slot). Previously (≤ v6.4)
+  was a single shared handle on `ActivePair`.
+- Reads: `latest_oi`, `latest_funding`, `mark/index`, and `this TF's
+  history` (all shared at ActivePair level except `history` which is
+  read from the per-TF pipeline).
+
+**Refresh cadence (since v6.4.2):** Each TF's cluster refresh task runs
+at the TF's `timeframe_secs` cadence (matches every other MME
+indicator/signal — sub-second TFs refresh at sub-second intervals).
+First fire is immediate at spawn (no 5-min delay). Operator override:
+`config.toml [liquidity] cluster_refresh_secs > 0` clamps to ≥ 1 s.
 
 ## Strict architecture invariants
 

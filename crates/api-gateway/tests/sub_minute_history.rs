@@ -76,6 +76,7 @@ async fn build_router_with_snapshots(
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
+        cluster_matrix: Arc::new(RwLock::new(None)),
     };
 
     let active_pair = Arc::new(ActivePair {
@@ -93,7 +94,6 @@ async fn build_router_with_snapshots(
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-        cluster_matrix: Arc::new(RwLock::new(None)),
         latency_tracker: Arc::new(Default::default()),
     });
 

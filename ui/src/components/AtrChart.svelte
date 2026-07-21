@@ -54,7 +54,7 @@
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
 
-        registerChart(chart);
+        registerChart(chart, container);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 

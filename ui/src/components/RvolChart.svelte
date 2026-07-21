@@ -81,7 +81,7 @@
             title: 'INSTITUTIONAL (1.5)',
         });
 
-        registerChart(chart);
+        registerChart(chart, container);
 
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 

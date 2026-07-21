@@ -31,7 +31,7 @@
         series.createPriceLine({ price: 2, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '+2' });
         series.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
         series.createPriceLine({ price: -2, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '-2' });
-        registerChart(chart);
+        registerChart(chart, container);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {
             onScreenshotReady(() => {

@@ -164,7 +164,6 @@ async fn test_websocket_stream_with_active_pair() {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-        cluster_matrix: Arc::new(RwLock::new(None)),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         micro: TimeframePipeline {
             slot: TimeframeSlot::Micro,
@@ -182,6 +181,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
         },
         fast: TimeframePipeline {
             slot: TimeframeSlot::Fast,
@@ -199,6 +199,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
         },
         slow: TimeframePipeline {
             slot: TimeframeSlot::Slow,
@@ -216,6 +217,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
         },
         r#macro: TimeframePipeline {
             slot: TimeframeSlot::Macro,
@@ -233,6 +235,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_mark_px: Arc::new(RwLock::new(None)),
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
+            cluster_matrix: Arc::new(RwLock::new(None)),
         },
         snapshot_tx,
         cancel,

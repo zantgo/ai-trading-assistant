@@ -39,7 +39,7 @@
         downSeries = chart.addSeries(LineSeries, { color: '#ef5350', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
         upSeries.createPriceLine({ price: 70, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Dotted });
         downSeries.createPriceLine({ price: 30, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Dotted });
-        registerChart(chart);
+        registerChart(chart, container);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {
             onScreenshotReady(() => {

@@ -102,6 +102,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
+        cluster_matrix: Arc::new(RwLock::new(None)),
     };
 
     let pair = Arc::new(ActivePair {
@@ -110,7 +111,6 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_funding: Arc::new(RwLock::new(None)),
         latest_mark_px: Arc::new(RwLock::new(None)),
         latest_index_px: Arc::new(RwLock::new(None)),
-        cluster_matrix: Arc::new(RwLock::new(None)),
         latency_tracker: Arc::new(core_domain::LatencyTracker::default()),
         micro: new_pipe(60, "Micro", core_domain::models::TimeframeSlot::Micro, mid_bcast.clone()),
         fast: new_pipe(180, "Fast", core_domain::models::TimeframeSlot::Fast, fast_bcast.clone()),

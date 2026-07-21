@@ -109,7 +109,7 @@ docs/
     └── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
 ```
 
-Total: **141 markdown files** at v6.4.1 — 138 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 17 matrix + **35 engine** (6 DIE + 13 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **13 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer).
+Total: **142 markdown files** at v6.4.2 — 139 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 17 matrix + **36 engine** (6 DIE + 14 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **14 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility).
 
 ## The Five Engines
 

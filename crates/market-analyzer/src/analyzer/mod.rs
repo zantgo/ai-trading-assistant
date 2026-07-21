@@ -63,6 +63,12 @@ pub struct TimeframePipeline {
     pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
     /// Active indicator/signal activation set (from config).
     pub active_set: crate::active_set::ActiveSet,
+    /// Latest LiquidationClusterMatrix **per-timeframe** (Phase 2). Updated
+    /// by the per-TF cluster refresh task at the TF's own candle cadence.
+    /// The analyzer reads this and attaches it to each completed snapshot
+    /// as `MarketSnapshot.cluster`, so every TF chart in the dashboard
+    /// shows clusters at its own horizon (micro=fast-magnet, macro=slow-magnet).
+    pub cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
 }
 
 pub struct ActivePair {
@@ -81,10 +87,6 @@ pub struct ActivePair {
     pub latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     /// Latest Index Price (shared across all timeframes).
     pub latest_index_px: Arc<RwLock<Option<Decimal>>>,
-    /// Latest LiquidationClusterMatrix (Phase 2). Updated by the
-    /// `cluster_refresh` task every 5 minutes. The analyzer reads this
-    /// when building each completed snapshot.
-    pub cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     /// Cross-cutting latency telemetry (ingest skew, observation loop,
     /// heartbeat) for the DIE observation path.
     pub latency_tracker: core_domain::SharedLatencyTracker,
@@ -399,6 +401,11 @@ pub async fn run_single(
     latest_funding: Arc<RwLock<Option<Decimal>>>,
     latest_mark_px: Arc<RwLock<Option<Decimal>>>,
     latest_index_px: Arc<RwLock<Option<Decimal>>>,
+    // Per-timeframe cluster-matrix handle (Phase 2). Each TF pipeline
+    // owns its own `Arc<RwLock<...>>`, populated by the per-TF cluster
+    // refresh task spawned in `registry/pipelines.rs::spawn_tasks`.
+    // Distinct from the cross-instance shared state used by L4/L5, which
+    // reads the micro TF's cluster.
     cluster_matrix: Arc<RwLock<Option<LiquidationClusterMatrix>>>,
     ob_config: OrderBookConfig,
     cross_tf_snapshot_a: Arc<RwLock<Option<MarketSnapshot>>>,

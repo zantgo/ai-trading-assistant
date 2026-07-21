@@ -9,8 +9,16 @@
 // have limited historical data but the WS stream fills them organically,
 // and indicator values appear as each indicator chain warms from its
 // lookback window.
+//
+// v6.5.0: the response now also carries per-TF `clusters` and
+// `volumeProfiles` maps so the chart overlays (LIQ HEATMAP, VOL PROFILE)
+// render on first-mount — before the WS stream has delivered a snapshot.
 
 import type { Time } from 'lightweight-charts';
+import type {
+    LiquidationClusterMatrix,
+    VolumeProfileSnapshot,
+} from '../types';
 
 export interface HistoryCandle {
     time: number;
@@ -49,6 +57,12 @@ export interface HistoryResponse {
     prices: string[];
     candles: HistoryCandle[];
     indicatorHistory: FlatIndicatorHistory | null;
+    /// v6.5: per-TF cluster matrices keyed by slot (`micro`/`fast`/`slow`/`macro`).
+    /// `PriceChart` reads `clusters?.[slot]` if `tf.cluster` is not yet populated
+    /// by the WS stream.
+    clusters?: Partial<Record<string, LiquidationClusterMatrix>>;
+    /// v6.5: per-TF volume profile snapshots keyed by slot.
+    volumeProfiles?: Partial<Record<string, VolumeProfileSnapshot>>;
 }
 
 interface RawHistoryIndicator {
@@ -67,6 +81,8 @@ interface RawResponse {
     prices?: string[];
     candles?: HistoryCandle[];
     indicator_history?: RawHistory | null;
+    clusters?: Partial<Record<string, LiquidationClusterMatrix>>;
+    volume_profiles?: Partial<Record<string, VolumeProfileSnapshot>>;
 }
 
 function toStr(arr: Array<number | null>): Array<string | null> {
@@ -129,6 +145,8 @@ export function fetchChartHistoryOnce(
                 prices: data.prices ?? [],
                 candles: data.candles ?? [],
                 indicatorHistory: data.indicator_history ? flattenRaw(data.indicator_history) : null,
+                clusters: data.clusters ?? {},
+                volumeProfiles: data.volume_profiles ?? {},
             };
         } catch (err) {
             console.error('chartHistory fetch failed', err);
@@ -150,16 +168,12 @@ export function dedupSortByTime<T extends TimeKeyed>(items: T[]): T[] {
     const seen = new Set<number>();
     const out: T[] = [];
     for (const it of items) {
-        const t = typeof it.time === 'number' ? it.time : Number(it.time);
+        const t = typeof it.time === 'number' ? Number(it.time) : Number(it.time);
         if (!Number.isFinite(t) || t === 0 || seen.has(t)) continue;
         seen.add(t);
         out.push(it);
     }
-    out.sort((a, b) => {
-        const ta = typeof a.time === 'number' ? a.time : Number(a.time);
-        const tb = typeof b.time === 'number' ? b.time : Number(b.time);
-        return ta - tb;
-    });
+    out.sort((a, b) => (a.time as number) - (b.time as number));
     return out;
 }
 

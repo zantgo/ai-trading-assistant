@@ -38,7 +38,7 @@
         kSeries.createPriceLine({ price: 20, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'OS' });
         markers = createSignalMarkers(kSeries);
 
-        registerChart(chart);
+        registerChart(chart, container);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
 
         if (onScreenshotReady) {

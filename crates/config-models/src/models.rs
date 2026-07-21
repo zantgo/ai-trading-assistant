@@ -1108,7 +1108,14 @@ fn default_liquidation_bucket_retention_days() -> u32 {
     7
 }
 fn default_cluster_refresh_secs() -> u64 {
-    300
+    // v6.5: each TF's cluster refresh now runs at its own candle cadence
+    // (matching every other MME indicator/signal). The serialized default
+    // is 0, which the cluster refresh task interprets as
+    // "synchronize with the TF's `timeframe_secs`". Operators may
+    // override with any value ≥ 1 (clamped to 1) — values between 60 s
+    // and the TF cadence are also useful for high-TF operators who
+    // want a much higher refresh rate than the candle cadence itself.
+    0
 }
 fn default_maintenance_margin_rate() -> f64 {
     0.005

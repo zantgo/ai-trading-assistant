@@ -1,5 +1,5 @@
 mod bootstrap;
-mod pipelines;
+pub mod pipelines;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;

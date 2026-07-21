@@ -33,7 +33,7 @@
         cmfSeries.createPriceLine({ price: 0.2, color: '#e74c3c', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '+.2' });
         cmfSeries.createPriceLine({ price: 0, color: '#4c525e', lineWidth: 1, lineStyle: LineStyle.Solid });
         cmfSeries.createPriceLine({ price: -0.2, color: '#2ecc71', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '-.2' });
-        registerChart(chart);
+        registerChart(chart, container);
         markers = createSignalMarkers(cmfSeries);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {

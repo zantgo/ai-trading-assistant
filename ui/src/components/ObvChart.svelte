@@ -30,7 +30,7 @@
             timeScale: { borderColor: '#2a2e39', visible: false },
         });
         obvSeries = chart.addSeries(LineSeries, { color: '#bfc1c8', lineWidth: 1, priceLineVisible: false });
-        registerChart(chart);
+        registerChart(chart, container);
         markers = createSignalMarkers(obvSeries);
         if (onDoubleClick) chart.subscribeDblClick(onDoubleClick);
         if (onScreenshotReady) {

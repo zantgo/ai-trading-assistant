@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
+    import FullscreenToolbar from './FullscreenToolbar.svelte';
     import PriceChart from './PriceChart.svelte';
     import VolumeChart from './VolumeChart.svelte';
     import RvolChart from './RvolChart.svelte';
@@ -31,6 +32,10 @@
         app.closeFullscreenChart();
         triggerScreenshot = null;
     }
+
+    function handleScreenshot() {
+        if (triggerScreenshot) triggerScreenshot();
+    }
 </script>
 
 {#if app.fullscreenChart !== null}
@@ -57,5 +62,6 @@
                 <AtrChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {/if}
         </div>
+        <FullscreenToolbar onScreenshot={handleScreenshot} onClose={handleClose} />
     </div>
 {/if}
