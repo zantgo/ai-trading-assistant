@@ -324,13 +324,16 @@
     // Volume profile — toggle visibility + data feeding.
     // v6.5 fallback chain: prefer WS-populated tf.volumeProfile; fall back to
     // history-sourced historyVolumeProfile when WS hasn't delivered yet.
-    // Dependencies are read BEFORE the primitive-guard so they stay tracked
-    // across mount (see note on the EMA effect above).
+    // Visibility is handled separately via `setVisible()` so the snapshot
+    // is preserved across toggle flips — flipping the pill on never causes
+    // a transient null state, which would otherwise race with the WS push
+    // cadence (only completed snapshots carry volume_profile).
     $effect(() => {
         const visible = tf?.showVolumeProfile ?? false;
         const data = tf?.volumeProfile ?? historyVolumeProfile ?? null;
         if (!volumeProfilePrim) return;
-        volumeProfilePrim.updateData(visible ? data : null);
+        volumeProfilePrim.setVisible(visible);
+        volumeProfilePrim.updateData(data);
     });
 </script>
 

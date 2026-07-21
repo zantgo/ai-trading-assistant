@@ -17,42 +17,140 @@ const NON_VA_COLOR = 'rgba(160, 160, 160, 0.35)';
 const BUY_COLOR = 'rgba(38, 166, 154, 0.85)';
 const SELL_COLOR = 'rgba(239, 83, 80, 0.85)';
 
+const DEBUG_TAG = '[VP]';
+
+function dbg(...args: unknown[]): void {
+    if (typeof console !== 'undefined' && (globalThis as any).__VP_DEBUG__) {
+        console.log(DEBUG_TAG, ...args);
+    }
+}
+
 /**
- * Renders a volume profile on the right edge of the chart as a horizontal
- * histogram with stacked buy/sell split per bin. Anchored to the candle
- * series price scale via `priceToCoordinate()`.
+ * Renders a volume profile on the right edge of the candle pane as a
+ * horizontal histogram with stacked buy/sell split per bin. Anchored to
+ * the candle-series price scale via `priceToCoordinate()`.
  *
  * Style follows TradingView's default Volume Profile:
- * - Bars are drawn over the rightmost ~12% of the visible chart area.
- * - Per bin: top half is buy volume (green), bottom half is sell volume (red).
+ * - Bars are drawn over the rightmost ~12% of the candle pane (i.e. the
+ *   canvas width *minus* the right price-scale column, so the bars never
+ *   fall behind the price-scale overlay).
+ * - Per bin: top half is buy volume (green), bottom half is sell volume
+ *   (red).
  * - Bar length = `bin.volume / max(bins.volume)` * usable_width.
  * - POC bin: bright yellow border, thicker bar, light yellow fill.
  * - Value-area bins: cyan tint; bins outside value area: grey tint.
+ *
+ * The snapshot is stored regardless of visibility — the toggle gates the
+ * drawing in `paneViews()`/`renderer()` so that flipping the toggle on/off
+ * is just a paint change, not a data-loss one. This avoids the
+ * race between the toggle-effect and the WS-completed-snapshot effect.
  */
 export class VolumeProfilePrimitive implements ISeriesPrimitiveBase<SeriesAttachedParameter<Time, 'Candlestick'>> {
     private _chart: IChartApi;
     private _candleSeries: ISeriesApi<'Candlestick'>;
     private _snapshot: VolumeProfileSnapshot | null = null;
     private _requestUpdate?: () => void;
-    /// Fraction of the right edge reserved for the histogram.
+    private _visible: boolean = false;
+    /// Fraction of the **pane** width reserved for the histogram.
     private static readonly RIGHT_EDGE_FRACTION = 0.12;
     /// Minimum bar width in pixels (for legibility).
     private static readonly MIN_BAR_PX = 2;
     /// Minimum bin thickness in pixels (collapse to single color if smaller).
     private static readonly MIN_BIN_THICKNESS_PX = 4;
+    /// Fallback price-scale width when `chart.priceScale('right').width()`
+    /// returns 0 (price scale hidden / not yet laid out). v5 default price
+    /// scale width is ~60 px on a typical layout.
+    private static readonly PRICE_SCALE_WIDTH_FALLBACK_PX = 60;
+    /// Cached pane right edge width measurement (price-scale column width).
+    /// Populated lazily on first successful render, so we don't query
+    /// `chart.priceScale('right').width()` on every frame.
+    private _cachedPriceScaleWidth: number | null = null;
 
     constructor(chart: IChartApi, candleSeries: ISeriesApi<'Candlestick'>) {
         this._chart = chart;
         this._candleSeries = candleSeries;
     }
 
+    /// Returns the right-edge x-coordinate of the candle pane (i.e. the
+    /// canvas width minus the right price-scale column). `useMediaCoordinateSpace`
+    /// hands the primitive the full canvas width, which includes the
+    /// price-scale column; bars drawn at `rightX = width` end up *behind*
+    /// the price-scale overlay and silently vanish. Anchoring against the
+    /// price-scale width keeps the histogram inside the visible pane.
+    private _paneRightX(width: number): number {
+        let psWidth = 0;
+        try {
+            psWidth = this._chart.priceScale('right').width();
+        } catch (_) {
+            psWidth = 0;
+        }
+        if (!Number.isFinite(psWidth) || psWidth <= 0) {
+            // Use the cached value from a previous successful query, if
+            // recent enough. Otherwise fall back to a sensible default.
+            if (this._cachedPriceScaleWidth != null && this._cachedPriceScaleWidth > 0) {
+                psWidth = this._cachedPriceScaleWidth;
+            } else {
+                psWidth = VolumeProfilePrimitive.PRICE_SCALE_WIDTH_FALLBACK_PX;
+            }
+        } else {
+            this._cachedPriceScaleWidth = psWidth;
+        }
+        // Sanity: never let the deduced width exceed half the canvas. If
+        // the API ever returns a bogus giant value we'd render bars in the
+        // price-scale column instead of behind it; clamp it.
+        const cap = Math.max(VolumeProfilePrimitive.PRICE_SCALE_WIDTH_FALLBACK_PX, width / 2);
+        if (psWidth > cap) psWidth = VolumeProfilePrimitive.PRICE_SCALE_WIDTH_FALLBACK_PX;
+        return Math.max(0, width - psWidth);
+    }
+
+    /// Store the latest snapshot. The chart is asked to redraw via the
+    /// `requestUpdate` callback set up in `attached()`. If the callback
+    /// hasn't been set yet (first `updateData` before `attached` fires),
+    /// a timeout-based fallback is used so the snapshot isn't permanently
+    /// orphaned until the next chart redraw.
     updateData(snapshot: VolumeProfileSnapshot | null | undefined) {
         this._snapshot = snapshot ?? null;
-        this._requestUpdate?.();
+        if (this._requestUpdate) {
+            this._requestUpdate();
+            dbg('updateData: bins=', this._snapshot?.bins.length ?? 0, 'visible=', this._visible);
+        } else {
+            dbg('updateData: queued (no _requestUpdate yet) bins=', this._snapshot?.bins.length ?? 0);
+            // Defer one rAF and try again — the chart's attached() callback
+            // will set _requestUpdate on its next render tick.
+            requestAnimationFrame(() => {
+                if (this._requestUpdate) {
+                    this._requestUpdate();
+                    dbg('updateData: deferred dispatch bins=', this._snapshot?.bins.length ?? 0);
+                }
+            });
+        }
+    }
+
+    /// Toggle whether the volume profile should be drawn. Decoupled from
+    /// `updateData` so that visibility flips don't cause the chart to lose
+    /// its data while waiting for the next WS push.
+    setVisible(visible: boolean): void {
+        const next = !!visible;
+        if (next === this._visible) return;
+        this._visible = next;
+        if (this._requestUpdate) {
+            this._requestUpdate();
+        } else {
+            requestAnimationFrame(() => {
+                if (this._requestUpdate) this._requestUpdate();
+            });
+        }
+        dbg('setVisible(', next, ') snapshot.bins=', this._snapshot?.bins.length ?? 0);
     }
 
     attached(param: SeriesAttachedParameter<Time, 'Candlestick'>): void {
         this._requestUpdate = param.requestUpdate;
+        // If we received data before attached() fired, request a redraw now
+        // so the freshly-attached primitive renders the queued snapshot.
+        if (this._snapshot && this._snapshot.bins.length > 0) {
+            this._requestUpdate();
+            dbg('attached: flushed queued snapshot, bins=', this._snapshot.bins.length);
+        }
     }
 
     detached(): void {
@@ -63,6 +161,7 @@ export class VolumeProfilePrimitive implements ISeriesPrimitiveBase<SeriesAttach
         const self = this;
         return [{
             renderer(): IPrimitivePaneRenderer | null {
+                if (!self._visible) return null;
                 if (!self._snapshot || self._snapshot.bins.length === 0) return null;
                 try {
                     if (!self._chart.timeScale().getVisibleLogicalRange()) return null;
@@ -94,10 +193,24 @@ export class VolumeProfilePrimitive implements ISeriesPrimitiveBase<SeriesAttach
         if (!snap || snap.bins.length === 0) return;
 
         target.useMediaCoordinateSpace(({ context: ctx, mediaSize: { width, height } }) => {
-            if (width <= 0 || height <= 0) return;
+            if (width <= 0 || height <= 0) {
+                dbg('_render: zero size width=', width, 'height=', height);
+                return;
+            }
 
-            const usableWidth = Math.max(VolumeProfilePrimitive.MIN_BAR_PX, width * VolumeProfilePrimitive.RIGHT_EDGE_FRACTION);
-            const rightX = width;
+            // Anchor to the candle-pane right edge (canvas width minus the
+            // right price-scale column) so the bars never fall behind the
+            // price-scale overlay.
+            const rightX = this._paneRightX(width);
+            const paneWidth = rightX;
+            if (paneWidth <= 0) {
+                dbg('_render: paneWidth=0 rightX=', rightX, 'width=', width);
+                return;
+            }
+            const usableWidth = Math.max(
+                VolumeProfilePrimitive.MIN_BAR_PX,
+                paneWidth * VolumeProfilePrimitive.RIGHT_EDGE_FRACTION,
+            );
             const leftX = Math.floor(rightX - usableWidth);
 
             // Find max volume to normalize bar lengths.
@@ -107,6 +220,9 @@ export class VolumeProfilePrimitive implements ISeriesPrimitiveBase<SeriesAttach
             }
             if (maxVol <= 0) return;
 
+            dbg('_render: width=', width, 'rightX=', rightX, 'bins=', snap.bins.length, 'maxVol=', maxVol);
+
+            let binsDrawn = 0;
             // Draw each bin (sorted ascending by price_low).
             for (const bin of snap.bins) {
                 const yHigh = this._safePriceToCoordinate(bin.price_high);
@@ -170,6 +286,7 @@ export class VolumeProfilePrimitive implements ISeriesPrimitiveBase<SeriesAttach
                     ctx.lineWidth = barBorderWidth;
                     ctx.strokeRect(barLeft, topY, barRight - barLeft, thickness);
                 }
+                binsDrawn++;
             }
 
             // Draw POC label outside the chart if there's room.
@@ -203,6 +320,8 @@ export class VolumeProfilePrimitive implements ISeriesPrimitiveBase<SeriesAttach
                     ctx.fillText('VAL', rightX - 4, yVal + 1);
                 }
             }
+
+            dbg('_rendered bins=', binsDrawn);
         });
     }
 }
