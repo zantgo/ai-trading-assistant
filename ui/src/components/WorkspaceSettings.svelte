@@ -4,6 +4,7 @@
     import type { InstanceState, PositionScalingConfig, TimeframeTelemetry } from '../types';
     import { TIMEFRAME_OPTIONS } from '../types';
     import { applyTimeframeConfig } from '../lib/timeframeConfig';
+    import { clearHistoryCache } from '../lib/chartHistory';
     import styles from './WorkspaceSettings.module.css';
 
     let { pair, tabKey }: { pair: InstanceState; tabKey: string } = $props();
@@ -276,6 +277,9 @@
                 // Force WS reconnect so each connection's URL carries the
                 // new `timeframe_secs` value matching the recharged pipeline.
                 app.bumpWsVersion();
+                // Drop the cached `/api/history?…&timeframe_secs=<old>` so the
+                // next PriceChart mount refetches for the new timeframe_secs.
+                clearHistoryCache();
                 saveStatus = 'success';
                 setTimeout(() => { saveStatus = 'idle'; }, 2000);
             } else {

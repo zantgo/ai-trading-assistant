@@ -89,7 +89,23 @@ impl VolumeProfile {
         self.compute()
     }
 
-    fn compute(&self) -> Option<VolumeProfileOutput> {
+    /// Compute POC/VAH/VAL summary with the strict default `window_size / 2`
+    /// gate. Returns `None` if the indicator hasn't accumulated enough bars or
+    /// the window has zero volume / zero price range.
+    pub fn compute(&self) -> Option<VolumeProfileOutput> {
+        self.compute_with_min_bars(self.window_size / 2)
+    }
+
+    /// Lower the strict `window_size / 2` gate to `min_bars` (used by the
+    /// seeded warm-up path; see `compute_bins_with_min_bars`).
+    pub fn compute_with_min_bars(&self, min_bars: usize) -> Option<VolumeProfileOutput> {
+        if self.bars.len() < min_bars {
+            return None;
+        }
+        self.compute_inner()
+    }
+
+    fn compute_inner(&self) -> Option<VolumeProfileOutput> {
         let n = self.bars.len();
         if n == 0 {
             return None;
@@ -225,7 +241,18 @@ impl VolumeProfile {
     /// Compute the full bin distribution with buy/sell split per bin.
     /// Returns `None` if the window is not yet half full.
     pub fn compute_bins(&self) -> Option<Vec<BinAggregate>> {
-        if self.bars.len() < self.window_size / 2 {
+        self.compute_bins_with_min_bars(self.window_size / 2)
+    }
+
+    /// Lower the strict `window_size / 2` gate to `min_bars` so the seeded
+    /// (warm-up) path can produce a bin distribution with whatever depth the
+    /// exchange actually delivers — sub-minute TFs return 26 / 51 bars from
+    /// the venue, well below `window_size / 2 = 250`, but we still want the
+    /// dashboard to show *something* on first mount for parity with every
+    /// other indicator. The live per-candle path continues to use the strict
+    /// default via `compute_bins()` above.
+    pub fn compute_bins_with_min_bars(&self, min_bars: usize) -> Option<Vec<BinAggregate>> {
+        if self.bars.len() < min_bars {
             return None;
         }
         if self.bars.is_empty() {

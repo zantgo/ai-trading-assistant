@@ -1138,12 +1138,23 @@ pub async fn run_single(
                     );
 
                     // Build the bin-level VolumeProfileSnapshot for chart rendering.
+                    // Live path uses the same soft floor (25 bars) as the
+                    // seeded warm-up path — otherwise sub-minute TFs would
+                    // see a 1–2 hour gap (250 bars × 15 s / 30 s) where no
+                    // profile paints at all, since the venue-capped warm-up
+                    // (26 / 51 bars) never gets to the strict gate itself.
+                    let live_reading: Option<crate::indicators::VolumeProfileOutput> =
+                        if volume_profile_reading.is_some() {
+                            volume_profile_reading.clone()
+                        } else {
+                            volume_profile_indicator.compute_with_min_bars(25)
+                        };
                     let volume_profile_snapshot = build_volume_profile_snapshot(
                         &symbol,
                         slot,
                         timeframe_secs,
-                        &volume_profile_reading,
-                        volume_profile_indicator.compute_bins().as_ref(),
+                        &live_reading,
+                        volume_profile_indicator.compute_bins_with_min_bars(25).as_ref(),
                         completed.start_time_ms,
                     );
                     let smc_reading = smc_indicator.update(
@@ -2277,14 +2288,19 @@ pub(crate) fn update_sr_levels(
 }
 
 /// Build a `VolumeProfileSnapshot` from the indicator output and the bin-level
-/// aggregates returned by `VolumeProfile::compute_bins()`. Returns `None` when
-/// the indicator has not yet accumulated enough bars to produce a profile.
+/// aggregates returned by `VolumeProfile::compute_bins()` (and the matching
+/// reading from `compute()`). Returns `None` when the indicator has not yet
+/// accumulated enough bars to produce a profile. The strict `window_size / 2`
+/// gate lives inside `VolumeProfile::{compute, compute_bins}`; the seeded
+/// (warm-up) path bypasses it via the `*_with_min_bars(25)` variants so
+/// sub-minute TFs still produce a profile from whatever history the venue
+/// actually delivered (typically 26–51 bars for 15 s / 30 s).
 ///
 /// `pub(super)` because both the live per-candle path (in this module) and the
-/// warm-up per-candle path (in `super::warm`) need to build snapshots from the
-/// same source-of-truth function, so warm-up snapshots stay in full parity with
-/// live snapshots and `/api/history` returns the bin-level profile on first mount
-/// without waiting for the first live candle close.
+/// warm-up per-candle path (in `super::warm`) build snapshots from the same
+/// source-of-truth function, so warm-up snapshots stay in full parity with
+/// live snapshots and `/api/history` returns the bin-level profile on first
+/// mount without waiting for the first live candle close.
 pub(super) fn build_volume_profile_snapshot(
     symbol: &str,
     slot: TimeframeSlot,

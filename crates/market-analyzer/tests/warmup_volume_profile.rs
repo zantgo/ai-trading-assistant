@@ -147,30 +147,32 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         "warmup should produce at least one snapshot",
     );
 
-    // Pre-gate snapshots should still be None — matches live behaviour when
-    // the indicator hasn't yet accumulated enough bars.
-    let pre_gate_nones = warmed
+    // The seeded path uses a soft floor of 25 bars (so sub-minute TFs paint
+    // a profile on first mount). Pre-floor snapshots should still be None.
+    let pre_floor_nones = warmed
         .snapshot_history
         .iter()
-        .take(249)
+        .take(24)
         .filter(|s| s.volume_profile.is_none())
         .count();
     assert!(
-        pre_gate_nones >= 248,
-        "expected the first ~249 warm-up snapshots to have volume_profile:None (got {}/249)",
-        pre_gate_nones,
+        pre_floor_nones >= 23,
+        "expected the first ~24 warm-up snapshots to have volume_profile:None under soft floor (got {}/24)",
+        pre_floor_nones,
     );
 
-    // From the 250th snapshot onward the bin-level snapshot must be present.
-    let post_gate_snapshots: Vec<_> = warmed
+    // From the 25th snapshot onward (under the soft seeded floor) the bin-level
+    // snapshot must be present. The LIVE per-candle path keeps the strict
+    // `window_size / 2 = 250` gate; only the warm-up path softens it.
+    let post_floor_snapshots: Vec<_> = warmed
         .snapshot_history
         .iter()
-        .skip(249)
+        .skip(24)
         .filter(|s| s.volume_profile.is_some())
         .collect();
     assert!(
-        !post_gate_snapshots.is_empty(),
-        "no warm-up snapshots past the gate carried volume_profile",
+        !post_floor_snapshots.is_empty(),
+        "no warm-up snapshots past the soft-floor carried volume_profile",
     );
 
     // Last snapshot must have the bin-level profile (this is what /api/history reads).
@@ -246,4 +248,88 @@ fn warmup_sub_minute_timeframes_also_populate() {
     assert!(!last_vp.bins.is_empty());
     assert_eq!(last_vp.timeframe_secs, 5);
     assert_eq!(last_vp.timeframe_slot, "micro");
+}
+
+/// Seeded path soft floor (`min_bars = 25`): volume-profile must render as
+/// soon as the warm-up reaches 25 candles, regardless of the strict
+/// `window_size / 2 = 250` gate enforced by the live path. This is what lets
+/// sub-minute TFs (where the venue caps history at 26–51 bars) paint a bin
+/// distribution on first mount for parity with every other indicator.
+#[test]
+fn seeded_volume_profile_clears_at_25_bars() {
+    let candles = synth_candles(40, 15); // 40 × 15 s = 10 min warm-up
+    let cfg = make_test_config(500, 50);
+
+    let warmed = market_analyzer::analyzer::warm::warm_indicators_for_timeframe(
+        candles,
+        &cfg,
+        &fib_config(),
+        "BTC-USDC",
+        15,
+        core_domain::models::TimeframeSlot::Micro,
+    );
+
+    let populated: Vec<_> = warmed
+        .snapshot_history
+        .iter()
+        .filter(|s| s.volume_profile.is_some())
+        .collect();
+    assert!(
+        !populated.is_empty(),
+        "seeded path should populate volume_profile from bar 25 onward",
+    );
+    // The last snapshot must be the most recent and must have bins.
+    let last_vp = warmed
+        .snapshot_history
+        .last()
+        .and_then(|s| s.volume_profile.as_ref())
+        .expect("last warm-up snapshot must carry volume_profile after 40-bar seed");
+    assert!(
+        !last_vp.bins.is_empty(),
+        "bins array must be non-empty for the chart primitive to render anything",
+    );
+    assert!(
+        last_vp.range_high > last_vp.range_low,
+        "range must span the seeded bar window",
+    );
+}
+
+/// Live gate remains strict at `window_size / 2 = 250` — even though the
+/// seeded path softens this for warm-up, the live per-candle path must keep
+/// the full half-window gate so we never represent an under-filled live
+/// window as a real profile.
+#[test]
+fn volume_profile_indicator_keeps_strict_live_gate() {
+    use market_analyzer::indicators::VolumeProfile;
+    let mut vp = VolumeProfile::new(500, 50, 0.7);
+    let mut last_reading = None;
+    for i in 0..249 {
+        last_reading = vp.update_with_open(
+            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
+            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
+            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
+            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
+            Decimal::from_f64_retain(1.0).unwrap(),
+        );
+    }
+    assert!(
+        last_reading.is_none(),
+        "live `update_with_open` must reject bars below window_size/2 (got Some at 249 bars)",
+    );
+    assert!(
+        vp.compute().is_none(),
+        "live `compute` must reject bars below window_size/2 (got Some at 249 bars)",
+    );
+    assert!(
+        vp.compute_bins().is_none(),
+        "live `compute_bins` must reject bars below window_size/2 (got Some at 249 bars)",
+    );
+
+    // Soft floor (used by the seeded path) lets the indicator report with
+    // as few as 25 bars.
+    let reading_25 = vp.compute_with_min_bars(25);
+    assert!(
+        reading_25.is_some() || last_reading.is_some(),
+        "compute_with_min_bars(25) must work with however many bars are present",
+    );
 }

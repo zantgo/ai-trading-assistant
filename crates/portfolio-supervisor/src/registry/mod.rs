@@ -24,6 +24,14 @@ pub struct InstanceSummary {
     pub safety_state: String,
 }
 
+/// Seed cap for non-sub-minute TF bootstrap fetches — see the matching
+/// let-bindings in `add_instance` and `recharge_instance` below. 1000 here
+/// matches `HIST_BUFFER_MAX = 1000` (the live runtime buffer cap) so the
+/// dashboard reads 1000 candles from `/api/history` immediately on first mount
+/// and after every config-driven `recharge_instance` rather than waiting for
+/// the live buffer to roll up from the user's `analysis_limit` to 1000.
+pub const NON_SUBMIN_SEED_FLOOR: u64 = 1000;
+
 /// Add a new instance to the state, starting all pipeline tasks.
 pub async fn add_instance(
     state: &RegistryContext,
@@ -187,10 +195,22 @@ pub async fn add_instance(
     let slow_secs = slow_cfg.candles.duration_seconds;
     let macro_secs = macro_cfg.candles.duration_seconds;
 
+    // Seed caps for the bootstrap fetch:
+    //   - Non-sub-minute TFs (`secs >= 60`): always request 1000 candles. The
+    //     exchange serves years of history for ≥ 1 m bars; capping by the
+    //     user's `analysis_limit` blocks the 250-bar volume-profile gate and
+    //     leaves the dashboard staring at 100 candles until the live buffer
+    //     fills (HIST_BUFFER_MAX = 1000). Forcing the seed to 1000 gives the
+    //     operator the same 1000-candle buffer the live path rolls, on first
+    //     mount and on every config-change recharge.
+    //   - Sub-minute TFs (micro/fast): keep `analysis_limit` as the cap, since
+    //     the venue is the actual bottleneck (Hyperliquid returns at most ~26
+    //     bars for 15 s, ~51 for 30 s, regardless of what's asked).
+    // `analysis_limit` keeps its meaning for sub-minute TFs only.
     let micro_limit = micro_cfg.candles.analysis_limit as u64;
     let fast_limit = fast_cfg.candles.analysis_limit as u64;
-    let slow_limit = slow_cfg.candles.analysis_limit as u64;
-    let macro_limit = macro_cfg.candles.analysis_limit as u64;
+    let slow_limit = NON_SUBMIN_SEED_FLOOR;
+    let macro_limit = NON_SUBMIN_SEED_FLOOR;
 
     // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
@@ -552,10 +572,22 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let slow_secs = slow_cfg.candles.duration_seconds;
     let macro_secs = macro_cfg.candles.duration_seconds;
 
+    // Seed caps for the bootstrap fetch:
+    //   - Non-sub-minute TFs (`secs >= 60`): always request 1000 candles. The
+    //     exchange serves years of history for ≥ 1 m bars; capping by the
+    //     user's `analysis_limit` blocks the 250-bar volume-profile gate and
+    //     leaves the dashboard staring at 100 candles until the live buffer
+    //     fills (HIST_BUFFER_MAX = 1000). Forcing the seed to 1000 gives the
+    //     operator the same 1000-candle buffer the live path rolls, on first
+    //     mount and on every config-change recharge.
+    //   - Sub-minute TFs (micro/fast): keep `analysis_limit` as the cap, since
+    //     the venue is the actual bottleneck (Hyperliquid returns at most ~26
+    //     bars for 15 s, ~51 for 30 s, regardless of what's asked).
+    // `analysis_limit` keeps its meaning for sub-minute TFs only.
     let micro_limit = micro_cfg.candles.analysis_limit as u64;
     let fast_limit = fast_cfg.candles.analysis_limit as u64;
-    let slow_limit = slow_cfg.candles.analysis_limit as u64;
-    let macro_limit = macro_cfg.candles.analysis_limit as u64;
+    let slow_limit = NON_SUBMIN_SEED_FLOOR;
+    let macro_limit = NON_SUBMIN_SEED_FLOOR;
 
     // Fresh historical bootstrap
     let bootstrap_input = bootstrap::BootstrapInput {

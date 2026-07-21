@@ -83,7 +83,7 @@ fn default_candle_duration() -> u64 {
 }
 
 fn default_analysis_limit() -> usize {
-    500
+    1000
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

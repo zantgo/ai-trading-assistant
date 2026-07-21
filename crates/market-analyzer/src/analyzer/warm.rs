@@ -246,18 +246,25 @@ pub fn warm_indicators_for_timeframe(
         );
         // Per-warm-candle bin snapshot — same source-of-truth builder as the
         // live per-candle path uses (see `super::build_volume_profile_snapshot`).
-        // For the first ~`volume_profile_window / 2` warm-up bars the gate isn't
-        // cleared so this returns None and the snapshot keeps volume_profile:None,
-        // mirroring live behaviour. From that bar onward every warm-up snapshot
-        // carries the full bin-level profile so `/api/history` returns the
-        // volume profile on first mount (no need to wait for the first live
-        // candle close to populate it).
+        // The strict `window_size / 2` gate is preserved for *live* correctness
+        // (no half-formed profiles), but the *seeded* path passes a relaxed
+        // floor of 25 bars so sub-minute TFs (where the venue returns only
+        // 26–51 bars of history regardless of `analysis_limit`) still paint a
+        // bin distribution on first mount, just like every other indicator.
+        // For the same reason we re-derive the reading with the relaxed gate
+        // when `update_with_open` returned None below the strict gate.
+        let seeded_reading: Option<crate::indicators::VolumeProfileOutput> =
+            if volume_profile_reading.is_some() {
+                volume_profile_reading.clone()
+            } else {
+                volume_profile_indicator.compute_with_min_bars(25)
+            };
         let volume_profile_snapshot = super::build_volume_profile_snapshot(
             symbol,
             slot,
             timeframe_secs,
-            &volume_profile_reading,
-            volume_profile_indicator.compute_bins().as_ref(),
+            &seeded_reading,
+            volume_profile_indicator.compute_bins_with_min_bars(25).as_ref(),
             completed.start_time_ms,
         );
         let smc_reading = smc_indicator.update(
@@ -440,16 +447,25 @@ pub fn warm_indicators_for_timeframe(
         snapshot_history.push(snapshot);
     }
 
-    // Limit history to analysis_limit, keeping the most recent candles
-    let history: Vec<NormalizedCandle> = if candles.len() > analysis_limit {
-        candles[candles.len() - analysis_limit..].to_vec()
+    // The raw-candle `history` is bounded by the bootstrap's effective seed cap
+    // (max of `analysis_limit` and `HIST_BUFFER_MAX`), not by `analysis_limit`
+    // alone — for non-sub-minute TFs the bootstrap fetches up to
+    // `NON_SUBMIN_SEED_FLOOR = 1000` regardless of `analysis_limit`, so we keep
+    // all of them here. The downstream live path trims to `HIST_BUFFER_MAX`
+    // on each new candle close anyway.
+    let seed_cap = analysis_limit.max(crate::analyzer::warm::HIST_BUFFER_MAX);
+    let history: Vec<NormalizedCandle> = if candles.len() > seed_cap {
+        candles[candles.len() - seed_cap..].to_vec()
     } else {
         candles
     };
 
-    // Trim snapshot_history to match
-    if snapshot_history.len() > analysis_limit {
-        snapshot_history = snapshot_history[snapshot_history.len() - analysis_limit..].to_vec();
+    // Trim snapshot_history to match the rolling live-runtime cap
+    // (`HIST_BUFFER_MAX = 1000`). Capping at `analysis_limit` here would
+    // discard the bulk of the non-sub-minute seed and break `/api/history`'s
+    // 1000-candle contract for freshly-bootstrapped engines.
+    if snapshot_history.len() > crate::analyzer::warm::HIST_BUFFER_MAX {
+        snapshot_history = snapshot_history[snapshot_history.len() - crate::analyzer::warm::HIST_BUFFER_MAX..].to_vec();
     }
 
     WarmedPipelineState {
