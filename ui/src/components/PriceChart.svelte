@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { emaStackState, vwapBias, iSub } from '../lib/telemetry';
+    import { emaStackState, vwapBias, iSub, iRaw } from '../lib/telemetry';
     import type { IndicatorMap, LiquidationClusterMatrix, VolumeProfileSnapshot } from '../types';
     import { onMount, onDestroy } from 'svelte';
     import { createChart, CrosshairMode, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts';
@@ -18,6 +18,7 @@
     import { makeChartCoalescer } from '../lib/chartCoalesce';
     import { vwapPickKey } from '../lib/vwapAnchor';
     import { createSmcMarkers, type SmcMarkerController } from '../lib/smcMarkers';
+    import { createPatternMarkers, type PatternMarkerController } from '../lib/patternMarkers';
     import styles from './PriceChart.module.css';
 
     const app = useAppStore();
@@ -47,6 +48,7 @@
     let anchoredVwapSeries: ISeriesApi<'Line'> | null = null;
     let supertrendSeries: ISeriesApi<'Line'> | null = null;
     let donchianUpperSeries: ISeriesApi<'Line'> | null = null;
+    let donchianMiddleSeries: ISeriesApi<'Line'> | null = null;
     let donchianLowerSeries: ISeriesApi<'Line'> | null = null;
     let ichimokuTenkanSeries: ISeriesApi<'Line'> | null = null;
     let ichimokuKijunSeries: ISeriesApi<'Line'> | null = null;
@@ -58,6 +60,24 @@
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
     let smcMarkers: SmcMarkerController | null = null;
+    let patternMarkers: PatternMarkerController | null = null;
+    // Newly-added price-overlay series (toggle-controlled).
+    let keltnerUpperSeries: ISeriesApi<'Line'> | null = null;
+    let keltnerMiddleSeries: ISeriesApi<'Line'> | null = null;
+    let keltnerLowerSeries: ISeriesApi<'Line'> | null = null;
+    let hullMaSeries: ISeriesApi<'Line'> | null = null;
+    let stddevUpperSeries: ISeriesApi<'Line'> | null = null;
+    let stddevMiddleSeries: ISeriesApi<'Line'> | null = null;
+    let stddevLowerSeries: ISeriesApi<'Line'> | null = null;
+    let psarSeries: ISeriesApi<'Line'> | null = null;
+    // Price-level handles — recreated on level-value change so we can
+    // cleanly apply new prices without leaks.
+    let fibLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
+    let fibLevelValue = $state<number | null>(null);
+    let pivotLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
+    let pivotLevelValue = $state<number | null>(null);
+    let srLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
+    let srLevelValue = $state<number | null>(null);
     /// v6.5: cluster / volume-profile snapshots fetched via
     /// `/api/history` on first-mount. Used as a **fallback** when the WS
     /// stream hasn't yet populated `tf.cluster` / `tf.volumeProfile`
@@ -103,16 +123,29 @@
         anchoredVwapSeries = chart.addSeries(LineSeries, { color: '#ffab40', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         supertrendSeries = chart.addSeries(LineSeries, { color: '#26a69a', lineWidth: 2, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         donchianUpperSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        donchianMiddleSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         donchianLowerSeries = chart.addSeries(LineSeries, { color: '#ec407a', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
         ichimokuTenkanSeries = chart.addSeries(LineSeries, { color: '#7e57c2', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ichimokuKijunSeries = chart.addSeries(LineSeries, { color: '#9575cd', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ichimokuSenkouASeries = chart.addSeries(LineSeries, { color: 'rgba(126, 87, 194, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         ichimokuSenkouBSeries = chart.addSeries(LineSeries, { color: 'rgba(120, 144, 156, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        keltnerUpperSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        keltnerMiddleSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        keltnerLowerSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        hullMaSeries = chart.addSeries(LineSeries, { color: '#ff8a65', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        stddevUpperSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        stddevMiddleSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
+        stddevLowerSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
+        psarSeries = chart.addSeries(LineSeries, { color: '#ffab40', lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, crosshairMarkerVisible: false });
         priceLineSeries = chart.addSeries(LineSeries, { color: '#ffffff', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false, lastValueVisible: false });
 
         // SMC markers (selective: confidence ≥ 0.7 only). Attach to the
         // candle series so the markers follow candle time/price alignment.
         smcMarkers = createSmcMarkers(candleSeries);
+
+        // Chart-pattern, candlestick-pattern, OI-price-divergence markers —
+        // same anchor (candle series) so positioning follows candles.
+        patternMarkers = createPatternMarkers(candleSeries);
 
         chart.priceScale('right').applyOptions({ alignLabels: true });
         chart.timeScale().applyOptions({ rightOffset: 12, barSpacing: 6 });
@@ -133,110 +166,118 @@
             });
         }
 
+        $effect(() => {
+        // Historical bootstrap. Re-runs whenever `pairKey` or `timeframe`
+        // changes (per Svelte 5 `$effect` semantics), so a slow daemon
+        // start or a fast `pairKey` swap both recover automatically once
+        // the data shows up — unlike the legacy `onMount` IIFE which
+        // would race-condition and never re-fire.
+        if (!timeframe) return;
+        let cancelled = false;
         (async () => {
-            if (!pair) return;
             try {
                 const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
-                if (!hist) return;
-                // Prefer real OHLC candles over the fallback `data.prices`
-                // string array so sub-minute bootstraps render immediately
-                // rather than waiting for the first live WS frame.
-                if (hist.candleTimes.length > 0) {
-                    const step = tf?.barDurationSec || 60;
-                    const baseTime = Math.floor(Date.now() / 1000) - (hist.candleTimes.length * step);
+                if (cancelled || !hist) return;
+                const step = tf?.barDurationSec || 60;
 
-                    const seenTimes = new Set<number>();
-                    const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
-                    for (let i = 0; i < hist.candleTimes.length; i++) {
-                        const t = hist.candleTimes[i];
-                        const o = hist.candles.open[i];
-                        const h = hist.candles.high[i];
-                        const l = hist.candles.low[i];
-                        const c = hist.candles.close[i];
-                        if (t == null || o == null || h == null || l == null || c == null) continue;
+                const seenTimes = new Set<number>();
+                const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
+                for (let i = 0; i < hist.candleTimes.length; i++) {
+                    const t = hist.candleTimes[i];
+                    const o = hist.candles.open[i];
+                    const h = hist.candles.high[i];
+                    const l = hist.candles.low[i];
+                    const c = hist.candles.close[i];
+                    if (t == null || o == null || h == null || l == null || c == null) continue;
+                    if (seenTimes.has(t)) continue;
+                    seenTimes.add(t);
+                    historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c });
+                }
+
+                // Fallback for endpoints that ship only `prices[]` and
+                // no structured candles — synthesise a flat line of OHLC
+                // so the user sees at least a price track.
+                if (historicalCandles.length === 0 && hist.prices && hist.prices.length > 0) {
+                    const now = Math.floor(Date.now() / 1000);
+                    for (let i = 0; i < hist.prices.length; i++) {
+                        const val = parseFloat(hist.prices[i]) || 0;
+                        const t = (now - (hist.prices.length - i) * step) as number;
                         if (seenTimes.has(t)) continue;
                         seenTimes.add(t);
-                        historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c });
+                        historicalCandles.push({ time: t as Time, open: val, high: val, low: val, close: val });
                     }
-                    historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
-                    if (historicalCandles.length === 0) {
-                        // Fall back to flat `prices[]` array if no candles shipped.
-                        for (let i = 0; i < (hist as any).prices?.length; i++) {
-                            const val = parseFloat((hist as any).prices[i]) || 0;
-                            const t = baseTime + (i * step);
-                            if (!seenTimes.has(t)) {
-                                seenTimes.add(t);
-                                historicalCandles.push({ time: t as Time, open: val, high: val, low: val, close: val });
-                            }
-                        }
-                    }
+                }
+
+                historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
+                if (historicalCandles.length > 0) {
                     candleSeries.setData(historicalCandles);
                     priceLineSeries.setData(
                         historicalCandles.map((c) => ({ time: c.time, value: c.close }))
                     );
                     chart.timeScale().fitContent();
-
-                    // Pull all historical indicator series in one shot via
-                    // the unified helper. Each result is independently
-                    // aligned to hist.times and dedup-sorted.
-                    const [
-                        emaFast, emaMed, emaSlow, emaLong,
-                        bbUp, bbMid, bbLo,
-                        supertrendPts,
-                        donchUp, donchLo,
-                        ichiTenkan, ichiKijun, ichiSA, ichiSB,
-                        avwapW, avwapM, avwapS,
-                    ] = alignedSeriesFromHistory(hist, [
-                        ['ema_stack', 'fast'],
-                        ['ema_stack', 'medium'],
-                        ['ema_stack', 'slow'],
-                        ['ema_stack', 'long'],
-                        ['bollinger', 'upper'],
-                        ['bollinger', 'middle'],
-                        ['bollinger', 'lower'],
-                        ['supertrend'],
-                        ['donchian', 'upper'],
-                        ['donchian', 'lower'],
-                        ['ichimoku', 'tenkan'],
-                        ['ichimoku', 'kijun'],
-                        ['ichimoku', 'senkou_a'],
-                        ['ichimoku', 'senkou_b'],
-                        ['anchored_vwap', 'weekly'],
-                        ['anchored_vwap', 'monthly'],
-                        ['anchored_vwap', 'swing'],
-                    ]);
-
-                    if (emaFast.length > 0) ema10Series.setData(emaFast);
-                    if (emaMed.length > 0) ema50Series.setData(emaMed);
-                    if (emaSlow.length > 0) ema100Series.setData(emaSlow);
-                    if (emaLong.length > 0) ema200Series.setData(emaLong);
-                    if (bbUp.length > 0) bbUpperSeries.setData(bbUp);
-                    if (bbMid.length > 0) bbMiddleSeries.setData(bbMid);
-                    if (bbLo.length > 0) bbLowerSeries.setData(bbLo);
-
-                    // VWAP: daily for < 1 h, weekly for 1 h–12 h, monthly for ≥ 12 h.
-                    const vwapSeed = vwapPickKey(timeframe);
-                    const vwapHist =
-                        vwapSeed.iSubKey === 'weekly' ? avwapW :
-                        vwapSeed.iSubKey === 'monthly' ? avwapM :
-                        pairsFromHistory(hist, 'vwap');
-                    if (vwapHist.length > 0) vwapSeries.setData(vwapHist);
-
-                    // Anchored VWAP — picked from whichever weekly/monthly/swing array the API returned.
-                    if (anchoredVwapSeries) {
-                        const avwapAvail = avwapW.length > 0 ? avwapW
-                            : avwapM.length > 0 ? avwapM
-                            : avwapS;
-                        if (avwapAvail.length > 0) anchoredVwapSeries.setData(avwapAvail);
-                    }
-                    if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(supertrendPts);
-                    if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(donchUp);
-                    if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(donchLo);
-                    if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(ichiTenkan);
-                    if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(ichiKijun);
-                    if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(ichiSA);
-                    if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(ichiSB);
                 }
+
+                // Pull all historical indicator series in one shot via
+                // the unified helper. Each result is independently
+                // aligned to hist.times and dedup-sorted.
+                const [
+                    emaFast, emaMed, emaSlow, emaLong,
+                    bbUp, bbMid, bbLo,
+                    supertrendPts,
+                    donchUp, donchLo,
+                    ichiTenkan, ichiKijun, ichiSA, ichiSB,
+                    avwapW, avwapM, avwapS,
+                ] = alignedSeriesFromHistory(hist, [
+                    ['ema_stack', 'fast'],
+                    ['ema_stack', 'medium'],
+                    ['ema_stack', 'slow'],
+                    ['ema_stack', 'long'],
+                    ['bollinger', 'upper'],
+                    ['bollinger', 'middle'],
+                    ['bollinger', 'lower'],
+                    ['supertrend'],
+                    ['donchian', 'upper'],
+                    ['donchian', 'lower'],
+                    ['ichimoku', 'tenkan'],
+                    ['ichimoku', 'kijun'],
+                    ['ichimoku', 'senkou_a'],
+                    ['ichimoku', 'senkou_b'],
+                    ['anchored_vwap', 'weekly'],
+                    ['anchored_vwap', 'monthly'],
+                    ['anchored_vwap', 'swing'],
+                ]);
+
+                if (emaFast.length > 0) ema10Series.setData(emaFast);
+                if (emaMed.length > 0) ema50Series.setData(emaMed);
+                if (emaSlow.length > 0) ema100Series.setData(emaSlow);
+                if (emaLong.length > 0) ema200Series.setData(emaLong);
+                if (bbUp.length > 0) bbUpperSeries.setData(bbUp);
+                if (bbMid.length > 0) bbMiddleSeries.setData(bbMid);
+                if (bbLo.length > 0) bbLowerSeries.setData(bbLo);
+
+                // VWAP: daily for < 1 h, weekly for 1 h ≤ tf < 12 h, monthly for ≥ 12 h.
+                const vwapSeed = vwapPickKey(timeframe);
+                const vwapHist =
+                    vwapSeed.iSubKey === 'weekly' ? avwapW :
+                    vwapSeed.iSubKey === 'monthly' ? avwapM :
+                    pairsFromHistory(hist, 'vwap');
+                if (vwapHist.length > 0) vwapSeries.setData(vwapHist);
+
+                // Anchored VWAP — picked from whichever weekly/monthly/swing array the API returned.
+                if (anchoredVwapSeries) {
+                    const avwapAvail = avwapW.length > 0 ? avwapW
+                        : avwapM.length > 0 ? avwapM
+                        : avwapS;
+                    if (avwapAvail.length > 0) anchoredVwapSeries.setData(avwapAvail);
+                }
+                if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(supertrendPts);
+                if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(donchUp);
+                if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(donchLo);
+                if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(ichiTenkan);
+                if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(ichiKijun);
+                if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(ichiSA);
+                if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(ichiSB);
+
                 // v6.5: capture per-TF cluster + volume profile from
                 // history (used as a fallback if the WS stream hasn't
                 // yet populated tf.cluster / tf.volumeProfile).
@@ -247,6 +288,8 @@
                 console.error("Error bootstrapping price chart history:", err);
             }
         })();
+        return () => { cancelled = true; };
+        });
 
         ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
@@ -332,23 +375,165 @@
         ichimokuSenkouBSeries.applyOptions({ visible: showIchi });
     });
 
+    $effect(() => {
+        const show = tf?.showKeltner ?? false;
+        if (!keltnerUpperSeries || !keltnerMiddleSeries || !keltnerLowerSeries) return;
+        keltnerUpperSeries.applyOptions({ visible: show });
+        keltnerMiddleSeries.applyOptions({ visible: show });
+        keltnerLowerSeries.applyOptions({ visible: show });
+    });
+
+    $effect(() => {
+        const show = tf?.showHullMa ?? false;
+        if (!hullMaSeries) return;
+        hullMaSeries.applyOptions({ visible: show });
+    });
+
+    $effect(() => {
+        const show = tf?.showStddevChan ?? false;
+        if (!stddevUpperSeries || !stddevMiddleSeries || !stddevLowerSeries) return;
+        stddevUpperSeries.applyOptions({ visible: show });
+        stddevMiddleSeries.applyOptions({ visible: show });
+        stddevLowerSeries.applyOptions({ visible: show });
+    });
+
+    $effect(() => {
+        const show = tf?.showPsar ?? false;
+        if (!psarSeries) return;
+        psarSeries.applyOptions({ visible: show });
+    });
+
+    /// Price-level (horizontal line) effects. Each rebuilds the line when
+    /// the underlying value changes so the level always shows the most
+    /// recent reading from the analyzer. Toggles hide the lines by
+    /// removing them. Backend normalizers emit a single best-fit level per
+    /// indicator (golden-pocket top for Fibonacci, daily pivot for Pivot
+    /// Points, strongest level for S/R); these renders use that single
+    /// point as a horizontal marker.
+    $effect(() => {
+        const show = tf?.showFib ?? false;
+        const vRaw = tf?.indicators?.['fibonacci']?.values?.['gp_top'];
+        const v = typeof vRaw === 'number' && isFinite(vRaw) ? vRaw : null;
+        fibLevelValue = show ? v : null;
+        if (!candleSeries) return;
+        if (fibLine) { try { candleSeries.removePriceLine(fibLine); } catch (_) {} fibLine = null; }
+        if (fibLevelValue != null) {
+            fibLine = candleSeries.createPriceLine({
+                price: fibLevelValue,
+                color: '#ffd54f',
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: 'FIB',
+            });
+        }
+    });
+
+    $effect(() => {
+        const show = tf?.showPivotPoints ?? false;
+        const vRaw = tf?.indicators?.['pivot_points']?.values?.['pivot'];
+        const v = typeof vRaw === 'number' && isFinite(vRaw) ? vRaw : null;
+        pivotLevelValue = show ? v : null;
+        if (!candleSeries) return;
+        if (pivotLine) { try { candleSeries.removePriceLine(pivotLine); } catch (_) {} pivotLine = null; }
+        if (pivotLevelValue != null) {
+            pivotLine = candleSeries.createPriceLine({
+                price: pivotLevelValue,
+                color: '#8d6e63',
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: 'PIVOT',
+            });
+        }
+    });
+
+    $effect(() => {
+        const show = tf?.showSupportResistance ?? false;
+        const raw = tf?.indicators?.['support_resistance'];
+        // The normalizer emits the strongest current SR level as `raw`.
+        const v = raw && Number.isFinite(raw.raw_value) ? raw.raw_value : null;
+        srLevelValue = show ? v : null;
+        if (!candleSeries) return;
+        if (srLine) { try { candleSeries.removePriceLine(srLine); } catch (_) {} srLine = null; }
+        if (srLevelValue != null) {
+            srLine = candleSeries.createPriceLine({
+                price: srLevelValue,
+                color: '#90a4ae',
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: 'S/R',
+            });
+        }
+    });
+
+    /// Pattern marker consumers. Push markers from the live snapshot only;
+    /// chart history doesn't carry signal payloads. Three independent
+    /// toggles, each calling the corresponding consumer method.
+    $effect(() => {
+        const show = tf?.showChartPatterns ?? false;
+        if (!patternMarkers || !candleSeries) return;
+        // Reset the marker layer every time the toggle flips — keeps the
+        // chart clean when the user pauses the effect.
+        patternMarkers.clear();
+        if (!show) return;
+        const snap = tf?.latestSnapshot;
+        const m = (snap?.indicators ?? {}) as IndicatorMap;
+        const t = (snap?.timestamp as number) ?? 0;
+        patternMarkers.pushPatterns(t, m['patterns'] ?? null);
+    });
+
+    $effect(() => {
+        const show = tf?.showCandlestickPatterns ?? false;
+        if (!patternMarkers || !candleSeries) return;
+        patternMarkers.clear();
+        if (!show) return;
+        const snap = tf?.latestSnapshot;
+        const m = (snap?.indicators ?? {}) as IndicatorMap;
+        const t = (snap?.timestamp as number) ?? 0;
+        patternMarkers.pushCandlestick(t, m['candlestick'] ?? null);
+    });
+
+    $effect(() => {
+        const show = tf?.showOiPriceDivergence ?? false;
+        if (!patternMarkers || !candleSeries) return;
+        patternMarkers.clear();
+        if (!show) return;
+        const snap = tf?.latestSnapshot;
+        const m = (snap?.indicators ?? {}) as IndicatorMap;
+        const t = (snap?.timestamp as number) ?? 0;
+        patternMarkers.pushOiPriceDiv(t, m['oi_price_divergence'] ?? null);
+    });
+
     let _lastUpdateTs = 0;
     const candleCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         const m = (snap.indicators ?? {}) as IndicatorMap;
 
-        if (snap.open != null && snap.high != null && snap.low != null && snap.close != null) {
+        if (snap.close != null) {
+            // Loose gate: accept any tick that has at least a `close`,
+            // including in-progress ticks where OHLC are not all settled.
+            // For the missing fields, fill with the close so the candle
+            // still updates and the price line tracks. If `close` itself
+            // is missing it is a malformed payload — log loudly.
+            const cl = parseFloat(String(snap.close));
+            const o = snap.open != null ? parseFloat(String(snap.open)) : cl;
+            const h = snap.high != null ? parseFloat(String(snap.high)) : cl;
+            const l = snap.low != null ? parseFloat(String(snap.low))  : cl;
             candleSeries.update({
                 time: timeSec as Time,
-                open: parseFloat(String(snap.open)),
-                high: parseFloat(String(snap.high)),
-                low: parseFloat(String(snap.low)),
-                close: parseFloat(String(snap.close))
+                open: Number.isFinite(o) ? o : cl,
+                high: Number.isFinite(h) ? h : cl,
+                low:  Number.isFinite(l) ? l : cl,
+                close: cl,
             });
             priceLineSeries.update({
                 time: timeSec as Time,
-                value: parseFloat(String(snap.close))
+                value: cl
             });
+        } else {
+            console.warn(`[CHART-DIAG] PriceChart ${pairKey}/${slot}: snapshot at ${timeSec} is missing close; candle not updated`);
         }
 
         const emaFast = iSub(m, 'ema_stack', 'fast');
@@ -364,18 +549,27 @@
             const k = vwapPickKey(tfVal.barDurationSec).iSubKey;
             return k === 'weekly'  ? iSub(m, 'anchored_vwap', 'weekly')
                  : k === 'monthly' ? iSub(m, 'anchored_vwap', 'monthly')
-                                    : iSub(m, 'vwap', 'vwap');
+                                     : iSub(m, 'vwap', 'vwap');
         })();
         const anchoredVwap = iSub(m, 'anchored_vwap', 'weekly')
             ?? iSub(m, 'anchored_vwap', 'monthly')
             ?? iSub(m, 'anchored_vwap', 'swing');
         const stLine = iSub(m, 'supertrend', 'line');
         const donchUp = iSub(m, 'donchian', 'upper');
+        const donchMid = iSub(m, 'donchian', 'middle');
         const donchLo = iSub(m, 'donchian', 'lower');
         const ichiTenkan = iSub(m, 'ichimoku', 'tenkan');
         const ichiKijun = iSub(m, 'ichimoku', 'kijun');
         const ichiSenkouA = iSub(m, 'ichimoku', 'senkou_a');
         const ichiSenkouB = iSub(m, 'ichimoku', 'senkou_b');
+        const kelUp = iSub(m, 'keltner', 'upper');
+        const kelMid = iSub(m, 'keltner', 'middle');
+        const kelLo = iSub(m, 'keltner', 'lower');
+        const hullRaw = iRaw(m, 'hull_ma');
+        const stdUp = iSub(m, 'stddev_channel', 'upper');
+        const stdMid = iSub(m, 'stddev_channel', 'center');
+        const stdLo = iSub(m, 'stddev_channel', 'lower');
+        const psarSar = iSub(m, 'psar', 'sar');
         const supertrendState = m['supertrend']?.state_label ?? '';
 
         if (emaFast != null) ema10Series.update({ time: timeSec as Time, value: emaFast });
@@ -389,18 +583,26 @@
         if (anchoredVwap != null && anchoredVwapSeries) anchoredVwapSeries.update({ time: timeSec as Time, value: anchoredVwap });
         if (stLine != null && supertrendSeries) {
             supertrendSeries.update({ time: timeSec as Time, value: stLine });
-            // Color tracks the supertrend direction: bullish (green) vs bearish (red).
             const color = supertrendState.includes('BEARISH') ? '#ef5350'
                 : supertrendState.includes('BULLISH') ? '#26a69a'
                 : '#26a69a';
             supertrendSeries.applyOptions({ color });
         }
         if (donchUp != null && donchianUpperSeries) donchianUpperSeries.update({ time: timeSec as Time, value: donchUp });
+        if (donchMid != null) donchianMiddleSeries?.update({ time: timeSec as Time, value: donchMid });
         if (donchLo != null && donchianLowerSeries) donchianLowerSeries.update({ time: timeSec as Time, value: donchLo });
         if (ichiTenkan != null && ichimokuTenkanSeries) ichimokuTenkanSeries.update({ time: timeSec as Time, value: ichiTenkan });
         if (ichiKijun != null && ichimokuKijunSeries) ichimokuKijunSeries.update({ time: timeSec as Time, value: ichiKijun });
         if (ichiSenkouA != null && ichimokuSenkouASeries) ichimokuSenkouASeries.update({ time: timeSec as Time, value: ichiSenkouA });
         if (ichiSenkouB != null && ichimokuSenkouBSeries) ichimokuSenkouBSeries.update({ time: timeSec as Time, value: ichiSenkouB });
+        if (kelUp != null && keltnerUpperSeries) keltnerUpperSeries.update({ time: timeSec as Time, value: kelUp });
+        if (kelMid != null && keltnerMiddleSeries) keltnerMiddleSeries.update({ time: timeSec as Time, value: kelMid });
+        if (kelLo != null && keltnerLowerSeries) keltnerLowerSeries.update({ time: timeSec as Time, value: kelLo });
+        if (hullRaw != null && hullMaSeries) hullMaSeries.update({ time: timeSec as Time, value: hullRaw });
+        if (stdUp != null && stddevUpperSeries) stddevUpperSeries.update({ time: timeSec as Time, value: stdUp });
+        if (stdMid != null && stddevMiddleSeries) stddevMiddleSeries.update({ time: timeSec as Time, value: stdMid });
+        if (stdLo != null && stddevLowerSeries) stddevLowerSeries.update({ time: timeSec as Time, value: stdLo });
+        if (psarSar != null && psarSeries) psarSeries.update({ time: timeSec as Time, value: psarSar });
 
         // Push SMC events into the marker consumer (selective: conf >= 0.7).
         if (smcMarkers) {
@@ -408,6 +610,14 @@
                 structure: m['smc_structure'] ?? null,
                 liquidity: m['smc_liquidity'] ?? null,
             });
+        }
+        // Push chart-pattern / candlestick / OI-price-divergence markers
+        // (each is toggle-gated by its own $effect; here we only feed
+        // data — the consumer is no-op when the toggle is off).
+        if (patternMarkers) {
+            patternMarkers.pushPatterns(timeSec, m['patterns'] ?? null);
+            patternMarkers.pushCandlestick(timeSec, m['candlestick'] ?? null);
+            patternMarkers.pushOiPriceDiv(timeSec, m['oi_price_divergence'] ?? null);
         }
     });
     $effect(() => {

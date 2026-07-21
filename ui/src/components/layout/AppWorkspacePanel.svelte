@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { tick } from 'svelte';
     import { useAppStore } from '../../state.svelte';
     import {
         connectWsForInstance, disconnectWsForInstance,
@@ -19,6 +20,8 @@
     let { isOpen, wssMap, onclose, onrequestConfirm }: Props = $props();
 
     const app = useAppStore();
+    let createInputEl = $state<HTMLInputElement | null>(null);
+    let prevIsOpen = $state(false);
 
     interface InstanceRow { id: string; pair: string; symbol: string; status: string; }
     let wsInstances = $state<InstanceRow[]>([]);
@@ -114,6 +117,25 @@
         const _ = app.sessionInstanceCount;
         if (isOpen) fetchWorkspaces();
     });
+
+    // Auto-focus the symbol input as soon as the panel opens. We watch
+    // the `isOpen` edge (false → true), wait one microtask via `tick()`
+    // so the input is mounted, then call `.focus()` and place the caret
+    // at the end. The 250 ms `slideInRight` animation finishes well
+    // before this resolves, so the user sees a smooth slide-in ending
+    // with a blinking cursor ready to receive input.
+    $effect(() => {
+        const opened = isOpen && !prevIsOpen;
+        prevIsOpen = isOpen;
+        if (!opened) return;
+        tick().then(() => {
+            const el = createInputEl;
+            if (!el) return;
+            el.focus();
+            const len = el.value.length;
+            try { el.setSelectionRange(len, len); } catch (_) { /* not supported */ }
+        });
+    });
 </script>
 
 {#if isOpen}
@@ -127,7 +149,7 @@
             <button class={styles.wsPanelClose} onclick={onclose}><SvgIcon name="x" size={16} /></button>
         </div>
         <div class={styles.wsPanelCreateBar}>
-            <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:value={newBase} maxlength="10" oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
+            <input type="text" class={styles.wsPanelInput} placeholder="Symbol (e.g. BTC)" bind:this={createInputEl} bind:value={newBase} maxlength="10" oninput={() => { if (createError) createError = null; }} onkeydown={handleCreateKeydown} />
             <span class={styles.wsPanelQuoteChip}>{app.quote}</span>
             <button class={styles.wsPanelCreateBtn} onclick={handleCreateWorkspace} disabled={createLoading || !newBase.trim()}>
                 {#if createLoading}

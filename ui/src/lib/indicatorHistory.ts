@@ -19,11 +19,14 @@ import type { Time } from 'lightweight-charts';
 ///   "candles.<ohlc>"                 — candle data: 'candles.open', 'candles.high', 'candles.low', 'candles.close', 'candles.volume'
 ///   "clusters"                       — LiquidationClusterMatrix[]
 ///   "volumeProfiles"                 — VolumeProfileSnapshot[]
+///   "prices"                         — legacy flat price series (string[]) for endpoints
+///                                     that don't emit structured candles
 export interface IndicatorFlatHistory {
     times: number[];
     values: Record<string, Array<number | null>>;
     candleTimes: number[];
     candles: { open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] };
+    prices?: string[];
     clusters?: Record<string, unknown>;
     volumeProfiles?: Record<string, unknown>;
     fetchedAtMs: number;
@@ -155,6 +158,7 @@ function normalizeHistory(raw: RawResponse): IndicatorFlatHistory {
         values,
         candleTimes,
         candles,
+        prices: raw.prices ?? undefined,
         clusters: raw.clusters ?? undefined,
         volumeProfiles: raw.volume_profiles ?? undefined,
         fetchedAtMs: Date.now(),

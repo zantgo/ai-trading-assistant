@@ -119,6 +119,51 @@
         const v = !pair.microTerm.showDerivativeRibbon;
         syncAll(tf => { tf.showDerivativeRibbon = v; });
     }
+
+    /// v6.7: fills in the previously-empty pills for the registers'
+    /// non-rendered indicators. Each is per-TF and gated by its own
+    /// `show*` flag.
+    function toggleKeltner() {
+        if (!pair) return;
+        const v = !pair.microTerm.showKeltner;
+        syncAll(tf => { tf.showKeltner = v; });
+    }
+
+    function toggleHullMa() {
+        if (!pair) return;
+        const v = !pair.microTerm.showHullMa;
+        syncAll(tf => { tf.showHullMa = v; });
+    }
+
+    function toggleStddevChan() {
+        if (!pair) return;
+        const v = !pair.microTerm.showStddevChan;
+        syncAll(tf => { tf.showStddevChan = v; });
+    }
+
+    function togglePsar() {
+        if (!pair) return;
+        const v = !pair.microTerm.showPsar;
+        syncAll(tf => { tf.showPsar = v; });
+    }
+
+    function toggleChartPatterns() {
+        if (!pair) return;
+        const v = !pair.microTerm.showChartPatterns;
+        syncAll(tf => { tf.showChartPatterns = v; });
+    }
+
+    function toggleCandlestickPatterns() {
+        if (!pair) return;
+        const v = !pair.microTerm.showCandlestickPatterns;
+        syncAll(tf => { tf.showCandlestickPatterns = v; });
+    }
+
+    function toggleOiPriceDivergence() {
+        if (!pair) return;
+        const v = !pair.microTerm.showOiPriceDivergence;
+        syncAll(tf => { tf.showOiPriceDivergence = v; });
+    }
 </script>
 
 {#if pair}
@@ -180,6 +225,27 @@
             onclick={toggleFvg}>FVG</button>
         <button class="{styles.togglePill} {styles.obPill} {pair.microTerm.showOrderBlocks ? styles.active : ''}"
             onclick={toggleOrderBlocks}>ORDER BLOCKS</button>
+    </div>
+    <div class={styles.togglesSeparator}></div>
+    <div class={styles.togglesGroup}>
+        <button class="{styles.togglePill} {styles.keltnerPill} {pair.microTerm.showKeltner ? styles.active : ''}"
+            onclick={toggleKeltner}>KELTNER</button>
+        <button class="{styles.togglePill} {styles.hullMaPill} {pair.microTerm.showHullMa ? styles.active : ''}"
+            onclick={toggleHullMa}>HULL MA</button>
+        <button class="{styles.togglePill} {styles.stddevChanPill} {pair.microTerm.showStddevChan ? styles.active : ''}"
+            onclick={toggleStddevChan}>STDDEV CH.</button>
+        <button class="{styles.togglePill} {styles.psarPill} {pair.microTerm.showPsar ? styles.active : ''}"
+            onclick={togglePsar}>PSAR</button>
+    </div>
+    <div class={styles.togglesSeparator}></div>
+    <div class={styles.togglesGroup}>
+        <span class={styles.togglesLabel}>MARKERS</span>
+        <button class="{styles.togglePill} {styles.chartPatternsPill} {pair.microTerm.showChartPatterns ? styles.active : ''}"
+            onclick={toggleChartPatterns}>CHART PATTERNS</button>
+        <button class="{styles.togglePill} {styles.candlestickPill} {pair.microTerm.showCandlestickPatterns ? styles.active : ''}"
+            onclick={toggleCandlestickPatterns}>CANDLESTICK</button>
+        <button class="{styles.togglePill} {styles.oiDivPill} {pair.microTerm.showOiPriceDivergence ? styles.active : ''}"
+            onclick={toggleOiPriceDivergence}>OI-PRICE DIV</button>
     </div>
     <div class={styles.togglesSeparator}></div>
     <div class={styles.togglesGroup}>

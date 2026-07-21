@@ -1,20 +1,17 @@
 <script lang="ts">
-    // LiveTerminal — single-column chart stack driven by a typed `LIVE_PANES`
-    // descriptor. The 8 always-visible panes (Price, Volume, MACD, RSI, ADX,
-    // Squeeze, BBWP, ATR) match the institutional-quant workflow; secondary
-    // oscillators (Stochastic, ChandeMO, OBV, CMF, MFI, Williams %R, CCI,
-    // Force Index) and derivative panels (Funding, Open Interest, OI Delta,
-    // Order-Flow+Depth) are grouped under collapsible accordion headers
-    // (MOMENTUM OSCILLATORS / VOLUME FLOW / REGIME / DERIVATIVES DETAIL) so
-    // the default screen stays readable.
+    // LiveTerminal — single-column chart stack. By user request, the
+    // default state is "only the price chart visible": one PriceChart
+    // (with its overlay toggles above) plus the always-on Derivative
+    // Ribbon directly below it. All 27 indicator chart panes are
+    // surfaced through 8 collapsible groups (PaneGroupHeader
+    // accordions), default collapsed, ordered within each group by
+    // importance to a quant trader. Selecting a group reveals the
+    // panes inside that group; clicking the price chart's expand
+    // button (⛶) still maximises the column for any pane.
     //
-    // Layout:
-    //   - ChartToggles (overlay pills)
-    //   - Price pane (200px)
-    //   - Derivative ribbon (if showDerivativeRibbon)
-    //   - Volume pane (RVOL kept as color annotation, RVOL pane removed)
-    //   - 7 always-on oscillator panes
-    //   - Accordion groups
+    // Order within each group is the top-of-list indicator first.
+    // Charts inside an opened group are 90 px tall and share the
+    // column with the price chart when that pane is pinned.
     import { useAppStore } from '../state.svelte';
     import styles from './LiveTerminal.module.css';
     import type { TimeframeTelemetry } from '../types';
@@ -22,29 +19,38 @@
     import PriceChart from './PriceChart.svelte';
     import VolumeChart from './VolumeChart.svelte';
     import RvolChart from './RvolChart.svelte';
-    import MacdChart from './MacdChart.svelte';
-    import SqueezeChart from './SqueezeChart.svelte';
-    import RsiChart from './RsiChart.svelte';
     import AdxChart from './AdxChart.svelte';
-    import BbwpChart from './BbwpChart.svelte';
-    import AtrChart from './AtrChart.svelte';
+    import SupertrendChart from './SupertrendChart.svelte';
+    import IchimokuChart from './IchimokuChart.svelte';
+    import HullMaChart from './HullMaChart.svelte';
+    import AroonChart from './AroonChart.svelte';
+    import PsarChart from './PsarChart.svelte';
+    import DonchianChart from './DonchianChart.svelte';
+    import RsiChart from './RsiChart.svelte';
+    import MacdChart from './MacdChart.svelte';
     import StochasticChart from './StochasticChart.svelte';
     import ChandeMoChart from './ChandeMoChart.svelte';
     import WilliamsRChart from './WilliamsRChart.svelte';
     import CciChart from './CciChart.svelte';
-    import ForceIndexChart from './ForceIndexChart.svelte';
+    import AwesomeOscillatorChart from './AwesomeOscillatorChart.svelte';
     import ObvChart from './ObvChart.svelte';
     import CmfChart from './CmfChart.svelte';
     import MfiChart from './MfiChart.svelte';
+    import ForceIndexChart from './ForceIndexChart.svelte';
+    import AtrChart from './AtrChart.svelte';
+    import BbwpChart from './BbwpChart.svelte';
+    import SqueezeChart from './SqueezeChart.svelte';
     import HvChart from './HvChart.svelte';
-    import AroonChart from './AroonChart.svelte';
+    import StdDevChannelChart from './StdDevChannelChart.svelte';
     import ChoppinessChart from './ChoppinessChart.svelte';
     import LinRegSlopeChart from './LinRegSlopeChart.svelte';
     import ZScoreChart from './ZScoreChart.svelte';
+    import KeltnerChart from './KeltnerChart.svelte';
     import FundingChart from './FundingChart.svelte';
     import OpenInterestChart from './OpenInterestChart.svelte';
     import OiDeltaChart from './OiDeltaChart.svelte';
     import OrderFlowDepthChart from './OrderFlowDepthChart.svelte';
+    import SpreadChart from './SpreadChart.svelte';
     import DerivativeRibbon from './DerivativeRibbon.svelte';
     import PaneGroupHeader from './PaneGroupHeader.svelte';
     import FullscreenToolbar from './FullscreenToolbar.svelte';
@@ -99,51 +105,107 @@
     }
 
     function chartKey(t: TimeframeTelemetry, chartType: string): string {
-        // Remount when slot, duration or any EMA param flips so the chart
-        // picks up new config without leaking stale series.
         return `${pairKey}-${t.slot}-${chartType}-${t.barDurationSec}-${t.emaFastVal}-${t.emaMediumVal}-${t.emaSlowVal}-${t.emaLongVal}`;
     }
 
-    /// Type-safe chart-type union — used by `LIVE_PANES`, `GROUPS`, and the
-    /// dblClick dispatch in `FullscreenChartModal`. Adding a new pane = add
-    /// one row here + one row in `LIVE_PANES` (or one of `GROUPS`).
+    /// Type-safe chart-type union. Adding a new pane = add one row here
+    /// + add its entry to one of the groups below + add a branch to
+    /// `FullscreenChartModal.svelte`.
     type ChartType =
-        | 'price' | 'volume' | 'rvol'
-        | 'macd' | 'rsi' | 'squeeze' | 'adx' | 'bbwp' | 'atr'
-        | 'stochastic' | 'chandemo' | 'williams_r' | 'cci' | 'force_index'
-        | 'obv' | 'cmf' | 'mfi' | 'hv'
-        | 'aroon' | 'choppiness' | 'linreg' | 'zscore'
-        | 'funding' | 'open_interest' | 'oi_delta' | 'order_flow_depth';
+        | 'price' | 'rvol' | 'volume'
+        | 'adx' | 'supertrend' | 'ichimoku' | 'hull_ma' | 'aroon' | 'psar' | 'donchian'
+        | 'rsi' | 'macd' | 'stochastic' | 'chandemo' | 'williams_r' | 'cci' | 'awesome'
+        | 'obv' | 'cmf' | 'mfi' | 'force_index'
+        | 'atr' | 'bbwp' | 'squeeze' | 'hv' | 'stddev_channel'
+        | 'choppiness' | 'linreg' | 'zscore' | 'keltner'
+        | 'funding' | 'open_interest' | 'oi_delta' | 'order_flow_depth' | 'spread';
 
     interface PaneDescriptor {
         chartType: ChartType;
         box: string;
-        component:
-            | typeof PriceChart | typeof VolumeChart | typeof RvolChart
-            | typeof MacdChart | typeof RsiChart | typeof SqueezeChart
-            | typeof AdxChart | typeof BbwpChart | typeof AtrChart
-            | typeof StochasticChart | typeof ChandeMoChart
-            | typeof WilliamsRChart | typeof CciChart | typeof ForceIndexChart
-            | typeof ObvChart | typeof CmfChart | typeof MfiChart | typeof HvChart
-            | typeof AroonChart | typeof ChoppinessChart
-            | typeof LinRegSlopeChart | typeof ZScoreChart
-            | typeof FundingChart | typeof OpenInterestChart
-            | typeof OiDeltaChart | typeof OrderFlowDepthChart;
+        showFlag?: keyof TimeframeTelemetry;
+        component: any;
     }
 
-    // 8 always-on panes (compact default). RVOL intentionally omitted as a
-    // dedicated pane — RVOL values still color Volume bars and are surfaced
-    // via the inline RVOL numeric badge inside VolumeChart's snapshot.
-    const LIVE_PANES: PaneDescriptor[] = [
-        { chartType: 'price',   box: 'panePrice',   component: PriceChart },
-        { chartType: 'volume',  box: 'paneVol',     component: VolumeChart },
-        { chartType: 'macd',    box: 'paneMacd',    component: MacdChart },
-        { chartType: 'rsi',     box: 'paneRsi',     component: RsiChart },
-        { chartType: 'adx',     box: 'paneAdx',     component: AdxChart },
-        { chartType: 'squeeze', box: 'paneSqueeze', component: SqueezeChart },
-        { chartType: 'bbwp',    box: 'paneBbwp',    component: BbwpChart },
-        { chartType: 'atr',     box: 'paneAtr',     component: AtrChart },
-    ];
+    /// 8 collapsible groups, ordered top-to-bottom in the column.
+    /// All `defaultOpen: false` so the first paint is PriceChart-only.
+    ///
+    /// Within each group, panes are listed by quant-trader importance —
+    /// the first entry is the most-cited / most-general indicator for
+    /// that category. The previously-always-on panes (ADX / MACD / RSI
+    /// / Squeeze / BBWP / ATR / RVOL / Volume) are distributed across
+    /// groups so every pane is still one click away, but nothing
+    /// crowds the first paint.
+    const TREND_GROUP: PaneGroup = {
+        title: 'TREND STRENGTH',
+        panes: [
+            { chartType: 'adx',        box: 'paneAdx',        component: AdxChart },
+            { chartType: 'supertrend', box: 'paneSupertrend', component: SupertrendChart },
+            { chartType: 'ichimoku',   box: 'paneIchimoku',   component: IchimokuChart },
+            { chartType: 'hull_ma',    box: 'paneHullMa',     component: HullMaChart },
+            { chartType: 'aroon',      box: 'paneAroon',      component: AroonChart },
+            { chartType: 'psar',       box: 'panePsar',       component: PsarChart },
+            { chartType: 'donchian',   box: 'paneDonchian',   component: DonchianChart },
+        ],
+    };
+
+    const MOMENTUM_GROUP: PaneGroup = {
+        title: 'MOMENTUM OSCILLATORS',
+        panes: [
+            { chartType: 'rsi',         box: 'paneRsi',         component: RsiChart },
+            { chartType: 'macd',       box: 'paneMacd',        component: MacdChart },
+            { chartType: 'stochastic',  box: 'paneStoch',       component: StochasticChart },
+            { chartType: 'chandemo',    box: 'paneChandeMo',    component: ChandeMoChart },
+            { chartType: 'williams_r',  box: 'paneWilliamsR',   component: WilliamsRChart },
+            { chartType: 'cci',         box: 'paneCci',         component: CciChart },
+            { chartType: 'awesome',     box: 'paneAwesome',     component: AwesomeOscillatorChart },
+        ],
+    };
+
+    const VOLUME_GROUP: PaneGroup = {
+        title: 'VOLUME FLOW',
+        panes: [
+            // RVOL replaces Volume at top of group — Volume is now reachable
+            // only through its fullscreen modal / legacy URL.
+            { chartType: 'rvol',        box: 'paneRvol',        component: RvolChart },
+            { chartType: 'obv',         box: 'paneObv',         component: ObvChart },
+            { chartType: 'cmf',         box: 'paneCmf',         component: CmfChart },
+            { chartType: 'mfi',         box: 'paneMfi',         component: MfiChart },
+            { chartType: 'force_index', box: 'paneForceIndex',  component: ForceIndexChart },
+        ],
+    };
+
+    const VOLATILITY_GROUP: PaneGroup = {
+        title: 'VOLATILITY',
+        panes: [
+            { chartType: 'atr',           box: 'paneAtr',          component: AtrChart },
+            { chartType: 'bbwp',          box: 'paneBbwp',         component: BbwpChart },
+            { chartType: 'squeeze',       box: 'paneSqueeze',      component: SqueezeChart },
+            { chartType: 'hv',            box: 'paneHv',           component: HvChart },
+            { chartType: 'stddev_channel', box: 'paneStdDevChannel', component: StdDevChannelChart },
+        ],
+    };
+
+    const CONTEXT_GROUP: PaneGroup = {
+        title: 'MARKET CONTEXT',
+        panes: [
+            { chartType: 'choppiness', box: 'paneChoppiness', component: ChoppinessChart },
+            { chartType: 'linreg',     box: 'paneLinReg',     component: LinRegSlopeChart },
+            { chartType: 'zscore',     box: 'paneZScore',     component: ZScoreChart },
+            { chartType: 'keltner',    box: 'paneKeltner',    component: KeltnerChart },
+        ],
+    };
+
+    const DERIVATIVES_GROUP: PaneGroup = {
+        title: 'DERIVATIVES & DEPTH',
+        panes: [
+            { chartType: 'open_interest',   box: 'paneOi',         component: OpenInterestChart },
+            { chartType: 'oi_delta',        box: 'paneOiDelta',   component: OiDeltaChart },
+            { chartType: 'funding',         box: 'paneFunding',   component: FundingChart },
+            { chartType: 'order_flow_depth', box: 'paneOfiDepth', component: OrderFlowDepthChart },
+            { chartType: 'spread',          box: 'paneSpread',    component: SpreadChart },
+        ],
+    };
 
     interface PaneGroup {
         title: string;
@@ -151,55 +213,12 @@
         defaultOpen?: boolean;
     }
 
-    const MOMENTUM_GROUP: PaneGroup = {
-        title: 'MOMENTUM OSCILLATORS',
-        defaultOpen: false,
-        panes: [
-            { chartType: 'stochastic', box: 'paneStoch', component: StochasticChart },
-            { chartType: 'chandemo',   box: 'paneChandeMo', component: ChandeMoChart },
-            { chartType: 'williams_r', box: 'paneWilliamsR', component: WilliamsRChart },
-            { chartType: 'cci',        box: 'paneCci', component: CciChart },
-            { chartType: 'force_index', box: 'paneForceIndex', component: ForceIndexChart },
-        ],
-    };
-
-    const VOLUME_GROUP: PaneGroup = {
-        title: 'VOLUME FLOW',
-        defaultOpen: false,
-        panes: [
-            { chartType: 'obv', box: 'paneObv', component: ObvChart },
-            { chartType: 'cmf', box: 'paneCmf', component: CmfChart },
-            { chartType: 'mfi', box: 'paneMfi', component: MfiChart },
-            { chartType: 'hv',  box: 'paneHv',  component: HvChart },
-        ],
-    };
-
-    const REGIME_GROUP: PaneGroup = {
-        title: 'REGIME / CHOPPINESS',
-        defaultOpen: false,
-        panes: [
-            { chartType: 'aroon',      box: 'paneAroon', component: AroonChart },
-            { chartType: 'choppiness', box: 'paneChoppiness', component: ChoppinessChart },
-            { chartType: 'linreg',     box: 'paneLinReg', component: LinRegSlopeChart },
-            { chartType: 'zscore',     box: 'paneZScore', component: ZScoreChart },
-        ],
-    };
-
-    const DERIVATIVES_GROUP: PaneGroup = {
-        title: 'DERIVATIVES DETAIL',
-        defaultOpen: false,
-        panes: [
-            { chartType: 'funding',         box: 'paneFunding', component: FundingChart },
-            { chartType: 'open_interest',   box: 'paneOi',      component: OpenInterestChart },
-            { chartType: 'oi_delta',        box: 'paneOiDelta', component: OiDeltaChart },
-            { chartType: 'order_flow_depth', box: 'paneOfiDepth', component: OrderFlowDepthChart },
-        ],
-    };
-
     const COLLAPSED_GROUPS: PaneGroup[] = [
+        TREND_GROUP,
         MOMENTUM_GROUP,
         VOLUME_GROUP,
-        REGIME_GROUP,
+        VOLATILITY_GROUP,
+        CONTEXT_GROUP,
         DERIVATIVES_GROUP,
     ];
 
@@ -278,19 +297,20 @@
                         </div>
                     </div>
                     <div class={styles.timescaleCharts}>
-                        {#each LIVE_PANES as pane (pane.chartType)}
-                            <div class="{styles.panelBox} {styles[pane.box]}" data-pane-type={pane.chartType}>
-                                <div class={styles.panelLabel}>{pane.chartType.toUpperCase()}</div>
-                                {#key chartKey(activeTerm, pane.chartType)}
-                                    {@const C = pane.component}
-                                    <C
-                                        {pairKey}
-                                        slot={activeTerm.slot}
-                                        onDoubleClick={() => handleChartDblClick(pane.chartType, activeTerm.slot, activeTerm.barDurationSec)}
-                                    />
-                                {/key}
-                            </div>
-                        {/each}
+                        <!--
+                            Price chart (always visible). All other panes
+                            are inside collapsed accordion groups below.
+                        -->
+                        <div class="{styles.panelBox} {styles['panePrice']}" data-pane-type="price">
+                            <div class={styles.panelLabel}>PRICE</div>
+                            {#key chartKey(activeTerm, 'price')}
+                                <PriceChart
+                                    {pairKey}
+                                    slot={activeTerm.slot}
+                                    onDoubleClick={() => handleChartDblClick('price', activeTerm.slot, activeTerm.barDurationSec)}
+                                />
+                            {/key}
+                        </div>
 
                         {#if activeTerm.showDerivativeRibbon}
                             {#key chartKey(activeTerm, 'derivative-ribbon')}
@@ -317,14 +337,14 @@
                         {/each}
 
                         <!--
-                            Hidden RVOL pane retained (off by default) so the
-                            fullscreen modal can still open the RVOL chart by
-                            URL/shortcut, preserving the legacy URL contract.
+                            Volume (legacy) retained as a hidden mount so the
+                            fullscreen modal and any URL shortcuts that call
+                            `chartType === 'volume'` continue to work.
                         -->
-                        <div class="{styles.panelBox} {styles.paneRvol} {styles.hiddenPane}" data-pane-type="rvol" aria-hidden="true" hidden>
-                            <div class={styles.panelLabel}>RVOL</div>
-                            {#key chartKey(activeTerm, 'rvol')}
-                                <RvolChart {pairKey} slot={activeTerm.slot} />
+                        <div class="{styles.panelBox} {styles.paneVol} {styles.hiddenPane}" data-pane-type="volume" aria-hidden="true" hidden>
+                            <div class={styles.panelLabel}>VOLUME</div>
+                            {#key chartKey(activeTerm, 'volume')}
+                                <VolumeChart {pairKey} slot={activeTerm.slot} />
                             {/key}
                         </div>
                     </div>
