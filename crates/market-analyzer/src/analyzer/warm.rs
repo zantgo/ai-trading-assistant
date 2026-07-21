@@ -18,6 +18,7 @@ use crate::indicators::{
 };
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
 use core_domain::normalized::{Exchange, NormalizedCandle};
+use core_domain::volume_profile::VolumeProfileSnapshot;
 
 /// Maximum number of candles/snapshots retained in live memory buffers.
 /// Bootstrap fetches up to `analysis_limit` (default 500); live buffers grow
@@ -243,6 +244,22 @@ pub fn warm_indicators_for_timeframe(
             completed.close,
             completed.volume,
         );
+        // Per-warm-candle bin snapshot — same source-of-truth builder as the
+        // live per-candle path uses (see `super::build_volume_profile_snapshot`).
+        // For the first ~`volume_profile_window / 2` warm-up bars the gate isn't
+        // cleared so this returns None and the snapshot keeps volume_profile:None,
+        // mirroring live behaviour. From that bar onward every warm-up snapshot
+        // carries the full bin-level profile so `/api/history` returns the
+        // volume profile on first mount (no need to wait for the first live
+        // candle close to populate it).
+        let volume_profile_snapshot = super::build_volume_profile_snapshot(
+            symbol,
+            slot,
+            timeframe_secs,
+            &volume_profile_reading,
+            volume_profile_indicator.compute_bins().as_ref(),
+            completed.start_time_ms,
+        );
         let smc_reading = smc_indicator.update(
             completed.open,
             completed.high,
@@ -416,6 +433,7 @@ pub fn warm_indicators_for_timeframe(
             sdc_reading,
             volume_profile_reading,
             smc_reading,
+            volume_profile_snapshot,
         );
 
         latest_snapshot = Some(snapshot.clone());
@@ -543,6 +561,7 @@ fn build_historical_snapshot(
     sdc: Option<crate::indicators::SdChannelOutput>,
     volume_profile: Option<crate::indicators::VolumeProfileOutput>,
     smc: Option<crate::indicators::SmcOutput>,
+    volume_profile_snapshot: Option<VolumeProfileSnapshot>,
 ) -> MarketSnapshot {
     let candle_close_sec = completed.start_time_ms / 1000;
 
@@ -723,7 +742,7 @@ fn build_historical_snapshot(
         risk_profile: None,
         liquidity: None,
         cluster: None,
-        volume_profile: None,
+        volume_profile: volume_profile_snapshot,
         quality_envelope: None,
     }
 }

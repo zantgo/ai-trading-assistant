@@ -2279,7 +2279,13 @@ pub(crate) fn update_sr_levels(
 /// Build a `VolumeProfileSnapshot` from the indicator output and the bin-level
 /// aggregates returned by `VolumeProfile::compute_bins()`. Returns `None` when
 /// the indicator has not yet accumulated enough bars to produce a profile.
-fn build_volume_profile_snapshot(
+///
+/// `pub(super)` because both the live per-candle path (in this module) and the
+/// warm-up per-candle path (in `super::warm`) need to build snapshots from the
+/// same source-of-truth function, so warm-up snapshots stay in full parity with
+/// live snapshots and `/api/history` returns the bin-level profile on first mount
+/// without waiting for the first live candle close.
+pub(super) fn build_volume_profile_snapshot(
     symbol: &str,
     slot: TimeframeSlot,
     timeframe_secs: u64,
