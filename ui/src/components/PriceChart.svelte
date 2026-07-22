@@ -23,6 +23,13 @@
 
     const app = useAppStore();
     let { pairKey, slot, onDoubleClick, onScreenshotReady }: { pairKey: string; slot: 'micro' | 'fast' | 'slow' | 'macro'; onDoubleClick?: () => void; onScreenshotReady?: (fn: () => void) => void } = $props();
+
+    /// Number of recent candles + overlay data points seeded at bootstrap.
+    /// Bump this to see more history; drop it for faster first paint.
+    /// All price overlays (EMA, Bollinger, VWAP, Supertrend, Donchian,
+    /// Ichimoku, Keltner, Hull MA, StdDev, PSAR) share the same window so
+    /// the candle chart and its indicator lines stay aligned.
+    const PRICE_CHART_SEED_COUNT = 1000;
     const pair = $derived(app.instancesMap[pairKey]);
     // Slot identity is positional; never re-derive from duration.
     const tf = $derived(
@@ -65,7 +72,6 @@
     let keltnerUpperSeries: ISeriesApi<'Line'> | null = null;
     let keltnerMiddleSeries: ISeriesApi<'Line'> | null = null;
     let keltnerLowerSeries: ISeriesApi<'Line'> | null = null;
-    let hullMaSeries: ISeriesApi<'Line'> | null = null;
     let stddevUpperSeries: ISeriesApi<'Line'> | null = null;
     let stddevMiddleSeries: ISeriesApi<'Line'> | null = null;
     let stddevLowerSeries: ISeriesApi<'Line'> | null = null;
@@ -132,7 +138,6 @@
         keltnerUpperSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
         keltnerMiddleSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         keltnerLowerSeries = chart.addSeries(LineSeries, { color: '#78909c', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
-        hullMaSeries = chart.addSeries(LineSeries, { color: '#ff8a65', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         stddevUpperSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
         stddevMiddleSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Solid, priceLineVisible: false, crosshairMarkerVisible: false });
         stddevLowerSeries = chart.addSeries(LineSeries, { color: '#a1887f', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false });
@@ -166,141 +171,137 @@
             });
         }
 
-        $effect(() => {
-        // Historical bootstrap. Re-runs whenever `pairKey` or `timeframe`
-        // changes (per Svelte 5 `$effect` semantics), so a slow daemon
-        // start or a fast `pairKey` swap both recover automatically once
-        // the data shows up — unlike the legacy `onMount` IIFE which
-        // would race-condition and never re-fire.
-        if (!timeframe) return;
-        let cancelled = false;
-        (async () => {
-            try {
-                const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
-                if (cancelled || !hist) return;
-                const step = tf?.barDurationSec || 60;
-
-                const seenTimes = new Set<number>();
-                const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
-                for (let i = 0; i < hist.candleTimes.length; i++) {
-                    const t = hist.candleTimes[i];
-                    const o = hist.candles.open[i];
-                    const h = hist.candles.high[i];
-                    const l = hist.candles.low[i];
-                    const c = hist.candles.close[i];
-                    if (t == null || o == null || h == null || l == null || c == null) continue;
-                    if (seenTimes.has(t)) continue;
-                    seenTimes.add(t);
-                    historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c });
-                }
-
-                // Fallback for endpoints that ship only `prices[]` and
-                // no structured candles — synthesise a flat line of OHLC
-                // so the user sees at least a price track.
-                if (historicalCandles.length === 0 && hist.prices && hist.prices.length > 0) {
-                    const now = Math.floor(Date.now() / 1000);
-                    for (let i = 0; i < hist.prices.length; i++) {
-                        const val = parseFloat(hist.prices[i]) || 0;
-                        const t = (now - (hist.prices.length - i) * step) as number;
-                        if (seenTimes.has(t)) continue;
-                        seenTimes.add(t);
-                        historicalCandles.push({ time: t as Time, open: val, high: val, low: val, close: val });
-                    }
-                }
-
-                historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
-                if (historicalCandles.length > 0) {
-                    candleSeries.setData(historicalCandles);
-                    priceLineSeries.setData(
-                        historicalCandles.map((c) => ({ time: c.time, value: c.close }))
-                    );
-                    // Anchor viewport to the rightmost edge so ~67 recent
-                    // bars are visible at 6 px spacing in a ~400 px pane.
-                    // `fitContent()` would cram all 1000 candles into one
-                    // pixel per bar; `setVisibleRange` is undone by live
-                    // `series.update()` calls. `scrollToPosition(1)` is a
-                    // one-shot scroll that survives subsequent updates.
-                    chart.timeScale().scrollToPosition(1, false);
-                }
-
-                // Pull all historical indicator series in one shot via
-                // the unified helper. Each result is independently
-                // aligned to hist.times and dedup-sorted.
-                const [
-                    emaFast, emaMed, emaSlow, emaLong,
-                    bbUp, bbMid, bbLo,
-                    supertrendPts,
-                    donchUp, donchLo,
-                    ichiTenkan, ichiKijun, ichiSA, ichiSB,
-                    avwapW, avwapM, avwapS,
-                ] = alignedSeriesFromHistory(hist, [
-                    ['ema_stack', 'fast'],
-                    ['ema_stack', 'medium'],
-                    ['ema_stack', 'slow'],
-                    ['ema_stack', 'long'],
-                    ['bollinger', 'upper'],
-                    ['bollinger', 'middle'],
-                    ['bollinger', 'lower'],
-                    ['supertrend'],
-                    ['donchian', 'upper'],
-                    ['donchian', 'lower'],
-                    ['ichimoku', 'tenkan'],
-                    ['ichimoku', 'kijun'],
-                    ['ichimoku', 'senkou_a'],
-                    ['ichimoku', 'senkou_b'],
-                    ['anchored_vwap', 'weekly'],
-                    ['anchored_vwap', 'monthly'],
-                    ['anchored_vwap', 'swing'],
-                ]);
-
-                if (emaFast.length > 0) ema10Series.setData(emaFast);
-                if (emaMed.length > 0) ema50Series.setData(emaMed);
-                if (emaSlow.length > 0) ema100Series.setData(emaSlow);
-                if (emaLong.length > 0) ema200Series.setData(emaLong);
-                if (bbUp.length > 0) bbUpperSeries.setData(bbUp);
-                if (bbMid.length > 0) bbMiddleSeries.setData(bbMid);
-                if (bbLo.length > 0) bbLowerSeries.setData(bbLo);
-
-                // VWAP: daily for < 1 h, weekly for 1 h ≤ tf < 12 h, monthly for ≥ 12 h.
-                const vwapSeed = vwapPickKey(timeframe);
-                const vwapHist =
-                    vwapSeed.iSubKey === 'weekly' ? avwapW :
-                    vwapSeed.iSubKey === 'monthly' ? avwapM :
-                    pairsFromHistory(hist, 'vwap');
-                if (vwapHist.length > 0) vwapSeries.setData(vwapHist);
-
-                // Anchored VWAP — picked from whichever weekly/monthly/swing array the API returned.
-                if (anchoredVwapSeries) {
-                    const avwapAvail = avwapW.length > 0 ? avwapW
-                        : avwapM.length > 0 ? avwapM
-                        : avwapS;
-                    if (avwapAvail.length > 0) anchoredVwapSeries.setData(avwapAvail);
-                }
-                if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(supertrendPts);
-                if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(donchUp);
-                if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(donchLo);
-                if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(ichiTenkan);
-                if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(ichiKijun);
-                if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(ichiSA);
-                if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(ichiSB);
-
-                // v6.5: capture per-TF cluster + volume profile from
-                // history (used as a fallback if the WS stream hasn't
-                // yet populated tf.cluster / tf.volumeProfile).
-                const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
-                historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
-                historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
-            } catch (err) {
-                console.error("Error bootstrapping price chart history:", err);
-            }
-        })();
-        return () => { cancelled = true; };
-        });
-
         ro = new ResizeObserver(() => {
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
+    });
+
+    $effect(() => {
+    // Historical bootstrap. Re-runs whenever `pairKey` or `timeframe`
+    // changes (per Svelte 5 `$effect` semantics), so a slow daemon
+    // start or a fast `pairKey` swap both recover automatically once
+    // the data shows up — unlike the legacy `onMount` IIFE which
+    // would race-condition and never re-fire.
+    if (!timeframe) return;
+    let cancelled = false;
+    (async () => {
+        try {
+            const hist = await fetchIndicatorHistoryOnce(pairKey, timeframe);
+            if (cancelled || !hist) return;
+            const step = tf?.barDurationSec || 60;
+
+            const seenTimes = new Set<number>();
+            const historicalCandles: { time: Time; open: number; high: number; low: number; close: number }[] = [];
+            for (let i = 0; i < hist.candleTimes.length; i++) {
+                const t = hist.candleTimes[i];
+                const o = hist.candles.open[i];
+                const h = hist.candles.high[i];
+                const l = hist.candles.low[i];
+                const c = hist.candles.close[i];
+                if (t == null || o == null || h == null || l == null || c == null) continue;
+                if (seenTimes.has(t)) continue;
+                seenTimes.add(t);
+                historicalCandles.push({ time: t as Time, open: o, high: h, low: l, close: c });
+            }
+
+            // Fallback for endpoints that ship only `prices[]` and
+            // no structured candles — synthesise a flat line of OHLC
+            // so the user sees at least a price track.
+            if (historicalCandles.length === 0 && hist.prices && hist.prices.length > 0) {
+                const now = Math.floor(Date.now() / 1000);
+                for (let i = 0; i < hist.prices.length; i++) {
+                    const val = parseFloat(hist.prices[i]) || 0;
+                    const t = (now - (hist.prices.length - i) * step) as number;
+                    if (seenTimes.has(t)) continue;
+                    seenTimes.add(t);
+                    historicalCandles.push({ time: t as Time, open: val, high: val, low: val, close: val });
+                }
+            }
+
+            historicalCandles.sort((a, b) => Number(a.time) - Number(b.time));
+            const visibleCap = Math.min(historicalCandles.length, PRICE_CHART_SEED_COUNT);
+            const recent = <T extends { time: Time; value: number }>(arr: T[]) => arr.slice(-visibleCap);
+            const recentCandles = historicalCandles.slice(-visibleCap);
+            if (recentCandles.length > 0) {
+                candleSeries.setData(recentCandles);
+                priceLineSeries.setData(
+                    recentCandles.map((c) => ({ time: c.time, value: c.close }))
+                );
+            }
+
+            // Pull all historical indicator series in one shot via
+            // the unified helper. Each result is independently
+            // aligned to hist.times and dedup-sorted.
+            const [
+                emaFast, emaMed, emaSlow, emaLong,
+                bbUp, bbMid, bbLo,
+                supertrendPts,
+                donchUp, donchLo,
+                ichiTenkan, ichiKijun, ichiSA, ichiSB,
+                avwapW, avwapM, avwapS,
+            ] = alignedSeriesFromHistory(hist, [
+                ['ema_stack', 'fast'],
+                ['ema_stack', 'medium'],
+                ['ema_stack', 'slow'],
+                ['ema_stack', 'long'],
+                ['bollinger', 'upper'],
+                ['bollinger', 'middle'],
+                ['bollinger', 'lower'],
+                ['supertrend'],
+                ['donchian', 'upper'],
+                ['donchian', 'lower'],
+                ['ichimoku', 'tenkan'],
+                ['ichimoku', 'kijun'],
+                ['ichimoku', 'senkou_a'],
+                ['ichimoku', 'senkou_b'],
+                ['anchored_vwap', 'weekly'],
+                ['anchored_vwap', 'monthly'],
+                ['anchored_vwap', 'swing'],
+            ]);
+
+            if (emaFast.length > 0) ema10Series.setData(recent(emaFast));
+            if (emaMed.length > 0) ema50Series.setData(recent(emaMed));
+            if (emaSlow.length > 0) ema100Series.setData(recent(emaSlow));
+            if (emaLong.length > 0) ema200Series.setData(recent(emaLong));
+            if (bbUp.length > 0) bbUpperSeries.setData(recent(bbUp));
+            if (bbMid.length > 0) bbMiddleSeries.setData(recent(bbMid));
+            if (bbLo.length > 0) bbLowerSeries.setData(recent(bbLo));
+
+            // VWAP: daily for < 1 h, weekly for 1 h ≤ tf < 12 h, monthly for ≥ 12 h.
+            const vwapSeed = vwapPickKey(timeframe);
+            const vwapHist =
+                vwapSeed.iSubKey === 'weekly' ? avwapW :
+                vwapSeed.iSubKey === 'monthly' ? avwapM :
+                pairsFromHistory(hist, 'vwap');
+            if (vwapHist.length > 0) vwapSeries.setData(recent(vwapHist));
+
+            // Anchored VWAP — picked from whichever weekly/monthly/swing array the API returned.
+            if (anchoredVwapSeries) {
+                const avwapAvail = avwapW.length > 0 ? avwapW
+                    : avwapM.length > 0 ? avwapM
+                    : avwapS;
+                if (avwapAvail.length > 0) anchoredVwapSeries.setData(recent(avwapAvail));
+            }
+            if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(recent(supertrendPts));
+            if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(recent(donchUp));
+            if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(recent(donchLo));
+            if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(recent(ichiTenkan));
+            if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(recent(ichiKijun));
+            if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(recent(ichiSA));
+            if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(recent(ichiSB));
+
+            // v6.5: capture per-TF cluster + volume profile from
+            // history (used as a fallback if the WS stream hasn't
+            // yet populated tf.cluster / tf.volumeProfile).
+            const slotKey = slot; // 'micro' | 'fast' | 'slow' | 'macro'
+            historyCluster = hist.clusters?.[slotKey] as LiquidationClusterMatrix | null;
+            historyVolumeProfile = hist.volumeProfiles?.[slotKey] as VolumeProfileSnapshot | null;
+        } catch (err) {
+            console.error("Error bootstrapping price chart history:", err);
+        }
+    })();
+    return () => { cancelled = true; };
     });
 
     onDestroy(() => {
@@ -387,12 +388,6 @@
         keltnerUpperSeries.applyOptions({ visible: show });
         keltnerMiddleSeries.applyOptions({ visible: show });
         keltnerLowerSeries.applyOptions({ visible: show });
-    });
-
-    $effect(() => {
-        const show = tf?.showHullMa ?? false;
-        if (!hullMaSeries) return;
-        hullMaSeries.applyOptions({ visible: show });
     });
 
     $effect(() => {
@@ -571,7 +566,6 @@
         const kelUp = iSub(m, 'keltner', 'upper');
         const kelMid = iSub(m, 'keltner', 'middle');
         const kelLo = iSub(m, 'keltner', 'lower');
-        const hullRaw = iRaw(m, 'hull_ma');
         const stdUp = iSub(m, 'stddev_channel', 'upper');
         const stdMid = iSub(m, 'stddev_channel', 'center');
         const stdLo = iSub(m, 'stddev_channel', 'lower');
@@ -604,11 +598,10 @@
         if (kelUp != null && keltnerUpperSeries) keltnerUpperSeries.update({ time: timeSec as Time, value: kelUp });
         if (kelMid != null && keltnerMiddleSeries) keltnerMiddleSeries.update({ time: timeSec as Time, value: kelMid });
         if (kelLo != null && keltnerLowerSeries) keltnerLowerSeries.update({ time: timeSec as Time, value: kelLo });
-        if (hullRaw != null && hullMaSeries) hullMaSeries.update({ time: timeSec as Time, value: hullRaw });
         if (stdUp != null && stddevUpperSeries) stddevUpperSeries.update({ time: timeSec as Time, value: stdUp });
         if (stdMid != null && stddevMiddleSeries) stddevMiddleSeries.update({ time: timeSec as Time, value: stdMid });
         if (stdLo != null && stddevLowerSeries) stddevLowerSeries.update({ time: timeSec as Time, value: stdLo });
-        if (psarSar != null && psarSeries) psarSeries.update({ time: timeSec as Time, value: psarSar });
+        if (psarSar != null && Number.isFinite(psarSar) && psarSar > 0 && psarSar < 1_000_000 && psarSeries) psarSeries.update({ time: timeSec as Time, value: psarSar });
 
         // Push SMC events into the marker consumer (selective: conf >= 0.7).
         if (smcMarkers) {

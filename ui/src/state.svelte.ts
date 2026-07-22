@@ -31,7 +31,7 @@ function createTimeframeTelemetry(
         showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
         showStochastic: true, showChandeMo: true,
         showSupertrend: true, showKeltner: true, showDonchian: true,
-        showIchimoku: true, showHullMa: true, showPsar: true, showStddevChan: true,
+        showIchimoku: true, showPsar: true, showStddevChan: true,
         showObv: true, showCmf: true, showMfi: true, showHv: true,
         showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
         showLiqHeatmap: false, showVolumeProfile: false,

@@ -77,6 +77,29 @@
         if (chart) { unregisterChart(chart); chart.remove(); }
     });
 
+    /// Filter PSAR history points that are far outside the typical
+    /// range. PSAR can produce extreme outliers during warm-up or
+    /// when the acceleration factor overshoots; without this filter
+    /// a single bad value stretches the price axis to ±$10K. The
+    /// median of the seeded values is a stable anchor that
+    /// converges as more data arrives.
+    function filterPSARPoints(
+        pts: Array<{ time: Time; value: number }>,
+    ): Array<{ time: Time; value: number }> {
+        if (pts.length < 5) return pts;
+        const sorted = pts.map((p) => p.value).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
+        if (sorted.length < 5) return pts;
+        const median = sorted[Math.floor(sorted.length / 2)];
+        const lo = median * 0.5;
+        const hi = median * 2;
+        const before = pts.length;
+        const out = pts.filter((p) => p.value >= lo && p.value <= hi);
+        if (out.length < before) {
+            console.warn(`[CHART-DIAG] PsarChart ${pairKey}/${slot}: dropped ${before - out.length} outlier(s) outside [${lo.toFixed(2)}, ${hi.toFixed(2)}] (median=${median.toFixed(2)})`);
+        }
+        return out;
+    }
+
     $effect(() => {
         if (!timeframe) return;
         let cancelled = false;
@@ -84,8 +107,11 @@
             if (cancelled || !h) return;
             const pts = pairsFromHistory(h, 'psar', 'sar');
             if (pts.length > 0) {
-                psarSeries.setData(pts);
-                dataPoints = pts.length;
+                const filtered = filterPSARPoints(pts);
+                if (filtered.length > 0) {
+                    psarSeries.setData(filtered);
+                    dataPoints = filtered.length;
+                }
             }
         });
         return () => { cancelled = true; };
@@ -96,7 +122,7 @@
         const m = (snap.indicators ?? {}) as IndicatorMap;
         // Prefer the sub-keyed SAR value, fall back to raw_value.
         const val = iSub(m, 'psar', 'sar') ?? iRaw(m, 'psar');
-        if (val != null) {
+        if (val != null && val > 0 && Number.isFinite(val)) {
             psarSeries.update({ time: timeSec as Time, value: val });
             liveReceived = true;
         }

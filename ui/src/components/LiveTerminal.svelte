@@ -22,7 +22,6 @@
     import AdxChart from './AdxChart.svelte';
     import SupertrendChart from './SupertrendChart.svelte';
     import IchimokuChart from './IchimokuChart.svelte';
-    import HullMaChart from './HullMaChart.svelte';
     import AroonChart from './AroonChart.svelte';
     import PsarChart from './PsarChart.svelte';
     import DonchianChart from './DonchianChart.svelte';
@@ -113,7 +112,7 @@
     /// `FullscreenChartModal.svelte`.
     type ChartType =
         | 'price' | 'rvol' | 'volume'
-        | 'adx' | 'supertrend' | 'ichimoku' | 'hull_ma' | 'aroon' | 'psar' | 'donchian'
+        | 'adx' | 'supertrend' | 'ichimoku' | 'aroon' | 'psar' | 'donchian'
         | 'rsi' | 'macd' | 'stochastic' | 'chandemo' | 'williams_r' | 'cci' | 'awesome'
         | 'obv' | 'cmf' | 'mfi' | 'force_index'
         | 'atr' | 'bbwp' | 'squeeze' | 'hv' | 'stddev_channel'
@@ -142,7 +141,6 @@
             { chartType: 'adx',        box: 'paneAdx',        component: AdxChart },
             { chartType: 'supertrend', box: 'paneSupertrend', component: SupertrendChart },
             { chartType: 'ichimoku',   box: 'paneIchimoku',   component: IchimokuChart },
-            { chartType: 'hull_ma',    box: 'paneHullMa',     component: HullMaChart },
             { chartType: 'aroon',      box: 'paneAroon',      component: AroonChart },
             { chartType: 'psar',       box: 'panePsar',       component: PsarChart },
             { chartType: 'donchian',   box: 'paneDonchian',   component: DonchianChart },

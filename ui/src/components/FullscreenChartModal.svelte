@@ -11,7 +11,6 @@
     import AdxChart from './AdxChart.svelte';
     import SupertrendChart from './SupertrendChart.svelte';
     import IchimokuChart from './IchimokuChart.svelte';
-    import HullMaChart from './HullMaChart.svelte';
     import AroonChart from './AroonChart.svelte';
     import PsarChart from './PsarChart.svelte';
     import DonchianChart from './DonchianChart.svelte';
@@ -83,8 +82,6 @@
                 <SupertrendChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'ichimoku'}
                 <IchimokuChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
-            {:else if chartType === 'hull_ma'}
-                <HullMaChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'aroon'}
                 <AroonChart {pairKey} {slot} onDoubleClick={handleClose} onScreenshotReady={(fn) => triggerScreenshot = fn} />
             {:else if chartType === 'psar'}

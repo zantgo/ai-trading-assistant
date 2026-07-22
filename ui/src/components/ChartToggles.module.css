@@ -69,7 +69,6 @@
 .toggle-pill.volume-profile-pill.active { border-color: #b388ff; color: #b388ff; background: rgba(179, 136, 255, 0.1); }
 .toggle-pill.derivative-ribbon-pill.active { border-color: #00e676; color: #00e676; background: rgba(0, 230, 118, 0.1); }
 .toggle-pill.keltner-pill.active { border-color: #78909c; color: #78909c; background: rgba(120, 144, 156, 0.1); }
-.toggle-pill.hull-ma-pill.active { border-color: #ff8a65; color: #ff8a65; background: rgba(255, 138, 101, 0.1); }
 .toggle-pill.stddev-chan-pill.active { border-color: #a1887f; color: #a1887f; background: rgba(161, 136, 127, 0.1); }
 .toggle-pill.psar-pill.active { border-color: #ffab40; color: #ffab40; background: rgba(255, 171, 64, 0.1); }
 .toggle-pill.chart-patterns-pill.active { border-color: #ce93d8; color: #ce93d8; background: rgba(206, 147, 216, 0.1); }

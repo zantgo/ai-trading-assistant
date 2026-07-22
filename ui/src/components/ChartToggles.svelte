@@ -129,12 +129,6 @@
         syncAll(tf => { tf.showKeltner = v; });
     }
 
-    function toggleHullMa() {
-        if (!pair) return;
-        const v = !pair.microTerm.showHullMa;
-        syncAll(tf => { tf.showHullMa = v; });
-    }
-
     function toggleStddevChan() {
         if (!pair) return;
         const v = !pair.microTerm.showStddevChan;
@@ -230,8 +224,6 @@
     <div class={styles.togglesGroup}>
         <button class="{styles.togglePill} {styles.keltnerPill} {pair.microTerm.showKeltner ? styles.active : ''}"
             onclick={toggleKeltner}>KELTNER</button>
-        <button class="{styles.togglePill} {styles.hullMaPill} {pair.microTerm.showHullMa ? styles.active : ''}"
-            onclick={toggleHullMa}>HULL MA</button>
         <button class="{styles.togglePill} {styles.stddevChanPill} {pair.microTerm.showStddevChan ? styles.active : ''}"
             onclick={toggleStddevChan}>STDDEV CH.</button>
         <button class="{styles.togglePill} {styles.psarPill} {pair.microTerm.showPsar ? styles.active : ''}"

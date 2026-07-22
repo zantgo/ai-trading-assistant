@@ -536,7 +536,6 @@ export interface TimeframeTelemetry {
     showKeltner: boolean;
     showDonchian: boolean;
     showIchimoku: boolean;
-    showHullMa: boolean;
     showPsar: boolean;
     showStddevChan: boolean;
     showObv: boolean;

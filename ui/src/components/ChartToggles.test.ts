@@ -75,7 +75,6 @@ function makeTf(slot: 'micro' | 'fast' | 'slow' | 'macro') {
         showKeltner: true,
         showDonchian: true,
         showIchimoku: true,
-        showHullMa: true,
         showPsar: true,
         showStddevChan: true,
         showObv: true,
