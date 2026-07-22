@@ -18,6 +18,8 @@
     import { defaultFilters, filterSignals, type FilterState } from '../lib/filtering';
     import MarketContextStrip from './MarketContextStrip.svelte';
     import GroupConfluenceGrid from './GroupConfluenceGrid.svelte';
+    import StructuralAnchorsStrip from './StructuralAnchorsStrip.svelte';
+    import TradePlanStrip from './TradePlanStrip.svelte';
     import FacetTabs, { type FacetId } from './facets/FacetTabs.svelte';
     import IndicatorsView from './facets/IndicatorsView.svelte';
     import SignalsView from './facets/SignalsView.svelte';
@@ -28,6 +30,8 @@
     import styles from './TerminalMonitor.module.css';
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
+    import { buildMetricsExportJson, copyJsonToClipboard } from '../lib/metricsExport';
+    import { deriveTradePlan } from '../lib/tradePlan';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -128,6 +132,58 @@
             ? (activeTfObj.latestSnapshot as any).timestamp
             : null,
     );
+
+    // ── Export JSON ──────────────────────────────────────────────────
+    let exportLabel = $state('Export JSON');
+    let exportTimer: ReturnType<typeof setTimeout> | null = null;
+
+    async function handleExportJson() {
+        if (!pair || !activeTfObj) return;
+        const markPrice = parseFloat(activeTfObj.priceText ?? '') || 0;
+        const microSnap = (pair as any)?.microTerm?.latestSnapshot ?? {};
+        const opportunity = (microSnap as any)?.opportunity ?? null;
+        const decisionContext = (microSnap as any)?.decision_context ?? null;
+        const tradePlanVal = $derived.by(() => deriveTradePlan({
+            symbol: pair.symbol,
+            markPrice,
+            opportunity,
+            advisory: pair.advisory ?? null,
+            analysis: pair.analysis ?? null,
+            decisionContext,
+            tf: activeTfObj,
+            microTf: (pair as any)?.microTerm,
+            overallRisk: pair.risk?.overall_risk?.score,
+        }));
+        const text = buildMetricsExportJson({
+            symbol: pair.symbol,
+            tfLabel: activeTfEntry.label,
+            tfSecs: activeTfEntry.secs,
+            timestamp: snapshotTs,
+            markPrice,
+            registry,
+            tf: activeTfObj,
+            filters: {
+                activeOnly: filters.activeOnly,
+                confirmedPlusOnly: filters.confirmedPlusOnly,
+                hideGates: filters.hideGates,
+            },
+            analysis: pair.analysis ?? null,
+            risk: pair.risk ?? null,
+            alignment: (pair.alignment as unknown as Record<string, unknown>) ?? null,
+            opportunity,
+            advisory: pair.advisory ?? null,
+            volumeProfile: (pair as any)?.microTerm?.volumeProfile ?? null,
+            liquidity: (pair as any)?.microTerm?.liquidity ?? null,
+            cluster: (pair as any)?.microTerm?.cluster ?? null,
+            liquiditySignals: ((pair as any)?.microTerm?.liquiditySignals ?? []) as any[],
+            tradePlan: tradePlanVal,
+            decisionContext,
+        });
+        const ok = await copyJsonToClipboard(text);
+        exportLabel = ok ? 'Copied!' : 'Copy failed';
+        if (exportTimer) clearTimeout(exportTimer);
+        exportTimer = setTimeout(() => { exportLabel = 'Export JSON'; }, 2000);
+    }
 </script>
 
 <div class={styles.monitor}>
@@ -135,8 +191,7 @@
         <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
         {#each TIMEFRAMES as tf (tf.key)}
             <button
-                class={styles.tfSidebarItem}
-                class:active={activeTf === tf.key}
+                class="{styles.tfSidebarItem} {activeTf === tf.key ? styles.active : ''}"
                 onclick={() => activeTf = tf.key}
             >
                 <span class={styles.tfLabel}>{tf.label}</span>
@@ -152,6 +207,13 @@
                 <span class={styles.title}>METRICS</span>
                 <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
                 <span class={styles.tfBadge}>{activeTfEntry.label} · {formatTimeframeLabel(activeTfEntry.secs)}</span>
+                <button
+                    class={styles.exportBtn}
+                    onclick={handleExportJson}
+                    title="Copy current timeframe's indicators + signals as JSON"
+                >
+                    {exportLabel}
+                </button>
             </div>
 
             <!-- ROW 1 — MarketContext -->
@@ -161,12 +223,43 @@
                 barDurationSec={activeTfEntry.secs}
             />
 
-            <!-- ROW 2 — Group Confluence Grid -->
+            <!-- ROW 2 — Trade Plan Strip (entry / TP1/TP2/TP3 / SL / R:R / confidence) -->
+            <TradePlanStrip
+                pair={pair}
+                tf={activeTfObj}
+                microTf={(pair as any)?.microTerm}
+                risk={pair?.risk ?? null}
+                markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
+            />
+
+            <!-- ROW 3 — Group Confluence Grid -->
             <GroupConfluenceGrid
                 registry={registry}
                 indicators={activeTfObj.indicators ?? {}}
                 activeGroup={focusGroup}
                 onGroupClick={handleGroupClick}
+            />
+
+            <!-- ROW 3.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
+            {@const microFlow = (pair as any)?.microTerm?.liquidity ?? null}
+            {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
+                <button
+                    class="{styles.cascadeAlert} {microFlow.cascade_state === 'SUSTAINED' ? styles.cascadeAlertSustained : styles.cascadeAlertDetected}"
+                    onclick={() => activeFacet = 'liquidity'}
+                    title="Click to inspect the Liquidity facet"
+                >
+                    <span class={styles.cascadeAlertIcon}>⚠</span>
+                    <span class={styles.cascadeAlertLabel}>
+                        CASCADE {microFlow.cascade_state} · intensity {microFlow.cascade_intensity.toFixed(0)}/100 · click for Liquidity facet
+                    </span>
+                </button>
+            {/if}
+
+            <!-- ROW 4 — Structural Anchors Strip (Volume Profile / Fibonacci / Liquidity ladder) -->
+            <StructuralAnchorsStrip
+                tf={activeTfObj}
+                microTf={(pair as any)?.microTerm}
+                markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
             />
 
             <!-- SEARCH + FILTER PILLS -->

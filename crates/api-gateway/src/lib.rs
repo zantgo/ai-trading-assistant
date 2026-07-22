@@ -255,6 +255,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/connection-quality",
             get(handlers::connection_quality::get_connection_quality),
         )
+        .route(
+            "/api/liquidity/cluster-status",
+            get(handlers::cluster_status::serve_cluster_status),
+        )
         .route("/api/overview", get(handlers::overview::serve_overview))
         .route("/api/monitor", get(handlers::monitor::serve_monitor))
         .route(

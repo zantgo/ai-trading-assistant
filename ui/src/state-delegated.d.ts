@@ -48,6 +48,9 @@ declare module './state.svelte' {
         paperAutoExecuteIntervals: number; paperLookbackTrades: number;
         paperPositionPct: number; paperFreeBalancePct: number; paperDirection: 'LONG' | 'SHORT' | '';
         openOrders: OpenOrder[];
+        activePlan: Record<string, unknown> | null;
+        activeConsoleOpen: boolean;
+        activeConsoleTab: 'positions' | 'orders' | 'history' | 'plan';
         activeSlots: SlotState[]; positionSlots: PositionSlot[];
         equitySnapshots: EquitySnapshot[];
         paperInitialAllocatedMargin: number;

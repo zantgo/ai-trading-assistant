@@ -140,6 +140,7 @@ fn build_active_pair_with_channels(
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
     };
     let pair = Arc::new(ActivePair {
         symbol: pair_key.to_string(),

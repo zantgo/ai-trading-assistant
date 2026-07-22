@@ -250,6 +250,12 @@ impl Instance {
             // tests don't exercise cluster refresh so leaving this as
             // None is fine.
             cluster_matrix: Arc::new(RwLock::new(None)),
+            // Per-TF cluster-refresh status snapshot (sibling to
+            // `cluster_matrix`). Tests don't exercise refresh, so we
+            // initialize as Pending with empty fields.
+            cluster_status: Arc::new(RwLock::new(
+                core_domain::liquidity::ClusterStatusSnapshot::pending(&format!("{}-{}", pair.0, pair.1), slot.as_str()),
+            )),
         };
         let micro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Micro);
         let fast_pipe = new_pipeline(core_domain::models::TimeframeSlot::Fast);

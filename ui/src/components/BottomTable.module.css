@@ -290,6 +290,128 @@
 }
 .expandIcon:hover { color: #fff; }
 
+/* ── Plan-loaded tab indicator ──────────────────────────── */
+.consoleTabPlanHighlight {
+    color: #22d3ee !important;
+    background: rgba(34, 211, 238, 0.08) !important;
+}
+
+/* ── Plan tab body ─────────────────────────────────────── */
+.planTab {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+}
+
+.planBanner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    background: rgba(34, 211, 238, 0.12);
+    border: 1px solid rgba(34, 211, 238, 0.4);
+    border-radius: 5px;
+    font-family: var(--mono, monospace);
+}
+
+.planBannerText {
+    font-size: 11px;
+    color: #22d3ee;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.planDismissBtn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: var(--mono, monospace);
+}
+
+.planDismissBtn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+
+.tpLabelCell {
+    color: #22c55e !important;
+    font-weight: 800;
+}
+
+.slLabelCell {
+    color: #ef4444 !important;
+    font-weight: 800;
+}
+
+.slRow {
+    background: rgba(239, 68, 68, 0.04);
+}
+
+.planPriceInput, .planSizeInput {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-family: var(--mono, monospace);
+    font-size: 11px;
+    text-align: right;
+    padding: 3px 6px;
+    border-radius: 3px;
+    outline: none;
+    font-variant-numeric: tabular-nums;
+}
+
+.planPriceInput:focus, .planSizeInput:focus {
+    border-color: rgba(34, 211, 238, 0.5);
+}
+
+.planActions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.commitPlanBtn {
+    flex: 1;
+    background: rgba(34, 211, 238, 0.18);
+    border: 1px solid rgba(34, 211, 238, 0.5);
+    color: #22d3ee;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono, monospace);
+    transition: all 0.15s;
+}
+
+.commitPlanBtn:hover { background: rgba(34, 211, 238, 0.32); color: #fff; }
+
+.cancelPlanBtn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--mono, monospace);
+}
+
+.cancelPlanBtn:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+
 .closeBtnGroup {
     position: relative;
     display: inline-flex;

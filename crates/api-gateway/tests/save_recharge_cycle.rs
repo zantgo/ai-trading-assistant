@@ -103,6 +103,7 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
     };
 
     let pair = Arc::new(ActivePair {

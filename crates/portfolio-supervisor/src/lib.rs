@@ -11,7 +11,6 @@
 pub use workspace_state::WorkspaceState;
 
 pub mod capital_layer;
-pub mod cluster_refresh;
 pub mod commission;
 pub mod execution;
 pub mod exposure_layer;

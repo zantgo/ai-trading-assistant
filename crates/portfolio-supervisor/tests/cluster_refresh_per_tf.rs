@@ -44,6 +44,9 @@ fn make_pipe(slot: TimeframeSlot, secs: u64, tx: broadcast::Sender<MarketSnapsho
         cluster_matrix: Arc::new(RwLock::new(
             None::<core_domain::liquidity::LiquidationClusterMatrix>,
         )),
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("BTC-USDT", slot.as_str()),
+        )),
     }
 }
 

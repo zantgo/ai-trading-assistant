@@ -26,14 +26,14 @@ function createTimeframeTelemetry(
         priceText: '--', volText: '--', avgVolText: '--',
         showPatterns: true,
         isCompleted: false, latestSnapshot: null, historyPrices: [],
-        showEmas: true, showBb: true, showVwap: true, showVolume: true,
-        showAdx: true, showAtr: true, showRsi: true, showMacd: true,
-        showSqueeze: true, showBbwp: true, showFib: false, showRvol: true,
-        showStochastic: true, showChandeMo: true,
-        showSupertrend: true, showKeltner: true, showDonchian: true,
-        showIchimoku: true, showPsar: true, showStddevChan: true,
-        showObv: true, showCmf: true, showMfi: true, showHv: true,
-        showAroon: true, showChoppiness: true, showLinregSlope: true, showZscore: true,
+        showEmas: false, showBb: false, showVwap: true, showVolume: false,
+        showAdx: false, showAtr: false, showRsi: false, showMacd: false,
+        showSqueeze: false, showBbwp: false, showFib: false, showRvol: false,
+        showStochastic: false, showChandeMo: false,
+        showSupertrend: false, showKeltner: false, showDonchian: false,
+        showIchimoku: false, showPsar: false, showStddevChan: false,
+        showObv: false, showCmf: false, showMfi: false, showHv: false,
+        showAroon: false, showChoppiness: false, showLinregSlope: false, showZscore: false,
         showLiqHeatmap: false, showVolumeProfile: false,
         showWilliamsR: false, showCci: false, showForceIdx: false,
         showFunding: false, showOpenInterest: false, showOiDelta: false,
@@ -174,6 +174,11 @@ export class AppStore {
     paper = {
         openOrders: [] as Record<string, unknown>[],
     };
+
+    // ─── Trade Plan (L4/L6 → BottomConsole bracket creator) ──
+    activePlan = $state<Record<string, unknown> | null>(null);
+    activeConsoleOpen = $state(false);
+    activeConsoleTab = $state<'positions' | 'orders' | 'history' | 'plan'>('positions');
 
     async fetchPaperStatus() { /***/ }
     async fetchOpenOrders() { /***/ }

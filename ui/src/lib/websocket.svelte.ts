@@ -1,5 +1,5 @@
 import type { AppStore } from '../state.svelte';
-import type { IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
+import type { IndicatorDto, IndicatorMap, TimeframeTelemetry, TimeframeSlotKind } from '../types';
 import { getDecimalCount } from './telemetry';
 
 export type WsKey = 'wsMicro' | 'wsFast' | 'wsSlow' | 'wsMacro';
@@ -119,11 +119,45 @@ export function applySnapshotToTimeframe(app: AppStore, tf: TimeframeTelemetry, 
     const wireSlot = (snapshot as Record<string, unknown>).timeframe_slot;
     if (wireSlot != null && wireSlot !== tf.slot) return;
 
-    tf.indicators = (snapshot.indicators && typeof snapshot.indicators === 'object')
-            ? (snapshot.indicators as IndicatorMap)
-            : {};
-        tf.latestSnapshot = snapshot;
-        tf.isCompleted = snapshot.is_completed === true;
+    // Per-key merge: the live/shadow tick path doesn't populate every
+    // indicator (e.g. fibonacci GP/ext values are stripped because they
+    // only re-compute on completed bars). Without this guard, every WS
+    // tick would erase the previously-computed Fibonacci GP zone and ext
+    // targets from the UI, causing the "Awaiting fibonacci swing leg…"
+    // placeholder to persist. We preserve existing entries whose new
+    // counterpart is absent.
+    const incoming = (snapshot.indicators && typeof snapshot.indicators === 'object')
+        ? (snapshot.indicators as IndicatorMap)
+        : {};
+    if (tf.indicators && Object.keys(tf.indicators).length > 0) {
+        const merged: IndicatorMap = { ...tf.indicators };
+        for (const [k, v] of Object.entries(incoming)) {
+            const newDto = v as unknown as Record<string, unknown> | undefined;
+            const cur = merged[k];
+            if (!newDto || (typeof newDto === 'object' && Object.keys(newDto).length === 0)) {
+                continue;
+            }
+            const newValues = (newDto.values && typeof newDto.values === 'object') ? newDto.values : null;
+            const curValues = (cur && cur.values && typeof cur.values === 'object') ? cur.values : null;
+            const finalValues = newValues ?? curValues ?? null;
+            const newSignals = Array.isArray(newDto.signals) ? newDto.signals : null;
+            const curSignals = (cur && Array.isArray(cur.signals)) ? cur.signals : null;
+            const finalSignals = newSignals ?? curSignals ?? [];
+            merged[k] = {
+                raw_value: (typeof newDto.raw_value === 'number' ? newDto.raw_value : cur?.raw_value ?? 0),
+                normalized: (typeof newDto.normalized === 'number' ? newDto.normalized : cur?.normalized ?? 0),
+                state_label: (typeof newDto.state_label === 'string' ? newDto.state_label : cur?.state_label ?? 'UNKNOWN'),
+                values: finalValues,
+                signals: finalSignals,
+                confidence: (typeof newDto.confidence === 'number' ? newDto.confidence : cur?.confidence),
+            } as IndicatorDto;
+        }
+        tf.indicators = merged;
+    } else {
+        tf.indicators = incoming;
+    }
+    tf.latestSnapshot = snapshot;
+    tf.isCompleted = snapshot.is_completed === true;
 
         // Capture the per-TF MarketContext synthesis block (L1 LOCAL
         // 5-dimension + regime + overall score/label). Previously this

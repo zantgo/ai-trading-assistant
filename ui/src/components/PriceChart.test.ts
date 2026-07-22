@@ -114,3 +114,116 @@ describe('Overlay $effect early-return trap (regression: PriceChart toggle wirin
         unmount(OverlayEffectHarness);
     });
 });
+
+// ───────────────────────────────────────────────────────────────────
+// LIQ HEATMAP / VOL PROFILE-style decoupled `setVisible + updateData`
+// pattern. Pin down that visibility is independent of data: a toggle
+// flip must NEVER produce an `updateData(null)` as a side-effect.
+// ───────────────────────────────────────────────────────────────────
+
+import OverlayVisibleEffectHarness from './OverlayVisibleEffectHarness.svelte';
+
+const visibleCell = () => (globalThis as any).__overlayVisibleCell;
+
+function visibleCalls(): Array<[string, unknown]> {
+    return (globalThis as any).__overlayVisibleCalls;
+}
+
+describe('Overlay decoupled setVisible + updateData (LIQ HEATMAP / VOL PROFILE pattern)', () => {
+    beforeEach(() => {
+        (globalThis as any).__overlayVisibleCalls = [];
+        // Reset the cell to a known initial state. The harness reuses
+        // the cell across mounts via globalThis, so we have to reset
+        // both fields explicitly.
+        if (visibleCell()) {
+            visibleCell().showOverlay = false;
+            visibleCell().data = null;
+        }
+    });
+
+    afterEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    it('toggle-on emits setVisible(true) and updateData(data)', () => {
+        mount(OverlayVisibleEffectHarness, { target: document.body });
+        flushSync();
+
+        visibleCell().data = { value: 'alpha' };
+        visibleCell().showOverlay = true;
+        flushSync();
+
+        const lastSetVisible = [...visibleCalls()].reverse().find(([k]) => k === 'setVisible');
+        const lastUpdateData = [...visibleCalls()].reverse().find(([k]) => k === 'updateData');
+        expect(lastSetVisible).toEqual(['setVisible', true]);
+        expect(lastUpdateData).toEqual(['updateData', { value: 'alpha' }]);
+
+        unmount(OverlayVisibleEffectHarness);
+    });
+
+    it('toggle-off does NOT pass null to updateData (data survives)', () => {
+        mount(OverlayVisibleEffectHarness, { target: document.body });
+        flushSync();
+
+        const payload = { value: 'beta' };
+        const callsBeforePayload = visibleCalls().length;
+        visibleCell().data = payload;
+        visibleCell().showOverlay = true;
+        flushSync();
+
+        // Snapshot the index of the first updateData(payload) so we can
+        // ignore the initial-mount updateData(null) earlier in the log.
+        const afterOn = visibleCalls().length;
+
+        visibleCell().showOverlay = false;
+        flushSync();
+
+        // Look only at calls AFTER the toggle-on that fed `payload` in.
+        const tail = visibleCalls().slice(afterOn);
+        // setVisible(false) was emitted
+        expect(tail).toContainEqual(['setVisible', false]);
+        // Every updateData call in the tail carries the payload — NOT null.
+        const tailUpdateData = tail.filter(([k]) => k === 'updateData');
+        for (const [, v] of tailUpdateData) {
+            expect(v).toEqual(payload);
+        }
+        expect(tailUpdateData.length).toBeGreaterThan(0);
+
+        // Sanity: payload was indeed fed in during toggle-on.
+        const initialPayloadCall = visibleCalls()
+            .slice(callsBeforePayload, afterOn)
+            .find(([k, v]) => k === 'updateData' && JSON.stringify(v) === JSON.stringify(payload));
+        expect(initialPayloadCall).toBeDefined();
+
+        unmount(OverlayVisibleEffectHarness);
+    });
+
+    it('toggle-off then toggle-on preserves the same data reference', () => {
+        mount(OverlayVisibleEffectHarness, { target: document.body });
+        flushSync();
+
+        const payload = { value: 'gamma' };
+        visibleCell().data = payload;
+        visibleCell().showOverlay = true;
+        flushSync();
+        const afterOn = visibleCalls().length;
+
+        // Toggle off then on. Every updateData call should still carry
+        // the same payload reference, NOT null.
+        visibleCell().showOverlay = false;
+        flushSync();
+        visibleCell().showOverlay = true;
+        flushSync();
+
+        const tail = visibleCalls().slice(afterOn);
+        const tailUpdateData = tail.filter(([k]) => k === 'updateData');
+        expect(tailUpdateData.length).toBeGreaterThan(0);
+        for (const [, v] of tailUpdateData) {
+            expect(v).toEqual(payload);
+        }
+        // No updateData(null) in the tail — that would be the regression.
+        expect(tailUpdateData.map(([, v]) => v)).not.toContain(null);
+
+        unmount(OverlayVisibleEffectHarness);
+    });
+});

@@ -109,6 +109,9 @@ fn build_stub_instance(
         latest_index_px: Arc::new(RwLock::new(None)),
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
+        cluster_status: Arc::new(RwLock::new(
+            core_domain::liquidity::ClusterStatusSnapshot::pending("TEST-USD", slot.as_str()),
+        )),
     };
 
     let active = Arc::new(ActivePair {

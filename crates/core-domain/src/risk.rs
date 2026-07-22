@@ -81,7 +81,19 @@ pub struct RiskDimension {
 }
 
 impl RiskDimension {
+    /// Build a `RiskDimension` from a raw 0-100 score using the
+    /// maximally-uncertain default confidence (50%). Used only by
+    /// `RiskMatrix::empty` where no upstream analysis exists.
     fn from_score(score: f64) -> Self {
+        Self::from_score_with_confidence(score, 0.5)
+    }
+
+    /// Build a `RiskDimension` from a raw 0-100 score and a propagation
+    /// confidence in `[0.0, 1.0]`. The resulting `confidence` field is
+    /// `state_confidence * 100` (matches L3→L6 propagation per docs/matrices
+    /// `02-00b-confidence-hierarchy.md`). Pass `state_confidence = 0.0`
+    /// to override to "0" (e.g. `cascade_risk` when liquidity feed is OFF).
+    fn from_score_with_confidence(score: f64, state_confidence: f64) -> Self {
         let level = if score >= 80.0 {
             RiskLevel::Extreme
         } else if score >= 60.0 {
@@ -93,11 +105,12 @@ impl RiskDimension {
         } else {
             RiskLevel::VeryLow
         };
+        let confidence = (state_confidence * 100.0).clamp(0.0, 100.0);
         Self {
             score: score.max(0.0).min(100.0),
             level,
             state: RiskState::Stable,
-            confidence: 50.0,
+            confidence,
             evidence: Vec::new(),
         }
     }
@@ -201,11 +214,14 @@ fn assess_market_risk(
     if analysis.state_confidence > 0.7 {
         score -= 10.0;
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess volatility risk: danger from abnormal price movement.
-fn assess_volatility_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+fn assess_volatility_risk(
+    analysis: &AnalysisMatrix,
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+) -> RiskDimension {
     let bbwp = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
     let atr = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
     let squeeze_on = indicators
@@ -228,11 +244,12 @@ fn assess_volatility_risk(indicators: &HashMap<String, NormalizedIndicatorValue>
         let rel_atr = score_mag(atr, 500.0);
         score = (score + rel_atr) / 2.0;
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess liquidity risk: quality of market participation.
 fn assess_execution_liquidity_risk(
+    analysis: &AnalysisMatrix,
     indicators: &HashMap<String, NormalizedIndicatorValue>,
 ) -> RiskDimension {
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
@@ -256,7 +273,7 @@ fn assess_execution_liquidity_risk(
         score -= 10.0;
         evidence.push("Tight spread".into());
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess structure risk: uncertainty from weak/damaged price structure.
@@ -289,7 +306,7 @@ fn assess_structure_risk(
         score += 15.0;
         evidence.push("S/R level flip".into());
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess momentum risk: vulnerability from exhausted/diverging momentum.
@@ -315,7 +332,7 @@ fn assess_momentum_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         }
         _ => {}
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess signal risk: uncertainty from conflicting/unreliable signals.
@@ -338,11 +355,14 @@ fn assess_signal_risk(analysis: &AnalysisMatrix) -> RiskDimension {
         score += 15.0;
         evidence.push("Low analysis confidence".into());
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess execution risk: practical difficulties from spread/movement.
-fn assess_execution_risk(indicators: &HashMap<String, NormalizedIndicatorValue>) -> RiskDimension {
+fn assess_execution_risk(
+    analysis: &AnalysisMatrix,
+    indicators: &HashMap<String, NormalizedIndicatorValue>,
+) -> RiskDimension {
     let spread = indicators.get("spread").map(|v| v.raw_value).unwrap_or(0.0);
     let rvol = indicators.get("rvol").map(|v| v.raw_value).unwrap_or(1.0);
     let mut evidence = Vec::new();
@@ -358,7 +378,7 @@ fn assess_execution_risk(indicators: &HashMap<String, NormalizedIndicatorValue>)
         score += 15.0;
         evidence.push("Low participation".into());
     }
-    RiskDimension::from_score(score.max(0.0).min(100.0)).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score.max(0.0).min(100.0), analysis.state_confidence).with_evidence(evidence)
 }
 
 /// Assess cascade risk (Phase 3): danger from forced liquidation
@@ -366,12 +386,25 @@ fn assess_execution_risk(indicators: &HashMap<String, NormalizedIndicatorValue>)
 /// `LiquidityFlow` if present, plus `cascade_asymmetry` from the
 /// `LiquidationClusterMatrix` for forward-looking pressure. Higher
 /// intensity or larger absolute asymmetry → higher risk.
+///
+/// Per docs/engines `03-02-12-mme-configurable-activation.md` §CA-15,
+/// `cascade_risk` emits `confidence: 0` when the liquidity data feed
+/// is off (no `flow` and no `cluster`), since the dimension has no
+/// underlying measurement to be confident about.
 fn assess_cascade_risk(
+    analysis: &AnalysisMatrix,
     flow: Option<&crate::liquidity::LiquidityFlow>,
     cluster: Option<&crate::liquidity::LiquidationClusterMatrix>,
 ) -> RiskDimension {
     let mut score: f64 = 30.0; // baseline
     let mut evidence = Vec::new();
+    // Confidence override: if the liquidity data feed is off, there is no
+    // measurement for this dimension → confidence 0 (docs §CA-15).
+    let state_confidence = if flow.is_none() && cluster.is_none() {
+        0.0
+    } else {
+        analysis.state_confidence
+    };
     if let Some(f) = flow {
         // The intensity is already 0..100; pull it in proportionally.
         score = score.max(f.cascade_intensity);
@@ -401,7 +434,7 @@ fn assess_cascade_risk(
             ));
         }
     }
-    RiskDimension::from_score(score).with_evidence(evidence)
+    RiskDimension::from_score_with_confidence(score, state_confidence).with_evidence(evidence)
 }
 
 /// Compute the Risk Matrix from the Analysis Matrix and per-timeframe indicators.
@@ -417,13 +450,13 @@ pub fn compute_risk(
     }
 
     let market = assess_market_risk(analysis, indicators);
-    let volatility = assess_volatility_risk(indicators);
-    let liquidity = assess_execution_liquidity_risk(indicators);
+    let volatility = assess_volatility_risk(analysis, indicators);
+    let liquidity = assess_execution_liquidity_risk(analysis, indicators);
     let structure = assess_structure_risk(analysis, indicators);
     let momentum = assess_momentum_risk(analysis);
     let signal = assess_signal_risk(analysis);
-    let execution = assess_execution_risk(indicators);
-    let cascade = assess_cascade_risk(flow, cluster);
+    let execution = assess_execution_risk(analysis, indicators);
+    let cascade = assess_cascade_risk(analysis, flow, cluster);
 
     // Overall: weighted average of all 8 dimensions. Cascade gets 0.14
     // weight — comparable to the other dimensions because cascade events
@@ -438,7 +471,7 @@ pub fn compute_risk(
         + cascade.score * 0.14)
         .max(0.0)
         .min(100.0);
-    let overall = RiskDimension::from_score(overall_score);
+    let overall = RiskDimension::from_score_with_confidence(overall_score, analysis.state_confidence);
 
     RiskMatrix {
         symbol: symbol.to_string(),
@@ -468,6 +501,7 @@ mod tests {
             bias: MarketBias::Neutral,
             market_bias_score: 0.0,
             state_confidence: 0.5,
+            confidence: 0.5,
             market_quality_score: 50.0,
             market_regime: MarketRegime::Range,
             trend_assessment: TrendAssessment::Healthy,

@@ -69,6 +69,12 @@ pub struct TimeframePipeline {
     /// as `MarketSnapshot.cluster`, so every TF chart in the dashboard
     /// shows clusters at its own horizon (micro=fast-magnet, macro=slow-magnet).
     pub cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    /// Per-TF cluster-refresh status snapshot. Sibling to `cluster_matrix`
+    /// so the `/api/liquidity/cluster-status` handler can distinguish
+    /// "no data yet" (Pending) from "refresh task failed and is silently
+    /// retrying" (Skipped with reason) — without this, the LIQ HEATMAP
+    /// overlay can appear empty for minutes with no operator feedback.
+    pub cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
 }
 
 pub struct ActivePair {

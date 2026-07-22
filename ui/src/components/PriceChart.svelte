@@ -713,13 +713,18 @@
     // Liquidity heatmap — toggle visibility + data feeding.
     // v6.5 fallback chain: prefer WS-populated tf.cluster; fall back to
     // history-sourced historyCluster when WS hasn't delivered yet.
+    // Visibility is handled separately via `setVisible()` so the cluster
+    // is preserved across toggle flips — flipping the pill on never causes
+    // a transient null state, which would otherwise race with the WS push
+    // cadence (cluster matrices refresh per-TF at the candle cadence).
     // Dependencies are read BEFORE the primitive-guard so they stay tracked
     // across mount (see note on the EMA effect above).
     $effect(() => {
         const visible = tf?.showLiqHeatmap ?? false;
         const data = tf?.cluster ?? historyCluster ?? null;
         if (!heatmap) return;
-        heatmap.updateData(visible ? data : null);
+        heatmap.setVisible(visible);
+        heatmap.updateData(data);
     });
 
     // Volume profile — toggle visibility + data feeding.

@@ -247,6 +247,7 @@ mod tests {
                 bias: MarketBias::StrongBullish,
                 market_bias_score: 85.0,
                 state_confidence: 0.85,
+                confidence: 0.85,
                 market_regime: MarketRegime::TrendingBull,
                 trend_assessment: TrendAssessment::Healthy,
                 momentum_assessment: MomentumAssessment::Stable,

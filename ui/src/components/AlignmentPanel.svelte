@@ -38,6 +38,13 @@
         return styles.neutral;
     }
 
+    const SLOT_RANK: Record<string, number> = { MICRO: 0, FAST: 1, SLOW: 2, MACRO: 3 };
+    const sortedTfAlignments = $derived(
+        (alignment?.timeframe_alignments ?? [])
+            .slice()
+            .sort((a, b) => (SLOT_RANK[a.timeframe] ?? 99) - (SLOT_RANK[b.timeframe] ?? 99))
+    );
+
     const dimNames = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Signal', 'Regime', 'Confidence', 'Liquidity', 'Tradability'];
 
     const blendDesc = $derived(
@@ -118,7 +125,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {#each alignment.timeframe_alignments as tf}
+                        {#each sortedTfAlignments as tf}
                             <tr>
                                 <td class={styles.tfName}>{tf.timeframe}</td>
                                 <td class={tf.trend_score > 0 ? styles.tfBull : styles.tfBear}>

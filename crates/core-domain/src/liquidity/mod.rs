@@ -480,6 +480,70 @@ impl LiquidationClusterMatrix {
     }
 }
 
+/// Status of the most recent cluster-matrix refresh for a single TF slot.
+///
+/// Surfaced to the UI via `/api/liquidity/cluster-status` so operators
+/// can distinguish "the LIQ HEATMAP is empty because there's no data
+/// yet" (Pending) from "the refresh task failed and is silently retrying"
+/// (Skipped with a reason). Without this distinction the heatmap can
+/// appear empty for minutes at boot and operators have no signal that
+/// the refresh is misbehaving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ClusterRefreshStatus {
+    /// No refresh has been attempted yet (cold boot, before first tick).
+    Pending,
+    /// Most recent refresh produced a valid matrix.
+    Ok,
+    /// Most recent refresh failed (insufficient history, no OI, etc.).
+    Skipped,
+    /// Most recent refresh produced a valid matrix that has since expired
+    /// (TTL elapsed without a fresh tick — usually means the refresh task
+    /// crashed and hasn't been reaped).
+    Stale,
+}
+
+/// Snapshot of the cluster-refresh task for one TF slot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterStatusSnapshot {
+    pub symbol: String,
+    pub slot: String,
+    pub status: ClusterRefreshStatus,
+    /// Unix epoch ms of the last attempted refresh (success OR failure).
+    pub last_refresh_attempt_ms: u64,
+    /// Unix epoch ms of the last successful refresh, if any.
+    pub last_success_ms: Option<u64>,
+    /// Free-text reason for the most recent skip, if status == Skipped.
+    pub last_skip_reason: Option<String>,
+    /// Number of short clusters in the most recent successful matrix.
+    pub cluster_count_short: usize,
+    /// Number of long clusters in the most recent successful matrix.
+    pub cluster_count_long: usize,
+    /// Mid price from the most recent successful matrix (0.0 if none).
+    pub mid_price: f64,
+    /// Milliseconds until the current matrix's TTL elapses. Negative if
+    /// already expired.
+    pub ttl_remaining_ms: i64,
+}
+
+impl ClusterStatusSnapshot {
+    /// Initial pending state used at cold boot before the first tick.
+    pub fn pending(symbol: &str, slot: &str) -> Self {
+        Self {
+            symbol: symbol.to_string(),
+            slot: slot.to_string(),
+            status: ClusterRefreshStatus::Pending,
+            last_refresh_attempt_ms: 0,
+            last_success_ms: None,
+            last_skip_reason: None,
+            cluster_count_short: 0,
+            cluster_count_long: 0,
+            mid_price: 0.0,
+            ttl_remaining_ms: 0,
+        }
+    }
+}
+
 /// Input bundle for `estimate_clusters`. Bundles everything the
 /// estimator needs so callers don't have to thread 8+ parameters.
 pub struct ClusterEstimateInput<'a> {

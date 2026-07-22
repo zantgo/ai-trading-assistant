@@ -7,6 +7,7 @@
     import AppWorkspacePanel from './components/layout/AppWorkspacePanel.svelte';
     import AppPageRouter from './components/layout/AppPageRouter.svelte';
     import AppConfirmModal from './components/layout/AppConfirmModal.svelte';
+    import BottomConsole from './components/BottomConsole.svelte';
     import FullscreenChartModal from './components/FullscreenChartModal.svelte';
     import SvgIcon from './lib/SvgIcon.svelte';
     import WelcomeGate from './WelcomeGate.svelte';
@@ -288,6 +289,15 @@
             activePair={activePair}
             activeTab={app.activeTab}
         />
+
+        <!-- Bottom Console (Positions / Orders / History / Plan) -->
+        {#if app.activeConsoleOpen}
+            <section class="{styles.row} {styles.rowConsole}">
+                <BottomConsole
+                    bind:activeConsoleTab={app.activeConsoleTab}
+                />
+            </section>
+        {/if}
     </div>
 
     <AppEngineSidebar

@@ -227,6 +227,7 @@ mod tests {
             bias,
             market_bias_score: confidence * 100.0,
             state_confidence: confidence,
+            confidence,
             market_quality_score: 50.0,
             market_regime: MarketRegime::TrendingBull,
             trend_assessment: TrendAssessment::Strong,

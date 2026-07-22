@@ -1,5 +1,6 @@
 pub mod analytics;
 pub mod clock;
+pub mod cluster_status;
 pub mod config;
 pub mod connection_quality;
 pub mod dashboard;

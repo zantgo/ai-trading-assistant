@@ -27,6 +27,6 @@
 .dimFill { height: 100%; border-radius: 4px; transition: width 0.3s; }
 .dimScore { font-size: 10px; font-weight: 700; width: 30px; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
 .dimLevel { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; width: 56px; text-align: center; }
-.evidence { font-size: 9px; color: #64748b; margin-left: 128px; line-height: 1.4; }
-.weights { font-size: 9px; color: #475569; margin-top: 4px;     font-family: var(--mono); }
+.evidence { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 2px 0 4px 8px; border-left: 2px solid rgba(255,255,255,0.1); margin-bottom: 4px; }
+.weights { font-size: 11px; color: rgba(203,213,225,0.85); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; padding: 8px 12px; margin-top: 8px; font-family: var(--mono); line-height: 1.6; letter-spacing: 0.01em; }
 .placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

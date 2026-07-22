@@ -2,6 +2,7 @@
     import type { AdvisoryMatrix, OpportunityMatrix } from '../types';
     import { useAppStore } from '../state.svelte';
     import styles from './AdvisoryPanel.module.css';
+    import { deriveTradePlan } from '../lib/tradePlan';
 
     const app = useAppStore();
     let { pairKey } = $props<{ pairKey: string }>();
@@ -12,6 +13,19 @@
     const snapshot = $derived(instance?.microTerm.latestSnapshot as any);
     const decisionCtx = $derived(snapshot?.decision_context ?? null);
     const opportunity = $derived<OpportunityMatrix | null>(snapshot?.opportunity ?? null);
+    const markPrice = $derived(parseFloat(instance?.microTerm?.priceText ?? '0') || 0);
+
+    const tradePlan = $derived(deriveTradePlan({
+        symbol: pairKey,
+        markPrice,
+        opportunity,
+        advisory,
+        analysis: instance?.analysis ?? null,
+        decisionContext: decisionCtx,
+        tf: instance?.microTerm,
+        microTf: instance?.microTerm,
+        overallRisk: instance?.risk?.overall_risk?.score,
+    }));
 
     function recClass(d: string): string {
         if (d.includes('Long')) return styles.recLong;
@@ -47,6 +61,25 @@
     const readinessDisplay = $derived(decisionCtx?.trade_readiness ?? 'STAND_ASIDE');
     const confidenceDisplay = $derived(advisory?.confidence_assessment ?? 0);
     const stopLossPct = $derived((advisory as any)?.stop_loss_distance_pct ?? 0);
+
+    function fmtPx(n: number, mp: number): string {
+        if (n == null || !isFinite(n) || n <= 0) return '—';
+        if (mp >= 1000) return `$${n.toFixed(0)}`;
+        if (mp >= 1) return `$${n.toFixed(2)}`;
+        return `$${n.toFixed(4)}`;
+    }
+
+    function handleApplyPlan() {
+        app.activePlan = tradePlan as unknown as Record<string, unknown>;
+        app.activeConsoleOpen = true;
+    }
+
+    function rrCls(rr: number | null): string {
+        if (rr == null) return styles.rrNone ?? '';
+        if (rr >= 2.0) return styles.green;
+        if (rr >= 1.0) return styles.amber;
+        return styles.red;
+    }
 </script>
 
 <div class={styles.panel}>
@@ -161,6 +194,88 @@
                     <span class={styles.cardValue}>{advisory.target_strategy}</span>
                 </div>
             </div>
+        </div>
+
+        <!-- ── Structured TP1/TP2/TP3 + SL ladder (institutional Plan view) ── -->
+        <div class={styles.section}>
+            <div class={styles.sectionTitle}>
+                Structured Plan
+                <span class={styles.planHorizon}>{tradePlan.timeHorizon}</span>
+            </div>
+
+            <div class={styles.planGrid}>
+                <div class={styles.planEntry}>
+                    <div class={styles.planLabel}>ENTRY</div>
+                    {#if tradePlan.entryMid > 0}
+                        <div class={styles.planPrice}>{fmtPx(tradePlan.entryMid, markPrice)}</div>
+                        <div class={styles.planRange}>{fmtPx(tradePlan.entryZone.low, markPrice)} – {fmtPx(tradePlan.entryZone.high, markPrice)}</div>
+                        {#if tradePlan.entrySources.length > 0}
+                            <div class={styles.planSources}>
+                                {#each tradePlan.entrySources as src, i (i)}
+                                    <span class="{styles.planSourceTag} {src.tag === 'FIB' ? styles.tagFib ?? '' :
+                                                                  src.tag === 'VP'  ? styles.tagVp  ?? '' :
+                                                                  src.tag === 'PP'  ? styles.tagPp  ?? '' :
+                                                                  src.tag === 'SR'  ? styles.tagSr  ?? '' :
+                                                                  src.tag === 'LIQ' ? styles.tagLiq ?? '' : ''}">
+                                        {src.tag}
+                                    </span>
+                                {/each}
+                            </div>
+                        {/if}
+                    {:else}
+                        <div class={styles.planEmpty}>—</div>
+                    {/if}
+                </div>
+
+                <div class={styles.planTps}>
+                    <div class={styles.planLabel}>TARGETS</div>
+                    {#if tradePlan.targets.length > 0}
+                        {#each tradePlan.targets as t (t.label)}
+                            <div class={styles.planTpRow}>
+                                <span class={styles.planTpLabel}>{t.label}</span>
+                                <span class={styles.planTpPrice}>{fmtPx(t.price, markPrice)}</span>
+                                <span class={styles.planTpPct}>{t.sizePct}%</span>
+                                <span class={styles.planTpRr}>
+                                    R:R <span class={rrCls(t.rrRatio)}>{t.rrRatio == null ? '—' : t.rrRatio.toFixed(2)}</span>
+                                </span>
+                                <span class={styles.planTpSource}>
+                                    {t.source === 'FIB_EXT_1618' ? '1.618 ext' :
+                                     t.source === 'FIB_EXT_2618' ? '2.618 ext' :
+                                     t.source === 'L4_TARGET_ZONE' ? 'L4 zone' :
+                                     t.source === 'CONFLUENT' ? 'confluent' : ''}
+                                </span>
+                            </div>
+                        {/each}
+                    {:else}
+                        <div class={styles.planEmpty}>—</div>
+                    {/if}
+                </div>
+
+                <div class={styles.planStop}>
+                    <div class={styles.planLabel}>STOP</div>
+                    {#if tradePlan.stop}
+                        <div class={styles.planPrice}>{fmtPx(tradePlan.stop.price, markPrice)}</div>
+                        <div class={styles.planStopDist}>−{tradePlan.stop.distancePct.toFixed(2)}% · {tradePlan.stop.method.replace(/_/g, ' ').toLowerCase()}</div>
+                        {#if tradePlan.stop.fallbackPrice}
+                            <div class={styles.planFallback}>
+                                <span class={styles.planFallbackLabel}>fallback:</span>
+                                <span class={styles.planFallbackPrice}>{fmtPx(tradePlan.stop.fallbackPrice, markPrice)}</span>
+                            </div>
+                        {/if}
+                    {:else}
+                        <div class={styles.planEmpty}>—</div>
+                    {/if}
+                </div>
+            </div>
+
+            <button
+                class={styles.applyPlanBtn}
+                onclick={handleApplyPlan}
+                disabled={!tradePlan.actionable}
+                title="Pre-fill the BottomConsole bracket creator with TP1/TP2/TP3/SL"
+            >
+                Apply Plan to Console →
+            </button>
         </div>
 
         {#if advisory.final_recommendation}

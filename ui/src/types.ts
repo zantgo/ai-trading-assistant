@@ -343,7 +343,15 @@ export type QualityLevel = 'Poor' | 'Weak' | 'Average' | 'Good' | 'Excellent';
 export interface AnalysisMatrix {
     symbol: string;
     bias: MarketBias;
+    /** UI-facing confidence in [0.0, 1.0]. Mirrors `state_confidence`
+     *  (serialised as `STATE_CONFIDENCE` on the wire per docs/matrices
+     *  `02-00b-confidence-hierarchy.md`). Added so consumers can read
+     *  `analysis.confidence` directly without SCREAMING_SNAKE_CASE indirection.
+     */
     confidence: number;
+    /** Canonical backend field (serialised as `STATE_CONFIDENCE`).
+     *  Kept in sync with `confidence`; both refer to the same value. */
+    state_confidence: number;
     market_regime: MarketRegime;
     trend_assessment: TrendAssessment;
     momentum_assessment: MomentumAssessment;
@@ -352,6 +360,9 @@ export interface AnalysisMatrix {
     volume_assessment: VolumeAssessment;
     opportunity_analysis: OpportunityType;
     market_quality: QualityLevel;
+    /** Numeric market-quality score in [0, 100] — distinct from
+     *  categorical `market_quality` (`QualityLevel` enum). */
+    market_quality_score: number;
     market_interpretation: string;
     rationale: string;
     supporting_signals: string[];

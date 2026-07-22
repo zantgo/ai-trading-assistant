@@ -109,19 +109,43 @@ describe('TEST-UI: Nested Snapshot Transform (v2.0)', () => {
         expect(tf.indicators['rvol'].state_label).toBe('NORMAL_PARTICIPATION_VOLUME');
     });
 
-    it('falls back to safe sentinels when indicators are absent', () => {
+    it('preserves prior indicator values when a live tick arrives without indicators (Phase 3 fix)', () => {
+        // Phase 3.1: live ticks may broadcast snapshots whose `indicators` map is
+        // sparse (it strips Fibonacci GP/ext re-computes that only happen on the
+        // completed-bar path). The WS handler now merges per-key instead of
+        // wiping the entire map, so prior Fibonacci GP zone + ext targets
+        // persist across ticks.
         const tf = app.instancesMap['BTC-USDT'].microTerm;
+        // Prime with a completed snapshot so we have a non-empty tf.indicators.
+        applySnapshotToTimeframe(app, tf, wsEvent(nestedSnapshot()), 'BTC-USDT');
+        const beforeKeys = Object.keys(tf.indicators).length;
+        expect(beforeKeys).toBeGreaterThan(0);
+        // Now a live tick arrives without `indicators` (or with an empty map).
         applySnapshotToTimeframe(app,
             tf,
-            wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '30000.00' }),
+            wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '30000.00', indicators: {} }),
+            'BTC-USDT',
+        );
+        expect(tf.priceText).toBe('30000.0');
+        expect(tf.isCompleted).toBe(false);
+        // Prior indicator state is preserved — this is the critical Phase 3.1 fix.
+        expect(Object.keys(tf.indicators).length).toBeGreaterThan(0);
+        expect(tf.indicators['rsi']).toBeDefined();
+        expect(tf.indicators['rsi'].state_label).toBe('OVERSOLD_ACCUMULATION');
+    });
+
+    it('wipes indicators only on truly empty initial state', () => {
+        // When the tf.indicators was already empty AND incoming is empty,
+        // the merge keeps it empty. This protects the case where no
+        // snapshot data has arrived yet for a fresh timeframe.
+        const tf = app.instancesMap['BTC-USDT'].macroTerm;
+        tf.indicators = {};
+        applySnapshotToTimeframe(app,
+            tf,
+            wsEvent({ symbol: 'BTC', is_completed: false, mid_price: '30000.00', indicators: {} }),
             'BTC-USDT',
         );
         expect(tf.indicators).toEqual({});
-        expect(tf.priceText).toBe('30000.0');
-        expect(tf.isCompleted).toBe(false);
-        // Accessing a missing indicator is safe via optional chaining.
-        expect(tf.indicators['rsi']?.state_label ?? 'UNKNOWN').toBe('UNKNOWN');
-        expect(tf.indicators['rsi']?.normalized ?? 0).toBe(0);
     });
 
     it('routes nested snapshots independently per pair', () => {

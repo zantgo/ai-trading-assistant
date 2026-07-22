@@ -183,6 +183,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
         },
         fast: TimeframePipeline {
             slot: TimeframeSlot::Fast,
@@ -201,6 +202,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
         },
         slow: TimeframePipeline {
             slot: TimeframeSlot::Slow,
@@ -219,6 +221,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
         },
         r#macro: TimeframePipeline {
             slot: TimeframeSlot::Macro,
@@ -237,6 +240,7 @@ async fn test_websocket_stream_with_active_pair() {
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: Arc::new(RwLock::new(None)),
+            cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
         },
         snapshot_tx,
         cancel,

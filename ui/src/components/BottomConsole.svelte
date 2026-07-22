@@ -6,13 +6,13 @@
     const app = useAppStore();
 
     let {
-        activeConsoleTab = $bindable<'positions' | 'orders' | 'history'>('positions'),
+        activeConsoleTab = $bindable<'positions' | 'orders' | 'history' | 'plan'>('positions'),
         expandedPositionId = $bindable<number | null>(null),
         showCloseDropdown = $bindable(false),
     }: {
-        activeConsoleTab: 'positions' | 'orders' | 'history';
-        expandedPositionId: number | null;
-        showCloseDropdown: boolean;
+        activeConsoleTab?: 'positions' | 'orders' | 'history' | 'plan';
+        expandedPositionId?: number | null;
+        showCloseDropdown?: boolean;
     } = $props();
 
     const markPrice = $derived(parseFloat(app.priceText) || 0);
@@ -26,6 +26,77 @@
     let bracketSize = $state(25);
     let bracketType = $state<'TP' | 'SL'>('TP');
     let copiedLabel = $state('');
+
+    // ── Plan-loaded state ──────────────────────────────────────
+    interface PlanBracketDraft {
+        label: string;
+        price: number;
+        sizePct: number;
+    }
+    let planTpRows = $state<PlanBracketDraft[]>([]);
+    let planSlRow = $state<PlanBracketDraft | null>(null);
+    let planVisible = $state(false);
+    let planSubmitLabel = $state('Set Plan Brackets');
+    let planSubmitTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // When activePlan changes, pre-fill the bracket rows.
+    $effect(() => {
+        const plan = app.activePlan as any;
+        if (!plan) {
+            planVisible = false;
+            return;
+        }
+        const targets: PlanBracketDraft[] = [];
+        if (Array.isArray(plan?.targets)) {
+            for (const t of plan.targets) {
+                targets.push({
+                    label: String(t.label ?? 'TP'),
+                    price: Number(t.price ?? 0),
+                    sizePct: Number(t.sizePct ?? 40),
+                });
+            }
+        }
+        let sl: PlanBracketDraft | null = null;
+        if (plan?.stop && typeof plan.stop.price === 'number' && plan.stop.price > 0) {
+            sl = {
+                label: 'SL',
+                price: Number(plan.stop.price),
+                sizePct: Number(plan.stop.distancePct ?? 1.0),
+            };
+        }
+        planTpRows = targets;
+        planSlRow = sl;
+        planVisible = true;
+        activeConsoleTab = 'plan';
+    });
+
+    function dismissPlan() {
+        app.activePlan = null;
+        planVisible = false;
+        planTpRows = [];
+        planSlRow = null;
+    }
+
+    async function commitPlan() {
+        if (planTpRows.length === 0 && !planSlRow) return;
+        // Set TPs as one batch
+        if (planTpRows.length > 0) {
+            const tps = planTpRows.map((r) => ({ pct: r.sizePct, price: r.price }));
+            await app.setTpTargets(tps);
+        }
+        if (planSlRow) {
+            await app.setSlLevels([{ pct: planSlRow.sizePct, price: planSlRow.price }]);
+        }
+        await app.fetchPaperStatus();
+        await app.fetchOpenOrders();
+        planSubmitLabel = 'Brackets submitted ✓';
+        if (planSubmitTimer) clearTimeout(planSubmitTimer);
+        planSubmitTimer = setTimeout(() => {
+            planSubmitLabel = 'Set Plan Brackets';
+            dismissPlan();
+            activeConsoleTab = 'positions';
+        }, 1800);
+    }
 
     function fmt(n: number, decimals = 2): string {
         if (!isFinite(n)) return '—';
@@ -124,6 +195,10 @@
                 class="{styles.consoleTab} {activeConsoleTab === 'history' ? styles.consoleTabActive : ''}"
                 onclick={() => activeConsoleTab = 'history'}
             >History<span class={styles.consoleTabCount}>{app.paperHistory.length}</span></button>
+            <button
+                class="{styles.consoleTab} {activeConsoleTab === 'plan' ? styles.consoleTabActive : ''} {planVisible ? styles.consoleTabPlanHighlight ?? '' : ''}"
+                onclick={() => activeConsoleTab = 'plan'}
+            >Plan{planVisible ? ' ◉' : ''}</button>
         </div>
         <button class={styles.exportBtn} onclick={handleCopyJson} title="Copy JSON">
             {copiedLabel || 'Export JSON'}
@@ -252,6 +327,95 @@
                 </table>
             {:else}
                 <div class={styles.emptyState}>No active position</div>
+            {/if}
+        </div>
+
+    <!-- Plan Tab (pre-filled from TradePlanStrip) -->
+    {:else if activeConsoleTab === 'plan'}
+        <div class={styles.planTab + ' ' + styles.tableWrapper}>
+            {#if !planVisible}
+                <div class={styles.emptyState}>
+                    No plan loaded yet. Click <strong>Apply brackets →</strong> on the
+                    Metrics tab to pre-fill TP1/TP2/TP3 and SL from the L4 opportunity matrix.
+                </div>
+            {:else}
+                <div class={styles.planBanner}>
+                    <span class={styles.planBannerText}>
+                        ◉ Trade plan loaded — review values, then commit.
+                    </span>
+                    <button class={styles.planDismissBtn} onclick={dismissPlan}>Dismiss</button>
+                </div>
+
+                <table class={styles.table}>
+                    <thead>
+                        <tr>
+                            <th>Role</th>
+                            <th class={styles.tableColRight}>Price</th>
+                            <th class={styles.tableColRight}>Size %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#each planTpRows as row, i (i)}
+                            <tr>
+                                <td class="{styles.marketCell} {styles.tpLabelCell}">{row.label}</td>
+                                <td class={styles.numRight}>
+                                    <input
+                                        type="number"
+                                        class={styles.planPriceInput}
+                                        bind:value={row.price}
+                                        step="0.01"
+                                    />
+                                </td>
+                                <td class={styles.numRight}>
+                                    <input
+                                        type="number"
+                                        class={styles.planSizeInput}
+                                        bind:value={row.sizePct}
+                                        step="1"
+                                        min="1"
+                                        max="100"
+                                    />
+                                </td>
+                            </tr>
+                        {/each}
+                        {#if planSlRow}
+                            <tr class={styles.slRow}>
+                                <td class="{styles.marketCell} {styles.slLabelCell}">SL</td>
+                                <td class={styles.numRight}>
+                                    <input
+                                        type="number"
+                                        class={styles.planPriceInput}
+                                        bind:value={planSlRow.price}
+                                        step="0.01"
+                                    />
+                                </td>
+                                <td class={styles.numRight}>
+                                    <input
+                                        type="number"
+                                        class={styles.planSizeInput}
+                                        bind:value={planSlRow.sizePct}
+                                        step="0.1"
+                                        min="0.1"
+                                        max="10"
+                                    />
+                                </td>
+                            </tr>
+                        {/if}
+                    </tbody>
+                </table>
+
+                <div class={styles.planActions}>
+                    <button class={styles.commitPlanBtn} onclick={commitPlan}>
+                        {planSubmitLabel}
+                    </button>
+                    <button class={styles.cancelPlanBtn} onclick={dismissPlan}>
+                        Cancel
+                    </button>
+                </div>
+
+                {#if planTpRows.length === 0 && !planSlRow}
+                    <div class={styles.emptyState}>Plan has no targets or stop. Re-apply from Metrics tab.</div>
+                {/if}
             {/if}
         </div>
 

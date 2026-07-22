@@ -49,6 +49,45 @@
     gap: 0.75rem;
 }
 
+.sectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.tfSwitcher {
+    display: inline-flex;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.tfBtn {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.55);
+    border: none;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--mono, monospace);
+    text-transform: uppercase;
+}
+
+.tfBtn:not(:last-child) { border-right: 1px solid rgba(255, 255, 255, 0.08); }
+
+.tfBtn:hover { color: rgba(255, 255, 255, 0.85); background: rgba(255, 255, 255, 0.04); }
+
+.tfBtnActive {
+    color: #22d3ee;
+    background: rgba(34, 211, 238, 0.12);
+}
+
 .h3 {
     margin: 0;
     font-size: 0.95rem;

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { useAppStore } from '../state.svelte';
     import styles from './ChartToggles.module.css';
+    import LiquidityStatusPanel from './LiquidityStatusPanel.svelte';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -243,6 +244,7 @@
     <div class={styles.togglesGroup}>
         <button class="{styles.togglePill} {styles.liqHeatmapPill} {pair.microTerm.showLiqHeatmap ? styles.active : ''}"
             onclick={toggleLiqHeatmap}>LIQ HEATMAP</button>
+        <LiquidityStatusPanel symbol={pairKey} />
         <button class="{styles.togglePill} {styles.volumeProfilePill} {pair.microTerm.showVolumeProfile ? styles.active : ''}"
             onclick={toggleVolumeProfile}>VOL PROFILE</button>
         <button class="{styles.togglePill} {styles.derivativeRibbonPill} {pair.microTerm.showDerivativeRibbon ? styles.active : ''}"

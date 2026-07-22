@@ -11,7 +11,7 @@
     //   - instance.microTerm.cluster   (per-timeframe matrix; refreshed at
     //                                   TF candle cadence; each TF owns its own)
     //   - instance.microTerm.liquiditySignals (computed by server)
-    import type { LiquidityFlow, LiquidationClusterMatrix, LiquiditySignal } from '../types';
+    import type { LiquidityFlow, LiquidationClusterMatrix, LiquiditySignal, TimeframeTelemetry } from '../types';
     import { useAppStore } from '../state.svelte';
     import styles from './LiquidityPanel.module.css';
 
@@ -19,11 +19,16 @@
     let { pairKey } = $props<{ pairKey: string }>();
 
     let activeView = $state<'flow' | 'cluster' | 'context'>('flow');
+    let flowTf = $state<'micro' | 'fast' | 'slow' | 'macro'>('micro');
 
     const instance = $derived(app && pairKey ? app.instancesMap[pairKey] : undefined);
     const micro = $derived(instance?.microTerm);
 
-    const flow = $derived<LiquidityFlow | null>(micro?.liquidity ?? null);
+    const flowTerm = $derived<TimeframeTelemetry | undefined>(
+        (instance as any)?.[`${flowTf}Term`] as TimeframeTelemetry | undefined,
+    );
+
+    const flow = $derived<LiquidityFlow | null>(flowTerm?.liquidity ?? null);
     const cluster = $derived<LiquidationClusterMatrix | null>(micro?.cluster ?? null);
     const signals = $derived<LiquiditySignal[]>(micro?.liquiditySignals ?? []);
 
@@ -57,9 +62,21 @@
 
     {#if activeView === 'flow'}
         <div class={styles.section}>
-            <h3 class={styles.h3}>Real Liquidation Flow (per bar)</h3>
+            <div class={styles.sectionHeader}>
+                <h3 class={styles.h3}>Real Liquidation Flow (per bar)</h3>
+                <div class={styles.tfSwitcher} role="tablist" aria-label="Timeframe for flow">
+                    {#each [['micro','MICRO'],['fast','FAST'],['slow','SLOW'],['macro','MACRO']] as const as item}
+                        <button
+                            class="{styles.tfBtn} {flowTf === item[0] ? styles.tfBtnActive : ''}"
+                            onclick={() => flowTf = item[0]}
+                            role="tab"
+                            aria-selected={flowTf === item[0]}
+                        >{item[1]}</button>
+                    {/each}
+                </div>
+            </div>
             {#if !flow}
-                <div class={styles.placeholder}>Awaiting first completed bar with liquidation data…</div>
+                <div class={styles.placeholder}>Awaiting first completed bar with {flowTf.toUpperCase()} liquidation data…</div>
             {:else}
                 <div class={styles.statGrid}>
                     <div class={styles.statCard}>

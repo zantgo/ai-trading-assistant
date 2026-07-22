@@ -177,6 +177,12 @@ pub struct AnalysisMatrix {
     pub bias: MarketBias,
     pub market_bias_score: f64,
     pub state_confidence: f64,
+    /// UI-facing companion to `state_confidence`. Mirrors `state_confidence`
+    /// so downstream panels (Analysis / Opportunities / Market Overview) can
+    /// read `analysis.confidence` directly. `state_confidence` retains its
+    /// canonical wire-format name `STATE_CONFIDENCE` per docs/matrices
+    /// `02-00b-confidence-hierarchy.md`.
+    pub confidence: f64,
     pub market_regime: MarketRegime,
     pub trend_assessment: TrendAssessment,
     pub momentum_assessment: MomentumAssessment,
@@ -200,6 +206,7 @@ impl AnalysisMatrix {
             bias: MarketBias::Neutral,
             market_bias_score: 0.0,
             state_confidence: 0.0,
+            confidence: 0.0,
             market_regime: MarketRegime::Transition,
             trend_assessment: TrendAssessment::Weak,
             momentum_assessment: MomentumAssessment::Stable,
@@ -475,6 +482,7 @@ pub fn derive_analysis(
         bias,
         market_bias_score: alignment.mtf_overall_score * 100.0,
         state_confidence,
+        confidence: state_confidence,
         market_regime: regime,
         trend_assessment,
         momentum_assessment,

@@ -257,6 +257,16 @@
     background-color: var(--bg);
 }
 
+.rowConsole {
+    height: auto;
+    max-height: 50vh;
+    background-color: var(--bg-elev);
+    border-top: 1px solid var(--line);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
 .quitContainer {
     position: absolute;
     bottom: 20px;

@@ -9,6 +9,7 @@ use core_domain::analysis::{
 };
 use core_domain::liquidity::{LiquidationClusterMatrix, LiquidityFlow};
 use core_domain::models::MarketSnapshot;
+use core_domain::models::TimeframeSlot;
 use core_domain::opportunity::{ConfluentLevel, LevelSource, OpportunityMatrix};
 use core_domain::risk::{self, RiskMatrix};
 use core_domain::indicator_dtos::NormalizedIndicatorValue;
@@ -699,7 +700,7 @@ pub fn synthesize_cross_tf(
                 .and_then(|d| d.to_f64())
                 .unwrap_or(0.0);
             Some((
-                tf_label(*secs),
+                slot_label(snap),
                 *secs,
                 price,
                 &snap.indicators,
@@ -766,13 +767,12 @@ pub fn synthesize_cross_tf(
     }
 }
 
-fn tf_label(secs: u64) -> &'static str {
-    match secs {
-        60 => "MICRO",
-        180 => "FAST",
-        300 => "SLOW",
-        900 => "MACRO",
-        _ => "unknown",
+fn slot_label(snap: &MarketSnapshot) -> &'static str {
+    match snap.timeframe_slot.unwrap_or(TimeframeSlot::Micro) {
+        TimeframeSlot::Micro => "MICRO",
+        TimeframeSlot::Fast => "FAST",
+        TimeframeSlot::Slow => "SLOW",
+        TimeframeSlot::Macro => "MACRO",
     }
 }
 

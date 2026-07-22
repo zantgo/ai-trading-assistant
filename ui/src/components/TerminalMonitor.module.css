@@ -48,9 +48,20 @@
 }
 
 .tfSidebarItem.active {
-    background: rgba(34, 211, 238, 0.1);
+    background: rgba(34, 211, 238, 0.10);
     border-left-color: #22d3ee;
-    color: #22d3ee;
+    color: #67e8f9;
+    box-shadow: inset 2px 0 0 0 #22d3ee;
+}
+
+.tfSidebarItem.active .tfLabel {
+    color: #67e8f9;
+    font-weight: 800;
+}
+
+.tfSidebarItem.active .tfSecs {
+    color: rgba(34, 211, 238, 0.85);
+    font-weight: 600;
 }
 
 .tfLabel {
@@ -66,7 +77,7 @@
 }
 
 .tfSidebarItem.active .tfSecs {
-    color: rgba(34, 211, 238, 0.7);
+    color: rgba(255, 255, 255, 0.55);
 }
 
 .contentArea {
@@ -84,6 +95,79 @@
     align-items: center;
     gap: 10px;
     padding-bottom: 4px;
+}
+
+.exportBtn {
+    margin-left: auto;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: var(--mono, monospace);
+}
+
+.exportBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.cascadeAlert {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 5px;
+    border: 1px solid;
+    cursor: pointer;
+    font-family: var(--mono, monospace);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: all 0.15s ease;
+    width: 100%;
+}
+
+.cascadeAlert:hover {
+    transform: translateY(-1px);
+}
+
+.cascadeAlertSustained {
+    background: rgba(239, 68, 68, 0.18);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.5);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.18);
+    animation: pulseDanger 1.6s ease-in-out infinite;
+}
+
+.cascadeAlertDetected {
+    background: rgba(245, 158, 11, 0.18);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.5);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.18);
+}
+
+@keyframes pulseDanger {
+    0%, 100% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.18); }
+    50%      { box-shadow: 0 0 22px rgba(239, 68, 68, 0.42); }
+}
+
+.cascadeAlertIcon {
+    font-size: 14px;
+}
+
+.cascadeAlertLabel {
+    letter-spacing: 0.08em;
 }
 
 .title {

@@ -15,6 +15,7 @@ use crate::session::{Currency, ExchangeChoice};
 use market_analyzer::sr_engine::SrRoleTracker;
 use market_analyzer::indicators::DivergenceDetector;
 use core_domain::models::{MarketSnapshot, TimeframeSlot};
+use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
 use tokio_util::sync::CancellationToken;
 
@@ -112,6 +113,37 @@ pub async fn build_pipelines(
     let macro_cluster_matrix: Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>> =
         Arc::new(RwLock::new(None));
 
+    // Per-TF cluster-refresh status handles (sibling to the matrix handles).
+    // The refresh task writes to both on every tick; the
+    // `/api/liquidity/cluster-status` endpoint reads these so the UI can
+    // distinguish "no data yet" (Pending) from "refresh task failed"
+    // (Skipped with reason) — without this distinction the LIQ HEATMAP can
+    // appear empty for minutes at boot with zero operator feedback.
+    let micro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
+        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
+            ctx.pair_key.as_str(),
+            "micro",
+        )),
+    );
+    let fast_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
+        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
+            ctx.pair_key.as_str(),
+            "fast",
+        )),
+    );
+    let slow_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
+        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
+            ctx.pair_key.as_str(),
+            "slow",
+        )),
+    );
+    let macro_cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>> = Arc::new(
+        RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending(
+            ctx.pair_key.as_str(),
+            "macro",
+        )),
+    );
+
     let active_pair = Arc::new(analyzer::ActivePair {
         symbol: ctx.internal_symbol.clone(),
         micro: analyzer::TimeframePipeline {
@@ -131,6 +163,7 @@ pub async fn build_pipelines(
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: micro_cluster_matrix.clone(),
+            cluster_status: micro_cluster_status.clone(),
         },
         fast: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Fast,
@@ -149,6 +182,7 @@ pub async fn build_pipelines(
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: fast_cluster_matrix.clone(),
+            cluster_status: fast_cluster_status.clone(),
         },
         slow: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Slow,
@@ -167,6 +201,7 @@ pub async fn build_pipelines(
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: slow_cluster_matrix.clone(),
+            cluster_status: slow_cluster_status.clone(),
         },
         r#macro: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Macro,
@@ -185,6 +220,7 @@ pub async fn build_pipelines(
             latest_index_px: Arc::new(RwLock::new(None)),
             active_set: Default::default(),
             cluster_matrix: macro_cluster_matrix.clone(),
+            cluster_status: macro_cluster_status.clone(),
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),
@@ -232,6 +268,10 @@ pub async fn build_pipelines(
         &fast_cluster_matrix,
         &slow_cluster_matrix,
         &macro_cluster_matrix,
+        &micro_cluster_status,
+        &fast_cluster_status,
+        &slow_cluster_status,
+        &macro_cluster_status,
     )
     .await;
 
@@ -323,6 +363,10 @@ async fn spawn_tasks(
     fast_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     slow_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
     macro_cluster_matrix: &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+    micro_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+    fast_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+    slow_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+    macro_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -799,15 +843,16 @@ async fn spawn_tasks(
         let per_tf_handles: Vec<(
             TimeframeSlot,
             &Arc<RwLock<Option<core_domain::liquidity::LiquidationClusterMatrix>>>,
+            &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
             u64,
         )> = vec![
-            (TimeframeSlot::Micro, micro_cluster_matrix, micro_cfg.candles.duration_seconds),
-            (TimeframeSlot::Fast, fast_cluster_matrix, fast_cfg.candles.duration_seconds),
-            (TimeframeSlot::Slow, slow_cluster_matrix, slow_cfg.candles.duration_seconds),
-            (TimeframeSlot::Macro, macro_cluster_matrix, macro_cfg.candles.duration_seconds),
+            (TimeframeSlot::Micro, micro_cluster_matrix, micro_cluster_status, micro_cfg.candles.duration_seconds),
+            (TimeframeSlot::Fast, fast_cluster_matrix, fast_cluster_status, fast_cfg.candles.duration_seconds),
+            (TimeframeSlot::Slow, slow_cluster_matrix, slow_cluster_status, slow_cfg.candles.duration_seconds),
+            (TimeframeSlot::Macro, macro_cluster_matrix, macro_cluster_status, macro_cfg.candles.duration_seconds),
         ];
 
-        for (slot, handle, tf_secs) in per_tf_handles {
+        for (slot, handle, status_handle, tf_secs) in per_tf_handles {
             // Cadence resolution:
             //   - `cluster_refresh_secs == 0` → synchronize with TF candle cadence
             //   - any value > 0                  → clamp(min, 60); operator override
@@ -828,6 +873,7 @@ async fn spawn_tasks(
             );
             let pair_log = pair_str.clone();
             let handle = handle.clone();
+            let status_handle = status_handle.clone();
             let active_pair_clone = active_pair.clone();
             let refresh_config = liquidity_config.clone();
             let cancel_for_refresh = cancel.clone();
@@ -856,6 +902,12 @@ async fn spawn_tasks(
                             n_long,
                             started.elapsed().as_millis(),
                         );
+                        write_cluster_status(
+                            &status_handle,
+                            ClusterRefreshStatus::Ok,
+                            None,
+                            Some(matrix.clone()),
+                        ).await;
                         *handle.write().await = Some(matrix);
                     }
                     Err(e) => {
@@ -865,6 +917,12 @@ async fn spawn_tasks(
                             slot.as_str(),
                             e,
                         );
+                        write_cluster_status(
+                            &status_handle,
+                            ClusterRefreshStatus::Skipped,
+                            Some(e.to_string()),
+                            None,
+                        ).await;
                     }
                 }
 
@@ -908,6 +966,12 @@ async fn spawn_tasks(
                                 n_long,
                                 started.elapsed().as_millis(),
                             );
+                            write_cluster_status(
+                                &status_handle,
+                                ClusterRefreshStatus::Ok,
+                                None,
+                                Some(matrix.clone()),
+                            ).await;
                             *handle.write().await = Some(matrix);
                         }
                         Err(e) => {
@@ -917,6 +981,12 @@ async fn spawn_tasks(
                                 slot.as_str(),
                                 e,
                             );
+                            write_cluster_status(
+                                &status_handle,
+                                ClusterRefreshStatus::Skipped,
+                                Some(e.to_string()),
+                                None,
+                            ).await;
                         }
                     }
                 }
@@ -1070,6 +1140,42 @@ fn tf_history(
         core_domain::models::TimeframeSlot::Fast => active_pair.fast.history.clone(),
         core_domain::models::TimeframeSlot::Slow => active_pair.slow.history.clone(),
         core_domain::models::TimeframeSlot::Macro => active_pair.r#macro.history.clone(),
+    }
+}
+
+/// Write the cluster-status snapshot for one TF slot after a refresh tick.
+/// Always updates `last_refresh_attempt_ms`; on success also bumps
+/// `last_success_ms` and clears `last_skip_reason`; on skip carries the
+/// reason string forward so the operator can hover the UI pill to see why.
+async fn write_cluster_status(
+    handle: &Arc<RwLock<ClusterStatusSnapshot>>,
+    status: ClusterRefreshStatus,
+    skip_reason: Option<String>,
+    matrix: Option<core_domain::liquidity::LiquidationClusterMatrix>,
+) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let mut guard = handle.write().await;
+    guard.last_refresh_attempt_ms = now_ms;
+    guard.status = status;
+    match (status, matrix) {
+        (ClusterRefreshStatus::Ok, Some(m)) => {
+            guard.last_success_ms = Some(now_ms);
+            guard.last_skip_reason = None;
+            guard.cluster_count_short = m.short_clusters.len();
+            guard.cluster_count_long = m.long_clusters.len();
+            guard.mid_price = m.mid_price;
+            guard.ttl_remaining_ms = (m.valid_until_ms as i64) - (now_ms as i64);
+        }
+        _ => {
+            // Skip / pending — leave cluster counts and mid_price as-is
+            // (still reflects the last successful matrix if any) but
+            // record the skip reason string so the operator can hover
+            // the UI pill to see why.
+            guard.last_skip_reason = skip_reason;
+        }
     }
 }
 
