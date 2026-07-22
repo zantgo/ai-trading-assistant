@@ -624,7 +624,7 @@
         if (psarSar != null && Number.isFinite(psarSar) && psarSar > 0 && psarSar < 1_000_000 && psarSeries) psarSeries.update({ time: timeSec as Time, value: psarSar });
 
         // Push SMC events into the marker consumer (selective: conf >= 0.7).
-        if (smcMarkers) {
+        if (smcMarkers && tfVal.showSmcStructure) {
             smcMarkers.push(timeSec, {
                 structure: m['smc_structure'] ?? null,
                 liquidity: m['smc_liquidity'] ?? null,
