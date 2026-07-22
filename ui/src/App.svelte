@@ -182,6 +182,9 @@
         // re-run, tearing down stale WS connections and re-attaching them
         // with the new per-slot durations from the store.
         void app.wsVersion;
+        // Re-check on every engine navigation so a dropped WS connection
+        // (tab-idle, network hiccup) recovers as soon as the user returns
+        void app.currentEngine;
         for (const sym of Object.keys(app.instancesMap)) {
             const state = wssMap[sym];
             if (!state || shouldReconnect(app, state, sym)) {

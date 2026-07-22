@@ -237,9 +237,12 @@
                 emaFast, emaMed, emaSlow, emaLong,
                 bbUp, bbMid, bbLo,
                 supertrendPts,
-                donchUp, donchLo,
+                donchUp, donchMid, donchLo,
                 ichiTenkan, ichiKijun, ichiSA, ichiSB,
                 avwapW, avwapM, avwapS,
+                kelUp, kelMid, kelLo,
+                stdUp, stdMid, stdLo,
+                psarPts,
             ] = alignedSeriesFromHistory(hist, [
                 ['ema_stack', 'fast'],
                 ['ema_stack', 'medium'],
@@ -250,6 +253,7 @@
                 ['bollinger', 'lower'],
                 ['supertrend'],
                 ['donchian', 'upper'],
+                ['donchian', 'middle'],
                 ['donchian', 'lower'],
                 ['ichimoku', 'tenkan'],
                 ['ichimoku', 'kijun'],
@@ -258,6 +262,13 @@
                 ['anchored_vwap', 'weekly'],
                 ['anchored_vwap', 'monthly'],
                 ['anchored_vwap', 'swing'],
+                ['keltner', 'upper'],
+                ['keltner', 'middle'],
+                ['keltner', 'lower'],
+                ['stddev_channel', 'upper'],
+                ['stddev_channel', 'center'],
+                ['stddev_channel', 'lower'],
+                ['psar', 'sar'],
             ]);
 
             if (emaFast.length > 0) ema10Series.setData(recent(emaFast));
@@ -285,11 +296,19 @@
             }
             if (supertrendPts.length > 0 && supertrendSeries) supertrendSeries.setData(recent(supertrendPts));
             if (donchUp.length > 0 && donchianUpperSeries) donchianUpperSeries.setData(recent(donchUp));
+            if (donchMid.length > 0 && donchianMiddleSeries) donchianMiddleSeries.setData(recent(donchMid));
             if (donchLo.length > 0 && donchianLowerSeries) donchianLowerSeries.setData(recent(donchLo));
             if (ichiTenkan.length > 0 && ichimokuTenkanSeries) ichimokuTenkanSeries.setData(recent(ichiTenkan));
             if (ichiKijun.length > 0 && ichimokuKijunSeries) ichimokuKijunSeries.setData(recent(ichiKijun));
             if (ichiSA.length > 0 && ichimokuSenkouASeries) ichimokuSenkouASeries.setData(recent(ichiSA));
             if (ichiSB.length > 0 && ichimokuSenkouBSeries) ichimokuSenkouBSeries.setData(recent(ichiSB));
+            if (kelUp.length > 0 && keltnerUpperSeries) keltnerUpperSeries.setData(recent(kelUp));
+            if (kelMid.length > 0 && keltnerMiddleSeries) keltnerMiddleSeries.setData(recent(kelMid));
+            if (kelLo.length > 0 && keltnerLowerSeries) keltnerLowerSeries.setData(recent(kelLo));
+            if (stdUp.length > 0 && stddevUpperSeries) stddevUpperSeries.setData(recent(stdUp));
+            if (stdMid.length > 0 && stddevMiddleSeries) stddevMiddleSeries.setData(recent(stdMid));
+            if (stdLo.length > 0 && stddevLowerSeries) stddevLowerSeries.setData(recent(stdLo));
+            if (psarPts.length > 0 && psarSeries) psarSeries.setData(recent(psarPts));
 
             // v6.5: capture per-TF cluster + volume profile from
             // history (used as a fallback if the WS stream hasn't
@@ -368,8 +387,9 @@
 
     $effect(() => {
         const showDon = tf?.showDonchian ?? false;
-        if (!donchianUpperSeries || !donchianLowerSeries || !pair || !tf) return;
+        if (!donchianUpperSeries || !donchianMiddleSeries || !donchianLowerSeries || !pair || !tf) return;
         donchianUpperSeries.applyOptions({ visible: showDon });
+        donchianMiddleSeries.applyOptions({ visible: showDon });
         donchianLowerSeries.applyOptions({ visible: showDon });
     });
 

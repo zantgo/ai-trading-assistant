@@ -28,7 +28,7 @@ function createTimeframeTelemetry(
         isCompleted: false, latestSnapshot: null, historyPrices: [],
         showEmas: true, showBb: true, showVwap: true, showVolume: true,
         showAdx: true, showAtr: true, showRsi: true, showMacd: true,
-        showSqueeze: true, showBbwp: true, showFib: true, showRvol: true,
+        showSqueeze: true, showBbwp: true, showFib: false, showRvol: true,
         showStochastic: true, showChandeMo: true,
         showSupertrend: true, showKeltner: true, showDonchian: true,
         showIchimoku: true, showPsar: true, showStddevChan: true,
