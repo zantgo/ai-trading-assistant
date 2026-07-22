@@ -276,7 +276,7 @@
                 <h3 class={styles.tfSidebarTitle}>TIMEFRAMES</h3>
                 {#each TERMS as t (t.key)}
                     <button
-                        class="{styles.tfSidebarItem} {activeTf === t.key ? styles.tfSidebarItemActive : ''}"
+                        class="{styles.tfSidebarItem} {activeTf === t.key ? styles.active : ''}"
                         onclick={() => activeTf = t.key}
                     >
                         <span class={styles.tfLabel}>{t.label}</span>

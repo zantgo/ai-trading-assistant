@@ -214,7 +214,13 @@
                     priceLineSeries.setData(
                         historicalCandles.map((c) => ({ time: c.time, value: c.close }))
                     );
-                    chart.timeScale().fitContent();
+                    // Anchor viewport to the rightmost edge so ~67 recent
+                    // bars are visible at 6 px spacing in a ~400 px pane.
+                    // `fitContent()` would cram all 1000 candles into one
+                    // pixel per bar; `setVisibleRange` is undone by live
+                    // `series.update()` calls. `scrollToPosition(1)` is a
+                    // one-shot scroll that survives subsequent updates.
+                    chart.timeScale().scrollToPosition(1, false);
                 }
 
                 // Pull all historical indicator series in one shot via
