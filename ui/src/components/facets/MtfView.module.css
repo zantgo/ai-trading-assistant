@@ -31,6 +31,10 @@
     text-align: center;
 }
 
+.summarySpacer {
+    /* Empty cell — aligns timeframes with data columns */
+}
+
 .summaryLabel {
     font-size: 10px;
     font-weight: 700;

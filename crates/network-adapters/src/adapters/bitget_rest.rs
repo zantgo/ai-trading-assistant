@@ -26,13 +26,16 @@ fn parse_decimal(s: &str) -> Result<Decimal, String> {
 ///   `USDC-FUTURES`).
 /// - `interval` is the mix K-line granularity string (`1m`, `1H`, `1D`, ...).
 /// - `start_time_ms` / `end_time_ms` are 13-digit millisecond timestamps.
-pub async fn fetch_historical_candles(
+/// - `limit` is the per-page cap (HFP-06). Bitget accepts any value but
+///   empirically caps responses around 200.
+pub async fn fetch_historical_candles_page(
     symbol: &str,
     internal_symbol: &str,
     product_type: &str,
     interval: &str,
     start_time_ms: u64,
     end_time_ms: u64,
+    limit: u32,
     rest_url: &str,
 ) -> Result<Vec<NormalizedCandle>, String> {
     let client = reqwest::Client::builder()
@@ -41,6 +44,7 @@ pub async fn fetch_historical_candles(
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
     // Bitget V2 mix market expects 13-digit millisecond timestamps — pass raw ms.
+    let limit_str = limit.to_string();
     let response = client
         .get(rest_url)
         .query(&[
@@ -49,7 +53,7 @@ pub async fn fetch_historical_candles(
             ("granularity", interval),
             ("startTime", &start_time_ms.to_string()),
             ("endTime", &end_time_ms.to_string()),
-            ("limit", "200"),
+            ("limit", &limit_str),
         ])
         .send()
         .await
@@ -125,6 +129,30 @@ pub async fn fetch_historical_candles(
             })
         })
         .collect()
+}
+
+/// Backward-compatible wrapper that hardcodes `limit=200`. Use
+/// [`fetch_historical_candles_page`] from new code.
+pub async fn fetch_historical_candles(
+    symbol: &str,
+    internal_symbol: &str,
+    product_type: &str,
+    interval: &str,
+    start_time_ms: u64,
+    end_time_ms: u64,
+    rest_url: &str,
+) -> Result<Vec<NormalizedCandle>, String> {
+    fetch_historical_candles_page(
+        symbol,
+        internal_symbol,
+        product_type,
+        interval,
+        start_time_ms,
+        end_time_ms,
+        200,
+        rest_url,
+    )
+    .await
 }
 
 #[derive(Debug, Deserialize)]

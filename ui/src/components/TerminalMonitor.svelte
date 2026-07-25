@@ -41,15 +41,17 @@
     type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
     let activeTf: TfLabel = $state('Micro');
 
-    const DEFAULT_TF_SECS = { Micro: 60, Fast: 180, Slow: 300, Macro: 900 } as const;
-
-    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; tfKey: string; secs: number }[] => {
+    // Phase 9: single source of truth — the backend's pipeline registry
+    // (via WebSocket telemetry `barDurationSec`) is the canonical duration
+    // for every timeframe. The fallback `??` guards only during the initial
+    // boot interstice when the pair hasn't been streamed yet.
+    const TIMEFRAMES = $derived.by((): { key: TfLabel; label: string; tfKey: string; secs: number | null }[] => {
         const p = pair;
         return [
-            { key: 'Micro', label: 'Micro', tfKey: 'microTerm', secs: p?.microTerm?.barDurationSec ?? DEFAULT_TF_SECS.Micro },
-            { key: 'Fast',  label: 'Fast',  tfKey: 'fastTerm',  secs: p?.fastTerm?.barDurationSec ?? DEFAULT_TF_SECS.Fast },
-            { key: 'Slow',  label: 'Slow',  tfKey: 'slowTerm',  secs: p?.slowTerm?.barDurationSec ?? DEFAULT_TF_SECS.Slow },
-            { key: 'Macro', label: 'Macro', tfKey: 'macroTerm', secs: p?.macroTerm?.barDurationSec ?? DEFAULT_TF_SECS.Macro },
+            { key: 'Micro', label: 'Micro', tfKey: 'microTerm', secs: p?.microTerm?.barDurationSec ?? null },
+            { key: 'Fast',  label: 'Fast',  tfKey: 'fastTerm',  secs: p?.fastTerm?.barDurationSec ?? null },
+            { key: 'Slow',  label: 'Slow',  tfKey: 'slowTerm',  secs: p?.slowTerm?.barDurationSec ?? null },
+            { key: 'Macro', label: 'Macro', tfKey: 'macroTerm', secs: p?.macroTerm?.barDurationSec ?? null },
         ];
     });
 
@@ -157,7 +159,7 @@
         const text = buildMetricsExportJson({
             symbol: pair.symbol,
             tfLabel: activeTfEntry.label,
-            tfSecs: activeTfEntry.secs,
+            tfSecs: activeTfEntry.secs ?? 0,
             timestamp: snapshotTs,
             markPrice,
             registry,
@@ -195,7 +197,7 @@
                 onclick={() => activeTf = tf.key}
             >
                 <span class={styles.tfLabel}>{tf.label}</span>
-                <span class={styles.tfSecs}>{formatTimeframeLabel(tf.secs)}</span>
+                <span class={styles.tfSecs}>{tf.secs != null ? formatTimeframeLabel(tf.secs) : '—'}</span>
             </button>
         {/each}
     </div>
@@ -206,7 +208,7 @@
             <div class={styles.header}>
                 <span class={styles.title}>METRICS</span>
                 <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
-                <span class={styles.tfBadge}>{activeTfEntry.label} · {formatTimeframeLabel(activeTfEntry.secs)}</span>
+                <span class={styles.tfBadge}>{activeTfEntry.label} · {activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}</span>
                 <button
                     class={styles.exportBtn}
                     onclick={handleExportJson}
@@ -220,7 +222,7 @@
             <MarketContextStrip
                 context={context ?? null}
                 timestamp={snapshotTs}
-                barDurationSec={activeTfEntry.secs}
+                barDurationSec={activeTfEntry.secs ?? undefined}
             />
 
             <!-- ROW 2 — Trade Plan Strip (entry / TP1/TP2/TP3 / SL / R:R / confidence) -->

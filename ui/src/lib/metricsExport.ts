@@ -381,6 +381,8 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         trade_plan: (tradePlan as Record<string, unknown>) ?? null,
     };
 
+    const uniqueLabels = new Set<string>();
+
     for (const m of registry) {
         const dto = inds[m.key];
         if (!dto) continue;
@@ -392,6 +394,9 @@ export function buildMetricsExportJson(args: ExportArgs): string {
             strength: s.strength,
             age_bars: s.age_bars,
         }));
+        // Phase 8: count unique signal labels (not raw signal objects).
+        // This matches the UI's SIGNALS badge count in the FacetTabs.
+        for (const s of signals) uniqueLabels.add(s.label);
         const subValues: Record<string, number> = {};
         if (dto.values) {
             for (const [k, v] of Object.entries(dto.values)) {
@@ -413,8 +418,9 @@ export function buildMetricsExportJson(args: ExportArgs): string {
             signals,
             sub_values: Object.keys(subValues).length > 0 ? subValues : null,
         });
-        out.signals_total += signals.length;
     }
+
+    out.signals_total = uniqueLabels.size;
 
     out.indicators.push({
         key: '__fibonacci_summary__',

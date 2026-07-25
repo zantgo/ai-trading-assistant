@@ -60,6 +60,8 @@ struct OnDiskConfig {
     quality: Option<QualityConfig>,
     #[serde(default)]
     reconnect: ReconnectConfig,
+    #[serde(default)]
+    candle_buffer: CandleBufferConfig,
     workspace: WorkspaceConfig,
 }
 
@@ -73,6 +75,7 @@ impl OnDiskConfig {
                 clock_monitor: self.clock_monitor,
                 quality: self.quality,
                 reconnect: self.reconnect,
+                candle_buffer: self.candle_buffer,
             },
             self.workspace,
         )
@@ -99,6 +102,11 @@ pub struct PlatformConfig {
     pub quality: Option<QualityConfig>,
     #[serde(default)]
     pub reconnect: ReconnectConfig,
+    /// Single source of truth for candle buffer behavior. Replaces the
+    /// previous per-instance `analysis_limit` field. See
+    /// `docs/operations-and-compliance/08-08-candle-buffer-spec.md` (CB-01).
+    #[serde(default)]
+    pub candle_buffer: CandleBufferConfig,
 }
 
 impl Default for PlatformConfig {
@@ -109,6 +117,7 @@ impl Default for PlatformConfig {
             clock_monitor: None,
             quality: None,
             reconnect: ReconnectConfig::default(),
+            candle_buffer: CandleBufferConfig::default(),
         }
     }
 }
@@ -378,6 +387,7 @@ pub fn save_workspace(workspace: &WorkspaceConfig) -> Result<()> {
         clock_monitor: on_disk.clock_monitor,
         quality: on_disk.quality,
         reconnect: on_disk.reconnect,
+        candle_buffer: on_disk.candle_buffer,
         workspace: workspace.clone(),
     };
     let serialized = toml::to_string_pretty(&new_raw)?;
@@ -407,10 +417,10 @@ symbol = "BTC-USDT"
 quote = "USDT"
 
 [workspace.instances.micro_term]
-candles = { duration_seconds = 60, analysis_limit = 500 }
+candles = { duration_seconds = 60 }
 
 [workspace.instances.fast_term]
-candles = { duration_seconds = 180, analysis_limit = 500 }
+candles = { duration_seconds = 180 }
 "#;
         let cfg: OnDiskConfig = toml::from_str(toml).expect("parse");
         let (platform, workspace) = cfg.split();
@@ -436,11 +446,11 @@ symbol = "BTC-USDT"
 quote = "USDT"
 
 [workspace.instances.micro_term]
-candles = { duration_seconds = 60, analysis_limit = 500 }
+candles = { duration_seconds = 60 }
 indicators = { rsi_period = 21 }
 
 [workspace.instances.fast_term]
-candles = { duration_seconds = 180, analysis_limit = 500 }
+candles = { duration_seconds = 180 }
 indicators = { rsi_period = 14 }
 "#;
         let cfg: OnDiskConfig = toml::from_str(toml).expect("partial indicators must parse");

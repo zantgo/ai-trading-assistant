@@ -112,6 +112,10 @@ fn build_stub_instance(
         cluster_status: Arc::new(RwLock::new(
             core_domain::liquidity::ClusterStatusSnapshot::pending("TEST-USD", slot.as_str()),
         )),
+        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
     };
 
     let active = Arc::new(ActivePair {

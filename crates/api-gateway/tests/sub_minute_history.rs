@@ -78,6 +78,10 @@ async fn build_router_with_snapshots(
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
             cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
+            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
     };
 
     let active_pair = Arc::new(ActivePair {
@@ -210,6 +214,8 @@ fn make_snapshot(secs: u64, timestamp: u64, close_val: f64) -> MarketSnapshot {
         liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
+    pipeline_state: core_domain::models::CandlePipelineState::default(),
+    indicator_lifecycle: std::collections::HashMap::new(),
     }
 }
 

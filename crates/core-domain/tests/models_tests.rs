@@ -65,6 +65,8 @@ fn test_market_snapshot_json_roundtrip() {
         volume_profile: None,
         risk_profile: None,
         quality_envelope: None,
+    pipeline_state: core_domain::models::CandlePipelineState::default(),
+    indicator_lifecycle: std::collections::HashMap::new(),
     };
 
     let json = serde_json::to_string(&snap).expect("serialization should succeed");
@@ -131,6 +133,8 @@ fn test_market_snapshot_empty_indicators() {
         volume_profile: None,
         risk_profile: None,
         quality_envelope: None,
+    pipeline_state: core_domain::models::CandlePipelineState::default(),
+    indicator_lifecycle: std::collections::HashMap::new(),
     };
 
     let json = serde_json::to_string(&snap).expect("serialization of empty snap should succeed");

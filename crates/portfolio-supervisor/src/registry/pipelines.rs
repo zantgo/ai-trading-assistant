@@ -14,7 +14,7 @@ use crate::registry_context::RegistryContext;
 use crate::session::{Currency, ExchangeChoice};
 use market_analyzer::sr_engine::SrRoleTracker;
 use market_analyzer::indicators::DivergenceDetector;
-use core_domain::models::{MarketSnapshot, TimeframeSlot};
+use core_domain::models::{CandlePipelineState, MarketSnapshot, TimeframeSlot};
 use core_domain::liquidity::{ClusterRefreshStatus, ClusterStatusSnapshot};
 use core_domain::normalized::{NormalizedCandle, NormalizedEvent};
 use tokio_util::sync::CancellationToken;
@@ -41,6 +41,10 @@ pub struct PipelineContext {
     #[allow(dead_code)]
     pub position_scaling: Option<PositionScalingConfig>,
     pub liquidity_config: LiquidityConfig,
+    /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
+    pub buffer_size: usize,
+    /// Per-TF stale-threshold (CB-04 / DCP-05 / ILS-07).
+    pub stale_threshold_secs: u64,
 }
 
 pub struct PipelineArtifacts {
@@ -70,16 +74,16 @@ pub async fn build_pipelines(
     let (macro_broadcast_tx, _) = tokio::sync::broadcast::channel::<MarketSnapshot>(200);
 
     let micro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.micro_cfg.candles.analysis_limit,
+        ctx.buffer_size,
     )));
     let fast_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.fast_cfg.candles.analysis_limit,
+        ctx.buffer_size,
     )));
     let slow_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.slow_cfg.candles.analysis_limit,
+        ctx.buffer_size,
     )));
     let macro_history = Arc::new(RwLock::new(VecDeque::<NormalizedCandle>::with_capacity(
-        ctx.macro_cfg.candles.analysis_limit,
+        ctx.buffer_size,
     )));
 
     let micro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
@@ -88,16 +92,16 @@ pub async fn build_pipelines(
     let macro_latest = Arc::new(RwLock::new(None::<MarketSnapshot>));
 
     let micro_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        analyzer::HIST_BUFFER_MAX,
+        ctx.buffer_size,
     )));
     let fast_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        analyzer::HIST_BUFFER_MAX,
+        ctx.buffer_size,
     )));
     let slow_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        analyzer::HIST_BUFFER_MAX,
+        ctx.buffer_size,
     )));
     let macro_snapshot_history = Arc::new(RwLock::new(VecDeque::<MarketSnapshot>::with_capacity(
-        analyzer::HIST_BUFFER_MAX,
+        ctx.buffer_size,
     )));
 
     // Per-TF cluster-matrix handles (Phase 2). Each TF pipeline gets its
@@ -164,6 +168,10 @@ pub async fn build_pipelines(
             active_set: Default::default(),
             cluster_matrix: micro_cluster_matrix.clone(),
             cluster_status: micro_cluster_status.clone(),
+            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: ctx.buffer_size,
+            stale_threshold_secs: ctx.stale_threshold_secs,
         },
         fast: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Fast,
@@ -183,6 +191,10 @@ pub async fn build_pipelines(
             active_set: Default::default(),
             cluster_matrix: fast_cluster_matrix.clone(),
             cluster_status: fast_cluster_status.clone(),
+            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: ctx.buffer_size,
+            stale_threshold_secs: ctx.stale_threshold_secs,
         },
         slow: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Slow,
@@ -202,6 +214,10 @@ pub async fn build_pipelines(
             active_set: Default::default(),
             cluster_matrix: slow_cluster_matrix.clone(),
             cluster_status: slow_cluster_status.clone(),
+            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: ctx.buffer_size,
+            stale_threshold_secs: ctx.stale_threshold_secs,
         },
         r#macro: analyzer::TimeframePipeline {
             slot: core_domain::models::TimeframeSlot::Macro,
@@ -221,6 +237,10 @@ pub async fn build_pipelines(
             active_set: Default::default(),
             cluster_matrix: macro_cluster_matrix.clone(),
             cluster_status: macro_cluster_status.clone(),
+            pipeline_state: Arc::new(RwLock::new(CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: ctx.buffer_size,
+            stale_threshold_secs: ctx.stale_threshold_secs,
         },
         snapshot_tx: snapshot_tx.clone(),
         cancel: cancel.clone(),

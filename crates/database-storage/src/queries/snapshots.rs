@@ -396,6 +396,8 @@ pub async fn query_latest_snapshot(
             close,
             volume: parse_dec(r.get::<Option<String>, _>(10)),
             average_volume: parse_dec(r.get::<Option<String>, _>(11)),
+            pipeline_state: core_domain::models::CandlePipelineState::default(),
+            indicator_lifecycle: Default::default(),
             context: None,
             alignment: None,
             risk: None,

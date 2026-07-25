@@ -554,6 +554,8 @@ fn build_mock_snapshot(symbol: &str, mid_price: Decimal) -> core_domain::models:
         close: None,
         volume: None,
         average_volume: None,
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: HashMap::new(),
         indicators: HashMap::new(),
         context: None,
         alignment: None,

@@ -298,6 +298,8 @@ mod tests {
             metrics_config: None,
             opportunity: None,
             quality_envelope: None,
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
         }
     }
 

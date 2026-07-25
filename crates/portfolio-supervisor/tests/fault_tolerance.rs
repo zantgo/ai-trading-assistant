@@ -33,7 +33,6 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
             default_exchange: "Hyperliquid".into(),
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
-                analysis_limit: 100,
             },
             indicators: Default::default(),
             fast_timeframe: Default::default(),

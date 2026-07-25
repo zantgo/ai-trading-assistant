@@ -341,8 +341,13 @@ impl NormalizationEngine {
     }
 
     /// Hull MA: single-line near-zero-lag overlay.
-    pub fn normalize_hull_ma(_hma: f64) -> NormalizedIndicatorValue {
-        NormalizedIndicatorValue::scalar(0.0, 0.0, "HULL_MA_OVERLAY")
+    /// Phase 1.1 fix: use the actual HMA value instead of discarding it.
+    /// Normalize as a price-relative bias: HMA values typically run 0.001–10
+    /// (price-scaled); we expose a 0.5%-band symmetric normalized score.
+    pub fn normalize_hull_ma(hma: f64) -> NormalizedIndicatorValue {
+        // Map hma ∈ [-100, 100] onto [-1, +1]; clamp_unit clamps to unit interval.
+        let norm = clamp_unit(hma / 100.0);
+        NormalizedIndicatorValue::scalar(hma, norm, "HULL_MA_OVERLAY")
     }
 
     /// StdDev Channel: linear regression center ±2σ.

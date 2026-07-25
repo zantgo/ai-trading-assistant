@@ -93,6 +93,8 @@ async fn test_concurrent_snapshot_writes_no_panic() {
                     cluster: None,
                     volume_profile: None,
                     quality_envelope: None,
+                pipeline_state: core_domain::models::CandlePipelineState::default(),
+                indicator_lifecycle: std::collections::HashMap::new(),
                 };
 
                 let result = sqlx::query(

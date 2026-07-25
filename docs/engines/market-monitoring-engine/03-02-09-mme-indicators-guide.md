@@ -1,6 +1,6 @@
 # MME Indicators Guide — Readable Technical Rulebook
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Purpose:** This is the human-readable rulebook for the platform's technical indicators. It condenses the interpretation rules, thresholds, and scoring behaviour of every indicator group into a single reference. For the exact per-indicator mathematics and signal tables, see the individual specifications in [indicators/](indicators/04-02-00-indicator-index.md).
@@ -19,6 +19,19 @@ Every indicator is projected across 8 Evaluation Axes (see [Ontology](../../conc
 - **`signals[]`** — discrete events fired this bar.
 
 **Directional** indicators contribute a signed score to confluence. **Non-directional gates** (Volume, RVOL, ATR, BBWP, HV, Choppiness, Funding, Spread, Open Interest) do not vote on direction — they modulate confidence. ADX measures strength; direction comes from DI± — the platform classifies it directional (registry row 05).
+
+### 1.1 Operational lifecycle (v6.5)
+
+In addition to the four semantic axes above, every indicator carries an **operational lifecycle state** describing whether its current value is trustworthy, warming up, or unusable. The lifecycle is published on `MarketSnapshot.indicator_lifecycle` alongside `indicators` and is the canonical answer to "is this reading live yet?". See [03-02-15-mme-indicator-lifecycle-states.md](03-02-15-mme-indicator-lifecycle-states.md) for the full state machine.
+
+| State | Badge | Confidence behavior | Trigger |
+|-------|-------|---------------------|---------|
+| `Loading` | spinner + `Loading (bars_seen/bars_required)` | `bars_seen / bars_required` | Pipeline construction; bars_seen < bars_required |
+| `Live` | green dot + `Live` | normal calculator output | bars_seen ≥ bars_required AND parent pipeline LIVE AND last update succeeded |
+| `Stale` | amber dot + `Stale (Xs)` | decays linearly from 1.0 to 0.0 across `2 × stale_threshold_secs` | `now - last_updated_at > stale_threshold_secs` |
+| `Failed` | red icon + tooltip with `last_error` | 0.0 | calculator panic OR double-stale escalation |
+
+The lifecycle is **uniform across all 50 indicators** — there is one state machine, applied via the registry metadata (`bars_required`) and the analyzer's `run_single` orchestrator. The dashboard's `IndicatorsView.svelte` renders a badge for every row so users can distinguish "missing data" from "neutral data" from "loading data" — the previous neutral-default workaround (rendering `--` / `UNKNOWN` / `tangled` / `equilibrium` / `OFF` for missing values) is **removed** in v6.5.
 
 ---
 

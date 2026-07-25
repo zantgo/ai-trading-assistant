@@ -15,7 +15,6 @@ fn make_test_config(window: usize, bins: usize) -> TimeframeConfig {
     TimeframeConfig {
         candles: config_models::CandlesConfig {
             duration_seconds: 60,
-            analysis_limit: 500,
         },
         indicators: IndicatorsConfig {
             ema_fast: 10,
@@ -140,6 +139,7 @@ fn warmup_populates_volume_profile_from_gate_bar_onward() {
         "BTC-USDC",
         60,
         core_domain::models::TimeframeSlot::Micro,
+    500,
     );
 
     assert!(
@@ -238,6 +238,7 @@ fn warmup_sub_minute_timeframes_also_populate() {
         "BTC-USDC",
         5,
         core_domain::models::TimeframeSlot::Micro,
+    500,
     );
 
     let last_vp = warmed
@@ -267,6 +268,7 @@ fn seeded_volume_profile_clears_at_25_bars() {
         "BTC-USDC",
         15,
         core_domain::models::TimeframeSlot::Micro,
+    500,
     );
 
     let populated: Vec<_> = warmed

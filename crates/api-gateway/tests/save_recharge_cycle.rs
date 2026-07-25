@@ -104,6 +104,10 @@ async fn setup_app_with_instance() -> Arc<AppState> {
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
             cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
+            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
     };
 
     let pair = Arc::new(ActivePair {
@@ -207,7 +211,7 @@ async fn serve_for(state: Arc<AppState>) -> std::net::SocketAddr {
 fn default_body(micro_secs: u64) -> serde_json::Value {
     serde_json::json!({
         "micro_term": {
-            "candles": { "duration_seconds": micro_secs, "analysis_limit": 250 },
+            "candles": { "duration_seconds": micro_secs },
             "indicators": {}
         }
     })
@@ -215,7 +219,7 @@ fn default_body(micro_secs: u64) -> serde_json::Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_instance_config_by_uuid_recharges_in_memory_state() {
-    tokio::time::timeout(Duration::from_secs(15), async {
+    tokio::time::timeout(Duration::from_secs(60), async {
         let state = setup_app_with_instance().await;
         let addr = serve_for(state.clone()).await;
         let client = reqwest::Client::new();

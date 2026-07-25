@@ -97,6 +97,8 @@ fn make_snapshot(timeframe_secs: u64, mid_price: f64) -> MarketSnapshot {
         liquidity_signals: vec![],
         metrics_config: None,
         quality_envelope: None,
+    pipeline_state: core_domain::models::CandlePipelineState::default(),
+    indicator_lifecycle: std::collections::HashMap::new(),
     }
 }
 
@@ -141,6 +143,10 @@ fn build_active_pair_with_channels(
         active_set: Default::default(),
         cluster_matrix: Arc::new(RwLock::new(None)),
             cluster_status: Arc::new(RwLock::new(core_domain::liquidity::ClusterStatusSnapshot::pending("TEST", "test"))),
+            pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
     };
     let pair = Arc::new(ActivePair {
         symbol: pair_key.to_string(),

@@ -47,6 +47,7 @@ pub struct PreviousBarState {
     pub aroon_up: Option<f64>,
     pub aroon_down: Option<f64>,
     pub macd_line: Option<f64>,
+    pub macd_histogram: Option<f64>,
     pub linreg_slope: Option<f64>,
     pub zscore: Option<f64>,
     pub obv: Option<f64>,
@@ -341,9 +342,7 @@ mod meta_tests {
     }
 
     #[test]
-    fn inactive_fill_populates_absent_directional_indicators() {
-        // Event-driven directional indicators (fibonacci, S/R, patterns) that
-        // are not present when no trigger exists must have INACTIVE placeholder.
+    fn warming_fill_populates_all_registered_indicators() {
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
@@ -362,7 +361,8 @@ mod meta_tests {
             let v = map
                 .get(key)
                 .unwrap_or_else(|| panic!("{key} must be present"));
-            assert_eq!(v.state_label, "INACTIVE", "{key} should be INACTIVE");
+            assert_eq!(v.state_label, "WARMING", "{key} should be WARMING");
+            assert!(v.confidence <= 0.01, "{key} confidence should be ~0");
         }
         for &key in &divergence_keys {
             assert!(!map.contains_key(key), "{key} mirror should NOT be present");
@@ -370,19 +370,22 @@ mod meta_tests {
     }
 
     #[test]
-    fn inactive_fill_skips_non_directional_gates() {
-        // Non-directional gates (atr/bbwp/hv/volume/rvol/choppiness) must NOT
-        // be INACTIVE-filled (they are read by value by gate logic / context).
-        // ADX is now classified as directional — see IND-01 in the
-        // consolidated architecture audit — so it is treated by the same
-        // directional fill path as other directional indicators.
+    fn warming_fill_covers_all_registry_keys() {
         let inputs = IndicatorInputs::default();
         let ctx = NormalizationContext::default();
         let map = NormalizationEngine::normalize_all(&inputs, &ctx);
-        for key in ["atr", "bbwp", "hv", "rvol", "choppiness"] {
+        let non_directional = ["atr", "bbwp", "hv", "rvol", "choppiness"];
+        for key in non_directional {
+            let v = map
+                .get(key)
+                .unwrap_or_else(|| panic!("{key} gate must be present"));
+            assert_eq!(v.state_label, "WARMING", "{key} should be WARMING");
+        }
+        for meta in crate::indicators::registry::INDICATORS {
             assert!(
-                !map.contains_key(key),
-                "{key} gate must remain absent, not INACTIVE-filled"
+                map.contains_key(meta.key),
+                "{} (registry key) must be present",
+                meta.key
             );
         }
     }

@@ -256,6 +256,12 @@ impl Instance {
             cluster_status: Arc::new(RwLock::new(
                 core_domain::liquidity::ClusterStatusSnapshot::pending(&format!("{}-{}", pair.0, pair.1), slot.as_str()),
             )),
+            pipeline_state: Arc::new(RwLock::new(
+                core_domain::models::CandlePipelineState::Initializing,
+            )),
+            indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            buffer_size: 500,
+            stale_threshold_secs: 300,
         };
         let micro_pipe = new_pipeline(core_domain::models::TimeframeSlot::Micro);
         let fast_pipe = new_pipeline(core_domain::models::TimeframeSlot::Fast);

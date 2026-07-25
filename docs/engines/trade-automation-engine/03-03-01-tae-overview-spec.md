@@ -1,6 +1,6 @@
 # Trade Automation Engine — Overview Specification
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Trade Automation Engine (TAE)
 **Purpose:** This document specifies the boundaries, API limits, transaction state-transition model, and order-management architecture of the Trade Automation Engine — the engine that evaluates user-defined execution policies against MME decision support and routes orders to live or simulated venues.

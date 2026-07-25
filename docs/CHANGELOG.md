@@ -4,6 +4,52 @@
 
 ------
 
+## v6.5 (2026-07-24) — Standardized candle formation + unified indicator lifecycle
+
+Platform-wide refactor replacing the ad-hoc per-exchange bootstrap with a single exchange-independent contract, and replacing the implicit "is this indicator ready?" opacity with explicit per-indicator lifecycle states.
+
+**Single source of truth for candle count.** `[candle_buffer] size` (default **500**) replaces the previous `analysis_limit` field. Every per-timeframe in-memory buffer — `NormalizedCandle` history, `MarketSnapshot` history, indicator warm-up buffers — is rolled at exactly `size` entries (CB-03). The previous `analysis_limit` field on `TimeframeConfig` is **removed**; legacy keys in `config.toml` are logged as warnings and ignored.
+
+**Exchange-independent bootstrap.** The new `HistoricalFetchPolicy` trait (Hyperliquid and Bitget implementations) replaces the previous divergent per-adapter code. Sub-minute timeframes (`timeframe_secs < 60`) bypass historical fetch entirely — no SQLite, no exchange REST (HFP-03); the pipeline starts at 0 candles and fills from live trades. ≥ 1 minute timeframes paginate the REST endpoint until exactly `size` candles are returned, then merge with the SQLite cache (HFP-04 … HFP-10). The Bitget `limit=200` per-page constraint is now paginated, not terminal. The Hyperliquid "no limit parameter" defect is fixed via backward `startTime` cursor pagination.
+
+**Two-level indicator lifecycle.** Every one of the 50 indicators per timeframe now carries an explicit `IndicatorLifecycleState` (`LOADING | LIVE | STALE | FAILED`) plus metadata (`bars_seen`, `bars_required`, `last_updated_at`, `last_error`, `stale_threshold_secs`). Every per-timeframe pipeline carries an explicit `CandlePipelineState` (`INITIALIZING | LOADING | LIVE | STALE | FAILED`). The pipeline state is the **most-severe** aggregate of its 50 indicator states, gated by the parent `ConnectionStatus`. Both fields are published on every emitted `MarketSnapshot` — the dashboard renders a TF header badge and a per-row badge.
+
+**Sub-minute / ≥ 1 minute behavior split is binary and uniform.** Sub-minute: empty buffer → accumulate live candles → indicators `Loading` until each reaches its `bars_required`. ≥ 1 minute: paginated historical fetch to exactly `size` → pipeline `LIVE` on first paint. No third branch. The two paths are documented in [08-08](operations-and-compliance/08-08-candle-buffer-spec.md) §4 (CB-04 … CB-10) and implemented by the trait caller in [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md).
+
+**TF-change reload.** A new `reload_timeframe(instance_id, slot, new_config)` API tears down and rebuilds only the affected TF pipeline. Other three TFs continue uninterrupted. Cold-start and boot-time `add_instance` continue to build all four.
+
+**Reconstruction ↔ lifecycle interaction.** Reconstructed candles count toward `bars_seen` but do not by themselves promote `Loading → Live` for indicators whose `bars_required` is otherwise met — at least `bars_required` of true live candles must also be present (CB-06, ILS-13). The reconstructed candle's `reconstructed: Some(…)` flag is preserved in `quality_envelope` so the UI can render a synthesized badge.
+
+**Web-mode boot fix.** The `--web` boot path no longer deactivates the session before auto-spawning configured instances (the v6.4.1 `main.rs:261` defect that suppressed cold-start bootstrap). AUDIT-V7-306.
+
+**Frontend neutrality cleanup.** The `IndicatorsView.svelte` `ratio2` `1.00 / OFF` neutralization workaround is removed; missing values render as `--` with a Loading badge instead of faking a neutral reading. AUDIT-V7-307, AUDIT-V7-334.
+
+### Documentation updates
+- **New:** `docs/operations-and-compliance/08-08-candle-buffer-spec.md` — master contract (CB-01 … CB-12).
+- **New:** `docs/engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md` — TF pipeline state machine (DCP-01 … DCP-15).
+- **New:** `docs/engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md` — exchange-independent fetch contract (HFP-01 … HFP-10).
+- **New:** `docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md` — per-indicator lifecycle (ILS-01 … ILS-15).
+- **New:** `docs/conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md` — conceptual overview tying the four new docs together.
+- Updated: `01-04-timeframe-model.md` §5 — sub-minute / ≥ 1 minute behavior split explicit.
+- Updated: `01-07-target-architecture-roadmap.md` — unified candle formation removed from target list (now implemented).
+- Updated: `08-04-candle-reconstruction.md` — ILS-13 interaction added.
+- Updated: `03-01-04-die-layer3-data-quality.md` §2 — bootstrap algorithm rewritten to use `HistoricalFetchPolicy`; §7 gains `Buffer invariance` + `Exchange independence` + `Lifecycle visibility` guarantees.
+- Updated: `03-02-02-mme-layer1-metrics.md` §3 — `MarketSnapshot` extended with `pipeline_state` + `indicator_lifecycle`.
+- Updated: `03-02-09-mme-indicators-guide.md` §1.1 — operational lifecycle table.
+
+### Tests (planned, see Open Items §AUDIT-V7-NN)
+- 5 `HistoricalFetchPolicy` tests in `crates/network-adapters/tests/historical_fetch.rs` (HFP-03 sub-minute short-circuit, HFP-05 Hyperliquid pagination, HFP-06 Bitget pagination, HFP-09 DB-precedence, HFP-10 timeout).
+- 6 `IndicatorLifecycle` tests in `crates/market-analyzer/tests/indicator_lifecycle.rs` (each of the 8 transitions, reconstructed-candle `bars_seen++` without `Loading → Live`, double-stale escalation, self-recovery).
+- 4 `CandlePipelineState` tests in `crates/market-analyzer/tests/candle_pipeline_state.rs` (severity aggregation, `ConnectionStatus` conjunctive gate, `reload_timeframe` cascade, sub-minute cold start → `LOADING → LIVE`).
+- 2 UI tests in `ui/src/components/IndicatorStatusBadge.test.ts` (loading badge + live badge render with correct colors).
+
+### Migration
+- `analysis_limit` field on `TimeframeConfig` is **removed**. Legacy `config.toml` keys are logged as warnings and ignored; the canonical number is `[candle_buffer] size`.
+- Sub-minute historical bootstrap no longer requests 1m candles from exchange REST. Existing pre-v6.5 telemetry rows are unchanged; the change affects only the in-memory pipeline state on cold start.
+- `MarketSnapshot.indicators` map is unchanged; `MarketSnapshot.indicator_lifecycle` is a new sibling map. Frontends that do not read `indicator_lifecycle` continue to function (the field is additive, not breaking).
+
+------
+
 ## v6.4.2 (2026-07-18) — Liquidation clusters per-timeframe + cluster refresh rewiring
 
 Major change to the Liquidity Intelligence subsystem (MME Phase 2). Liquidation clusters are now computed **per-timeframe** (one matrix per `micro`/`fast`/`slow`/`macro`) instead of per-instance. Each chart in the dashboard now shows clusters at its own horizon — micro=fast-magnet, macro=slow-magnet.
@@ -292,7 +338,7 @@ Rust Cargo forbids cyclic crate deps. Four of the natural edges between the new 
 3. **`ConnectionQualityTracker`** event-emitter in `network-adapters` (no `sqlx`); persistence loop in `database-storage::connection_quality_persistence`. (Avoids `network-adapters → database-storage`.) *(Corrected in v6.4.1 — the persistence loop now lives in `network-adapters::connection_quality_tracker::run_persistence_loop`; `database-storage` exposes only the query layer `list_connection_quality`.)*
 4. **`paper_trading::invalidate_position`** stub removed from the analyzer pipeline. (Avoids `market-analyzer → portfolio-supervisor`.)
 
-Full rationale in [`01-06 §3`](./conceptual-foundations/01-06-crate-layout-and-cycles.md).
+Full rationale in [`01-06 §3`](conceptual-foundations/01-06-crate-layout-and-cycles.md).
 
 ### Configuration format change
 
@@ -559,6 +605,29 @@ These are the items deferred from v4.0. They are tracked here only; downstream d
 | `AUDIT-V6-204` | `api-gateway`: implement `POST /api/instances/:instance_id/start`; rewrite `/pause` (entry-gate semantics) and `/stop` (STOPPING → flatten → STOPPED); DELETE requires STOPPED + tombstone | Open (specified in `03-03-06` §7) | v6.5 |
 | `AUDIT-V6-205` | `portfolio-supervisor`: implement Gate 0 check in pre-trade chain | Open (specified in `03-03-06` §7) | v6.5 |
 | `AUDIT-V6-206` | `execution-daemon`: orchestrate STOP flatten via cancel-all + market-close with `is_emergency_liquidation = true` and `reduce_only = true` | Open (specified in `03-03-06` §7) | v6.5 |
+| `AUDIT-V7-300` | `config-models`: introduce `CandleBufferConfig` struct + `[candle_buffer]` block; remove `analysis_limit` from `TimeframeConfig`; add migration log line for legacy `analysis_limit` keys | Open (specified in `08-08` §7) | v6.5 |
+| `AUDIT-V7-301` | `core-domain`: introduce `CandlePipelineState`, `IndicatorLifecycleState`, `IndicatorLifecycleStatus` (see `03-01-06` §2 and `03-02-15` §2) | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-302` | `network-adapters`: introduce `HistoricalFetchPolicy` trait; implement `HyperliquidHistoricalFetch` (paginated backward cursor); implement `BitgetHistoricalFetch` (paginated forward cursor with `limit=200` per page) | Open (specified in `03-01-07` §7) | v6.5 |
+| `AUDIT-V7-303` | `market-analyzer`: replace `HIST_BUFFER_MAX = 1000` with `candle_buffer.size`; ensure deque never exceeds `size`; populate `IndicatorLifecycleStatus` for all 50 registry entries; publish `tf.pipeline_state` | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-304` | `portfolio-supervisor`: rewrite `collect_candles` to use `HistoricalFetchPolicy`; sub-minute returns empty Vec; ≥ 1 minute paginates until `size` then merges DB; expose `reload_timeframe(instance_id, slot, new_config)` API | Open (specified in `08-08` §7) | v6.5 |
+| `AUDIT-V7-305` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` clamp to `candle_buffer.size`; add `pipeline_state` + `indicator_lifecycle` to the `/api/history` response | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-306` | `execution-daemon`: fix `--web` boot so `init_session` does not deactivate before auto-spawning configured instances | Open (specified in `08-08` §7) | v6.5 |
+| `AUDIT-V7-307` | `ui`: introduce `IndicatorStatusBadge.svelte`; honor `tf.pipeline_state` in chart headers; stop merging old values when a snapshot arrives with `pipeline_state = LOADING`; remove the `analysisLimit` selector (replace with read-only display of `candle_buffer.size`) | Open (specified in `08-08` §7) | v6.5 |
+| `AUDIT-V7-310` | `core-domain`: add `CandlePipelineState` enum + `IndicatorLifecycleStatus` map type; extend `MarketSnapshot` with `pipeline_state` + `indicator_lifecycle` fields | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-311` | `database-storage`: migration `00XX_add_candle_pipeline_state_events.sql` + `00XX_alter_market_snapshots.sql`; bump `user_version` | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-312` | `market-analyzer`: in `TimeframePipeline`, track `pipeline_state`; transition on every bootstrap return, on every completed candle (DCP-04/DCP-13), on stale-timer tick (DCP-05), on connection-status callback (DCP-09) | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-313` | `portfolio-supervisor`: implement `reload_timeframe` API + cascade transitions per CB-11 | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-314` | `api-gateway`: add `POST /api/instances/:instance_id/reload?slot=`; extend `/api/history` to include per-row `pipeline_state` and `indicator_lifecycle` | Open (specified in `03-01-06` §7) | v6.5 |
+| `AUDIT-V7-320` | `network-adapters`: introduce `HistoricalFetchPolicy` trait + request/error types in `adapters/historical_fetch.rs` | Open (specified in `03-01-07` §7) | v6.5 |
+| `AUDIT-V7-321` | `network-adapters`: implement `HyperliquidHistoricalFetch` with backward `startTime` cursor pagination (HFP-05) | Open (specified in `03-01-07` §7) | v6.5 |
+| `AUDIT-V7-322` | `network-adapters`: implement `BitgetHistoricalFetch` with forward `startTime` cursor pagination + `limit=200` per page (HFP-06) | Open (specified in `03-01-07` §7) | v6.5 |
+| `AUDIT-V7-323` | `portfolio-supervisor`: replace `collect_candles` with `HistoricalFetchPolicy` caller; HFP-03 sub-minute short-circuit; HFP-09 merge; HFP-10 timeout handling | Open (specified in `03-01-07` §7) | v6.5 |
+| `AUDIT-V7-324` | `tests`: add 5 tests — (a) sub-minute returns empty, (b) Hyperliquid paginates to `size`, (c) Bitget paginates `limit=200` to `size`, (d) DB-precedence on overlap, (e) timeout returns partial + warning | Open (specified in `03-01-07` §7) | v6.5 |
+| `AUDIT-V7-330` | `core-domain`: add `IndicatorLifecycleState` enum + `IndicatorLifecycleStatus` struct; extend `MarketSnapshot` with `indicator_lifecycle` + `pipeline_state` fields | Open (specified in `03-02-15` §8) | v6.5 |
+| `AUDIT-V7-331` | `market-analyzer/registry`: add `bars_required: u32` to each of the 50 indicator metadata entries in `crates/market-analyzer/src/indicators/registry.rs` | Open (specified in `03-02-15` §8) | v6.5 |
+| `AUDIT-V7-332` | `market-analyzer`: in `run_single`, populate `IndicatorLifecycleStatus` for every active-set indicator on every completed candle; apply ILS-05–ILS-10 transitions; apply ILS-14 confidence override | Open (specified in `03-02-15` §8) | v6.5 |
+| `AUDIT-V7-333` | `market-analyzer`: in `warm_indicators_for_timeframe`, initialize every indicator's lifecycle to `Loading` with `bars_seen = 0`; rely on the first completed candle to begin ILS-02 counting | Open (specified in `03-02-15` §8) | v6.5 |
+| `AUDIT-V7-334` | `ui`: introduce `IndicatorStatusBadge.svelte`; update `IndicatorsView.svelte` to render the badge and stop merging old values when `pipeline_state = LOADING` (replaces the existing `applySnapshotToTimeframe` per-key merge for indicators that arrive `Loading`); update `TimeframeSettings.svelte` to remove `analysisLimit` selector | Open (specified in `03-02-15` §8) | v6.5 |
 | `AUDIT-V6-207` | `ui`: Svelte 5 lifecycle badges; start/pause/stop inline-confirm buttons; automation summary line | Open (specified in `03-03-06` §7) | v6.5 |
 | `AUDIT-V6-208` | `config-models`: add `AppConfig.config_version: u64` (initial 1, +1 per POST success); add `[activation]` and `[liquidity]` tables | Open (specified in `03-02-12` §9) | v6.5 |
 | `AUDIT-V6-209` | `market-analyzer`: build Active Set from `Arc<RwLock<AppConfig>>` at pipeline construction; gate evaluations to active set | Open (specified in `03-02-12` §9) | v6.5 |

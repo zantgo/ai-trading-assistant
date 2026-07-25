@@ -1,6 +1,6 @@
 # Timeframe Model Specification
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document defines the configurable 4-tier timeframe model used by the Market Monitoring Engine. Every Market Instance runs 4 independent timeframe pipelines — micro, fast, slow, and macro — producing per-timeframe Metrics Matrices that feed the multi-timeframe Alignment layer.
 
@@ -20,6 +20,8 @@ The engine uses a fixed 4-tier structure, but each tier's duration is **configur
 The `fast_timeframe`, `slow_timeframe`, and `macro_timeframe` objects each have an `enabled` toggle (`true`/`false`) and a `duration_seconds` parameter. The micro timeframe is always active (it is the base candle duration from `candles`).
 
 > **Sub-minute durations (v2.1).** The 4-tier model supports any positive integer duration via `config.toml`. The micro tier default is 60 s, but operators may configure sub-minute durations (e.g. 15 s, 30 s) for high-frequency strategies by setting `[candles.duration_seconds]` to the desired value. Sub-minute timeframes are not documented in the standard 4-tier ladder because most institutional strategies operate at 1m+ resolution; they are supported by the underlying pipeline (and by the reconstruction engine — see [08-04-candle-reconstruction.md](../operations-and-compliance/08-04-candle-reconstruction.md)) but require explicit configuration.
+>
+> **Sub-minute historical fetch (v6.5).** Sub-minute timeframes (`timeframe_secs < 60`) **do not** request historical candles from the SQLite cache or from the exchange REST endpoint. The pipeline starts with an empty buffer and accumulates candles one-by-one as live trades close their buckets. Indicators report `IndicatorLifecycleState::Loading` until each one has enough history. This is the **per-TF behavior split** from [08-08-candle-buffer-spec.md](../operations-and-compliance/08-08-candle-buffer-spec.md) CB-04 … CB-07; the contract is implemented by the `HistoricalFetchPolicy` trait in [03-01-07-die-historical-fetch-policy.md](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md) §HFP-03.
 
 ---
 
@@ -124,7 +126,16 @@ This rule is shared by [Alignment Matrix §4.1](../matrices/02-01-alignment-matr
 
 ## 5. Warm-Up & History
 
-Each timeframe pipeline bootstraps from historical candle data before subscribing to live broadcasts. The `analysis_limit` parameter (`[candles] analysis_limit`) controls the lookback depth (default: 500 bars).
+Each timeframe pipeline bootstraps from historical candle data before subscribing to live broadcasts. The canonical lookback depth is **`[candle_buffer] size`** (default: **500**) — see [08-08-candle-buffer-spec.md](../operations-and-compliance/08-08-candle-buffer-spec.md) CB-01. The previous `analysis_limit` field on `TimeframeConfig` is **removed** (v6.5 migration; legacy keys are logged as warnings and ignored).
+
+The per-TF bootstrap behavior is binary on `timeframe_secs`:
+
+| `timeframe_secs` | Historical source | Buffer at cold start | Pipeline enters |
+|-----------------:|-------------------|---------------------:|-----------------|
+| `< 60`           | None              | 0                    | `LOADING` → `LIVE` after `size × timeframe_secs` of wall-clock time (CB-05–CB-07) |
+| `≥ 60`           | Paginated exchange REST + SQLite merge | exactly `size` | `LIVE` immediately on first paint (CB-08–CB-10) |
+
+Both behaviors are uniform across exchanges — Hyperliquid and Bitget implement the same `HistoricalFetchPolicy` trait and converge to the same in-memory buffer shape. Per-indicator `Loading → Live` transitions are tracked explicitly in `MarketSnapshot.indicator_lifecycle` per [03-02-15-mme-indicator-lifecycle-states.md](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md) ILS-01 … ILS-15.
 
 ---
 

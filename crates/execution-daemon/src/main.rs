@@ -258,14 +258,6 @@ async fn main() {
                 currency.as_str(),
                 exchange.as_str(),
             );
-            // In web mode keep the session technically inactive so the
-            // frontend Welcome Gate is shown on first page load.  The
-            // session fields (exchange, currency) are already populated
-            // so that config.toml instances can be auto-spawned below.
-            if matches!(cli.mode, LaunchMode::Web) {
-                app_state.session.active.store(false, std::sync::atomic::Ordering::Relaxed);
-                println!("   (session marked inactive for Welcome Gate)");
-            }
         }
     }
 
@@ -274,6 +266,13 @@ async fn main() {
     // Every entry in workspace.instances[] is spawned automatically.
     // In web mode the user may additionally add more pairs via the GUI.
     // In headless mode this is the ONLY way instances are created.
+    //
+    // **v6.5 fix (AUDIT-V7-306):** the session is left `active = true`
+    // through the auto-spawn loop. The Welcome Gate only needs the
+    // session fields (exchange, currency), not the `active` flag — and
+    // `add_instance` rejects inactive sessions. We flip to inactive
+    // **after** the loop completes, so configured instances bootstrap on
+    // cold start in `--web` mode just like `--headless`.
     {
         let ctx = app_state.registry_context();
         for entry in &workspace.instances {
@@ -295,6 +294,14 @@ async fn main() {
                     eprintln!("⚠️  Failed to spawn instance {}: {}", entry.symbol, e);
                 }
             }
+        }
+
+        // v6.5 (AUDIT-V7-306): in web mode, mark session inactive AFTER
+        // auto-spawn so the Welcome Gate still appears on first page load
+        // but cold-start bootstrap is no longer skipped.
+        if matches!(cli.mode, LaunchMode::Web) {
+            app_state.session.active.store(false, std::sync::atomic::Ordering::Relaxed);
+            println!("   (session marked inactive for Welcome Gate)");
         }
     }
 

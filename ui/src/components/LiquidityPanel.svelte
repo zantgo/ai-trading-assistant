@@ -236,9 +236,47 @@
             <h3 class={styles.h3}>Liquidity Context</h3>
 
             <div class={styles.subSection}>
-                <div class={styles.subLabel}>Active Liquidity Signals</div>
+                <div class={styles.subLabel}>Cascade Status</div>
+                <div class={styles.cascadeRow}>
+                    <div class="{styles.cascadeBadge} {flow?.cascade_state === 'SUSTAINED' ? styles.cascadeDanger :
+                                                  flow?.cascade_state === 'DETECTED' ? styles.cascadeWarning :
+                                                  flow?.cascade_state === 'EXHAUSTED' ? styles.cascadeCooling :
+                                                  styles.cascadeNormal}">
+                        {flow?.cascade_state ?? 'NO DATA'}
+                    </div>
+                    <div class={styles.intensityBar}>
+                        <div class={styles.intensityFill}
+                             style="width: {Math.min(flow?.cascade_intensity ?? 0, 100).toFixed(1)}%"></div>
+                    </div>
+                    <div class={styles.intensityText}>
+                        Intensity: {flow?.cascade_intensity?.toFixed(0) ?? '—'}/100
+                    </div>
+                </div>
+            </div>
+
+            {#if cluster}
+                <div class={styles.subSection}>
+                    <div class={styles.subLabel}>Open Interest Split</div>
+                    <div class={styles.assumptionRow}>
+                        <span>Long:</span>
+                        <code class={styles.code}>{fmtUsd(cluster.total_long_oi_usd)}</code>
+                        <span>Short:</span>
+                        <code class={styles.code}>{fmtUsd(cluster.total_short_oi_usd)}</code>
+                        <span>Confidence:</span>
+                        <code class={styles.code}>{(cluster.estimation_confidence * 100).toFixed(0)}%</code>
+                    </div>
+                </div>
+            {/if}
+
+            <div class={styles.subSection}>
+                <div class={styles.subLabel}>Liquidity Signals</div>
                 {#if signals.length === 0}
-                    <div class={styles.placeholder}>No active signals.</div>
+                    <div class={styles.placeholder}>
+                        No active cascade, funding-extreme, or OI-divergence signals.
+                        {#if (flow?.cascade_intensity ?? 0) > 0}
+                            Cascade activity detected (intensity {flow?.cascade_intensity?.toFixed(0) ?? '—'}).
+                        {/if}
+                    </div>
                 {:else}
                     {#each signals as sig}
                         <div class={styles.signalRow + ' ' +

@@ -1,6 +1,6 @@
 # Target Architecture Roadmap
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document is the canonical home for "Target Architecture (Not Yet Implemented)" callouts scattered across the corpus. It enumerates each target state, its current status, blocking requirements, and target version. Future revisions update this single document instead of duplicating target notes across layer docs.
 
@@ -18,6 +18,12 @@
 | **Pre-dispatch crash-recoverable persistence** | Not implemented. `PRE_DISPATCH` orders live in process memory only. | Add `pre_dispatch_orders` SQLite table; recovery path on daemon restart. | Unscheduled (per [README §Feature Status](../README.md#feature-status)) | TAE team |
 | **caller-supplied `X-Operator-Id` identity** | Not implemented. v4.0 fixed identity = `"local"`. | Auth contract; possibly mTLS for non-local callers. | Unscheduled (AUDIT-V4-076) | Cross-cutting |
 | **`cascade_risk_index` aggregation** | Placeholder field. Not aggregated into `systemic_risk_score`. | Define aggregation formula; produce L7 sample rows. | Deferred (v6.5) | PAE team |
+
+### Removed in v6.5
+
+The following items previously appeared in this table and are now **shipped** (moved to their owning engine spec):
+
+- ~~**Unified candle formation across exchanges + per-indicator lifecycle states**~~ — **Shipped in v6.5.** Specs of record: [08-08-candle-buffer-spec.md](../operations-and-compliance/08-08-candle-buffer-spec.md), [03-01-06-die-candle-pipeline-states.md](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07-die-historical-fetch-policy.md](../engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15-mme-indicator-lifecycle-states.md](../engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), and the conceptual overview [01-08-candle-buffer-and-indicator-lifecycle.md](../conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md). The single `[candle_buffer] size` (default 500) is the canonical candle count across every exchange; per-TF state machine + per-indicator state machine make warm-up visible to operators. AUDIT-V7-300 … AUDIT-V7-334.
 
 ---
 

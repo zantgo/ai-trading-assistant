@@ -21,7 +21,8 @@ docs/
 │   ├── 01-04-timeframe-model.md                      ← 4-tier timeframe model, weighting, UTC alignment
 │   ├── 01-05-liquidity-domain.md                     ← Phase 0-4 Liquidity Intelligence architecture
 │   ├── 01-06-crate-layout-and-cycles.md              ← 9-crate workspace layout, dependency graph, cycle-breaking design decisions
-│   └── 01-07-target-architecture-roadmap.md          ← SoA candle history, Phase-3 book depth, NTP, PD memory
+│   ├── 01-07-target-architecture-roadmap.md          ← SoA candle history, Phase-3 book depth, NTP, PD memory
+│   └── 01-08-candle-buffer-and-indicator-lifecycle.md ← conceptual overview: single candle count + two-level lifecycle (v6.5)
 ├── matrices/                                         (02 — 15 files)
 │   ├── 02-00-matrix-field-ownership.md                ← canonical per-field producer-layer mapping
 │   ├── 02-00b-confidence-hierarchy.md                 ← confidence-field rename & flow
@@ -41,14 +42,16 @@ docs/
 │   ├── 02-14-policy-matrix.md                         ← TAE L1: validated execution directives
 │   └── 02-15-execution-matrix.md                      ← TAE L2: persistent order state log (materialized as `open_orders` table)
 ├── engines/
-│   ├── data-infrastructure-engine/                     (03-01 — 6 files)
+│   ├── data-infrastructure-engine/                     (03-01 — 8 files)
 │   │   ├── 03-01-00-die-end-to-end-flow.md           ← single integrated end-to-end DIE flow narrative
 │   │   ├── 03-01-01-die-overview-spec.md             ← DIE boundaries, adapters, fault tolerance
 │   │   ├── 03-01-02-die-layer1-raw-data.md
 │   │   ├── 03-01-03-die-layer2-market-data.md
 │   │   ├── 03-01-04-die-layer3-data-quality.md
-│   │   └── 03-01-05-die-layer4-data-distribution.md
-│   ├── market-monitoring-engine/                       (03-02 — 12 files)
+│   │   ├── 03-01-05-die-layer4-data-distribution.md
+│   │   ├── 03-01-06-die-candle-pipeline-states.md     ← per-TF CandlePipelineState machine (v6.5)
+│   │   └── 03-01-07-die-historical-fetch-policy.md    ← HistoricalFetchPolicy trait, exchange-independent (v6.5)
+│   ├── market-monitoring-engine/                       (03-02 — 15 files)
 │   │   ├── 03-02-01-mme-overview-spec.md             ← MME boundaries, pipeline, bifurcation model
 │   │   ├── 03-02-02-mme-layer1-metrics.md
 │   │   ├── 03-02-03-mme-layer2-alignment.md
@@ -61,6 +64,9 @@ docs/
 │   │   ├── 03-02-10-mme-signals-guide.md             ← 12 SignalKind detection rulebook
 │   │   ├── 03-02-11-mme-liquidity-extension.md        ← Phase 0-4 Liquidity Intelligence (L1.5 + L2.5)
 │   │   ├── 03-02-12-mme-configurable-activation.md     ← Configurable activation (denylists, AUTO_PAUSED)
+│   │   ├── 03-02-13-mme-volume-profile-layer.md
+│   │   ├── 03-02-14-mme-sub-min-tf-feasibility.md
+│   │   └── 03-02-15-mme-indicator-lifecycle-states.md ← per-indicator IndicatorLifecycleState machine (v6.5)
 │   │   ├── indicators/                               (04-02 — 50 + 1 master index)
 │   │   │   ├── 04-02-00-indicator-index.md
 │   │   │   ├── 04-02-01-ema-stack.md
@@ -99,17 +105,18 @@ docs/
 │   ├── 07-02-ui-dashboard-layout.md                  ← viewport grid, panels, components
 │   ├── 07-03-ui-chart-component-map.md                ← per-indicator rendering map (50 → 19 dedicated components)
 │   └── 07-04-ui-liquidity-panel-spec.md              ← LiquidityPanel (Phase 4)
-└── operations-and-compliance/                        (08 — 7 files)
+└── operations-and-compliance/                        (08 — 8 files)
     ├── 08-01-user-manual.md                          ← operator guide (install, launch, monitor, troubleshooting)
     ├── 08-02-pre-trade-risk-controls.md              ← mandatory pre-trade gates, evaluation order, overrides
     ├── 08-03-connection-resilience.md                ← WebSocket reconnect policy + backoff state machine
     ├── 08-04-candle-reconstruction.md                ← gap detection + exchange historical fetch + sub-1m synthesis
     ├── 08-05-connection-quality.md                   ← rolling 1h/6h/24h quality score + dashboard panel
     ├── 08-06-clock-monitor.md                        ← NTP drift enforcement (≤100µs UTC budget)
-    └── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
+    ├── 08-07-exchange-key-rotation.md                ← exchange-key rotation procedure (pre-rotation, rotation, emergency)
+    └── 08-08-candle-buffer-spec.md                   ← single source of truth for candle count + per-TF behavior split (v6.5)
 ```
 
-Total: **142 markdown files** at v6.4.2 — 139 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 8 conceptual + 17 matrix + **36 engine** (6 DIE + 14 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 7 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **14 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility).
+Total: **147 markdown files** at v6.5 — 144 numbered docs + 3 governance docs (README, CHANGELOG, MANIFEST). Breakdown: 9 conceptual + 17 matrix + **39 engine** (8 DIE + 15 MME + 6 TAE + 5 PME + 5 PAE) + 51 indicator + 13 signal + 3 integration + 4 UI + 8 ops. MME's 7 core layers plus 3 fractional extension layers (L1.5, L2.5, L2.6) are implemented across **15 specification files** (overview + 7 layer specs + 2 guides + 1 liquidity extension + 1 activation spec + 1 volume profile layer + 1 sub-min TF feasibility + 1 indicator lifecycle). The 5 new docs in v6.5 are: [01-08](conceptual-foundations/01-08-candle-buffer-and-indicator-lifecycle.md), [03-01-06](engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md), [03-01-07](engines/data-infrastructure-engine/03-01-07-die-historical-fetch-policy.md), [03-02-15](engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md), [08-08](operations-and-compliance/08-08-candle-buffer-spec.md).
 
 ## The Five Engines
 
@@ -129,6 +136,7 @@ Total: **142 markdown files** at v6.4.2 — 139 numbered docs + 3 governance doc
    - `01-03-systemic-data-flow.md` — how data flows through the system (incl. Sequence A bifurcation)
    - `01-04-timeframe-model.md` — 4-tier timeframe configuration + §3.1 UTC alignment rules
    - `01-06-crate-layout-and-cycles.md` — 9-crate physical workspace, dependency graph, cycle-breaking design rationale (read this when mapping a feature to its crate)
+   - `01-08-candle-buffer-and-indicator-lifecycle.md` — v6.5 conceptual overview tying the four new specs together
 
 2. **Engine Overviews (`03-01-01`, `03-02-01`, `03-03-01`, `03-04-01`, `03-05-01`)** — each engine's boundaries
 
@@ -148,7 +156,7 @@ Total: **142 markdown files** at v6.4.2 — 139 numbered docs + 3 governance doc
    - `07-01-ui-overview-spec.md` → `07-02-ui-dashboard-layout.md`
 
 8. **Operations & Compliance (`08-`)** — operator procedures, pre-trade risk gating, and audit
-   - `08-01-user-manual.md` → `08-02-pre-trade-risk-controls.md` → `08-03-connection-resilience.md` (followed by `08-04-candle-reconstruction.md` → `08-05-connection-quality.md` → `08-06-clock-monitor.md`)
+   - `08-01-user-manual.md` → `08-02-pre-trade-risk-controls.md` → `08-03-connection-resilience.md` (followed by `08-04-candle-reconstruction.md` → `08-05-connection-quality.md` → `08-06-clock-monitor.md` → `08-08-candle-buffer-spec.md` ← **v6.5 master contract**)
 
 ## Feature Status
 
@@ -175,12 +183,13 @@ This table is the **single source of implementation truth** — every spec in `d
 | Liquidity Intelligence (Phases 0-4) | Partial (Phase 0-2 implemented) | `01-05`, `03-02-11` |
 | Exchange key rotation | Manual rotation procedure documented (08-07); in-process rotation tool unscheduled (AUDIT-V6-077) | `08-07` |
 | Phase-3 REST handlers (`/api/system/clock`, `/api/exchange-status`, `/api/data-quality`) | Implemented — served surface documented in `06-01` §2.11 (v6.4.1); `clock.breach_count` placeholder pending (AUDIT-V6-301) | `06-01` |
+| **Standardized candle formation + unified indicator lifecycle (v6.5)** | Specified; implementation v6.5 (AUDIT-V7-300, 301, 302, 303, 304, 305, 306, 307, 310, 311, 312, 313, 314, 320, 321, 322, 323, 324, 330, 331, 332, 333, 334) | `08-08`, `03-01-06`, `03-01-07`, `03-02-15`, `01-08` |
 
 ## Key Conventions
 
 - All file/directory names are **lowercase-kebab-case** and prefixed `NN-MM[-KK]-…` per section.
 - All enum values serialize as **SCREAMING_SNAKE_CASE** (e.g. `STRONG_BULLISH`, `TRENDING_BULL`).
-- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.4.1).
+- The **corpus version** is defined by four-point coherence: the value appearing simultaneously in this README's stats line, the `CHANGELOG.md` top entry, the `DOCS-CONSISTENCY-MANIFEST.md` title, and every numbered-doc `**Version:**` stamp (currently 6.5).
 - All **score→label bands** are lower-inclusive half-open `[a, b)` (e.g. `entry_danger` 20.0 → `LOW`; SetupQuality 85.0 → `PRIME`). The single documented exception is the `MarketBias` NEUTRAL band, closed `[-20, 20]`. Canonical band tables per the MANIFEST §13 Canonical Source Registry.
 - All configuration is stored in **`config.toml`** at the workspace root (legacy `config.json` is still recognized as a fallback by `load_config()`).
 - Engine communication on the data plane is **unidirectional**: no downstream engine mutates upstream state. The only backward channels are: (1) TAE→PME read-only sizing query; (2) PME→TAE VetoMessage; (3) PME→TAE LiquidateCommand; (4) PAE→config offline analytical feedback.

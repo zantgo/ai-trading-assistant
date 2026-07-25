@@ -906,6 +906,8 @@ mod tests {
             cluster: None,
             volume_profile: None,
             quality_envelope: None,
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
         }
     }
 

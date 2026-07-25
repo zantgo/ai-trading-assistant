@@ -1,6 +1,6 @@
 # MME Layer 1 — Metrics Layer
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Market Monitoring Engine (MME)
 **Layer:** 1 of 7
@@ -50,6 +50,13 @@ See [indicators/index.md](indicators/04-02-00-indicator-index.md) for the author
 The `NormalizationEngine` (`crates/market-analyzer/src/indicators/normalized/`) maps each raw value to a continuous `normalized ∈ [-1.0, 1.0]` score and a context-aware `state_label`. Normalization is **regime-aware**: thresholds shift with market context (e.g. RSI overbought tightens to 80 in a strong trend).
 
 Each indicator becomes an `IndicatorEvaluation` (`NormalizedIndicatorValue`) carrying `raw_value`, `normalized`, `state_label`, optional `values`, `signals`, and `confidence`. See [Metrics Matrix §3](../../matrices/02-07-metrics-matrix.md).
+
+In v6.5 every `MarketSnapshot` additionally carries:
+
+- **`tf.pipeline_state: CandlePipelineState`** — the per-timeframe pipeline lifecycle ([03-01-06](../data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md) DCP-01 … DCP-15). One of `INITIALIZING | LOADING | LIVE | STALE | FAILED`. Published on every snapshot.
+- **`tf.indicator_lifecycle: HashMap<String, IndicatorLifecycleStatus>`** — the per-indicator lifecycle ([03-02-15](03-02-15-mme-indicator-lifecycle-states.md) ILS-01 … ILS-15), keyed by registry key. Each value carries `state | bars_seen | bars_required | last_updated_at | last_error | stale_threshold_secs`. The map is populated alongside `indicators` on every snapshot and updates on every completed candle. Confidence overrides apply (ILS-14) when the lifecycle state is non-`Live`.
+
+Both fields are always populated (no `skip_serializing_if`); the dashboard never has to distinguish "absent" from "empty map". The active-set rule ([03-02-12](03-02-12-mme-configurable-activation.md)) applies symmetrically: disabled indicators are absent from both `indicators` and `indicator_lifecycle` (ILS-12).
 
 > **Target Architecture (Not Yet Implemented).** To eliminate slow string-hashing lookups (e.g. `map.get("rsi")`), the hot-path Metrics Matrix is intended to be a flat, cache-aligned struct indexed by a compiled `Enum` offset rather than a `HashMap<String, …>`:
 >
@@ -195,7 +202,7 @@ Notifications carry no `id` (no response expected). See the [API Gateway Contrac
 
 ### 9.1 Configurable activation (Active Set)
 
-The layer's indicator/signal computation is driven by a config-derived **Active Set**: registry defaults minus the union of the global `[activation]` denylist and the per-instance `[instances.*.activation]` denylist. Disabled indicators/signals are **absent** from the produced `MarketSnapshot` — never null, never tombstoned — and downstream layers reuse the existing NO_DATA/empty-state machinery with no new special cases. The active set is *recorded* on the snapshot via the optional `metrics_config` block (omitted when the active set equals the registry default, so default-path frames remain byte-identical to pre-feature frames). The 50-indicator / 12-SignalKind / 100-declaration **registry** describes capability and never changes with config; activation is a runtime config concern. Canonical spec, wire contract, downstream degradation rules, and the registry-invariance requirement are in [03-02-12-mme-configurable-activation.md](../../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md).
+The layer's indicator/signal computation is driven by a config-derived **Active Set**: registry defaults minus the union of the global `[activation]` denylist and the per-instance `[instances.*.activation]` denylist. Disabled indicators/signals are **absent** from the produced `MarketSnapshot` — never null, never tombstoned — and downstream layers reuse the existing NO_DATA/empty-state machinery with no new special cases. The active set is *recorded* on the snapshot via the optional `metrics_config` block (omitted when the active set equals the registry default, so default-path frames remain byte-identical to pre-feature frames). The 50-indicator / 12-SignalKind / 100-declaration **registry** describes capability and never changes with config; activation is a runtime config concern. Canonical spec, wire contract, downstream degradation rules, and the registry-invariance requirement are in [03-02-12-mme-configurable-activation.md](03-02-12-mme-configurable-activation.md).
 
 ---
 

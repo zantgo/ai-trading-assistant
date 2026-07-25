@@ -85,6 +85,10 @@ pub struct WarmedPipelineState {
 
 /// Feed a sequence of historical candles through all technical indicators in
 /// chronological order, returning fully warmed state ready for live ingestion.
+///
+/// `buffer_size` is the canonical `[candle_buffer] size` from `config.toml`
+/// (CB-01). It replaces the per-instance `analysis_limit` field that lived on
+/// `TimeframeConfig.candles` before v6.5.
 pub fn warm_indicators_for_timeframe(
     mut candles: Vec<NormalizedCandle>,
     tf_config: &TimeframeConfig,
@@ -92,6 +96,7 @@ pub fn warm_indicators_for_timeframe(
     symbol: &str,
     timeframe_secs: u64,
     slot: TimeframeSlot,
+    buffer_size: usize,
 ) -> WarmedPipelineState {
     let active_indicators = tf_config.indicators.clone();
 
@@ -190,7 +195,7 @@ pub fn warm_indicators_for_timeframe(
     // Sort candles chronologically (oldest first)
     candles.sort_by_key(|c| c.start_time_ms);
 
-    let analysis_limit = tf_config.candles.analysis_limit;
+    let analysis_limit = buffer_size;
     let mut snapshot_history: Vec<MarketSnapshot> = Vec::with_capacity(analysis_limit);
 
     // Feed each historical candle through every indicator sequentially
@@ -448,11 +453,11 @@ pub fn warm_indicators_for_timeframe(
     }
 
     // The raw-candle `history` is bounded by the bootstrap's effective seed cap
-    // (max of `analysis_limit` and `HIST_BUFFER_MAX`), not by `analysis_limit`
-    // alone — for non-sub-minute TFs the bootstrap fetches up to
-    // `NON_SUBMIN_SEED_FLOOR = 1000` regardless of `analysis_limit`, so we keep
-    // all of them here. The downstream live path trims to `HIST_BUFFER_MAX`
-    // on each new candle close anyway.
+    // (`buffer_size` = `[candle_buffer] size`), not by the raw fetch count —
+    // for ≥ 1 minute TFs the bootstrap paginates up to exactly `buffer_size`
+    // (CB-08), for sub-minute TFs the bootstrap is empty and the live path
+    // accumulates candles up to `buffer_size` (CB-05/CB-03). The downstream
+    // live path trims to `buffer_size` on each new candle close anyway.
     let seed_cap = analysis_limit.max(crate::analyzer::warm::HIST_BUFFER_MAX);
     let history: Vec<NormalizedCandle> = if candles.len() > seed_cap {
         candles[candles.len() - seed_cap..].to_vec()
@@ -709,6 +714,8 @@ fn build_historical_snapshot(
         close: Some(completed.close),
         volume: Some(completed.volume),
         average_volume: avg_vol,
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
         context: Some(crate::market_context_synth::synthesize_market_context(
             &indicators,
         )),

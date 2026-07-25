@@ -168,6 +168,8 @@ fn build_realistic_snapshot() -> MarketSnapshot {
             gap_since_last: 60,
             validated_at: 1700000000000,
         }),
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
     }
 }
 

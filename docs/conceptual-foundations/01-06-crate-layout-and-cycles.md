@@ -1,6 +1,6 @@
 # Crate Layout & Cycle-Breaking Design
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Purpose:** This document is the single canonical home for the platform's **physical Cargo workspace layout** — the 9 crates that exist on disk today, their dependency graph, and the four **deliberate cycle-breaking design decisions** the workspace required to allow the logical two-dimensional engine architecture (see `01-02-global-architecture.md`) to survive as Rust crate boundaries.
 
 If you are a new engineer trying to answer "where does the runtime safety state live in the source tree?" or "why does this crate not import that one?", this document is your first stop.

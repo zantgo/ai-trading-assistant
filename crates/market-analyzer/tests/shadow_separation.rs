@@ -20,7 +20,6 @@ fn make_test_config() -> TimeframeConfig {
     TimeframeConfig {
         candles: config_models::CandlesConfig {
             duration_seconds: 60,
-            analysis_limit: 100,
         },
         indicators: IndicatorsConfig {
             ema_fast: 10,

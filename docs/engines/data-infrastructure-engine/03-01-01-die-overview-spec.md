@@ -1,6 +1,6 @@
 # Data Infrastructure Engine — Overview Specification
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Purpose:** This document specifies the boundaries, responsibilities, layer structure, exchange adapters, performance targets, and connection-monitoring model of the Data Infrastructure Engine — the first engine in the platform's unidirectional cascade. The DIE ingests, normalizes, validates, and distributes exchange telemetry.

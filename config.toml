@@ -24,6 +24,12 @@ initial_backoff_ms = 1000
 max_backoff_ms = 30000
 jitter_pct = 0.2
 
+[candle_buffer]
+size = 500
+stale_threshold_secs = 300
+fetch_timeout_ms = 30000
+sub_minute_skip_historical = true
+
 [workspace]
 id = "main"
 name = "My Portfolio"
@@ -34,7 +40,6 @@ execution_policies = []
 
 [workspace.candles]
 duration_seconds = 60
-analysis_limit = 500
 
 [workspace.indicators]
 ema_fast = 10
@@ -103,17 +108,14 @@ volume_profile_value_area = 0.7
 [workspace.fast_timeframe]
 enabled = true
 duration_seconds = 180
-analysis_limit = 1000
 
 [workspace.slow_timeframe]
 enabled = true
 duration_seconds = 300
-analysis_limit = 1000
 
 [workspace.macro_timeframe]
 enabled = true
 duration_seconds = 900
-analysis_limit = 1000
 
 [workspace.fibonacci]
 swing_lookback = 10
@@ -198,7 +200,7 @@ cross_leverage = 20
 default_pair = "BTC/USDT"
 
 [[workspace.instances]]
-id = "inst_18c4bd6c86ea1246"
+id = "inst_18c56bcc82c4ff14"
 symbol = "BTC-USDC"
 quote = "USDC"
 initial_capital_usd = 1000.0
@@ -207,7 +209,6 @@ operational_mode = "advisory"
 
 [workspace.instances.micro_term.candles]
 duration_seconds = 60
-analysis_limit = 1000
 
 [workspace.instances.micro_term.indicators]
 ema_fast = 10
@@ -275,7 +276,6 @@ volume_profile_value_area = 0.7
 
 [workspace.instances.fast_term.candles]
 duration_seconds = 180
-analysis_limit = 1000
 
 [workspace.instances.fast_term.indicators]
 ema_fast = 10
@@ -343,7 +343,6 @@ volume_profile_value_area = 0.7
 
 [workspace.instances.slow_term.candles]
 duration_seconds = 300
-analysis_limit = 1000
 
 [workspace.instances.slow_term.indicators]
 ema_fast = 10
@@ -411,7 +410,6 @@ volume_profile_value_area = 0.7
 
 [workspace.instances.macro_term.candles]
 duration_seconds = 900
-analysis_limit = 1000
 
 [workspace.instances.macro_term.indicators]
 ema_fast = 10

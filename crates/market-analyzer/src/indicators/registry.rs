@@ -68,6 +68,13 @@ pub struct IndicatorMeta {
     pub color: &'static str,
     /// Documentation section id in docs/indicators-guide.md.
     pub guide_section: &'static str,
+    /// Minimum number of input bars the calculator needs before it can emit
+    /// a non-`None` reading. Drives the per-indicator `Loading → Live`
+    /// transition in [03-02-15 ILS-11](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md).
+    /// For 50 indicators at the canonical `[candle_buffer] size = 500`,
+    /// every `bars_required ≤ 200` so a fully-warmed pipeline is `Live`
+    /// across all indicators (DCP-04 / ILS-05).
+    pub bars_required: u32,
 }
 
 use IndicatorClass::*;
@@ -95,6 +102,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:fast",
         color: "#fdd835",
         guide_section: "6",
+        bars_required: 200,
     },
     IndicatorMeta {
         key: "supertrend",
@@ -112,6 +120,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:line",
         color: "#26a69a",
         guide_section: "14",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "donchian",
@@ -129,6 +138,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:upper",
         color: "#ec407a",
         guide_section: "16",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "keltner",
@@ -150,6 +160,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:middle",
         color: "#78909c",
         guide_section: "15",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "adx",
@@ -167,6 +178,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:adx",
         color: "#ff9800",
         guide_section: "4",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "vwap",
@@ -184,6 +196,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:vwap",
         color: "#2962ff",
         guide_section: "7",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "anchored_vwap",
@@ -201,6 +214,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:vwap_weekly",
         color: "#ffab40",
         guide_section: "34",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "ichimoku",
@@ -223,6 +237,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:tenkan",
         color: "#7e57c2",
         guide_section: "25",
+        bars_required: 52,
     },
     // ─────────── MOMENTUM ───────────
     IndicatorMeta {
@@ -241,6 +256,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#7e57c2",
         guide_section: "1",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "stochastic",
@@ -258,6 +274,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:k_line",
         color: "#2962ff",
         guide_section: "12",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "chandemo",
@@ -275,6 +292,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#e040fb",
         guide_section: "13",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "williams_r",
@@ -292,6 +310,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#81c784",
         guide_section: "28",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "hull_ma",
@@ -309,6 +328,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff8a65",
         guide_section: "29",
+        bars_required: 200,
     },
     IndicatorMeta {
         key: "awesome_oscillator",
@@ -326,6 +346,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#4dd0e1",
         guide_section: "30",
+        bars_required: 34,
     },
     IndicatorMeta {
         key: "force_index",
@@ -343,6 +364,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ce93d8",
         guide_section: "31",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "stddev_channel",
@@ -360,6 +382,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:center",
         color: "#a1887f",
         guide_section: "32",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "cci",
@@ -377,6 +400,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffb74d",
         guide_section: "26",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "macd",
@@ -394,6 +418,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "2",
+        bars_required: 26,
     },
     // ─────────── VOLUME ───────────
     IndicatorMeta {
@@ -412,6 +437,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "6",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "rvol",
@@ -429,6 +455,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffa726",
         guide_section: "6",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "volume_profile",
@@ -450,6 +477,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:poc",
         color: "#bcaaa4",
         guide_section: "33",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "obv",
@@ -467,6 +495,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#29b6f6",
         guide_section: "17",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "cmf",
@@ -484,6 +513,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26c6da",
         guide_section: "18",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "mfi",
@@ -501,6 +531,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ab47bc",
         guide_section: "19",
+        bars_required: 20,
     },
     // ─────────── VOLATILITY ───────────
     IndicatorMeta {
@@ -519,6 +550,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ef5350",
         guide_section: "5",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "bollinger",
@@ -536,6 +568,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:middle",
         color: "#00e5ff",
         guide_section: "5",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "bbwp",
@@ -553,6 +586,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffca28",
         guide_section: "9",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "squeeze",
@@ -570,6 +604,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "state",
         color: "#b2ff59",
         guide_section: "3",
+        bars_required: 20,
     },
     IndicatorMeta {
         key: "hv",
@@ -587,6 +622,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff7043",
         guide_section: "20",
+        bars_required: 20,
     },
     // ─────────── MARKET STRUCTURE ───────────
     IndicatorMeta {
@@ -605,6 +641,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:gp_top",
         color: "#ffd54f",
         guide_section: "8",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "support_resistance",
@@ -622,6 +659,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#90a4ae",
         guide_section: "8",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "pivot_points",
@@ -639,6 +677,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:pivot",
         color: "#8d6e63",
         guide_section: "8",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "psar",
@@ -656,6 +695,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:sar",
         color: "#ffab40",
         guide_section: "27",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "patterns",
@@ -673,6 +713,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ba68c8",
         guide_section: "10",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "candlestick",
@@ -690,6 +731,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#4db6ac",
         guide_section: "10",
+        bars_required: 50,
     },
     // ─────────── MARKET REGIME ───────────
     IndicatorMeta {
@@ -708,6 +750,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#26a69a",
         guide_section: "21",
+        bars_required: 25,
     },
     IndicatorMeta {
         key: "choppiness",
@@ -725,6 +768,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffa726",
         guide_section: "22",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "linreg_slope",
@@ -742,6 +786,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#42a5f5",
         guide_section: "23",
+        bars_required: 14,
     },
     IndicatorMeta {
         key: "zscore",
@@ -759,6 +804,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ec407a",
         guide_section: "24",
+        bars_required: 14,
     },
     // ─────────── ADVANCED ───────────
     IndicatorMeta {
@@ -777,6 +823,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:structure",
         color: "#ffab40",
         guide_section: "34",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "smc_liquidity",
@@ -794,6 +841,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:sweep_buy",
         color: "#ff7043",
         guide_section: "34",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "smc_fvg",
@@ -811,6 +859,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:fvg_top",
         color: "#ffca28",
         guide_section: "34",
+        bars_required: 50,
     },
     IndicatorMeta {
         key: "smc_order_blocks",
@@ -828,6 +877,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "sub:ob_bullish_high",
         color: "#8d6e63",
         guide_section: "34",
+        bars_required: 50,
     },
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
     IndicatorMeta {
@@ -846,6 +896,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ffab40",
         guide_section: "35",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "oi_delta",
@@ -863,6 +914,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff6e40",
         guide_section: "35",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "funding_rate",
@@ -880,6 +932,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#00e676",
         guide_section: "36",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "oi_price_divergence",
@@ -897,6 +950,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff5252",
         guide_section: "35",
+        bars_required: 1,
     },
     // ─────────── ORDER BOOK DEPTH (Phase 2) ───────────
     IndicatorMeta {
@@ -915,6 +969,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#ff6d00",
         guide_section: "37",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "spread",
@@ -932,6 +987,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#f48fb1",
         guide_section: "37",
+        bars_required: 1,
     },
     IndicatorMeta {
         key: "depth_bias",
@@ -949,6 +1005,7 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         value_source: "raw",
         color: "#18ffff",
         guide_section: "37",
+        bars_required: 1,
     },
 ];
 

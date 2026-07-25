@@ -9,6 +9,7 @@
 use super::{
     IndicatorSignal, NormalizedIndicatorValue, SignalDirection, SignalKind, SignalStatus,
 };
+use std::collections::HashMap;
 
 pub fn normalize_open_interest(oi: f64) -> NormalizedIndicatorValue {
     let signals = if oi > 1_000_000_000.0 {
@@ -96,17 +97,33 @@ pub fn normalize_oi_delta(delta: f64) -> NormalizedIndicatorValue {
 pub fn normalize_funding_rate(f: f64) -> NormalizedIndicatorValue {
     let extreme = f.abs() > 0.001;
     let ann_pct = f * 1095.0 * 100.0;
+    // Phase 1.2 fix: derive a meaningful state label from the actual rate.
+    // The previous implementation hardcoded "FUNDING_{:.1}PCT" which always
+    // showed 0.6PCT regardless of the live rate value.
+    let state_label = if f > 0.005 {
+        "FUNDING_HIGH_LONG_PAY"
+    } else if f < -0.005 {
+        "FUNDING_HIGH_SHORT_PAY"
+    } else if f.abs() < 1e-6 {
+        "FUNDING_NEUTRAL"
+    } else {
+        "FUNDING_NORMAL"
+    };
+    // Normalized is 0 because funding is directionally signed in raw_value;
+    // confidence in the JSON is set elsewhere. Use raw/0.005 clamped to ±1
+    // so the absolute magnitude is reflected in the state.
+    let norm = (f / 0.005).clamp(-1.0, 1.0);
     NormalizedIndicatorValue {
         raw_value: f,
-        normalized: 0.0,
-        state_label: if f > 0.001 {
-            "FUNDING_HIGH_POSITIVE".to_string()
-        } else if f < -0.001 {
-            "FUNDING_HIGH_NEGATIVE".to_string()
+        normalized: norm,
+        state_label: state_label.to_string(),
+        values: if extreme {
+            let mut vals = HashMap::new();
+            vals.insert("annualized_pct".to_string(), ann_pct);
+            Some(vals)
         } else {
-            format!("FUNDING_{:.1}PCT", ann_pct.abs())
+            None
         },
-        values: None,
         signals: if extreme {
             vec![IndicatorSignal {
                 kind: SignalKind::Threshold,

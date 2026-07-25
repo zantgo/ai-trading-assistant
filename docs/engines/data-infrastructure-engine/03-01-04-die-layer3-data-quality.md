@@ -1,6 +1,6 @@
 # DIE Layer 3 — Data Quality Layer
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Data Infrastructure Engine (DIE)
 **Layer:** 3 of 4
@@ -23,41 +23,49 @@ The Data Quality Layer guarantees that downstream analysis operates on **complet
 
 ## 2. DB-First / REST-Gap-Fill Algorithm
 
-Warm-up and gap recovery use the local-DB-first strategy implemented in `crates/portfolio-supervisor/src/registry/bootstrap.rs::collect_candles()`:
+Warm-up and gap recovery use the local-DB-first strategy implemented in `crates/portfolio-supervisor/src/registry/bootstrap.rs::collect_candles()`. In v6.5 the bootstrap is refactored behind the `HistoricalFetchPolicy` trait (see [03-01-07-die-historical-fetch-policy.md](./03-01-07-die-historical-fetch-policy.md)) and obeys the sub-minute / ≥ 1 minute behavior split from [08-08-candle-buffer-spec.md](../../operations-and-compliance/08-08-candle-buffer-spec.md):
 
 ```
-db_candles = query_recent_candles(symbol, secs, limit)   # local warm base (PRIMARY)
+target_count = candle_buffer.size    # CB-01, default 500
 
-rest_start = db_candles.last().start_time_ms + secs·1000   # gap boundary
-           = now - secs·limit·1000   (if no local data)
+db_candles = query_recent_candles(symbol, secs, target_count)   # local warm base (SECONDARY)
 
-IF rest_start < now:
-    interval = timeframe_secs_to_interval(secs)   # venue-specific granularity
-    rest_candles = fetch_historical_candles(...)  # fetch ONLY the missing gap
+IF secs < 60:
+    rest_candles = []                          # HFP-03 — sub-minute bypasses REST
+ELSE:
+    rest_candles = await HistoricalFetchPolicy.fetch({           # HFP-04..HFP-06
+        target_count, end_ts = now_ms,
+        ...
+    })                                          # paginated REST until target reached
 
-merged = db_candles ++ dedup(rest_candles)       # chronological, oldest-first
+merged = sort_desc(dedup(rest_candles ++ db_candles, start_time_ms))    # HFP-09
+        .take(target_count)                                            # CB-03 cap
 ```
 
-The cascade is uniform across all timeframes — including sub-minute. Sub-minute REST history is generally unavailable from venue APIs (Hyperliquid and Bitget both return ≥1m candles), but the local DB may already contain sub-minute candles persisted from a previous session, and that local cache is the most reliable warm seed.
+The behavior split is **uniform across all exchanges** — both Hyperliquid and Bitget implement the same `HistoricalFetchPolicy` trait; the sub-minute short-circuit lives in the trait caller (HFP-03), so there is no per-exchange divergence. The DB-precedence rule (newer DB wins on overlap) is preserved from the v6.4 behavior.
 
 ### 2.1 Strategy Properties
 
 | Property | Rationale |
 |----------|-----------|
-| **DB-first** | Minimizes REST calls; the local store is authoritative for already-seen candles. |
-| **Gap-only REST** | Only the window between the last local candle and `now` is fetched. |
-| **Full-window fallback** | With no local data, the entire `secs × limit` lookback is fetched. |
-| **Sub-minute-aware** | Both bootstrap and live gap-fill paths handle sub-minute timeframes distinctly from ≥1m ladders. The two paths are documented separately below. |
+| **Exchange-independent contract** | The same algorithm runs against every exchange via the `HistoricalFetchPolicy` trait ([03-01-07](03-01-07-die-historical-fetch-policy.md)). Per-adapter pagination rules (HFP-05 Hyperliquid, HFP-06 Bitget) are hidden behind the trait surface. |
+| **Sub-minute bypass** | `timeframe_secs < 60` short-circuits to empty Vec (HFP-03); the platform does not fetch exchange history for sub-minute timeframes because both exchanges coerce sub-minute to 1m, producing duration-mismatched candles. |
+| **Paginated ≥ 1 minute** | `timeframe_secs ≥ 60` paginates the exchange REST endpoint until `target_count` is reached or the exchange reports no more history. Hyperliquid uses backward `startTime` cursors; Bitget uses forward cursors with `limit=200` per page. |
+| **DB-precedence on overlap** | When DB rows and REST rows overlap by `start_time_ms`, the DB row wins — the local store is authoritative for already-persisted candles. |
+| **30 s fetch timeout** | REST pagination is bounded by `[candle_buffer] fetch_timeout_ms` (HFP-10, default 30 000 ms). Partial results are accepted; the pipeline enters `LOADING` until the buffer fills from live candles. |
+| **Single source of truth** | `target_count = [candle_buffer] size` is the canonical buffer length; the previous `analysis_limit` is removed (v6.5 migration; AUDIT-V7-300). |
 
 #### 2.1.1 Startup bootstrap (sub-minute path)
 
-The startup cascade (invoked from `crates/portfolio-supervisor/src/registry/bootstrap.rs::fetch_and_warm_bootstrap`) tries the following in order:
+The startup cascade (invoked from `crates/portfolio-supervisor/src/registry/bootstrap.rs::fetch_and_warm_bootstrap`) for sub-minute timeframes is:
 
-1. Query the local DB for the most recent `analysis_limit` candles of `(symbol, secs)`. The DB may already contain sub-minute candles persisted from a previous session, which is the most reliable warm seed.
-2. With no local data, paginate REST fetches (venue page cap, e.g. `limit=200`) until the full `secs × analysis_limit` lookback is retrieved; on venues with hard caps, proceed best-effort — `min_warmup_bars` (50) remains the gate (venues without sub-minute history may return an empty array).
-3. With no REST coverage, begin live tick ingestion from the moment of subscription; the EMA/linear reconstructor fills the pre-subscription window as it goes.
+1. **HistoricalFetchPolicy.fetch returns empty Vec** (HFP-03). The platform does not request historical candles from the SQLite cache or from any exchange REST endpoint.
+2. The pipeline is constructed with an **empty buffer** and enters `CandlePipelineState::LOADING` (see [03-01-06-die-candle-pipeline-states.md §DCP-04](03-01-06-die-candle-pipeline-states.md) and [08-08 §CB-05](../../operations-and-compliance/08-08-candle-buffer-spec.md)).
+3. Live tick ingestion begins immediately; candles accumulate one-by-one as their buckets close.
+4. Indicators report `IndicatorLifecycleState::Loading` until each one reaches its `bars_required` (see [03-02-15-mme-indicator-lifecycle-states.md](../market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)). The pipeline transitions `LOADING → LIVE` after the buffer reaches `candle_buffer.size` entries (DCP-04).
+5. **Cold-start duration:** `candle_buffer.size × timeframe_secs` of wall-clock time from cold start (e.g. 500 × 15 s = 125 minutes for a 15-second micro TF). This is **expected behavior** and is visible to operators via the `tf.pipeline_state` field on every emitted `MarketSnapshot`.
 
-Returning an empty array for sub-minute timeframes would starve the EMA reconstruction on startup — see [08-04-candle-reconstruction.md §EMA Synthesis](../../operations-and-compliance/08-04-candle-reconstruction.md) — and force the platform into linear interpolation (or no reconstruction at all if history < 2) exactly when a network disconnect is most likely to need EMA-quality fills. The reconstructor's documented threshold (`≥ 50 history points` for EMA, `≥ 2` for linear) is still respected — a sub-50 seed uses linear projection for the first few reconstructions until the buffer fills.
+The behavior is intentionally distinct from the v6.4 implementation, which silently requested 1m exchange candles and warmed sub-minute pipelines with mismatched `duration_ms` values — a structural correctness bug documented in [08-08 §1](../../operations-and-compliance/08-08-candle-buffer-spec.md) and fixed by HFP-03.
 
 #### 2.1.2 Live gap-fill (sub-minute path)
 
@@ -172,7 +180,7 @@ pub struct WarmedPipelineState {
     pub vwap_sum_vol: Decimal,
     /// Rolling volume baseline feeding the MME-side `average_volume`.
     pub volume_history: VecDeque<Decimal>,
-    /// Indicator-ready candle history (capped at `HIST_BUFFER_MAX = 1000`).
+    /// Indicator-ready candle history (capped at `[candle_buffer] size`, default 500).
     pub history: Vec<NormalizedCandle>,
     /// Support/resistance role-tracker state.
     pub sr_tracker: SrRoleTracker,
@@ -195,6 +203,9 @@ The bootstrap path (physically hosted in `portfolio-supervisor`; see §2) collec
 | **Ordering** | Candle sets are strictly chronological and deduplicated. |
 | **Cleanliness** | Outlier ticks and invalid candles are rejected. |
 | **Warm start** | Indicators are pre-warmed from validated history. |
+| **Buffer invariance (v6.5)** | The in-memory candle history is rolled at exactly `candle_buffer.size` entries (CB-03). On every completed candle the new candle is pushed back; if the deque would exceed `size` the oldest entry is popped front. There is no grow-then-trim mode — the deque never exceeds `size`. |
+| **Exchange independence (v6.5)** | The bootstrap algorithm produces the same buffer shape on every exchange via `HistoricalFetchPolicy`. Sub-minute bypasses historical fetch (HFP-03); ≥ 1 minute paginates to exactly `size` (HFP-04 … HFP-06). |
+| **Lifecycle visibility (v6.5)** | Every `MarketSnapshot` carries a `tf.pipeline_state` and a per-indicator `indicator_lifecycle` map so the dashboard can show the warm-up progress in real time ([03-01-06](03-01-06-die-candle-pipeline-states.md), [03-02-15](../market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)). |
 
 ### 7.1 Operational Acceptance Criteria
 

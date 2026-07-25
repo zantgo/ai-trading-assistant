@@ -24,14 +24,6 @@ pub struct InstanceSummary {
     pub safety_state: String,
 }
 
-/// Seed cap for non-sub-minute TF bootstrap fetches — see the matching
-/// let-bindings in `add_instance` and `recharge_instance` below. 1000 here
-/// matches `HIST_BUFFER_MAX = 1000` (the live runtime buffer cap) so the
-/// dashboard reads 1000 candles from `/api/history` immediately on first mount
-/// and after every config-driven `recharge_instance` rather than waiting for
-/// the live buffer to roll up from the user's `analysis_limit` to 1000.
-pub const NON_SUBMIN_SEED_FLOOR: u64 = 1000;
-
 /// Add a new instance to the state, starting all pipeline tasks.
 pub async fn add_instance(
     state: &RegistryContext,
@@ -195,22 +187,15 @@ pub async fn add_instance(
     let slow_secs = slow_cfg.candles.duration_seconds;
     let macro_secs = macro_cfg.candles.duration_seconds;
 
-    // Seed caps for the bootstrap fetch:
-    //   - Non-sub-minute TFs (`secs >= 60`): always request 1000 candles. The
-    //     exchange serves years of history for ≥ 1 m bars; capping by the
-    //     user's `analysis_limit` blocks the 250-bar volume-profile gate and
-    //     leaves the dashboard staring at 100 candles until the live buffer
-    //     fills (HIST_BUFFER_MAX = 1000). Forcing the seed to 1000 gives the
-    //     operator the same 1000-candle buffer the live path rolls, on first
-    //     mount and on every config-change recharge.
-    //   - Sub-minute TFs (micro/fast): keep `analysis_limit` as the cap, since
-    //     the venue is the actual bottleneck (Hyperliquid returns at most ~26
-    //     bars for 15 s, ~51 for 30 s, regardless of what's asked).
-    // `analysis_limit` keeps its meaning for sub-minute TFs only.
-    let micro_limit = micro_cfg.candles.analysis_limit as u64;
-    let fast_limit = fast_cfg.candles.analysis_limit as u64;
-    let slow_limit = NON_SUBMIN_SEED_FLOOR;
-    let macro_limit = NON_SUBMIN_SEED_FLOOR;
+    // Canonical candle buffer size from `[candle_buffer] size` (CB-01).
+    // Single source of truth for the rolling window length. Replaces the
+    // previous per-instance `analysis_limit` field and the historical
+    // NON_SUBMIN_SEED_FLOOR = 1000 hardcode.
+    let candle_buffer = state.platform.read().await.candle_buffer.clone();
+    let buffer_size = candle_buffer.size;
+    let stale_threshold_secs = candle_buffer.stale_threshold_secs;
+    let fetch_timeout_ms = candle_buffer.fetch_timeout_ms;
+    let sub_minute_skip_historical = candle_buffer.sub_minute_skip_historical;
 
     // ── Historical Bootstrap FIRST ──
     let bootstrap_input = bootstrap::BootstrapInput {
@@ -229,10 +214,10 @@ pub async fn add_instance(
         fast_secs,
         slow_secs,
         macro_secs,
-        micro_limit,
-        fast_limit,
-        slow_limit,
-        macro_limit,
+        buffer_size,
+        stale_threshold_secs,
+        fetch_timeout_ms,
+        sub_minute_skip_historical,
         reliability: Some(state.reliability.clone()),
     };
 
@@ -257,6 +242,8 @@ pub async fn add_instance(
         weight_overrides: weight_overrides.clone(),
         position_scaling: position_scaling.clone(),
         liquidity_config: liquidity_config_first,
+        buffer_size,
+        stale_threshold_secs,
     };
 
     let artifacts =
@@ -572,22 +559,13 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
     let slow_secs = slow_cfg.candles.duration_seconds;
     let macro_secs = macro_cfg.candles.duration_seconds;
 
-    // Seed caps for the bootstrap fetch:
-    //   - Non-sub-minute TFs (`secs >= 60`): always request 1000 candles. The
-    //     exchange serves years of history for ≥ 1 m bars; capping by the
-    //     user's `analysis_limit` blocks the 250-bar volume-profile gate and
-    //     leaves the dashboard staring at 100 candles until the live buffer
-    //     fills (HIST_BUFFER_MAX = 1000). Forcing the seed to 1000 gives the
-    //     operator the same 1000-candle buffer the live path rolls, on first
-    //     mount and on every config-change recharge.
-    //   - Sub-minute TFs (micro/fast): keep `analysis_limit` as the cap, since
-    //     the venue is the actual bottleneck (Hyperliquid returns at most ~26
-    //     bars for 15 s, ~51 for 30 s, regardless of what's asked).
-    // `analysis_limit` keeps its meaning for sub-minute TFs only.
-    let micro_limit = micro_cfg.candles.analysis_limit as u64;
-    let fast_limit = fast_cfg.candles.analysis_limit as u64;
-    let slow_limit = NON_SUBMIN_SEED_FLOOR;
-    let macro_limit = NON_SUBMIN_SEED_FLOOR;
+    // Canonical candle buffer size from `[candle_buffer] size` (CB-01).
+    // Single source of truth for the rolling window length.
+    let candle_buffer = state.platform.read().await.candle_buffer.clone();
+    let buffer_size = candle_buffer.size;
+    let stale_threshold_secs = candle_buffer.stale_threshold_secs;
+    let fetch_timeout_ms = candle_buffer.fetch_timeout_ms;
+    let sub_minute_skip_historical = candle_buffer.sub_minute_skip_historical;
 
     // Fresh historical bootstrap
     let bootstrap_input = bootstrap::BootstrapInput {
@@ -606,10 +584,10 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         fast_secs,
         slow_secs,
         macro_secs,
-        micro_limit,
-        fast_limit,
-        slow_limit,
-        macro_limit,
+        buffer_size,
+        stale_threshold_secs,
+        fetch_timeout_ms,
+        sub_minute_skip_historical,
         reliability: Some(state.reliability.clone()),
     };
 
@@ -635,6 +613,8 @@ pub async fn recharge_instance(state: &RegistryContext, pair_key: &str) -> Resul
         weight_overrides,
         position_scaling,
         liquidity_config: liquidity_config_recharge,
+        buffer_size,
+        stale_threshold_secs,
     };
 
     let artifacts =
@@ -733,4 +713,64 @@ pub async fn list_instances(state: &RegistryContext) -> Vec<InstanceSummary> {
         });
     }
     summaries
+}
+
+/// Tear down and rebuild **only one timeframe pipeline** of one instance
+/// (v6.5, CB-11 / DCP-09 / ILS-13). The other three TFs continue uninterrupted.
+///
+/// Slot must be one of `"micro" | "fast" | "slow" | "macro"` (case-sensitive,
+/// matching the wire-format from `TimeframeSlot::as_str`).
+///
+/// Behavior:
+///   1. Look up the instance by `instance_id` (must exist).
+///   2. Resolve the matching `TimeframePipeline` and **drain** its `history`
+///      and `snapshot_history` deques. The other three TFs' buffers are
+///      untouched.
+///   3. Reset the slot's `pipeline_state` to `Initializing`.
+///   4. Re-run `collect_candles` for the slot's timeframe against the
+///      current `[candle_buffer]` config (sub-minute → empty Vec, ≥ 1 minute
+///      → paginated fetch).
+///   5. Warm the slot's indicators and **swap** the buffers in place.
+///   6. The pipeline transitions `Initializing → Loading → Live` per the
+///      buffer-fill rule (DCP-04) on the next completed candle.
+///
+/// **AUDIT-V7-313.** Full implementation is staged behind this entry
+/// point; the current revision logs the intent and delegates to
+/// `recharge_instance` (which rebuilds all four TFs) so the contract is
+/// observable end-to-end. A future commit will replace the delegation
+/// with single-TF teardown+rebuild.
+pub async fn reload_timeframe(
+    state: &RegistryContext,
+    instance_id: &str,
+    slot: &str,
+) -> Result<(), String> {
+    use core_domain::models::{CandlePipelineState, TimeframeSlot};
+    let slot_enum = match slot {
+        "micro" => TimeframeSlot::Micro,
+        "fast" => TimeframeSlot::Fast,
+        "slow" => TimeframeSlot::Slow,
+        "macro" => TimeframeSlot::Macro,
+        _ => return Err(format!("Unknown slot '{}'", slot)),
+    };
+
+    let instance = state
+        .workspace
+        .get(instance_id)
+        .await
+        .ok_or_else(|| format!("Instance '{}' not found", instance_id))?;
+
+    println!(
+        "🔄 Reload TF requested: instance={} slot={} (delegating to full recharge for now)",
+        instance_id, slot_enum.as_str()
+    );
+
+    // Reset only the slot's pipeline_state so the next emitted snapshot
+    // carries the LOADING badge.
+    let pipeline = instance.active_pair.pipeline_for_slot(slot_enum);
+    *pipeline.pipeline_state.write().await = CandlePipelineState::Initializing;
+    pipeline.indicator_lifecycle.write().await.clear();
+
+    // Full implementation deferred: delegate to recharge_instance which
+    // rebuilds all four TFs. This is conservative but observable.
+    recharge_instance(state, instance_id).await
 }

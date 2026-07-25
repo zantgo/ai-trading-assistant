@@ -412,6 +412,16 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         if let Some(v) = od2f(fibr.golden_pocket_low) {
             vals.insert("gp_bottom".to_string(), v);
         }
+        // Phase 2: emit all six retracement coefficients. These were computed
+        // by FibonacciRange::compute_from_candles() but never serialised to
+        // the indicator wire. The UI (Levels facet, StructuralAnchorsStrip)
+        // now reads them directly from tf.indicators['fibonacci'].values.
+        if let Some(v) = od2f(fibr.fib_0236) { vals.insert("fib_0236".to_string(), v); }
+        if let Some(v) = od2f(fibr.fib_0382) { vals.insert("fib_0382".to_string(), v); }
+        if let Some(v) = od2f(fibr.fib_0500) { vals.insert("fib_0500".to_string(), v); }
+        if let Some(v) = od2f(fibr.fib_0618) { vals.insert("fib_0618".to_string(), v); }
+        if let Some(v) = od2f(fibr.fib_0660) { vals.insert("fib_0660".to_string(), v); }
+        if let Some(v) = od2f(fibr.fib_0786) { vals.insert("fib_0786".to_string(), v); }
         if let Some(v) = od2f(fibr.ext_1618) {
             vals.insert("ext_1618".to_string(), v);
         }

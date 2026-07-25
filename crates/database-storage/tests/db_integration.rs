@@ -74,6 +74,8 @@ async fn test_normalized_snapshot_persistence_roundtrip() {
         cluster: None,
         volume_profile: None,
         quality_envelope: None,
+    pipeline_state: core_domain::models::CandlePipelineState::default(),
+    indicator_lifecycle: std::collections::HashMap::new(),
     };
 
     database_storage::insert_snapshot_internal(&pool, &snap).await;

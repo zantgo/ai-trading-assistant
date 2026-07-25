@@ -4,7 +4,7 @@
 //! It includes raw ticker prices, consolidated candle bars, and the unified
 //! dual-representation normalized indicator map (v2.0).
 
-use crate::indicator_dtos::NormalizedIndicatorValue;
+use crate::indicator_dtos::{IndicatorLifecycleMap, NormalizedIndicatorValue};
 use crate::liquidity::{LiquidationClusterMatrix, LiquidityFlow, LiquiditySignal};
 use crate::normalized::Exchange;
 use crate::volume_profile::VolumeProfileSnapshot;
@@ -55,6 +55,61 @@ pub enum TimeframeSlot {
     Macro,
 }
 
+/// Per-timeframe pipeline lifecycle state. One value per `(instance, slot)`.
+/// Published on every emitted `MarketSnapshot` as `pipeline_state`. The most-
+/// severe aggregate of its 50 per-indicator states (severity ordering:
+/// `Failed > Stale > Loading > Live`), gated by the parent `ConnectionStatus`.
+/// See `docs/engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md`
+/// DCP-01 … DCP-15.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CandlePipelineState {
+    /// Transient state from `TimeframePipeline::new()` to the moment bootstrap
+    /// returns. No `MarketSnapshot` is emitted in this state.
+    #[default]
+    Initializing,
+    /// Bootstrap returned; the pipeline has 0..`size` candles and is
+    /// accumulating live trades. Every indicator starts in `Loading`.
+    Loading,
+    /// Buffer is at `size` AND parent `ConnectionStatus = Connected` AND all
+    /// 50 indicators are ≥ `Live`. The chart paints with full history.
+    Live,
+    /// Pipeline was `Live` and then no completed candle for
+    /// `candle_buffer.stale_threshold_secs`. Recovers to `Live` on the next
+    /// completed candle (live or reconstructed).
+    Stale,
+    /// Bootstrap elected cold-fail, OR parent `ConnectionStatus = Failed` for
+    /// > `FailedThreshold`, OR a non-self-recoverable calculator panic
+    /// propagated to the pipeline. `reload_timeframe` is the only recovery
+    /// path (DCP-14).
+    Failed,
+}
+
+impl CandlePipelineState {
+    /// Severity ranking per DCP-10. Higher = more severe.
+    pub fn severity(self) -> u8 {
+        match self {
+            CandlePipelineState::Live => 0,
+            CandlePipelineState::Loading => 1,
+            CandlePipelineState::Stale => 2,
+            CandlePipelineState::Failed => 3,
+            // `Initializing` is transient and never compared.
+            CandlePipelineState::Initializing => 1,
+        }
+    }
+
+    /// Most-severe aggregation across an iterator (DCP-10).
+    pub fn most_severe<'a>(iter: impl IntoIterator<Item = &'a CandlePipelineState>) -> CandlePipelineState {
+        let mut best = CandlePipelineState::Live;
+        for s in iter {
+            if s.severity() > best.severity() {
+                best = *s;
+            }
+        }
+        best
+    }
+}
+
 impl TimeframeSlot {
     /// Lowercase identifier used on the wire and in URLs.
     pub fn as_str(self) -> &'static str {
@@ -102,7 +157,7 @@ impl TimeframeSlot {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MarketSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exchange: Option<Exchange>,
@@ -131,6 +186,21 @@ pub struct MarketSnapshot {
     pub close: Option<Decimal>,
     pub volume: Option<Decimal>,
     pub average_volume: Option<Decimal>,
+
+    /// Per-timeframe pipeline lifecycle state. Always populated on every
+    /// emitted snapshot. Severity-aggregated from the 50 per-indicator
+    /// states below. See
+    /// `docs/engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md`
+    /// for the full state machine (DCP-01 … DCP-15).
+    #[serde(default)]
+    pub pipeline_state: CandlePipelineState,
+
+    /// Per-indicator operational lifecycle map. Keys match `indicators` keys.
+    /// Always populated for active-set indicators; disabled indicators are
+    /// absent from both maps (ILS-12). See
+    /// `docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md`.
+    #[serde(default)]
+    pub indicator_lifecycle: IndicatorLifecycleMap,
 
     /// Unified dual-representation indicator map.
     ///

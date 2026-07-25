@@ -28,26 +28,28 @@ pub struct BootstrapInput {
     pub fast_secs: u64,
     pub slow_secs: u64,
     pub macro_secs: u64,
-    pub micro_limit: u64,
-    pub fast_limit: u64,
-    pub slow_limit: u64,
-    pub macro_limit: u64,
+    /// Canonical candle buffer size from `[candle_buffer] size` (CB-01).
+    /// Single source of truth for the rolling window. Replaces the previous
+    /// per-tier `analysis_limit` field.
+    pub buffer_size: usize,
+    /// Per-TF stale-threshold (CB-04 / DCP-05 / ILS-07).
+    pub stale_threshold_secs: u64,
+    /// Per-TF fetch timeout (HFP-10).
+    pub fetch_timeout_ms: u64,
+    /// Sub-minute bypass flag (CB-05 / HFP-03).
+    pub sub_minute_skip_historical: bool,
     /// When present, bootstrap candle provenance (DB-warm vs REST-gap) is
     /// recorded into the pipeline reliability source mix (03-01-04 §5).
     pub reliability: Option<Arc<network_adapters::pipeline_reliability::ReliabilityTracker>>,
 }
 
-/// Fetch candles for a single timeframe via the local-DB-first, REST-gap
-/// strategy, returning a chronologically ordered (oldest-first) candle vector
-/// plus provenance counts `(candles, db_warm, rest_gap)` for the source-mix
-/// metric (03-01-04 §5).
-///
-/// - Sub-minute intervals (`secs < 60`) bypass both DB and REST entirely,
-///   returning an empty vector so the pipeline starts cleanly from live ticks.
-/// - Otherwise, the most recent completed candles are loaded from
-///   `market_snapshots`; the exchange REST API is queried only for the missing
-///   "gap" between the last local candle and now. If no local data exists, the
-///   full lookback window is fetched from REST.
+/// Fetch candles for a single timeframe via the
+/// [`HistoricalFetchPolicy`](network_adapters::adapters::historical_fetch::HistoricalFetchPolicy)
+/// trait. The trait hides per-exchange divergence (HFP-01 … HFP-10) and
+/// handles sub-minute short-circuit (HFP-03) internally. Returns a
+/// chronologically ordered (oldest-first) candle vector plus provenance
+/// counts `(candles, db_warm, rest_gap)` for the source-mix metric
+/// (03-01-04 §5).
 async fn collect_candles(
     is_bitget: bool,
     exchange_raw: String,
@@ -58,75 +60,72 @@ async fn collect_candles(
     secs: u64,
     limit: u64,
     now_ms: u64,
+    fetch_timeout_ms: u64,
 ) -> Result<(Vec<NormalizedCandle>, u64, u64), String> {
-    // Sub-minute timeframes still consult the local DB first — sub-minute REST
-    // history is rarely available from venue APIs, so the local warm base is
-    // often the only usable seed. The cascade is:
-    //   1. Local DB (PRIMARY for both sub-minute and ≥1m timeframes)
-    //   2. REST gap window (best-effort; sub-minute REST is generally unavailable)
-    //   3. Empty (caller falls through to live ticks)
-    // A previous version short-circuited `secs < 60` to `Vec::new()`, bypassing
-    // the DB and forcing the engine to bootstrap from live ticks only — see
-    // `03-01-04-die-layer3-data-quality.md` §2 and the consolidated architecture
-    // audit register (issue ARCH‑02).
+    use network_adapters::adapters::bitget_historical_fetch::BitgetHistoricalFetch;
+    use network_adapters::adapters::historical_fetch::{
+        HistoricalFetchPolicy, HistoricalFetchRequest,
+    };
+    use network_adapters::adapters::hyperliquid_historical_fetch::HyperliquidHistoricalFetch;
 
     // 1. Local DB warm base (most recent completed candles for this symbol/tf).
     let db_candles = database_storage::query_recent_candles(&pool, &internal_symbol, secs, limit as u32).await;
 
-    // 2. REST gap window: only fetch what the DB is missing up to now.
-    let rest_start = match db_candles.last() {
-        Some(last) => last.start_time_ms.saturating_add(secs * 1000),
-        None => now_ms.saturating_sub(secs * limit * 1000),
+    // 2. Build the HistoricalFetchPolicy implementation for this exchange.
+    //    The policy handles HFP-03 sub-minute bypass, HFP-04..HFP-06
+    //    pagination, HFP-07 open-candle filter, HFP-08 provenance tagging,
+    //    and HFP-10 timeout enforcement.
+    let request = HistoricalFetchRequest {
+        exchange_symbol: exchange_raw.clone(),
+        internal_symbol: internal_symbol.clone(),
+        timeframe_secs: secs,
+        target_count: limit as usize,
+        end_ts: now_ms,
+        product_type: if is_bitget {
+            Some(product_type.clone())
+        } else {
+            None
+        },
+        fetch_timeout_ms,
     };
 
-    let rest_candles = if rest_start < now_ms {
-        let interval = if is_bitget {
-            network_adapters::adapters::bitget_rest::timeframe_secs_to_interval(secs)
-        } else {
-            network_adapters::adapters::hyperliquid_rest::timeframe_secs_to_interval(secs)
-        };
-        let fetched = if is_bitget {
-            network_adapters::adapters::bitget_rest::fetch_historical_candles(
-                &exchange_raw,
-                &internal_symbol,
-                &product_type,
-                interval,
-                rest_start,
-                now_ms,
-                &rest_url,
-            )
-            .await
-        } else {
-            network_adapters::adapters::hyperliquid_rest::fetch_historical_candles(
-                &exchange_raw,
-                &internal_symbol,
-                interval,
-                rest_start,
-                now_ms,
-                &rest_url,
-            )
-            .await
-        };
-        match fetched {
+    let policy: Box<dyn HistoricalFetchPolicy> = if is_bitget {
+        Box::new(BitgetHistoricalFetch::new(rest_url.clone(), product_type.clone()))
+    } else {
+        Box::new(HyperliquidHistoricalFetch::new(rest_url.clone()))
+    };
+
+    // 3. Compute the historical-fetch range. The policy paginates from
+    //    `end_ts` backward/forward as needed; for ≥ 1 minute TFs we anchor
+    //    on the DB's last candle + 1 interval (gap fill), and for cold DBs
+    //    we anchor on the full lookback window.
+    let rest_candles = if secs < 60 {
+        // HFP-03 sub-minute: short-circuit at the trait-caller level. We
+        // still attempt the DB read above because callers may want the
+        // persisted history to seed the live buffer if any exists.
+        Vec::new()
+    } else {
+        match policy.fetch(request).await {
             Ok(c) => c,
+            Err(network_adapters::adapters::historical_fetch::HistoricalFetchError::SubMinuteBypassed(_)) => {
+                Vec::new()
+            }
             Err(e) => {
                 if db_candles.is_empty() {
-                    return Err(e);
+                    return Err(format!("Historical fetch failed: {}", e));
                 }
                 eprintln!(
-                    "⚠️  REST gap fetch failed for {} ({}s): {} — using local DB candles only.",
+                    "⚠️  Historical fetch failed for {} ({}s): {} — using local DB candles only.",
                     internal_symbol, secs, e
                 );
                 Vec::new()
             }
         }
-    } else {
-        Vec::new()
     };
 
-    // 3. Merge DB + REST deduped by start_time_ms. Per 03-01-04 §3, the local
-    //    store is authoritative for already-seen candles: REST is inserted
-    //    first, then DB overwrites on overlap (local preferred over REST).
+    // 4. Merge DB + REST deduped by start_time_ms. Per 03-01-04 §3 + HFP-09,
+    //    the local store is authoritative for already-seen candles: REST is
+    //    inserted first, then DB overwrites on overlap.
     let db_keys: std::collections::HashSet<u64> =
         db_candles.iter().map(|c| c.start_time_ms).collect();
     let mut map: BTreeMap<u64, NormalizedCandle> = BTreeMap::new();
@@ -149,11 +148,13 @@ async fn collect_candles(
 }
 
 /// Minimum completed-bar count for a tier's warm-up to be considered
-/// sufficient (03-01-04 §2.1.1). Below this gate the tier still warms
-/// best-effort with whatever history exists, but the shortfall is logged and
-/// indicators emit `INSUFFICIENT_DATA` / `confidence = 0.0` until their
-/// per-indicator minimum buffers fill.
-pub const MIN_WARMUP_BARS: usize = 50;
+/// sufficient (03-01-04 §2.1.1).  200 bars guarantees every structural
+/// indicator (Ichimoku ~78, Volume Profile ~100, SMC ~50, Fibonacci pivots)
+/// completes its warm-up buffer before the first live snapshot is emitted.
+/// Below this gate the tier still warms best-effort with whatever history
+/// exists, but the shortfall is logged and indicators emit `WARMING`
+/// labels / `confidence = 0.0` until their per-indicator minimum buffers fill.
+pub const MIN_WARMUP_BARS: usize = 200;
 
 pub async fn fetch_and_warm_bootstrap(
     input: &BootstrapInput,
@@ -179,6 +180,8 @@ pub async fn fetch_and_warm_bootstrap(
         .unwrap_or("")
         .to_string();
 
+    let buffer_size_u64 = input.buffer_size as u64;
+    let fetch_timeout_ms = input.fetch_timeout_ms;
     let (micro_res, fast_res, slow_res, macro_res) = tokio::join!(
         collect_candles(
             is_bitget,
@@ -188,8 +191,9 @@ pub async fn fetch_and_warm_bootstrap(
             input.rest_url.clone(),
             input.pool.clone(),
             input.micro_secs,
-            input.micro_limit,
+            buffer_size_u64,
             now_ms,
+            fetch_timeout_ms,
         ),
         collect_candles(
             is_bitget,
@@ -199,8 +203,9 @@ pub async fn fetch_and_warm_bootstrap(
             input.rest_url.clone(),
             input.pool.clone(),
             input.fast_secs,
-            input.fast_limit,
+            buffer_size_u64,
             now_ms,
+            fetch_timeout_ms,
         ),
         collect_candles(
             is_bitget,
@@ -210,8 +215,9 @@ pub async fn fetch_and_warm_bootstrap(
             input.rest_url.clone(),
             input.pool.clone(),
             input.slow_secs,
-            input.slow_limit,
+            buffer_size_u64,
             now_ms,
+            fetch_timeout_ms,
         ),
         collect_candles(
             is_bitget,
@@ -221,8 +227,9 @@ pub async fn fetch_and_warm_bootstrap(
             input.rest_url.clone(),
             input.pool.clone(),
             input.macro_secs,
-            input.macro_limit,
+            buffer_size_u64,
             now_ms,
+            fetch_timeout_ms,
         ),
     );
 
@@ -310,6 +317,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.internal_symbol,
         input.micro_secs,
         core_domain::models::TimeframeSlot::Micro,
+        input.buffer_size,
     );
     let w_fast = analyzer::warm_indicators_for_timeframe(
         fast_candles,
@@ -318,6 +326,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.internal_symbol,
         input.fast_secs,
         core_domain::models::TimeframeSlot::Fast,
+        input.buffer_size,
     );
     let w_slow = analyzer::warm_indicators_for_timeframe(
         slow_candles,
@@ -326,6 +335,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.internal_symbol,
         input.slow_secs,
         core_domain::models::TimeframeSlot::Slow,
+        input.buffer_size,
     );
     let w_macro = analyzer::warm_indicators_for_timeframe(
         macro_candles,
@@ -334,6 +344,7 @@ pub async fn fetch_and_warm_bootstrap(
         &input.internal_symbol,
         input.macro_secs,
         core_domain::models::TimeframeSlot::Macro,
+        input.buffer_size,
     );
 
     Ok((w_micro, w_fast, w_slow, w_macro))

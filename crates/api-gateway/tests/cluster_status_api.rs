@@ -88,6 +88,10 @@ fn make_pipe(slot: TimeframeSlot, secs: u64) -> TimeframePipeline {
             "BTC-USDC",
             slot.as_str(),
         ))),
+        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
     }
 }
 

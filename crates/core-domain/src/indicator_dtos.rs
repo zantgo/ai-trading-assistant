@@ -189,6 +189,88 @@ pub enum DivergenceState {
     ConfirmedBearish,
 }
 
+/// Operational lifecycle of a single indicator on a single timeframe pipeline.
+///
+/// This enum is **not** about market semantics (those live in
+/// `NormalizedIndicatorValue::state_label`); it describes whether the current
+/// reading is trustworthy, warming up, or unusable. See
+/// `docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md`
+/// for the full state machine (ILS-01 … ILS-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum IndicatorLifecycleState {
+    /// Calculator has fewer than `bars_required` candles of input; output is
+    /// not yet trustworthy. Pipeline-level: `bars_seen < bars_required`.
+    Loading,
+    /// `bars_seen ≥ bars_required` AND parent pipeline LIVE AND last calculator
+    /// update succeeded. The reading can be displayed without caveat.
+    Live,
+    /// Last successful update is older than `stale_threshold_secs`. The
+    /// reading is still present but its freshness is degraded.
+    Stale,
+    /// Calculator panic / `Err`, OR `now - last_updated_at > 2 × stale_threshold_secs`.
+    /// The reading should not be trusted.
+    Failed,
+}
+
+/// Per-indicator operational lifecycle metadata published on every
+/// `MarketSnapshot` alongside the `indicators` map. The two maps share keys;
+/// `indicator_lifecycle` describes the **status** of each calculator, while
+/// `indicators` carries the latest computed **value**.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndicatorLifecycleStatus {
+    pub state: IndicatorLifecycleState,
+    pub bars_seen: u32,
+    pub bars_required: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_updated_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    pub stale_threshold_secs: u32,
+}
+
+impl IndicatorLifecycleStatus {
+    /// Build a fresh `Loading` entry for a just-constructed pipeline.
+    pub fn loading(bars_required: u32, stale_threshold_secs: u32) -> Self {
+        Self {
+            state: IndicatorLifecycleState::Loading,
+            bars_seen: 0,
+            bars_required,
+            last_updated_at: None,
+            last_error: None,
+            stale_threshold_secs,
+        }
+    }
+
+    /// Promote to `Live` after the first successful calculator update.
+    pub fn live(bars_seen: u32, bars_required: u32, last_updated_at: u64, stale_threshold_secs: u32) -> Self {
+        Self {
+            state: IndicatorLifecycleState::Live,
+            bars_seen,
+            bars_required,
+            last_updated_at: Some(last_updated_at),
+            last_error: None,
+            stale_threshold_secs,
+        }
+    }
+
+    /// Mark as `Failed` with a free-text reason (calculator panic / double-stale).
+    pub fn failed(bars_seen: u32, bars_required: u32, last_error: impl Into<String>) -> Self {
+        Self {
+            state: IndicatorLifecycleState::Failed,
+            bars_seen,
+            bars_required,
+            last_updated_at: None,
+            last_error: Some(last_error.into()),
+            stale_threshold_secs: 0,
+        }
+    }
+}
+
+/// Type alias for the per-snapshot indicator lifecycle map. Keys are the
+/// same registry keys as `MarketSnapshot.indicators` (e.g. `rsi`, `macd`,
+/// `vwap`). Disabled indicators are absent from both maps.
+pub type IndicatorLifecycleMap = HashMap<String, IndicatorLifecycleStatus>;
+
 /// Clamp a value into the `[-1.0, 1.0]` unit interval.
 #[inline]
 pub fn clamp_unit(x: f64) -> f64 {

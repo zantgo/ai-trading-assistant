@@ -1,6 +1,6 @@
 # UI Dashboard Layout Specification
 
-**Version:** 6.5.0 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the dashboard layout — viewport grid, the three-tier navbar model, the two slide-out drawers, the wireframes of each panel (charts, metrics, alignment, opportunities, risk, analysis, decision, overview, settings), the internal sub-sidebar pattern, the modal overlay system, hash-based URL routing, resizable chart panes with fullscreen export, and all engine-specific dashboard pages. Companion to the [UI Overview](07-01-ui-overview-spec.md).
 
@@ -281,7 +281,7 @@ Cancel  Delete     ← delete variant (danger)
 
 This keeps the action reversible with one click and prevents accidental terminations. Confirming the action calls `POST /api/instances/:id/{action}` (pause/start/stop — start resumes a paused instance, stop halts a running/paused one) or `DELETE /api/instances/:id` (delete). On delete, if the deleted pair was `selectedInstance`, the store calls `app.exitInstance()` to drop back to the empty Market view.
 
-> **Lifecycle controls (v6.2).** Each instance row carries a lifecycle badge (RUNNING / PAUSED / STOPPED) and three lifecycle action icons: `▶ Start` (visible on PAUSED/STOPPED), `⏸ Pause` (visible on RUNNING), `⏹ Stop` (danger-styled like Delete, visible on RUNNING/PAUSED). An **automation summary line** lists active `start`/`pause`/`stop` conditions with an inline edit affordance that re-arms any edited condition per [03-03-06 IL-12](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). STOPPED instances remain fully navigable across every analytics page; deleted instances vanish from the list. See [03-03-06 §3/§6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
+> **Lifecycle controls (v6.2).** Each instance row carries a lifecycle badge (RUNNING / lifecycle `PAUSED` / STOPPED) and three lifecycle action icons: `▶ Start` (visible on lifecycle `PAUSED`/STOPPED), `⏸ Pause` (visible on RUNNING), `⏹ Stop` (danger-styled like Delete, visible on RUNNING/lifecycle `PAUSED`). An **automation summary line** lists active `start`/`pause`/`stop` conditions with an inline edit affordance that re-arms any edited condition per [03-03-06 IL-12](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). STOPPED instances remain fully navigable across every analytics page; deleted instances vanish from the list. See [03-03-06 §3/§6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md).
 
 ---
 
@@ -310,7 +310,7 @@ Three new engine dashboards follow the same sub-sidebar pattern:
 | Policies | `'policies'` | Expandable policy cards with condition trees (field/operator/value), risk parameters (risk%, position size, leverage, dynamic stops, R:R, cooldown), enabled toggles, stance badges |
 | Observability | `'observability'` | Per-policy trigger log with timestamps, results (TRIGGERED/BLOCKED_COOLDOWN/BLOCKED_CONFLICT/SKIPPED_STANCE), decision snapshots, per-condition pass/fail chips |
 | Paper Trading | `'paper'` | Three-tab sub-section: Positions (size/entry/mark/liq/margin/P&L/ROI), Orders (type/direction/price/size/created), History (entry/exit/P&L/ROI/trigger). Account bar: Balance, Available, Margin Used, Leverage |
-| Lifecycle | `'lifecycle'` | Per-instance cards with RUNNING/PAUSED/STOPPED badges, stance labels (ACTIVE/CLOSE_ONLY/AVOID), automation config summary, inline Start/Pause/Stop buttons |
+| Lifecycle | `'lifecycle'` | Per-instance cards with RUNNING/lifecycle `PAUSED`/STOPPED badges, stance labels (ACTIVE/CLOSE_ONLY/AVOID), automation config summary, inline Start/Pause/Stop buttons |
 
 #### PortfolioDashboard (5 panels)
 

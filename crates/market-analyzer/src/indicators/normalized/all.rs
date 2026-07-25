@@ -1440,7 +1440,7 @@ impl NormalizationEngine {
         }
 
         // ── MACD histogram sign flip (TrendFlip). ──
-        if let (Some(hist), Some(prev_hist)) = (inputs.macd_histogram, ctx.prev.macd_line) {
+        if let (Some(hist), Some(prev_hist)) = (inputs.macd_histogram, ctx.prev.macd_histogram) {
             if prev_hist <= 0.0 && hist > 0.0 {
                 if let Some(e) = out.get_mut("macd") {
                     e.signals.push(IndicatorSignal::new(
@@ -1701,18 +1701,21 @@ impl NormalizationEngine {
         }
         super::signals::derive_signals(&mut out);
 
-        // ── INACTIVE fill (backend as single source of truth) ──
-        // Event-driven directional indicators (divergences, Fibonacci, S/R,
-        // Patterns) are omitted above when no trigger/level/pattern exists. Fill
-        // any absent *directional* registry key with an explicit `INACTIVE`
-        // placeholder (normalized 0.0, confidence 0) so the frontend always
-        // renders a definitive state. The confluence engine skips `INACTIVE`
-        // labels so these placeholders never dilute the weighted average.
+        // ── WARMING fill for every registered indicator key ──
+        // Every configured indicator MUST appear in the output map so the
+        // frontend can distinguish "warming up (not yet available)" from
+        // "indicator not configured."  Indicators that haven't produced a
+        // real value yet (warm-up period, pivot detection, session boundary)
+        // receive a WARMING placeholder with confidence 0.0.  As soon as
+        // real data arrives the placeholder is overwritten via HashMap::insert.
+        // The confluence engine and signal derivers skip entries whose
+        // state_label matches "WARMING" — these placeholders never influence
+        // scoring, MTF alignment, or trade decisions.
         for meta in crate::indicators::registry::INDICATORS {
-            if meta.directional && !out.contains_key(meta.key) {
+            if !out.contains_key(meta.key) {
                 out.insert(
                     meta.key.into(),
-                    NormalizedIndicatorValue::scalar(0.0, 0.0, "INACTIVE"),
+                    NormalizedIndicatorValue::scalar(0.0, 0.0, "WARMING").with_confidence(0.0),
                 );
             }
         }

@@ -31,7 +31,6 @@ fn make_test_config(duration_seconds: u64) -> TimeframeConfig {
     TimeframeConfig {
         candles: config_models::CandlesConfig {
             duration_seconds,
-            analysis_limit: 100,
         },
         indicators: IndicatorsConfig::default(),
     }
@@ -39,7 +38,7 @@ fn make_test_config(duration_seconds: u64) -> TimeframeConfig {
 
 async fn spawn_analyzer(
     duration_seconds: u64,
-    event_tx: mpsc::Sender<NormalizedEvent>,
+    event_rx: mpsc::Receiver<NormalizedEvent>,
     broadcast_tx: tokio::sync::broadcast::Sender<core_domain::models::MarketSnapshot>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
@@ -66,7 +65,7 @@ async fn spawn_analyzer(
 
     tokio::spawn(async move {
         analyzer::run_single(
-            event_tx,
+            event_rx,
             telemetry_tx,
             broadcast_tx,
             make_test_config(duration_seconds),

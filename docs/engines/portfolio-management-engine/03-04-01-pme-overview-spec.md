@@ -1,6 +1,6 @@
 # Portfolio Management Engine — Overview Specification
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Engine:** Portfolio Management Engine (PME)
 **Purpose:** This document specifies the boundaries, ledger model, margin/leverage restrictions, and safety architecture of the Portfolio Management Engine — the engine responsible for capital preservation, position tracking, exposure control, and the systemic safety veto.

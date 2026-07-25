@@ -214,6 +214,10 @@ export interface MarketSnapshot {
     volume?: number | string | null;
     average_volume?: number | string | null;
     indicators: IndicatorMap;
+    /** Per-timeframe pipeline lifecycle (v6.5, 03-01-06). */
+    pipeline_state?: CandlePipelineState;
+    /** Per-indicator operational lifecycle (v6.5, 03-02-15). */
+    indicator_lifecycle?: IndicatorLifecycleMap;
     context?: MarketContext | null;
     alignment?: AlignmentMatrix | null;
     analysis?: AnalysisMatrix | null;
@@ -253,6 +257,22 @@ export interface IndicatorSignal {
     age_bars?: number;
     points?: SignalPoint[] | null;
 }
+
+// ── Per-indicator operational lifecycle (v6.5, 03-02-15) ──
+export type IndicatorLifecycleState = 'Loading' | 'Live' | 'Stale' | 'Failed';
+export interface IndicatorLifecycleStatus {
+    state: IndicatorLifecycleState;
+    bars_seen: number;
+    bars_required: number;
+    last_updated_at?: number | null;
+    last_error?: string | null;
+    stale_threshold_secs: number;
+}
+export type IndicatorLifecycleMap = Record<string, IndicatorLifecycleStatus>;
+
+// ── Per-timeframe pipeline lifecycle (v6.5, 03-01-06) ──
+export type CandlePipelineState =
+    | 'INITIALIZING' | 'LOADING' | 'LIVE' | 'STALE' | 'FAILED';
 
 // ── Market context + Metrics Panel (meta-intelligence) ──
 export interface ContextDimension {
@@ -519,6 +539,10 @@ export interface TimeframeTelemetry {
     isCompleted: boolean;
     latestSnapshot: Record<string, unknown> | null;
     historyPrices: number[];
+    /** v6.5: per-timeframe pipeline lifecycle (03-01-06). */
+    pipelineState?: CandlePipelineState;
+    /** v6.5: per-indicator operational lifecycle map (03-02-15). */
+    indicatorLifecycle?: IndicatorLifecycleMap;
     /** Per-TF synthesis block from the analyzer (L1 MarketContext). */
     context?: MarketContext | null;
     /** Phase 1: per-candle liquidity flow (real liquidation events). */

@@ -1,6 +1,6 @@
 # API Gateway Contract
 
-**Version:** 6.4.1 (2026-07-18) — see docs/CHANGELOG.md for the canonical version history.
+**Version:** 6.5 (2026-07-24) — see docs/CHANGELOG.md for the canonical version history.
 **Status:** Approved
 **Purpose:** This document specifies the complete REST and WebSocket API surface of the Trading Platform — routes, request/response payloads, JSON-RPC 2.0 conventions, HTTP status codes, error envelope, and serialization rules.
 
@@ -108,6 +108,7 @@ WebSocket close codes follow the engine protocol; the engine never sends an erro
 | `DELETE` | `/api/instances/:instance_id` | Delete instance. |
 | `DELETE` | `/api/instances/by-pair/:pair_key` | Delete by pair key. |
 | `POST` | `/api/instances/:instance_id/config` | Reconfigure (`InstanceConfigPayload`) → recharge pipeline. |
+| `POST` | `/api/instances/:instance_id/reload` | Tear down + rebuild a single TF pipeline (`slot=micro|fast|slow|macro`) or all four (`slot=all`). See [08-08 CB-11](../operations-and-compliance/08-08-candle-buffer-spec.md) and [03-01-06 DCP-09](../engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md). |
 | `GET` | `/api/instances/:instance_id/activation` | Returns the effective activation set (global `[activation]` ∪ instance `[instances."<id>".activation]`) as applied at the current `config_version`. Response: `{ disabled_indicators: [], disabled_signals: [], disabled_signal_kinds: [], liquidity: {...}, config_version: u64 }`. Absent fields indicate the registry default. See [`03-02-12-mme-configurable-activation.md §2`](../engines/market-monitoring-engine/03-02-12-mme-configurable-activation.md). |
 | `POST` | `/api/instances/:instance_id/start` | Transition STOPPED/lifecycle PAUSED → RUNNING (Gate 0 admits entries); full lifecycle semantics per [03-03-06](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md). |
 | `POST` | `/api/instances/:instance_id/pause` | Close Gate 0 entry path; loop keeps running for policy-driven exits. Lifecycle axis only — distinct from stance `CLOSE_ONLY` and policy `AUTO_PAUSED` (see [03-03-06 §6](../engines/trade-automation-engine/03-03-06-tae-instance-lifecycle-spec.md)). |

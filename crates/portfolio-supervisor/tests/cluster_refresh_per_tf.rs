@@ -47,6 +47,10 @@ fn make_pipe(slot: TimeframeSlot, secs: u64, tx: broadcast::Sender<MarketSnapsho
         cluster_status: Arc::new(RwLock::new(
             core_domain::liquidity::ClusterStatusSnapshot::pending("BTC-USDT", slot.as_str()),
         )),
+        pipeline_state: Arc::new(RwLock::new(core_domain::models::CandlePipelineState::Initializing)),
+        indicator_lifecycle: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        buffer_size: 500,
+        stale_threshold_secs: 300,
     }
 }
 
@@ -342,6 +346,8 @@ impl SnapshotTestHelpers for MarketSnapshot {
             cluster: None,
             volume_profile: None,
             quality_envelope: None,
+        pipeline_state: core_domain::models::CandlePipelineState::default(),
+        indicator_lifecycle: std::collections::HashMap::new(),
         }
     }
 }

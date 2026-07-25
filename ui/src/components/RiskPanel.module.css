@@ -1,32 +1,151 @@
-.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0;      }
-.title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0 0 14px 0; text-transform: uppercase; }
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px 24px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0; }
+
+.title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0; text-transform: uppercase; }
 .section { margin-bottom: 16px; }
-.sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; }
+.sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; text-transform: uppercase; display: flex; align-items: baseline; gap: 8px; }
+.sectionMeta { font-size: 9px; font-weight: 500; color: #475569; text-transform: none; letter-spacing: 0; }
+
+/* ─────────── Head ─────────── */
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid rgba(148, 163, 184, 0.10); }
+.headTitleBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.headMeta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.headSymbol { font-weight: 700; color: #cbd5e1; }
+.headDot { color: #475569; }
+.headTime { color: #64748b; }
+.headHeadline { font-size: 11px; color: #94a3b8; max-width: 240px; text-align: right; line-height: 1.45; }
+
+/* ─────────── Hero ─────────── */
+.hero { display: flex; gap: 18px; align-items: stretch; padding: 16px; background: rgba(255, 255, 255, 0.025); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 10px; margin-bottom: 14px; }
+.ring { position: relative; width: 96px; height: 96px; flex-shrink: 0; }
+.ringSvg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ringTrack { fill: rgba(255, 255, 255, 0.04); stroke: rgba(255, 255, 255, 0.08); stroke-width: 8; }
+.ringProgress { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.45s ease-out, stroke 0.3s; }
+.ringCenter { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
+.ringScore { font-size: 28px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; color: #f1f5f9; }
+.ringUnit { font-size: 9px; font-weight: 600; color: #64748b; letter-spacing: 0.05em; margin-top: 2px; }
+.heroInfo { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.heroLevelRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.heroLevel { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 10px; border-radius: 5px; }
+.heroPeak { font-size: 10px; color: #64748b; display: inline-flex; align-items: center; gap: 4px; }
+.heroPeakVal { font-weight: 700; padding: 1px 6px; border-radius: 3px; }
+.heroConf { display: flex; align-items: center; gap: 8px; }
+.confLabel { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
+.confBar { flex: 1; height: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 3px; overflow: hidden; }
+.confFill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.confVal { font-size: 11px; font-weight: 700; color: #e2e8f0; width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.heroHint { font-size: 10px; color: #64748b; line-height: 1.45; margin: 0; }
+
+/* Risk color tokens — shared across ring stroke, fill bars, tiles, pills */
+.riskVeryLow { --risk-stroke: #22c55e; --risk-bg: rgba(34,197,94,0.15); --risk-fg: #22c55e; --risk-fill: #22c55e; border-color: var(--risk-stroke); }
+.riskLow { --risk-stroke: #4ade80; --risk-bg: rgba(74,222,128,0.15); --risk-fg: #4ade80; --risk-fill: #4ade80; border-color: var(--risk-stroke); }
+.riskModerate { --risk-stroke: #f59e0b; --risk-bg: rgba(245,158,11,0.15); --risk-fg: #f59e0b; --risk-fill: #f59e0b; border-color: var(--risk-stroke); }
+.riskHigh { --risk-stroke: #f87171; --risk-bg: rgba(248,113,113,0.15); --risk-fg: #f87171; --risk-fill: #f87171; border-color: var(--risk-stroke); }
+.riskExtreme { --risk-stroke: #ef4444; --risk-bg: rgba(239,68,68,0.18); --risk-fg: #ef4444; --risk-fill: #ef4444; border-color: var(--risk-stroke); }
+
+.labelVeryLow { background: var(--risk-bg); color: var(--risk-fg); }
+.labelLow { background: var(--risk-bg); color: var(--risk-fg); }
+.labelModerate { background: var(--risk-bg); color: var(--risk-fg); }
+.labelHigh { background: var(--risk-bg); color: var(--risk-fg); }
+.labelExtreme { background: var(--risk-bg); color: var(--risk-fg); }
+
+.fillVeryLow { background: #22c55e; }
+.fillLow { background: #4ade80; }
+.fillModerate { background: #f59e0b; }
+.fillHigh { background: #f87171; }
+.fillExtreme { background: #ef4444; }
+
+/* Hook for ring progress */
+.riskVeryLow .ringProgress { stroke: #22c55e; }
+.riskLow .ringProgress { stroke: #4ade80; }
+.riskModerate .ringProgress { stroke: #f59e0b; }
+.riskHigh .ringProgress { stroke: #f87171; }
+.riskExtreme .ringProgress { stroke: #ef4444; }
+
+/* ─────────── Summary tiles ─────────── */
+.summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 18px; }
+.summaryTile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 7px; opacity: 0.42; transition: opacity 0.2s, background 0.2s, border-color 0.2s; }
+.summaryTileActive { opacity: 1; }
+.summaryTile.summaryTileActive { background: var(--risk-bg); border-color: color-mix(in srgb, var(--risk-fg) 35%, transparent); }
+.summaryCount { font-size: 20px; font-weight: 800; color: #f1f5f9; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.summaryTile.summaryTileActive .summaryCount { color: var(--risk-fg); }
+.summaryLabel { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+.summaryTile.summaryTileActive .summaryLabel { color: var(--risk-fg); }
+
+/* ─────────── Dimensions ─────────── */
+.dimsSection { margin-bottom: 16px; }
+.dimCards { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.dimCard { padding: 10px 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-left-width: 3px; border-radius: 7px; transition: background 0.2s, border-color 0.2s; }
+.dimCard.riskVeryLow,
+.dimCard.riskLow { background: rgba(34, 197, 94, 0.04); border-left-color: #22c55e; }
+.dimCard.riskModerate { background: rgba(245, 158, 11, 0.04); border-left-color: #f59e0b; }
+.dimCard.riskHigh { background: rgba(248, 113, 113, 0.04); border-left-color: #f87171; }
+.dimCard.riskExtreme { background: rgba(239, 68, 68, 0.06); border-left-color: #ef4444; }
+
+.dimHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.dimNameBlock { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+.dimName { font-size: 12px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dimWeight { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dimBadges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.dimLevel { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.dimState { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.08); }
+.dimStateArrow { font-size: 11px; line-height: 1; }
+.stateStable { background: rgba(34, 197, 94, 0.12); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+.stateIncreasing { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+.stateElevated { background: rgba(251, 146, 60, 0.14); color: #fb923c; border-color: rgba(251, 146, 60, 0.3); }
+.stateCritical { background: rgba(239, 68, 68, 0.18); color: #f87171; border-color: rgba(239, 68, 68, 0.4); }
+.stateImproving { background: rgba(74, 222, 128, 0.14); color: #86efac; border-color: rgba(74, 222, 128, 0.3); }
+
+.dimBarRow { display: flex; align-items: center; gap: 8px; }
+.dimBar { flex: 1; height: 10px; background: rgba(255, 255, 255, 0.04); border-radius: 5px; overflow: hidden; position: relative; }
+.dimFill { height: 100%; border-radius: 5px; transition: width 0.35s; }
+.dimWeightMark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: rgba(148, 163, 184, 0.55); pointer-events: none; }
+.dimScore { font-size: 12px; font-weight: 800; color: #f1f5f9; width: 28px; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dimConf { font-size: 10px; font-weight: 600; color: #64748b; width: 36px; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+.dimEvidence { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.evidenceChip { font-size: 10px; font-weight: 500; color: #cbd5e1; padding: 2px 8px; border-radius: 3px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); font-family: var(--mono); line-height: 1.4; }
+.evidenceChip.riskVeryLow,
+.evidenceChip.riskLow { color: #4ade80; background: rgba(34, 197, 94, 0.08); border-color: rgba(34, 197, 94, 0.2); }
+.evidenceChip.riskModerate { color: #fbbf24; background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.2); }
+.evidenceChip.riskHigh { color: #f87171; background: rgba(248, 113, 113, 0.08); border-color: rgba(248, 113, 113, 0.2); }
+.evidenceChip.riskExtreme { color: #fca5a5; background: rgba(239, 68, 68, 0.10); border-color: rgba(239, 68, 68, 0.3); }
+
+.dimCardMissing { opacity: 0.55; border-left-color: rgba(148, 163, 184, 0.4); }
+.dimMissingBadge { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.18); }
+.dimMissing { font-size: 11px; color: #64748b; margin: 0; font-style: italic; }
+
+/* ─────────── Disclosure ─────────── */
+.disclosure { margin-bottom: 12px; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 7px; background: rgba(255, 255, 255, 0.02); overflow: hidden; }
+.disclosure summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; cursor: pointer; list-style: none; font-size: 11px; font-weight: 600; color: #94a3b8; user-select: none; transition: background 0.2s; }
+.disclosure summary::-webkit-details-marker { display: none; }
+.disclosure summary:hover { background: rgba(255, 255, 255, 0.03); }
+.disclosureChevron { font-size: 16px; font-weight: 400; color: #64748b; transition: transform 0.2s; }
+.disclosure[open] .disclosureChevron { transform: rotate(90deg); }
+.disclosureBody { padding: 4px 12px 12px; border-top: 1px solid rgba(255, 255, 255, 0.04); }
+.weightGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 10px 0; }
+.weightChip { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 5px; }
+.weightLabel { font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
+.weightPct { font-size: 13px; font-weight: 800; color: #e2e8f0; font-variant-numeric: tabular-nums; }
+.disclosureNote { font-size: 10px; color: #64748b; line-height: 1.5; margin: 8px 0 0; }
+
+/* ─────────── Placeholder ─────────── */
+.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
+
+/* ─────────── Reduced motion ─────────── */
+@media (prefers-reduced-motion: reduce) {
+    .ringProgress, .dimFill, .confFill, .summaryTile, .disclosureChevron { transition: none !important; }
+}
+
+/* ─────────── Unused legacy (kept no-op for now) ─────────── */
 .overallRow { display: flex; align-items: center; gap: 12px; }
 .overallMeter { width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
 .overallRing { position: absolute; inset: 0; border-radius: 50%; border: 5px solid transparent; }
-.riskVeryLow { border-color: #22c55e; }
-.riskLow { border-color: #4ade80; }
-.riskModerate { border-color: #f59e0b; }
-.riskHigh { border-color: #f87171; }
-.riskExtreme { border-color: #ef4444; }
 .overallScore { font-size: 22px; font-weight: 800; z-index: 1; font-variant-numeric: tabular-nums; }
 .overallLabel { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 4px; }
-.labelVeryLow { background: rgba(34,197,94,0.15); color: #22c55e; }
-.labelLow { background: rgba(74,222,128,0.15); color: #4ade80; }
-.labelModerate { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.labelHigh { background: rgba(248,113,113,0.15); color: #f87171; }
-.labelExtreme { background: rgba(239,68,68,0.15); color: #ef4444; }
 .infoRow { display: flex; align-items: center; gap: 10px; }
 .infoItem { font-size: 10px; color: #64748b; }
 .infoValue { font-size: 11px; font-weight: 600; color: #e2e8f0; }
 .dimList { display: flex; flex-direction: column; gap: 6px; }
 .dimRow { display: flex; align-items: center; gap: 8px; }
-.dimName { font-size: 10px; color: #cbd5e1; width: 120px; flex-shrink: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dimBar { flex: 1; height: 8px; background: rgba(255,255,255,0.04); border-radius: 4px; overflow: hidden; }
-.dimFill { height: 100%; border-radius: 4px; transition: width 0.3s; }
-.dimScore { font-size: 10px; font-weight: 700; width: 30px; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
-.dimLevel { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; width: 56px; text-align: center; }
 .evidence { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 2px 0 4px 8px; border-left: 2px solid rgba(255,255,255,0.1); margin-bottom: 4px; }
 .weights { font-size: 11px; color: rgba(203,213,225,0.85); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 4px; padding: 8px 12px; margin-top: 8px; font-family: var(--mono); line-height: 1.6; letter-spacing: 0.01em; }
-.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }

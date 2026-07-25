@@ -28,7 +28,8 @@ use crate::indicators::{
     VolumeProfile, WilliamsR, ZScore,
 };
 use core_domain::liquidity::LiquidationClusterMatrix;
-use core_domain::models::{CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot};
+use core_domain::models::{CandlePipelineState, CandleQualityEnvelope, MarketSnapshot, SequenceIntegrity, TimeframeSlot};
+use core_domain::indicator_dtos::{IndicatorLifecycleMap, IndicatorLifecycleState};
 use core_domain::volume_profile::{VolumeProfileBin, VolumeProfileSnapshot};
 use core_domain::normalized::{Exchange, NormalizedCandle, NormalizedEvent};
 use crate::candle_generator::CandleGenerator;
@@ -75,6 +76,21 @@ pub struct TimeframePipeline {
     /// retrying" (Skipped with reason) — without this, the LIQ HEATMAP
     /// overlay can appear empty for minutes with no operator feedback.
     pub cluster_status: Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+    /// Per-TF pipeline lifecycle state. Transitions per
+    /// [03-01-06](../docs/engines/data-infrastructure-engine/03-01-06-die-candle-pipeline-states.md)
+    /// DCP-01 … DCP-15. Read by `run_single` to populate
+    /// `MarketSnapshot.pipeline_state`.
+    pub pipeline_state: Arc<RwLock<CandlePipelineState>>,
+    /// Per-indicator operational lifecycle map for this TF.
+    /// Read by `run_single` to populate `MarketSnapshot.indicator_lifecycle`.
+    /// See [03-02-15](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)
+    /// ILS-01 … ILS-15.
+    pub indicator_lifecycle: Arc<RwLock<IndicatorLifecycleMap>>,
+    /// Canonical buffer size from `[candle_buffer] size` (CB-01). Used for
+    /// the buffer-full check that triggers `LOADING → LIVE` (DCP-04).
+    pub buffer_size: usize,
+    /// Per-TF stale threshold (CB-04 / DCP-05 / ILS-07).
+    pub stale_threshold_secs: u64,
 }
 
 pub struct ActivePair {
@@ -316,6 +332,68 @@ async fn fetch_interval_candles(
     }
 }
 
+/// Build the per-indicator operational lifecycle map for a freshly-built
+/// `MarketSnapshot`. Per [03-02-15](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)
+/// ILS-01 … ILS-15.
+///
+/// Rules:
+///   - Every registry indicator whose key is present in `indicators` map → `Live`.
+///   - Every registry indicator whose key is **absent** → `Loading` (the
+///     calculator returned `None` this bar, which the active-set/registry
+///     merger has omitted from the normalized output).
+///   - `bars_seen` is approximated from the snapshot's `timestamp` distance
+///     to the earliest candle in the buffer; we use `bars_required` from the
+///     registry and report `bars_seen = bars_required` for `Live` indicators
+///     (the calculator successfully emitted, so the bar count is at least
+///     `bars_required`). The full accounting lives on the `TimeframePipeline`
+///     and is updated by `run_single` before this helper is called.
+///   - `stale_threshold_secs` defaults to `[candle_buffer] stale_threshold_secs`.
+pub fn build_indicator_lifecycle_map(
+    indicators: &std::collections::HashMap<String, NormalizedIndicatorValue>,
+    stale_threshold_secs: u32,
+) -> IndicatorLifecycleMap {
+    use core_domain::indicator_dtos::IndicatorLifecycleStatus;
+    let mut map = IndicatorLifecycleMap::new();
+    for meta in crate::indicators::registry::INDICATORS {
+        let present = indicators.contains_key(meta.key);
+        let bars_required = meta.bars_required;
+        let status = if present {
+            IndicatorLifecycleStatus {
+                state: IndicatorLifecycleState::Live,
+                bars_seen: bars_required,
+                bars_required,
+                last_updated_at: None, // populated by TimeframePipeline writer
+                last_error: None,
+                stale_threshold_secs,
+            }
+        } else {
+            IndicatorLifecycleStatus {
+                state: IndicatorLifecycleState::Loading,
+                bars_seen: 0,
+                bars_required,
+                last_updated_at: None,
+                last_error: None,
+                stale_threshold_secs,
+            }
+        };
+        map.insert(meta.key.to_string(), status);
+    }
+    map
+}
+
+/// Compute the pipeline state from buffer-fill state. Used as a default when
+/// the `TimeframePipeline` writer hasn't yet flushed its authoritative state
+/// into the snapshot.
+pub fn derive_pipeline_state(buffer_len: usize, target: usize) -> CandlePipelineState {
+    if buffer_len >= target {
+        CandlePipelineState::Live
+    } else if buffer_len == 0 {
+        CandlePipelineState::Loading
+    } else {
+        CandlePipelineState::Loading
+    }
+}
+
 /// Build the minimal completed `MarketSnapshot` used to transport a
 /// gap-filled candle (08-04 §Forwarding). Reconstructed candles carry no
 /// indicator payload — they exist so charts, persistence, and rollups see a
@@ -351,6 +429,8 @@ fn build_gapfill_snapshot(
         close: Some(candle.close),
         volume: Some(candle.volume),
         average_volume: None,
+        pipeline_state: CandlePipelineState::default(),
+        indicator_lifecycle: HashMap::new(),
         context: None,
         decision_context: None,
         statistical_context: None,
@@ -1548,6 +1628,7 @@ pub async fn run_single(
                         aroon_up: final_aroon.as_ref().map(|a| a.up.to_f64().unwrap_or(0.0)),
                         aroon_down: final_aroon.as_ref().map(|a| a.down.to_f64().unwrap_or(0.0)),
                         macd_line: Some(final_macd.macd_line.to_f64().unwrap_or(0.0)),
+                        macd_histogram: Some(final_macd.histogram.to_f64().unwrap_or(0.0)),
                         linreg_slope: final_linreg.map(|d| d.to_f64().unwrap_or(0.0)),
                         zscore: final_zscore.map(|d| d.to_f64().unwrap_or(0.0)),
                         obv: final_obv.as_ref().map(|o| o.obv.to_f64().unwrap_or(0.0)),
@@ -1710,6 +1791,8 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
+                        pipeline_state: derive_pipeline_state(history.read().await.len(), 500),
+                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators.clone(), 300),
                         context: Some(current_context.clone()),
                         decision_context: None,
                         statistical_context: None,
@@ -1869,6 +1952,8 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
+                        pipeline_state: derive_pipeline_state(history.read().await.len(), 500),
+                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300),
                         context: Some(current_context),
                         decision_context: Some(dec_ctx),
                         statistical_context: Some(sil_ctx),
@@ -2647,6 +2732,8 @@ fn broadcast_live_snapshot(
         close: Some(candle.close),
         volume: Some(candle.volume),
         average_volume: avg_vol,
+        pipeline_state: CandlePipelineState::default(),
+        indicator_lifecycle: HashMap::new(),
         context: None,
         decision_context: None,
         statistical_context: None,

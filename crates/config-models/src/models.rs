@@ -65,15 +65,12 @@ fn default_bitget_ws_url() -> String {
 pub struct CandlesConfig {
     #[serde(default = "default_candle_duration")]
     pub duration_seconds: u64,
-    #[serde(default = "default_analysis_limit")]
-    pub analysis_limit: usize,
 }
 
 impl Default for CandlesConfig {
     fn default() -> Self {
         Self {
             duration_seconds: default_candle_duration(),
-            analysis_limit: default_analysis_limit(),
         }
     }
 }
@@ -82,8 +79,81 @@ fn default_candle_duration() -> u64 {
     60
 }
 
-fn default_analysis_limit() -> usize {
-    1000
+/// Single source of truth for the platform's candle buffer behavior.
+/// Replaces the previous per-instance `analysis_limit` field. See
+/// `docs/operations-and-compliance/08-08-candle-buffer-spec.md` (CB-01 … CB-12).
+///
+/// Lives as a top-level block in `config.toml`:
+/// ```toml
+/// [candle_buffer]
+/// size = 500                                # CB-01
+/// stale_threshold_secs = 300                # CB-04 / DCP-05 / ILS-07
+/// fetch_timeout_ms = 30000                  # HFP-10
+/// sub_minute_skip_historical = true         # CB-05 / HFP-03
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CandleBufferConfig {
+    /// Canonical rolling buffer length. Every per-timeframe in-memory buffer
+    /// (`NormalizedCandle` history, `MarketSnapshot` history, indicator
+    /// warm-up buffers) is rolled at exactly this many entries (CB-03).
+    /// Default: **500** (the previous `analysis_limit` default of 1000 is
+    /// removed).
+    #[serde(default = "default_candle_buffer_size")]
+    pub size: usize,
+
+    /// Seconds without a completed candle before the pipeline transitions
+    /// `LIVE → STALE` (DCP-05) or before an indicator in `Loading` escalates
+    /// to `Failed` (ILS-06 / ILS-09).
+    /// Default: **300** (5 minutes).
+    #[serde(default = "default_stale_threshold_secs")]
+    pub stale_threshold_secs: u64,
+
+    /// Maximum total time (ms) for `HistoricalFetchPolicy::fetch` to spend
+    /// paginating the exchange REST endpoint before returning a partial
+    /// result (HFP-10). Default: **30 000 ms**.
+    #[serde(default = "default_fetch_timeout_ms")]
+    pub fetch_timeout_ms: u64,
+
+    /// When `true` (default), sub-minute timeframes (`timeframe_secs < 60`)
+    /// short-circuit historical fetch and start at 0 candles (CB-05 / HFP-03).
+    /// Set to `false` only for legacy compatibility with v6.4 behavior.
+    #[serde(default = "default_sub_minute_skip_historical")]
+    pub sub_minute_skip_historical: bool,
+}
+
+impl Default for CandleBufferConfig {
+    fn default() -> Self {
+        Self {
+            size: default_candle_buffer_size(),
+            stale_threshold_secs: default_stale_threshold_secs(),
+            fetch_timeout_ms: default_fetch_timeout_ms(),
+            sub_minute_skip_historical: default_sub_minute_skip_historical(),
+        }
+    }
+}
+
+fn default_candle_buffer_size() -> usize {
+    500
+}
+
+fn default_stale_threshold_secs() -> u64 {
+    300
+}
+
+fn default_fetch_timeout_ms() -> u64 {
+    30_000
+}
+
+fn default_sub_minute_skip_historical() -> bool {
+    true
+}
+
+/// Migration helper: legacy `analysis_limit` keys (the previous per-instance
+/// field) are silently ignored after v6.5. The canonical number is
+/// `candle_buffer.size`. This function reports whether the operator has any
+/// stale keys so the daemon can log a one-shot warning at startup.
+pub fn detect_legacy_analysis_limit_keys(raw_toml: &str) -> bool {
+    raw_toml.contains("analysis_limit")
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -596,8 +666,6 @@ pub struct SlowTimeframeConfig {
     #[serde(default = "default_enabled_true")]
     pub enabled: bool,
     pub duration_seconds: u64,
-    #[serde(default = "default_analysis_limit")]
-    pub analysis_limit: usize,
 }
 
 fn default_enabled_true() -> bool {
@@ -609,7 +677,6 @@ impl Default for SlowTimeframeConfig {
         Self {
             enabled: true,
             duration_seconds: 300,
-            analysis_limit: default_analysis_limit(),
         }
     }
 }
@@ -880,10 +947,7 @@ pub struct TimeframeConfig {
 impl TimeframeConfig {
     pub fn new(duration_seconds: u64, indicators: IndicatorsConfig) -> Self {
         Self {
-            candles: CandlesConfig {
-                duration_seconds,
-                analysis_limit: default_analysis_limit(),
-            },
+            candles: CandlesConfig { duration_seconds },
             indicators,
         }
     }

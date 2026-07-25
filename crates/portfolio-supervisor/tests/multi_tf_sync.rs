@@ -71,28 +71,24 @@ async fn test_four_tf_fanout_history_cap_100_and_broadcast() {
         let micro_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 30,
-                analysis_limit: 100,
             },
             indicators: indicators.clone(),
         };
         let fast_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 60,
-                analysis_limit: 100,
             },
             indicators: indicators.clone(),
         };
         let slow_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 90,
-                analysis_limit: 100,
             },
             indicators: indicators.clone(),
         };
         let macro_tf = TimeframeConfig {
             candles: config_models::CandlesConfig {
                 duration_seconds: 150,
-                analysis_limit: 100,
             },
             indicators: indicators.clone(),
         };

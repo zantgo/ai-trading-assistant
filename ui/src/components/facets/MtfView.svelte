@@ -109,12 +109,15 @@
         <div class={styles.placeholder}>No indicators match the current filters.</div>
     {:else}
         <div class={styles.summary}>
+            <div class={styles.summarySpacer}></div>
             {#each SLOTS as slot (slot.label)}
                 <div class={styles.summarySlot}>
                     <div class={styles.summaryLabel}>{slot.label}</div>
                     <div class={styles.summarySecs}>{fmtTimeframe(slot.secs)}</div>
                 </div>
             {/each}
+            <div class={styles.summarySpacer}></div>
+            <div class={styles.summarySpacer}></div>
         </div>
 
         {#each groups as g (g.group)}
