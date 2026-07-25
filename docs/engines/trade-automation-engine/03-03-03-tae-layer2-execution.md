@@ -81,7 +81,7 @@ The size is then converted to base-asset units using the current mid-price and r
 > let size_quote_usd = (available_margin * risk_fraction) / d_sl_frac;            // Decimal math — notional in quote currency
 > ```
 >
-> *Current implementation:* the sizing math in `crates/portfolio-supervisor/src/risk_calculator.rs` runs in `f64` end-to-end (`capital`, `max_risk_pct`, `position_notional` are all `f64`); the `Decimal` boundary cast is a planned migration, not the present behaviour.
+> *Current implementation:* the canonical `f64 → Decimal` boundary cast described above lives in `crates/portfolio-supervisor/src/execution/order.rs::construct_order` (lines 50–72), not in `risk_calculator.rs`. The cast uses `Decimal::from_f64_retain` for both `stop_loss_distance_pct / 100.0` and `risk_per_trade_pct / 100.0`, exactly as the canonical form above. All sizing math downstream of the cast is `Decimal`. `risk_calculator.rs` (`crates/portfolio-supervisor/src/risk_calculator.rs`) is now also fully `Decimal` for the inputs it consumes (`RiskCalculationInput`, `RiskCalculation`).
 >
 > **Variable-naming hazard (correction).** A previous version used `risk_pct` directly in the multiplication, which is a 100× off-by-default error if the value is the raw-percent float (`risk_per_trade_pct = 1.0` would produce a 1.0 × E size instead of `0.01 × E`). The canonical variable name for the **fraction** is **`risk_fraction`** (or `risk_frac`); the raw-percent input is **`risk_per_trade_pct`** (as set in `config.toml` `[execution_policies.*.risk.risk_per_trade_pct]`). All downstream consumers must respect this distinction.
 

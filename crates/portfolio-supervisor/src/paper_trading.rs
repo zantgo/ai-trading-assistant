@@ -1,6 +1,7 @@
 use config_models::{
     ExecutionPolicy, OrderPacket, OrderSide, OrderStatus, OrderType,
 };
+use rust_decimal::prelude::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
@@ -11,11 +12,19 @@ use tokio::sync::RwLock;
 use crate::execution::state_machine::OrderLifecycle;
 use crate::policy::engine::PolicyTrigger;
 
+/// Paper-trading engine. Runs entirely in `Decimal` per the cold-path
+/// Decimal mandate (`01-02-global-architecture.md:347-353`). Every PnL,
+/// fee, slippage, equity delta, and persistence value is computed in
+/// `Decimal` end-to-end — **no `to_string().parse::<f64>()` round-trips**.
+///
+/// `f64` only appears at the **wire boundary** (DB `REAL` columns and the
+/// legacy `get_equity()` shim which returns `Decimal::to_f64().unwrap_or(0.0)`).
 pub struct PaperTradingEngine {
     pub orders: Arc<RwLock<HashMap<String, OrderLifecycle>>>,
     pub fee_config: FeesConfig,
     pub positions: Arc<RwLock<HashMap<String, PaperPosition>>>,
-    pub equity: Arc<RwLock<f64>>,
+    /// Master paper-trading equity ledger in `Decimal` (P0 fix — was `f64`).
+    pub equity: Arc<RwLock<Decimal>>,
     pub next_order_id: Arc<RwLock<u64>>,
     pub pool: Option<Arc<SqlitePool>>,
 }
@@ -45,8 +54,10 @@ pub struct PaperPosition {
     pub size: Decimal,
     pub entry_price: Decimal,
     pub direction: config_models::Direction,
-    pub unrealized_pnl: f64,
-    pub realized_pnl: f64,
+    /// P0 fix — was `f64`. Per-position unrealized PnL in `Decimal`.
+    pub unrealized_pnl: Decimal,
+    /// P0 fix — was `f64`. Per-position realized PnL in `Decimal`.
+    pub realized_pnl: Decimal,
 }
 
 impl PaperTradingEngine {
@@ -55,7 +66,7 @@ impl PaperTradingEngine {
             orders: Arc::new(RwLock::new(HashMap::new())),
             fee_config,
             positions: Arc::new(RwLock::new(HashMap::new())),
-            equity: Arc::new(RwLock::new(10000.0)),
+            equity: Arc::new(RwLock::new(dec!(10000))),
             next_order_id: Arc::new(RwLock::new(1)),
             pool: None,
         }
@@ -72,8 +83,8 @@ impl PaperTradingEngine {
         entry_price: Decimal,
         exit_price: Decimal,
         size: Decimal,
-        pnl: f64,
-        fee: f64,
+        pnl: Decimal,
+        fee: Decimal,
     ) {
         if let Some(ref pool) = self.pool {
             let now = std::time::SystemTime::now()
@@ -83,6 +94,8 @@ impl PaperTradingEngine {
             let entry_str = entry_price.to_string();
             let exit_str = exit_price.to_string();
             let size_str = size.to_string();
+            let pnl_str = pnl.to_string();
+            let fee_str = fee.to_string();
             let _ = sqlx::query(
                 "INSERT INTO paper_trades (symbol, direction, entry_price, exit_price, size, pnl, fee, closed_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
@@ -91,8 +104,8 @@ impl PaperTradingEngine {
             .bind(&entry_str)
             .bind(&exit_str)
             .bind(&size_str)
-            .bind(pnl)
-            .bind(fee)
+            .bind(&pnl_str)
+            .bind(&fee_str)
             .bind(now)
             .execute(pool.as_ref())
             .await;
@@ -106,8 +119,8 @@ impl PaperTradingEngine {
         entry_price: Decimal,
         exit_price: Decimal,
         size: Decimal,
-        pnl: f64,
-        fee: f64,
+        pnl: Decimal,
+        fee: Decimal,
         trigger_source: &str,
     ) {
         if let Some(ref pool) = self.pool {
@@ -118,11 +131,18 @@ impl PaperTradingEngine {
             let entry_str = entry_price.to_string();
             let exit_str = exit_price.to_string();
             let size_str = size.to_string();
-            let roi = if let Ok(entry_f64) = entry_price.to_string().parse::<f64>() {
-                if entry_f64 > 0.0 {
-                    (pnl / (entry_f64 * size.to_string().parse::<f64>().unwrap_or(0.0))) * 100.0
-                } else { 0.0 }
-            } else { 0.0 };
+            let pnl_str = pnl.to_string();
+            let fee_str = fee.to_string();
+            // ROI = pnl / notional × 100, all in Decimal, then persisted
+            // as a string at the DB-boundary. No `to_string().parse::<f64>()`
+            // round-trips.
+            let notional = entry_price * size;
+            let roi = if notional > dec!(0) {
+                pnl / notional * dec!(100)
+            } else {
+                dec!(0)
+            };
+            let roi_str = roi.to_string();
             let _ = sqlx::query(
                 "INSERT INTO trade_telemetry_history (symbol, direction, entry_price, exit_price, size, pnl, fee, roi_pct, trigger_source, closed_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
@@ -131,9 +151,9 @@ impl PaperTradingEngine {
             .bind(&entry_str)
             .bind(&exit_str)
             .bind(&size_str)
-            .bind(pnl)
-            .bind(fee)
-            .bind(roi)
+            .bind(&pnl_str)
+            .bind(&fee_str)
+            .bind(&roi_str)
             .bind(trigger_source)
             .bind(now)
             .execute(pool.as_ref())
@@ -141,16 +161,17 @@ impl PaperTradingEngine {
         }
     }
 
-    async fn persist_equity_snapshot(&self, equity: f64) {
+    async fn persist_equity_snapshot(&self, equity: Decimal) {
         if let Some(ref pool) = self.pool {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as i64;
+            let equity_str = equity.to_string();
             let _ = sqlx::query(
                 "INSERT INTO portfolio_equity_history (equity, timestamp_ms) VALUES (?, ?)"
             )
-            .bind(equity)
+            .bind(&equity_str)
             .bind(now)
             .execute(pool.as_ref())
             .await;
@@ -271,14 +292,16 @@ impl PaperTradingEngine {
         lifecycle.filled_size = fill_qty;
         lifecycle.fill_price = Some(fill_price);
 
-        let slippage = if fill_price > dec!(0) {
-            let mid_f64 = mid_price.to_string().parse::<f64>().unwrap_or(0.0);
-            let fill_f64 = fill_price.to_string().parse::<f64>().unwrap_or(0.0);
-            if mid_f64 > 0.0 {
-                Some(((fill_f64 - mid_f64).abs() / mid_f64) * 10000.0)
+        // Slippage in bps = |fill - mid| / mid * 10_000 — all Decimal,
+        // cast to f64 at the wire boundary.
+        let slippage = if fill_price > dec!(0) && mid_price > dec!(0) {
+            let abs_diff = if fill_price > mid_price {
+                fill_price - mid_price
             } else {
-                None
-            }
+                mid_price - fill_price
+            };
+            let bps = abs_diff / mid_price * dec!(10000);
+            bps.to_f64()
         } else {
             None
         };
@@ -311,14 +334,13 @@ impl PaperTradingEngine {
         let fill_qty = lifecycle.filled_size;
 
         let is_market = lifecycle.packet.order_type == OrderType::Market;
-        let fee_pct = if is_market {
-            self.fee_config.taker_fee_pct / 100.0
+        let fee_pct_dec = if is_market {
+            Decimal::from_f64_retain(self.fee_config.taker_fee_pct / 100.0).unwrap_or(dec!(0))
         } else {
-            self.fee_config.maker_fee_pct / 100.0
+            Decimal::from_f64_retain(self.fee_config.maker_fee_pct / 100.0).unwrap_or(dec!(0))
         };
         let notional = fill_qty * fill_price;
-        let notional_f64 = notional.to_string().parse::<f64>().unwrap_or(0.0);
-        let fee = notional_f64 * fee_pct;
+        let fee = notional * fee_pct_dec;
 
         let mut positions = self.positions.write().await;
         let mut equity = self.equity.write().await;
@@ -327,14 +349,10 @@ impl PaperTradingEngine {
             if let Some(pos) = positions.remove(&symbol) {
                 let pnl = match pos.direction {
                     config_models::Direction::Long => {
-                        let entry_f64 = pos.entry_price.to_string().parse::<f64>().unwrap_or(0.0);
-                        let fill_f64 = fill_price.to_string().parse::<f64>().unwrap_or(0.0);
-                        (fill_f64 - entry_f64) * pos.size.to_string().parse::<f64>().unwrap_or(0.0)
+                        (fill_price - pos.entry_price) * pos.size
                     }
                     config_models::Direction::Short => {
-                        let entry_f64 = pos.entry_price.to_string().parse::<f64>().unwrap_or(0.0);
-                        let fill_f64 = fill_price.to_string().parse::<f64>().unwrap_or(0.0);
-                        (entry_f64 - fill_f64) * pos.size.to_string().parse::<f64>().unwrap_or(0.0)
+                        (pos.entry_price - fill_price) * pos.size
                     }
                 };
                 *equity += pnl - fee;
@@ -366,8 +384,8 @@ impl PaperTradingEngine {
                     size: fill_qty,
                     entry_price: fill_price,
                     direction,
-                    unrealized_pnl: 0.0,
-                    realized_pnl: 0.0,
+                    unrealized_pnl: dec!(0),
+                    realized_pnl: dec!(0),
                 },
             );
             *equity -= fee;
@@ -380,7 +398,17 @@ impl PaperTradingEngine {
         self.positions.read().await.get(symbol).cloned()
     }
 
+    /// Backwards-compatible shim — returns the equity ledger as f64.
+    /// The canonical reader is `get_equity_decimal()`. Per the P0 fix,
+    /// the master ledger is `Decimal`; this method is the **only** f64
+    /// boundary at the engine boundary (DB-side readers parse `REAL`
+    /// columns as f64 anyway, so this matches).
     pub async fn get_equity(&self) -> f64 {
+        self.equity.read().await.to_f64().unwrap_or(0.0)
+    }
+
+    /// Canonical equity reader (P0). Use this from any new caller.
+    pub async fn get_equity_decimal(&self) -> Decimal {
         *self.equity.read().await
     }
 
@@ -420,15 +448,15 @@ impl PaperTradingEngine {
             return;
         }
 
-        let rate = self.fee_config.funding_rate_8h / 100.0;
-        let mut total_settlement: f64 = 0.0;
+        let rate = Decimal::from_f64_retain(self.fee_config.funding_rate_8h / 100.0)
+            .unwrap_or(dec!(0));
+        let mut total_settlement = dec!(0);
 
-        let settlement_details: Vec<(String, Decimal, f64)> = positions
+        let settlement_details: Vec<(String, Decimal, Decimal)> = positions
             .iter()
             .map(|(sym, pos)| {
                 let notional = pos.size * pos.entry_price;
-                let notional_f64 = notional.to_string().parse::<f64>().unwrap_or(0.0);
-                let payment = notional_f64 * rate;
+                let payment = notional * rate;
                 (sym.clone(), pos.size, payment)
             })
             .collect();
@@ -442,9 +470,9 @@ impl PaperTradingEngine {
         let mut equity = self.equity.write().await;
         *equity += total_settlement;
 
-        if total_settlement.abs() > 0.0001 {
+        if total_settlement.abs() > dec!(0.0001) {
             eprintln!(
-                "💰 PAPER: Funding settlement applied — {:.4} (rate={:.4}%)",
+                "💰 PAPER: Funding settlement applied — {} (rate={:.4}%)",
                 total_settlement, self.fee_config.funding_rate_8h
             );
         }
@@ -677,5 +705,41 @@ mod tests {
 
         let pos_after = engine.get_position("BTC-USDT").await;
         assert!(pos_after.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_equity_is_decimal() {
+        let engine = PaperTradingEngine::new(FeesConfig::default());
+        let equity = engine.get_equity_decimal().await;
+        assert_eq!(equity, dec!(10000));
+        // f64 shim should return the same value via to_f64
+        let equity_f64 = engine.get_equity().await;
+        assert!((equity_f64 - 10000.0).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn test_realized_pnl_in_decimal_end_to_end() {
+        let engine = PaperTradingEngine::new(FeesConfig::default());
+
+        // Open a long position
+        let buy = OrderPacket {
+            client_order_id: "buy".into(),
+            symbol: "BTC-USDT".into(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Market,
+            price: None,
+            size: dec!(3),
+            reduce_only: false,
+            is_emergency_liquidation: false,
+            associated_position_id: None,
+        };
+        let _ = engine.submit_order(buy, dec!(50000)).await.unwrap();
+
+        // Close it at a higher price (profit)
+        engine.close_position("BTC-USDT", dec!(51000)).await;
+
+        // Equity should have increased (Pnl = 3 * (51000-50000) = 30000, minus fees)
+        let equity = engine.get_equity_decimal().await;
+        assert!(equity > dec!(10000), "equity should increase on profitable close, got {}", equity);
     }
 }

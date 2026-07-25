@@ -42,7 +42,7 @@ pub fn spawn_veto_loop(
                 .as_ref()
                 .map(|o| o.systemic_risk_score)
                 .unwrap_or(0.0);
-            let equity_dec = Decimal::from_f64_retain(paper_equity_val).unwrap_or(dec!(0));
+            let equity_dec = paper_equity_val;
 
             for inst in &instances {
                 if inst.cancel.is_cancelled() {

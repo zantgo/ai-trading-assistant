@@ -340,7 +340,7 @@ async fn main() {
             .map(|e| e.initial_capital_usd)
             .sum();
         if total_capital > 0.0 {
-            *paper_engine.equity.write().await = total_capital;
+            *paper_engine.equity.write().await = rust_decimal::Decimal::from_f64_retain(total_capital).unwrap_or(rust_decimal_macros::dec!(10000));
         }
     }
 

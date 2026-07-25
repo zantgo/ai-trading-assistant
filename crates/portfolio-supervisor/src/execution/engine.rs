@@ -1,6 +1,7 @@
 use config_models::{
     Direction, LifecycleState, OrderPacket, OrderStatus, OrderType, OrderSide, Stance,
 };
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use sqlx::SqlitePool;
@@ -178,7 +179,7 @@ impl ExecutionEngine {
         let cap = self.capital.read().await;
         let available_margin = cap.available_margin;
         let margin_usage_ratio = cap.margin_usage_ratio();
-        let total_equity = cap.total_equity.to_string().parse::<f64>().unwrap_or(0.0);
+        let total_equity = cap.total_equity.to_f64().unwrap_or(0.0);
         drop(cap);
 
         let entry_price = snapshot.mid_price;
@@ -229,7 +230,7 @@ impl ExecutionEngine {
         let active_position_count = self.positions.read().await.len();
         let safety_state_str = self.safety_state.read().await.clone();
 
-        let available_margin_f64 = available_margin.to_string().parse().unwrap_or(0.0);
+        let available_margin_f64 = available_margin.to_f64().unwrap_or(0.0);
 
         let gate_result = evaluate_gates(
             &order,

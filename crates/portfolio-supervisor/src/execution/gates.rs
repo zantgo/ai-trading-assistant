@@ -103,7 +103,7 @@ pub fn evaluate_gates(
     if !order.reduce_only {
         if let Some(max_usd) = max_position_size_usd {
             if max_usd > 0.0 {
-                let size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+                let size_f64 = order.size.to_f64().unwrap_or(0.0);
                 if size_f64 > max_usd {
                     return GateResult::Clipped {
                         gate: 4,
@@ -116,7 +116,7 @@ pub fn evaluate_gates(
 
         if max_leverage > 0 {
             let leverage = if available_margin > 0.0 {
-                order.size.to_string().parse::<f64>().unwrap_or(0.0) / available_margin
+                order.size.to_f64().unwrap_or(0.0) / available_margin
             } else {
                 f64::MAX
             };
@@ -207,7 +207,7 @@ fn compute_estimated_slippage(
                 let spread_pct = (spread / mid * Decimal::from(100))
                     .to_f64()
                     .unwrap_or(1.0);
-                let order_size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+                let order_size_f64 = order.size.to_f64().unwrap_or(0.0);
                 if order_size_f64 > 0.0 {
                     spread_pct * (1.0 + (order_size_f64 / 100_000.0).min(5.0))
                 } else {
@@ -218,7 +218,7 @@ fn compute_estimated_slippage(
             }
         }
         _ => {
-            let order_size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+            let order_size_f64 = order.size.to_f64().unwrap_or(0.0);
             if order_size_f64 > 10_000.0 {
                 0.5
             } else {
@@ -233,7 +233,7 @@ fn compute_concentration(
     active_position_count: usize,
     total_equity: f64,
 ) -> f64 {
-    let order_size_f64 = order.size.to_string().parse::<f64>().unwrap_or(0.0);
+    let order_size_f64 = order.size.to_f64().unwrap_or(0.0);
     if order_size_f64 <= 0.0 || total_equity <= 0.0 {
         return 0.0;
     }
