@@ -1,11 +1,7 @@
 use proptest::prelude::*;
-use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use market_analyzer::indicators::{Adx, TrendRegime};
-
-fn dec(v: f64) -> Decimal {
-    Decimal::from_f64(v).unwrap_or(Decimal::ZERO)
-}
 
 proptest! {
     #[test]
@@ -20,15 +16,12 @@ proptest! {
         let mut l = low.min(h);
         let mut c = close.clamp(l, h);
 
-        adx.update(dec(h), dec(l), dec(c));
+        adx.update(h, l, c);
         for _ in 0..count {
             h += 0.1;
             l += 0.1;
             c += 0.1;
-            let hd = dec(h);
-            let ld = dec(l);
-            let cd = dec(c);
-            if let Some(out) = adx.update(hd, ld, cd) {
+            if let Some(out) = adx.update(h, l, c) {
                 let adx_v = out.adx.to_f64().unwrap_or(0.0);
                 let plus = out.plus_di.to_f64().unwrap_or(0.0);
                 let minus = out.minus_di.to_f64().unwrap_or(0.0);
@@ -50,13 +43,13 @@ proptest! {
         let mut h = high;
         let mut l = low.min(h);
         let mut c = close.clamp(l, h);
-        adx.update(dec(h), dec(l), dec(c));
+        adx.update(h, l, c);
 
         for _ in 0..count {
             h += 1.0;
             l += 1.0;
             c += 1.0;
-            if let Some(out) = adx.update(dec(h), dec(l), dec(c)) {
+            if let Some(out) = adx.update(h, l, c) {
                 let sum = (out.plus_di + out.minus_di).to_f64().unwrap_or(0.0);
                 prop_assert!(sum <= 200.0, "+DI + -DI = {} exceeds 200", sum);
             }
@@ -78,13 +71,13 @@ proptest! {
         let mut h = high;
         let mut l = low.min(h);
         let mut c = close.clamp(l, h);
-        adx.update(dec(h), dec(l), dec(c));
+        adx.update(h, l, c);
 
         for _ in 0..count {
             h += 0.1;
             l += 0.1;
             c += 0.1;
-            if let Some(out) = adx.update(dec(h), dec(l), dec(c)) {
+            if let Some(out) = adx.update(h, l, c) {
                 match out.trending_regime {
                     TrendRegime::Congestion => prop_assert!(out.adx < trend_threshold),
                     TrendRegime::Emerging => prop_assert!(out.adx >= trend_threshold && out.adx < trend_threshold + Decimal::new(5, 0)),

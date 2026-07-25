@@ -1,5 +1,6 @@
 use super::ema::Ema;
 use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -46,7 +47,10 @@ impl Atr {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<AtrOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<AtrOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         let tr = match self.prev_close {
             None => high - low,
             Some(prev) => {
@@ -57,7 +61,7 @@ impl Atr {
             }
         };
         self.prev_close = Some(close);
-        let atr = self.tr_ema.update(tr);
+        let atr = self.tr_ema.update(tr.to_f64().unwrap_or(0.0));
 
         // Maintain ATR history for regime classification
         self.atr_history.push_back(atr);
@@ -151,7 +155,7 @@ mod tests {
     fn test_first_call_uses_simple_high_low() {
         let mut atr = Atr::new(14);
         let out = atr
-            .update(dec!(110.00), dec!(100.00), dec!(105.00))
+            .update(110.00, 100.00, 105.00)
             .unwrap();
         assert_eq!(out.atr_value, dec!(10.00));
     }
@@ -159,9 +163,9 @@ mod tests {
     #[test]
     fn test_subsequent_calls_use_true_range() {
         let mut atr = Atr::new(14);
-        atr.update(dec!(110.00), dec!(100.00), dec!(105.00));
+        atr.update(110.00, 100.00, 105.00);
         let out = atr
-            .update(dec!(108.00), dec!(102.00), dec!(104.00))
+            .update(108.00, 102.00, 104.00)
             .unwrap();
         assert!(out.atr_value > dec!(0.00));
     }
@@ -170,14 +174,14 @@ mod tests {
     fn test_atr_increases_with_volatility_spike() {
         let mut atr = Atr::new(5);
         for _ in 0..6 {
-            atr.update(dec!(101.00), dec!(99.00), dec!(100.00));
+            atr.update(101.00, 99.00, 100.00);
         }
         let normal = atr
-            .update(dec!(101.00), dec!(99.00), dec!(100.00))
+            .update(101.00, 99.00, 100.00)
             .unwrap()
             .atr_value;
         let spike = atr
-            .update(dec!(120.00), dec!(80.00), dec!(100.00))
+            .update(120.00, 80.00, 100.00)
             .unwrap()
             .atr_value;
         assert!(spike > normal, "ATR should increase on volatility spike");
@@ -186,10 +190,10 @@ mod tests {
     #[test]
     fn test_slope_computation() {
         let mut atr = Atr::new(14);
-        atr.update(dec!(101.00), dec!(99.00), dec!(100.00));
-        atr.update(dec!(101.00), dec!(99.00), dec!(100.00));
+        atr.update(101.00, 99.00, 100.00);
+        atr.update(101.00, 99.00, 100.00);
         // Wide bar should create positive slope
-        let out = atr.update(dec!(120.00), dec!(80.00), dec!(100.00)).unwrap();
+        let out = atr.update(120.00, 80.00, 100.00).unwrap();
         assert!(
             out.atr_slope > Decimal::ZERO,
             "Slope should be positive after volatility spike"
@@ -199,11 +203,11 @@ mod tests {
     #[test]
     fn test_regime_classification_expanding() {
         let mut history = VecDeque::new();
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(15.0)); // 50% above average → Expanding
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(15.0).unwrap()); // 50% above average → Expanding
         let regime = classify_regime(&history);
         assert_eq!(regime, VolatilityRegime::Expanding);
     }
@@ -211,11 +215,11 @@ mod tests {
     #[test]
     fn test_regime_classification_contracting() {
         let mut history = VecDeque::new();
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(5.0)); // 50% below average → Contracting
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(5.0).unwrap()); // 50% below average → Contracting
         let regime = classify_regime(&history);
         assert_eq!(regime, VolatilityRegime::Contracting);
     }
@@ -223,11 +227,11 @@ mod tests {
     #[test]
     fn test_regime_classification_stable() {
         let mut history = VecDeque::new();
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.0));
-        history.push_back(dec!(10.1)); // 1% above → Stable
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.0).unwrap());
+        history.push_back(Decimal::from_f64_retain(10.1).unwrap()); // 1% above → Stable
         let regime = classify_regime(&history);
         assert_eq!(regime, VolatilityRegime::Stable);
     }
@@ -237,7 +241,7 @@ mod tests {
         let mut atr = Atr::new(14);
         assert!(atr.get_regime().is_none());
         for _ in 0..6 {
-            atr.update(dec!(101.00), dec!(99.00), dec!(100.00));
+            atr.update(101.00, 99.00, 100.00);
         }
         assert!(atr.get_regime().is_some());
     }

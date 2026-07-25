@@ -1180,47 +1180,54 @@ pub async fn run_single(
                     }
                     last_day_index = Some(day_index);
 
+                    // ── f64 batch inputs for indicator update calls ──
+                    let open_f = completed.open.to_f64().unwrap_or(0.0);
+                    let high_f = completed.high.to_f64().unwrap_or(0.0);
+                    let low_f = completed.low.to_f64().unwrap_or(0.0);
+                    let close_f = completed.close.to_f64().unwrap_or(0.0);
+                    let volume_f = completed.volume.to_f64().unwrap_or(0.0);
+
                     // Session Pivot Points: accumulate this session's H/L/C and
                     // recompute levels on UTC-day rollover.
                     let pivot_levels = pivot_points_indicator.update(
-                        completed.high,
-                        completed.low,
-                        completed.close,
+                        high_f,
+                        low_f,
+                        close_f,
                         day_index,
                     );
 
                     // Candlestick recognition (Stage 1 geometry + Stage 3 confirm).
                     let candlestick_reading = candlestick_indicator.update(
-                        completed.open,
-                        completed.high,
-                        completed.low,
-                        completed.close,
+                        open_f,
+                        high_f,
+                        low_f,
+                        close_f,
                     );
 
                     // Ichimoku Cloud (Tenkan/Kijun/Senkou A/B/Chikou).
                     let ichimoku_reading =
-                        ichimoku_indicator.update(completed.high, completed.low, completed.close);
+                        ichimoku_indicator.update(high_f, low_f, close_f);
 
                     // CCI (Commodity Channel Index).
                     let cci_reading =
-                        cci_indicator.update(completed.high, completed.low, completed.close);
+                        cci_indicator.update(high_f, low_f, close_f);
 
                     // Parabolic SAR.
-                    let psar_reading = psar_indicator.update(completed.high, completed.low);
+                    let psar_reading = psar_indicator.update(high_f, low_f);
 
                     let wr_reading =
-                        wr_indicator.update(completed.high, completed.low, completed.close);
-                    let hma_reading = hma_indicator.update(completed.close);
-                    let ao_reading = ao_indicator.update(completed.high, completed.low);
-                    let fi_reading = fi_indicator.update(completed.close, completed.volume);
-                    let sdc_reading = sdc_indicator.update(completed.close);
+                        wr_indicator.update(high_f, low_f, close_f);
+                    let hma_reading = hma_indicator.update(close_f);
+                    let ao_reading = ao_indicator.update(high_f, low_f);
+                    let fi_reading = fi_indicator.update(close_f, volume_f);
+                    let sdc_reading = sdc_indicator.update(close_f);
 
                     let volume_profile_reading = volume_profile_indicator.update_with_open(
-                        completed.high,
-                        completed.low,
-                        completed.open,
-                        completed.close,
-                        completed.volume,
+                        high_f,
+                        low_f,
+                        open_f,
+                        close_f,
+                        volume_f,
                     );
 
                     // Build the bin-level VolumeProfileSnapshot for chart rendering.
@@ -1244,10 +1251,10 @@ pub async fn run_single(
                         completed.start_time_ms,
                     );
                     let smc_reading = smc_indicator.update(
-                        completed.open,
-                        completed.high,
-                        completed.low,
-                        completed.close,
+                        open_f,
+                        high_f,
+                        low_f,
+                        close_f,
                     );
 
                     let typical_price =
@@ -1262,18 +1269,18 @@ pub async fn run_single(
                     };
 
                     let avwap_reading = anchored_vwap_indicator.update(
-                        completed.high,
-                        completed.low,
-                        completed.close,
-                        completed.volume,
+                        high_f,
+                        low_f,
+                        close_f,
+                        volume_f,
                         day_index,
-                        final_vwap.unwrap_or(Decimal::ZERO),
+                        final_vwap.unwrap_or(Decimal::ZERO).to_f64().unwrap_or(0.0),
                     );
 
-                    let final_ema_fast = ema_fast.update(completed.close);
-                    let final_ema_medium = ema_medium.update(completed.close);
-                    let final_ema_slow = ema_slow.update(completed.close);
-                    let final_ema_long = ema_long.update(completed.close);
+                    let final_ema_fast = ema_fast.update(close_f);
+                    let final_ema_medium = ema_medium.update(close_f);
+                    let final_ema_slow = ema_slow.update(close_f);
+                    let final_ema_long = ema_long.update(close_f);
 
                     let ema_stack_state = if final_ema_fast > final_ema_medium
                         && final_ema_medium > final_ema_slow
@@ -1291,41 +1298,41 @@ pub async fn run_single(
                         Some("tangled".to_string())
                     };
 
-                    let final_rsi = rsi_14.update(completed.close);
-                    let final_macd = macd.update(completed.close);
-                    let final_adx = adx_14.update(completed.high, completed.low, completed.close);
-                    let final_sqz = sqz_mom.update(completed.high, completed.low, completed.close);
-                    let final_bb = bollinger.update(completed.close);
+                    let final_rsi = rsi_14.update(close_f);
+                    let final_macd = macd.update(close_f);
+                    let final_adx = adx_14.update(high_f, low_f, close_f);
+                    let final_sqz = sqz_mom.update(high_f, low_f, close_f);
+                    let final_bb = bollinger.update(close_f);
                     let final_atr =
-                        atr_standalone.update(completed.high, completed.low, completed.close);
-                    let final_bbwp = bbwp_indicator.update(completed.close);
+                        atr_standalone.update(high_f, low_f, close_f);
+                    let final_bbwp = bbwp_indicator.update(close_f);
                     let final_stoch =
-                        stochastic_indicator.update(completed.high, completed.low, completed.close);
-                    let final_cmo = chandemo_indicator.update(completed.close);
+                        stochastic_indicator.update(high_f, low_f, close_f);
+                    let final_cmo = chandemo_indicator.update(close_f);
                     let final_supertrend =
-                        supertrend_indicator.update(completed.high, completed.low, completed.close);
+                        supertrend_indicator.update(high_f, low_f, close_f);
                     let final_keltner =
-                        keltner_indicator.update(completed.high, completed.low, completed.close);
-                    let final_donchian = donchian_indicator.update(completed.high, completed.low);
-                    let final_obv = obv_indicator.update(completed.close, completed.volume);
+                        keltner_indicator.update(high_f, low_f, close_f);
+                    let final_donchian = donchian_indicator.update(high_f, low_f);
+                    let final_obv = obv_indicator.update(close_f, volume_f);
                     let final_cmf = cmf_indicator.update(
-                        completed.high,
-                        completed.low,
-                        completed.close,
-                        completed.volume,
+                        high_f,
+                        low_f,
+                        close_f,
+                        volume_f,
                     );
                     let final_mfi = mfi_indicator.update(
-                        completed.high,
-                        completed.low,
-                        completed.close,
-                        completed.volume,
+                        high_f,
+                        low_f,
+                        close_f,
+                        volume_f,
                     );
-                    let final_hv = hv_indicator.update(completed.close);
-                    let final_aroon = aroon_indicator.update(completed.high, completed.low);
+                    let final_hv = hv_indicator.update(close_f);
+                    let final_aroon = aroon_indicator.update(high_f, low_f);
                     let final_chop =
-                        choppiness_indicator.update(completed.high, completed.low, completed.close);
-                    let final_linreg = linreg_indicator.update(completed.close);
-                    let final_zscore = zscore_indicator.update(completed.close);
+                        choppiness_indicator.update(high_f, low_f, close_f);
+                    let final_linreg = linreg_indicator.update(close_f);
+                    let final_zscore = zscore_indicator.update(close_f);
 
                     // ── Generalized divergence detection ──
                     // Each oscillator's SeriesDivergence is updated every bar
@@ -1339,9 +1346,9 @@ pub async fn run_single(
                     let mut div_result = {
                         if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
                             divergence_detector.lock().await.update_full(
-                                completed.close,
-                                rsi,
-                                macd_hist,
+                                close_f,
+                                rsi.to_f64().unwrap_or(0.0),
+                                macd_hist.to_f64().unwrap_or(0.0),
                             )
                         } else {
                             crate::indicators::DivergenceResult::default_div()
@@ -1423,22 +1430,20 @@ pub async fn run_single(
                         let near_sup = sr_supports
                             .iter()
                             .copied()
-                            .filter(|s| *s > 0.0 && *s <= completed.close.to_f64().unwrap_or(0.0))
+                            .filter(|s| *s > 0.0 && *s <= close_f)
                             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                         let near_res = sr_resistances
                             .iter()
                             .copied()
-                            .filter(|r| *r > 0.0 && *r >= completed.close.to_f64().unwrap_or(0.0))
+                            .filter(|r| *r > 0.0 && *r >= close_f)
                             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                         if near_sup.is_some() || near_res.is_some() {
                             let det = divergence_detector.lock().await;
                             div_result = det.check_divergence_confirmation(
                                 &div_result,
-                                completed.close,
-                                near_sup
-                                    .map(|s| Decimal::from_f64_retain(s).unwrap_or(Decimal::ZERO)),
-                                near_res
-                                    .map(|r| Decimal::from_f64_retain(r).unwrap_or(Decimal::ZERO)),
+                                close_f,
+                                near_sup,
+                                near_res,
                             );
                         }
                     }
@@ -1502,8 +1507,11 @@ pub async fn run_single(
                                 .as_ref()
                                 .map(|s| {
                                     normalize::series_divergence_confirmed(
-                                        &stoch_div.update(completed.close, s.k_value),
-                                        completed.close,
+                                        &stoch_div.update(
+                                            close_f,
+                                            s.k_value.to_f64().unwrap_or(0.0),
+                                        ),
+                                        close_f,
                                         &sr_supports,
                                         &sr_resistances,
                                     )
@@ -1512,8 +1520,11 @@ pub async fn run_single(
                             chandemo: final_cmo
                                 .map(|v| {
                                     normalize::series_divergence_confirmed(
-                                        &chandemo_div.update(completed.close, v),
-                                        completed.close,
+                                        &chandemo_div.update(
+                                            close_f,
+                                            v.to_f64().unwrap_or(0.0),
+                                        ),
+                                        close_f,
                                         &sr_supports,
                                         &sr_resistances,
                                     )
@@ -1522,8 +1533,11 @@ pub async fn run_single(
                             mfi: final_mfi
                                 .map(|v| {
                                     normalize::series_divergence_confirmed(
-                                        &mfi_div.update(completed.close, v),
-                                        completed.close,
+                                        &mfi_div.update(
+                                            close_f,
+                                            v.to_f64().unwrap_or(0.0),
+                                        ),
+                                        close_f,
                                         &sr_supports,
                                         &sr_resistances,
                                     )
@@ -1532,8 +1546,11 @@ pub async fn run_single(
                             cmf: final_cmf
                                 .map(|v| {
                                     normalize::series_divergence_confirmed(
-                                        &cmf_div.update(completed.close, v),
-                                        completed.close,
+                                        &cmf_div.update(
+                                            close_f,
+                                            v.to_f64().unwrap_or(0.0),
+                                        ),
+                                        close_f,
                                         &sr_supports,
                                         &sr_resistances,
                                     )
@@ -1543,8 +1560,11 @@ pub async fn run_single(
                                 .as_ref()
                                 .map(|o| {
                                     normalize::series_divergence_confirmed(
-                                        &obv_div.update(completed.close, o.obv),
-                                        completed.close,
+                                        &obv_div.update(
+                                            close_f,
+                                            o.obv.to_f64().unwrap_or(0.0),
+                                        ),
+                                        close_f,
                                         &sr_supports,
                                         &sr_resistances,
                                     )
@@ -1554,8 +1574,11 @@ pub async fn run_single(
                                 .as_ref()
                                 .map(|s| {
                                     normalize::series_divergence_confirmed(
-                                        &squeeze_div.update(completed.close, s.momentum_value),
-                                        completed.close,
+                                        &squeeze_div.update(
+                                            close_f,
+                                            s.momentum_value.to_f64().unwrap_or(0.0),
+                                        ),
+                                        close_f,
                                         &sr_supports,
                                         &sr_resistances,
                                     )
@@ -1629,8 +1652,8 @@ pub async fn run_single(
                         aroon_down: final_aroon.as_ref().map(|a| a.down.to_f64().unwrap_or(0.0)),
                         macd_line: Some(final_macd.macd_line.to_f64().unwrap_or(0.0)),
                         macd_histogram: Some(final_macd.histogram.to_f64().unwrap_or(0.0)),
-                        linreg_slope: final_linreg.map(|d| d.to_f64().unwrap_or(0.0)),
-                        zscore: final_zscore.map(|d| d.to_f64().unwrap_or(0.0)),
+                        linreg_slope: final_linreg,
+                        zscore: final_zscore,
                         obv: final_obv.as_ref().map(|o| o.obv.to_f64().unwrap_or(0.0)),
                         obv_sma: final_obv
                             .as_ref()
@@ -1642,7 +1665,7 @@ pub async fn run_single(
                         adx_minus_di: final_adx
                             .as_ref()
                             .map(|a| a.minus_di.to_f64().unwrap_or(0.0)),
-                        price: Some(completed.close.to_f64().unwrap_or(0.0)),
+                        price: Some(close_f),
                         ema_fast: Some(final_ema_fast.to_f64().unwrap_or(0.0)),
                         ema_medium: Some(final_ema_medium.to_f64().unwrap_or(0.0)),
                         supertrend_line: final_supertrend
@@ -1651,7 +1674,7 @@ pub async fn run_single(
                         // Populated in later phases (Pivots: P2, Ichimoku: P4).
                         pivot_active_level: pivot_levels.map(|lv| {
                             let p = lv.pivot.to_f64().unwrap_or(0.0);
-                            let c = completed.close.to_f64().unwrap_or(0.0);
+                            let c = close_f;
                             if c >= p {
                                 1.0
                             } else {
@@ -1671,7 +1694,7 @@ pub async fn run_single(
                                 .to_f64()
                                 .unwrap_or(0.0)
                                 .min(r.senkou_b_current.to_f64().unwrap_or(0.0));
-                            let px = completed.close.to_f64().unwrap_or(0.0);
+                            let px = close_f;
                             if px > top {
                                 1.0
                             } else if px < bot {
@@ -1741,7 +1764,6 @@ pub async fn run_single(
                     let atr_val = indicators.get("atr").map(|v| v.raw_value).unwrap_or(0.0);
 
                     // Compute Statistical Intelligence Layer enrichment.
-                    let close_f = completed.close.to_f64().unwrap_or(0.0);
                     let rsi_val = indicators.get("rsi").map(|v| v.raw_value).unwrap_or(50.0);
                     let bbwp_val = indicators.get("bbwp").map(|v| v.raw_value).unwrap_or(50.0);
                     let sqz_mom = indicators
@@ -1753,7 +1775,6 @@ pub async fn run_single(
                         .get("squeeze")
                         .map(|v| v.state_label.contains("ON"))
                         .unwrap_or(false);
-                    let vol_f = completed.volume.to_f64().unwrap_or(0.0);
                     let rvol_f = rvol.and_then(|r| r.to_f64()).unwrap_or(1.0);
                     let adx_val = indicators.get("adx").map(|v| v.raw_value).unwrap_or(25.0);
 
@@ -1885,7 +1906,7 @@ pub async fn run_single(
 
                     let dec_ctx = core_domain::decision_context::DecisionContext::compute(
                         &indicators,
-                        completed.close.to_f64().unwrap_or(0.0),
+                        close_f,
                         atr_val,
                         confluence_score,
                         &synthesis.analysis,
@@ -1898,7 +1919,7 @@ pub async fn run_single(
                         rsi_val,
                         bbwp_val,
                         sqz_mom,
-                        vol_f,
+                        volume_f,
                         rvol_f,
                         adx_val,
                         prev_sil_close,
@@ -1996,10 +2017,9 @@ pub async fn run_single(
                             {
                                 if let Some(inval_level) = pos.final_invalidation_level {
                                     let tolerance = 0.002;
-                                    let close_f64 = completed.close.to_f64().unwrap_or(0.0);
                                     let invalidated = match pos.direction.as_str() {
-                                        "LONG" => close_f64 < inval_level * (1.0 - tolerance),
-                                        "SHORT" => close_f64 > inval_level * (1.0 + tolerance),
+                                        "LONG" => close_f < inval_level * (1.0 - tolerance),
+                                        "SHORT" => close_f > inval_level * (1.0 + tolerance),
                                         _ => false,
                                     };
                                     if invalidated {
@@ -2563,48 +2583,60 @@ fn broadcast_live_snapshot(
     timeframe_secs: u64,
     prev_day_px: Option<Decimal>,
 ) {
-    let val_ema_fast = ema_fast.clone().update(candle.close);
-    let val_ema_medium = ema_medium.clone().update(candle.close);
-    let val_ema_slow = ema_slow.clone().update(candle.close);
-    let val_ema_long = ema_long.clone().update(candle.close);
-    let val_rsi = rsi_14.clone().update(candle.close);
-    let val_macd = macd.clone().update(candle.close);
-    let val_adx = adx_14.clone().update(candle.high, candle.low, candle.close);
+    let _open_f = candle.open.to_f64().unwrap_or(0.0);
+    let high_f = candle.high.to_f64().unwrap_or(0.0);
+    let low_f = candle.low.to_f64().unwrap_or(0.0);
+    let close_f = candle.close.to_f64().unwrap_or(0.0);
+    let volume_f = candle.volume.to_f64().unwrap_or(0.0);
+
+    let val_ema_fast = ema_fast.clone().update(close_f);
+    let val_ema_medium = ema_medium.clone().update(close_f);
+    let val_ema_slow = ema_slow.clone().update(close_f);
+    let val_ema_long = ema_long.clone().update(close_f);
+    let val_rsi = rsi_14.clone().update(close_f);
+    let val_macd = macd.clone().update(close_f);
+    let val_adx = adx_14.clone().update(high_f, low_f, close_f);
     let val_sqz = sqz_mom
         .clone()
-        .update(candle.high, candle.low, candle.close);
-    let val_bb = bollinger.clone().update(candle.close);
+        .update(high_f, low_f, close_f);
+    let val_bb = bollinger.clone().update(close_f);
     let val_atr = atr_standalone
         .clone()
-        .update(candle.high, candle.low, candle.close);
-    let val_bbwp = bbwp_indicator.clone().update(candle.close);
+        .update(high_f, low_f, close_f);
+    let val_bbwp = bbwp_indicator.clone().update(close_f);
     let val_stoch = stochastic_indicator
         .clone()
-        .update(candle.high, candle.low, candle.close);
-    let val_cmo = chandemo_indicator.clone().update(candle.close);
+        .update(high_f, low_f, close_f);
+    let val_cmo = chandemo_indicator.clone().update(close_f);
     let val_supertrend = supertrend_indicator
         .clone()
-        .update(candle.high, candle.low, candle.close);
+        .update(high_f, low_f, close_f);
     let val_keltner = keltner_indicator
         .clone()
-        .update(candle.high, candle.low, candle.close);
-    let val_donchian = donchian_indicator.clone().update(candle.high, candle.low);
-    let val_obv = obv_indicator.clone().update(candle.close, candle.volume);
+        .update(high_f, low_f, close_f);
+    let val_donchian = donchian_indicator.clone().update(high_f, low_f);
+    let val_obv = obv_indicator.clone().update(close_f, volume_f);
     let val_cmf =
         cmf_indicator
             .clone()
-            .update(candle.high, candle.low, candle.close, candle.volume);
+            .update(high_f, low_f, close_f, volume_f);
     let val_mfi =
         mfi_indicator
             .clone()
-            .update(candle.high, candle.low, candle.close, candle.volume);
-    let val_hv = hv_indicator.clone().update(candle.close);
-    let val_aroon = aroon_indicator.clone().update(candle.high, candle.low);
+            .update(high_f, low_f, close_f, volume_f);
+    let val_hv = hv_indicator
+        .clone()
+        .update(close_f);
+    let val_aroon = aroon_indicator.clone().update(high_f, low_f);
     let val_chop = choppiness_indicator
         .clone()
-        .update(candle.high, candle.low, candle.close);
-    let val_linreg = linreg_indicator.clone().update(candle.close);
-    let val_zscore = zscore_indicator.clone().update(candle.close);
+        .update(high_f, low_f, close_f);
+    let val_linreg = linreg_indicator
+        .clone()
+        .update(close_f);
+    let val_zscore = zscore_indicator
+        .clone()
+        .update(close_f);
 
     let typical_price = (candle.high + candle.low + candle.close) / Decimal::from(3);
     let temp_sum_tp_vol = *vwap_sum_tp_vol + typical_price * candle.volume;

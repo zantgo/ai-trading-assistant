@@ -31,7 +31,7 @@ impl Keltner {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<KeltnerOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<KeltnerOutput> {
         if self.ema_period == 0 || self.atr_period == 0 {
             return None;
         }
@@ -60,14 +60,10 @@ impl Indicator for Keltner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
+    use rust_decimal::Decimal;
 
     fn feed(k: &mut Keltner, h: f64, l: f64, c: f64) -> Option<KeltnerOutput> {
-        k.update(
-            Decimal::from_f64_retain(h).unwrap(),
-            Decimal::from_f64_retain(l).unwrap(),
-            Decimal::from_f64_retain(c).unwrap(),
-        )
+        k.update(h, l, c)
     }
 
     #[test]
@@ -96,7 +92,7 @@ mod tests {
             out = feed(&mut k, 100.0, 100.0, 100.0);
         }
         let o = out.unwrap();
-        assert_eq!(o.middle, dec!(100));
+        assert_eq!(o.middle, Decimal::from_f64_retain(100.0).unwrap());
         assert_eq!(o.upper, o.lower);
     }
 }

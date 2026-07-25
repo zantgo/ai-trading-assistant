@@ -25,7 +25,10 @@ impl Choppiness {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<Decimal> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         if self.period <= 1 {
             return None;
         }
@@ -82,11 +85,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(c: &mut Choppiness, h: f64, l: f64, cl: f64) -> Option<Decimal> {
-        c.update(
-            Decimal::from_f64_retain(h).unwrap(),
-            Decimal::from_f64_retain(l).unwrap(),
-            Decimal::from_f64_retain(cl).unwrap(),
-        )
+        c.update(h, l, cl)
     }
 
     #[test]

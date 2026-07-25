@@ -38,7 +38,8 @@ impl HullMA {
         }
     }
 
-    pub fn update(&mut self, price: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, price: f64) -> Option<Decimal> {
+        let price = Decimal::from_f64_retain(price).unwrap_or(Decimal::ZERO);
         self.values.push(price);
         let n2 = self.period / 2;
         let n = self.period;
@@ -68,13 +69,12 @@ impl HullMA {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_before_period() {
         let mut hma = HullMA::new(16);
         for _ in 0..15 {
-            assert!(hma.update(dec!(100)).is_none());
+            assert!(hma.update(100.0).is_none());
         }
     }
 
@@ -82,8 +82,8 @@ mod tests {
     fn test_produces_output_after_period() {
         let mut hma = HullMA::new(16);
         for _ in 0..16 {
-            hma.update(dec!(100));
+            hma.update(100.0);
         }
-        assert!(hma.update(dec!(100)).is_some());
+        assert!(hma.update(100.0).is_some());
     }
 }

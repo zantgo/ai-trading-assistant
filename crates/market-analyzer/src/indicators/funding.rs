@@ -23,13 +23,11 @@ impl FundingRate {
         }
     }
 
-    pub fn update(&mut self, rate: Decimal) {
-        self.current = Some(rate);
-        if let Some(v) = rate.to_f64() {
-            self.history.push_back(v);
-            if self.history.len() > self.lookback {
-                self.history.pop_front();
-            }
+    pub fn update(&mut self, rate: f64) {
+        self.current = Some(Decimal::from_f64_retain(rate).unwrap_or(Decimal::ZERO));
+        self.history.push_back(rate);
+        if self.history.len() > self.lookback {
+            self.history.pop_front();
         }
     }
 
@@ -72,7 +70,7 @@ mod tests {
     #[test]
     fn test_funding_annualized() {
         let mut f = FundingRate::new(20, 1095.0);
-        f.update(dec!(0.0001)); // 0.01% per 8h
+        f.update(0.0001); // 0.01% per 8h
         let ann = f.annualized_pct().unwrap();
         let ann_f = ann.to_f64().unwrap();
         assert!(
@@ -85,21 +83,21 @@ mod tests {
     #[test]
     fn test_funding_extreme_detection() {
         let mut f = FundingRate::new(20, 1095.0);
-        f.update(dec!(0.001)); // 0.1% per 8h → ~109.5% annualized
+        f.update(0.001); // 0.1% per 8h → ~109.5% annualized
         assert!(f.is_extreme(50.0).unwrap());
     }
 
     #[test]
     fn test_funding_not_extreme() {
         let mut f = FundingRate::new(20, 1095.0);
-        f.update(dec!(0.00005)); // 0.005% per 8h → ~5.5% annualized
+        f.update(0.00005); // 0.005% per 8h → ~5.5% annualized
         assert!(!f.is_extreme(50.0).unwrap());
     }
 
     #[test]
     fn test_funding_negative_rate() {
         let mut f = FundingRate::new(20, 1095.0);
-        f.update(dec!(-0.0002)); // -0.02% per 8h
+        f.update(-0.0002); // -0.02% per 8h
         let ann = f.annualized_pct().unwrap();
         assert!(ann < dec!(0));
     }

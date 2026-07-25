@@ -20,7 +20,10 @@ impl WilliamsR {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<Decimal> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         self.highs.push_back(high);
         self.lows.push_back(low);
         while self.highs.len() > self.period {
@@ -58,31 +61,30 @@ impl WilliamsR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_before_period() {
         let mut wr = WilliamsR::new(14);
-        assert!(wr.update(dec!(110), dec!(90), dec!(100)).is_none());
+        assert!(wr.update(110.0, 90.0, 100.0).is_none());
     }
 
     #[test]
     fn test_close_at_high_is_zero() {
         let mut wr = WilliamsR::new(14);
         for _ in 0..14 {
-            wr.update(dec!(110), dec!(90), dec!(110));
+            wr.update(110.0, 90.0, 110.0);
         }
-        let out = wr.update(dec!(110), dec!(90), dec!(110)).unwrap();
-        assert!(out > dec!(-1) && out <= dec!(0));
+        let out = wr.update(110.0, 90.0, 110.0).unwrap();
+        assert!(out > Decimal::from_f64_retain(-1.0).unwrap() && out <= Decimal::from_f64_retain(0.0).unwrap());
     }
 
     #[test]
     fn test_close_at_low_is_minus_100() {
         let mut wr = WilliamsR::new(14);
         for _ in 0..14 {
-            wr.update(dec!(110), dec!(90), dec!(90));
+            wr.update(110.0, 90.0, 90.0);
         }
-        let out = wr.update(dec!(110), dec!(90), dec!(90)).unwrap();
-        assert!(out < dec!(-98));
+        let out = wr.update(110.0, 90.0, 90.0).unwrap();
+        assert!(out < Decimal::from_f64_retain(-98.0).unwrap());
     }
 }

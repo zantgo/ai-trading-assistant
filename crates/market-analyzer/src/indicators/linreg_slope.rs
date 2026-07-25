@@ -1,6 +1,4 @@
 use super::traits::{BarInput, Indicator};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use std::collections::VecDeque;
 
 /// Linear Regression Slope: slope of the least-squares regression line fit over
@@ -20,11 +18,11 @@ impl LinRegSlope {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64) -> Option<f64> {
         if self.period < 2 {
             return None;
         }
-        self.closes.push_back(close.to_f64().unwrap_or(0.0));
+        self.closes.push_back(close);
         if self.closes.len() > self.period {
             self.closes.pop_front();
         }
@@ -43,15 +41,15 @@ impl LinRegSlope {
         let sum_x2: f64 = (0..self.period).map(|i| (i as f64).powi(2)).sum();
         let denom = n * sum_x2 - sum_x * sum_x;
         if denom.abs() < f64::EPSILON {
-            return Some(Decimal::ZERO);
+            return Some(0.0);
         }
         let slope = (n * sum_xy - sum_x * sum_y) / denom;
-        Decimal::from_f64_retain(slope)
+        Some(slope)
     }
 }
 
 impl Indicator for LinRegSlope {
-    type Output = Option<Decimal>;
+    type Output = Option<f64>;
     fn update(&mut self, bar: &BarInput) -> Self::Output {
         self.update(bar.close)
     }
@@ -63,11 +61,6 @@ impl Indicator for LinRegSlope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
-
-    fn feed(l: &mut LinRegSlope, c: f64) -> Option<Decimal> {
-        l.update(Decimal::from_f64_retain(c).unwrap())
-    }
 
     #[test]
     fn test_rising_positive_slope() {
@@ -76,9 +69,9 @@ mod tests {
         let mut last = None;
         for _ in 0..8 {
             p += 2.0;
-            last = feed(&mut l, p);
+            last = l.update(p);
         }
-        assert!(last.unwrap() > dec!(0), "rising series → positive slope");
+        assert!(last.unwrap() > 0.0, "rising series → positive slope");
     }
 
     #[test]
@@ -88,9 +81,9 @@ mod tests {
         let mut last = None;
         for _ in 0..8 {
             p -= 2.0;
-            last = feed(&mut l, p);
+            last = l.update(p);
         }
-        assert!(last.unwrap() < dec!(0));
+        assert!(last.unwrap() < 0.0);
     }
 
     #[test]
@@ -98,8 +91,8 @@ mod tests {
         let mut l = LinRegSlope::new(5);
         let mut last = None;
         for _ in 0..8 {
-            last = feed(&mut l, 100.0);
+            last = l.update(100.0);
         }
-        assert_eq!(last.unwrap(), dec!(0));
+        assert_eq!(last.unwrap(), 0.0);
     }
 }

@@ -90,10 +90,13 @@ impl Ichimoku {
     /// `displacement` more projections for the current cloud).
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
     ) -> Option<IchimokuOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         self.highs.push_back(high);
         self.lows.push_back(low);
         let cap = self.senkou_b_period + 2;
@@ -142,9 +145,9 @@ mod tests {
         let mut out = None;
         for i in 0..n {
             let base = start + step * i as f64;
-            let h = Decimal::from_f64_retain(base + 1.0).unwrap();
-            let l = Decimal::from_f64_retain(base - 1.0).unwrap();
-            let c = Decimal::from_f64_retain(base).unwrap();
+            let h = base + 1.0;
+            let l = base - 1.0;
+            let c = base;
             out = ich.update(h, l, c);
         }
         out

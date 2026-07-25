@@ -1,5 +1,6 @@
 use super::ema::Ema;
 use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -63,11 +64,11 @@ impl Macd {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> MacdOutput {
+    pub fn update(&mut self, close: f64) -> MacdOutput {
         let fast = self.fast_ema.update(close);
         let slow = self.slow_ema.update(close);
         let macd_line = fast - slow;
-        let signal_line = self.signal_ema.update(macd_line);
+        let signal_line = self.signal_ema.update(macd_line.to_f64().unwrap_or(0.0));
         let histogram = macd_line - signal_line;
 
         // Detect crossover
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn test_first_update_seeds_emas() {
         let mut macd = Macd::new();
-        let out = macd.update(dec!(100.00));
+        let out = macd.update(100.00);
         assert_eq!(out.macd_line, dec!(0.00));
         assert_eq!(out.signal_line, dec!(0.00));
         assert_eq!(out.histogram, dec!(0.00));
@@ -208,9 +209,9 @@ mod tests {
     #[test]
     fn test_histogram_sign_matches_macd_line_minus_signal() {
         let mut macd = Macd::new();
-        macd.update(dec!(100.00));
-        macd.update(dec!(101.00));
-        let out = macd.update(dec!(102.00));
+        macd.update(100.00);
+        macd.update(101.00);
+        let out = macd.update(102.00);
         assert_eq!(out.histogram, out.macd_line - out.signal_line);
     }
 
@@ -218,18 +219,18 @@ mod tests {
     fn test_bullish_crossover_detected() {
         let mut macd = Macd::new();
         // Seed with equal prices first
-        macd.update(dec!(100.00));
-        macd.update(dec!(100.00));
-        macd.update(dec!(100.00));
-        macd.update(dec!(100.00));
+        macd.update(100.00);
+        macd.update(100.00);
+        macd.update(100.00);
+        macd.update(100.00);
         // Now drive a sustained uptrend to create a bullish crossover
         for _ in 0..20 {
-            macd.update(dec!(100.00));
+            macd.update(100.00);
         }
         for _ in 0..10 {
-            macd.update(dec!(105.00));
+            macd.update(105.00);
         }
-        let out = macd.update(dec!(110.00));
+        let out = macd.update(110.00);
         // After sustained rise, MACD line should eventually cross above signal
         // (may take more periods depending on EMA convergence)
         assert!(out.macd_line > dec!(0.00) || out.crossover.is_some());
@@ -239,18 +240,18 @@ mod tests {
     fn test_histogram_peak_tracks_max() {
         let mut macd = Macd::new();
         for _ in 0..20 {
-            macd.update(dec!(100.00));
+            macd.update(100.00);
         }
         // Push price up to create positive histogram
         for _ in 0..10 {
-            macd.update(dec!(110.00));
+            macd.update(110.00);
         }
-        let _ = macd.update(dec!(115.00));
+        let _ = macd.update(115.00);
         let peak = macd.get_histogram_peak();
         assert!(peak > Decimal::ZERO);
         // Go sideways — peak should not decrease
         for _ in 0..5 {
-            let _ = macd.update(dec!(115.00));
+            let _ = macd.update(115.00);
         }
         assert!(macd.get_histogram_peak() >= peak);
     }
@@ -260,18 +261,18 @@ mod tests {
         let mut macd = Macd::new();
         // Build a large histogram peak
         for _ in 0..20 {
-            macd.update(dec!(100.00));
+            macd.update(100.00);
         }
         for _ in 0..10 {
-            macd.update(dec!(120.00));
+            macd.update(120.00);
         }
-        let out = macd.update(dec!(125.00));
+        let out = macd.update(125.00);
         assert!(out.histogram_peak > Decimal::ZERO);
         // Now go flat to let histogram contract
         for _ in 0..15 {
-            macd.update(dec!(125.00));
+            macd.update(125.00);
         }
-        let out_flat = macd.update(dec!(125.00));
+        let out_flat = macd.update(125.00);
         // After flattening out, histogram may contract
         let current_abs = if out_flat.histogram < Decimal::ZERO {
             -out_flat.histogram
@@ -288,16 +289,16 @@ mod tests {
     fn test_crossover_resets_peak() {
         let mut macd = Macd::new();
         for _ in 0..20 {
-            macd.update(dec!(100.00));
+            macd.update(100.00);
         }
         for _ in 0..10 {
-            macd.update(dec!(120.00));
+            macd.update(120.00);
         }
         let peak_before = macd.get_histogram_peak();
         assert!(peak_before > Decimal::ZERO);
         // Now drive price down hard to force a bearish crossover
         for _ in 0..30 {
-            macd.update(dec!(80.00));
+            macd.update(80.00);
         }
         // After a crossover, peak should reset
         let peak_after = macd.get_histogram_peak();
@@ -310,12 +311,12 @@ mod tests {
     fn test_trend_state_transitions() {
         let mut macd = Macd::new();
         for _ in 0..20 {
-            macd.update(dec!(100.00));
+            macd.update(100.00);
         }
         // Accelerating phase
         let mut found_decelerating = false;
         for i in 0..30 {
-            let out = macd.update(dec!(100.00) + Decimal::from(i as i64));
+            let out = macd.update(100.00 + i as f64);
             if out.trend_state == TrendState::Decelerating {
                 found_decelerating = true;
             }

@@ -76,11 +76,14 @@ impl PivotPoints {
     /// prior session has completed).
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
         day_index: u64,
     ) -> Option<PivotLevels> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         match self.cur_day {
             Some(d) if d == day_index => {
                 // Same session: extend the accumulation.
@@ -149,17 +152,17 @@ mod tests {
     fn test_none_until_first_session_completes() {
         let mut pp = PivotPoints::new(PivotMethod::Classic);
         // All within day 0 → no prior session yet.
-        assert!(pp.update(dec!(110), dec!(90), dec!(100), 0).is_none());
-        assert!(pp.update(dec!(112), dec!(95), dec!(105), 0).is_none());
+        assert!(pp.update(110.0, 90.0, 100.0, 0).is_none());
+        assert!(pp.update(112.0, 95.0, 105.0, 0).is_none());
         // Rollover to day 1 finalizes day 0 → levels published.
-        assert!(pp.update(dec!(108), dec!(100), dec!(104), 1).is_some());
+        assert!(pp.update(108.0, 100.0, 104.0, 1).is_some());
     }
 
     #[test]
     fn test_classic_level_ordering() {
         let mut pp = PivotPoints::new(PivotMethod::Classic);
-        pp.update(dec!(110), dec!(90), dec!(100), 0);
-        let lv = pp.update(dec!(105), dec!(101), dec!(104), 1).unwrap();
+        pp.update(110.0, 90.0, 100.0, 0);
+        let lv = pp.update(105.0, 101.0, 104.0, 1).unwrap();
         // S3 < S2 < S1 < P < R1 < R2 < R3
         assert!(lv.s3 < lv.s2);
         assert!(lv.s2 < lv.s1);
@@ -172,8 +175,8 @@ mod tests {
     #[test]
     fn test_classic_pivot_formula() {
         let mut pp = PivotPoints::new(PivotMethod::Classic);
-        pp.update(dec!(120), dec!(90), dec!(105), 0);
-        let lv = pp.update(dec!(100), dec!(99), dec!(100), 1).unwrap();
+        pp.update(120.0, 90.0, 105.0, 0);
+        let lv = pp.update(100.0, 99.0, 100.0, 1).unwrap();
         // P = (120 + 90 + 105) / 3 = 105
         assert_eq!(lv.pivot, dec!(105));
         // R1 = 2P - Low = 210 - 90 = 120
@@ -189,10 +192,10 @@ mod tests {
     #[test]
     fn test_levels_constant_within_session() {
         let mut pp = PivotPoints::new(PivotMethod::Classic);
-        pp.update(dec!(110), dec!(90), dec!(100), 0);
-        let a = pp.update(dec!(105), dec!(101), dec!(104), 1).unwrap();
+        pp.update(110.0, 90.0, 100.0, 0);
+        let a = pp.update(105.0, 101.0, 104.0, 1).unwrap();
         // Further candles within day 1 must not change published levels.
-        let b = pp.update(dec!(120), dec!(95), dec!(118), 1).unwrap();
+        let b = pp.update(120.0, 95.0, 118.0, 1).unwrap();
         assert_eq!(a, b);
     }
 

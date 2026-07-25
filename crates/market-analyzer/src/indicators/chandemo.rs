@@ -24,7 +24,8 @@ impl ChandeMO {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64) -> Option<Decimal> {
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         if self.period == 0 {
             return None;
         }
@@ -94,7 +95,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(cmo: &mut ChandeMO, close: f64) -> Option<Decimal> {
-        cmo.update(Decimal::from_f64_retain(close).unwrap())
+        cmo.update(close)
     }
 
     #[test]

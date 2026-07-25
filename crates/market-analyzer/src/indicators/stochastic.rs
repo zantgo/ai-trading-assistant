@@ -1,5 +1,6 @@
 use super::sma::Sma;
 use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::collections::VecDeque;
 
@@ -40,10 +41,13 @@ impl Stochastic {
 
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
     ) -> Option<StochasticOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         if self.k_period == 0 {
             return None;
         }
@@ -69,8 +73,8 @@ impl Stochastic {
             ((close - lowest_low) / range) * Decimal::from(100)
         };
 
-        let slowed_k = self.k_sma.update(raw_k)?;
-        let d = self.d_sma.update(slowed_k)?;
+        let slowed_k = self.k_sma.update(raw_k.to_f64().unwrap_or(0.0))?;
+        let d = self.d_sma.update(slowed_k.to_f64().unwrap_or(0.0))?;
 
         self.prev_k = Some(slowed_k);
         self.prev_d = Some(d);
@@ -100,11 +104,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(stoch: &mut Stochastic, high: f64, low: f64, close: f64) -> Option<StochasticOutput> {
-        stoch.update(
-            Decimal::from_f64_retain(high).unwrap(),
-            Decimal::from_f64_retain(low).unwrap(),
-            Decimal::from_f64_retain(close).unwrap(),
-        )
+        stoch.update(high, low, close)
     }
 
     #[test]

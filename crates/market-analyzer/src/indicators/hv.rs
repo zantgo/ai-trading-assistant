@@ -1,6 +1,4 @@
 use super::traits::{BarInput, Indicator};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use std::collections::VecDeque;
 
 /// Historical Volatility: annualized standard deviation of log returns over N
@@ -21,11 +19,11 @@ impl HistoricalVolatility {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64) -> Option<f64> {
         if self.period == 0 {
             return None;
         }
-        let c = close.to_f64().unwrap_or(0.0);
+        let c = close;
         let prev = match self.prev_close {
             None => {
                 self.prev_close = Some(c);
@@ -47,14 +45,13 @@ impl HistoricalVolatility {
         let n = self.returns.len() as f64;
         let mean = self.returns.iter().sum::<f64>() / n;
         let var = self.returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
-        // Annualize assuming ~365d crypto sessions; expressed as percent.
         let hv = var.sqrt() * (365.0_f64).sqrt() * 100.0;
-        Decimal::from_f64_retain(hv)
+        Some(hv)
     }
 }
 
 impl Indicator for HistoricalVolatility {
-    type Output = Option<Decimal>;
+    type Output = Option<f64>;
     fn update(&mut self, bar: &BarInput) -> Self::Output {
         self.update(bar.close)
     }
@@ -66,10 +63,9 @@ impl Indicator for HistoricalVolatility {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
-    fn feed(hv: &mut HistoricalVolatility, c: f64) -> Option<Decimal> {
-        hv.update(Decimal::from_f64_retain(c).unwrap())
+    fn feed(hv: &mut HistoricalVolatility, c: f64) -> Option<f64> {
+        hv.update(c)
     }
 
     #[test]
@@ -86,7 +82,7 @@ mod tests {
         for _ in 0..8 {
             last = feed(&mut hv, 100.0);
         }
-        assert_eq!(last.unwrap(), dec!(0));
+        assert_eq!(last.unwrap(), 0.0);
     }
 
     #[test]
@@ -98,6 +94,6 @@ mod tests {
             let p = if i % 2 == 0 { 120.0 } else { 90.0 };
             last = feed(&mut hv, p);
         }
-        assert!(last.unwrap() > dec!(0), "volatile series → positive HV");
+        assert!(last.unwrap() > 0.0, "volatile series → positive HV");
     }
 }

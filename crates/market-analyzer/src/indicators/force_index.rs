@@ -20,7 +20,9 @@ impl ForceIndex {
         }
     }
 
-    pub fn update(&mut self, close: Decimal, volume: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64, volume: f64) -> Option<Decimal> {
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
+        let volume = Decimal::from_f64_retain(volume).unwrap_or(Decimal::ZERO);
         let raw = match self.prev_close {
             Some(pc) => (close - pc) * volume,
             None => {
@@ -40,27 +42,26 @@ impl ForceIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_on_first_bar() {
         let mut fi = ForceIndex::new(13);
-        assert!(fi.update(dec!(100), dec!(1000)).is_none());
+        assert!(fi.update(100.0, 1000.0).is_none());
     }
 
     #[test]
     fn test_positive_on_uptick() {
         let mut fi = ForceIndex::new(13);
-        fi.update(dec!(100), dec!(1000));
-        let out = fi.update(dec!(105), dec!(1000)).unwrap();
-        assert!(out > dec!(0));
+        fi.update(100.0, 1000.0);
+        let out = fi.update(105.0, 1000.0).unwrap();
+        assert!(out > Decimal::from_f64_retain(0.0).unwrap());
     }
 
     #[test]
     fn test_negative_on_downtick() {
         let mut fi = ForceIndex::new(13);
-        fi.update(dec!(100), dec!(1000));
-        let out = fi.update(dec!(95), dec!(1000)).unwrap();
-        assert!(out < dec!(0));
+        fi.update(100.0, 1000.0);
+        let out = fi.update(95.0, 1000.0).unwrap();
+        assert!(out < Decimal::from_f64_retain(0.0).unwrap());
     }
 }

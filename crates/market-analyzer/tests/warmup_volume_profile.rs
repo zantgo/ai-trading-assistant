@@ -306,12 +306,13 @@ fn volume_profile_indicator_keeps_strict_live_gate() {
     let mut vp = VolumeProfile::new(500, 50, 0.7);
     let mut last_reading = None;
     for i in 0..249 {
+        let price = 50_000.0 + i as f64 * 0.01;
         last_reading = vp.update_with_open(
-            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
-            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
-            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
-            Decimal::from_f64_retain(50_000.0 + i as f64 * 0.01).unwrap(),
-            Decimal::from_f64_retain(1.0).unwrap(),
+            price,
+            price,
+            price,
+            price,
+            1.0,
         );
     }
     assert!(

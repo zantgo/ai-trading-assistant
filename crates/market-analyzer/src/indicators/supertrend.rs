@@ -39,14 +39,17 @@ impl Supertrend {
 
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
     ) -> Option<SupertrendOutput> {
         if self.period == 0 {
             return None;
         }
         let atr = self.atr.update(high, low, close)?.atr_value;
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         let hl2 = (high + low) / Decimal::from(2);
         let basic_upper = hl2 + self.multiplier * atr;
         let basic_lower = hl2 - self.multiplier * atr;
@@ -117,11 +120,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(st: &mut Supertrend, h: f64, l: f64, c: f64) -> Option<SupertrendOutput> {
-        st.update(
-            Decimal::from_f64_retain(h).unwrap(),
-            Decimal::from_f64_retain(l).unwrap(),
-            Decimal::from_f64_retain(c).unwrap(),
-        )
+        st.update(h, l, c)
     }
 
     #[test]

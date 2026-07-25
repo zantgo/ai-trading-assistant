@@ -42,13 +42,17 @@ impl AnchoredVwap {
 
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
-        volume: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: f64,
         day_index: u64,
-        daily_vwap: Decimal,
+        daily_vwap: f64,
     ) -> AvwapOutput {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
+        let volume = Decimal::from_f64_retain(volume).unwrap_or(Decimal::ZERO);
         let tp = (high + low + close) / Decimal::from(3);
 
         // Weekly reset
@@ -85,7 +89,7 @@ impl AnchoredVwap {
         self.sw_vol += volume;
 
         AvwapOutput {
-            vwap_daily: daily_vwap,
+            vwap_daily: Decimal::from_f64_retain(daily_vwap).unwrap_or(Decimal::ZERO),
             vwap_weekly: if self.wk_vol > Decimal::ZERO {
                 Some(self.wk_tp_vol / self.wk_vol)
             } else {

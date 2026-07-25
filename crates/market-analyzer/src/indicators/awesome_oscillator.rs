@@ -23,7 +23,9 @@ impl AwesomeOscillator {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal) -> Option<AoOutput> {
+    pub fn update(&mut self, high: f64, low: f64) -> Option<AoOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
         let median = (high + low) / Decimal::from(2);
         self.medians.push_back(median);
         while self.medians.len() > 35 {
@@ -70,23 +72,22 @@ impl AwesomeOscillator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_before_34() {
         let mut ao = AwesomeOscillator::new();
         for _ in 0..33 {
-            ao.update(dec!(110), dec!(90));
+            ao.update(110.0, 90.0);
         }
-        assert!(ao.update(dec!(110), dec!(90)).is_some());
+        assert!(ao.update(110.0, 90.0).is_some());
     }
 
     #[test]
     fn test_produces_output_after_34() {
         let mut ao = AwesomeOscillator::new();
         for _ in 0..34 {
-            ao.update(dec!(110), dec!(90));
+            ao.update(110.0, 90.0);
         }
-        assert!(ao.update(dec!(110), dec!(90)).is_some());
+        assert!(ao.update(110.0, 90.0).is_some());
     }
 }

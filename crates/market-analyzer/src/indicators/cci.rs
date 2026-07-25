@@ -17,7 +17,10 @@ impl Cci {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<Decimal> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         if self.period == 0 {
             return None;
         }
@@ -48,25 +51,20 @@ impl Cci {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     fn feed(cci: &mut Cci, n: usize, base: f64) {
         for i in 0..n {
             let h = base + i as f64 + 1.0;
             let l = base + i as f64 - 1.0;
             let c = base + i as f64;
-            cci.update(
-                Decimal::from_f64_retain(h).unwrap(),
-                Decimal::from_f64_retain(l).unwrap(),
-                Decimal::from_f64_retain(c).unwrap(),
-            );
+            cci.update(h, l, c);
         }
     }
 
     #[test]
     fn test_none_before_period() {
         let mut cci = Cci::new(20);
-        let out = cci.update(dec!(100), dec!(98), dec!(99));
+        let out = cci.update(100.0, 98.0, 99.0);
         assert!(out.is_none());
     }
 
@@ -74,7 +72,7 @@ mod tests {
     fn test_produces_output_after_period() {
         let mut cci = Cci::new(20);
         feed(&mut cci, 21, 100.0);
-        let out = cci.update(dec!(121), dec!(119), dec!(120));
+        let out = cci.update(121.0, 119.0, 120.0);
         assert!(out.is_some());
     }
 
@@ -83,11 +81,11 @@ mod tests {
         let mut cci = Cci::new(20);
         // True flat prices (no trend) → CCI near 0.
         for _ in 0..20 {
-            cci.update(dec!(101), dec!(99), dec!(100));
+            cci.update(101.0, 99.0, 100.0);
         }
-        let out = cci.update(dec!(101), dec!(99), dec!(100)).unwrap();
+        let out = cci.update(101.0, 99.0, 100.0).unwrap();
         assert!(
-            out.abs() < dec!(1),
+            out.abs() < Decimal::from_f64_retain(1.0).unwrap(),
             "flat prices should produce near-zero CCI, got {}",
             out
         );
@@ -98,7 +96,7 @@ mod tests {
         let mut cci = Cci::new(20);
         feed(&mut cci, 20, 100.0);
         // Strong uptrend spike at the end → positive CCI.
-        let out = cci.update(dec!(140), dec!(119), dec!(135)).unwrap();
-        assert!(out > dec!(0));
+        let out = cci.update(140.0, 119.0, 135.0).unwrap();
+        assert!(out > Decimal::from_f64_retain(0.0).unwrap());
     }
 }

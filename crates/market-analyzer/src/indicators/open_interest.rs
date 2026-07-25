@@ -20,13 +20,11 @@ impl OpenInterest {
         }
     }
 
-    pub fn update(&mut self, oi: Decimal) {
-        self.current = Some(oi);
-        if let Some(v) = oi.to_f64() {
-            self.history.push_back(v);
-            if self.history.len() > self.lookback {
-                self.history.pop_front();
-            }
+    pub fn update(&mut self, oi: f64) {
+        self.current = Some(Decimal::from_f64_retain(oi).unwrap_or(Decimal::ZERO));
+        self.history.push_back(oi);
+        if self.history.len() > self.lookback {
+            self.history.pop_front();
         }
     }
 
@@ -77,7 +75,7 @@ mod tests {
     fn test_oi_average() {
         let mut oi = OpenInterest::new(100);
         for i in 1..=5 {
-            oi.update(Decimal::from(i * 100));
+            oi.update((i * 100) as f64);
         }
         let avg = oi.average().unwrap();
         assert_eq!(avg, dec!(300));
@@ -86,9 +84,9 @@ mod tests {
     #[test]
     fn test_oi_delta() {
         let mut oi = OpenInterest::new(100);
-        oi.update(dec!(10000));
-        oi.update(dec!(10500));
-        oi.update(dec!(10300));
+        oi.update(10000.0);
+        oi.update(10500.0);
+        oi.update(10300.0);
         let delta = oi.delta_window().unwrap();
         assert_eq!(delta, dec!(300));
     }
@@ -97,7 +95,7 @@ mod tests {
     fn test_oi_percentile() {
         let mut oi = OpenInterest::new(100);
         for v in [100, 200, 300, 400, 500] {
-            oi.update(Decimal::from(v));
+            oi.update(v as f64);
         }
         let pct = oi.percentile().unwrap();
         assert!(pct > 75.0);

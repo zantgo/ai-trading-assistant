@@ -1,11 +1,5 @@
 use proptest::prelude::*;
-use rust_decimal::prelude::FromPrimitive;
-use rust_decimal::Decimal;
 use market_analyzer::indicators::{DivergenceDetector, DivergenceStatus, DivergenceType};
-
-fn dec(v: f64) -> Decimal {
-    Decimal::from_f64(v).unwrap_or(Decimal::ZERO)
-}
 
 proptest! {
     #[test]
@@ -16,7 +10,7 @@ proptest! {
         let mut det = DivergenceDetector::new(10);
         let n = prices.len().min(rsi_vals.len());
         for i in 0..n {
-            let result = det.update_full(dec(prices[i]), dec(rsi_vals[i]), Decimal::ZERO);
+            let result = det.update_full(prices[i], rsi_vals[i], 0.0);
 
             // Status can be None or Potential, never Confirmed from update_full
             prop_assert!(result.rsi_status != DivergenceStatus::Confirmed,
@@ -44,7 +38,7 @@ proptest! {
         let mut det = DivergenceDetector::new(10);
         let n = prices.len().min(rsi_vals.len());
         for i in 0..n {
-            let result = det.update_full(dec(prices[i]), dec(rsi_vals[i]), Decimal::ZERO);
+            let result = det.update_full(prices[i], rsi_vals[i], 0.0);
 
             // If coordinates are present, indices must be within the lookback window
             if let Some(ref coords) = result.rsi_coords {
@@ -74,7 +68,7 @@ proptest! {
         let mut det = DivergenceDetector::new(10);
         let n = prices.len().min(rsi_vals.len());
         for i in 0..n {
-            let result = det.update_full(dec(prices[i]), dec(rsi_vals[i]), Decimal::ZERO);
+            let result = det.update_full(prices[i], rsi_vals[i], 0.0);
 
             // has_bullish is true iff at least one divergence type (regular OR hidden) is bullish
             let any_bullish = matches!(

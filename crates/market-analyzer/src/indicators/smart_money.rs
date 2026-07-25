@@ -60,11 +60,15 @@ impl SmartMoney {
 
     pub fn update(
         &mut self,
-        open: Decimal,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
     ) -> Option<SmcOutput> {
+        let open = Decimal::from_f64_retain(open).unwrap_or(Decimal::ZERO);
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         self.prices.push_back((open, high, low, close));
         while self.prices.len() > self.lookback + 3 {
             self.prices.pop_front();
@@ -232,12 +236,11 @@ impl SmartMoney {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_before_min_bars() {
         let mut smc = SmartMoney::new(50);
-        let out = smc.update(dec!(100), dec!(110), dec!(90), dec!(105));
+        let out = smc.update(100.0, 110.0, 90.0, 105.0);
         assert!(out.is_none());
     }
 
@@ -245,10 +248,10 @@ mod tests {
     fn test_produces_output_after_five_bars() {
         let mut smc = SmartMoney::new(50);
         for _ in 0..5 {
-            smc.update(dec!(100), dec!(110), dec!(90), dec!(105));
+            smc.update(100.0, 110.0, 90.0, 105.0);
         }
         assert!(smc
-            .update(dec!(100), dec!(110), dec!(90), dec!(105))
+            .update(100.0, 110.0, 90.0, 105.0)
             .is_some());
     }
 
@@ -258,18 +261,18 @@ mod tests {
         // Create a clear swing pattern: higher lows, higher highs
         // Bar pattern: price makes a low at 90, then rallies to 110, pulls back to 95,
         // then rallies to a new higher high at 150.
-        smc.update(dec!(100), dec!(105), dec!(95), dec!(100));
-        smc.update(dec!(100), dec!(102), dec!(92), dec!(95));
-        smc.update(dec!(95), dec!(103), dec!(90), dec!(101));
-        smc.update(dec!(101), dec!(110), dec!(101), dec!(108));
-        smc.update(dec!(108), dec!(112), dec!(100), dec!(103));
-        smc.update(dec!(103), dec!(104), dec!(95), dec!(98));
-        smc.update(dec!(98), dec!(105), dec!(94), dec!(103));
-        smc.update(dec!(103), dec!(120), dec!(103), dec!(118));
-        smc.update(dec!(118), dec!(122), dec!(110), dec!(113));
-        smc.update(dec!(113), dec!(114), dec!(105), dec!(108));
+        smc.update(100.0, 105.0, 95.0, 100.0);
+        smc.update(100.0, 102.0, 92.0, 95.0);
+        smc.update(95.0, 103.0, 90.0, 101.0);
+        smc.update(101.0, 110.0, 101.0, 108.0);
+        smc.update(108.0, 112.0, 100.0, 103.0);
+        smc.update(103.0, 104.0, 95.0, 98.0);
+        smc.update(98.0, 105.0, 94.0, 103.0);
+        smc.update(103.0, 120.0, 103.0, 118.0);
+        smc.update(118.0, 122.0, 110.0, 113.0);
+        smc.update(113.0, 114.0, 105.0, 108.0);
         // Final bar: breakout to new high
-        let out = smc.update(dec!(108), dec!(150), dec!(108), dec!(145));
+        let out = smc.update(108.0, 150.0, 108.0, 145.0);
         assert!(out.is_some());
         let o = out.unwrap();
         assert!(o.bos_bullish);

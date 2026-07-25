@@ -261,11 +261,15 @@ impl Candlestick {
     /// Feed a completed candle. Returns the recognition result for this bar.
     pub fn update(
         &mut self,
-        open: Decimal,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
     ) -> CandlestickResult {
+        let open = Decimal::from_f64_retain(open).unwrap_or(Decimal::ZERO);
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         let cur = C {
             o: open.to_f64().unwrap_or(0.0),
             h: high.to_f64().unwrap_or(0.0),
@@ -786,15 +790,9 @@ impl Candlestick {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     fn feed(cs: &mut Candlestick, o: f64, h: f64, l: f64, c: f64) -> CandlestickResult {
-        cs.update(
-            Decimal::from_f64_retain(o).unwrap(),
-            Decimal::from_f64_retain(h).unwrap(),
-            Decimal::from_f64_retain(l).unwrap(),
-            Decimal::from_f64_retain(c).unwrap(),
-        )
+        cs.update(o, h, l, c)
     }
 
     #[test]
@@ -867,7 +865,7 @@ mod tests {
     #[test]
     fn test_decimal_input_smoke() {
         let mut cs = Candlestick::new(CandlestickConfig::default());
-        let r = cs.update(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = cs.update(100.0, 110.0, 90.0, 100.0);
         // Wide range, tiny body centered → long-legged doji.
         assert_eq!(r.direction, 0);
     }

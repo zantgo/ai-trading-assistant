@@ -23,11 +23,15 @@ impl Mfi {
 
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
-        volume: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: f64,
     ) -> Option<Decimal> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
+        let volume = Decimal::from_f64_retain(volume).unwrap_or(Decimal::ZERO);
         if self.period == 0 {
             return None;
         }
@@ -85,12 +89,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(m: &mut Mfi, h: f64, l: f64, c: f64, v: f64) -> Option<Decimal> {
-        m.update(
-            Decimal::from_f64_retain(h).unwrap(),
-            Decimal::from_f64_retain(l).unwrap(),
-            Decimal::from_f64_retain(c).unwrap(),
-            Decimal::from_f64_retain(v).unwrap(),
-        )
+        m.update(h, l, c, v)
     }
 
     #[test]

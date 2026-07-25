@@ -1,6 +1,4 @@
 use super::traits::{BarInput, Indicator};
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use std::collections::VecDeque;
 
 /// Z-Score: number of standard deviations the close is from its N-bar mean.
@@ -19,11 +17,11 @@ impl ZScore {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64) -> Option<f64> {
         if self.period < 2 {
             return None;
         }
-        let c = close.to_f64().unwrap_or(0.0);
+        let c = close;
         self.closes.push_back(c);
         if self.closes.len() > self.period {
             self.closes.pop_front();
@@ -36,14 +34,14 @@ impl ZScore {
         let var = self.closes.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
         if std < f64::EPSILON {
-            return Some(Decimal::ZERO);
+            return Some(0.0);
         }
-        Decimal::from_f64_retain((c - mean) / std)
+        Some((c - mean) / std)
     }
 }
 
 impl Indicator for ZScore {
-    type Output = Option<Decimal>;
+    type Output = Option<f64>;
     fn update(&mut self, bar: &BarInput) -> Self::Output {
         self.update(bar.close)
     }
@@ -55,20 +53,15 @@ impl Indicator for ZScore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
-
-    fn feed(z: &mut ZScore, c: f64) -> Option<Decimal> {
-        z.update(Decimal::from_f64_retain(c).unwrap())
-    }
 
     #[test]
     fn test_spike_positive_z() {
         let mut z = ZScore::new(10);
         for _ in 0..10 {
-            feed(&mut z, 100.0);
+            z.update(100.0);
         }
-        let v = feed(&mut z, 120.0).unwrap();
-        assert!(v > dec!(1), "upward spike → positive z-score, got {}", v);
+        let v = z.update(120.0).unwrap();
+        assert!(v > 1.0, "upward spike → positive z-score, got {}", v);
     }
 
     #[test]
@@ -76,14 +69,14 @@ mod tests {
         let mut z = ZScore::new(5);
         let mut last = None;
         for _ in 0..8 {
-            last = feed(&mut z, 100.0);
+            last = z.update(100.0);
         }
-        assert_eq!(last.unwrap(), dec!(0));
+        assert_eq!(last.unwrap(), 0.0);
     }
 
     #[test]
     fn test_none_before_period() {
         let mut z = ZScore::new(5);
-        assert!(feed(&mut z, 100.0).is_none());
+        assert!(z.update(100.0).is_none());
     }
 }

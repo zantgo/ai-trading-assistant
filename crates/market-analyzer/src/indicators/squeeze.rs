@@ -70,12 +70,12 @@ impl SqueezeMomentum {
         self.min_duration = min_duration;
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<SqueezeOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<SqueezeOutput> {
         let p = self.period;
 
-        self.prices_history.push(close);
-        self.high_history.push(high);
-        self.low_history.push(low);
+        self.prices_history.push(Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO));
+        self.high_history.push(Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO));
+        self.low_history.push(Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO));
 
         if self.prices_history.len() > p {
             self.prices_history.remove(0);
@@ -86,6 +86,10 @@ impl SqueezeMomentum {
         let sma = self.sma_20.update(close);
         let _ema = self.ema_20.update(close);
         let atr = self.atr_20.update(high, low, close);
+
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
 
         let sma_val = sma?;
         let atr_output = atr?;
@@ -240,24 +244,22 @@ fn classify_momentum_direction(current: Decimal, prev: Option<Decimal>) -> Momen
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_returns_none_before_20_values() {
         let mut sqz = SqueezeMomentum::new(20);
         for _ in 0..19 {
-            let price = dec!(100.00);
-            assert!(sqz.update(price, price, price).is_none());
+            assert!(sqz.update(100.00, 100.00, 100.00).is_none());
         }
     }
 
     #[test]
     fn test_returns_result_after_val_history_warmup() {
         let mut sqz = SqueezeMomentum::new(20);
-        let mut price = dec!(100.00);
+        let mut price = 100.00;
         for _ in 0..38 {
             assert!(sqz.update(price, price, price).is_none());
-            price += dec!(0.10);
+            price += 0.10;
         }
         let result = sqz.update(price, price, price);
         assert!(
@@ -269,14 +271,14 @@ mod tests {
     #[test]
     fn test_momentum_sign_matches_direction() {
         let mut sqz = SqueezeMomentum::new(20);
-        let mut price = dec!(100.00);
+        let mut price = 100.00;
         for _ in 0..38 {
             sqz.update(price, price, price);
-            price += dec!(0.50);
+            price += 0.50;
         }
         let out = sqz.update(price, price, price).unwrap();
         assert!(
-            out.momentum_value > dec!(0.00),
+            out.momentum_value > Decimal::from_f64_retain(0.00).unwrap(),
             "Rising prices should produce positive momentum"
         );
     }
@@ -285,15 +287,14 @@ mod tests {
     fn test_squeeze_duration_counts() {
         let mut sqz = SqueezeMomentum::new(20);
         sqz.set_min_duration(5);
-        let price = dec!(100.00);
         // Warm up with very tight oscillating prices to trigger squeeze
         for _ in 0..38 {
-            sqz.update(price + dec!(0.01), price - dec!(0.01), price);
+            sqz.update(100.01, 99.99, 100.00);
         }
         // Feed very tight range to stay in squeeze
         let mut counted = false;
         for _ in 0..30 {
-            if let Some(out) = sqz.update(price + dec!(0.02), price - dec!(0.02), price) {
+            if let Some(out) = sqz.update(100.02, 99.98, 100.00) {
                 if out.squeeze_on {
                     counted = true;
                 }
@@ -309,20 +310,20 @@ mod tests {
     fn test_release_trigger_detected() {
         let mut sqz = SqueezeMomentum::new(20);
         sqz.set_min_duration(5);
-        let mut price = dec!(100.00);
+        let mut price = 100.00;
         // Warm up with tight range to create squeeze
         for _ in 0..38 {
-            sqz.update(price + dec!(0.01), price - dec!(0.01), price);
+            sqz.update(price + 0.01, price - 0.01, price);
         }
         // Now inject large range to release squeeze
         for _ in 0..30 {
-            let high = price + dec!(5.00);
-            let low = price - dec!(2.00);
-            if let Some(out) = sqz.update(high, low, price + dec!(3.00)) {
+            let high = price + 5.00;
+            let low = price - 2.00;
+            if let Some(out) = sqz.update(high, low, price + 3.00) {
                 // Just verify the release trigger field exists and we can read it
                 let _ = out.squeeze_release_trigger;
             }
-            price += dec!(0.10);
+            price += 0.10;
         }
         // Test passes if no panic — release trigger is computed correctly
     }
@@ -330,23 +331,38 @@ mod tests {
     #[test]
     fn test_momentum_direction_classification() {
         // Positive and growing
-        let d1 = classify_momentum_direction(dec!(0.05), Some(dec!(0.03)));
+        let d1 = classify_momentum_direction(
+            Decimal::from_f64_retain(0.05).unwrap(),
+            Some(Decimal::from_f64_retain(0.03).unwrap()),
+        );
         assert_eq!(d1, MomentumDirection::BullishAcceleration);
 
         // Positive and shrinking
-        let d2 = classify_momentum_direction(dec!(0.05), Some(dec!(0.08)));
+        let d2 = classify_momentum_direction(
+            Decimal::from_f64_retain(0.05).unwrap(),
+            Some(Decimal::from_f64_retain(0.08).unwrap()),
+        );
         assert_eq!(d2, MomentumDirection::BullishDeceleration);
 
         // Negative and growing more negative
-        let d3 = classify_momentum_direction(dec!(-0.10), Some(dec!(-0.05)));
+        let d3 = classify_momentum_direction(
+            Decimal::from_f64_retain(-0.10).unwrap(),
+            Some(Decimal::from_f64_retain(-0.05).unwrap()),
+        );
         assert_eq!(d3, MomentumDirection::BearishAcceleration);
 
         // Negative and becoming less negative
-        let d4 = classify_momentum_direction(dec!(-0.03), Some(dec!(-0.10)));
+        let d4 = classify_momentum_direction(
+            Decimal::from_f64_retain(-0.03).unwrap(),
+            Some(Decimal::from_f64_retain(-0.10).unwrap()),
+        );
         assert_eq!(d4, MomentumDirection::BearishDeceleration);
 
         // Near zero
-        let d5 = classify_momentum_direction(dec!(0.0001), None);
+        let d5 = classify_momentum_direction(
+            Decimal::from_f64_retain(0.0001).unwrap(),
+            None,
+        );
         assert_eq!(d5, MomentumDirection::Flat);
     }
 
@@ -354,12 +370,11 @@ mod tests {
     fn test_min_duration_config() {
         let mut sqz = SqueezeMomentum::new(20);
         sqz.set_min_duration(8);
-        let price = dec!(100.00);
         for _ in 0..38 {
-            sqz.update(price, price, price);
+            sqz.update(100.00, 100.00, 100.00);
         }
         for _ in 0..20 {
-            let _ = sqz.update(price, price, price);
+            let _ = sqz.update(100.00, 100.00, 100.00);
         }
         // Just verify it runs and duration counter works
         let duration = sqz.get_squeeze_duration();

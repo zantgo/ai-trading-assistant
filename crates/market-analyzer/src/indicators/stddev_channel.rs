@@ -28,7 +28,8 @@ impl StdDevChannel {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> Option<SdChannelOutput> {
+    pub fn update(&mut self, close: f64) -> Option<SdChannelOutput> {
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         self.closes.push_back(close);
         while self.closes.len() > self.period {
             self.closes.pop_front();
@@ -79,13 +80,12 @@ impl StdDevChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_before_period() {
         let mut sd = StdDevChannel::new(20);
         for _ in 0..19 {
-            assert!(sd.update(dec!(100)).is_none());
+            assert!(sd.update(100.0).is_none());
         }
     }
 
@@ -93,18 +93,18 @@ mod tests {
     fn test_produces_output_after_period() {
         let mut sd = StdDevChannel::new(20);
         for _ in 0..20 {
-            sd.update(dec!(100));
+            sd.update(100.0);
         }
-        assert!(sd.update(dec!(100)).is_some());
+        assert!(sd.update(100.0).is_some());
     }
 
     #[test]
     fn test_upper_above_center() {
         let mut sd = StdDevChannel::new(20);
         for _ in 0..20 {
-            sd.update(dec!(100));
+            sd.update(100.0);
         }
-        let out = sd.update(dec!(100)).unwrap();
+        let out = sd.update(100.0).unwrap();
         assert!(out.upper >= out.center);
         assert!(out.center >= out.lower);
     }

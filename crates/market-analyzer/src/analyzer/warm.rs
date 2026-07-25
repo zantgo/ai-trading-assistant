@@ -210,44 +210,51 @@ pub fn warm_indicators_for_timeframe(
         }
         last_day_index = Some(day_index);
 
+        // ── f64 batch inputs for indicator update calls ──
+        let open_f = completed.open.to_f64().unwrap_or(0.0);
+        let high_f = completed.high.to_f64().unwrap_or(0.0);
+        let low_f = completed.low.to_f64().unwrap_or(0.0);
+        let close_f = completed.close.to_f64().unwrap_or(0.0);
+        let volume_f = completed.volume.to_f64().unwrap_or(0.0);
+
         // Session Pivot Points: accumulate H/L/C; publish on day rollover.
         let pivot_levels = pivot_points_indicator.update(
-            completed.high,
-            completed.low,
-            completed.close,
+            high_f,
+            low_f,
+            close_f,
             day_index,
         );
 
         // Candlestick recognition (warmed through history).
         let candlestick_reading = candlestick_indicator.update(
-            completed.open,
-            completed.high,
-            completed.low,
-            completed.close,
+            open_f,
+            high_f,
+            low_f,
+            close_f,
         );
 
         // Ichimoku Cloud (warmed through history).
         let ichimoku_reading =
-            ichimoku_indicator.update(completed.high, completed.low, completed.close);
+            ichimoku_indicator.update(high_f, low_f, close_f);
 
         // CCI (warmed through history).
-        let cci_reading = cci_indicator.update(completed.high, completed.low, completed.close);
+        let cci_reading = cci_indicator.update(high_f, low_f, close_f);
 
         // Parabolic SAR (warmed through history).
-        let psar_reading = psar_indicator.update(completed.high, completed.low);
+        let psar_reading = psar_indicator.update(high_f, low_f);
 
-        let wr_reading = wr_indicator.update(completed.high, completed.low, completed.close);
-        let hma_reading = hma_indicator.update(completed.close);
-        let ao_reading = ao_indicator.update(completed.high, completed.low);
-        let fi_reading = fi_indicator.update(completed.close, completed.volume);
-        let sdc_reading = sdc_indicator.update(completed.close);
+        let wr_reading = wr_indicator.update(high_f, low_f, close_f);
+        let hma_reading = hma_indicator.update(close_f);
+        let ao_reading = ao_indicator.update(high_f, low_f);
+        let fi_reading = fi_indicator.update(close_f, volume_f);
+        let sdc_reading = sdc_indicator.update(close_f);
 
         let volume_profile_reading = volume_profile_indicator.update_with_open(
-            completed.high,
-            completed.low,
-            completed.open,
-            completed.close,
-            completed.volume,
+            high_f,
+            low_f,
+            open_f,
+            close_f,
+            volume_f,
         );
         // Per-warm-candle bin snapshot — same source-of-truth builder as the
         // live per-candle path uses (see `super::build_volume_profile_snapshot`).
@@ -273,10 +280,10 @@ pub fn warm_indicators_for_timeframe(
             completed.start_time_ms,
         );
         let smc_reading = smc_indicator.update(
-            completed.open,
-            completed.high,
-            completed.low,
-            completed.close,
+            open_f,
+            high_f,
+            low_f,
+            close_f,
         );
 
         let typical_price = (completed.high + completed.low + completed.close) / Decimal::from(3);
@@ -290,18 +297,18 @@ pub fn warm_indicators_for_timeframe(
         };
 
         let avwap_reading = anchored_vwap_indicator.update(
-            completed.high,
-            completed.low,
-            completed.close,
-            completed.volume,
+            high_f,
+            low_f,
+            close_f,
+            volume_f,
             day_index,
-            final_vwap.unwrap_or(Decimal::ZERO),
+            final_vwap.unwrap_or(Decimal::ZERO).to_f64().unwrap_or(0.0),
         );
 
-        let final_ema_fast = ema_fast.update(completed.close);
-        let final_ema_medium = ema_medium.update(completed.close);
-        let final_ema_slow = ema_slow.update(completed.close);
-        let final_ema_long = ema_long.update(completed.close);
+        let final_ema_fast = ema_fast.update(close_f);
+        let final_ema_medium = ema_medium.update(close_f);
+        let final_ema_slow = ema_slow.update(close_f);
+        let final_ema_long = ema_long.update(close_f);
 
         let ema_stack_state = if final_ema_fast > final_ema_medium
             && final_ema_medium > final_ema_slow
@@ -319,69 +326,98 @@ pub fn warm_indicators_for_timeframe(
             Some("tangled".to_string())
         };
 
-        let final_rsi = rsi_14.update(completed.close);
-        let final_macd = macd.update(completed.close);
-        let final_adx = adx_14.update(completed.high, completed.low, completed.close);
-        let final_sqz = sqz_mom.update(completed.high, completed.low, completed.close);
-        let final_bb = bollinger.update(completed.close);
-        let final_atr = atr_standalone.update(completed.high, completed.low, completed.close);
-        let final_bbwp = bbwp_indicator.update(completed.close);
+        let final_rsi = rsi_14.update(close_f);
+        let final_macd = macd.update(close_f);
+        let final_adx = adx_14.update(high_f, low_f, close_f);
+        let final_sqz = sqz_mom.update(high_f, low_f, close_f);
+        let final_bb = bollinger.update(close_f);
+        let final_atr = atr_standalone.update(high_f, low_f, close_f);
+        let final_bbwp = bbwp_indicator.update(close_f);
         let final_stoch =
-            stochastic_indicator.update(completed.high, completed.low, completed.close);
-        let final_cmo = chandemo_indicator.update(completed.close);
+            stochastic_indicator.update(high_f, low_f, close_f);
+        let final_cmo = chandemo_indicator.update(close_f);
         let final_supertrend =
-            supertrend_indicator.update(completed.high, completed.low, completed.close);
+            supertrend_indicator.update(high_f, low_f, close_f);
         let final_keltner =
-            keltner_indicator.update(completed.high, completed.low, completed.close);
-        let final_donchian = donchian_indicator.update(completed.high, completed.low);
-        let final_obv = obv_indicator.update(completed.close, completed.volume);
+            keltner_indicator.update(high_f, low_f, close_f);
+        let final_donchian = donchian_indicator.update(high_f, low_f);
+        let final_obv = obv_indicator.update(close_f, volume_f);
         let final_cmf = cmf_indicator.update(
-            completed.high,
-            completed.low,
-            completed.close,
-            completed.volume,
+            high_f,
+            low_f,
+            close_f,
+            volume_f,
         );
         let final_mfi = mfi_indicator.update(
-            completed.high,
-            completed.low,
-            completed.close,
-            completed.volume,
+            high_f,
+            low_f,
+            close_f,
+            volume_f,
         );
-        let final_hv = hv_indicator.update(completed.close);
-        let final_aroon = aroon_indicator.update(completed.high, completed.low);
+        let final_hv = hv_indicator.update(close_f);
+        let final_aroon = aroon_indicator.update(high_f, low_f);
         let final_chop =
-            choppiness_indicator.update(completed.high, completed.low, completed.close);
-        let final_linreg = linreg_indicator.update(completed.close);
-        let final_zscore = zscore_indicator.update(completed.close);
+            choppiness_indicator.update(high_f, low_f, close_f);
+        let final_linreg = linreg_indicator.update(close_f);
+        let final_zscore = zscore_indicator.update(close_f);
 
         let extra_div = ExtraDivergence {
             stochastic: final_stoch
                 .as_ref()
-                .map(|s| series_divergence_state(&stoch_div.update(completed.close, s.k_value)))
+                .map(|s| {
+                    series_divergence_state(
+                        &stoch_div.update(close_f, s.k_value.to_f64().unwrap_or(0.0)),
+                    )
+                })
                 .unwrap_or_default(),
             chandemo: final_cmo
-                .map(|v| series_divergence_state(&chandemo_div.update(completed.close, v)))
+                .map(|v| {
+                    series_divergence_state(
+                        &chandemo_div.update(close_f, v.to_f64().unwrap_or(0.0)),
+                    )
+                })
                 .unwrap_or_default(),
             mfi: final_mfi
-                .map(|v| series_divergence_state(&mfi_div.update(completed.close, v)))
+                .map(|v| {
+                    series_divergence_state(
+                        &mfi_div.update(close_f, v.to_f64().unwrap_or(0.0)),
+                    )
+                })
                 .unwrap_or_default(),
             cmf: final_cmf
-                .map(|v| series_divergence_state(&cmf_div.update(completed.close, v)))
+                .map(|v| {
+                    series_divergence_state(
+                        &cmf_div.update(close_f, v.to_f64().unwrap_or(0.0)),
+                    )
+                })
                 .unwrap_or_default(),
             obv: final_obv
                 .as_ref()
-                .map(|o| series_divergence_state(&obv_div.update(completed.close, o.obv)))
+                .map(|o| {
+                    series_divergence_state(
+                        &obv_div.update(close_f, o.obv.to_f64().unwrap_or(0.0)),
+                    )
+                })
                 .unwrap_or_default(),
             squeeze: final_sqz
                 .as_ref()
                 .map(|s| {
-                    series_divergence_state(&squeeze_div.update(completed.close, s.momentum_value))
+                    series_divergence_state(
+                        &squeeze_div.update(
+                            close_f,
+                            s.momentum_value.to_f64().unwrap_or(0.0),
+                        ),
+                    )
                 })
                 .unwrap_or_default(),
         };
 
         let div_result = if let (Some(rsi), macd_hist) = (final_rsi, final_macd.histogram) {
-            divergence_detector.update_full(completed.close, rsi, macd_hist)
+            divergence_detector.update_full(
+                close_f,
+                rsi.to_f64().unwrap_or(0.0),
+                macd_hist.to_f64().unwrap_or(0.0),
+            )
         } else {
             crate::indicators::DivergenceResult::default_div()
         };
@@ -559,11 +595,11 @@ fn build_historical_snapshot(
     final_obv: Option<&crate::indicators::ObvOutput>,
     final_cmf: Option<Decimal>,
     final_mfi: Option<Decimal>,
-    final_hv: Option<Decimal>,
+    final_hv: Option<f64>,
     final_aroon: Option<&crate::indicators::AroonOutput>,
     final_chop: Option<Decimal>,
-    final_linreg: Option<Decimal>,
-    final_zscore: Option<Decimal>,
+    final_linreg: Option<f64>,
+    final_zscore: Option<f64>,
     extra_div: ExtraDivergence,
     rsi_divergence: crate::indicators::DivergenceState,
     macd_divergence: crate::indicators::DivergenceState,

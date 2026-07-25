@@ -40,7 +40,9 @@ impl ParabolicSar {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal) -> Option<PsarOutput> {
+    pub fn update(&mut self, high: f64, low: f64) -> Option<PsarOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
         if !self.initialized {
             // Seed: first bar's high/low determine direction.
             self.sar = low;
@@ -105,13 +107,12 @@ impl ParabolicSar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_seeds_on_first_bar() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
-        let out = psar.update(dec!(110), dec!(90)).unwrap();
-        assert_eq!(out.sar, dec!(90));
+        let out = psar.update(110.0, 90.0).unwrap();
+        assert_eq!(out.sar, Decimal::from_f64_retain(90.0).unwrap());
         assert_eq!(out.direction, 1);
         assert!(!out.flipped);
     }
@@ -119,19 +120,19 @@ mod tests {
     #[test]
     fn test_sar_rises_in_uptrend() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
-        psar.update(dec!(110), dec!(90));
-        let prev = psar.update(dec!(112), dec!(95)).unwrap().sar;
-        let curr = psar.update(dec!(114), dec!(97)).unwrap().sar;
+        psar.update(110.0, 90.0);
+        let prev = psar.update(112.0, 95.0).unwrap().sar;
+        let curr = psar.update(114.0, 97.0).unwrap().sar;
         assert!(curr > prev, "SAR should rise in an uptrend");
     }
 
     #[test]
     fn test_flips_on_reversal() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
-        psar.update(dec!(110), dec!(90));
+        psar.update(110.0, 90.0);
         // Strong downtrend — price breaks below SAR.
-        psar.update(dec!(111), dec!(99));
-        let out = psar.update(dec!(101), dec!(80)).unwrap();
+        psar.update(111.0, 99.0);
+        let out = psar.update(101.0, 80.0).unwrap();
         assert_eq!(out.direction, -1);
         assert!(out.flipped);
     }
@@ -139,13 +140,13 @@ mod tests {
     #[test]
     fn test_af_accelerates_in_trend() {
         let mut psar = ParabolicSar::new(0.02, 0.20);
-        psar.update(dec!(110), dec!(90));
+        psar.update(110.0, 90.0);
         // Strong rally → EP keeps extending, AF keeps stepping up.
         for i in 1..5i64 {
             let h = 110 + i * 3;
             let l = 90 + i * 3;
-            psar.update(Decimal::from(h), Decimal::from(l));
+            psar.update(h as f64, l as f64);
         }
-        assert!(psar.af > dec!(0.02));
+        assert!(psar.af > Decimal::from_f64_retain(0.02).unwrap());
     }
 }

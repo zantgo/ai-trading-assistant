@@ -1,18 +1,13 @@
 use proptest::prelude::*;
-use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use market_analyzer::indicators::{Macd, TrendState};
-
-fn dec(v: f64) -> Decimal {
-    Decimal::from_f64(v).unwrap_or(Decimal::ZERO)
-}
 
 proptest! {
     #[test]
     fn macd_histogram_sign_matches_difference(prices in proptest::collection::vec(1.0f64..100_000.0, 2..100)) {
         let mut macd = Macd::new();
         for &p in &prices {
-            let out = macd.update(dec(p));
+            let out = macd.update(p);
             let diff = out.macd_line - out.signal_line;
             let hist = out.histogram;
             prop_assert_eq!(hist, diff, "Histogram must equal MACD line minus signal line");
@@ -26,7 +21,7 @@ proptest! {
         let mut prev_peak = Decimal::ZERO;
 
         for (i, &p) in prices.iter().enumerate() {
-            let out = macd.update(dec(p));
+            let out = macd.update(p);
 
             if out.crossover.is_some() {
                 // On crossover bar, the peak should be reset to current abs histogram
@@ -47,7 +42,7 @@ proptest! {
         let mut macd = Macd::new();
         let mut prev_abs_hist: Option<Decimal> = None;
         for &p in &prices {
-            let out = macd.update(dec(p));
+            let out = macd.update(p);
             let abs_hist = if out.histogram < Decimal::ZERO { -out.histogram } else { out.histogram };
 
             if let Some(prev) = prev_abs_hist {

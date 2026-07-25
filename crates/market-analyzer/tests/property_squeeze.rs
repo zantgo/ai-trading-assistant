@@ -1,11 +1,7 @@
 use proptest::prelude::*;
-use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use market_analyzer::indicators::{MomentumDirection, SqueezeMomentum};
-
-fn dec(v: f64) -> Decimal {
-    Decimal::from_f64(v).unwrap_or(Decimal::ZERO)
-}
 
 proptest! {
     #[test]
@@ -18,7 +14,7 @@ proptest! {
         for (i, &p) in prices.iter().enumerate() {
             let high = p + (i as f64 * 0.1);
             let low = p - (i as f64 * 0.1);
-            if let Some(out) = sqz.update(dec(high), dec(low), dec(p)) {
+            if let Some(out) = sqz.update(high, low, p) {
                 if !out.squeeze_on {
                     // Squeeze OFF → duration must be 0
                     prop_assert_eq!(out.squeeze_duration, 0,
@@ -41,7 +37,7 @@ proptest! {
         for &p in prices.iter() {
             let high = p + 1.0;
             let low = p - 1.0;
-            if let Some(out) = sqz.update(dec(high), dec(low), dec(p)) {
+            if let Some(out) = sqz.update(high, low, p) {
                 match out.momentum_direction {
                     MomentumDirection::BullishAcceleration | MomentumDirection::BullishDeceleration => {
                         prop_assert!(out.momentum_value > Decimal::ZERO,
@@ -67,7 +63,7 @@ proptest! {
         for (i, &p) in prices.iter().enumerate() {
             let high = p + (i as f64 * 0.5).sin() * 10.0;
             let low = p - (i as f64 * 0.5).cos() * 10.0;
-            if let Some(out) = sqz.update(dec(high), dec(low), dec(p)) {
+            if let Some(out) = sqz.update(high, low, p) {
                 // Verify structural integrity: state transitions are consistent
                 prop_assert!(out.momentum_value.to_f64().is_some(),
                     "Momentum value should be a valid float");

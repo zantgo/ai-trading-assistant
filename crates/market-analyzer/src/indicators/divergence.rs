@@ -131,10 +131,13 @@ impl DivergenceDetector {
     /// Returns the combined divergence result with potential status.
     pub fn update_full(
         &mut self,
-        price: Decimal,
-        rsi: Decimal,
-        macd_histogram: Decimal,
+        price: f64,
+        rsi: f64,
+        macd_histogram: f64,
     ) -> DivergenceResult {
+        let price = Decimal::from_f64_retain(price).unwrap_or(Decimal::ZERO);
+        let rsi = Decimal::from_f64_retain(rsi).unwrap_or(Decimal::ZERO);
+        let macd_histogram = Decimal::from_f64_retain(macd_histogram).unwrap_or(Decimal::ZERO);
         self.price_history.push(price);
         self.rsi_history.push(rsi);
         self.macd_hist_history.push(macd_histogram);
@@ -221,10 +224,15 @@ impl DivergenceDetector {
     pub fn check_divergence_confirmation(
         &self,
         current_result: &DivergenceResult,
-        close_price: Decimal,
-        support_level: Option<Decimal>,
-        resistance_level: Option<Decimal>,
+        close_price: f64,
+        support_level: Option<f64>,
+        resistance_level: Option<f64>,
     ) -> DivergenceResult {
+        let close_price = Decimal::from_f64_retain(close_price).unwrap_or(Decimal::ZERO);
+        let support_level =
+            support_level.map(|s| Decimal::from_f64_retain(s).unwrap_or(Decimal::ZERO));
+        let resistance_level =
+            resistance_level.map(|r| Decimal::from_f64_retain(r).unwrap_or(Decimal::ZERO));
         let mut confirmed = current_result.clone();
         let tolerance_pct = Decimal::new(2, 3); // 0.002
 
@@ -497,7 +505,9 @@ impl SeriesDivergence {
         }
     }
 
-    pub fn update(&mut self, price: Decimal, value: Decimal) -> SeriesDivergenceResult {
+    pub fn update(&mut self, price: f64, value: f64) -> SeriesDivergenceResult {
+        let price = Decimal::from_f64_retain(price).unwrap_or(Decimal::ZERO);
+        let value = Decimal::from_f64_retain(value).unwrap_or(Decimal::ZERO);
         self.price_history.push(price);
         self.ind_history.push(value);
         if self.price_history.len() > self.lookback {
@@ -610,13 +620,12 @@ fn find_extrema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_returns_none_before_warmup() {
         let mut det = DivergenceDetector::new(10);
         for _ in 0..9 {
-            let r = det.update_full(dec!(100.00), dec!(50.00), Decimal::ZERO);
+            let r = det.update_full(100.0, 50.0, 0.0);
             assert_eq!(r.rsi_divergence, DivergenceType::None);
             assert_eq!(r.macd_divergence, DivergenceType::None);
         }
@@ -625,32 +634,32 @@ mod tests {
     #[test]
     fn test_bullish_rsi_divergence() {
         let mut det = DivergenceDetector::new(10);
-        det.update_full(dec!(105.00), dec!(40.00), Decimal::ZERO);
-        det.update_full(dec!(104.00), dec!(42.00), Decimal::ZERO);
-        det.update_full(dec!(103.00), dec!(44.00), Decimal::ZERO);
-        det.update_full(dec!(102.00), dec!(46.00), Decimal::ZERO);
-        det.update_full(dec!(101.00), dec!(48.00), Decimal::ZERO);
-        det.update_full(dec!(100.00), dec!(50.00), Decimal::ZERO);
-        det.update_full(dec!(99.00), dec!(52.00), Decimal::ZERO);
-        det.update_full(dec!(98.00), dec!(54.00), Decimal::ZERO);
-        det.update_full(dec!(97.00), dec!(56.00), Decimal::ZERO);
-        let result = det.update_full(dec!(96.00), dec!(58.00), Decimal::ZERO);
+        det.update_full(105.0, 40.0, 0.0);
+        det.update_full(104.0, 42.0, 0.0);
+        det.update_full(103.0, 44.0, 0.0);
+        det.update_full(102.0, 46.0, 0.0);
+        det.update_full(101.0, 48.0, 0.0);
+        det.update_full(100.0, 50.0, 0.0);
+        det.update_full(99.0, 52.0, 0.0);
+        det.update_full(98.0, 54.0, 0.0);
+        det.update_full(97.0, 56.0, 0.0);
+        let result = det.update_full(96.0, 58.0, 0.0);
         assert_eq!(result.rsi_divergence, DivergenceType::RsiBullish);
     }
 
     #[test]
     fn test_bearish_rsi_divergence() {
         let mut det = DivergenceDetector::new(10);
-        det.update_full(dec!(100.00), dec!(70.00), Decimal::ZERO);
-        det.update_full(dec!(101.00), dec!(68.00), Decimal::ZERO);
-        det.update_full(dec!(102.00), dec!(66.00), Decimal::ZERO);
-        det.update_full(dec!(103.00), dec!(64.00), Decimal::ZERO);
-        det.update_full(dec!(104.00), dec!(62.00), Decimal::ZERO);
-        det.update_full(dec!(105.00), dec!(60.00), Decimal::ZERO);
-        det.update_full(dec!(106.00), dec!(58.00), Decimal::ZERO);
-        det.update_full(dec!(107.00), dec!(56.00), Decimal::ZERO);
-        det.update_full(dec!(109.00), dec!(52.00), Decimal::ZERO);
-        let result = det.update_full(dec!(110.00), dec!(50.00), Decimal::ZERO);
+        det.update_full(100.0, 70.0, 0.0);
+        det.update_full(101.0, 68.0, 0.0);
+        det.update_full(102.0, 66.0, 0.0);
+        det.update_full(103.0, 64.0, 0.0);
+        det.update_full(104.0, 62.0, 0.0);
+        det.update_full(105.0, 60.0, 0.0);
+        det.update_full(106.0, 58.0, 0.0);
+        det.update_full(107.0, 56.0, 0.0);
+        det.update_full(109.0, 52.0, 0.0);
+        let result = det.update_full(110.0, 50.0, 0.0);
         assert_eq!(result.rsi_divergence, DivergenceType::RsiBearish);
     }
 
@@ -658,12 +667,12 @@ mod tests {
     fn test_no_divergence_on_aligned_movement() {
         let mut det = DivergenceDetector::new(10);
         for _ in 0..5 {
-            det.update_full(dec!(100.00), dec!(50.00), Decimal::ZERO);
+            det.update_full(100.0, 50.0, 0.0);
         }
         for _ in 0..5 {
-            det.update_full(dec!(105.00), dec!(60.00), Decimal::ZERO);
+            det.update_full(105.0, 60.0, 0.0);
         }
-        let result = det.update_full(dec!(105.00), dec!(60.00), Decimal::ZERO);
+        let result = det.update_full(105.0, 60.0, 0.0);
         assert!(!result.has_bullish);
         assert!(!result.has_bearish);
     }
@@ -672,12 +681,12 @@ mod tests {
     fn test_macd_bullish_divergence() {
         let mut det = DivergenceDetector::new(10);
         for i in 0..10 {
-            let price = dec!(100.00) - Decimal::from(i as i64);
-            let rsi = dec!(50.00) + Decimal::from(i as i64);
-            let macd = Decimal::from(-5i64) + Decimal::from(i as i64);
+            let price = 100.0 - i as f64;
+            let rsi = 50.0 + i as f64;
+            let macd = -5.0 + i as f64;
             det.update_full(price, rsi, macd);
         }
-        let result = det.update_full(dec!(89.00), dec!(60.00), dec!(6.00));
+        let result = det.update_full(89.0, 60.0, 6.0);
         assert!(result.macd_divergence == DivergenceType::MacdBullish || result.has_bullish);
     }
 
@@ -685,9 +694,9 @@ mod tests {
     fn test_update_full_returns_structured_result() {
         let mut det = DivergenceDetector::new(10);
         for _ in 0..9 {
-            det.update_full(dec!(100.00), dec!(50.00), dec!(0.00));
+            det.update_full(100.0, 50.0, 0.0);
         }
-        let result = det.update_full(dec!(100.00), dec!(50.00), dec!(0.00));
+        let result = det.update_full(100.0, 50.0, 0.0);
         assert!(!result.has_bullish);
         assert!(!result.has_bearish);
     }
@@ -695,17 +704,16 @@ mod tests {
     #[test]
     fn test_divergence_status_potential_on_detection() {
         let mut det = DivergenceDetector::new(10);
-        // Set up RSI bullish divergence
-        det.update_full(dec!(100.00), dec!(40.00), dec!(0.00));
-        det.update_full(dec!(99.00), dec!(42.00), dec!(0.00));
-        det.update_full(dec!(98.00), dec!(44.00), dec!(0.00));
-        det.update_full(dec!(97.00), dec!(46.00), dec!(0.00));
-        det.update_full(dec!(96.00), dec!(48.00), dec!(0.00));
-        det.update_full(dec!(95.00), dec!(50.00), dec!(0.00));
-        det.update_full(dec!(94.00), dec!(52.00), dec!(0.00));
-        det.update_full(dec!(93.00), dec!(54.00), dec!(0.00));
-        det.update_full(dec!(92.00), dec!(56.00), dec!(0.00));
-        let result = det.update_full(dec!(91.00), dec!(58.00), dec!(0.00));
+        det.update_full(100.0, 40.0, 0.0);
+        det.update_full(99.0, 42.0, 0.0);
+        det.update_full(98.0, 44.0, 0.0);
+        det.update_full(97.0, 46.0, 0.0);
+        det.update_full(96.0, 48.0, 0.0);
+        det.update_full(95.0, 50.0, 0.0);
+        det.update_full(94.0, 52.0, 0.0);
+        det.update_full(93.0, 54.0, 0.0);
+        det.update_full(92.0, 56.0, 0.0);
+        let result = det.update_full(91.0, 58.0, 0.0);
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
         assert!(result.rsi_coords.is_some());
     }
@@ -713,21 +721,19 @@ mod tests {
     #[test]
     fn test_confirmation_on_support_break() {
         let mut det = DivergenceDetector::new(10);
-        // Build bullish RSI divergence
         for i in 0..9 {
-            let price = dec!(100.00) - Decimal::from(i as i64);
-            let rsi = dec!(40.00) + Decimal::from(i as i64);
-            det.update_full(price, rsi, dec!(0.00));
+            let price = 100.0 - i as f64;
+            let rsi = 40.0 + i as f64;
+            det.update_full(price, rsi, 0.0);
         }
-        let result = det.update_full(dec!(91.00), dec!(58.00), dec!(0.00));
+        let result = det.update_full(91.0, 58.0, 0.0);
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
 
-        // Confirm: close breaks below support at 90.00 with >0.2% tolerance
         let confirmed = det.check_divergence_confirmation(
             &result,
-            dec!(89.50),       // close below 90.00 support
-            Some(dec!(90.00)), // support level
-            None,              // no resistance
+            89.50,
+            Some(90.00),
+            None,
         );
         assert_eq!(confirmed.rsi_status, DivergenceStatus::Confirmed);
     }
@@ -736,18 +742,17 @@ mod tests {
     fn test_no_confirmation_without_break() {
         let mut det = DivergenceDetector::new(10);
         for i in 0..9 {
-            let price = dec!(100.00) - Decimal::from(i as i64);
-            let rsi = dec!(40.00) + Decimal::from(i as i64);
-            det.update_full(price, rsi, dec!(0.00));
+            let price = 100.0 - i as f64;
+            let rsi = 40.0 + i as f64;
+            det.update_full(price, rsi, 0.0);
         }
-        let result = det.update_full(dec!(91.00), dec!(58.00), dec!(0.00));
+        let result = det.update_full(91.0, 58.0, 0.0);
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
 
-        // Close not decisively below support
         let still_potential = det.check_divergence_confirmation(
             &result,
-            dec!(90.10), // close above support (barely below, within tolerance)
-            Some(dec!(90.00)),
+            90.10,
+            Some(90.00),
             None,
         );
         assert_eq!(still_potential.rsi_status, DivergenceStatus::Potential);
@@ -756,22 +761,20 @@ mod tests {
     #[test]
     fn test_bearish_confirmation_on_resistance_break() {
         let mut det = DivergenceDetector::new(10);
-        // Build bearish RSI divergence
         for i in 0..9 {
-            let price = dec!(110.00) + Decimal::from(i as i64);
-            let rsi = dec!(70.00) - Decimal::from(i as i64);
-            det.update_full(price, rsi, dec!(0.00));
+            let price = 110.0 + i as f64;
+            let rsi = 70.0 - i as f64;
+            det.update_full(price, rsi, 0.0);
         }
-        let result = det.update_full(dec!(119.00), dec!(52.00), dec!(0.00));
+        let result = det.update_full(119.0, 52.0, 0.0);
         assert_eq!(result.rsi_status, DivergenceStatus::Potential);
         assert_eq!(result.rsi_divergence, DivergenceType::RsiBearish);
 
-        // Confirm: close breaks above resistance at 120.00
         let confirmed = det.check_divergence_confirmation(
             &result,
-            dec!(120.50), // close above 120.00 resistance
+            120.50,
             None,
-            Some(dec!(120.00)), // resistance level
+            Some(120.00),
         );
         assert_eq!(confirmed.rsi_status, DivergenceStatus::Confirmed);
     }
@@ -780,11 +783,11 @@ mod tests {
     fn test_coords_contain_indices() {
         let mut det = DivergenceDetector::new(10);
         for i in 0..9 {
-            let price = dec!(100.00) - Decimal::from(i as i64);
-            let rsi = dec!(40.00) + Decimal::from(i as i64);
-            det.update_full(price, rsi, dec!(0.00));
+            let price = 100.0 - i as f64;
+            let rsi = 40.0 + i as f64;
+            det.update_full(price, rsi, 0.0);
         }
-        let result = det.update_full(dec!(91.00), dec!(58.00), dec!(0.00));
+        let result = det.update_full(91.0, 58.0, 0.0);
         let coords = result.rsi_coords.unwrap();
         assert!(coords.first_extreme.index <= 4);
         assert!(coords.second_extreme.index >= 5);

@@ -20,7 +20,8 @@ impl Rsi {
         }
     }
 
-    pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64) -> Option<Decimal> {
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         let prev = match self.prev_close {
             None => {
                 self.prev_close = Some(close);
@@ -90,52 +91,52 @@ mod tests {
     #[test]
     fn test_first_update_returns_none() {
         let mut rsi = Rsi::new(14);
-        assert_eq!(rsi.update(dec!(100.00)), None);
+        assert_eq!(rsi.update(100.00), None);
     }
 
     #[test]
     fn test_second_update_returns_none() {
         let mut rsi = Rsi::new(14);
-        rsi.update(dec!(100.00));
-        assert_eq!(rsi.update(dec!(105.00)), None);
+        rsi.update(100.00);
+        assert_eq!(rsi.update(105.00), None);
     }
 
     #[test]
     fn test_all_gains_yields_high_rsi() {
         let mut rsi = Rsi::new(14);
-        rsi.update(dec!(100.00));
-        let mut price = dec!(100.00);
+        rsi.update(100.00);
+        let mut price = 100.00;
         for _ in 0..14 {
-            price += dec!(1.00);
+            price += 1.00;
             rsi.update(price);
         }
-        let result = rsi.update(price + dec!(1.00)).unwrap();
-        assert!(result > dec!(50.00), "All gains should yield RSI > 50");
+        let result = rsi.update(price + 1.00).unwrap();
+        assert!(result > Decimal::from_f64_retain(50.00).unwrap(), "All gains should yield RSI > 50");
     }
 
     #[test]
     fn test_all_losses_yields_low_rsi() {
         let mut rsi = Rsi::new(14);
-        rsi.update(dec!(100.00));
-        let mut price = dec!(100.00);
+        rsi.update(100.00);
+        let mut price = 100.00;
         for _ in 0..14 {
-            price -= dec!(1.00);
+            price -= 1.00;
             rsi.update(price);
         }
-        let result = rsi.update(price - dec!(1.00)).unwrap();
+        let result = rsi.update(price - 1.00).unwrap();
         assert!(result < dec!(50.00), "All losses should yield RSI < 50");
     }
 
     #[test]
     fn test_zero_loss_returns_rsi_100() {
         let mut rsi = Rsi::new(14);
-        rsi.update(dec!(50.00));
-        let mut price = dec!(50.00);
+        rsi.update(50.00);
+        let mut price = 50.00;
         for _ in 0..14 {
-            price += dec!(2.00);
+            price += 2.00;
             rsi.update(price);
         }
-        let result = rsi.update(price + dec!(2.00)).unwrap();
+        let result = rsi.update(price + 2.00).unwrap();
         assert!(result > dec!(90.00));
         assert!(result <= dec!(100.00), "RSI should not exceed 100");
     }
@@ -143,12 +144,12 @@ mod tests {
     #[test]
     fn test_rsi_stays_within_zero_to_hundred() {
         let mut rsi = Rsi::new(14);
-        rsi.update(dec!(100.00));
+        rsi.update(100.00);
         for i in 0..50 {
             let price = if i % 2 == 0 {
-                dec!(200.00)
+                200.00
             } else {
-                dec!(10.00)
+                10.00
             };
             if let Some(val) = rsi.update(price) {
                 assert!(

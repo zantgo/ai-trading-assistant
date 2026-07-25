@@ -23,7 +23,7 @@ impl Bbwp {
 
     /// Updates the BBWP with a new close price.
     /// Returns the current BBWP percentile value (0-100).
-    pub fn update(&mut self, close: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, close: f64) -> Option<Decimal> {
         let bands = self.bb.update(close)?;
         let (upper, middle, lower) = bands;
 
@@ -77,13 +77,13 @@ impl Bbwp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
+    use rust_decimal::Decimal;
 
     #[test]
     fn test_returns_none_before_warmup() {
         let mut bbwp = Bbwp::new(252, 20);
         for _ in 0..20 {
-            let result = bbwp.update(dec!(100.00));
+            let result = bbwp.update(100.00);
             assert!(result.is_none(), "Expected None before full warmup");
         }
     }
@@ -92,29 +92,29 @@ mod tests {
     fn test_returns_percentile_after_warmup() {
         let mut bbwp = Bbwp::new(50, 20);
         for _ in 0..40 {
-            bbwp.update(dec!(100.00));
+            bbwp.update(100.00);
         }
-        let result = bbwp.update(dec!(100.00));
+        let result = bbwp.update(100.00);
         assert!(result.is_some());
         let percentile = result.unwrap();
-        assert!(percentile >= dec!(0.00) && percentile <= dec!(100.00));
+        assert!(percentile >= Decimal::from_f64_retain(0.00).unwrap() && percentile <= Decimal::from_f64_retain(100.00).unwrap());
     }
 
     #[test]
     fn test_high_volatility_produces_high_percentile() {
         let mut bbwp = Bbwp::new(50, 20);
-        let mut price = dec!(100.00);
+        let mut price = 100.00;
         for _ in 0..40 {
             bbwp.update(price);
         }
         for _ in 0..25 {
-            price += dec!(10.00);
+            price += 10.00;
             bbwp.update(price);
-            price -= dec!(10.00);
+            price -= 10.00;
         }
         let result = bbwp.update(price).unwrap();
         assert!(
-            result > dec!(50.00),
+            result > Decimal::from_f64_retain(50.00).unwrap(),
             "High volatility should produce high percentile, got {}",
             result
         );
@@ -123,14 +123,14 @@ mod tests {
     #[test]
     fn test_compression_detection() {
         let bbwp = Bbwp::new(50, 20);
-        assert!(bbwp.is_compression(dec!(5.00)));
-        assert!(!bbwp.is_compression(dec!(15.00)));
+        assert!(bbwp.is_compression(Decimal::from_f64_retain(5.00).unwrap()));
+        assert!(!bbwp.is_compression(Decimal::from_f64_retain(15.00).unwrap()));
     }
 
     #[test]
     fn test_exhaustion_detection() {
         let bbwp = Bbwp::new(50, 20);
-        assert!(bbwp.is_exhaustion(dec!(95.00)));
-        assert!(!bbwp.is_exhaustion(dec!(85.00)));
+        assert!(bbwp.is_exhaustion(Decimal::from_f64_retain(95.00).unwrap()));
+        assert!(!bbwp.is_exhaustion(Decimal::from_f64_retain(85.00).unwrap()));
     }
 }

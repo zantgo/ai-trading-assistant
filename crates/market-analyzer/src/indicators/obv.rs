@@ -1,5 +1,6 @@
 use super::sma::Sma;
 use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
 #[derive(Debug, Clone)]
@@ -29,12 +30,14 @@ impl Obv {
         }
     }
 
-    pub fn update(&mut self, close: Decimal, volume: Decimal) -> Option<ObvOutput> {
+    pub fn update(&mut self, close: f64, volume: f64) -> Option<ObvOutput> {
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
+        let volume = Decimal::from_f64_retain(volume).unwrap_or(Decimal::ZERO);
         match self.prev_close {
             None => {
                 self.prev_close = Some(close);
                 // Seed OBV at 0; no directional info yet.
-                let _ = self.sma.update(self.obv);
+                let _ = self.sma.update(self.obv.to_f64().unwrap_or(0.0));
                 None
             }
             Some(prev) => {
@@ -44,7 +47,7 @@ impl Obv {
                     self.obv -= volume;
                 }
                 self.prev_close = Some(close);
-                let sma = self.sma.update(self.obv)?;
+                let sma = self.sma.update(self.obv.to_f64().unwrap_or(0.0))?;
                 Some(ObvOutput {
                     obv: self.obv,
                     obv_sma: sma,
@@ -71,10 +74,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(o: &mut Obv, c: f64, v: f64) -> Option<ObvOutput> {
-        o.update(
-            Decimal::from_f64_retain(c).unwrap(),
-            Decimal::from_f64_retain(v).unwrap(),
-        )
+        o.update(c, v)
     }
 
     #[test]

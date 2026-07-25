@@ -15,7 +15,8 @@ impl Sma {
         }
     }
 
-    pub fn update(&mut self, val: Decimal) -> Option<Decimal> {
+    pub fn update(&mut self, val: f64) -> Option<Decimal> {
+        let val = Decimal::from_f64_retain(val).unwrap_or(Decimal::ZERO);
         if self.period == 0 {
             return None;
         }
@@ -35,34 +36,37 @@ impl Sma {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_returns_none_before_full_period() {
         let mut sma = Sma::new(5);
-        assert_eq!(sma.update(dec!(10.00)), None);
-        assert_eq!(sma.update(dec!(20.00)), None);
-        assert_eq!(sma.update(dec!(30.00)), None);
-        assert_eq!(sma.update(dec!(40.00)), None);
+        assert_eq!(sma.update(10.0), None);
+        assert_eq!(sma.update(20.0), None);
+        assert_eq!(sma.update(30.0), None);
+        assert_eq!(sma.update(40.0), None);
     }
 
     #[test]
     fn test_returns_average_at_period_boundary() {
         let mut sma = Sma::new(3);
-        sma.update(dec!(10.00));
-        sma.update(dec!(20.00));
-        let result = sma.update(dec!(30.00)).unwrap();
-        assert_eq!(result, dec!(20.00));
+        sma.update(10.0);
+        sma.update(20.0);
+        let result = sma.update(30.0).unwrap();
+        let expected = Decimal::from_f64_retain(20.0).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_sliding_window_evicts_oldest() {
         let mut sma = Sma::new(3);
-        sma.update(dec!(10.00));
-        sma.update(dec!(20.00));
-        sma.update(dec!(30.00));
-        let result = sma.update(dec!(60.00)).unwrap();
-        let expected = (dec!(20.00) + dec!(30.00) + dec!(60.00)) / Decimal::from(3);
+        sma.update(10.0);
+        sma.update(20.0);
+        sma.update(30.0);
+        let result = sma.update(60.0).unwrap();
+        let expected = (Decimal::from_f64_retain(20.0).unwrap()
+            + Decimal::from_f64_retain(30.0).unwrap()
+            + Decimal::from_f64_retain(60.0).unwrap())
+            / Decimal::from(3);
         assert_eq!(result, expected);
     }
 }

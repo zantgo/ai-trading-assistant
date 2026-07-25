@@ -91,12 +91,12 @@ pub struct NormalizeParams<'a> {
     pub obv_sma: Option<Decimal>,
     pub cmf: Option<Decimal>,
     pub mfi: Option<Decimal>,
-    pub hv: Option<Decimal>,
+    pub hv: Option<f64>,
     pub aroon_up: Option<Decimal>,
     pub aroon_down: Option<Decimal>,
     pub choppiness: Option<Decimal>,
-    pub linreg_slope: Option<Decimal>,
-    pub zscore: Option<Decimal>,
+    pub linreg_slope: Option<f64>,
+    pub zscore: Option<f64>,
     pub extra_div: ExtraDivergence,
     pub macd: &'a MacdOutput,
     pub sqz: Option<&'a SqueezeOutput>,
@@ -168,7 +168,7 @@ pub fn series_divergence_state(res: &SeriesDivergenceResult) -> DivergenceState 
 /// matching the 0.2% tolerance used by `DivergenceDetector::check_divergence_confirmation`.
 pub fn series_divergence_confirmed(
     res: &SeriesDivergenceResult,
-    close: Decimal,
+    close: f64,
     supports: &[f64],
     resistances: &[f64],
 ) -> DivergenceState {
@@ -178,7 +178,7 @@ pub fn series_divergence_confirmed(
         DivergenceState::PotentialBearish => -1i8,
         _ => return potential,
     };
-    let close_f = d2f(close);
+    let close_f = close;
     if close_f <= 0.0 {
         return potential;
     }
@@ -247,12 +247,12 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
         obv_sma: od2f(p.obv_sma),
         cmf: od2f(p.cmf),
         mfi: od2f(p.mfi),
-        hv: od2f(p.hv),
+        hv: p.hv,
         aroon_up: od2f(p.aroon_up),
         aroon_down: od2f(p.aroon_down),
         choppiness: od2f(p.choppiness),
-        linreg_slope: od2f(p.linreg_slope),
-        zscore: od2f(p.zscore),
+        linreg_slope: p.linreg_slope,
+        zscore: p.zscore,
         stochastic_divergence: p.extra_div.stochastic,
         chandemo_divergence: p.extra_div.chandemo,
         mfi_divergence: p.extra_div.mfi,

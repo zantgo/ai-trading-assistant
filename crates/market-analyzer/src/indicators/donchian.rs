@@ -26,7 +26,9 @@ impl Donchian {
         }
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal) -> Option<DonchianOutput> {
+    pub fn update(&mut self, high: f64, low: f64) -> Option<DonchianOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
         if self.period == 0 {
             return None;
         }
@@ -65,10 +67,7 @@ mod tests {
     use rust_decimal_macros::dec;
 
     fn feed(d: &mut Donchian, h: f64, l: f64) -> Option<DonchianOutput> {
-        d.update(
-            Decimal::from_f64_retain(h).unwrap(),
-            Decimal::from_f64_retain(l).unwrap(),
-        )
+        d.update(h, l)
     }
 
     #[test]

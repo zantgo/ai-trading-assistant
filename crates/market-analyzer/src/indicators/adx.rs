@@ -1,5 +1,6 @@
 use super::ema::Ema;
 use super::traits::{BarInput, Indicator};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -91,7 +92,10 @@ impl Adx {
         self.slope_lookback = slope_lookback;
     }
 
-    pub fn update(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<AdxOutput> {
+    pub fn update(&mut self, high: f64, low: f64, close: f64) -> Option<AdxOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
         let (p_high, p_low, p_close) = match (self.prev_high, self.prev_low, self.prev_close) {
             (Some(h), Some(l), Some(c)) => (h, l, c),
             _ => {
@@ -125,9 +129,9 @@ impl Adx {
             Decimal::ZERO
         };
 
-        let tr_smooth = self.tr_ema.update(tr);
-        let plus_dm_smooth = self.plus_dm_ema.update(plus_dm);
-        let minus_dm_smooth = self.minus_dm_ema.update(minus_dm);
+        let tr_smooth = self.tr_ema.update(tr.to_f64().unwrap_or(0.0));
+        let plus_dm_smooth = self.plus_dm_ema.update(plus_dm.to_f64().unwrap_or(0.0));
+        let minus_dm_smooth = self.minus_dm_ema.update(minus_dm.to_f64().unwrap_or(0.0));
 
         if tr_smooth == Decimal::ZERO {
             return None;
@@ -142,7 +146,7 @@ impl Adx {
         }
 
         let dx = ((plus_di - minus_di).abs() / di_sum) * Decimal::from(100);
-        let adx = self.dx_ema.update(dx);
+        let adx = self.dx_ema.update(dx.to_f64().unwrap_or(0.0));
 
         // Track ADX history for slope calculation
         self.adx_history.push_back(adx);
@@ -260,31 +264,30 @@ fn classify_regime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_first_update_returns_none() {
         let mut adx = Adx::new(14);
-        assert!(adx.update(dec!(100.00), dec!(95.00), dec!(98.00)).is_none());
+        assert!(adx.update(100.00, 95.00, 98.00).is_none());
     }
 
     #[test]
     fn test_strong_up_trend_plus_di_above_minus_di() {
         let mut adx = Adx::new(14);
-        let mut high = dec!(100.00);
-        let mut low = dec!(95.00);
-        let mut close = dec!(98.00);
+        let mut high = 100.00;
+        let mut low = 95.00;
+        let mut close = 98.00;
         adx.update(high, low, close);
 
         for _ in 0..20 {
-            high += dec!(2.00);
-            low += dec!(1.50);
-            close += dec!(2.00);
+            high += 2.00;
+            low += 1.50;
+            close += 2.00;
             adx.update(high, low, close);
         }
 
         let out = adx
-            .update(high + dec!(2.00), low + dec!(1.50), close + dec!(2.00))
+            .update(high + 2.00, low + 1.50, close + 2.00)
             .unwrap();
         assert!(
             out.plus_di > out.minus_di,
@@ -296,12 +299,11 @@ mod tests {
     #[test]
     fn test_zero_movement_periods_produce_symmetric_di() {
         let mut adx = Adx::new(14);
-        let price = dec!(100.00);
-        adx.update(price, price, price);
+        adx.update(100.00, 100.00, 100.00);
         for _ in 0..20 {
-            if let Some(out) = adx.update(price, price, price) {
+            if let Some(out) = adx.update(100.00, 100.00, 100.00) {
                 assert!(
-                    (out.plus_di - out.minus_di).abs() < dec!(1.00),
+                    (out.plus_di - out.minus_di).abs() < Decimal::from_f64_retain(1.00).unwrap(),
                     "Zero movement: +DI and -DI should be near equal"
                 );
             }
@@ -311,27 +313,27 @@ mod tests {
     #[test]
     fn test_di_crossover_detection() {
         let mut adx = Adx::new(14);
-        let mut high = dec!(100.00);
-        let mut low = dec!(95.00);
-        let mut close = dec!(98.00);
+        let mut high = 100.00;
+        let mut low = 95.00;
+        let mut close = 98.00;
         adx.update(high, low, close);
 
         // Drive a strong uptrend then reverse to detect crossovers
         for _ in 0..15 {
-            high += dec!(1.00);
-            low += dec!(0.50);
-            close += dec!(1.00);
+            high += 1.00;
+            low += 0.50;
+            close += 1.00;
             adx.update(high, low, close);
         }
         // Now reverse hard
         for _ in 0..20 {
-            high -= dec!(1.00);
-            low -= dec!(0.50);
-            close -= dec!(1.00);
+            high -= 1.00;
+            low -= 0.50;
+            close -= 1.00;
             adx.update(high, low, close);
         }
         let out = adx
-            .update(high - dec!(1.00), low - dec!(0.50), close - dec!(1.00))
+            .update(high - 1.00, low - 0.50, close - 1.00)
             .unwrap();
         // After sustained downtrend, -DI should exceed +DI
         assert!(out.minus_di > out.plus_di);
@@ -339,40 +341,40 @@ mod tests {
 
     #[test]
     fn test_regime_classification_congestion() {
-        let regime = classify_regime(dec!(15.0), dec!(20.0), dec!(40.0));
+        let regime = classify_regime(Decimal::from_f64_retain(15.0).unwrap(), Decimal::from_f64_retain(20.0).unwrap(), Decimal::from_f64_retain(40.0).unwrap());
         assert_eq!(regime, TrendRegime::Congestion);
     }
 
     #[test]
     fn test_regime_classification_emerging() {
-        let regime = classify_regime(dec!(22.0), dec!(20.0), dec!(40.0));
+        let regime = classify_regime(Decimal::from_f64_retain(22.0).unwrap(), Decimal::from_f64_retain(20.0).unwrap(), Decimal::from_f64_retain(40.0).unwrap());
         assert_eq!(regime, TrendRegime::Emerging);
     }
 
     #[test]
     fn test_regime_classification_strong() {
-        let regime = classify_regime(dec!(30.0), dec!(20.0), dec!(40.0));
+        let regime = classify_regime(Decimal::from_f64_retain(30.0).unwrap(), Decimal::from_f64_retain(20.0).unwrap(), Decimal::from_f64_retain(40.0).unwrap());
         assert_eq!(regime, TrendRegime::Strong);
     }
 
     #[test]
     fn test_regime_classification_extreme() {
-        let regime = classify_regime(dec!(42.0), dec!(20.0), dec!(40.0));
+        let regime = classify_regime(Decimal::from_f64_retain(42.0).unwrap(), Decimal::from_f64_retain(20.0).unwrap(), Decimal::from_f64_retain(40.0).unwrap());
         assert_eq!(regime, TrendRegime::Extreme);
     }
 
     #[test]
     fn test_adx_peak_tracks_max() {
         let mut adx = Adx::new(14);
-        let mut high = dec!(100.00);
-        let mut low = dec!(95.00);
-        let mut close = dec!(98.00);
+        let mut high = 100.00;
+        let mut low = 95.00;
+        let mut close = 98.00;
         adx.update(high, low, close);
 
         for _ in 0..20 {
-            high += dec!(2.00);
-            low += dec!(1.50);
-            close += dec!(2.00);
+            high += 2.00;
+            low += 1.50;
+            close += 2.00;
             adx.update(high, low, close);
         }
         let peak = adx.get_adx_peak();
@@ -382,16 +384,16 @@ mod tests {
     #[test]
     fn test_slope_computation() {
         let mut adx = Adx::new(14);
-        adx.set_thresholds(dec!(20.0), dec!(40.0), 3);
-        let mut high = dec!(100.00);
-        let mut low = dec!(95.00);
-        let mut close = dec!(98.00);
+        adx.set_thresholds(Decimal::from_f64_retain(20.0).unwrap(), Decimal::from_f64_retain(40.0).unwrap(), 3);
+        let mut high = 100.00;
+        let mut low = 95.00;
+        let mut close = 98.00;
         adx.update(high, low, close);
 
         for _ in 0..25 {
-            high += dec!(1.00);
-            low += dec!(0.50);
-            close += dec!(1.00);
+            high += 1.00;
+            low += 0.50;
+            close += 1.00;
             adx.update(high, low, close);
         }
         let slope = adx.get_slope();

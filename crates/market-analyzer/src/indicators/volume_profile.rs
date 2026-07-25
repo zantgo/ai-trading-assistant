@@ -56,10 +56,10 @@ impl VolumeProfile {
     /// Feed a completed candle. Returns the profile once the window is full.
     pub fn update(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        close: Decimal,
-        volume: Decimal,
+        high: f64,
+        low: f64,
+        close: f64,
+        volume: f64,
     ) -> Option<VolumeProfileOutput> {
         // When called without an explicit `open`, default to `close` so the
         // candle is treated as directionless (50/50 buy/sell). The richer
@@ -73,12 +73,17 @@ impl VolumeProfile {
     /// Returns the profile once the window is full.
     pub fn update_with_open(
         &mut self,
-        high: Decimal,
-        low: Decimal,
-        open: Decimal,
-        close: Decimal,
-        volume: Decimal,
+        high: f64,
+        low: f64,
+        open: f64,
+        close: f64,
+        volume: f64,
     ) -> Option<VolumeProfileOutput> {
+        let high = Decimal::from_f64_retain(high).unwrap_or(Decimal::ZERO);
+        let low = Decimal::from_f64_retain(low).unwrap_or(Decimal::ZERO);
+        let open = Decimal::from_f64_retain(open).unwrap_or(Decimal::ZERO);
+        let close = Decimal::from_f64_retain(close).unwrap_or(Decimal::ZERO);
+        let volume = Decimal::from_f64_retain(volume).unwrap_or(Decimal::ZERO);
         self.bars.push_back(Bar { high, low, open, close, volume });
         while self.bars.len() > self.window_size {
             self.bars.pop_front();
@@ -364,12 +369,11 @@ impl VolumeProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal_macros::dec;
 
     #[test]
     fn test_none_before_half_window() {
         let mut vp = VolumeProfile::new(100, 30, 0.70);
-        let out = vp.update(dec!(110), dec!(90), dec!(100), dec!(1000));
+        let out = vp.update(110.0, 90.0, 100.0, 1000.0);
         assert!(out.is_none());
     }
 
@@ -377,10 +381,10 @@ mod tests {
     fn test_produces_profile_after_half_window() {
         let mut vp = VolumeProfile::new(20, 30, 0.70);
         for _ in 0..15 {
-            vp.update(dec!(110), dec!(90), dec!(100), dec!(200));
+            vp.update(110.0, 90.0, 100.0, 200.0);
         }
         assert!(vp
-            .update(dec!(110), dec!(90), dec!(100), dec!(200))
+            .update(110.0, 90.0, 100.0, 200.0)
             .is_some());
     }
 
@@ -389,14 +393,14 @@ mod tests {
         let mut vp = VolumeProfile::new(30, 30, 0.70);
         // Most volume concentrated near 100.
         for _ in 0..20 {
-            vp.update(dec!(105), dec!(95), dec!(100), dec!(500));
+            vp.update(105.0, 95.0, 100.0, 500.0);
         }
         // A few bars around 120.
         for _ in 0..10 {
-            vp.update(dec!(125), dec!(115), dec!(120), dec!(100));
+            vp.update(125.0, 115.0, 120.0, 100.0);
         }
         let out = vp
-            .update(dec!(105), dec!(95), dec!(100), dec!(500))
+            .update(105.0, 95.0, 100.0, 500.0)
             .unwrap();
         // POC should be near 100 where the most volume is.
         let poc_f: f64 = out.poc.to_f64().unwrap();
@@ -414,11 +418,11 @@ mod tests {
         let mut vp = VolumeProfile::new(30, 10, 0.70);
         // 10 bullish candles around price 100.
         for _ in 0..10 {
-            vp.update_with_open(dec!(105), dec!(95), dec!(95), dec!(105), dec!(1000));
+            vp.update_with_open(105.0, 95.0, 95.0, 105.0, 1000.0);
         }
         // 5 bearish candles around price 110.
         for _ in 0..5 {
-            vp.update_with_open(dec!(115), dec!(105), dec!(115), dec!(105), dec!(500));
+            vp.update_with_open(115.0, 105.0, 115.0, 105.0, 500.0);
         }
         let bins = vp.compute_bins().expect("bins should be ready");
         assert_eq!(bins.len(), 10);
@@ -433,7 +437,7 @@ mod tests {
         let mut vp = VolumeProfile::new(20, 10, 0.70);
         for _ in 0..10 {
             // Doji: open == close.
-            vp.update_with_open(dec!(105), dec!(95), dec!(100), dec!(100), dec!(1000));
+            vp.update_with_open(105.0, 95.0, 100.0, 100.0, 1000.0);
         }
         let bins = vp.compute_bins().unwrap();
         let total_buy: Decimal = bins.iter().map(|b| b.buy).sum();
