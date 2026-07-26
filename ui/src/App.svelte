@@ -50,7 +50,11 @@
         { view: 'advisory',    label: 'Decision' },
     ];
 
-    const activePair = $derived(app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined);
+    const activePair = $derived.by(() => {
+        const p = app.selectedInstance ? app.instancesMap[app.selectedInstance] : undefined;
+        if (p) void p.currentView;
+        return p;
+    });
     const isHome = $derived(app.currentEngine === 'profile');
     const topLabel = $derived(isHome ? 'TRADING PLATFORM' : engineLabel(app.currentEngine));
 

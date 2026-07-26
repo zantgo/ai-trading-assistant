@@ -91,9 +91,9 @@
         return () => { cancelled = true; };
     });
 
-    const spreadCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const spreadCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'spread');
+        const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'spread');
         if (val != null) {
             spreadSeries.update({ time: timeSec as Time, value: val });
             liveReceived = true;

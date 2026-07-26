@@ -41,7 +41,7 @@
     );
 
     /** Per-key quick-lookup for `updates_on_shadow` from the full registry. */
-    const shadowMeta = $derived(() => {
+    const shadowMeta = $derived.by(() => {
         const m = new Map<string, boolean>();
         for (const r of registry) {
             m.set(r.key, r.updates_on_shadow ?? false);
@@ -146,7 +146,7 @@
         if (tf.isCompleted) return false;
         const lc = lifecycleStatus(key);
         if (!lc || lc.state !== 'Live') return false;
-        const updatesOnShadow = shadowMeta().get(key) ?? false;
+        const updatesOnShadow = shadowMeta.get(key) ?? false;
         return !updatesOnShadow;
     }
 

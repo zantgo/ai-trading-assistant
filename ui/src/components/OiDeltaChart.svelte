@@ -93,9 +93,9 @@
         return () => { cancelled = true; };
     });
 
-    const oiDeltaCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const oiDeltaCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'oi_delta');
+        const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'oi_delta');
         if (val != null && val !== 0) {
             oiDeltaSeries.update({ time: timeSec as Time, value: val, color: val >= 0 ? '#26a69a' : '#ef5350' });
             liveReceived = true;

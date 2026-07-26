@@ -91,9 +91,9 @@
         return () => { cancelled = true; };
     });
 
-    const fundingCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const fundingCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'funding_rate');
+        const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'funding_rate');
         if (val != null) {
             fundingSeries.update({ time: timeSec as Time, value: val });
             liveReceived = true;

@@ -98,9 +98,9 @@
         return () => { cancelled = true; };
     });
 
-    const ofiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const ofiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const m = (_tfVal.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const ofi = iRaw(m, 'order_flow_imbalance');
         const depth = iRaw(m, 'depth_bias');
         if (ofi != null && ofi !== 0) {

@@ -66,7 +66,6 @@
     );
 
     const dimNames = ['Trend', 'Momentum', 'Volume', 'Volatility', 'Structure', 'Signal', 'Regime', 'Confidence', 'Liquidity', 'Tradability'];
-    const blendDesc = $derived(alignment ? `0.5 T + 0.3 M + 0.1 Vt + 0.1 Vm` : '');
 
     const weights = [
         { label: 'Trend', key: 'T', pct: 50, color: '#22c55e' },
@@ -74,6 +73,25 @@
         { label: 'Vol.trend', key: 'Vt', pct: 10, color: '#a78bfa' },
         { label: 'Vol.market', key: 'Vm', pct: 10, color: '#f59e0b' },
     ];
+
+    function getRawValue(key: string): number {
+        if (!alignment) return 0;
+        if (key === 'T') return alignment.mtf_trend_alignment;
+        if (key === 'M') return alignment.mtf_momentum_alignment;
+        if (key === 'Vt') return alignment.mtf_volume_alignment;
+        if (key === 'Vm') return alignment.mtf_volatility_alignment;
+        return 0;
+    }
+
+    const blendDesc = $derived.by(() => {
+        if (!alignment) return '';
+        const t = alignment.mtf_trend_alignment;
+        const m = alignment.mtf_momentum_alignment;
+        const vt = alignment.mtf_volume_alignment;
+        const vm = alignment.mtf_volatility_alignment;
+        const sum = alignment.mtf_overall_score;
+        return `0.5 * (${t.toFixed(2)}) + 0.3 * (${m.toFixed(2)}) + 0.1 * (${vt.toFixed(2)}) + 0.1 * (${vm.toFixed(2)}) = ${sum.toFixed(1)}`;
+    });
 
     const conflictWarning = $derived(
         alignment && alignment.timeframes_present > 0 && alignment.trend_agreement_pct < 50
@@ -208,10 +226,19 @@
         <div class={styles.sectionTitle}>Score Calculation</div>
         <div class={styles.weightGrid}>
             {#each weights as w}
+                {@const val = getRawValue(w.key)}
+                {@const contrib = val * (w.pct / 100)}
                 <div class={styles.weightChip}>
                     <span class={styles.weightChipKey}>{w.key}</span>
-                    <span class={styles.weightChipLabel}>{w.label}</span>
-                    <span class={styles.weightChipPct} style="color: {w.color}">{w.pct}%</span>
+                    <span class={styles.weightChipLabel}>
+                        {w.label} <span style="color: var(--text-dim); font-size: 8px;">({w.pct}%)</span>
+                    </span>
+                    <span class={styles.weightChipPct} style="color: {w.color}">
+                        {alignment ? (val >= 0 ? '+' : '') + val.toFixed(2) : '—'}
+                    </span>
+                    <span style="font-size: 9px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px;">
+                        contrib: {alignment ? (contrib >= 0 ? '+' : '') + contrib.toFixed(2) : '—'}
+                    </span>
                 </div>
             {/each}
         </div>
