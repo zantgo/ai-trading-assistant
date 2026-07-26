@@ -82,7 +82,7 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const v = iRaw((snap.indicators ?? {}) as IndicatorMap, 'hv');
+        const v = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'hv');
         if (v != null) hvSeries.update({ time: timeSec as Time, value: v });
         liveReceived = true;
     });

@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 
 /// Directional market bias.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MarketBias {
     StrongBullish,
     Bullish,
@@ -34,7 +33,6 @@ impl std::fmt::Display for MarketBias {
 
 /// Market regime classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MarketRegime {
     TrendingBull,
     TrendingBear,
@@ -63,7 +61,6 @@ impl std::fmt::Display for MarketRegime {
 
 /// Trend quality assessment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TrendAssessment {
     Weak,
     Developing,
@@ -74,7 +71,6 @@ pub enum TrendAssessment {
 
 /// Momentum state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MomentumAssessment {
     Increasing,
     Stable,
@@ -85,7 +81,6 @@ pub enum MomentumAssessment {
 
 /// Structure state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum StructureAssessment {
     Strong,
     Healthy,
@@ -96,7 +91,6 @@ pub enum StructureAssessment {
 
 /// Volatility state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum VolatilityAssessment {
     Compressed,
     Normal,
@@ -107,7 +101,6 @@ pub enum VolatilityAssessment {
 
 /// Volume participation state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum VolumeAssessment {
     Weak,
     Normal,
@@ -119,7 +112,6 @@ pub enum VolumeAssessment {
 /// This is the authoritative home of the setup selector in the institutional
 /// redesign; the Opportunity Matrix (L4) is its sole producer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OpportunityType {
     TrendContinuation,
     Breakout,
@@ -133,7 +125,6 @@ pub enum OpportunityType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SetupQuality {
     Prime,
     Strong,
@@ -153,9 +144,24 @@ pub struct OpportunityProfile {
     pub notes: String,
 }
 
+/// Wyckoff-style market-cycle phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MarketPhase {
+    Accumulation,
+    Markup,
+    Distribution,
+    Markdown,
+    Unknown,
+}
+
+impl std::fmt::Display for MarketPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 /// Market quality level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum QualityLevel {
     Poor,
     Weak,
@@ -192,6 +198,7 @@ pub struct AnalysisMatrix {
     pub opportunity_analysis: OpportunityType,
     pub market_quality: QualityLevel,
     pub market_quality_score: f64,
+    pub market_phase: MarketPhase,
     pub market_interpretation: String,
     pub rationale: String,
     pub supporting_signals: Vec<String>,
@@ -216,6 +223,7 @@ impl AnalysisMatrix {
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Poor,
             market_quality_score: 0.0,
+            market_phase: MarketPhase::Unknown,
             market_interpretation: "No data available — no candles have been completed.".into(),
             rationale: String::new(),
             supporting_signals: Vec::new(),
@@ -233,12 +241,14 @@ impl AnalysisMatrix {
 /// - `adx`: ADX raw value from the representative indicator map.
 /// - `previous_score`: the prior bar's `mtf_overall_score` for slope calculation.
 /// - `previous_regime`: the regime from the previous bar for transition/stickiness detection.
+/// - `previous_volume_dim`: the prior bar's volume dimension score (dim 2) for Wyckoff MarketPhase trend.
 pub fn derive_analysis(
     alignment: &AlignmentMatrix,
     bbwp: Option<f64>,
     adx: Option<f64>,
     previous_score: Option<f64>,
     previous_regime: Option<MarketRegime>,
+    previous_volume_dim: Option<f64>,
 ) -> AnalysisMatrix {
     if alignment.timeframes_present == 0 {
         return AnalysisMatrix::empty(&alignment.symbol);
@@ -363,6 +373,35 @@ pub fn derive_analysis(
         VolumeAssessment::Weak
     };
 
+    // ── MarketPhase: Wyckoff-style market-cycle phase (§3.9) ──
+    let is_low_volatility = vol_dim >= 20.0 && vol_dim < 40.0;
+    let is_price_trending_up = score > 20.0;
+    let is_price_trending_down = score < -20.0;
+    let is_volume_strong = volu_dim >= 70.0;
+    let is_structure_healthy = struct_dim >= 60.0;
+    let is_structure_weak = struct_dim < 60.0;
+    let is_bullish = matches!(bias, MarketBias::Bullish | MarketBias::StrongBullish);
+    let is_bearish = matches!(bias, MarketBias::Bearish | MarketBias::StrongBearish);
+
+    let volume_rising = previous_volume_dim
+        .map(|prev| volu_dim > prev + 5.0)
+        .unwrap_or(false);
+    let volume_falling = previous_volume_dim
+        .map(|prev| volu_dim < prev - 5.0)
+        .unwrap_or(false);
+
+    let market_phase = if is_low_volatility && volume_rising && is_structure_healthy {
+        MarketPhase::Accumulation
+    } else if is_price_trending_up && is_volume_strong && is_bullish {
+        MarketPhase::Markup
+    } else if is_low_volatility && volume_falling && is_structure_weak {
+        MarketPhase::Distribution
+    } else if is_price_trending_down && is_volume_strong && is_bearish {
+        MarketPhase::Markdown
+    } else {
+        MarketPhase::Unknown
+    };
+
     // Opportunity from alignment dimensions (deprecated — L4 owns the canonical tree).
     // Kept for backward compat on `analysis.opportunity_analysis` field.
     let opp_dim = alignment.dimensions.get(9).map(|d| d.score).unwrap_or(50.0);
@@ -480,7 +519,7 @@ pub fn derive_analysis(
     AnalysisMatrix {
         symbol: alignment.symbol.clone(),
         bias,
-        market_bias_score: alignment.mtf_overall_score * 100.0,
+        market_bias_score: alignment.mtf_overall_score / 100.0,
         state_confidence,
         confidence: state_confidence,
         market_regime: regime,
@@ -492,6 +531,7 @@ pub fn derive_analysis(
         opportunity_analysis: opportunity,
         market_quality,
         market_quality_score: quality_score,
+        market_phase,
         market_interpretation: interpretation,
         rationale: rationale_parts.join(" "),
         supporting_signals: supporting,
@@ -548,7 +588,7 @@ mod tests {
     #[test]
     fn strong_bullish_mtf_produces_bullish() {
         let c = simple_alignment(4, 75.0, 100.0, 4);
-        let d = derive_analysis(&c, Some(60.0), Some(28.0), None, None);
+        let d = derive_analysis(&c, Some(60.0), Some(28.0), None, None, None);
         assert!(matches!(
             d.bias,
             MarketBias::Bullish | MarketBias::StrongBullish
@@ -559,14 +599,14 @@ mod tests {
     #[test]
     fn neutral_score_neutral() {
         let c = simple_alignment(4, 10.0, 40.0, 0);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), None, None, None);
         assert_eq!(d.bias, MarketBias::Neutral);
     }
 
     #[test]
     fn empty_returns_empty() {
         let c = AlignmentMatrix::empty("BTC-USD");
-        let d = derive_analysis(&c, None, None, None, None);
+        let d = derive_analysis(&c, None, None, None, None, None);
         assert_eq!(d.bias, MarketBias::Neutral);
         assert_eq!(d.timeframes_considered, 0);
     }
@@ -574,56 +614,56 @@ mod tests {
     #[test]
     fn expansion_regime_from_high_bbwp() {
         let c = simple_alignment(4, 50.0, 60.0, 2);
-        let d = derive_analysis(&c, Some(90.0), Some(22.0), None, None);
+        let d = derive_analysis(&c, Some(90.0), Some(22.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Expansion);
     }
 
     #[test]
     fn contraction_regime_from_low_bbwp() {
         let c = simple_alignment(4, 0.0, 50.0, 1);
-        let d = derive_analysis(&c, Some(5.0), Some(20.0), None, None);
+        let d = derive_analysis(&c, Some(5.0), Some(20.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::Contraction);
     }
 
     #[test]
     fn trending_bull_from_adx_and_score() {
         let c = simple_alignment(4, 55.0, 70.0, 3);
-        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None);
+        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::TrendingBull);
     }
 
     #[test]
     fn trending_bear_from_adx_and_negative_score() {
         let c = simple_alignment(4, -55.0, 70.0, 3);
-        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None);
+        let d = derive_analysis(&c, Some(40.0), Some(30.0), None, None, None);
         assert_eq!(d.market_regime, MarketRegime::TrendingBear);
     }
 
     #[test]
     fn accumulation_from_rising_score() {
         let c = simple_alignment(4, 15.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), None);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), None, None);
         assert_eq!(d.market_regime, MarketRegime::Accumulation);
     }
 
     #[test]
     fn distribution_from_falling_score() {
         let c = simple_alignment(4, -15.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(-5.0), None);
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(-5.0), None, None);
         assert_eq!(d.market_regime, MarketRegime::Distribution);
     }
 
     #[test]
     fn transition_from_regime_shift_with_low_adx() {
         let c = simple_alignment(4, 5.0, 45.0, 1);
-        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), Some(MarketRegime::TrendingBull));
+        let d = derive_analysis(&c, Some(50.0), Some(20.0), Some(5.0), Some(MarketRegime::TrendingBull), None);
         assert_eq!(d.market_regime, MarketRegime::Transition);
     }
 
     #[test]
     fn range_fallback_when_nothing_matches() {
         let c = simple_alignment(4, 5.0, 55.0, 2);
-        let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None);
+        let d = derive_analysis(&c, Some(50.0), Some(30.0), Some(5.0), None, None);
         assert_eq!(d.market_regime, MarketRegime::Range);
     }
 }

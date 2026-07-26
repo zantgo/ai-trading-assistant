@@ -131,7 +131,7 @@ impl DecisionContext {
 mod tests {
     use super::*;
     use crate::analysis::{
-        AnalysisMatrix, MarketBias, MarketRegime, MomentumAssessment, OpportunityType,
+        AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment, OpportunityType,
         QualityLevel, StructureAssessment, TrendAssessment, VolatilityAssessment,
         VolumeAssessment,
     };
@@ -153,6 +153,7 @@ mod tests {
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: q,
             market_quality_score: 0.0,
+            market_phase: MarketPhase::Unknown,
             market_interpretation: "Test".into(),
             rationale: String::new(),
             supporting_signals: Vec::new(),

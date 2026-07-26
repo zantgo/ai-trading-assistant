@@ -103,7 +103,7 @@
 
     const oiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'open_interest');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'open_interest');
         if (val != null) {
             oiSeries.update({ time: timeSec as Time, value: val, color: oiColor(val, prevVal) });
             prevVal = val;

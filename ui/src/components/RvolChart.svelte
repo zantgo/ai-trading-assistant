@@ -112,9 +112,9 @@
         return () => { cancelled = true; };
     });
 
-    const rvolCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const rvolCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rvol');
+        const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'rvol');
         if (val != null) {
             rvolSeries.update({ time: timeSec as Time, value: val, color: rvolColor(val) });
             liveReceived = true;

@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 
 /// Directional guidance classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DirectionalGuidance {
     StrongLong,
     Long,
@@ -26,7 +25,6 @@ pub enum DirectionalGuidance {
 
 /// Market stance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MarketStance {
     Aggressive,
     Constructive,
@@ -43,7 +41,6 @@ impl std::fmt::Display for MarketStance {
 
 /// Opportunity classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OpportunityClass {
     TrendContinuation,
     Breakout,
@@ -57,7 +54,6 @@ pub enum OpportunityClass {
 
 /// Strategy environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum StrategyEnvironment {
     TrendFollowing,
     Breakout,
@@ -69,7 +65,6 @@ pub enum StrategyEnvironment {
 
 /// Entry guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EntryGuidance {
     Immediate,
     WaitForConfirmation,
@@ -80,7 +75,6 @@ pub enum EntryGuidance {
 
 /// Exit guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExitGuidance {
     TrendWeakening,
     MomentumExhaustion,
@@ -91,7 +85,6 @@ pub enum ExitGuidance {
 
 /// Protection strategy guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProtectionStrategy {
     StructureBased,
     VolatilityBased,
@@ -102,7 +95,6 @@ pub enum ProtectionStrategy {
 
 /// Target strategy guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TargetStrategy {
     ResistanceBased,
     RRBased,

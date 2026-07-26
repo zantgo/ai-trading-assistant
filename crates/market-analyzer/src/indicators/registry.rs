@@ -32,6 +32,23 @@ pub enum IndicatorClass {
     Lagging,
 }
 
+/// Data source for an indicator.  Candle-based indicators are gated on the
+/// canonical buffer fill; WebSocket-derived indicators (derivatives, order-book
+/// depth) are exempt from the candle count gate and appear immediately when
+/// their WS data arrives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IndicatorDataSource {
+    CandleBased,
+    OrderBook,
+    DerivativesWs,
+}
+
+impl Default for IndicatorDataSource {
+    fn default() -> Self {
+        Self::CandleBased
+    }
+}
+
 /// Where the indicator renders in the frontend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum RenderKind {
@@ -75,6 +92,20 @@ pub struct IndicatorMeta {
     /// every `bars_required ≤ 200` so a fully-warmed pipeline is `Live`
     /// across all indicators (DCP-04 / ILS-05).
     pub bars_required: u32,
+    /// Whether this indicator recomputes on shadow (live) ticks via clone.
+    /// `true` = candle-close-independent (RSI, MACD, EMA…); the value
+    /// updates every shadow tick. `false` = requires a completed candle
+    /// (Fibonacci, patterns, S/R zones…); the value is only fresh after a
+    /// candle closes. The frontend uses this to visually distinguish fresh
+    /// from confirmed-on-close values.
+    pub updates_on_shadow: bool,
+    /// Data source category.  Candle-based indicators are gated on the
+    /// pipeline buffer fill; `OrderBook` / `DerivativesWs` indicators
+    /// bypass the candle-count gate and appear when their live WS data
+    /// arrives.  (Phase 4, v6.6 — pipeline gate exemption.)
+    /// `None` defaults to `CandleBased` at the gate site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_source: Option<IndicatorDataSource>,
 }
 
 use IndicatorClass::*;
@@ -103,6 +134,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#fdd835",
         guide_section: "6",
         bars_required: 200,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "supertrend",
@@ -121,6 +154,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#26a69a",
         guide_section: "14",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "donchian",
@@ -139,6 +174,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ec407a",
         guide_section: "16",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "keltner",
@@ -161,6 +198,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#78909c",
         guide_section: "15",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "adx",
@@ -179,6 +218,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff9800",
         guide_section: "4",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "vwap",
@@ -197,6 +238,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#2962ff",
         guide_section: "7",
         bars_required: 1,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "anchored_vwap",
@@ -215,6 +258,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffab40",
         guide_section: "34",
         bars_required: 1,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "ichimoku",
@@ -238,6 +283,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#7e57c2",
         guide_section: "25",
         bars_required: 52,
+        data_source: None,
+        updates_on_shadow: false,
     },
     // ─────────── MOMENTUM ───────────
     IndicatorMeta {
@@ -257,6 +304,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#7e57c2",
         guide_section: "1",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "stochastic",
@@ -275,6 +324,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#2962ff",
         guide_section: "12",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "chandemo",
@@ -293,6 +344,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#e040fb",
         guide_section: "13",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "williams_r",
@@ -311,6 +364,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#81c784",
         guide_section: "28",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "hull_ma",
@@ -329,6 +384,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff8a65",
         guide_section: "29",
         bars_required: 200,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "awesome_oscillator",
@@ -347,6 +404,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#4dd0e1",
         guide_section: "30",
         bars_required: 34,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "force_index",
@@ -365,6 +424,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ce93d8",
         guide_section: "31",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "stddev_channel",
@@ -383,6 +444,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#a1887f",
         guide_section: "32",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "cci",
@@ -401,6 +464,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffb74d",
         guide_section: "26",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "macd",
@@ -419,6 +484,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#26a69a",
         guide_section: "2",
         bars_required: 26,
+        data_source: None,
+        updates_on_shadow: true,
     },
     // ─────────── VOLUME ───────────
     IndicatorMeta {
@@ -438,6 +505,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#26a69a",
         guide_section: "6",
         bars_required: 1,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "rvol",
@@ -456,6 +525,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffa726",
         guide_section: "6",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "volume_profile",
@@ -478,6 +549,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#bcaaa4",
         guide_section: "33",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "obv",
@@ -496,6 +569,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#29b6f6",
         guide_section: "17",
         bars_required: 1,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "cmf",
@@ -514,6 +589,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#26c6da",
         guide_section: "18",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "mfi",
@@ -532,6 +609,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ab47bc",
         guide_section: "19",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     // ─────────── VOLATILITY ───────────
     IndicatorMeta {
@@ -551,6 +630,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ef5350",
         guide_section: "5",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "bollinger",
@@ -569,6 +650,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#00e5ff",
         guide_section: "5",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "bbwp",
@@ -587,6 +670,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffca28",
         guide_section: "9",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "squeeze",
@@ -605,6 +690,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#b2ff59",
         guide_section: "3",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "hv",
@@ -623,6 +710,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff7043",
         guide_section: "20",
         bars_required: 20,
+        data_source: None,
+        updates_on_shadow: true,
     },
     // ─────────── MARKET STRUCTURE ───────────
     IndicatorMeta {
@@ -642,6 +731,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffd54f",
         guide_section: "8",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "support_resistance",
@@ -660,6 +751,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#90a4ae",
         guide_section: "8",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "pivot_points",
@@ -678,6 +771,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#8d6e63",
         guide_section: "8",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "psar",
@@ -696,6 +791,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffab40",
         guide_section: "27",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "patterns",
@@ -714,6 +811,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ba68c8",
         guide_section: "10",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "candlestick",
@@ -732,6 +831,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#4db6ac",
         guide_section: "10",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     // ─────────── MARKET REGIME ───────────
     IndicatorMeta {
@@ -751,6 +852,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#26a69a",
         guide_section: "21",
         bars_required: 25,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "choppiness",
@@ -769,6 +872,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffa726",
         guide_section: "22",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "linreg_slope",
@@ -787,6 +892,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#42a5f5",
         guide_section: "23",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     IndicatorMeta {
         key: "zscore",
@@ -805,6 +912,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ec407a",
         guide_section: "24",
         bars_required: 14,
+        data_source: None,
+        updates_on_shadow: true,
     },
     // ─────────── ADVANCED ───────────
     IndicatorMeta {
@@ -824,6 +933,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffab40",
         guide_section: "34",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "smc_liquidity",
@@ -842,6 +953,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff7043",
         guide_section: "34",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "smc_fvg",
@@ -860,6 +973,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffca28",
         guide_section: "34",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "smc_order_blocks",
@@ -878,6 +993,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#8d6e63",
         guide_section: "34",
         bars_required: 50,
+        data_source: None,
+        updates_on_shadow: false,
     },
     // ─────────── DERIVATIVES DATA (Phase 11) ───────────
     IndicatorMeta {
@@ -897,6 +1014,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ffab40",
         guide_section: "35",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::DerivativesWs),
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "oi_delta",
@@ -915,6 +1034,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff6e40",
         guide_section: "35",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::DerivativesWs),
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "funding_rate",
@@ -933,6 +1054,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#00e676",
         guide_section: "36",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::DerivativesWs),
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "oi_price_divergence",
@@ -951,6 +1074,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff5252",
         guide_section: "35",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::DerivativesWs),
+        updates_on_shadow: false,
     },
     // ─────────── ORDER BOOK DEPTH (Phase 2) ───────────
     IndicatorMeta {
@@ -970,6 +1095,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#ff6d00",
         guide_section: "37",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::OrderBook),
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "spread",
@@ -988,6 +1115,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#f48fb1",
         guide_section: "37",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::OrderBook),
+        updates_on_shadow: false,
     },
     IndicatorMeta {
         key: "depth_bias",
@@ -1006,6 +1135,8 @@ pub const INDICATORS: &[IndicatorMeta] = &[
         color: "#18ffff",
         guide_section: "37",
         bars_required: 1,
+        data_source: Some(IndicatorDataSource::OrderBook),
+        updates_on_shadow: false,
     },
 ];
 
@@ -1013,6 +1144,13 @@ pub const INDICATORS: &[IndicatorMeta] = &[
 pub fn all() -> Vec<IndicatorMeta> {
     INDICATORS.to_vec()
 }
+
+/// Maximum `bars_required` across all indicators in the registry.
+/// Every candle-based indicator is mathematically correct once the buffer
+/// holds at least this many bars (200 = Hull MA / EMA Stack).  Used as
+/// the lower-tier mathematical-gate (Layer 1); the higher-tier system-gate
+/// (Layer 2) is `[candle_buffer] size` (default 500).
+pub const INDICATORS_MAX_BARS_REQUIRED: u32 = 200;
 
 /// Look up an indicator's metadata by key.
 pub fn get(key: &str) -> Option<&'static IndicatorMeta> {
@@ -1055,5 +1193,18 @@ mod tests {
                 m.default_weight
             );
         }
+    }
+
+    #[test]
+    fn test_max_bars_required_is_200() {
+        let max_bars = INDICATORS
+            .iter()
+            .map(|m| m.bars_required)
+            .max()
+            .unwrap_or(0);
+        assert_eq!(
+            max_bars, INDICATORS_MAX_BARS_REQUIRED,
+            "INDICATORS_MAX_BARS_REQUIRED must match the actual maximum bars_required"
+        );
     }
 }

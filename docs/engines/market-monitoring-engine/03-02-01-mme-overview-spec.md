@@ -83,6 +83,8 @@ broadcast MarketSnapshot (is_completed = false)
 
 Shadow snapshots carry updated indicator readings for real-time display, but signals, cross-TF synthesis, and higher-layer matrices are not re-evaluated until the candle closes.
 
+> **Single Source of Truth.** The `indicators` map produced at `build_indicator_map` (both completed and shadow paths) is the **single canonical source of truth** for all indicator data across the platform. Every downstream consumer — all 35 frontend chart components, all 6 Metrics-tab facets, the MarketContextStrip, GroupConfluenceGrid, StructuralAnchorsStrip, export JSON, DB logger, and L2–L7 synthesis layers — reads from the accumulated `tf.indicators` map and from no other data source for indicator values. On the frontend, `applySnapshotToTimeframe()` performs a per-key spread-merge on every snapshot arrival so close-dependent indicators (Fibonacci, patterns, S/R, Ichimoku, etc.) persist across shadow ticks. The `updates_on_shadow` registry metadata governs which entries carry tick-fresh values vs. last-completed-candle values. See the [Metrics Matrix §2.1.1](../../matrices/02-07-metrics-matrix.md) for the full contract.
+
 ---
 
 ## 3. Concurrency Strategy

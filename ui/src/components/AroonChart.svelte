@@ -88,7 +88,7 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'aroon', 'up');
         const down = iSub(m, 'aroon', 'down');
         if (up != null) upSeries.update({ time: timeSec as Time, value: up });

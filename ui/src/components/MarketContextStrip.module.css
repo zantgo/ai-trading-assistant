@@ -93,6 +93,14 @@
     letter-spacing: 0.05em;
 }
 
+.signalCount {
+    font-size: 9px;
+    color: rgba(34, 211, 238, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+}
+
 .body {
     display: grid;
     grid-template-columns: repeat(5, 1fr);

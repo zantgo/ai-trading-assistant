@@ -97,7 +97,7 @@
 
     const williamsCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'williams_r');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'williams_r');
         warmedBars += 1;
         if (val != null) {
             williamsSeries.update({ time: timeSec as Time, value: val });

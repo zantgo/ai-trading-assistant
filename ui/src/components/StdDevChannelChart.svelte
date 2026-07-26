@@ -98,7 +98,7 @@
 
     const stddevCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (_tfVal.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'stddev_channel', 'upper');
         const mid = iSub(m, 'stddev_channel', 'center');
         const lo = iSub(m, 'stddev_channel', 'lower');

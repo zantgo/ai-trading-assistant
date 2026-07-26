@@ -119,7 +119,7 @@
 
     const psarCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (_tfVal.indicators ?? {}) as IndicatorMap;
         // Prefer the sub-keyed SAR value, fall back to raw_value.
         const val = iSub(m, 'psar', 'sar') ?? iRaw(m, 'psar');
         if (val != null && val > 0 && Number.isFinite(val)) {

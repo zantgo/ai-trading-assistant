@@ -98,7 +98,7 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const k = iSub(m, 'stochastic', 'k_line');
         const d = iSub(m, 'stochastic', 'd_line');
         if (k != null && d != null) {

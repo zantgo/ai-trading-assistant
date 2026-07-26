@@ -102,7 +102,7 @@
 
     const ichiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (_tfVal.indicators ?? {}) as IndicatorMap;
         const t = iSub(m, 'ichimoku', 'tenkan');
         const k = iSub(m, 'ichimoku', 'kijun');
         const sa = iSub(m, 'ichimoku', 'senkou_a');

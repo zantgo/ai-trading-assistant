@@ -1,11 +1,16 @@
 <script lang="ts">
     // TerminalMonitor — Market Monitoring → Metrics view.
     //
-    // Redesigned layout (Phase C of the metrics-ia-rebuild):
+    // Per-TF L1 exploration tool: indicators, signals, context, and
+    // structural anchors pivoted through 6 facets. The Trade Plan
+    // (L4/L6 synthesis) has been moved to the Decision tab where it
+    // belongs architecturally — this tab is pure per-TF observation.
+    //
+    // Layout:
     //   Row 1: MarketContextStrip       — per-TF LOCAL synthesis (5 dimensions + regime + overall)
     //   Row 2: GroupConfluenceGrid      — 8 functional-group cards with directional bias summary
-    //   Row 3: FacetTabs                — 6-tab strip (Indicators / Signals / Divergences / Levels / Liquidity / MTF)
-    //   Row 4: Facet body               — pivots the same data through the chosen facet
+    //   Row 3: StructuralAnchorsStrip   — Volume Profile / Fibonacci / Liquidity ladder
+    //   Row 4: FacetTabs + body         — 6-tab pivoted exploration
     //
     // Header includes the timeframe selector (4 buttons: Micro / Fast / Slow / Macro).
     // Cross-cutting controls (search, filter pills) live above the facet tabs.
@@ -19,7 +24,6 @@
     import MarketContextStrip from './MarketContextStrip.svelte';
     import GroupConfluenceGrid from './GroupConfluenceGrid.svelte';
     import StructuralAnchorsStrip from './StructuralAnchorsStrip.svelte';
-    import TradePlanStrip from './TradePlanStrip.svelte';
     import FacetTabs, { type FacetId } from './facets/FacetTabs.svelte';
     import IndicatorsView from './facets/IndicatorsView.svelte';
     import SignalsView from './facets/SignalsView.svelte';
@@ -31,7 +35,6 @@
     import SvgIcon from '../lib/SvgIcon.svelte';
     import { formatTimeframeLabel } from '../lib/telemetry';
     import { buildMetricsExportJson, copyJsonToClipboard } from '../lib/metricsExport';
-    import { deriveTradePlan } from '../lib/tradePlan';
 
     const app = useAppStore();
     let { pairKey }: { pairKey: string } = $props();
@@ -145,17 +148,6 @@
         const microSnap = (pair as any)?.microTerm?.latestSnapshot ?? {};
         const opportunity = (microSnap as any)?.opportunity ?? null;
         const decisionContext = (microSnap as any)?.decision_context ?? null;
-        const tradePlanVal = $derived.by(() => deriveTradePlan({
-            symbol: pair.symbol,
-            markPrice,
-            opportunity,
-            advisory: pair.advisory ?? null,
-            analysis: pair.analysis ?? null,
-            decisionContext,
-            tf: activeTfObj,
-            microTf: (pair as any)?.microTerm,
-            overallRisk: pair.risk?.overall_risk?.score,
-        }));
         const text = buildMetricsExportJson({
             symbol: pair.symbol,
             tfLabel: activeTfEntry.label,
@@ -178,7 +170,6 @@
             liquidity: (pair as any)?.microTerm?.liquidity ?? null,
             cluster: (pair as any)?.microTerm?.cluster ?? null,
             liquiditySignals: ((pair as any)?.microTerm?.liquiditySignals ?? []) as any[],
-            tradePlan: tradePlanVal,
             decisionContext,
         });
         const ok = await copyJsonToClipboard(text);
@@ -223,18 +214,10 @@
                 context={context ?? null}
                 timestamp={snapshotTs}
                 barDurationSec={activeTfEntry.secs ?? undefined}
+                signalCount={countActiveSignals()}
             />
 
-            <!-- ROW 2 — Trade Plan Strip (entry / TP1/TP2/TP3 / SL / R:R / confidence) -->
-            <TradePlanStrip
-                pair={pair}
-                tf={activeTfObj}
-                microTf={(pair as any)?.microTerm}
-                risk={pair?.risk ?? null}
-                markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
-            />
-
-            <!-- ROW 3 — Group Confluence Grid -->
+            <!-- ROW 2 — Group Confluence Grid -->
             <GroupConfluenceGrid
                 registry={registry}
                 indicators={activeTfObj.indicators ?? {}}
@@ -242,7 +225,7 @@
                 onGroupClick={handleGroupClick}
             />
 
-            <!-- ROW 3.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
+            <!-- ROW 2.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
             {@const microFlow = (pair as any)?.microTerm?.liquidity ?? null}
             {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
                 <button
@@ -257,7 +240,7 @@
                 </button>
             {/if}
 
-            <!-- ROW 4 — Structural Anchors Strip (Volume Profile / Fibonacci / Liquidity ladder) -->
+            <!-- ROW 3 — Structural Anchors Strip (Volume Profile / Fibonacci / Liquidity ladder) -->
             <StructuralAnchorsStrip
                 tf={activeTfObj}
                 microTf={(pair as any)?.microTerm}

@@ -120,9 +120,9 @@
         return '#f97316';
     }
 
-    const adxCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const adxCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const adxVal = iSub(m, 'adx', 'adx') ?? iRaw(m, 'adx');
         if (adxVal != null) {
             const slope = iSub(m, 'adx', 'adx_slope') ?? 0;

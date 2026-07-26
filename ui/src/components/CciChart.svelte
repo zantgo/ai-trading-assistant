@@ -100,7 +100,7 @@
 
     const cciCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'cci');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'cci');
         warmedBars += 1;
         if (val != null) {
             cciSeries.update({ time: timeSec as Time, value: val });

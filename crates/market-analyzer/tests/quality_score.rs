@@ -142,6 +142,7 @@ async fn pristine_candle_scores_100() {
             Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
             None,
             None,
+            5,
         )
     });
 

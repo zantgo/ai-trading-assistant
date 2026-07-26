@@ -118,13 +118,13 @@
         return () => { cancelled = true; };
     });
 
-    const volumeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const volumeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
         if (snap.open != null && snap.close != null) {
             const close = parseFloat(String(snap.close));
             const open = parseFloat(String(snap.open));
             const vol = parseFloat(String(snap.volume ?? '0')) || 0;
-            const rvol = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rvol') ?? 1.0;
+            const rvol = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'rvol') ?? 1.0;
             volumeSeries.update({ time: timeSec as Time, value: vol, color: volumeColor(rvol, close, open) });
             liveReceived = true;
         }

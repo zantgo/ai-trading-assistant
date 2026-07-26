@@ -99,6 +99,7 @@ async fn spawn_analyzer(
             Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
             None,
             None,
+            1,
         )
         .await
     })

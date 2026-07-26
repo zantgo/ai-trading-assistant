@@ -93,7 +93,7 @@
 
     const fundingCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'funding_rate');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'funding_rate');
         if (val != null) {
             fundingSeries.update({ time: timeSec as Time, value: val });
             liveReceived = true;

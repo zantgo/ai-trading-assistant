@@ -202,23 +202,6 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         } as any;
     }
 
-    function makeTradePlan() {
-        return {
-            direction: 'LONG',
-            setupType: 'TrendContinuation',
-            timeHorizon: 'SWING',
-            readiness: 'READY',
-            entryMid: 65000,
-            entryZone: { low: 64800, high: 65200 },
-            targets: [
-                { label: 'TP1', price: 66200, sizePct: 40, rrRatio: 1.5 },
-                { label: 'TP2', price: 66400, sizePct: 40, rrRatio: 2.0 },
-            ],
-            stop: { price: 64200, distancePct: 1.23 },
-            actionable: true,
-        };
-    }
-
     function makeRegistry() {
         return [
             { key: 'rsi', display_name: 'RSI', group: 'Momentum', class: 'Hybrid', directional: true, supports_divergence: true, signal_types: [], default_weight: 1, default_enabled: true, config_params: [], value_format: 'decimals2', value_source: 'sub:', color: '#fff', guide_section: '' },
@@ -226,7 +209,7 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         ] as any;
     }
 
-    it('includes all 8 top-level sections visible in the Metrics view', () => {
+    it('includes all 7 top-level sections visible in the Metrics view', () => {
         const json = buildMetricsExportJson({
             symbol: 'BTC-USDT',
             tfLabel: 'Micro',
@@ -245,7 +228,6 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             liquidity: makeTf().liquidity,
             cluster: makeTf().cluster,
             liquiditySignals: makeTf().liquiditySignals,
-            tradePlan: makeTradePlan(),
             decisionContext: {
                 score: 75.2,
                 bias: 'Bullish',
@@ -294,10 +276,6 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
 
         expect(obj.liquidity_signals.length).toBe(1);
         expect(obj.liquidity_signals[0].kind).toBe('CASCADE_DETECTED');
-
-        expect(obj.trade_plan).not.toBeNull();
-        expect(obj.trade_plan.direction).toBe('LONG');
-        expect(obj.trade_plan.entryMid).toBe(65000);
     });
 
     it('omits new sections gracefully when data is null', () => {
@@ -319,7 +297,6 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             liquidity: null,
             cluster: null,
             liquiditySignals: [],
-            tradePlan: null,
             decisionContext: null,
         });
         const obj = JSON.parse(json);
@@ -329,7 +306,6 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
         expect(obj.volume_profile).toBeNull();
         expect(obj.liquidity_flow).toBeNull();
         expect(obj.cluster_matrix).toBeNull();
-        expect(obj.trade_plan).toBeNull();
     });
 
     it('extracts Fibonacci values from indicators.fibonacci.values even when an opportunity matrix exists', () => {
@@ -352,7 +328,6 @@ describe('metricsExport — covers all Metrics tab surfaces', () => {
             liquidity: null,
             cluster: null,
             liquiditySignals: [],
-            tradePlan: null,
             decisionContext: null,
         });
         const obj = JSON.parse(json);

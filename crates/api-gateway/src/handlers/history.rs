@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use rust_decimal::Decimal;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -35,6 +36,36 @@ pub async fn serve_history(
     let (prices, candles, indicator_history) = match get_active_pair(&state, &pair_key).await {
         Some(pair) => {
             let mut snap_hist = pair.snapshot_history_vec_for_secs(tf_secs).await;
+            // Sub-minute TFs: when the in-memory snapshot_history is empty
+            // (fresh pipeline after a timeframe-switch rebuild), fall back
+            // to the DB so the chart has OHLCV history on first mount.
+            // Indicators are omitted — the live WS stream fills them in.
+            if snap_hist.is_empty() && tf_secs < 60 {
+                let db_candles =
+                    database_storage::query_recent_candles(&state.pool, &pair_key, tf_secs, limit as u32)
+                        .await;
+                let mut db_snaps: Vec<core_domain::models::MarketSnapshot> = db_candles
+                    .into_iter()
+                    .rev()
+                    .map(|c| core_domain::models::MarketSnapshot {
+                        symbol: pair_key.clone(),
+                        timeframe_secs: tf_secs,
+                        timestamp: c.start_time_ms / 1000,
+                        open: Some(c.open),
+                        high: Some(c.high),
+                        low: Some(c.low),
+                        close: Some(c.close),
+                        volume: Some(c.volume),
+                        mid_price: c.close,
+                        bid_price: Decimal::ZERO,
+                        ask_price: Decimal::ZERO,
+                        exchange: Some(c.exchange),
+                        is_completed: Some(true),
+                        ..Default::default()
+                    })
+                    .collect();
+                snap_hist.append(&mut db_snaps);
+            }
             snap_hist.truncate(limit);
             // Drop leading snapshots with no close so the first bar the UI sees
             // always has real OHLC. The first historical candle is therefore the

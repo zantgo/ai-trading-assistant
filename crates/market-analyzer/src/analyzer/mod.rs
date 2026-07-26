@@ -39,6 +39,11 @@ pub mod normalize;
 pub mod warm;
 pub use warm::{warm_indicators_for_timeframe, WarmedPipelineState, HIST_BUFFER_MAX};
 
+/// Canonical buffer size from `[candle_buffer] size` (CB-01). Used as the
+/// higher-tier system-gate (Layer 2) — the pipeline transitions `Loading → Live`
+/// when the buffer reaches this count. Default 500.
+pub const DEFAULT_BUFFER_SIZE: usize = 500;
+
 pub struct TimeframePipeline {
     /// Stable slot identity. The frontend never has to re-derive slot from
     /// `timeframe_secs` because every snapshot carries `timeframe_slot` and
@@ -336,40 +341,40 @@ async fn fetch_interval_candles(
 /// `MarketSnapshot`. Per [03-02-15](../docs/engines/market-monitoring-engine/03-02-15-mme-indicator-lifecycle-states.md)
 /// ILS-01 … ILS-15.
 ///
+/// `bar_count` is the number of completed candles accumulated for this
+/// timeframe.  An indicator transitions from `Loading → Live` only when the
+/// buffer has enough bars for the calculator to produce a meaningful reading
+/// AND the calculator emitted a value this bar.
+///
 /// Rules:
-///   - Every registry indicator whose key is present in `indicators` map → `Live`.
-///   - Every registry indicator whose key is **absent** → `Loading` (the
-///     calculator returned `None` this bar, which the active-set/registry
-///     merger has omitted from the normalized output).
-///   - `bars_seen` is approximated from the snapshot's `timestamp` distance
-///     to the earliest candle in the buffer; we use `bars_required` from the
-///     registry and report `bars_seen = bars_required` for `Live` indicators
-///     (the calculator successfully emitted, so the bar count is at least
-///     `bars_required`). The full accounting lives on the `TimeframePipeline`
-///     and is updated by `run_single` before this helper is called.
-///   - `stale_threshold_secs` defaults to `[candle_buffer] stale_threshold_secs`.
+///   - Present in `indicators` AND `bar_count >= bars_required` → `Live`.
+///   - Absent or `bar_count < bars_required` → `Loading` with real `bars_seen`.
+///   - `bars_seen = bar_count` (capped at `bars_required` for the numerator,
+///     but the raw count is reported so the frontend can show real progress).
 pub fn build_indicator_lifecycle_map(
     indicators: &std::collections::HashMap<String, NormalizedIndicatorValue>,
     stale_threshold_secs: u32,
+    bar_count: u32,
 ) -> IndicatorLifecycleMap {
     use core_domain::indicator_dtos::IndicatorLifecycleStatus;
     let mut map = IndicatorLifecycleMap::new();
     for meta in crate::indicators::registry::INDICATORS {
         let present = indicators.contains_key(meta.key);
         let bars_required = meta.bars_required;
-        let status = if present {
+        let bars_seen = bar_count;
+        let status = if present && bars_seen >= bars_required {
             IndicatorLifecycleStatus {
                 state: IndicatorLifecycleState::Live,
-                bars_seen: bars_required,
+                bars_seen,
                 bars_required,
-                last_updated_at: None, // populated by TimeframePipeline writer
+                last_updated_at: None,
                 last_error: None,
                 stale_threshold_secs,
             }
         } else {
             IndicatorLifecycleStatus {
                 state: IndicatorLifecycleState::Loading,
-                bars_seen: 0,
+                bars_seen,
                 bars_required,
                 last_updated_at: None,
                 last_error: None,
@@ -503,6 +508,7 @@ pub async fn run_single(
     reliability: Arc<ReliabilityTracker>,
     refetch: Option<RestRefetchSpec>,
     quality_scope: Option<network_adapters::connection_quality_tracker::ConnectionQualityTracker>,
+    buffer_size: usize,
 ) {
     println!(
         "📊 Analysis Task: Started {} ({}) — {} ({})s candles{}...",
@@ -568,6 +574,11 @@ pub async fn run_single(
         mut smc_indicator,
         mut anchored_vwap_indicator,
     );
+
+    // Number of completed candles processed since pipeline start (resets on
+    // cold start; inherits count from warmed history for >=1m TFs).  Single
+    // source of truth for `bars_seen` across all candle-based indicators.
+    let mut bar_count: u32 = 0;
 
     // Strict chronological handover boundary: the start time of the newest
     // historical (REST/DB) candle used for pre-warming. Live candles at or
@@ -656,6 +667,8 @@ pub async fn run_single(
                 snap_hist.push_back(snap.clone());
             }
         }
+        // Pre-populate bar_count from warmed history
+        bar_count = w.history.len() as u32;
         // Pre-populate divergence detector state
         {
             let mut det = divergence_detector.lock().await;
@@ -760,6 +773,7 @@ pub async fn run_single(
         core_domain::liquidity::CascadeState::None;
     let mut prev_mtf_score: Option<f64> = None;
     let mut prev_regime: Option<core_domain::analysis::MarketRegime> = None;
+    let mut prev_volume_dim: Option<f64> = None;
 
     // OI delta tracking: rolling 1-hour window of OI values (60 × 60s candles).
     let mut oi_history: VecDeque<f64> = VecDeque::with_capacity(60);
@@ -813,6 +827,12 @@ pub async fn run_single(
     // authoritative snapshot for the bar.
     let shadow_throttle_ms: u64 = ((timeframe_secs * 1000) / 4).clamp(100, 250);
     let mut last_shadow_broadcast_ms: u64 = 0;
+
+    // Gated on buffer fill: when bar_count reaches buffer_size, completed
+    // snapshots start broadcasting to the frontend (with full synthesis and
+    // decision context).  Shadow broadcasts always carry full indicators
+    // (per-indicator gate applied in build_indicator_map).
+    let mut pipeline_is_live = bar_count as usize >= buffer_size;
 
     enum LoopAction {
         Process(NormalizedEvent),
@@ -902,6 +922,8 @@ pub async fn run_single(
                             &volume_history,
                             timeframe_secs,
                             shadow_prev_day_px,
+                            bar_count,
+                            derive_pipeline_state(bar_count as usize, buffer_size),
                         );
                     }
                 }
@@ -1478,6 +1500,12 @@ pub async fn run_single(
                     };
 
                     let ema_stack_str = ema_stack_state.as_deref();
+                    // Increment bar_count BEFORE building the indicator map so
+                    // the gate sees this candle's contribution.  Must precede
+                    // `build_indicator_map` which uses `bar_count` for the
+                    // bars_required gate.
+                    bar_count = bar_count.saturating_add(1);
+                    pipeline_is_live = bar_count as usize >= buffer_size;
                     let indicators = normalize::build_indicator_map(normalize::NormalizeParams {
                         close: completed.close,
                         rsi: final_rsi,
@@ -1632,7 +1660,7 @@ pub async fn run_single(
                         volume_profile: volume_profile_reading,
                         smc: smc_reading,
                         prev: prev_bar_state,
-                    });
+                    }, bar_count);
 
                     // Read derivative state for prev_bar_state snapshot.
                     let prev_fund_f = latest_funding.read().await.and_then(|f| f.to_f64());
@@ -1781,6 +1809,11 @@ pub async fn run_single(
                     let current_context =
                         crate::market_context_synth::synthesize_market_context(&indicators);
 
+                    let current_state =
+                        derive_pipeline_state(bar_count as usize, buffer_size);
+                    let pipeline_is_live =
+                        current_state == CandlePipelineState::Live;
+
                     let this_snapshot_for_synth = MarketSnapshot {
                         timeframe_slot: Some(slot),
                         exchange: shadow_exchange,
@@ -1812,8 +1845,8 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
-                        pipeline_state: derive_pipeline_state(history.read().await.len(), 500),
-                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators.clone(), 300),
+                        pipeline_state: current_state,
+                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators.clone(), 300, bar_count),
                         context: Some(current_context.clone()),
                         decision_context: None,
                         statistical_context: None,
@@ -1884,10 +1917,12 @@ pub async fn run_single(
                         cluster_guard.as_ref(),
                         prev_mtf_score,
                         prev_regime,
+                        prev_volume_dim,
                     );
 
                     prev_mtf_score = Some(synthesis.alignment.mtf_overall_score);
                     prev_regime = Some(synthesis.analysis.market_regime);
+                    prev_volume_dim = synthesis.alignment.dimensions.get(2).map(|d| d.score);
 
                     let confluence_score = {
                         let tradability_dim =
@@ -1973,8 +2008,8 @@ pub async fn run_single(
                         close: Some(completed.close),
                         volume: Some(completed.volume),
                         average_volume: avg_vol,
-                        pipeline_state: derive_pipeline_state(history.read().await.len(), 500),
-                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300),
+                        pipeline_state: current_state,
+                        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300, bar_count),
                         context: Some(current_context),
                         decision_context: Some(dec_ctx),
                         statistical_context: Some(sil_ctx),
@@ -2001,7 +2036,9 @@ pub async fn run_single(
                         core_domain::LatencyTracker::now_ms().saturating_sub(completed.start_time_ms),
                     );
 
-                    let _ = broadcast_tx.send(completed_snapshot.clone());
+                    if pipeline_is_live {
+                        let _ = broadcast_tx.send(completed_snapshot.clone());
+                    }
 
                     // Publish the completed snapshot as the latest for this TF.
                     {
@@ -2094,6 +2131,8 @@ pub async fn run_single(
                             &volume_history,
                             timeframe_secs,
                             shadow_prev_day_px,
+                            bar_count,
+                            derive_pipeline_state(bar_count as usize, buffer_size),
                         );
                     }
                 }
@@ -2181,6 +2220,8 @@ pub async fn run_single(
                             &volume_history,
                             timeframe_secs,
                             shadow_prev_day_px,
+                            bar_count,
+                            derive_pipeline_state(bar_count as usize, buffer_size),
                         );
                     }
                 }
@@ -2582,70 +2623,15 @@ fn broadcast_live_snapshot(
     volume_history: &VecDeque<Decimal>,
     timeframe_secs: u64,
     prev_day_px: Option<Decimal>,
+    // Number of completed candles for this TF.  Passed through to
+    // `build_indicator_map` so the shadow path uses the real count.
+    bar_count: u32,
+    // Pipeline lifecycle state derived from buffer fill.  Carried on the
+    // shadow snapshot so the frontend never sees a spurious `Initializing`
+    // state that would flash the pipeline banner.
+    pipeline_state: CandlePipelineState,
 ) {
-    let _open_f = candle.open.to_f64().unwrap_or(0.0);
-    let high_f = candle.high.to_f64().unwrap_or(0.0);
-    let low_f = candle.low.to_f64().unwrap_or(0.0);
     let close_f = candle.close.to_f64().unwrap_or(0.0);
-    let volume_f = candle.volume.to_f64().unwrap_or(0.0);
-
-    let val_ema_fast = ema_fast.clone().update(close_f);
-    let val_ema_medium = ema_medium.clone().update(close_f);
-    let val_ema_slow = ema_slow.clone().update(close_f);
-    let val_ema_long = ema_long.clone().update(close_f);
-    let val_rsi = rsi_14.clone().update(close_f);
-    let val_macd = macd.clone().update(close_f);
-    let val_adx = adx_14.clone().update(high_f, low_f, close_f);
-    let val_sqz = sqz_mom
-        .clone()
-        .update(high_f, low_f, close_f);
-    let val_bb = bollinger.clone().update(close_f);
-    let val_atr = atr_standalone
-        .clone()
-        .update(high_f, low_f, close_f);
-    let val_bbwp = bbwp_indicator.clone().update(close_f);
-    let val_stoch = stochastic_indicator
-        .clone()
-        .update(high_f, low_f, close_f);
-    let val_cmo = chandemo_indicator.clone().update(close_f);
-    let val_supertrend = supertrend_indicator
-        .clone()
-        .update(high_f, low_f, close_f);
-    let val_keltner = keltner_indicator
-        .clone()
-        .update(high_f, low_f, close_f);
-    let val_donchian = donchian_indicator.clone().update(high_f, low_f);
-    let val_obv = obv_indicator.clone().update(close_f, volume_f);
-    let val_cmf =
-        cmf_indicator
-            .clone()
-            .update(high_f, low_f, close_f, volume_f);
-    let val_mfi =
-        mfi_indicator
-            .clone()
-            .update(high_f, low_f, close_f, volume_f);
-    let val_hv = hv_indicator
-        .clone()
-        .update(close_f);
-    let val_aroon = aroon_indicator.clone().update(high_f, low_f);
-    let val_chop = choppiness_indicator
-        .clone()
-        .update(high_f, low_f, close_f);
-    let val_linreg = linreg_indicator
-        .clone()
-        .update(close_f);
-    let val_zscore = zscore_indicator
-        .clone()
-        .update(close_f);
-
-    let typical_price = (candle.high + candle.low + candle.close) / Decimal::from(3);
-    let temp_sum_tp_vol = *vwap_sum_tp_vol + typical_price * candle.volume;
-    let temp_sum_vol = *vwap_sum_vol + candle.volume;
-    let val_vwap = if temp_sum_vol > Decimal::ZERO {
-        Some(temp_sum_tp_vol / temp_sum_vol)
-    } else {
-        None
-    };
 
     let avg_vol = if !volume_history.is_empty() {
         let sum: Decimal = volume_history.iter().sum();
@@ -2657,6 +2643,44 @@ fn broadcast_live_snapshot(
     let rvol = match (candle.volume, avg_vol) {
         (vol, Some(avg)) if avg > Decimal::ZERO => Some(vol / avg),
         _ => None,
+    };
+
+    let high_f = candle.high.to_f64().unwrap_or(0.0);
+    let low_f = candle.low.to_f64().unwrap_or(0.0);
+    let volume_f = candle.volume.to_f64().unwrap_or(0.0);
+
+    let val_ema_fast = ema_fast.clone().update(close_f);
+    let val_ema_medium = ema_medium.clone().update(close_f);
+    let val_ema_slow = ema_slow.clone().update(close_f);
+    let val_ema_long = ema_long.clone().update(close_f);
+    let val_rsi = rsi_14.clone().update(close_f);
+    let val_macd = macd.clone().update(close_f);
+    let val_adx = adx_14.clone().update(high_f, low_f, close_f);
+    let val_sqz = sqz_mom.clone().update(high_f, low_f, close_f);
+    let val_bb = bollinger.clone().update(close_f);
+    let val_atr = atr_standalone.clone().update(high_f, low_f, close_f);
+    let val_bbwp = bbwp_indicator.clone().update(close_f);
+    let val_stoch = stochastic_indicator.clone().update(high_f, low_f, close_f);
+    let val_cmo = chandemo_indicator.clone().update(close_f);
+    let val_supertrend = supertrend_indicator.clone().update(high_f, low_f, close_f);
+    let val_keltner = keltner_indicator.clone().update(high_f, low_f, close_f);
+    let val_donchian = donchian_indicator.clone().update(high_f, low_f);
+    let val_obv = obv_indicator.clone().update(close_f, volume_f);
+    let val_cmf = cmf_indicator.clone().update(high_f, low_f, close_f, volume_f);
+    let val_mfi = mfi_indicator.clone().update(high_f, low_f, close_f, volume_f);
+    let val_hv = hv_indicator.clone().update(close_f);
+    let val_aroon = aroon_indicator.clone().update(high_f, low_f);
+    let val_chop = choppiness_indicator.clone().update(high_f, low_f, close_f);
+    let val_linreg = linreg_indicator.clone().update(close_f);
+    let val_zscore = zscore_indicator.clone().update(close_f);
+
+    let typical_price = (candle.high + candle.low + candle.close) / Decimal::from(3);
+    let temp_sum_tp_vol = *vwap_sum_tp_vol + typical_price * candle.volume;
+    let temp_sum_vol = *vwap_sum_vol + candle.volume;
+    let val_vwap = if temp_sum_vol > Decimal::ZERO {
+        Some(temp_sum_tp_vol / temp_sum_vol)
+    } else {
+        None
     };
 
     let ema_stack_state = if val_ema_fast > val_ema_medium
@@ -2737,7 +2761,7 @@ fn broadcast_live_snapshot(
         volume_profile: None,
         smc: None,
         prev: PreviousBarState::default(),
-    });
+    }, bar_count as u32);
 
     let snapshot = MarketSnapshot {
         timeframe_slot: Some(slot),
@@ -2764,8 +2788,8 @@ fn broadcast_live_snapshot(
         close: Some(candle.close),
         volume: Some(candle.volume),
         average_volume: avg_vol,
-        pipeline_state: CandlePipelineState::default(),
-        indicator_lifecycle: HashMap::new(),
+        pipeline_state,
+        indicator_lifecycle: build_indicator_lifecycle_map(&indicators, 300, bar_count),
         context: None,
         decision_context: None,
         statistical_context: None,

@@ -683,6 +683,7 @@ pub fn synthesize_cross_tf(
     cluster: Option<&LiquidationClusterMatrix>,
     previous_score: Option<f64>,
     previous_regime: Option<core_domain::analysis::MarketRegime>,
+    previous_volume_dim: Option<f64>,
 ) -> CrossTfSynthesisResult {
     let tf_data: Vec<(
         &str,
@@ -731,6 +732,7 @@ pub fn synthesize_cross_tf(
         adx,
         previous_score,
         previous_regime,
+        previous_volume_dim,
     );
 
     let risk = risk::compute_risk(
@@ -913,7 +915,7 @@ mod tests {
 
     #[test]
     fn synthesize_empty_returns_neutral() {
-        let result = synthesize_cross_tf("BTC-USD", &[], None, None, None, None);
+        let result = synthesize_cross_tf("BTC-USD", &[], None, None, None, None, None);
         assert_eq!(result.alignment.timeframes_present, 0);
         assert_eq!(result.analysis.timeframes_considered, 0);
         assert_eq!(result.advisory.directional_guidance, advisory::DirectionalGuidance::Neutral);
@@ -923,7 +925,7 @@ mod tests {
     fn synthesize_single_tf_works() {
         let ctx = make_context("TRENDING", 0.7, 0.6, 0.2, 0.1, 60);
         let snap = make_snapshot(60, 64000.0, ctx);
-        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, None, None);
+        let result = synthesize_cross_tf("BTC-USD", &[(60, &snap)], None, None, None, None, None);
         assert_eq!(result.alignment.timeframes_present, 1);
         assert_eq!(result.alignment.dimensions.len(), 10);
         assert!(result.analysis.state_confidence <= 0.5);
@@ -938,7 +940,7 @@ mod tests {
         let snap900 = make_snapshot(900, 64300.0, ctx.clone());
         let result = synthesize_cross_tf("BTC-USD", &[
             (60, &snap60), (180, &snap180), (300, &snap300), (900, &snap900),
-        ], None, None, None, None);
+        ], None, None, None, None, None);
         assert_eq!(result.alignment.timeframes_present, 4);
         assert!(result.alignment.mtf_overall_score > 0.0);
         assert!(result.analysis.state_confidence > 0.5);
@@ -956,7 +958,7 @@ mod tests {
         let snap900 = make_snapshot(900, 64300.0, bear_ctx.clone());
         let result = synthesize_cross_tf("BTC-USD", &[
             (60, &snap60), (180, &snap180), (300, &snap300), (900, &snap900),
-        ], None, None, None, None);
+        ], None, None, None, None, None);
         assert!(result.alignment.mtf_overall_score.abs() < 40.0);
     }
 }

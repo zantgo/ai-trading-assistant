@@ -140,6 +140,7 @@ async fn liquidation_event_appears_in_completed_snapshot_liquidity_field() {
             Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
             None,
             None,
+            1,
         )
     });
 

@@ -14,6 +14,7 @@ import type {
     AdvisoryMatrix,
     AnalysisMatrix,
     ConfluentLevel,
+    DecisionContext,
     MarketContext,
     OpportunityMatrix,
     TimeframeTelemetry,
@@ -100,7 +101,7 @@ export interface DeriveArgs {
     opportunity: OpportunityMatrix | null;
     advisory: AdvisoryMatrix | null;
     analysis: AnalysisMatrix | null;
-    decisionContext: { score?: number; bias?: string; trade_readiness?: string; entry_danger?: { level?: string }; expected_reward_risk_ratio?: number; contributing_indicators?: string[] } | null;
+    decisionContext: DecisionContext | null;
     /** Active timeframe telemetry — used for Fibonacci extension targets. */
     tf: TimeframeTelemetry | undefined;
     microTf: TimeframeTelemetry | undefined;

@@ -208,7 +208,7 @@ mod tests {
 
     fn make_snapshot(symbol: &str, risk_score: f64) -> MarketSnapshot {
         use core_domain::analysis::{
-            AnalysisMatrix, MarketBias, MarketRegime, TrendAssessment, MomentumAssessment,
+            AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, TrendAssessment, MomentumAssessment,
             StructureAssessment, VolatilityAssessment, VolumeAssessment, OpportunityType, QualityLevel,
         };
         use core_domain::decision_context::DecisionContext;
@@ -257,6 +257,7 @@ mod tests {
                 opportunity_analysis: OpportunityType::Breakout,
                 market_quality: QualityLevel::Good,
                 market_quality_score: 70.0,
+                market_phase: MarketPhase::Markup,
                 market_interpretation: "Test".into(),
                 rationale: String::new(),
                 supporting_signals: vec![],

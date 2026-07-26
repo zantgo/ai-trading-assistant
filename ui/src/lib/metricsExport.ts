@@ -3,10 +3,10 @@
 // serialised to a clipboard-friendly string. Used by the Metrics tab
 // "Export JSON" button (mirrors the pattern in BottomTable.handleCopyJson).
 //
-// Phase 2: now also exports volume profile, liquidity (flow/cluster/signals),
-// the Opportunity matrix (entry/target zones, invalidation, RR, time-horizon,
-// confluent entry/target/invalidation levels), the Advisory matrix details,
-// and the derived Trade Plan (TP1/TP2/TP3 ladder + SL).
+// Exports per-TF L1 data (indicators, signals, context, volume profile,
+// liquidity flow/cluster/signals) plus instance-level matrices (opportunity,
+// advisory, analysis, risk, alignment) for completeness. The Trade Plan
+// (L4/L6 synthesis) is excluded — it belongs to the Decision tab.
 
 import type {
     ConfluentLevel,
@@ -21,6 +21,7 @@ import type {
     AdvisoryMatrix,
     AnalysisMatrix,
     IndicatorDto,
+    IndicatorLifecycleStatus,
     IndicatorMeta,
     IndicatorSignal,
     RiskMatrix,
@@ -62,8 +63,10 @@ interface ExportPayload {
     cluster_matrix: ClusterMatrixExport | null;
     /** Per-TF Liquidity Signals array. */
     liquidity_signals: LiquiditySignal[];
-    /** Derived Trade Plan (entry / TP1/TP2/TP3 / SL with R:R). */
-    trade_plan: Record<string, unknown> | null;
+    /** Per-timeframe pipeline lifecycle (INITIALIZING / LOADING / LIVE / STALE / FAILED). */
+    pipeline_state: string | null;
+    /** Whether the current snapshot is a completed candle (true) or a shadow/live tick (false). */
+    is_completed: boolean;
 }
 
 // ── Subtypes ────────────────────────────────────────────────
@@ -76,9 +79,17 @@ interface ExportIndicator {
     raw: number | null;
     normalized: number;
     state: string;
+    pending_candle: boolean;
     confidence_pct: number;
     signals: ExportSignal[];
     sub_values: Record<string, number> | null;
+    indicator_lifecycle: ExportLifecycleStatus | null;
+}
+
+interface ExportLifecycleStatus {
+    state: string;
+    bars_seen: number;
+    bars_required: number;
 }
 
 interface ExportSignal {
@@ -205,9 +216,17 @@ interface ExportIndicator {
     raw: number | null;
     normalized: number;
     state: string;
+    pending_candle: boolean;
     confidence_pct: number;
     signals: ExportSignal[];
     sub_values: Record<string, number> | null;
+    indicator_lifecycle: ExportLifecycleStatus | null;
+}
+
+interface ExportLifecycleStatus {
+    state: string;
+    bars_seen: number;
+    bars_required: number;
 }
 
 interface ExportSignal {
@@ -260,7 +279,14 @@ function fmtNum(v: number | null, decimals = 2): string {
 
 function fmtPrice(v: number | null, markPrice: number): string {
     if (v == null || Number.isNaN(v)) return '--';
-    const decimals = markPrice >= 1000 ? 2 : markPrice >= 1 ? 4 : 6;
+    const p = Math.abs(markPrice);
+    let decimals: number;
+    if (p >= 10000) decimals = 1;
+    else if (p >= 1000) decimals = 2;
+    else if (p >= 100) decimals = 3;
+    else if (p >= 10) decimals = 4;
+    else if (p >= 1) decimals = 6;
+    else decimals = 8;
     return v.toFixed(decimals);
 }
 
@@ -280,7 +306,11 @@ function formatRaw(meta: IndicatorMeta, indicators: Record<string, IndicatorDto>
     if (v == null) return null;
     switch (valueFormat(meta)) {
         case 'percent1':  return Number(v.toFixed(1));
-        case 'price':     return Number(v.toFixed(markPrice >= 1000 ? 2 : markPrice >= 1 ? 4 : 6));
+        case 'price':     {
+            const p = Math.abs(markPrice);
+            const decls = p >= 10000 ? 1 : p >= 1000 ? 2 : p >= 100 ? 3 : p >= 10 ? 4 : p >= 1 ? 6 : 8;
+            return Number(v.toFixed(decls));
+        }
         case 'ratio2':    return Number(v.toFixed(2));
         case 'decimals1': return Number(v.toFixed(1));
         case 'decimals4': return Number(v.toFixed(4));
@@ -292,7 +322,7 @@ function formatRaw(meta: IndicatorMeta, indicators: Record<string, IndicatorDto>
 function isSqueezeOnValue(indicators: Record<string, IndicatorDto>): boolean {
     const dto = indicators?.['squeeze'];
     if (!dto) return false;
-    return dto.state_label.includes('COMPRESSION');
+    return dto.state_label === 'COMPRESSION_COILING';
 }
 
 function confidence(indicators: Record<string, IndicatorDto>, key: string): number {
@@ -319,7 +349,6 @@ export interface ExportArgs {
     liquidity: LiquidityFlow | null;
     cluster: LiquidationClusterMatrix | null;
     liquiditySignals: LiquiditySignal[];
-    tradePlan: unknown;
     decisionContext: Record<string, unknown> | null;
 }
 
@@ -327,7 +356,7 @@ export function buildMetricsExportJson(args: ExportArgs): string {
     const {
         symbol, tfLabel, tfSecs, timestamp, markPrice, registry, tf, filters,
         analysis, risk, alignment, opportunity, advisory, volumeProfile,
-        liquidity, cluster, liquiditySignals, tradePlan, decisionContext,
+        liquidity, cluster, liquiditySignals, decisionContext,
     } = args;
     const inds = (tf?.indicators ?? {}) as Record<string, IndicatorDto>;
     const fibVals = (inds['fibonacci']?.values ?? {}) as Record<string, number | undefined>;
@@ -362,6 +391,8 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         },
         indicators: [],
         signals_total: 0,
+        pipeline_state: (tf?.pipelineState ?? null) as string | null,
+        is_completed: tf?.isCompleted ?? false,
         context: (tf?.context ?? null) as unknown as Record<string, unknown> | null,
         opportunity: exportOpportunity(opportunity, inds),
         advisory: exportAdvisory(advisory, decisionContext),
@@ -378,7 +409,6 @@ export function buildMetricsExportJson(args: ExportArgs): string {
             confidence: s.confidence,
             evidence: s.evidence,
         })),
-        trade_plan: (tradePlan as Record<string, unknown>) ?? null,
     };
 
     const uniqueLabels = new Set<string>();
@@ -406,6 +436,15 @@ export function buildMetricsExportJson(args: ExportArgs): string {
                 subValues['__fib_extracted__'] = 1;
             }
         }
+        const lc = tf.indicatorLifecycle?.[m.key];
+        const lifecycleExport: ExportLifecycleStatus | null = lc ? {
+            state: lc.state,
+            bars_seen: lc.bars_seen,
+            bars_required: lc.bars_required,
+        } : null;
+        const pending = !tf.isCompleted
+            && lc?.state === 'Live'
+            && !(m.updates_on_shadow ?? false);
         out.indicators.push({
             key: m.key,
             display_name: m.display_name,
@@ -414,9 +453,11 @@ export function buildMetricsExportJson(args: ExportArgs): string {
             raw: formatRaw(m, inds, markPrice),
             normalized: dto.normalized ?? 0,
             state: dto.state_label ?? '--',
+            pending_candle: pending,
             confidence_pct: confidence(inds, m.key),
             signals,
             sub_values: Object.keys(subValues).length > 0 ? subValues : null,
+            indicator_lifecycle: lifecycleExport,
         });
     }
 
@@ -431,8 +472,10 @@ export function buildMetricsExportJson(args: ExportArgs): string {
         normalized: inds['fibonacci']?.normalized ?? 0,
         state: inds['fibonacci']?.state_label ?? '--',
         confidence_pct: confidence(inds, 'fibonacci'),
+        pending_candle: false,
         signals: [],
         sub_values: fibExtracted as unknown as Record<string, number>,
+        indicator_lifecycle: null,
     });
 
     return JSON.stringify(out, null, 2);

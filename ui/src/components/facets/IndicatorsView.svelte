@@ -16,6 +16,7 @@
     import { filterRegistry, filterSignals, type FilterState } from '../../lib/filtering';
     import { iRaw, iSub, fmt, fmtPrice, isSqueezeOn } from '../../lib/telemetry';
     import { confPct, normColor, dirColor, dirClass, ageLabel } from '../../lib/scoreStyles';
+    import IndicatorStatusBadge from './IndicatorStatusBadge.svelte';
     import styles from './IndicatorsView.module.css';
 
     interface Props {
@@ -38,6 +39,15 @@
     const filteredRegistry = $derived(
         filterRegistry(registry, filters, (k) => tf.indicators?.[k]?.signals ?? []),
     );
+
+    /** Per-key quick-lookup for `updates_on_shadow` from the full registry. */
+    const shadowMeta = $derived(() => {
+        const m = new Map<string, boolean>();
+        for (const r of registry) {
+            m.set(r.key, r.updates_on_shadow ?? false);
+        }
+        return m;
+    });
 
     const groups = $derived.by(() => {
         const map = new Map<string, IndicatorMeta[]>();
@@ -98,12 +108,119 @@
         return tf.indicators?.[key]?.normalized ?? 0;
     }
 
-    function stateLabel(key: string): string {
-        return tf.indicators?.[key]?.state_label ?? '--';
+    function entry(key: string): IndicatorDto | undefined {
+        return tf.indicators?.[key];
+    }
+
+    /** Check if the indicator has real computed data (not a WARMING placeholder). */
+    function hasRealData(key: string): boolean {
+        const e = tf.indicators?.[key] as IndicatorDto | undefined;
+        if (!e) return false;
+        const rv = e.raw_value ?? 0;
+        const nv = e.normalized ?? 0;
+        const cf = e.confidence ?? 0;
+        const sl = e.signals?.length ?? 0;
+        const hv = e.values != null && Object.keys(e.values).length > 0;
+        return rv !== 0 || nv !== 0 || cf > 0 || sl > 0 || hv;
+    }
+
+    /** v6.5+: authoritative lifecycle status from the indicator lifecycle map.
+     *  Falls back to the legacy heuristic when the map is not yet populated. */
+    function lifecycleStatus(key: string): { label: string; barsSeen: number; barsRequired: number; state: string } | null {
+        const lc = tf.indicatorLifecycle?.[key];
+        if (lc) {
+            return {
+                label: lc.state === 'Live' ? 'Live' : `Loading (${lc.barsSeen}/${lc.barsRequired})`,
+                barsSeen: lc.bars_seen,
+                barsRequired: lc.bars_required,
+                state: lc.state,
+            };
+        }
+        return null;
+    }
+
+    /** Whether the indicator's current value is from the last closed candle
+     *  (not a fresh shadow-tick computation). Only relevant when the pipeline
+     *  is live but the latest snapshot is a shadow tick. */
+    function isPendingCandle(key: string): boolean {
+        if (tf.isCompleted) return false;
+        const lc = lifecycleStatus(key);
+        if (!lc || lc.state !== 'Live') return false;
+        const updatesOnShadow = shadowMeta().get(key) ?? false;
+        return !updatesOnShadow;
+    }
+
+    /** Pretty-print state_label: strip underscores, title-case each word. */
+    function formatStateLabel(raw: string): string {
+        if (!raw || raw === '--') return '--';
+        if (raw === 'WARMING') return raw;
+        return raw.replace(/_/g, ' ');
+    }
+
+    /** Smart State column: uses authoritative lifecycle map when available,
+     *  falls back to legacy heuristic. */
+    function stateDisplay(key: string): { label: string; cssClass: string } {
+        const lc = lifecycleStatus(key);
+        if (lc) {
+            if (lc.state === 'Live') {
+                const sl = entry(key)?.state_label;
+                const pending = isPendingCandle(key);
+                if (sl && sl !== 'WARMING') {
+                    return {
+                        label: pending ? formatStateLabel(sl) + ' \u25C9' : formatStateLabel(sl),
+                        cssClass: pending ? `${styles.stateLive} ${styles.statePendingClose}` : styles.stateLive,
+                    };
+                }
+                return { label: 'UNKNOWN', cssClass: styles.stateIdle };
+            }
+            if (lc.state === 'Loading') return { label: `Warming (${lc.barsSeen}/${lc.barsRequired})`, cssClass: styles.stateWarming };
+            return { label: lc.state, cssClass: styles.stateWarming };
+        }
+        // Legacy fallback
+        const e = entry(key);
+        if (!e?.state_label || e.state_label === '--') return { label: '—', cssClass: '' };
+
+        if (e.state_label !== 'WARMING') {
+            return { label: formatStateLabel(e.state_label), cssClass: styles.stateLive };
+        }
+
+        if (hasRealData(key)) {
+            return { label: 'NO SIGNAL', cssClass: styles.stateIdle };
+        }
+
+        return { label: 'WARMING', cssClass: styles.stateWarming };
     }
 
     function confidence(key: string): number {
-        return confPct(tf.indicators?.[key]?.confidence ?? 0);
+        return confPct(Math.abs(tf.indicators?.[key]?.confidence ?? 0));
+    }
+
+    /** Confidence bar width as percentage (max 100). */
+    function confBarPct(key: string): string {
+        return `${Math.min(confidence(key), 100).toFixed(0)}%`;
+    }
+
+    /** Confidence bar color class. */
+    function confBarClass(key: string): string {
+        const c = confidence(key);
+        if (c >= 60) return styles.confBarHigh;
+        if (c >= 20) return styles.confBarMid;
+        return styles.confBarLow;
+    }
+
+    /** Heuristic status dot: green (has data) / amber (warming) / gray (unknown). */
+    function statusDotClass(key: string): string {
+        const lc = lifecycleStatus(key);
+        if (lc) {
+            if (lc.state === 'Live') return styles.dotLive;
+            if (lc.state === 'Loading') return lc.barsSeen === 0 ? styles.dotUnknown : styles.dotWarming;
+            if (lc.state === 'Stale' || lc.state === 'Failed') return styles.dotUnknown;
+        }
+        const e = entry(key);
+        if (!e) return styles.dotUnknown;
+        if (hasRealData(key)) return styles.dotLive;
+        if (e.state_label === 'WARMING') return styles.dotWarming;
+        return styles.dotUnknown;
     }
 
     function valuesList(key: string): Array<[string, number]> {
@@ -171,6 +288,8 @@
                                     onclick={() => toggleRow(m.key)}
                                 >
                                     <span class={styles.colName}>
+                                        <span class="{styles.statusDot} {statusDotClass(m.key)}"
+                                              title={hasRealData(m.key) ? 'Operational — has computed values' : (entry(m.key)?.state_label === 'WARMING' ? 'Warming up — calculator needs more data' : 'No data')}></span>
                                         {#if !m.directional}<span class={styles.gateMarker} title="Non-directional gate">◐</span>{/if}
                                         {m.display_name}
                                         {#if m.supports_divergence}<span class={styles.divMarker} title="Supports divergence">△</span>{/if}
@@ -180,8 +299,14 @@
                                     <span class="{styles.colNorm}" style="color: {normBg}; font-weight: 700;">
                                         {n.toFixed(2)}
                                     </span>
-                                    <span class={styles.colState}>{stateLabel(m.key)}</span>
-                                    <span class={styles.colConf}>{confidence(m.key)}%</span>
+                                    <span class={`${styles.colState} ${stateDisplay(m.key).cssClass}`}>{stateDisplay(m.key).label}</span>
+                                    <span class={styles.colConf}>
+                                        <div class={styles.confBarWrap}>
+                                            <div class={`${styles.confBarInner} ${confBarClass(m.key)}`}
+                                                 style="width: {confBarPct(m.key)}"></div>
+                                        </div>
+                                        <span class={styles.confText}>{confidence(m.key)}%</span>
+                                    </span>
                                     <span class={styles.colSig}>
                                         {#if sigs.length === 0}
                                             <span class={styles.sigEmpty}>·</span>

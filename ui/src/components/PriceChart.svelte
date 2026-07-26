@@ -11,7 +11,6 @@
         pairsFromHistory,
         alignedSeriesFromHistory,
     } from '../lib/indicatorHistory';
-    import { attachHeatmap, type LiquidationHeatmapPrimitive } from '../lib/liquidationHeatmap';
     import { attachVolumeProfile, type VolumeProfilePrimitive } from '../lib/volumeProfile';
     import { attachFvgZones, type FvgZonesPrimitive } from '../lib/fvgZones';
     import { attachOrderBlocks, type OrderBlocksPrimitive } from '../lib/orderBlocks';
@@ -62,7 +61,6 @@
     let ichimokuSenkouASeries: ISeriesApi<'Line'> | null = null;
     let ichimokuSenkouBSeries: ISeriesApi<'Line'> | null = null;
     let priceLineSeries: ISeriesApi<'Line'>;
-    let heatmap: LiquidationHeatmapPrimitive | null = null;
     let volumeProfilePrim: VolumeProfilePrimitive | null = null;
     let fvgPrim: FvgZonesPrimitive | null = null;
     let obPrim: OrderBlocksPrimitive | null = null;
@@ -78,8 +76,8 @@
     let psarSeries: ISeriesApi<'Line'> | null = null;
     // Price-level handles — recreated on level-value change so we can
     // cleanly apply new prices without leaks.
-    let fibLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
-    let fibLevelValue = $state<number | null>(null);
+    let fibLines: ReturnType<typeof candleSeries.createPriceLine>[] = [];
+    let liqLines: ReturnType<typeof candleSeries.createPriceLine>[] = [];
     let pivotLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
     let pivotLevelValue = $state<number | null>(null);
     let srLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
@@ -91,6 +89,8 @@
     /// tick fires).
     let historyCluster: LiquidationClusterMatrix | null = $state(null);
     let historyVolumeProfile: VolumeProfileSnapshot | null = $state(null);
+
+    let _chartReady = $state(false);
 
     onMount(() => {
         chart = createChart(container, {
@@ -109,8 +109,6 @@
             wickUpColor: '#26a69a', wickDownColor: '#ef5350'
         });
 
-        // Liquidity heatmap overlay (toggle-controlled; data supplied later via $effect).
-        heatmap = attachHeatmap(chart, candleSeries);
         // Volume profile overlay (right-edge stacked buy/sell histogram).
         volumeProfilePrim = attachVolumeProfile(chart, candleSeries);
         // SMC Fair Value Gap zone primitive (toggle-controlled).
@@ -175,6 +173,8 @@
             const w = container.clientWidth, h = container.clientHeight; if (chart && w > 0 && h > 0) chart.resize(w, h);
         });
         if (container?.parentElement) ro.observe(container.parentElement);
+
+        _chartReady = true;
     });
 
     $effect(() => {
@@ -341,14 +341,30 @@
     // Svelte 5 `$effect` docs, "Understanding dependencies".
 
     $effect(() => {
+        void _chartReady;
         const showFast = pair?.showEmaFast ?? false;
-        const showMedium = pair?.showEmaMedium ?? false;
-        const showSlow = pair?.showEmaSlow ?? false;
-        const showLong = pair?.showEmaLong ?? false;
-        if (!ema10Series || !ema50Series || !ema100Series || !ema200Series || !pair) return;
+        if (!ema10Series || !pair) return;
         ema10Series.applyOptions({ visible: showFast });
+    });
+
+    $effect(() => {
+        void _chartReady;
+        const showMedium = pair?.showEmaMedium ?? false;
+        if (!ema50Series || !pair) return;
         ema50Series.applyOptions({ visible: showMedium });
+    });
+
+    $effect(() => {
+        void _chartReady;
+        const showSlow = pair?.showEmaSlow ?? false;
+        if (!ema100Series || !pair) return;
         ema100Series.applyOptions({ visible: showSlow });
+    });
+
+    $effect(() => {
+        void _chartReady;
+        const showLong = pair?.showEmaLong ?? false;
+        if (!ema200Series || !pair) return;
         ema200Series.applyOptions({ visible: showLong });
     });
 
@@ -424,30 +440,125 @@
         psarSeries.applyOptions({ visible: show });
     });
 
-    /// Price-level (horizontal line) effects. Each rebuilds the line when
-    /// the underlying value changes so the level always shows the most
+    /// Price-level (horizontal line) effects. Each rebuilds the lines when
+    /// the underlying values change so the level always shows the most
     /// recent reading from the analyzer. Toggles hide the lines by
-    /// removing them. Backend normalizers emit a single best-fit level per
-    /// indicator (golden-pocket top for Fibonacci, daily pivot for Pivot
-    /// Points, strongest level for S/R); these renders use that single
-    /// point as a horizontal marker.
+    /// removing them.
+    ///
+    /// Fibonacci — all retracement levels + golden pocket + extensions.
+    const fibVals = $derived(tf?.indicators?.['fibonacci']?.values ?? null);
+    const fibShow = $derived(tf?.showFib ?? false);
+
     $effect(() => {
-        const show = tf?.showFib ?? false;
-        const vRaw = tf?.indicators?.['fibonacci']?.values?.['gp_top'];
-        const v = typeof vRaw === 'number' && isFinite(vRaw) ? vRaw : null;
-        fibLevelValue = show ? v : null;
-        if (!candleSeries) return;
-        if (fibLine) { try { candleSeries.removePriceLine(fibLine); } catch (_) {} fibLine = null; }
-        if (fibLevelValue != null) {
-            fibLine = candleSeries.createPriceLine({
-                price: fibLevelValue,
-                color: '#ffd54f',
-                lineWidth: 1,
-                lineStyle: 3,
-                axisLabelVisible: true,
-                title: 'FIB',
-            });
+        for (const line of fibLines) {
+            try { candleSeries?.removePriceLine(line); } catch (_) {}
         }
+        fibLines = [];
+
+        const vals = fibVals;
+        const show = fibShow;
+        if (!show || !vals || !candleSeries) return;
+
+        const retracements: Array<{ key: string; label: string; gp: boolean }> = [
+            { key: 'fib_0236', label: '0.236', gp: false },
+            { key: 'fib_0382', label: '0.382', gp: false },
+            { key: 'fib_0500', label: '0.500', gp: false },
+            { key: 'fib_0618', label: '0.618', gp: true },
+            { key: 'fib_0660', label: '0.660', gp: true },
+            { key: 'fib_0786', label: '0.786', gp: false },
+        ];
+        const extensions: Array<{ key: string; label: string }> = [
+            { key: 'ext_1618', label: '1.618' },
+            { key: 'ext_2618', label: '2.618' },
+        ];
+
+        for (const r of retracements) {
+            const v = (vals as Record<string, number | undefined>)[r.key];
+            if (typeof v !== 'number' || !isFinite(v)) continue;
+            fibLines.push(candleSeries.createPriceLine({
+                price: v,
+                color: r.gp ? '#ffd54f' : 'rgba(255, 213, 79, 0.55)',
+                lineWidth: r.gp ? 2 : 1,
+                lineStyle: r.gp ? 1 : 3,
+                axisLabelVisible: r.gp,
+                title: r.gp ? r.label : '',
+            }));
+        }
+
+        for (const e of extensions) {
+            const v = (vals as Record<string, number | undefined>)[e.key];
+            if (typeof v !== 'number' || !isFinite(v)) continue;
+            fibLines.push(candleSeries.createPriceLine({
+                price: v,
+                color: '#00e5ff',
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: e.label,
+            }));
+        }
+    });
+
+    /// Liquidation cluster levels — peak_price + boundaries for
+    /// each cluster, grouped by short (ceiling) / long (floor).
+    const liqCluster = $derived(tf?.cluster ?? historyCluster ?? null);
+    const liqVisible = $derived(tf?.showLiqHeatmap ?? false);
+
+    $effect(() => {
+        for (const line of liqLines) {
+            try { candleSeries?.removePriceLine(line); } catch (_) {}
+        }
+        liqLines = [];
+
+        const cluster = liqCluster;
+        const show = liqVisible;
+        if (!show || !cluster || !candleSeries) return;
+
+        const drawClusters = (
+            clusters: Array<{ price_low: number; price_high: number; peak_price: number; dominant_leverage: number; magnet_strength: number }>,
+            peakR: number, peakG: number, peakB: number,
+        ) => {
+            const sorted = [...clusters].sort((a, b) => (b.magnet_strength ?? 0) - (a.magnet_strength ?? 0));
+            for (const c of sorted) {
+                const mag = Math.max(0, Math.min(100, c.magnet_strength ?? 0));
+                const peakAlpha = 0.35 + (mag / 100) * 0.55; // 0.35 .. 0.90
+                const boundAlpha = peakAlpha * 0.45;
+
+                liqLines.push(candleSeries.createPriceLine({
+                    price: c.peak_price,
+                    color: `rgba(${peakR},${peakG},${peakB},${peakAlpha.toFixed(2)})`,
+                    lineWidth: 2,
+                    lineStyle: 2,
+                    axisLabelVisible: true,
+                    title: `${c.dominant_leverage}\u00d7`,
+                }));
+
+                if (c.price_low > 0 && isFinite(c.price_low)) {
+                    liqLines.push(candleSeries.createPriceLine({
+                        price: c.price_low,
+                        color: `rgba(${peakR},${peakG},${peakB},${boundAlpha.toFixed(2)})`,
+                        lineWidth: 1,
+                        lineStyle: 3,
+                        axisLabelVisible: false,
+                        title: '',
+                    }));
+                }
+
+                if (c.price_high > 0 && isFinite(c.price_high)) {
+                    liqLines.push(candleSeries.createPriceLine({
+                        price: c.price_high,
+                        color: `rgba(${peakR},${peakG},${peakB},${boundAlpha.toFixed(2)})`,
+                        lineWidth: 1,
+                        lineStyle: 3,
+                        axisLabelVisible: false,
+                        title: '',
+                    }));
+                }
+            }
+        };
+
+        drawClusters(cluster.short_clusters ?? [], 255, 68, 68);
+        drawClusters(cluster.long_clusters ?? [], 68, 221, 68);
     });
 
     $effect(() => {
@@ -500,7 +611,7 @@
         patternMarkers.clear();
         if (!show) return;
         const snap = tf?.latestSnapshot;
-        const m = (snap?.indicators ?? {}) as IndicatorMap;
+        const m = (tf?.indicators ?? {}) as IndicatorMap;
         const t = (snap?.timestamp as number) ?? 0;
         patternMarkers.pushPatterns(t, m['patterns'] ?? null);
     });
@@ -511,7 +622,7 @@
         patternMarkers.clear();
         if (!show) return;
         const snap = tf?.latestSnapshot;
-        const m = (snap?.indicators ?? {}) as IndicatorMap;
+        const m = (tf?.indicators ?? {}) as IndicatorMap;
         const t = (snap?.timestamp as number) ?? 0;
         patternMarkers.pushCandlestick(t, m['candlestick'] ?? null);
     });
@@ -522,7 +633,7 @@
         patternMarkers.clear();
         if (!show) return;
         const snap = tf?.latestSnapshot;
-        const m = (snap?.indicators ?? {}) as IndicatorMap;
+        const m = (tf?.indicators ?? {}) as IndicatorMap;
         const t = (snap?.timestamp as number) ?? 0;
         patternMarkers.pushOiPriceDiv(t, m['oi_price_divergence'] ?? null);
     });
@@ -530,7 +641,7 @@
     let _lastUpdateTs = 0;
     const candleCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
 
         if (snap.close != null) {
             // Loose gate: accept any tick that has at least a `close`,
@@ -709,23 +820,6 @@
         if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
         return `${Math.floor(secs / 86400)}d`;
     }
-
-    // Liquidity heatmap — toggle visibility + data feeding.
-    // v6.5 fallback chain: prefer WS-populated tf.cluster; fall back to
-    // history-sourced historyCluster when WS hasn't delivered yet.
-    // Visibility is handled separately via `setVisible()` so the cluster
-    // is preserved across toggle flips — flipping the pill on never causes
-    // a transient null state, which would otherwise race with the WS push
-    // cadence (cluster matrices refresh per-TF at the candle cadence).
-    // Dependencies are read BEFORE the primitive-guard so they stay tracked
-    // across mount (see note on the EMA effect above).
-    $effect(() => {
-        const visible = tf?.showLiqHeatmap ?? false;
-        const data = tf?.cluster ?? historyCluster ?? null;
-        if (!heatmap) return;
-        heatmap.setVisible(visible);
-        heatmap.updateData(data);
-    });
 
     // Volume profile — toggle visibility + data feeding.
     // v6.5 fallback chain: prefer WS-populated tf.volumeProfile; fall back to

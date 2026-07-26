@@ -69,7 +69,7 @@
 
 .colHeaders {
     display: grid;
-    grid-template-columns: 28% 70px 90px 60px 1fr 50px 1fr;
+    grid-template-columns: 28% 70px 90px 60px 1fr 55px 1fr;
     gap: 0;
     padding: 6px 12px;
     background: rgba(0, 0, 0, 0.1);
@@ -96,7 +96,13 @@
     white-space: nowrap;
 }
 
-.colConf { text-align: right; }
+.colConf {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-end;
+    justify-content: center;
+}
 
 .rowWrap {
     border-bottom: 1px solid rgba(255, 255, 255, 0.025);
@@ -108,7 +114,7 @@
 
 .row {
     display: grid;
-    grid-template-columns: 28% 70px 90px 60px 1fr 50px 1fr;
+    grid-template-columns: 28% 70px 90px 60px 1fr 55px 1fr;
     gap: 0;
     padding: 6px 12px;
     width: 100%;
@@ -169,6 +175,29 @@
     color: rgba(255, 255, 255, 0.65);
     text-transform: uppercase;
     letter-spacing: 0.03em;
+    font-weight: 700;
+}
+
+.stateLive {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.stateIdle {
+    color: #64748b;
+}
+
+.statePendingClose {
+    opacity: 0.75;
+}
+
+.stateWarming {
+    color: #f59e0b;
+    animation: warmingPulse 2s ease-in-out infinite;
+}
+
+@keyframes warmingPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 .colConf {
@@ -176,7 +205,6 @@
     font-feature-settings: "tnum" 1;
     font-size: 10px;
     color: rgba(255, 255, 255, 0.55);
-    text-align: right;
 }
 
 .colSig {
@@ -190,6 +218,63 @@
     color: #f59e0b;
     font-size: 9px;
     opacity: 0.7;
+}
+
+/* ── Heuristic status dot (operational health) ── */
+.statusDot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 4px;
+    flex-shrink: 0;
+}
+
+.dotLive {
+    background: #22c55e;
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
+}
+
+.dotWarming {
+    background: #f59e0b;
+    animation: dotPulse 1.5s ease-in-out infinite;
+    box-shadow: 0 0 3px rgba(245, 158, 11, 0.4);
+}
+
+.dotUnknown {
+    background: #475569;
+}
+
+@keyframes dotPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* ── Confidence bar ── */
+.confBarWrap {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.confBarInner {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s;
+}
+
+.confBarHigh { background: #22c55e; }
+.confBarMid  { background: #f59e0b; }
+.confBarLow  { background: #475569; }
+
+.confText {
+    font-family: var(--mono, monospace);
+    font-feature-settings: "tnum" 1;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1;
 }
 
 .divMarker {

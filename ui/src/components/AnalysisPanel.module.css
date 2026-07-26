@@ -30,12 +30,30 @@
 .qualityBadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; }
 .qualityExc { background: rgba(34,197,94,0.18); color: #22c55e; }
 .qualityGood { background: rgba(34,197,94,0.10); color: #4ade80; }
-.qualityAvg { background: rgba(245,158,11,0.12); color: #f59e0b; }
+.qualityAvg { background: rgba(148,163,184,0.12); color: #94a3b8; }
 .qualityWeak { background: rgba(239,68,68,0.10); color: #f87171; }
 .qualityPoor { background: rgba(239,68,68,0.18); color: #ef4444; }
 .interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.5; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
 .rationale { font-size: 12px; color: #cbd5e1; line-height: 1.6; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #64748b; margin-top: 8px; margin-bottom: 12px; }
 .signalList { display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,0.02); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
-.sigSupport { font-size: 11px; padding: 4px 10px; border-radius: 4px; background: rgba(34,197,94,0.12); color: #4ade80; font-family: var(--mono); font-variant-numeric: tabular-nums; border: 1px solid rgba(34,197,94,0.25); line-height: 1.45; display: block; }
-.sigContra { font-size: 11px; padding: 4px 10px; border-radius: 4px; background: rgba(239,68,68,0.12); color: #f87171; font-family: var(--mono); font-variant-numeric: tabular-nums; border: 1px solid rgba(239,68,68,0.25); line-height: 1.45; display: block; }
-.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
+.sigChip { font-size: 11px; padding: 4px 10px; border-radius: 4px; font-family: var(--mono); font-variant-numeric: tabular-nums; line-height: 1.45; display: block; }
+.sigBullish { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
+.sigBearish { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+.sigNeutral { background: rgba(148,163,184,0.10); color: #94a3b8; border: 1px solid rgba(148,163,184,0.20); }
+.sigArrow { margin-right: 2px; font-size: 11px; }
+.sigArrow.sigBullish { color: #26a69a; }
+.sigArrow.sigBearish { color: #ef5350; }
+.sigArrow.sigNeutral { color: #64748b; }
+.placeholder { font-size: 11px; color: #64748b; padding: 4px 6px; font-style: italic; }
+.noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; margin-bottom: 12px; }
+
+/* ── Interpretation keyword emphasis ── */
+.interpretation :global(em), .interpretation :global(strong) { color: #e2e8f0; font-style: normal; font-weight: 700; }
+
+/* ── MarketPhase styles ── */
+.phaseValue { font-size: 13px; font-weight: 700; }
+.phaseMarkup { color: #22c55e; }
+.phaseMarkdown { color: #ef4444; }
+.phaseAccumulation { color: #94a3b8; }
+.phaseDistribution { color: #f87171; }
+.phaseUnknown { color: #64748b; }

@@ -2,7 +2,8 @@
     // DerivativeRibbon — horizontal bar of 6 perp derivative badges with
     // per-badge tri-state feed status (CONNECTING → LIVE → STALE).
     //
-    // Reads live from `tf.latestSnapshot.indicators` because every field
+    // Reads from `tf.indicators` (the accumulated indicator map, single
+    // source of truth) because every field
     // (OI, OI Δ, funding, OFI, spread, depth bias) is broadcast on the WS
     // envelope. The "stale" detector tracks each metric's last-update
     // timestamp and compares it against the broadcast cadence; metrics
@@ -27,7 +28,7 @@
     );
 
     const snap = $derived(tf?.latestSnapshot ?? null);
-    const indicators = $derived<IndicatorMap>((snap?.indicators ?? {}) as IndicatorMap);
+    const indicators = $derived<IndicatorMap>((tf?.indicators ?? {}) as IndicatorMap);
 
     const oiRaw = $derived<number | null>(iRaw(indicators, 'open_interest'));
     const oiDeltaRaw = $derived<number | null>(iRaw(indicators, 'oi_delta'));

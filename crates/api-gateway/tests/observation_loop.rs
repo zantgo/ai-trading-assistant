@@ -179,6 +179,7 @@ async fn observation_loop_latency_p95_below_threshold() {
             Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
             None,
             None,
+            1,
         )
     });
 

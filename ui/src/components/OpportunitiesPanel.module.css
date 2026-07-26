@@ -35,3 +35,46 @@
 .confluenceSources { display: flex; gap: 3px; flex: 1; flex-wrap: wrap; }
 .confluenceStr { font-size: 10px; font-weight: 700; width: 36px; text-align: right; }
 .sourceTag { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.10); text-transform: uppercase; }
+.noteBox { font-size: 11px; color: #cbd5e1; line-height: 1.5; padding: 10px 12px; background: rgba(255,255,255,0.02); border-radius: 6px; border-left: 3px solid #334155; }
+.noConfluence { font-size: 11px; color: #64748b; padding: 6px 0; font-style: italic; }
+.noProfiles { font-size: 11px; color: #64748b; padding: 6px 0; font-style: italic; }
+.profileList { display: flex; flex-direction: column; gap: 6px; }
+.profileCard { padding: 8px 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; border-left-width: 3px; }
+.profileCard.oppTrend { border-left-color: #22c55e; }
+.profileCard.oppBreakout { border-left-color: #f59e0b; }
+.profileCard.oppReversal { border-left-color: #ef4444; }
+.profileCard.oppNone { border-left-color: #64748b; }
+.profileCard.oppDefault { border-left-color: #94a3b8; }
+.profileHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.profileType { font-size: 12px; font-weight: 700; color: #e2e8f0; }
+.profileScore { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.profilePreconditions { display: flex; align-items: center; gap: 6px; }
+.profilePreLabel { font-size: 9px; color: #64748b; text-transform: uppercase; }
+.profilePreValue { font-size: 10px; color: #94a3b8; font-weight: 600; font-variant-numeric: tabular-nums; }
+.profilePreBar { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+.profilePreFill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.profileNotes { font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4; }
+
+/* ── Tactical Bracket ── */
+.bracket { display: flex; flex-direction: column; gap: 0; padding: 4px 0; }
+.bracketStep {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 6px;
+    position: relative;
+}
+.bracketLabel { font-size: 8px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
+.bracketValue { font-size: 13px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; font-family: var(--mono, monospace); }
+.bracketHint { font-size: 9px; color: rgba(245, 245, 247, 0.30); font-style: italic; }
+.bracketTarget { border-left: 2px solid #22c55e; }
+.bracketEntry { border-left: 2px solid #4dd0e1; }
+.bracketInvalidation { border-left: 2px solid #ef5350; }
+.bracketMid { border-left: 2px solid #64748b; }
+.bracketConnector {
+    width: 0;
+    height: 10px;
+    margin-left: 12px;
+    border-left: 2px solid rgba(255,255,255,0.06);
+}

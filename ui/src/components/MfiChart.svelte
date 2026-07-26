@@ -87,10 +87,10 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const v = iRaw((snap.indicators ?? {}) as IndicatorMap, 'mfi');
+        const v = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'mfi');
         if (v != null) mfiSeries.update({ time: timeSec as Time, value: v });
         liveReceived = true;
-        markers?.push(timeSec, ((snap.indicators ?? {}) as IndicatorMap)['mfi']?.signals ?? []);
+        markers?.push(timeSec, ((tfVal.indicators ?? {}) as IndicatorMap)['mfi']?.signals ?? []);
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

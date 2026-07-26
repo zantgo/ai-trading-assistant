@@ -26,6 +26,8 @@ function createTimeframeTelemetry(
         priceText: '--', volText: '--', avgVolText: '--',
         showPatterns: true,
         isCompleted: false, latestSnapshot: null, historyPrices: [],
+        pipelineState: 'LOADING',
+        indicatorLifecycle: {},
         showEmas: false, showBb: false, showVwap: true, showVolume: false,
         showAdx: false, showAtr: false, showRsi: false, showMacd: false,
         showSqueeze: false, showBbwp: false, showFib: false, showRvol: false,

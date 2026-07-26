@@ -77,42 +77,6 @@ export function readHistory(
 }
 
 /// Read the latest value of each declared series from a live snapshot.
-/// Returns `{ id → value | null }`. `null` is a legitimate "indicator
-/// hasn't emitted yet" and must not be confused with 0 (which is a
-/// real reading).
-export function readLive(
-    snap: { indicators?: IndicatorMap | null } | null | undefined,
-    spec: ChartSpec,
-): Record<string, number | null> {
-    const out: Record<string, number | null> = {};
-    if (!snap) {
-        for (const s of spec.series) out[s.id] = null;
-        return out;
-    }
-    const m = (snap.indicators ?? {}) as IndicatorMap;
-    for (const s of spec.series) {
-        if (s.kind === 'candles') {
-            out[s.id] = null;
-            continue;
-        }
-        if (s.kind === 'sub') {
-            const v = m[s.key]?.values?.[s.subKey ?? ''];
-            out[s.id] = typeof v === 'number' && Number.isFinite(v) ? v : null;
-        } else if (s.kind === 'state_label') {
-            // String-encoded; consumers usually want a number; skip if not numeric.
-            const lbl = m[s.key]?.state_label;
-            // Some series expose a numeric concentration under a heuristic
-            // sub-key (e.g. squeeze "COMPRESSION_COILING" maps to 1/0 via
-            // squeeze_on). For now callers should derive their own.
-            out[s.id] = typeof lbl === 'number' ? lbl : null;
-        } else {
-            const v = m[s.key]?.raw_value;
-            out[s.id] = typeof v === 'number' && Number.isFinite(v) ? v : null;
-        }
-    }
-    return out;
-}
-
 /// Merge historical + live data such that, on a timestamp collision, the
 /// LIVE value wins. Used to drop a phantom marker at the bootstrap
 /// boundary when both history and live have populated the same bar.

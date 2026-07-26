@@ -101,7 +101,9 @@ async fn test_per_pair_ws_and_analyzer_cancellation_loop() {
                 Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
                 None,
                 None,
-            )
+                1,
+
+        )
             .await;
         });
 

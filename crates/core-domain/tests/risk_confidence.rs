@@ -31,6 +31,7 @@ fn make_analysis(state_confidence: f64) -> AnalysisMatrix {
         volume_assessment: core_domain::analysis::VolumeAssessment::Normal,
         opportunity_analysis: core_domain::analysis::OpportunityType::NoClearOpportunity,
         market_quality: core_domain::analysis::QualityLevel::Average,
+        market_phase: core_domain::analysis::MarketPhase::Unknown,
         market_interpretation: "test".into(),
         rationale: String::new(),
         supporting_signals: Vec::new(),

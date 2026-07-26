@@ -85,10 +85,10 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const v = iRaw((snap.indicators ?? {}) as IndicatorMap, 'obv');
+        const v = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'obv');
         if (v != null) obvSeries.update({ time: timeSec as Time, value: v });
         liveReceived = true;
-        markers?.push(timeSec, ((snap.indicators ?? {}) as IndicatorMap)['obv']?.signals ?? []);
+        markers?.push(timeSec, ((tfVal.indicators ?? {}) as IndicatorMap)['obv']?.signals ?? []);
     });
 
     const showEmptyOverlay = $derived(!liveReceived && dataPoints === 0);

@@ -107,7 +107,7 @@
     let prevVal = 0;
     const aoCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'awesome_oscillator');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'awesome_oscillator');
         if (val != null) {
             aoSeries.update({ time: timeSec as Time, value: val, color: aoColor(val, prevVal) });
             prevVal = val;

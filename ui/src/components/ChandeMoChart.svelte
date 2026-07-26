@@ -89,7 +89,7 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const cmo = iRaw(m, 'chandemo');
         if (cmo != null) {
             cmoSeries.update({ time: timeSec as Time, value: cmo });

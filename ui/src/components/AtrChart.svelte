@@ -113,9 +113,9 @@
         }
     }
 
-    const atrCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const atrCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const val = iRaw(m, 'atr');
         if (val != null) {
             atrSeries.update({ time: timeSec as Time, value: val });

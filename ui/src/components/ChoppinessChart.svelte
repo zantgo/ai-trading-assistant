@@ -84,7 +84,7 @@
         const snap = tfVal.latestSnapshot;
         if (!snap) return;
         const timeSec = snap.timestamp as number;
-        const v = iRaw((snap.indicators ?? {}) as IndicatorMap, 'choppiness');
+        const v = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'choppiness');
         if (v != null) series.update({ time: timeSec as Time, value: v });
         liveReceived = true;
     });

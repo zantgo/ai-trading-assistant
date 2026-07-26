@@ -99,9 +99,9 @@
     });
 
     let _lastUpdateTs = 0;
-    const rsiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const rsiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'rsi');
+        const val = iRaw((tfVal.indicators ?? {}) as IndicatorMap, 'rsi');
         if (val != null) {
             rsiSeries.update({ time: timeSec as Time, value: val });
             liveReceived = true;

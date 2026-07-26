@@ -230,7 +230,7 @@ export interface MarketSnapshot {
     mark_index_spread_pct?: number | null;
     prev_day_px?: number | string | null;
     statistical_context?: StatisticalContext | null;
-    decision_context?: Record<string, unknown> | null;
+    decision_context?: DecisionContext | null;
     opportunity?: OpportunityMatrix | null;
     liquidity_signals?: LiquiditySignal[];
     metrics_config?: MetricsConfig | null;
@@ -359,6 +359,7 @@ export type VolatilityAssessment = 'Compressed' | 'Normal' | 'Expanding' | 'Extr
 export type VolumeAssessment = 'Weak' | 'Normal' | 'Strong' | 'Exceptional';
 export type OpportunityType = 'TrendContinuation' | 'Breakout' | 'Pullback' | 'MeanReversion' | 'Reversal' | 'LiquiditySqueeze' | 'Scalp' | 'NoClearOpportunity';
 export type QualityLevel = 'Poor' | 'Weak' | 'Average' | 'Good' | 'Excellent';
+export type MarketPhase = 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MARKDOWN' | 'UNKNOWN';
 
 export interface AnalysisMatrix {
     symbol: string;
@@ -383,6 +384,8 @@ export interface AnalysisMatrix {
     /** Numeric market-quality score in [0, 100] — distinct from
      *  categorical `market_quality` (`QualityLevel` enum). */
     market_quality_score: number;
+    /** Wyckoff-style market-cycle phase (L3). */
+    market_phase: MarketPhase;
     market_interpretation: string;
     rationale: string;
     supporting_signals: string[];
@@ -445,6 +448,26 @@ export interface AdvisoryMatrix {
     final_recommendation: string;
 }
 
+// ── Decision Context (quantitative decision metadata — L6) ──
+export interface DecisionContext {
+    /** Confluence score in [-100, +100]. */
+    score: number;
+    /** Directional bias: "BULLISH" | "BEARISH" | "NEUTRAL". */
+    bias: string;
+    /** Confidence in [0.0, 1.0]. */
+    confidence: number;
+    /** Score-band confidence in [0.0, 1.0]. */
+    score_confidence: number;
+    /** Entry danger in [0, 100] — higher = more dangerous. */
+    entry_danger: number;
+    /** Synthesised expected reward:risk ratio. */
+    expected_reward_risk_ratio: number;
+    /** Trade-readiness token: "READY" | "FORMING" | "WATCH" | "STAND_ASIDE". */
+    trade_readiness: string;
+    /** Indicators that contributed to the decision. */
+    contributing_indicators: string[];
+}
+
 // ── Overview Matrix (global market synthesis — 9 components) ──
 export type GlobalBias = 'StrongBullish' | 'Bullish' | 'Neutral' | 'Bearish' | 'StrongBearish' | 'Mixed';
 export type MarketBreadth = 'VeryWeak' | 'Weak' | 'Balanced' | 'Positive' | 'StrongPositive' | 'Negative' | 'StrongNegative';
@@ -502,6 +525,8 @@ export interface IndicatorMeta {
     value_source: string;
     color: string;
     guide_section: string;
+    /** Whether this indicator recomputes on shadow (live) ticks. */
+    updates_on_shadow?: boolean;
 }
 
 export type IndicatorMap = Record<string, IndicatorDto>;

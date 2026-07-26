@@ -723,6 +723,7 @@ fn build_historical_snapshot(
             smc,
             prev: PreviousBarState::default(),
         },
+        all_candles.len() as u32,
     );
 
     MarketSnapshot {

@@ -90,7 +90,7 @@
 
     const hullCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'hull_ma');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'hull_ma');
         if (val != null) {
             hullSeries.update({ time: timeSec as Time, value: val });
             liveReceived = true;

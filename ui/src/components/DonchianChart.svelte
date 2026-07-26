@@ -101,7 +101,7 @@
 
     const donchianCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const up = iSub(m, 'donchian', 'upper');
         const mid = iSub(m, 'donchian', 'middle');
         const lo = iSub(m, 'donchian', 'lower');

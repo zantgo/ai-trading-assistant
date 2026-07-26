@@ -122,9 +122,9 @@
     }
 
     let prevMacdHist = 0;
-    const macdCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const macdCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const mLine = iSub(m, 'macd', 'line');
         const mSig = iSub(m, 'macd', 'signal');
         const mHist = iRaw(m, 'macd');

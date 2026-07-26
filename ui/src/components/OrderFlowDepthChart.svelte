@@ -100,7 +100,7 @@
 
     const ofiCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (_tfVal.indicators ?? {}) as IndicatorMap;
         const ofi = iRaw(m, 'order_flow_imbalance');
         const depth = iRaw(m, 'depth_bias');
         if (ofi != null && ofi !== 0) {

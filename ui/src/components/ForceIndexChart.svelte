@@ -108,7 +108,7 @@
 
     const forceCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
         const timeSec = snap.timestamp as number;
-        const val = iRaw((snap.indicators ?? {}) as IndicatorMap, 'force_index');
+        const val = iRaw((_tfVal.indicators ?? {}) as IndicatorMap, 'force_index');
         if (val != null) {
             forceSeries.update({ time: timeSec as Time, value: val, color: forceColor(val, prevVal) });
             prevVal = val;

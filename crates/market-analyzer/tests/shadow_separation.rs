@@ -140,6 +140,7 @@ async fn shadow_candles_never_completed() {
             Arc::new(network_adapters::pipeline_reliability::ReliabilityTracker::new()),
             None,
             None,
+            1,
         )
     });
 

@@ -1,73 +1,86 @@
-.panel {
-    height: 100%; overflow-y: auto; padding: 16px 20px;
-    background: rgba(255, 255, 255, 0.02); color: #e2e8f0;
-}
-.title {
-    font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8;
-    margin: 0 0 14px 0; text-transform: uppercase;
-}
+.panel { height: 100%; overflow-y: auto; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); color: #e2e8f0; }
+.title { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: #94a3b8; margin: 0 0 14px 0; text-transform: uppercase; }
 .section { margin-bottom: 18px; }
-.sectionTitle {
-    font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b;
-    margin: 0 0 8px 0; text-transform: uppercase;
-}
-.mtfScore {
-    display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
-}
-.scoreValue {
-    font-size: 28px; font-weight: 800; letter-spacing: -0.02em;
-    font-variant-numeric: tabular-nums;
-}
-.bullish { color: #22c55e; }
-.bearish { color: #ef4444; }
-.neutral { color: #94a3b8; }
-.mtfLabel {
-    font-size: 10px; font-weight: 600; letter-spacing: 0.05em; padding: 2px 8px;
-    border-radius: 4px; text-transform: uppercase;
-}
-.mtfLabelBullish { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-.mtfLabelBearish { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-.mtfLabelNeutral { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
-.dimList { display: flex; flex-direction: column; gap: 4px; }
-.dimRow { display: flex; align-items: center; gap: 8px; }
-.dimName { font-size: 11px; color: #94a3b8; width: 80px; flex-shrink: 0; text-align: right; }
-.dimBar { flex: 1; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
-.dimFill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-.dimFillBull { background: #22c55e; }
-.dimFillBear { background: #ef4444; }
-.dimFillNeutral { background: #64748b; }
-.dimScore { font-size: 10px; font-weight: 600; width: 32px; text-align: right; color: #94a3b8; }
-.dimState { font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 5px;
-    border-radius: 3px; width: 52px; text-align: center; }
-.stateBullish { background: rgba(34,197,94,0.12); color: #22c55e; }
-.stateBearish { background: rgba(239,68,68,0.12); color: #ef4444; }
-.stateNeutral { background: rgba(148,163,184,0.12); color: #94a3b8; }
-.agreementRow { display: flex; align-items: center; gap: 10px; }
-.agreementLabel { font-size: 11px; color: #94a3b8; }
-.agreementValue { font-size: 18px; font-weight: 700; color: #e2e8f0; font-variant-numeric: tabular-nums; }
-.agreementPct { font-size: 11px; color: #64748b; }
-.flags { display: flex; gap: 8px; flex-wrap: wrap; }
-.flag {
-    font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
-    background: rgba(255,255,255,0.04); color: #94a3b8;
-}
-.tfTable { width: 100%; border-collapse: collapse; }
-.tfTable th {
-    font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase;
-    padding: 4px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.tfTable td {
-    font-size: 11px; color: #cbd5e1; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.03);
-    font-variant-numeric: tabular-nums;
-}
-.tfTable tr:last-child td { border-bottom: none; }
-.tfName { font-weight: 700; color: #e2e8f0; }
-.tfBull { color: #22c55e; }
-.tfBear { color: #ef4444; }
-.placeholder {
-    display: flex; align-items: center; justify-content: center; height: 160px;
-    color: #475569; font-size: 12px;
-}
-.formula {
-    font-size: 10px; color: #475569; margin-top: 6px;     font-family: var(--mono);
-}
+.sectionTitle { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: #64748b; margin: 0 0 10px 0; text-transform: uppercase; display: flex; align-items: baseline; gap: 8px; }
+.sectionMeta { font-size: 9px; font-weight: 500; color: #475569; text-transform: none; letter-spacing: 0; font-family: var(--mono); }
+.noDataBanner { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0 10px; line-height: 1.5; }
+
+/* ── Hero ── */
+.hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 18px; }
+.heroBull { background: rgba(34,197,94,0.06); border-color: rgba(34,197,94,0.15); }
+.heroBear { background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.15); }
+.heroNeutral { background: rgba(148,163,184,0.04); }
+.heroScoreBlock { display: flex; flex-direction: column; gap: 4px; }
+.heroScore { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+.bullish { color: #26a69a; }
+.bearish { color: #ef5350; }
+.neutral { color: #64748b; }
+.heroLabel { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+.mtfLabelBullish { background: rgba(38, 166, 154, 0.15); color: #26a69a; }
+.mtfLabelBearish { background: rgba(239, 83, 80, 0.15); color: #ef5350; }
+.mtfLabelNeutral { background: rgba(71, 85, 105, 0.20); color: #64748b; }
+.heroMeta { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.heroFlag { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); color: #94a3b8; }
+.heroFlagWarn { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.2); }
+
+/* ── Dimension cards ── */
+.dimGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dimCard { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; }
+.dimCardHead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.dimCardName { font-size: 11px; font-weight: 700; color: #e2e8f0; }
+.dimCardState { font-size: 8px; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; }
+.stateBullish { background: rgba(38,166,154,0.12); color: #26a69a; }
+.stateBearish { background: rgba(239,83,80,0.12); color: #ef5350; }
+.stateNeutral { background: rgba(71,85,105,0.15); color: #64748b; }
+.dimCardBarRow { display: flex; align-items: center; gap: 6px; }
+.dimCardBar { flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px; overflow: hidden; }
+.dimCardFill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.dimFillBull { background: #26a69a; }
+.dimFillBear { background: #ef5350; }
+.dimFillNeutral { background: #475569; }
+.dimFillConfluent { background: #4dd0e1; }
+.dimCardScore { font-size: 13px; font-weight: 800; color: #f1f5f9; width: 28px; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dimCardConf { font-size: 9px; color: #64748b; }
+.emptyGridNote { font-size: 11px; color: #64748b; font-style: italic; padding: 8px 10px; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; line-height: 1.55; }
+
+/* ── Consensus ── */
+.consensusRow { display: flex; align-items: center; gap: 14px; }
+.consensusMeter { display: flex; align-items: center; gap: 10px; width: 200px; flex-shrink: 0; }
+.consensusVal { font-size: 18px; font-weight: 800; color: #e2e8f0; width: 44px; font-variant-numeric: tabular-nums; }
+.consensusBar { flex: 1; height: 8px; background: rgba(255,255,255,0.04); border-radius: 4px; overflow: hidden; }
+.consensusFill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+.consensusStrong { background: #22c55e; }
+.consensusPartial { background: #f59e0b; }
+.consensusConflict { background: #ef4444; }
+.consensusText { font-size: 11px; color: #94a3b8; flex: 1; }
+.conflictBadge { font-size: 11px; font-weight: 700; color: #f59e0b; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); padding: 6px 10px; border-radius: 5px; margin-top: 10px; }
+
+/* ── Per-TF cards ── */
+.tfCards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tfCard { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 6px; }
+.tfCardHead { display: flex; align-items: center; justify-content: space-between; }
+.tfCardName { font-size: 13px; font-weight: 800; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.04em; }
+.tfCardSig { font-size: 9px; font-weight: 600; color: #64748b; padding: 2px 6px; border-radius: 3px; background: rgba(255,255,255,0.03); }
+.tfCardChips { display: flex; flex-wrap: wrap; gap: 4px; }
+.tfChip { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 3px; background: rgba(255,255,255,0.03); color: #94a3b8; border: 1px solid rgba(255,255,255,0.05); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.bullValue { background: rgba(34,197,94,0.10); color: #26a69a; border-color: rgba(34,197,94,0.2); }
+.bearValue { background: rgba(239,68,68,0.10); color: #ef5350; border-color: rgba(239,68,68,0.2); }
+.tfRegimeBull { background: rgba(34,197,94,0.10); color: #22c55e; border-color: rgba(34,197,94,0.2); }
+.tfRegimeBear { background: rgba(239,68,68,0.10); color: #ef4444; border-color: rgba(239,68,68,0.2); }
+.tfRegimeVol { background: rgba(245,158,11,0.10); color: #f59e0b; border-color: rgba(245,158,11,0.2); }
+.tfRegimeNeutral { background: rgba(148,163,184,0.10); color: #94a3b8; border-color: rgba(148,163,184,0.2); }
+
+/* ── Weight grid ── */
+.weightGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 8px; }
+.weightChip { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04); border-radius: 5px; }
+.weightChipKey { font-size: 12px; font-weight: 800; color: #f1f5f9; font-family: var(--mono); }
+.weightChipLabel { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em; }
+.weightChipPct { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; font-family: var(--mono); margin-top: 2px; }
+.formula { font-size: 10px; color: #475569; font-family: var(--mono); }
+
+/* ── Interpretation ── */
+.interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.55; padding: 10px 12px; background: rgba(255,255,255,0.015); border-radius: 6px; border-left: 3px solid #334155; }
+.interpretation :global(strong) { color: #e2e8f0; font-weight: 700; }
+
+.placeholder { display: flex; align-items: center; justify-content: center; height: 160px; color: #475569; font-size: 12px; }
+.noData { font-size: 11px; color: #64748b; font-style: italic; padding: 6px 0; }

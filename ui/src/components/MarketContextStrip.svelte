@@ -20,9 +20,11 @@
         timestamp?: number | null;
         /** Bar duration in seconds — used to derive age in completed bars. */
         barDurationSec?: number;
+        /** Number of active signals in this TF — shown as compact badge. */
+        signalCount?: number;
     }
 
-    let { context, timestamp = null, barDurationSec = 60 }: Props = $props();
+    let { context, timestamp = null, barDurationSec = 60, signalCount }: Props = $props();
 
     let expanded = $state(false);
 
@@ -102,6 +104,10 @@
             {#if ageBars() != null}
                 <span class={styles.divider}>·</span>
                 <span class={styles.ageLabel}>Age {ageBars()}b</span>
+            {/if}
+            {#if signalCount != null && signalCount > 0}
+                <span class={styles.divider}>·</span>
+                <span class={styles.signalCount}>{signalCount} signals</span>
             {/if}
         </button>
 

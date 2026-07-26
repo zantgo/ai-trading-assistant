@@ -18,7 +18,6 @@ use std::collections::HashMap;
 
 /// Risk level classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RiskLevel {
     VeryLow,
     Low,
@@ -42,7 +41,6 @@ impl std::fmt::Display for RiskLevel {
 
 /// Risk dimension state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RiskState {
     #[default]
     Stable,
@@ -491,7 +489,7 @@ pub fn compute_risk(
 mod tests {
     use super::*;
     use crate::analysis::{
-        AnalysisMatrix, MarketBias, MarketRegime, MomentumAssessment, OpportunityType,
+        AnalysisMatrix, MarketBias, MarketPhase, MarketRegime, MomentumAssessment, OpportunityType,
         QualityLevel, StructureAssessment, TrendAssessment, VolatilityAssessment, VolumeAssessment,
     };
 
@@ -511,6 +509,7 @@ mod tests {
             volume_assessment: VolumeAssessment::Normal,
             opportunity_analysis: OpportunityType::NoClearOpportunity,
             market_quality: QualityLevel::Average,
+            market_phase: MarketPhase::Unknown,
             market_interpretation: "Test".into(),
             rationale: String::new(),
             supporting_signals: Vec::new(),

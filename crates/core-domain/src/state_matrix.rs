@@ -217,7 +217,7 @@ pub fn compute_state(
 mod tests {
     use super::*;
     use crate::analysis::{
-        MarketRegime, MomentumAssessment, OpportunityType, QualityLevel, StructureAssessment,
+        MarketPhase, MarketRegime, MomentumAssessment, OpportunityType, QualityLevel, StructureAssessment,
         TrendAssessment, VolatilityAssessment, VolumeAssessment,
     };
 
@@ -237,6 +237,7 @@ mod tests {
             volume_assessment: VolumeAssessment::Strong,
             opportunity_analysis: OpportunityType::Breakout,
             market_quality: QualityLevel::Good,
+            market_phase: MarketPhase::Unknown,
             market_interpretation: format!("Test interpretation for {}", symbol),
             rationale: format!("MTF test for {}", symbol),
             supporting_signals: vec![

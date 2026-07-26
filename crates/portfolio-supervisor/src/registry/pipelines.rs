@@ -292,6 +292,7 @@ pub async fn build_pipelines(
         &fast_cluster_status,
         &slow_cluster_status,
         &macro_cluster_status,
+        ctx.buffer_size,
     )
     .await;
 
@@ -387,6 +388,7 @@ async fn spawn_tasks(
     fast_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
     slow_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
     macro_cluster_status: &Arc<RwLock<core_domain::liquidity::ClusterStatusSnapshot>>,
+    buffer_size: usize,
 ) {
     let (micro_chan_tx, micro_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
     let (fast_chan_tx, fast_chan_rx) = mpsc::channel::<NormalizedEvent>(200);
@@ -596,6 +598,7 @@ async fn spawn_tasks(
         let a_reliability = state.reliability.clone();
         let a_refetch = refetch_spec.clone();
         let a_cq_scope = state.connection_quality.scope(pair_key, tf_secs).await;
+        let a_buffer_size = buffer_size;
 
         let x_micro = micro_latest.clone();
         let x_fast = fast_latest.clone();
@@ -645,6 +648,7 @@ async fn spawn_tasks(
                 a_reliability,
                 Some(a_refetch),
                 Some(a_cq_scope),
+                a_buffer_size,
             )
             .await;
         });

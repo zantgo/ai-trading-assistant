@@ -208,7 +208,30 @@ pub fn series_divergence_confirmed(
 }
 
 /// Consolidate raw indicator outputs into the unified normalized map.
-pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndicatorValue> {
+///
+/// `bar_count` is the number of completed candles accumulated for this
+/// timeframe.  Each indicator is only inserted when `bar_count >=
+/// registry.bars_required` — gating premature calculator output from the
+/// live path during buffer fill (sub-minute TFs).
+pub fn build_indicator_map(
+    p: NormalizeParams,
+    bar_count: u32,
+) -> HashMap<String, NormalizedIndicatorValue> {
+    /// Look up the canonical minimum-bar gate for an indicator.  Returns 0
+    /// (always ready) when the key is not in the registry or when the
+    /// indicator uses a non-candle data source (DerivativesWs / OrderBook).
+    fn bars_needed(key: &str) -> u32 {
+        use crate::indicators::registry::IndicatorDataSource;
+        crate::indicators::registry::get(key)
+            .map(|m| match m.data_source.unwrap_or_default() {
+                IndicatorDataSource::CandleBased => m.bars_required,
+                _ => 0,
+            })
+            .unwrap_or(0)
+    }
+
+    let ready = |key: &str| -> bool { bar_count >= bars_needed(key) };
+
     let price = d2f(p.close);
     let ema_bias = match p.ema_stack_state {
         Some("bullish") => 1i8,
@@ -393,6 +416,10 @@ pub fn build_indicator_map(p: NormalizeParams) -> HashMap<String, NormalizedIndi
     };
 
     let mut map = NormalizationEngine::normalize_all(&inputs, &ctx);
+    // Gate: evict any indicator whose bars_required > bar_count.
+    // This enforces that no indicator appears as `Live` before the
+    // pipeline has accumulated enough completed candles.
+    map.retain(|key, _| ready(key));
     inject_ema_values(
         &mut map,
         od2f(p.ema_fast),

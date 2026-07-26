@@ -122,9 +122,9 @@
         }
     }
 
-    const squeezeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap) => {
+    const squeezeCoalescer = makeChartCoalescer(app, pairKey, slot, (snap, tfVal) => {
         const timeSec = snap.timestamp as number;
-        const m = (snap.indicators ?? {}) as IndicatorMap;
+        const m = (tfVal.indicators ?? {}) as IndicatorMap;
         const momVal = iRaw(m, 'squeeze');
         if (momVal != null) {
             const direction = squeezeDirection(m);
