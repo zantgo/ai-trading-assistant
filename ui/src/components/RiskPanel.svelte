@@ -164,33 +164,12 @@
 
     const ringRadius = 40;
     const ringCircumference = 2 * Math.PI * ringRadius;
-
-    const symbolLabel = $derived.by(() => {
-        return instance?.symbol ?? pairKey;
-    });
-
-    const headTimestamp = $derived.by(() => {
-        if (!instance?.microTerm?.latestSnapshot) return '';
-        const snap = instance.microTerm.latestSnapshot as { timestamp?: number };
-        const ts = snap?.timestamp;
-        if (!ts) return '';
-        const d = new Date(ts);
-        if (isNaN(d.getTime())) return '';
-        return d.toLocaleTimeString();
-    });
 </script>
 
 <div class={styles.panel}>
     <header class={styles.head}>
         <div class={styles.headTitleBlock}>
             <h2 class={styles.title}>Risk Assessment</h2>
-            <div class={styles.headMeta}>
-                <span class={styles.headSymbol}>{symbolLabel}</span>
-                {#if headTimestamp}
-                    <span class={styles.headDot}>�</span>
-                    <span class={styles.headTime}>{headTimestamp}</span>
-                {/if}
-            </div>
         </div>
         <div class={styles.headHeadline}>{headlineParts}</div>
     </header>
@@ -242,28 +221,16 @@
     </section>
 
     <!-- ── Summary tiles ── -->
-    {#if namedDims.length > 0}
-        <section class={styles.summary} aria-label="Dimension severity distribution">
-            {#each LEVELS as l}
-                {@const lk = l.toLowerCase().replace(/_/g, '')}
-                {@const cls = labelClass(l)}
-                {@const active = dimCounts[lk] > 0}
-                <div class="{styles.summaryTile} {cls} {active ? styles.summaryTileActive : ''}">
-                    <span class={styles.summaryCount}>{dimCounts[lk]}</span>
-                    <span class={styles.summaryLabel}>{l === 'VeryLow' ? 'Very Low' : l}</span>
-                </div>
-            {/each}
-        </section>
-    {:else}
-        <section class={styles.summary} aria-label="Dimension severity distribution">
-            {#each LEVELS as l}
-                <div class="{styles.summaryTile} {labelClass(l)}">
-                    <span class={styles.summaryCount}>0</span>
-                    <span class={styles.summaryLabel}>{l === 'VeryLow' ? 'Very Low' : l}</span>
-                </div>
-            {/each}
-        </section>
-    {/if}
+    <section class={styles.summary} aria-label="Dimension severity distribution">
+        {#each LEVELS as l}
+            {@const lk = l.toLowerCase().replace(/_/g, '')}
+            {@const active = dimCounts[lk] > 0}
+            <div class="{styles.summaryTile} {active ? styles.summaryTileActive : ''}">
+                <span class={styles.summaryCount}>{dimCounts[lk]}</span>
+                <span class={styles.summaryLabel}>{l === 'VeryLow' ? 'Very Low' : l}</span>
+            </div>
+        {/each}
+    </section>
 
     <!-- ── Dimension cards ── -->
     <section class={styles.dimsSection}>
@@ -277,9 +244,8 @@
             <div class={styles.dimCards}>
                 {#each sortedDims as dim (dim.key)}
                     {#if dim.data}
-                        {@const sevClass = levelClass(dim.data.level)}
                         {@const levelFillCls = fillClass(dim.data.level)}
-                        <article class="{styles.dimCard} {sevClass}" aria-label="{dim.name}: {dim.data.level}, score {dim.data.score}">
+                        <article class={styles.dimCard} aria-label="{dim.name}: {dim.data.level}, score {dim.data.score}">
                             <header class={styles.dimHead}>
                                 <div class={styles.dimNameBlock}>
                                     <span class={styles.dimName}>{dim.name}</span>
@@ -307,12 +273,12 @@
                             {#if dim.data.evidence && dim.data.evidence.length > 0}
                                 <div class={styles.dimEvidence}>
                                     {#each dim.data.evidence as ev}
-                                        <span class="{styles.evidenceChip} {sevClass}">{ev}</span>
+                                        <span class={styles.evidenceChip}>{ev}</span>
                                     {/each}
                                 </div>
                             {:else if dim.data.level === 'High' || dim.data.level === 'Extreme' || dim.data.level === 'HIGH' || dim.data.level === 'EXTREME'}
                                 <div class={styles.dimEvidence}>
-                                    <span class="{styles.evidenceChip} {sevClass}">No evidence recorded</span>
+                                    <span class={styles.evidenceChip}>No evidence recorded</span>
                                 </div>
                             {/if}
 
@@ -408,7 +374,7 @@
     <details class={styles.disclosure}>
         <summary class={styles.disclosureSummary}>
             <span>How is overall risk computed?</span>
-            <span class={styles.disclosureChevron}>{'\u203A'}</span>
+            <span class={styles.disclosureChevron}>{(v) => '\u203A'}</span>
         </summary>
         <div class={styles.disclosureBody}>
             <div class={styles.weightGrid}>

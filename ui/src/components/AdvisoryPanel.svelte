@@ -58,21 +58,45 @@
 
     function sanitizeLabel(s: string): string {
         if (!s) return '\u2014';
-        return s
-            .replace(/_/g, ' ')
+        // Split camelCase/PascalCase (e.g. "LowActivity" -> "Low Activity")
+        let cleaned = s.replace(/([a-z])([A-Z])/g, '$1 $2');
+        // Replace underscores with spaces (e.g. "LOW_ACTIVITY" -> "LOW ACTIVITY")
+        cleaned = cleaned.replace(/_/g, ' ');
+        // Collapse multiple spaces
+        cleaned = cleaned.trim().replace(/\s+/g, ' ');
+
+        return cleaned
             .toLowerCase()
-            .replace(/\b\w/g, (c: string) => c.toUpperCase());
+            .replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
     /** Prettify enum values: ATRBased → ATR-Based, A_T_R_BASED → ATR-Based, etc. */
     function prettifyEnum(s: string): string {
         if (!s) return '\u2014';
-        const cleaned = s.replace(/_/g, ' ');
-        return cleaned
-            .replace(/([A-Z])/g, ' $1')
-            .trim()
-            .replace(/\s+/g, ' ')
-            .replace(/^(\w{2,3})\s(\w+)$/, '$1-$2');
+        // Separate acronyms followed by PascalCase words (e.g., "ATRBased" -> "ATR Based")
+        let cleaned = s.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+        // Split standard CamelCase/PascalCase
+        cleaned = cleaned.replace(/([a-z])([A-Z])/g, '$1 $2');
+        // Replace underscores with spaces
+        cleaned = cleaned.replace(/_/g, ' ');
+        cleaned = cleaned.trim().replace(/\s+/g, ' ');
+
+        // Title Case
+        cleaned = cleaned
+            .toLowerCase()
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+            
+        // Apply hyphenation to "Based"
+        cleaned = cleaned.replace(/\sBased$/i, '-Based');
+        
+        // Correct specific acronyms
+        cleaned = cleaned
+            .replace(/^Atr\b/i, 'ATR')
+            .replace(/^Sr\b/i, 'S/R')
+            .replace(/^Rr\b/i, 'R:R')
+            .replace(/^Sl\b/i, 'SL');
+            
+        return cleaned;
     }
 
     const rrDisplay = $derived(decisionCtx?.expected_reward_risk_ratio ?? 0);
@@ -270,12 +294,10 @@
                             <span class={styles.planTpRr}>
                                 R:R <span class={rrCls(t.rrRatio)}>{t.rrRatio == null ? '—' : t.rrRatio.toFixed(2)}</span>
                             </span>
-                            <span class={styles.planTpSource}>
-                                {t.source === 'FIB_EXT_1618' ? '1.618 ext' :
-                                 t.source === 'FIB_EXT_2618' ? '2.618 ext' :
-                                 t.source === 'L4_TARGET_ZONE' ? 'L4 zone' :
-                                 t.source === 'CONFLUENT' ? 'confluent' : ''}
-                            </span>
+                            <span class={styles.planTpSource}>{t.source === 'FIB_EXT_1618' ? '1.618 ext' :
+                                                                t.source === 'FIB_EXT_2618' ? '2.618 ext' :
+                                                                t.source === 'L4_TARGET_ZONE' ? 'L4 zone' :
+                                                                t.source === 'CONFLUENT' ? 'confluent' : ''}</span>
                         </div>
                     {/each}
                 {:else}

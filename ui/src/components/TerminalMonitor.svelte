@@ -12,7 +12,7 @@
     //   Row 3: StructuralAnchorsStrip   — Volume Profile / Fibonacci / Liquidity ladder
     //   Row 4: FacetTabs + body         — 6-tab pivoted exploration
     //
-    // Header includes the timeframe selector (4 buttons: Micro / Fast / Slow / Macro).
+    // Header includes the timeframe selector.
     // Cross-cutting controls (search, filter pills) live above the facet tabs.
 
     import { useAppStore } from '../state.svelte';
@@ -41,7 +41,7 @@
     const pair = $derived(app.instancesMap[pairKey]);
     const registry = $derived<IndicatorMeta[]>((app.indicatorRegistry ?? []) as IndicatorMeta[]);
 
-    type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro';
+    type TfLabel = 'Micro' | 'Fast' | 'Slow' | 'Macro' | 'Mtf';
     let activeTf: TfLabel = $state('Micro');
 
     // Phase 9: single source of truth — the backend's pipeline registry
@@ -58,13 +58,19 @@
         ];
     });
 
-    const activeTfEntry = $derived(TIMEFRAMES.find((t) => t.key === activeTf)!);
+    const activeTfEntry = $derived(
+        activeTf === 'Mtf'
+            ? { key: 'Mtf' as TfLabel, label: 'MTF', tfKey: '', secs: null }
+            : TIMEFRAMES.find((t) => t.key === activeTf)!
+    );
     const activeTfObj = $derived<TimeframeTelemetry | undefined>(
-        (pair as any)?.[activeTfEntry.tfKey] as TimeframeTelemetry | undefined,
+        activeTf === 'Mtf'
+            ? undefined
+            : ((pair as any)?.[activeTfEntry.tfKey] as TimeframeTelemetry | undefined)
     );
 
     // ── Facet state ───────────────────────────────────────────────────
-    let activeFacet: FacetId = $state('indicators');
+    let activeFacet = $state<FacetId>('indicators');
     let focusGroup: string | null = $state(null);
 
     // ── Filters ───────────────────────────────────────────────────────
@@ -117,7 +123,6 @@
         if (pair?.microTerm?.liquidity || pair?.microTerm?.cluster) {
             out.push({ id: 'liquidity', label: 'Liquidity' });
         }
-        out.push({ id: 'mtf', label: 'MTF' });
         return out;
     });
 
@@ -191,110 +196,68 @@
                 <span class={styles.tfSecs}>{tf.secs != null ? formatTimeframeLabel(tf.secs) : '—'}</span>
             </button>
         {/each}
+        <button
+            class="{styles.tfSidebarItem} {activeTf === 'Mtf' ? styles.active : ''}"
+            onclick={() => activeTf = 'Mtf'}
+        >
+            <span class={styles.tfLabel}>MTF</span>
+            <span class={styles.tfSecs}>Multi-TF</span>
+        </button>
     </div>
 
     <div class={styles.contentArea}>
-        {#if pair && registry.length > 0 && activeTfObj}
+        {#if pair && registry.length > 0 && (activeTf === 'Mtf' || activeTfObj)}
             <!-- HEADER -->
             <div class={styles.header}>
                 <span class={styles.title}>METRICS</span>
                 <span class={styles.symbol}>{app.pairDisplayFor(pair.symbol)}</span>
-                <span class={styles.tfBadge}>{activeTfEntry.label} · {activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}</span>
+                <span class={styles.tfBadge}>
+                    {#if activeTf === 'Mtf'}
+                        MULTI-TIMEFRAME
+                    {:else}
+                        {activeTfEntry.label} · {activeTfEntry.secs != null ? formatTimeframeLabel(activeTfEntry.secs) : '—'}
+                    {/if}
+                </span>
                 <button
                     class={styles.exportBtn}
                     onclick={handleExportJson}
                     title="Copy current timeframe's indicators + signals as JSON"
+                    disabled={activeTf === 'Mtf'}
                 >
                     {exportLabel}
                 </button>
             </div>
 
-            <!-- ROW 1 — MarketContext -->
-            <MarketContextStrip
-                context={context ?? null}
-                timestamp={snapshotTs}
-                barDurationSec={activeTfEntry.secs ?? undefined}
-                signalCount={countActiveSignals()}
-            />
-
-            <!-- ROW 2 — Group Confluence Grid -->
-            <GroupConfluenceGrid
-                registry={registry}
-                indicators={activeTfObj.indicators ?? {}}
-                activeGroup={focusGroup}
-                onGroupClick={handleGroupClick}
-            />
-
-            <!-- ROW 2.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
-            {@const microFlow = (pair as any)?.microTerm?.liquidity ?? null}
-            {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
-                <button
-                    class="{styles.cascadeAlert} {microFlow.cascade_state === 'SUSTAINED' ? styles.cascadeAlertSustained : styles.cascadeAlertDetected}"
-                    onclick={() => activeFacet = 'liquidity'}
-                    title="Click to inspect the Liquidity facet"
-                >
-                    <span class={styles.cascadeAlertIcon}>⚠</span>
-                    <span class={styles.cascadeAlertLabel}>
-                        CASCADE {microFlow.cascade_state} · intensity {microFlow.cascade_intensity.toFixed(0)}/100 · click for Liquidity facet
-                    </span>
-                </button>
-            {/if}
-
-            <!-- ROW 3 — Structural Anchors Strip (Volume Profile / Fibonacci / Liquidity ladder) -->
-            <StructuralAnchorsStrip
-                tf={activeTfObj}
-                microTf={(pair as any)?.microTerm}
-                markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
-            />
-
-            <!-- SEARCH + FILTER PILLS -->
-            <div class={styles.controls}>
-                <div class={styles.pillBar}>
-                    <button
-                        class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
-                        onclick={toggleActiveOnly}
-                    >
-                        Active only
-                    </button>
-                    <button
-                        class="{styles.pill} {filters.confirmedPlusOnly ? styles.pillActive : ''}"
-                        onclick={toggleConfirmed}
-                    >
-                        Confirmed+
-                    </button>
-                    <button
-                        class="{styles.pill} {filters.hideGates ? styles.pillActive : ''}"
-                        onclick={toggleHideGates}
-                    >
-                        Hide gates
-                    </button>
-                    {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
-                        <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
-                    {/if}
+            {#if activeTf === 'Mtf'}
+                <!-- SEARCH + FILTER PILLS (Directly applied to the MTF Grid) -->
+                <div class={styles.controls}>
+                    <div class={styles.pillBar}>
+                        <button
+                            class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
+                            onclick={toggleActiveOnly}
+                        >
+                            Active only
+                        </button>
+                        <button
+                            class="{styles.pill} {filters.confirmedPlusOnly ? styles.pillActive : ''}"
+                            onclick={toggleConfirmed}
+                        >
+                            Confirmed+
+                        </button>
+                        <button
+                            class="{styles.pill} {filters.hideGates ? styles.pillActive : ''}"
+                            onclick={toggleHideGates}
+                        >
+                            Hide gates
+                        </button>
+                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
+                            <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
+                        {/if}
+                    </div>
                 </div>
-            </div>
 
-            <!-- ROW 3 — Facet Tabs -->
-            <FacetTabs active={activeFacet} facets={facets} onChange={(id) => activeFacet = id} />
-
-            <!-- ROW 4 — Facet Body -->
-            <div class={styles.facetBody}>
-                {#if activeFacet === 'indicators'}
-                    <IndicatorsView
-                        tf={activeTfObj}
-                        registry={registry}
-                        filters={filters}
-                        focusGroup={focusGroup}
-                    />
-                {:else if activeFacet === 'signals'}
-                    <SignalsView tf={activeTfObj} registry={registry} filters={filters} />
-                {:else if activeFacet === 'divergences'}
-                    <DivergencesView tf={activeTfObj} registry={registry} filters={filters} />
-                {:else if activeFacet === 'levels'}
-                    <LevelsView tf={activeTfObj} registry={registry} filters={filters} />
-                {:else if activeFacet === 'liquidity'}
-                    <LiquidityView pairKey={pairKey} />
-                {:else if activeFacet === 'mtf'}
+                <!-- Dedicated Cross-Timeframe Grid Workspace -->
+                <div class={styles.facetBody}>
                     <MtfView
                         pair={{
                             microTerm: pair.microTerm,
@@ -305,8 +268,98 @@
                         registry={registry}
                         filters={filters}
                     />
+                </div>
+            {:else if activeTfObj}
+                <!-- SINGLE TIMEFRAME WORKSPACE -->
+
+                <!-- ROW 1 — MarketContext -->
+                <MarketContextStrip
+                    context={context ?? null}
+                    timestamp={snapshotTs}
+                    barDurationSec={activeTfEntry.secs ?? undefined}
+                    signalCount={countActiveSignals()}
+                />
+
+                <!-- ROW 2 — Group Confluence Grid -->
+                <GroupConfluenceGrid
+                    registry={registry}
+                    indicators={activeTfObj.indicators ?? {}}
+                    activeGroup={focusGroup}
+                    onGroupClick={handleGroupClick}
+                />
+
+                <!-- ROW 2.5 — Tier-1 Cascade Alert (conditional: only when SUSTAINED / DETECTED) -->
+                {@const microFlow = (pair as any)?.microTerm?.liquidity ?? null}
+                {#if microFlow && (microFlow.cascade_state === 'SUSTAINED' || microFlow.cascade_state === 'DETECTED')}
+                    <button
+                        class="{styles.cascadeAlert} {microFlow.cascade_state === 'SUSTAINED' ? styles.cascadeAlertSustained : styles.cascadeAlertDetected}"
+                        onclick={() => activeFacet = 'liquidity'}
+                        title="Click to inspect the Liquidity facet"
+                    >
+                        <span class={styles.cascadeAlertIcon}>⚠</span>
+                        <span class={styles.cascadeAlertLabel}>
+                            CASCADE {microFlow.cascade_state} · intensity {microFlow.cascade_intensity.toFixed(0)}/100 · click for Liquidity facet
+                        </span>
+                    </button>
                 {/if}
-            </div>
+
+                <!-- ROW 3 — Structural Anchors Strip -->
+                <StructuralAnchorsStrip
+                    tf={activeTfObj}
+                    microTf={(pair as any)?.microTerm}
+                    markPrice={parseFloat(activeTfObj.priceText ?? '') || 0}
+                />
+
+                <!-- SEARCH + FILTER PILLS -->
+                <div class={styles.controls}>
+                    <div class={styles.pillBar}>
+                        <button
+                            class="{styles.pill} {filters.activeOnly ? styles.pillActive : ''}"
+                            onclick={toggleActiveOnly}
+                        >
+                            Active only
+                        </button>
+                        <button
+                            class="{styles.pill} {filters.confirmedPlusOnly ? styles.pillActive : ''}"
+                            onclick={toggleConfirmed}
+                        >
+                            Confirmed+
+                        </button>
+                        <button
+                            class="{styles.pill} {filters.hideGates ? styles.pillActive : ''}"
+                            onclick={toggleHideGates}
+                        >
+                            Hide gates
+                        </button>
+                        {#if filters.activeOnly || filters.confirmedPlusOnly || filters.hideGates}
+                            <button class={styles.pillClear} onclick={clearFilters}>Clear</button>
+                        {/if}
+                    </div>
+                </div>
+
+                <!-- ROW 3 — Facet Tabs -->
+                <FacetTabs active={activeFacet} facets={facets} onChange={(id) => activeFacet = id} />
+
+                <!-- ROW 4 — Facet Body -->
+                <div class={styles.facetBody}>
+                    {#if activeFacet === 'indicators'}
+                        <IndicatorsView
+                            tf={activeTfObj}
+                            registry={registry}
+                            filters={filters}
+                            focusGroup={focusGroup}
+                        />
+                    {:else if activeFacet === 'signals'}
+                        <SignalsView tf={activeTfObj} registry={registry} filters={filters} />
+                    {:else if activeFacet === 'divergences'}
+                        <DivergencesView tf={activeTfObj} registry={registry} filters={filters} />
+                    {:else if activeFacet === 'levels'}
+                        <LevelsView tf={activeTfObj} registry={registry} filters={filters} />
+                    {:else if activeFacet === 'liquidity'}
+                        <LiquidityView pairKey={pairKey} />
+                    {/if}
+                </div>
+            {/if}
         {:else}
             <div class={styles.featurePlaceholder}>
                 <SvgIcon name="tableChart" size={64} />

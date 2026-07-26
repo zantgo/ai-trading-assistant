@@ -9,22 +9,20 @@
 .biasNeutral { background: rgba(148,163,184,0.10); color: #94a3b8; }
 .biasBear { background: rgba(239,68,68,0.10); color: #f87171; }
 .biasStrongBear { background: rgba(239,68,68,0.18); color: #ef4444; }
-.confidenceMeter { display: flex; align-items: center; gap: 8px; }
-.confLabel { font-size: 11px; color: #94a3b8; }
-.confBar { flex: 1; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
-.confFill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.confidenceMeter { display: flex; align-items: center; gap: 12px; }
+.confLabel { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
 .confHigh { background: #22c55e; }
 .confMid { background: #f59e0b; }
 .confLow { background: #ef4444; }
 .confVal { font-size: 12px; font-weight: 700; width: 36px; text-align: right; color: #e2e8f0; }
 .regimeRow { display: flex; align-items: center; gap: 10px; }
 .regimeBadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
-.regimeBull { background: rgba(34,197,94,0.15); color: #22c55e; }
-.regimeBear { background: rgba(239,68,68,0.15); color: #ef4444; }
-.regimeNeutral { background: rgba(148,163,184,0.15); color: #94a3b8; }
-.regimeVol { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.assessGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.assessCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
+.regimeBull { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.regimeBear { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.regimeNeutral { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+.regimeVol { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.assessGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.assessCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(255, 255, 255, 0.02); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.04); }
 .assessLabel { font-size: 9px; font-weight: 600; color: #64748b; text-transform: uppercase; }
 .assessValue { font-size: 13px; font-weight: 700; }
 .qualityBadge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; text-transform: uppercase; }
@@ -33,13 +31,13 @@
 .qualityAvg { background: rgba(148,163,184,0.12); color: #94a3b8; }
 .qualityWeak { background: rgba(239,68,68,0.10); color: #f87171; }
 .qualityPoor { background: rgba(239,68,68,0.18); color: #ef4444; }
-.interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.5; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
-.rationale { font-size: 12px; color: #cbd5e1; line-height: 1.6; background: rgba(255,255,255,0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #64748b; margin-top: 8px; margin-bottom: 12px; }
-.signalList { display: flex; flex-direction: column; gap: 4px; background: rgba(255,255,255,0.02); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); }
+.interpretation { font-size: 11px; color: #cbd5e1; line-height: 1.5; background: rgba(255, 255, 255, 0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #334155; }
+.rationale { font-size: 12px; color: #cbd5e1; line-height: 1.6; background: rgba(255, 255, 255, 0.02); padding: 10px 12px; border-radius: 6px; border-left: 3px solid #64748b; margin-top: 8px; margin-bottom: 12px; }
+.signalList { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; background: transparent; padding: 0; border: none; width: 100%; box-sizing: border-box; }
 .sigChip { font-size: 11px; padding: 4px 10px; border-radius: 4px; font-family: var(--mono); font-variant-numeric: tabular-nums; line-height: 1.45; display: block; }
 .sigBullish { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
-.sigBearish { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
-.sigNeutral { background: rgba(148,163,184,0.10); color: #94a3b8; border: 1px solid rgba(148,163,184,0.20); }
+.sigBearish { background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); }
+.sigNeutral { background: rgba(148, 163, 184, 0.10); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.20); }
 .sigArrow { margin-right: 2px; font-size: 11px; }
 .sigArrow.sigBullish { color: #26a69a; }
 .sigArrow.sigBearish { color: #ef5350; }
@@ -57,3 +55,214 @@
 .phaseAccumulation { color: #94a3b8; }
 .phaseDistribution { color: #f87171; }
 .phaseUnknown { color: #64748b; }
+
+/* ── Radial SVG Gauge ── */
+.svgGaugeWrap {
+    width: 48px;
+    height: 48px;
+    position: relative;
+    flex-shrink: 0;
+}
+.radialSvg {
+    width: 100%;
+    height: 100%;
+}
+.gaugeTrack {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.04);
+    stroke-width: 4;
+}
+.gaugeProgress {
+    fill: none;
+    stroke-width: 4;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.4s ease-out;
+}
+.gaugeProgress.confHigh {
+    stroke: #22c55e;
+    filter: drop-shadow(0 0 3px rgba(34, 197, 150, 0.4));
+}
+.gaugeProgress.confMid {
+    stroke: #f59e0b;
+    filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.4));
+}
+.gaugeProgress.confLow {
+    stroke: #ef4444;
+    filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.4));
+}
+.gaugeText {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 800;
+    fill: #f1f5f9;
+    text-anchor: middle;
+}
+
+/* ── Timeframe Squares Grid ── */
+.timeframeGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+.tfSquare {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 0.2s, background 0.2s;
+}
+.tfSquare:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+.tfHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+    padding-bottom: 4px;
+}
+.tfName {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+}
+.tfGauge {
+    width: 20px;
+    height: 20px;
+    position: relative;
+}
+.tfGaugeSvg {
+    width: 100%;
+    height: 100%;
+}
+.tfGaugeTrack {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.04);
+    stroke-width: 3;
+}
+.tfGaugeProgress {
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+.tfGridBody {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.tfStatRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    font-family: var(--mono);
+}
+.tfStatLabel {
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 8px;
+}
+.tfStatValue {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.tfRegimeBadge {
+    font-size: 8px;
+    font-weight: 800;
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: var(--sans);
+}
+.tfRegimeBull { background: rgba(34, 197, 94, 0.12); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.25); }
+.tfRegimeBear { background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); }
+.tfRegimeVol  { background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.25); }
+.tfRegimeNeutral { background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.65); border: 1px solid rgba(255, 255, 255, 0.1); }
+
+/* ── Signals Squares Grid ── */
+.sigSquare {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    text-align: center;
+    padding: 16px 12px;
+    box-sizing: border-box;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.015);
+    border-radius: 8px;
+    position: relative;
+    min-height: 140px;
+}
+.sigSquareBull {
+    border-left: 3px solid #22c55e;
+}
+.sigSquareBear {
+    border-left: 3px solid #ef4444;
+}
+.sigSquareNeutral {
+    border-left: 3px solid #94a3b8;
+}
+.sigTf {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    align-self: flex-start;
+}
+.sigIconWrap {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.sigIcon {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.05));
+}
+.sigLabel {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.4;
+    word-break: break-word;
+    white-space: normal;
+}
+.sigMetricsWrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    margin-top: 8px;
+}
+.sigMetricRow {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    font-size: 10px;
+    font-family: var(--mono);
+}
+.sigMetricLabel {
+    color: rgba(255, 255, 255, 0.35);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 9px;
+}
+.sigMetricValue {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
